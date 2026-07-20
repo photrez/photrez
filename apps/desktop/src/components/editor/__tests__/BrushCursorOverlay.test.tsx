@@ -29,12 +29,12 @@ describe("BrushCursorOverlay", () => {
     document.body.appendChild(root);
     const dispose = render(() => <BrushCursorOverlay forceVisibleForTest cursorPosForTest={{ x: 10, y: 10 }} />, root);
 
-    const softRadius = Number(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("r"));
+    const softRadius = Number(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("rx"));
     expect(softRadius).toBeCloseTo(12 * 0.661 * Math.sqrt(-Math.log(0.2)), 10);
     expect(root.querySelector("[data-paint-cursor-hardness]")).toBeNull();
 
     setBrushHardness(0.97);
-    expect(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("r")).toBe("12");
+    expect(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("rx")).toBe("12");
 
     dispose();
     root.remove();
@@ -63,7 +63,7 @@ describe("BrushCursorOverlay", () => {
     document.body.appendChild(root);
     const dispose = render(() => <BrushCursorOverlay forceVisibleForTest cursorPosForTest={{ x: 10, y: 10 }} />, root);
 
-    const radius = Number(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("r"));
+    const radius = Number(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("rx"));
     expect(radius).toBeCloseTo(20 * 0.661 * Math.sqrt(-Math.log(0.2)), 10);
 
     dispose();
@@ -93,7 +93,7 @@ describe("BrushCursorOverlay", () => {
     const dispose = render(() => <BrushCursorOverlay forceVisibleForTest cursorPosForTest={{ x: 10, y: 10 }} />, root);
 
     // r should be screen-space radius (12 * zoom = 24)
-    expect(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("r")).toBe("24");
+    expect(root.querySelector("[data-paint-cursor-outer]")?.getAttribute("rx")).toBe("24");
 
     dispose();
     root.remove();
@@ -138,7 +138,7 @@ describe("BrushCursorOverlay", () => {
     // Cursor circle should now be rendered
     const circle = root.querySelector("[data-paint-cursor-outer]");
     expect(circle).not.toBeNull();
-    expect(circle?.getAttribute("r")).toBe("12");
+    expect(circle?.getAttribute("rx")).toBe("12");
 
     dispose();
     root.remove();

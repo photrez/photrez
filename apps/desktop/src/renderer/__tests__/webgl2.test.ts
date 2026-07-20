@@ -20,6 +20,7 @@ function makeGLMock() {
     UNSIGNED_BYTE: 5121,
     TEXTURE_MIN_FILTER: 10241,
     LINEAR: 9729,
+    NEAREST: 9728,
     TEXTURE_MAG_FILTER: 10240,
     TEXTURE_WRAP_S: 10242,
     CLAMP_TO_EDGE: 33071,
@@ -133,5 +134,56 @@ describe("WebGL2Backend.uploadImage — dirty-rect fast path", () => {
 
     expect(sub).toHaveLength(0);
     expect(img.length).toBeGreaterThan(0);
+  });
+});
+
+describe("WebGL2Backend.render — MAG filter switches to NEAREST above 200% zoom", () => {
+  let restoreCtx: () => void;
+  afterEach(() => restoreCtx?.());
+
+  function makeRenderState(zoom: number): any {
+    return {
+      documentId: "doc",
+      viewport: { panX: 0, panY: 0, zoom, rotation: 0 },
+      documentSize: { width: 800, height: 600 },
+      layers: [],
+      selection: null,
+      checkerboard: false,
+      backgroundColor: [0, 0, 0, 0],
+    };
+  }
+
+  it("uses LINEAR at 100% zoom and NEAREST above 200% zoom", () => {
+    restoreCtx = stub2DContext();
+    const mock = makeGLMock();
+    const canvas = makeCanvas(mock.gl);
+    const renderer = new WebGL2Backend();
+    renderer.initialize(canvas);
+
+    renderer.uploadImage("a", BITMAP); // creates texture, default LINEAR
+    mock.calls.length = 0;
+
+    // Below threshold: no filter switch (upload already set LINEAR).
+    renderer.render(makeRenderState(1));
+    const nearestAt100 = mock.calls.filter(
+      (c) => c.method === "texParameteri" && c.args[1] === 10240 && c.args[2] === 9728,
+    );
+    expect(nearestAt100).toHaveLength(0);
+
+    mock.calls.length = 0;
+    renderer.render(makeRenderState(2.5)); // above 200% threshold
+    // NEAREST constant = 9728 (WebGL)
+    const nearest = mock.calls.filter(
+      (c) => c.method === "texParameteri" && c.args[1] === 10240 && c.args[2] === 9728,
+    );
+    expect(nearest).toHaveLength(1);
+
+    // Switching back below threshold restores LINEAR.
+    mock.calls.length = 0;
+    renderer.render(makeRenderState(1));
+    const restoreLinear = mock.calls.filter(
+      (c) => c.method === "texParameteri" && c.args[1] === 10240 && c.args[2] === 9729,
+    );
+    expect(restoreLinear).toHaveLength(1);
   });
 });

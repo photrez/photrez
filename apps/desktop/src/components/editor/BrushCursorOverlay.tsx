@@ -15,6 +15,7 @@ export function BrushCursorOverlay(props?: {
     zoom,
     pan,
     camera,
+    activeLayerId,
     brushSize,
     brushHardness,
     brushOpacity,
@@ -46,6 +47,15 @@ export function BrushCursorOverlay(props?: {
     return (activeSettings.size / 2)
       * getBrushCursorRadiusScale(activeSettings.hardness)
       * zoom();
+  };
+
+  // The active layer may be scaled/rotated; the brush stroke follows that
+  // transform, so the cursor ring must preview as an ellipse, not a circle.
+  const layerTransform = () => {
+    const id = typeof activeLayerId === "function" ? activeLayerId() : null;
+    const engine = workspace?.getActiveEngine?.();
+    if (!id || !engine) return null;
+    return engine.getLayer(id)?.transform ?? null;
   };
 
   let lastClientX = 0;
@@ -124,25 +134,40 @@ export function BrushCursorOverlay(props?: {
         transform={`translate(${screenPos().x}, ${screenPos().y})`}
         pointer-events="none"
       >
-        <circle
-          cx={0}
-          cy={0}
-          r={radius()}
-          fill="none"
-          stroke="rgba(0,0,0,0.5)"
-          stroke-width={1.5}
-          class="transition-[r] duration-75 ease-out"
-        />
-        <circle
-          data-paint-cursor-outer
-          cx={0}
-          cy={0}
-          r={radius()}
-          fill="none"
-          stroke="white"
-          stroke-width={1}
-          class="transition-[r] duration-75 ease-out"
-        />
+        {(() => {
+          const t = layerTransform();
+          const base = radius();
+          const rx = base * (t?.scaleX ?? 1);
+          const ry = base * (t?.scaleY ?? 1);
+          const rot = t?.rotation ?? 0;
+          return (
+            <>
+              <ellipse
+                cx={0}
+                cy={0}
+                rx={rx}
+                ry={ry}
+                fill="none"
+                stroke="rgba(0,0,0,0.5)"
+                stroke-width={1.5}
+                transform={`rotate(${rot})`}
+                class="transition-[rx,ry] duration-75 ease-out"
+              />
+              <ellipse
+                data-paint-cursor-outer
+                cx={0}
+                cy={0}
+                rx={rx}
+                ry={ry}
+                fill="none"
+                stroke="white"
+                stroke-width={1}
+                transform={`rotate(${rot})`}
+                class="transition-[rx,ry] duration-75 ease-out"
+              />
+            </>
+          );
+        })()}
         <Show when={!isEraser()}>
           <line data-paint-cursor-crosshair x1={-4} y1={0} x2={4} y2={0} stroke="white" stroke-width={1} />
           <line data-paint-cursor-crosshair x1={0} y1={-4} x2={0} y2={4} stroke="white" stroke-width={1} />

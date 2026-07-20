@@ -13,7 +13,7 @@
     "test:unit": "vitest run --project unit-node",
     "test:component": "vitest run --project component-jsdom",
     "test:related": "vitest related --run",
-    "test:dialogs": "vitest run --maxWorkers=1 src/components/editor/__tests__/ResizeCanvasModal.test.tsx src/components/editor/__tests__/ExportDialog.test.tsx src/components/editor/__tests__/DialogProvider.test.tsx",
+    "test:dialogs": "vitest run --maxWorkers=1 src/components/editor/dialogs/__tests__/ResizeCanvasModal.test.tsx src/components/editor/dialogs/__tests__/ExportDialog.test.tsx src/components/editor/dialogs/__tests__/DialogProvider.test.tsx",
     "perf:paint-history": "vitest run src/engine/__tests__/paintHistoryBudget.test.ts",
     "test:e2e:install": "playwright install chromium",
     "test:e2e": "playwright test"

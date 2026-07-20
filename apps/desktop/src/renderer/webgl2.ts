@@ -131,6 +131,7 @@ export class WebGL2Backend implements RenderBackend {
 
   // Textures map
   private textures: Map<string, TextureRef> = new Map();
+  private magFilterNearest = false;
 
   // Ping-pong Framebuffers & Textures
   private pingPongFbos: [WebGLFramebuffer | null, WebGLFramebuffer | null] = [null, null];
@@ -293,9 +294,10 @@ export class WebGL2Backend implements RenderBackend {
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
 
-    // Filtering: LINEAR for both min/mag — no mipmap blur, no NEAREST blockiness
+    // Filtering: LINEAR by default; render() switches MAG to NEAREST above
+    // 200% zoom for crisp pixel-level editing (see magFilterNearest).
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.magFilterNearest ? gl.NEAREST : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
@@ -424,6 +426,18 @@ export class WebGL2Backend implements RenderBackend {
     const canvas = this.canvas;
     if (!gl || !canvas) return;
     if (this.contextLost || gl.isContextLost()) return;
+
+    // Crisp pixel editing above 200% zoom: switch texture MAG filter to
+    // NEAREST so magnified pixels are sharp instead of bilinear-blurred.
+    // Only touch the bound textures when the mode actually changes.
+    const wantNearest = state.viewport.zoom > 2;
+    if (wantNearest !== this.magFilterNearest) {
+      this.magFilterNearest = wantNearest;
+      for (const ref of this.textures.values()) {
+        gl.bindTexture(gl.TEXTURE_2D, ref.texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, wantNearest ? gl.NEAREST : gl.LINEAR);
+      }
+    }
 
     // Ensure ping-pong FBOs exist and are sized properly
     const docW = state.documentSize.width;

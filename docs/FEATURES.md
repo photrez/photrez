@@ -34,6 +34,9 @@
 | ✅ DONE | Coalesced-event brush smoothing — paint-tool drags now iterate `PointerEvent.getCoalescedEvents()` so high-frequency pointers (stylus / 120Hz+) produce smooth curves instead of jagged segments |
 | ✅ DONE | History VRAM disposal — `CommandHistory` now closes evicted/cleared snapshot `ImageBitmap`s (shared-reference safe) to prevent GPU memory leaks during long editing sessions |
 | ✅ DONE | Parallel batch-open — multi-file import decodes images in parallel (`Promise.all`) and commits documents in a single batch, eliminating per-file render thrashing |
+| ✅ DONE | Dev: `test:dialogs` script path fixed to point at `dialogs/__tests__/` (was broken after dialog test refactor) |
+| ✅ DONE | Brush cursor previews active-layer transform — ring renders as ellipse (`scaleX`/`scaleY`) + rotated by layer `rotation`, matching the actual stroke shape on transformed layers |
+| ✅ DONE | Crisp pixel editing above 200% zoom — renderer switches texture MAG filter to `NEAREST` (LINEAR otherwise) so magnified pixels are sharp, not bilinear-blurred |
 
 ---
 
