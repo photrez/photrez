@@ -190,10 +190,26 @@ export interface EditorContextValue {
   // Fill / Gradient tool settings
   fillTolerance: Accessor<number>;
   setFillTolerance: Setter<number>;
+  fillContiguous: Accessor<boolean>;
+  setFillContiguous: Setter<boolean>;
   gradientType: Accessor<"linear" | "radial">;
   setGradientType: Setter<"linear" | "radial">;
   gradientPreset: Accessor<"fg-bg" | "fg-transparent">;
   setGradientPreset: Setter<"fg-bg" | "fg-transparent">;
+  gradientDragLine: Accessor<{
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    type: "linear" | "radial";
+    angle: number;
+    distance: number;
+  } | null>;
+  setGradientDragLine: Setter<{
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    type: "linear" | "radial";
+    angle: number;
+    distance: number;
+  } | null>;
 
   showResizeDialog: Accessor<boolean>;
   setShowResizeDialog: Setter<boolean>;

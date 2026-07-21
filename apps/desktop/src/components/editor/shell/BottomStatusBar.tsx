@@ -11,6 +11,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   eyedropper: "Click to sample color from canvas.",
   brush: "Click and drag to paint. Hold Alt for eyedropper.",
   eraser: "Click and drag to erase. Hold Alt for eyedropper.",
+  paintBucket: "Click to flood fill matching pixels with foreground color.",
+  gradient: "Click and drag to apply linear or radial gradient. Hold Shift for 45° angle lock.",
 };
 
 export function BottomStatusBar() {
@@ -28,6 +30,7 @@ export function BottomStatusBar() {
     rightDockPanel,
     setRightDockPanel,
     setRightDockOpen,
+    gradientDragLine,
   } = useEditor();
 
   const activeLayerName = () => {
@@ -45,6 +48,8 @@ export function BottomStatusBar() {
       case "eyedropper": return "Eyedropper Tool";
       case "brush": return "Brush Tool";
       case "eraser": return "Eraser Tool";
+      case "paintBucket": return "Paint Bucket Tool";
+      case "gradient": return "Gradient Tool";
       default: return "Select Tool";
     }
   };
@@ -61,6 +66,10 @@ export function BottomStatusBar() {
     if (activeTool() === "brush" || activeTool() === "eraser") {
       const reason = paintBlockReason();
       if (reason) return reason;
+    }
+    if (gradientDragLine()) {
+      const g = gradientDragLine()!;
+      return `Gradient vector: ${g.distance} px, ${g.angle}° (Hold Shift for 45° angle lock)`;
     }
     if (layerTransformSession()) {
       return "Transforming layer. Drag handles to scale/rotate. Hold Shift to constrain aspect ratio.";

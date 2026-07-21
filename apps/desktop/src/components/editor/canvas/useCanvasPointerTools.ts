@@ -125,8 +125,10 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     eraserFlow,
     eraserSmoothing,
     fillTolerance,
+    fillContiguous,
     gradientType,
     gradientPreset,
+    setGradientDragLine,
   } = useEditor();
 
   let isPendingCropClick = false;
@@ -688,7 +690,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
         };
       }
 
-      floodFill(imgData, lx, ly, fillR, fillG, fillB, 255, fillTolerance(), fillMask ?? null);
+      floodFill(imgData, lx, ly, fillR, fillG, fillB, 255, fillTolerance(), fillMask ?? null, fillContiguous());
 
       const preSnapshot = engine.snapshot();
       ctx.putImageData(imgData, 0, 0);
@@ -723,7 +725,12 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
       const coords = getDocCoords(e);
       gradientDragStart = { x: coords.x, y: coords.y };
+      gradientDragEnd = { x: coords.x, y: coords.y };
       isGradientDragging = true;
+      const gType = typeof gradientType === "function" ? gradientType() : "linear";
+      if (typeof setGradientDragLine === "function") {
+        setGradientDragLine({ start: coords, end: coords, type: gType, angle: 0, distance: 0 });
+      }
       trySetPointerCapture(params.getCanvasRef(), e.pointerId);
       return;
     }
@@ -838,10 +845,39 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     edgeLastClientX = e.clientX;
     edgeLastClientY = e.clientY;
 
-    // ── Gradient: track end point during drag ──
-    if (activeTool() === "gradient" && isGradientDragging) {
+    // ── Gradient: track end point during drag (with Shift 45° angle lock) ──
+    if (activeTool() === "gradient" && isGradientDragging && gradientDragStart) {
       const coords = getDocCoords(e);
-      gradientDragEnd = { x: coords.x, y: coords.y };
+      let endX = coords.x;
+      let endY = coords.y;
+
+      if (e.shiftKey) {
+        const dx = endX - gradientDragStart.x;
+        const dy = endY - gradientDragStart.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        let angle = Math.atan2(dy, dx);
+        const step = Math.PI / 4; // 45°
+        angle = Math.round(angle / step) * step;
+        endX = gradientDragStart.x + dist * Math.cos(angle);
+        endY = gradientDragStart.y + dist * Math.sin(angle);
+      }
+
+      gradientDragEnd = { x: endX, y: endY };
+      const dx = endX - gradientDragStart.x;
+      const dy = endY - gradientDragStart.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      let deg = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+
+      const gType = typeof gradientType === "function" ? gradientType() : "linear";
+      if (typeof setGradientDragLine === "function") {
+        setGradientDragLine({
+          start: gradientDragStart,
+          end: { x: endX, y: endY },
+          type: gType,
+          angle: Math.round(deg * 10) / 10,
+          distance: Math.round(dist),
+        });
+      }
       scheduler.requestRender();
       return;
     }
@@ -1153,6 +1189,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
       gradientDragStart = null;
       gradientDragEnd = null;
+      if (typeof setGradientDragLine === "function") {
+        setGradientDragLine(null);
+      }
       return;
     }
 

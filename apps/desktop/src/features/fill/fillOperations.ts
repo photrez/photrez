@@ -52,6 +52,7 @@ export function floodFill(
   fillA: number,
   tolerance: number,
   mask?: FillMask | null,
+  contiguous: boolean = true,
 ): ImageData {
   const { data, width, height } = imgData;
 
@@ -65,10 +66,6 @@ export function floodFill(
   const sourceA = data[startIdx + 3];
 
   // Already the fill colour → nothing to do
-  // Note: strict equality (not user tolerance) — using tolerance here
-  // would always fire at tolerance >= 255 (max channel value), making the
-  // tool unusable at max slider. The tolerance gates actual pixel matching
-  // (matchesSource), not this early-return skip.
   if (sourceR === fillR && sourceG === fillG && sourceB === fillB && sourceA === fillA) return imgData;
 
   const toleranceSq = tolerance * tolerance;
@@ -94,6 +91,23 @@ export function floodFill(
     }
     return !(mask.inverted ?? false);
   };
+
+  // Global replacement mode (contiguous === false): replace all matching pixels across the image
+  if (!contiguous) {
+    for (let py = 0; py < height; py++) {
+      for (let px = 0; px < width; px++) {
+        if (!isInsideMask(px, py)) continue;
+        const idx = (py * width + px) * 4;
+        if (matchesSource(idx)) {
+          data[idx] = fillR;
+          data[idx + 1] = fillG;
+          data[idx + 2] = fillB;
+          data[idx + 3] = fillA;
+        }
+      }
+    }
+    return imgData;
+  }
 
   // Note: queue-based, not recursion — safe for millions of pixels
   const queue: Array<[number, number]> = [[sx, sy]];

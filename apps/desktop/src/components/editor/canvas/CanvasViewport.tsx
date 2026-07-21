@@ -25,6 +25,7 @@ import { TransformHud } from "../TransformHud";
 import { SelectionRenderer } from "@/features/selection/SelectionRenderer";
 import { BrushContextMenu } from "../BrushContextMenu";
 import { CanvasContextMenu } from "./CanvasContextMenu";
+import { GradientOverlay } from "./GradientOverlay";
 import { getPasteboardClickAction } from "../tools/pasteboardClickPolicy";
 import {
   docFrameToScreenFrame,
@@ -1006,6 +1007,9 @@ export function CanvasViewport() {
               )}
             </Show>
           </svg>
+
+          {/* Gradient drag vector line and distance/angle overlay */}
+          <GradientOverlay />
 
           {/* SelectionTransformOverlay →screen-space coordinates */}
           <Show when={activeTool() === "move" && showTransformControls()}>

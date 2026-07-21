@@ -63,8 +63,16 @@ export function createEditorState() {
 
   // Fill / Gradient tool settings
   const [fillTolerance, setFillTolerance] = createSignal(32);
+  const [fillContiguous, setFillContiguous] = createSignal(true);
   const [gradientType, setGradientType] = createSignal<"linear" | "radial">("linear");
   const [gradientPreset, setGradientPreset] = createSignal<"fg-bg" | "fg-transparent">("fg-bg");
+  const [gradientDragLine, setGradientDragLine] = createSignal<{
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    type: "linear" | "radial";
+    angle: number;
+    distance: number;
+  } | null>(null);
 
   const [selectedLayerId, setSelectedLayerId] = createSignal<string | null>(null);
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
@@ -179,8 +187,10 @@ export function createEditorState() {
     brushPresetId, setBrushPresetId,
     eraserPresetId, setEraserPresetId,
     fillTolerance, setFillTolerance,
+    fillContiguous, setFillContiguous,
     gradientType, setGradientType,
     gradientPreset, setGradientPreset,
+    gradientDragLine, setGradientDragLine,
     showResizeDialog, setShowResizeDialog,
     showExportDialog, setShowExportDialog,
     showPrintDialog, setShowPrintDialog,

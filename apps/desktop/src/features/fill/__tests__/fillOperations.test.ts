@@ -49,6 +49,23 @@ describe("floodFill", () => {
     expect(getPixel(img, 8, 8)).toEqual([255, 0, 0, 255]);
   });
 
+  it("replaces non-contiguous matching pixels when contiguous is false", () => {
+    const img = makeTestImage(10, 10, [255, 0, 0, 255]);
+    // Create a black barrier wall at column 5 separating left and right halves
+    for (let y = 0; y < 10; y++) {
+      const idx = (y * 10 + 5) * 4;
+      img.data[idx] = 0; img.data[idx + 1] = 0; img.data[idx + 2] = 0; img.data[idx + 3] = 255;
+    }
+    // When contiguous is false (global replace), click at (1,1) should replace red on BOTH sides of the wall
+    floodFill(img, 1, 1, 0, 255, 0, 255, 32, null, false);
+    // Left side filled
+    expect(getPixel(img, 1, 1)).toEqual([0, 255, 0, 255]);
+    // Right side ALSO filled (global replace)
+    expect(getPixel(img, 8, 8)).toEqual([0, 255, 0, 255]);
+    // Black barrier wall left untouched
+    expect(getPixel(img, 5, 5)).toEqual([0, 0, 0, 255]);
+  });
+
   it("respects ellipse selection (skip outside ellipse)", () => {
     const img = makeTestImage(10, 10, [255, 0, 0, 255]);
     floodFill(img, 5, 5, 0, 255, 0, 255, 32, { x: 0, y: 0, w: 10, h: 10, shape: "ellipse" });

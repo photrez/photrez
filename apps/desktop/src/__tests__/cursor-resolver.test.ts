@@ -346,5 +346,23 @@ describe('resolveCursor', () => {
       };
       expect(resolveCursor(ctx)).toBe('crosshair');
     });
+
+    it('returns SVG cursor for paintBucket tool', () => {
+      const ctx: CursorContext = {
+        ...base,
+        activeTool: 'paintBucket' as any,
+      };
+      const cursor = resolveCursor(ctx);
+      expect(cursor).toContain('data:image/svg+xml');
+    });
+
+    it('returns SVG cursor for gradient tool', () => {
+      const ctx: CursorContext = {
+        ...base,
+        activeTool: 'gradient' as any,
+      };
+      const cursor = resolveCursor(ctx);
+      expect(cursor).toContain('data:image/svg+xml');
+    });
   });
 });
