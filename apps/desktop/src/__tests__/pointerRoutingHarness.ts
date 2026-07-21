@@ -23,6 +23,7 @@ export function createMockEditorParams(toolId: string) {
     getLayers: () => [],
     setActiveLayer: vi.fn(),
     getSelection: () => null,
+    getLayerImageBitmap: () => undefined,
   } as unknown as DocumentEngine;
 
   let currentLastPaintCoords: any = null;

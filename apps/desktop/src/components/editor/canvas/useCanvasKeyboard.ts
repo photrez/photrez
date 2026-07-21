@@ -861,6 +861,17 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
         return;
       }
 
+      if (!ctrl && key === "g") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          setActiveTool("gradient");
+        } else {
+          setActiveTool("paintBucket");
+        }
+        scheduler.requestRender();
+        return;
+      }
+
       if (!ctrl && key === "i") {
         e.preventDefault();
         setActiveTool("eyedropper");

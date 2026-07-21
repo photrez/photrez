@@ -214,22 +214,22 @@ export function AdjustmentsPanel() {
           >
             {(layer) => (
               <>
-                <div class="border-b border-editor-divider px-4 py-3.5">
+                <div class="border-b border-editor-divider px-3 py-2.5">
                   <SectionHeader
                     icon="layers"
                     iconClass="text-editor-text-dim"
                     label="Selected Layer"
                   />
-                  <div class="mt-3 flex items-center gap-3 rounded-[4px] border border-editor-divider bg-editor-field p-2.5">
+                  <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
                     <LayerThumb layer={layer()} isActive={true} />
                     <div class="min-w-0 flex-1">
                       <p
-                        class="truncate text-[12.5px] font-medium text-editor-text leading-tight"
+                        class="truncate text-[11.5px] font-medium text-editor-text leading-tight"
                         title={layer().name}
                       >
                         {layer().name}
                       </p>
-                      <p class="truncate text-[11px] text-editor-text-dim leading-snug mt-0.5">
+                      <p class="truncate text-[10.5px] text-editor-text-dim leading-snug mt-0.5">
                         {layer().type === "raster"
                           ? "Image layer"
                           : `${layer().type.charAt(0).toUpperCase()}${layer().type.slice(1)} layer`}{" "}
@@ -239,7 +239,7 @@ export function AdjustmentsPanel() {
                   </div>
                 </div>
 
-                <div class="border-b border-editor-divider px-4 py-3.5">
+                <div class="border-b border-editor-divider px-3 py-2.5">
                   <SectionHeader
                     icon="sun"
                     iconClass="text-editor-text-dim"
@@ -257,7 +257,7 @@ export function AdjustmentsPanel() {
                     }
                   />
 
-                  <div class="mt-3 flex flex-col gap-2.5">
+                  <div class="mt-2 flex flex-col gap-2">
                     <AdjustmentSliderRow
                       label="Bright"
                       value={basicAdjustment().brightness}

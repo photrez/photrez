@@ -26,6 +26,8 @@ export const TOOL_CLEANUP_HANDLERS = {
   eyedropper: [clearSharedTransientState],
   brush: [clearSharedTransientState],
   eraser: [clearSharedTransientState],
+  paintBucket: [clearSharedTransientState],
+  gradient: [clearSharedTransientState],
 } satisfies Record<ToolId, readonly ToolCleanupHandler[]>;
 
 export function runToolSwitchCleanup(

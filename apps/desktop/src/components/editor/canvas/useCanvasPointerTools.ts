@@ -15,13 +15,15 @@ import {
 import { getActivePaintToolSettings, getPaintToolBlockReason, type PaintToolSettings } from "../brushToolState";
 import { PaintSmoother, smoothingToWindowSize } from "../paintSmoothing";
 import { tryReleasePointerCapture, trySetPointerCapture } from "../tools/pointerCapture";
-import { getLayerAabb } from "@/viewport/transformGeometry";
+import { getLayerAabb, documentToLayerLocal } from "@/viewport/transformGeometry";
 import { computeSnapAdjustment, type SnapRect } from "@/viewport/smartGuides";
 import { showToast } from "../Toast";
 import type { HudMode } from "../TransformHud";
 import { getDefaultModernCropFrame, getProjectedCanvasSize, clampFrameToProjectedBounds } from "@/viewport/modernCropGeometry";
 import { resetCropPreviewToCanvas, restoreHiddenCropPreview, createCropRectFromDocumentPoints } from "../cropToolActions";
 import { rgbToHex, interpolateLinePoints } from "./pointerUtils";
+import { floodFill, gradientFill, type FillMask, type ColorStop } from "@/features/fill/fillOperations";
+import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import { startSelectionRotation as startSelectionRotationFn } from "./selectionRotation";
 import { computeEdgeScroll } from "./edgeScroll";
 
@@ -64,6 +66,7 @@ type HudData = {
 export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
   const {
     workspace,
+    renderer,
     scheduler,
     activeTool,
     fgColor,
@@ -121,6 +124,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     brushSmoothing,
     eraserFlow,
     eraserSmoothing,
+    fillTolerance,
+    gradientType,
+    gradientPreset,
   } = useEditor();
 
   let isPendingCropClick = false;
@@ -128,6 +134,11 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
   let modernDragExceededThreshold = false;
   let modernDragEnd: { x: number; y: number } | null = null;
   let modernDragSnappedPreview: { x: number; y: number; w: number; h: number } | null = null;
+
+  // ── Gradient drag state ──
+  let gradientDragStart: { x: number; y: number } | null = null;
+  let isGradientDragging = false;
+  let gradientDragEnd: { x: number; y: number } | null = null;
 
   // ── On-canvas brush adjustment (Alt+RightButton+Drag) ──
   // Hold Alt + right mouse button and drag horizontally to adjust brush size,
@@ -631,6 +642,92 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       return;
     }
 
+    // ── Paint Bucket: click-to-fill ──
+    if (activeTool() === "paintBucket") {
+      const engine = workspace.getActiveEngine();
+      const history = workspace.getActiveHistory();
+      if (!engine || !history) return;
+
+      const layerId = engine.getActiveLayerId();
+      if (!layerId) { showToast("No editable layer selected", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+      const layer = engine.getLayer(layerId);
+      if (!layer || layer.locked) { showToast("Layer is locked", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+      if (!layer.visible) { showToast("Layer is hidden", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+      if (layer.lockTransparency) { showToast("Transparent pixels protected", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+
+      const coords = getDocCoords(e);
+      const bitmap = engine.getLayerImageBitmap(layerId);
+      if (!bitmap) { showToast("Layer has no image data", "warn"); return; }
+
+      const offscreen = new OffscreenCanvas(layer.width, layer.height);
+      const ctx = offscreen.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(bitmap, 0, 0);
+      const imgData = ctx.getImageData(0, 0, layer.width, layer.height);
+
+      // Layer-local click coords (accounts for scale/rotation/flip, not just translation)
+      const localPt = documentToLayerLocal(coords.x, coords.y, layer.transform, layer.width, layer.height);
+      const lx = Math.floor(localPt.x);
+      const ly = Math.floor(localPt.y);
+
+      // Fill colour from foreground
+      const hex = fgColor().replace("#", "");
+      const fillR = parseInt(hex.slice(0, 2), 16);
+      const fillG = parseInt(hex.slice(2, 4), 16);
+      const fillB = parseInt(hex.slice(4, 6), 16);
+
+      // Build selection mask
+      const sel = engine.getSelection();
+      let fillMask: FillMask | undefined;
+      if (sel) {
+        const aabb = SelectionOperations.selectionToLayerAabb(sel, layer.transform, layer.width, layer.height);
+        fillMask = {
+          x: Math.round(aabb.x), y: Math.round(aabb.y),
+          w: Math.max(0, Math.round(aabb.width)), h: Math.max(0, Math.round(aabb.height)),
+          shape: sel.shape, inverted: sel.inverted,
+        };
+      }
+
+      floodFill(imgData, lx, ly, fillR, fillG, fillB, 255, fillTolerance(), fillMask ?? null);
+
+      const preSnapshot = engine.snapshot();
+      ctx.putImageData(imgData, 0, 0);
+      const newBitmap = offscreen.transferToImageBitmap();
+      try {
+        engine.setLayerImageBitmap(layerId, newBitmap);
+        renderer.uploadImage(layerId, newBitmap);
+      } catch (err) {
+        showToast(`Fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");
+        trySetPointerCapture(params.getCanvasRef(), e.pointerId);
+        return;
+      }
+      history.commit(preSnapshot, "Paint Bucket Fill");
+      scheduler.requestRender();
+
+      trySetPointerCapture(params.getCanvasRef(), e.pointerId);
+      return;
+    }
+
+    // ── Gradient: start drag ──
+    if (activeTool() === "gradient") {
+      const engine = workspace.getActiveEngine();
+      const history = workspace.getActiveHistory();
+      if (!engine || !history) return;
+
+      const layerId = engine.getActiveLayerId();
+      if (!layerId) { showToast("No editable layer selected", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+      const layer = engine.getLayer(layerId);
+      if (!layer || layer.locked) { showToast("Layer is locked", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+      if (!layer.visible) { showToast("Layer is hidden", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+      if (layer.lockTransparency) { showToast("Transparent pixels protected", "warn"); trySetPointerCapture(params.getCanvasRef(), e.pointerId); return; }
+
+      const coords = getDocCoords(e);
+      gradientDragStart = { x: coords.x, y: coords.y };
+      isGradientDragging = true;
+      trySetPointerCapture(params.getCanvasRef(), e.pointerId);
+      return;
+    }
+
     // Sync selectionBox from engine state before starting a drag.
     // SelectionOptionBar calls engine.createSelection(…) which updates the
     // engine but NOT the local signal — without this sync the drag would
@@ -740,6 +837,14 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
     edgeLastClientX = e.clientX;
     edgeLastClientY = e.clientY;
+
+    // ── Gradient: track end point during drag ──
+    if (activeTool() === "gradient" && isGradientDragging) {
+      const coords = getDocCoords(e);
+      gradientDragEnd = { x: coords.x, y: coords.y };
+      scheduler.requestRender();
+      return;
+    }
 
     // Modern crop drag-to-create: show selection preview rect
     if (
@@ -959,6 +1064,97 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     }
 
     interactiveState.dragTool = null;
+
+    // ── Gradient: apply on pointer up ──
+    if (activeTool() === "gradient" && isGradientDragging) {
+      isGradientDragging = false;
+      const engine = workspace.getActiveEngine();
+      const history = workspace.getActiveHistory();
+      if (!engine || !history || !gradientDragStart || !gradientDragEnd) {
+        gradientDragStart = null;
+        gradientDragEnd = null;
+        return;
+      }
+
+      const layerId = engine.getActiveLayerId();
+      if (!layerId) { gradientDragStart = null; gradientDragEnd = null; return; }
+      const layer = engine.getLayer(layerId);
+      if (!layer) { gradientDragStart = null; gradientDragEnd = null; return; }
+
+      const bitmap = engine.getLayerImageBitmap(layerId);
+      if (!bitmap) { showToast("Layer has no image data", "warn"); gradientDragStart = null; gradientDragEnd = null; return; }
+
+      const offscreen = new OffscreenCanvas(layer.width, layer.height);
+      const ctx = offscreen.getContext("2d");
+      if (!ctx) { gradientDragStart = null; gradientDragEnd = null; return; }
+      ctx.drawImage(bitmap, 0, 0);
+      const imgData = ctx.getImageData(0, 0, layer.width, layer.height);
+
+      // Build color stops from preset
+      const hex = fgColor().replace("#", "");
+      const fgR = parseInt(hex.slice(0, 2), 16);
+      const fgG = parseInt(hex.slice(2, 4), 16);
+      const fgB = parseInt(hex.slice(4, 6), 16);
+      const bgHex = bgColor().replace("#", "");
+      const bgR = parseInt(bgHex.slice(0, 2), 16);
+      const bgG = parseInt(bgHex.slice(2, 4), 16);
+      const bgB = parseInt(bgHex.slice(4, 6), 16);
+
+      let stops: ColorStop[];
+      if (gradientPreset() === "fg-transparent") {
+        stops = [
+          { offset: 0, r: fgR, g: fgG, b: fgB, a: 255 },
+          { offset: 1, r: fgR, g: fgG, b: fgB, a: 0 },
+        ];
+      } else {
+        stops = [
+          { offset: 0, r: fgR, g: fgG, b: fgB, a: 255 },
+          { offset: 1, r: bgR, g: bgG, b: bgB, a: 255 },
+        ];
+      }
+
+      // Build selection mask
+      const sel = engine.getSelection();
+      let fillMask: FillMask | undefined;
+      if (sel) {
+        const aabb = SelectionOperations.selectionToLayerAabb(sel, layer.transform, layer.width, layer.height);
+        fillMask = {
+          x: Math.round(aabb.x), y: Math.round(aabb.y),
+          w: Math.max(0, Math.round(aabb.width)), h: Math.max(0, Math.round(aabb.height)),
+          shape: sel.shape, inverted: sel.inverted,
+        };
+      }
+
+      // Convert gradient start/end to layer-local space (accounts for transform)
+      const startLocal = documentToLayerLocal(gradientDragStart.x, gradientDragStart.y, layer.transform, layer.width, layer.height);
+      const endLocal = documentToLayerLocal(gradientDragEnd.x, gradientDragEnd.y, layer.transform, layer.width, layer.height);
+
+      gradientFill(
+        imgData, gradientType(),
+        startLocal.x, startLocal.y,
+        endLocal.x, endLocal.y,
+        stops, fillMask ?? null,
+      );
+
+      const preSnapshot = engine.snapshot();
+      ctx.putImageData(imgData, 0, 0);
+      const newBitmap = offscreen.transferToImageBitmap();
+      try {
+        engine.setLayerImageBitmap(layerId, newBitmap);
+        renderer.uploadImage(layerId, newBitmap);
+      } catch (err) {
+        showToast(`Gradient fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");
+        gradientDragStart = null;
+        gradientDragEnd = null;
+        return;
+      }
+      history.commit(preSnapshot, "Gradient Fill");
+      scheduler.requestRender();
+
+      gradientDragStart = null;
+      gradientDragEnd = null;
+      return;
+    }
 
     // Modern crop: handle drag end or click fallback
     if (
@@ -1186,6 +1382,10 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     setSnapLines([]);
     setCropDragPreview(null);
     resetModernDragState();
+    // ── Reset gradient drag state ──
+    isGradientDragging = false;
+    gradientDragStart = null;
+    gradientDragEnd = null;
   };
 
   const onCanvasLostPointerCapture = (e: PointerEvent) => {
@@ -1220,6 +1420,10 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     interactiveState.dragTool = null;
     setCropDragPreview(null);
     resetModernDragState();
+    // ── Reset gradient drag state ──
+    isGradientDragging = false;
+    gradientDragStart = null;
+    gradientDragEnd = null;
   };
 
   const startSelectionRotation = () =>

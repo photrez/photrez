@@ -74,10 +74,10 @@ function InspectorDock() {
         "flex w-full flex-1 min-h-0 flex-col border-editor-divider bg-editor-panel",
         isStacked()
           ? "border-b"
-          : "border-b lg:border-b-0 lg:border-r lg:w-[300px] 2xl:w-[336px] lg:flex-none"
+          : "border-b lg:border-b-0 lg:border-r lg:w-[272px] 2xl:w-[300px] lg:flex-none"
       )}
     >
-      <div class="flex h-[44px] shrink-0 items-center border-b border-editor-divider bg-editor-panel pl-0">
+      <div class="flex h-[38px] shrink-0 items-center border-b border-editor-divider bg-editor-panel pl-0">
         <nav role="tablist" aria-label="Inspector tabs" onKeyDown={handleInspectorKeyDown} class="flex h-full min-w-0 items-center overflow-hidden">
           <button
             type="button"
@@ -85,7 +85,7 @@ function InspectorDock() {
             aria-selected={activeTab() === "properties"}
             onClick={() => handleTabChange("properties")}
             class={clsx(
-              "relative flex h-full items-center px-4 text-[12px] font-medium transition-colors",
+              "relative flex h-full items-center px-3 text-[11.5px] font-medium transition-colors",
               activeTab() === "properties"
                 ? "text-editor-text after:absolute after:bottom-0 after:inset-x-0 after:h-[2px] after:bg-editor-accent"
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
@@ -99,7 +99,7 @@ function InspectorDock() {
             aria-selected={activeTab() === "adjustments"}
             onClick={() => handleTabChange("adjustments")}
             class={clsx(
-              "relative flex h-full items-center px-4 text-[12px] font-medium transition-colors",
+              "relative flex h-full items-center px-3 text-[11.5px] font-medium transition-colors",
               activeTab() === "adjustments"
                 ? "text-editor-text after:absolute after:bottom-0 after:inset-x-0 after:h-[2px] after:bg-editor-accent"
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
@@ -113,7 +113,7 @@ function InspectorDock() {
             aria-selected={activeTab() === "presets"}
             onClick={() => handleTabChange("presets")}
             class={clsx(
-              "relative flex h-full items-center px-4 text-[12px] font-medium transition-colors",
+              "relative flex h-full items-center px-3 text-[11.5px] font-medium transition-colors",
               activeTab() === "presets"
                 ? "text-editor-text after:absolute after:bottom-0 after:inset-x-0 after:h-[2px] after:bg-editor-accent"
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
@@ -199,7 +199,7 @@ function LayerDock(props: Pick<RightDockProps, "onClose">) {
           : "lg:w-[260px] 2xl:w-[298px] lg:flex-none"
       )}
     >
-      <div class="flex h-[44px] shrink-0 items-center border-b border-editor-divider bg-editor-panel pl-0">
+      <div class="flex h-[38px] shrink-0 items-center border-b border-editor-divider bg-editor-panel pl-0">
         <nav role="tablist" aria-label="Layer dock tabs" onKeyDown={handleLayerDockKeyDown} class="flex h-full min-w-0 items-center overflow-hidden">
           <button
             type="button"
@@ -207,7 +207,7 @@ function LayerDock(props: Pick<RightDockProps, "onClose">) {
             aria-selected={rightDockPanel() === "layers"}
             onClick={() => setRightDockPanel("layers")}
             class={clsx(
-              "relative flex h-full items-center px-4 text-[12px] font-medium transition-colors",
+              "relative flex h-full items-center px-3 text-[11.5px] font-medium transition-colors",
               rightDockPanel() === "layers"
                 ? "text-editor-text after:absolute after:bottom-0 after:inset-x-0 after:h-[2px] after:bg-editor-accent"
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
@@ -221,7 +221,7 @@ function LayerDock(props: Pick<RightDockProps, "onClose">) {
             aria-selected={rightDockPanel() === "history"}
             onClick={() => setRightDockPanel("history")}
             class={clsx(
-              "relative flex h-full items-center px-4 text-[12px] font-medium transition-colors",
+              "relative flex h-full items-center px-3 text-[11.5px] font-medium transition-colors",
               rightDockPanel() === "history"
                 ? "text-editor-text after:absolute after:bottom-0 after:inset-x-0 after:h-[2px] after:bg-editor-accent"
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
@@ -239,13 +239,13 @@ function LayerDock(props: Pick<RightDockProps, "onClose">) {
       <div data-navigator-panel class="shrink-0 border-t border-editor-divider bg-editor-panel">
         <div
           class={clsx(
-            "flex h-[46px] items-center justify-between px-4",
+            "flex h-[38px] items-center justify-between px-3",
             !navigatorCollapsed() && "border-b border-editor-divider"
           )}
         >
           <button
             onClick={() => setNavigatorCollapsed(!navigatorCollapsed())}
-            class="flex items-center gap-1.5 text-[13px] font-medium text-editor-text hover:text-editor-text-dim transition-colors"
+            class="flex items-center gap-1.5 text-[12px] font-medium text-editor-text hover:text-editor-text-dim transition-colors"
           >
             <Icon
               name={navigatorCollapsed() ? "chevron-right" : "chevron-down"}
@@ -355,8 +355,8 @@ export function RightDock(props: RightDockProps) {
       class={clsx(
         "flex shrink-0 overflow-hidden border-l border-editor-divider bg-editor-panel",
         rightDockLayout() === "side-by-side"
-          ? "flex flex-col lg:flex-row w-[300px] lg:w-auto lg:static lg:z-auto lg:shadow-none"
-          : "flex flex-col w-[300px] lg:w-[300px] 2xl:w-[336px] h-full lg:static lg:z-auto lg:shadow-none",
+          ? "flex flex-col lg:flex-row w-[272px] lg:w-auto lg:static lg:z-auto lg:shadow-none"
+          : "flex flex-col w-[272px] lg:w-[272px] 2xl:w-[300px] h-full lg:static lg:z-auto lg:shadow-none",
         props.open ? "flex" : "hidden",
       )}
     >

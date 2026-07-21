@@ -476,6 +476,21 @@
 | ✅ DONE | Tooltip migration: replaced ~50 native `title` attributes with `<Tooltip>` component across 12 files (shell, option bars, layers panel, dialogs). Uses warm delay, Escape dismiss, viewport boundary clamping, and `shortcut` prop for keyboard shortcuts (Ctrl+C/X/V/I, Del, Esc, Enter). Removed unused `title` prop from `ToggleBtn`. |
 | ✅ DONE | Unit selector (px, in, cm, mm, pt) for all W/H inputs — New Document and Resize Canvas dialogs. 96 DPI base conversion, uncontrolled inputs with onBlur commit. |
 
+## 🪣 Paint Bucket
+
+| Status  | Fitur |
+| ------- | ----- |
+| ✅ DONE | Paint Bucket (flood fill) tool — contiguous fill with tolerance slider |
+| ✅ DONE | Selection-aware flood fill (rect + ellipse, inverted) |
+
+## 🌈 Gradient
+
+| Status  | Fitur |
+| ------- | ----- |
+| ✅ DONE | Gradient tool — linear + radial types |
+| ✅ DONE | FG→BG and FG→Transparent presets |
+| ✅ DONE | Selection-aware gradient fill (rect + ellipse, inverted) |
+
 ## 🪟 Desktop / Window
 
 | Status  | Fitur |

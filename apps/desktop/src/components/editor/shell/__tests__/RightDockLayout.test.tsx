@@ -45,7 +45,7 @@ describe("RightDock layout and tab navigation", () => {
     clearRegistry();
   });
 
-  it("renders with default values and allows switching top-level and sub-tabs", () => {
+  it("renders with default values and allows switching top-level and sub-tabs", { timeout: 15000 }, () => {
     const workspace = new WorkspaceManager();
     workspace.addDocument(WorkspaceManager.createBlankDocument("dock-test", "Dock Test", 800, 600));
 

@@ -69,22 +69,22 @@ export function BottomStatusBar() {
   };
 
   return (
-    <footer class="flex h-[30px] shrink-0 items-center justify-between border-t border-editor-divider bg-editor-panel-bg px-4 text-[11px] text-editor-text-dim select-none">
-      <div class="flex items-center gap-4">
+    <footer class="flex h-[24px] shrink-0 items-center justify-between border-t border-editor-divider bg-editor-panel-bg px-3 text-[10.5px] text-editor-text-dim select-none">
+      <div class="flex items-center gap-3">
         <Show when={activeDocumentId()}>
           <span>
             Canvas: <strong class="text-editor-text">{docWidth()} × {docHeight()} px</strong>
           </span>
-          <span class="border-l border-editor-divider pl-4">
+          <span class="border-l border-editor-divider pl-3">
             Zoom: <strong class="text-editor-text">{Math.round(zoom() * 100)}%</strong>
           </span>
-          <span class="border-l border-editor-divider pl-4">
+          <span class="border-l border-editor-divider pl-3">
             Active: <strong class="text-editor-text">{getToolDisplayName()}</strong>
           </span>
-          <span class="border-l border-editor-divider pl-4">
+          <span class="border-l border-editor-divider pl-3">
             <span class="text-editor-text/60">{statusText()}</span>
           </span>
-          <span class="border-l border-editor-divider pl-4">
+          <span class="border-l border-editor-divider pl-3">
             Selected Layer: <strong class="text-editor-text">{activeLayerName()}</strong>
           </span>
         </Show>

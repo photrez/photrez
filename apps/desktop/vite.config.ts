@@ -34,6 +34,7 @@ const nodeTestFiles = [
   "src/components/editor/__tests__/brushTipMask.test.ts",
   "src/features/selection/__tests__/SelectionValidator.test.ts",
   "src/features/selection/__tests__/SelectionOperations.test.ts",
+  "src/features/fill/__tests__/fillOperations.test.ts",
   "src/renderer/__tests__/webgl2-scissor.test.ts",
   "src/ui-sanity.test.ts",
   "src/__tests__/viewport.test.ts",

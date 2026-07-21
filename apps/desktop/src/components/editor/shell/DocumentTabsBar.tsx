@@ -363,7 +363,7 @@ export function DocumentTabsBar() {
 
   return (
     <div
-      class="flex h-[44px] shrink-0 items-center border-b border-editor-divider bg-editor-topbar justify-between select-none"
+      class="flex h-[38px] shrink-0 items-center border-b border-editor-divider bg-editor-topbar justify-between select-none"
       data-tab-bar-empty
       onDragOver={handleTabBarDragOver}
       onDrop={handleTabBarDrop}
@@ -410,7 +410,7 @@ export function DocumentTabsBar() {
                 onDragLeave={(e) => handleTabDragLeave(e, tab.id)}
                 onDrop={(e) => handleTabDrop(e, tab.id)}
                 class={clsx(
-                  "group relative flex shrink-0 items-center gap-3 border-r border-editor-divider pl-4 pr-3 cursor-pointer",
+                  "group relative flex shrink-0 items-center gap-2 border-r border-editor-divider pl-3 pr-2.5 cursor-pointer",
                   activeDocumentId() === tab.id ? "bg-editor-bg" : "bg-editor-topbar hover:bg-editor-topbar-hover",
                   isDragOver() && "outline outline-2 outline-editor-accent",
                   isDimmed() && "opacity-30"
@@ -418,7 +418,7 @@ export function DocumentTabsBar() {
               >
                 <span
                   class={clsx(
-                    "whitespace-nowrap text-[13px]",
+                    "whitespace-nowrap text-[11.5px]",
                     tab.isDirty
                       ? "text-editor-accent font-medium"
                       : activeDocumentId() === tab.id

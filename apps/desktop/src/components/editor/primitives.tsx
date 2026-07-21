@@ -55,8 +55,8 @@ export function SelectField(props: { value: string; class?: string }) {
 
 export function PropRow(props: { label: string; children: JSX.Element }) {
   return (
-    <div class="flex items-center gap-2.5">
-      <span class="w-[58px] shrink-0 text-[12px] text-editor-text-dim">
+    <div class="flex items-center gap-2">
+      <span class="w-[50px] shrink-0 text-[11px] text-editor-text-dim">
         {props.label}
       </span>
       <div class="flex flex-1 items-center gap-1.5">{props.children}</div>

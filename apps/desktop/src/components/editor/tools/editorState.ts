@@ -61,6 +61,11 @@ export function createEditorState() {
   const [brushPresetId, setBrushPresetId] = createSignal<string | null>(null);
   const [eraserPresetId, setEraserPresetId] = createSignal<string | null>(null);
 
+  // Fill / Gradient tool settings
+  const [fillTolerance, setFillTolerance] = createSignal(32);
+  const [gradientType, setGradientType] = createSignal<"linear" | "radial">("linear");
+  const [gradientPreset, setGradientPreset] = createSignal<"fg-bg" | "fg-transparent">("fg-bg");
+
   const [selectedLayerId, setSelectedLayerId] = createSignal<string | null>(null);
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   const [selectionEditMode, setSelectionEditMode] = createSignal(false);
@@ -173,6 +178,9 @@ export function createEditorState() {
     eraserSmoothing, setEraserSmoothing,
     brushPresetId, setBrushPresetId,
     eraserPresetId, setEraserPresetId,
+    fillTolerance, setFillTolerance,
+    gradientType, setGradientType,
+    gradientPreset, setGradientPreset,
     showResizeDialog, setShowResizeDialog,
     showExportDialog, setShowExportDialog,
     showPrintDialog, setShowPrintDialog,

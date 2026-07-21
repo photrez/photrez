@@ -187,6 +187,14 @@ export interface EditorContextValue {
   eraserPresetId: Accessor<string | null>;
   setEraserPresetId: Setter<string | null>;
 
+  // Fill / Gradient tool settings
+  fillTolerance: Accessor<number>;
+  setFillTolerance: Setter<number>;
+  gradientType: Accessor<"linear" | "radial">;
+  setGradientType: Setter<"linear" | "radial">;
+  gradientPreset: Accessor<"fg-bg" | "fg-transparent">;
+  setGradientPreset: Setter<"fg-bg" | "fg-transparent">;
+
   showResizeDialog: Accessor<boolean>;
   setShowResizeDialog: Setter<boolean>;
   showExportDialog: Accessor<boolean>;

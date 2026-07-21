@@ -137,6 +137,52 @@ describe("crop + modern mode exits early (no handlePointerDown)", () => {
   });
 });
 
+describe("paintBucket + gradient bypass handlePointerDown (same pattern as modern crop)", () => {
+  it("does NOT call handlePointerDown when paintBucket active", () => {
+    const { signals, dispose } = createMockEditorParams("paintBucket");
+    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+
+    const { tools, dispose: disposeTools } = createPointerTools({
+      getCanvasContainerRef: () => document.createElement("div"),
+      getCanvasRef: () => document.createElement("canvas"),
+      isSpacePressed: () => false,
+      isPanning: () => false,
+      isAltPressed: () => false,
+      stopMomentum: vi.fn(),
+      fitToScreenAndRender: vi.fn(),
+      commitBrushStroke: vi.fn(),
+    });
+
+    tools.onCanvasPointerDown(makePointerEvent());
+    // paintBucket exits early BEFORE handlePointerDown
+    expect(handlePointerDownSpy).not.toHaveBeenCalled();
+    disposeTools();
+    dispose();
+  });
+
+  it("does NOT call handlePointerDown when gradient active", () => {
+    const { signals, dispose } = createMockEditorParams("gradient");
+    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+
+    const { tools, dispose: disposeTools } = createPointerTools({
+      getCanvasContainerRef: () => document.createElement("div"),
+      getCanvasRef: () => document.createElement("canvas"),
+      isSpacePressed: () => false,
+      isPanning: () => false,
+      isAltPressed: () => false,
+      stopMomentum: vi.fn(),
+      fitToScreenAndRender: vi.fn(),
+      commitBrushStroke: vi.fn(),
+    });
+
+    tools.onCanvasPointerDown(makePointerEvent());
+    // gradient exits early BEFORE handlePointerDown
+    expect(handlePointerDownSpy).not.toHaveBeenCalled();
+    disposeTools();
+    dispose();
+  });
+});
+
 describe("brush/eraser + Alt (eyedropper) intercepts before handlePointerDown", () => {
   it("does NOT call handlePointerDown when brush+Alt (eyedropper shortcut)", () => {
     const { signals, dispose } = createMockEditorParams("brush");
