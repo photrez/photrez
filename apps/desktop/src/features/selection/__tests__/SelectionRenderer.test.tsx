@@ -301,3 +301,44 @@ describe("SelectionRenderer — edit mode (transform handles visible)", () => {
     dispose();
   });
 });
+
+describe("SelectionRenderer — ellipse shape", () => {
+  it("renders <ellipse> instead of <rect> inside marquee when shape='ellipse'", () => {
+    const sel: SelectionState = { x: 100, y: 50, width: 200, height: 150, angle: 0, shape: "ellipse" };
+    const { container, dispose } = renderComponent({ selection: sel });
+
+    // Should have NO <rect> inside marquee
+    const rects = container.querySelectorAll("[data-selection-marquee] rect");
+    expect(rects.length).toBe(0);
+
+    // Should have <ellipse> elements
+    const ellipses = container.querySelectorAll("[data-selection-marquee] ellipse");
+    expect(ellipses.length).toBe(2); // double-stroke
+
+    // Verify ellipse cx/cy/rx/ry match the selection geometry
+    const first = ellipses[0];
+    expect(first.getAttribute("cx")).toBe("200");  // x + w/2 = 100 + 100
+    expect(first.getAttribute("cy")).toBe("125");  // y + h/2 = 50 + 75
+    expect(first.getAttribute("rx")).toBe("100");  // w/2 = 200/2
+    expect(first.getAttribute("ry")).toBe("75");   // h/2 = 150/2
+
+    dispose();
+  });
+
+  it("renders <ellipse> marquee with zoom and pan applied", () => {
+    const sel: SelectionState = { x: 100, y: 50, width: 200, height: 150, angle: 0, shape: "ellipse" };
+    const { container, dispose } = renderComponent({ selection: sel, zoom: 2, pan: { x: 10, y: 20 } });
+
+    const ellipses = container.querySelectorAll("[data-selection-marquee] ellipse");
+    expect(ellipses.length).toBe(2);
+    const first = ellipses[0];
+    // screenX = 100*2 + 10 = 210, screenW = 200*2 = 400 → cx = 210 + 200 = 410
+    expect(first.getAttribute("cx")).toBe("410");
+    // screenY = 50*2 + 20 = 120, screenH = 150*2 = 300 → cy = 120 + 150 = 270
+    expect(first.getAttribute("cy")).toBe("270");
+    expect(first.getAttribute("rx")).toBe("200");  // 400/2
+    expect(first.getAttribute("ry")).toBe("150");  // 300/2
+
+    dispose();
+  });
+});

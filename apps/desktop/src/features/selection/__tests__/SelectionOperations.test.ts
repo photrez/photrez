@@ -983,5 +983,64 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(aabb.width).toBe(50);
       expect(aabb.height).toBe(60);
     });
+
+    it("deleteSelection with ellipse shape clears only INSIDE the ellipse, keeps corners", () => {
+      const layer = makeFilledLayer("#FF0000");
+      // Identity transform. Ellipse marquee covering layer-local (20,20,60,60).
+      engine.createSelection(20, 20, 60, 60, 0, "ellipse");
+      SelectionOperations.deleteSelection(engine);
+
+      // Center of the ellipse → inside → cleared.
+      expect(alphaAt(layer.id, 50, 50)).toBe(0);
+      // Corners of the AABB are outside the ellipse → must be kept opaque.
+      expect(alphaAt(layer.id, 21, 21)).toBe(255);
+      expect(alphaAt(layer.id, 78, 78)).toBe(255);
+    });
+
+    it("copySelection with ellipse shape masks pixels OUTSIDE the ellipse to transparent", () => {
+      const layer = makeFilledLayer("#00FF00");
+      engine.createSelection(0, 0, 60, 60, 0, "ellipse");
+      const result = SelectionOperations.copySelection(engine)!;
+      expect(result).not.toBeNull();
+
+      const w = result!.width;
+      const h = result!.height;
+      const idx = (x: number, y: number) => (y * w + x) * 4 + 3;
+      // Center pixel inside ellipse → opaque.
+      expect(result!.data[idx(w / 2, h / 2)]).toBe(255);
+      // Corner pixel of the AABB is outside the ellipse → masked transparent.
+      expect(result!.data[idx(0, 0)]).toBe(0);
+    });
+
+    it("deleteSelection with INVERTED ellipse clears everything OUTSIDE the ellipse, keeps center", () => {
+      const layer = makeFilledLayer("#FF0000");
+      engine.createSelection(20, 20, 60, 60, 0, "ellipse");
+      engine.invertSelection();
+      SelectionOperations.deleteSelection(engine);
+
+      // Center of the ellipse → inside → kept (inverted = everything-except-ellipse).
+      expect(alphaAt(layer.id, 50, 50)).toBe(255);
+      // Corner of the AABB (outside ellipse) → must be cleared.
+      expect(alphaAt(layer.id, 21, 21)).toBe(0);
+      // Far corner of the layer (outside AABB entirely) → cleared.
+      expect(alphaAt(layer.id, 1, 1)).toBe(0);
+      expect(alphaAt(layer.id, 95, 95)).toBe(0);
+    });
+
+    it("copySelection with INVERTED ellipse masks ellipse interior to transparent, keeps outside", () => {
+      const layer = makeFilledLayer("#00FF00");
+      engine.createSelection(20, 20, 60, 60, 0, "ellipse");
+      engine.invertSelection();
+      const result = SelectionOperations.copySelection(engine)!;
+      expect(result).not.toBeNull();
+
+      // Full-layer copy: w = 100, h = 100
+      expect(result!.width).toBe(100);
+      expect(result!.height).toBe(100);
+      // Center pixel inside ellipse → masked transparent.
+      expect(result!.data[(50 * 100 + 50) * 4 + 3]).toBe(0);
+      // Pixel outside ellipse (far corner) → opaque.
+      expect(result!.data[(1 * 100 + 1) * 4 + 3]).toBe(255);
+    });
   });
 });

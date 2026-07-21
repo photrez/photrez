@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup, onMount } from "solid-js";
+import { createSignal, createMemo, For, Show, onCleanup, onMount } from "solid-js";
 import { clsx } from "clsx";
 import { Icon } from "../icons";
 import { useEditor } from "./EditorContext";
@@ -18,8 +18,18 @@ const TOOL_SHORTCUTS: Record<ToolId, string> = {
 };
 
 export function LeftToolRail(props: { disabled?: boolean }) {
-  const { activeTool, setActiveTool, fgColor, setFgColor, bgColor, setBgColor, scheduler, workspace, layerTransformSession, setLayerTransformSession, colorPickerOpen, setColorPickerOpen, colorPickerTarget, setColorPickerTarget } = useEditor();
+  const { activeTool, setActiveTool, fgColor, setFgColor, bgColor, setBgColor, scheduler, workspace, layerTransformSession, setLayerTransformSession, colorPickerOpen, setColorPickerOpen, colorPickerTarget, setColorPickerTarget, selectionShape, setSelectionShape } = useEditor();
   const dialogs = useDialog();
+
+  // Tool variant fly-out state: which tool slot has an open popover.
+  const [popoverTool, setPopoverTool] = createSignal<string | null>(null);
+  let popoverRef: HTMLDivElement | undefined;
+
+  const closePopover = (e: MouseEvent) => {
+    if (popoverRef && !popoverRef.contains(e.target as Node)) {
+      setPopoverTool(null);
+    }
+  };
 
   const cancelActiveTransformSession = () => {
     const engine = workspace.getActiveEngine();
@@ -85,6 +95,13 @@ export function LeftToolRail(props: { disabled?: boolean }) {
     }
   };
 
+  // Close popover on Escape
+  const handlePopoverKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && popoverTool()) {
+      setPopoverTool(null);
+    }
+  };
+
   // Keyboard shortcut listener for X (swap) and D (reset)
   const handleKeyDown = (e: KeyboardEvent) => {
     if (document.querySelector('[aria-modal="true"]')) return;
@@ -104,33 +121,85 @@ export function LeftToolRail(props: { disabled?: boolean }) {
 
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handlePopoverKeyDown);
     onCleanup(() => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handlePopoverKeyDown);
     });
   });
 
   return (
     <aside class={clsx(
-      "flex w-[52px] shrink-0 flex-col items-center gap-0.5 overflow-y-auto bg-editor-toolbar py-2",
+      "flex w-[52px] shrink-0 flex-col items-center gap-0.5 bg-editor-toolbar py-2",
       props.disabled && "opacity-50 pointer-events-none grayscale"
     )}>
       <For each={TOOL_ITEMS}>
         {(tool) => {
+          // Resolve the active variant icon/label so the rail button reflects
+          // the last-selected sub-tool (e.g. ellipse → circle icon).
+          const activeVariant = createMemo(() => {
+            if (!tool.variants) return null;
+            return tool.variants.find((v) => v.id === selectionShape()) ?? tool.variants[0];
+          });
+          const currentIcon = () => activeVariant()?.icon ?? tool.icon;
+          const currentLabel = () => activeVariant()?.label ?? tool.label;
+
           return (
-            <Tooltip content={tool.label} shortcut={TOOL_SHORTCUTS[tool.id]} placement="right">
-              <button
-                onClick={() => handleToolChange(tool.id)}
-                class={clsx(
-                  "flex size-9 shrink-0 items-center justify-center rounded-[5px] transition-all duration-100 relative",
-                  activeTool() === tool.id
-                    ? "bg-white/5 text-editor-text"
-                    : "text-editor-icon hover:bg-white/5 hover:text-editor-text"
-                )}
-                aria-label={tool.label}
-              >
-                <Icon name={tool.icon} class="size-[18px]" strokeWidth={1.6} />
-              </button>
-            </Tooltip>
+            <div class="relative">
+              <Tooltip content={currentLabel()} shortcut={TOOL_SHORTCUTS[tool.id]} placement="right" disabled={popoverTool() === tool.id}>
+                <button
+                  onClick={() => handleToolChange(tool.id)}
+                  onContextMenu={(e) => {
+                    if (tool.variants) {
+                      e.preventDefault();
+                      setPopoverTool(tool.id);
+                      window.addEventListener("click", closePopover, { once: true });
+                    }
+                  }}
+                  class={clsx(
+                    "flex size-9 shrink-0 items-center justify-center rounded-[5px] transition-all duration-100 relative",
+                    activeTool() === tool.id
+                      ? "bg-white/5 text-editor-text"
+                      : "text-editor-icon hover:bg-white/5 hover:text-editor-text"
+                  )}
+                  aria-label={currentLabel()}
+                >
+                  <Icon name={currentIcon()} class="size-[18px]" strokeWidth={1.6} />
+                </button>
+              </Tooltip>
+
+              {/* Variant fly-out popover */}
+              <Show when={popoverTool() === tool.id && tool.variants}>
+                <div
+                  ref={popoverRef!}
+                  class="absolute left-full top-0 z-50 ml-1.5 min-w-[140px] overflow-hidden rounded-md border border-editor-field-border bg-editor-panel py-1 shadow-lg"
+                >
+                  <For each={tool.variants}>
+                    {(variant) => (
+                      <button
+                        onClick={() => {
+                          if (variant.id === "ellipse" || variant.id === "rect") {
+                            setSelectionShape(variant.id);
+                          }
+                          setActiveTool(tool.id);
+                          setPopoverTool(null);
+                          scheduler.requestRender();
+                        }}
+                        class={clsx(
+                          "flex w-full items-center gap-2 px-3 py-1.5 text-[11px] whitespace-nowrap",
+                          activeTool() === tool.id && selectionShape() === variant.id
+                            ? "bg-white/10 text-editor-text"
+                            : "text-editor-text-dim hover:bg-white/5 hover:text-editor-text"
+                        )}
+                      >
+                        <Icon name={variant.icon} class="size-4" strokeWidth={1.6} />
+                        {variant.label}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
           );
         }}
       </For>

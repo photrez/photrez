@@ -22,21 +22,9 @@
         "minHeight": 640,
         "resizable": true,
         "decorations": false,
-        "transparent": true,
-        "dragDropEnabled": false,
-        "visible": false
-      },
-      {
-        "label": "splashscreen",
-        "url": "/splash.html?v=2",
-        "width": 400,
-        "height": 340,
-        "resizable": false,
-        "decorations": false,
         "transparent": false,
-        "shadow": false,
-        "center": true,
-        "alwaysOnTop": true
+        "dragDropEnabled": false,
+        "visible": true
       }
     ],
     "security": {

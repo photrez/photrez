@@ -34,6 +34,27 @@ describe("input-handler: selection tool draw modifiers", () => {
     });
   });
 
+  describe("ellipse marquee shape", () => {
+    it("creates an ellipse selection when context.selectionShape is 'ellipse'", () => {
+      const engine = createMockEngine(["createSelection", "clearSelection", "snapshot"]);
+      const ctx = createToolContext({ selectedLayerId: null, onSelectionCreated: vi.fn(), selectionShape: "ellipse" });
+      handlePointerDown("selection", 100, 100, engine, createMockHistory(), vi.fn(), ctx);
+      handlePointerMove("selection", 200, 250, engine, vi.fn(), ctx);
+      handlePointerUp("selection", 200, 250, engine, createMockHistory(), vi.fn(), ctx);
+      // 6th arg = shape
+      expect(engine.createSelection).toHaveBeenCalledWith(100, 100, 100, 150, 0, "ellipse");
+    });
+
+    it("defaults to rect shape when context.selectionShape is unset", () => {
+      const engine = createMockEngine(["createSelection", "clearSelection", "snapshot"]);
+      const ctx = createToolContext({ selectedLayerId: null, onSelectionCreated: vi.fn() });
+      handlePointerDown("selection", 100, 100, engine, createMockHistory(), vi.fn(), ctx);
+      handlePointerMove("selection", 200, 250, engine, vi.fn(), ctx);
+      handlePointerUp("selection", 200, 250, engine, createMockHistory(), vi.fn(), ctx);
+      expect(engine.createSelection).toHaveBeenCalledWith(100, 100, 100, 150);
+    });
+  });
+
   describe("Shift modifier — constrain to square", () => {
     it("Shift+drag uses max dimension for both axes (drag wider than tall)", () => {
       const engine = createMockEngine(["createSelection", "snapshot"]);
@@ -130,6 +151,54 @@ describe("input-handler: selection tool draw modifiers", () => {
       // dragStart = (50, 50), newX = 200 - 50 = 150, newY = 200 - 50 = 150
       expect(ctx.onSelectionMoved).toHaveBeenCalledWith(150, 150);
       expect(engine.createSelection).not.toHaveBeenCalled();
+    });
+
+    it("moving an ellipse selection preserves the ellipse shape in engine", () => {
+      // Simulate: draw an ellipse → then move it → engine still has "ellipse"
+      const engine = createMockEngine(["createSelection", "snapshot", "clearSelection"]);
+      // Use a REAL onSelectionMoved that calls engine.createSelection with shape,
+      // matching how useCanvasPointerTools wires it in production.
+      let currentShape: "rect" | "ellipse" | undefined = "ellipse";
+      let currentBox = { x: 0, y: 0, w: 100, h: 150 };
+      // Phase 1: Draw an ellipse selection (NO selectionBounds → always draw mode)
+      const ctxDraw = createToolContext({
+        onSelectionMoved: vi.fn(),
+        onSelectionCreated: vi.fn(),
+        selectionShape: "ellipse", // shape context for the initial draw
+        selectedLayerId: null,
+      });
+      handlePointerDown("selection", 100, 100, engine, createMockHistory(), vi.fn(), ctxDraw);
+      handlePointerMove("selection", 200, 250, engine, vi.fn(), ctxDraw);
+      handlePointerUp("selection", 200, 250, engine, createMockHistory(), vi.fn(), ctxDraw);
+
+      // After draw: engine has shape="ellipse"
+      expect(engine.createSelection).toHaveBeenLastCalledWith(100, 100, 100, 150, 0, "ellipse");
+
+      // Track current selection for move phase
+      currentBox = { x: 100, y: 100, w: 100, h: 150 };
+
+      // Phase 2: Move the ellipse selection
+      // First pointerDown INSIDE the selection to start move mode
+      const ctxMove = createToolContext({
+        selectionBounds: { x: 100, y: 100, width: 100, height: 150 },
+        onSelectionMoved: (x, y) => {
+          engine.createSelection(x, y, currentBox.w, currentBox.h, 0, currentShape);
+          currentBox = { ...currentBox, x, y };
+        },
+        onSelectionCreated: vi.fn(),
+      });
+      // (150, 175) is inside the selection bounds
+      handlePointerDown("selection", 150, 175, engine, createMockHistory(), vi.fn(), ctxMove);
+      handlePointerMove("selection", 200, 200, engine, vi.fn(), ctxMove);
+      handlePointerUp("selection", 200, 200, engine, createMockHistory(), vi.fn(), ctxMove);
+
+      // After move: engine.createSelection must have been called WITH shape="ellipse"
+      const allCalls = vi.mocked(engine.createSelection).mock.calls;
+      // Filter to only calls that have 6 args (the ones from onSelectionMoved)
+      const moveCalls = allCalls.filter((args) => args.length >= 5);
+      const lastMoveArgs = moveCalls[moveCalls.length - 1];
+      // Last createSelection from onSelectionMoved should have shape = "ellipse"
+      expect(lastMoveArgs[5]).toBe("ellipse");
     });
 
     it("dragMode is reset after pointer up", () => {

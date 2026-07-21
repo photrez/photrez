@@ -9,6 +9,7 @@ function createMockEditor(overrides: Record<string, any> = {}) {
     activeTool: "selection",
     selection: null,
     selectionEditMode: false,
+    selectionShape: "rect",
     selectionConstraintMode: "normal",
     selectionRatioW: 1,
     selectionRatioH: 1,
@@ -67,9 +68,13 @@ describe("SelectionOptionBar", () => {
       expect(input.disabled).toBe(true);
     });
 
-    // Action buttons like Cut, Copy, Paste, etc. should be disabled/inactive
-    const cutBtn = root.querySelectorAll("button").item(1); // First button after ToolPill
-    expect(cutBtn.disabled).toBe(true);
+    // Action buttons like Cut, Copy, Paste, etc. should be disabled/inactive.
+    // Query by label (not index) since the marquee-shape toggle buttons
+    // precede the action buttons now.
+    const buttons = Array.from(root.querySelectorAll("button"));
+    const cutBtn = buttons.find((b) => b.textContent?.includes("Cut"));
+    expect(cutBtn).toBeDefined();
+    expect(cutBtn!.disabled).toBe(true);
 
     dispose();
     root.remove();

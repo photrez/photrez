@@ -474,8 +474,12 @@ export class DocumentEngine {
   }
 
   // ─── Selection ───
-  createSelection(x: number, y: number, w: number, h: number, angle?: number): void {
-    this.model.selection = { x, y, width: w, height: h, angle: angle ?? 0 };
+  createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void {
+    // Only store `shape` when non-default (ellipse) so the selection object
+    // stays backward-compatible (rect selections have no `shape` key).
+    this.model.selection = shape === "ellipse"
+      ? { x, y, width: w, height: h, angle: angle ?? 0, shape: "ellipse" }
+      : { x, y, width: w, height: h, angle: angle ?? 0 };
     this.notifyChange();
   }
 

@@ -75,6 +75,7 @@ export interface ToolContext {
   rotateStartAngle?: number;
   selectionAngle?: number;
   selectionConstraintMode?: "normal" | "ratio" | "size";
+  selectionShape?: "rect" | "ellipse";
   selectionRatioW?: number;
   selectionRatioH?: number;
   selectionSizeW?: number;
@@ -305,6 +306,23 @@ export function handlePointerMove(
   requestRender();
 }
 
+/**
+ * Creates a selection, preserving backward-compatible arity: rect selections
+ * use the 4-arg form, ellipse selections append the shape so the engine
+ * stores `shape: "ellipse"`.
+ */
+function commitSelection(
+  engine: DocumentEngine,
+  r: { x: number; y: number; w: number; h: number },
+  shape: "rect" | "ellipse",
+): void {
+  if (shape === "ellipse") {
+    engine.createSelection(r.x, r.y, r.w, r.h, 0, "ellipse");
+  } else {
+    engine.createSelection(r.x, r.y, r.w, r.h);
+  }
+}
+
 export function handlePointerUp(
   _tool: ToolType,
   docX: number,
@@ -353,7 +371,7 @@ export function handlePointerUp(
         let x = centerX - w / 2;
         let y = centerY - h / 2;
         const r = clampSelectionToCanvas(x, y, w, h, engine);
-        engine.createSelection(r.x, r.y, r.w, r.h);
+        commitSelection(engine, r, context.selectionShape ?? "rect");
       } else if (context.selectionConstraintMode === "ratio") {
         const rw = context.selectionRatioW ?? 1;
         const rh = context.selectionRatioH ?? 1;
@@ -379,7 +397,7 @@ export function handlePointerUp(
         }
         if (w > 2 && h > 2) {
           const r = clampSelectionToCanvas(x, y, w, h, engine);
-        engine.createSelection(r.x, r.y, r.w, r.h);
+        commitSelection(engine, r, context.selectionShape ?? "rect");
         } else {
           engine.clearSelection();
         }
@@ -408,7 +426,7 @@ export function handlePointerUp(
 
         if (w > 2 && h > 2) {
           const r = clampSelectionToCanvas(x, y, w, h, engine);
-        engine.createSelection(r.x, r.y, r.w, r.h);
+        commitSelection(engine, r, context.selectionShape ?? "rect");
         } else {
           engine.clearSelection();
         }

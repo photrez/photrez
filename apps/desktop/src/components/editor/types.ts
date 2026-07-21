@@ -14,6 +14,9 @@ export type ToolItem = {
   icon: IconName;
   label: string;
   active?: boolean;
+  /** Sub-variants shown on right-click (tool-group fly-out). When present the
+   *  visible icon/label follows the active variant. */
+  variants?: Array<{ id: string; icon: IconName; label: string }>;
 };
 
 export type LayerItem = {

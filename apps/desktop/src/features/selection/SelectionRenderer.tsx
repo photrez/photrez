@@ -134,31 +134,63 @@ export function SelectionRenderer(props: SelectionRendererProps) {
                 both walking in opposite phase, so the edge stays visible over
                 any background (standard marching-ants treatment). */}
             <g data-selection-marquee style={{ "pointer-events": "none" }}>
-              <rect
-                x={screenX()}
-                y={screenY()}
-                width={screenW()}
-                height={screenH()}
-                fill="none"
-                stroke="var(--color-editor-accent, #E15A17)"
-                stroke-width={1.5}
-                stroke-dasharray="4 4"
-                data-march
-                vector-effect="non-scaling-stroke"
-              />
-              <rect
-                x={screenX()}
-                y={screenY()}
-                width={screenW()}
-                height={screenH()}
-                fill="none"
-                stroke="white"
-                stroke-width={1}
-                stroke-dasharray="4 4"
-                stroke-dashoffset={4}
-                data-march
-                vector-effect="non-scaling-stroke"
-              />
+              <Show when={sel().shape === "ellipse"} fallback={
+                // Rect marquee: double-stroke marching-ants rect
+                <>
+                  <rect
+                    x={screenX()}
+                    y={screenY()}
+                    width={screenW()}
+                    height={screenH()}
+                    fill="none"
+                    stroke="var(--color-editor-accent, #E15A17)"
+                    stroke-width={1.5}
+                    stroke-dasharray="4 4"
+                    data-march
+                    vector-effect="non-scaling-stroke"
+                  />
+                  <rect
+                    x={screenX()}
+                    y={screenY()}
+                    width={screenW()}
+                    height={screenH()}
+                    fill="none"
+                    stroke="white"
+                    stroke-width={1}
+                    stroke-dasharray="4 4"
+                    stroke-dashoffset={4}
+                    data-march
+                    vector-effect="non-scaling-stroke"
+                  />
+                </>
+              }>
+                {/* Ellipse marquee: double-stroke marching-ants ellipse */}
+                <ellipse
+                  cx={screenX() + screenW() / 2}
+                  cy={screenY() + screenH() / 2}
+                  rx={screenW() / 2}
+                  ry={screenH() / 2}
+                  fill="none"
+                  stroke="var(--color-editor-accent, #E15A17)"
+                  stroke-width={1.5}
+                  stroke-dasharray="4 4"
+                  data-march
+                  vector-effect="non-scaling-stroke"
+                />
+                <ellipse
+                  cx={screenX() + screenW() / 2}
+                  cy={screenY() + screenH() / 2}
+                  rx={screenW() / 2}
+                  ry={screenH() / 2}
+                  fill="none"
+                  stroke="white"
+                  stroke-width={1}
+                  stroke-dasharray="4 4"
+                  stroke-dashoffset={4}
+                  data-march
+                  vector-effect="non-scaling-stroke"
+                />
+              </Show>
             </g>
 
             {/* Edit-mode-only: rotation connector + handles */}

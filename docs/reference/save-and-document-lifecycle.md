@@ -70,25 +70,24 @@ Additional specifications:
 
 ## 4) Save Strategy (MVP)
 
-### Key Decision: MVP has Export-only workflow
+### Key Decision: Project + Export workflow (updated alpha.1)
 
-In MVP, there is **no native project format save**. The workflow is:
+Photrez saves projects via `.ptz`. The workflow is:
 
-- **Autosave**: automatic crash recovery (not user-facing).
-- **Export**: user-facing output to JPG/PNG/WebP.
+- **Autosave**: automatic crash recovery (temp, not user-facing).
+- **Save (Ctrl+S)**: overwrites the `.ptz` source (project, all layers); for a single-layer flat source it overwrites in place. New/unsaved or multi-layer-on-flat documents redirect to Save As.
+- **Save As (Ctrl+Shift+S)**: native dialog, default `.ptz`; also offers flat JPG/PNG/WebP (with optional `.ptz` backup for multi-layer).
+- **Export (Ctrl+Alt+E)**: flat raster output JPG/PNG/WebP.
 
-This decision is consistent with:
-- `docs/spec/product-scope.md` — native project format is a non-goal.
-- `docs/spec/data-model.md` section 7 — future project format is post-MVP.
+This updates the earlier MVP export-only plan. `product-scope.md` now lists `.ptz` as shipped in alpha.1; `data-model.md` documents the `.ptz` container.
 
-### What "Save" (Ctrl+S) Does in MVP
+### What "Save" (Ctrl+S) Does (alpha.1)
 
-**Decision: Ctrl+S always triggers the Export Dialog** (same as Ctrl+Shift+S).
-This prevents accidental file overwriting since the MVP works in an export-only layout (no project format).
+`Ctrl+S` saves the document: it overwrites the `.ptz` source (project, all layers), or overwrites a flat single-layer source in place. New/unsaved or multi-layer-on-flat documents redirect to Save As (which defaults to `.ptz`). Export (Ctrl+Alt+E) is the separate flat-output path. This replaced the earlier MVP plan where Ctrl+S opened the Export Dialog.
 
 ### Autosave Behavior
 
-Per `docs/spec/data-model.md` section 7:
+Per `docs/spec/data-model.md` (Project Format section):
 
 - Autosave runs max once per 60 seconds during active editing.
 - Writes metadata (JSON) + pixel data (binary) to temp directory.

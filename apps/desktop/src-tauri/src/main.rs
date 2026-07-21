@@ -77,8 +77,6 @@ fn main() {
             commands::print_image,
             commands::delete_file,
             commands::close_app,
-            commands::close_splashscreen,
-            cursor::set_native_cursor,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");

@@ -32,6 +32,8 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
     scheduler,
     activeTool,
     setActiveTool,
+    selectionShape,
+    setSelectionShape,
     zoom,
     docWidth,
     docHeight,
@@ -841,7 +843,13 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
 
       if (!ctrl && key === "m") {
         e.preventDefault();
-        setActiveTool("selection");
+        if (e.shiftKey) {
+          // Shift+M toggles the marquee shape between rect and ellipse.
+          setSelectionShape(selectionShape() === "ellipse" ? "rect" : "ellipse");
+        } else {
+          setSelectionShape("rect");
+          setActiveTool("selection");
+        }
         scheduler.requestRender();
         return;
       }

@@ -156,6 +156,14 @@ describe("fillActiveLayerWithColor (selection-aware)", () => {
             }
           },
           drawImage: vi.fn(),
+          getImageData: function(x: number, y: number, w: number, h: number) {
+            return {
+              data: self._buffer,
+              width: self.width, height: self.height,
+              colorSpace: "srgb",
+            };
+          },
+          putImageData: vi.fn(),
           save: vi.fn(),
           restore: vi.fn(),
           translate: vi.fn(),
@@ -269,6 +277,37 @@ describe("fillActiveLayerWithColor (selection-aware)", () => {
 
     expect(pixel(layer.imageBitmap, 35, 35)).toEqual([255, 255, 0, 255]); // inside
     expect(pixel(layer.imageBitmap, 5, 5)).toEqual([0, 0, 0, 0]);          // outside
+  });
+
+  it("fills only INSIDE the ellipse when selection shape is ellipse", () => {
+    const { engine, layer, history, renderer } = setup();
+    engine.createSelection(20, 20, 60, 60, 0, "ellipse");
+
+    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+    expect(ok).toBe(true);
+
+    // Center of ellipse → inside → filled red.
+    expect(pixel(layer.imageBitmap, 50, 50)).toEqual([255, 0, 0, 255]);
+    // Corner of AABB (outside ellipse) → untouched (transparent).
+    expect(pixel(layer.imageBitmap, 21, 21)).toEqual([0, 0, 0, 0]);
+    expect(pixel(layer.imageBitmap, 78, 78)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("fills everything OUTSIDE the ellipse when selection is inverted + ellipse", () => {
+    const { engine, layer, history, renderer } = setup();
+    engine.createSelection(20, 20, 60, 60, 0, "ellipse");
+    engine.invertSelection();
+
+    const ok = fillActiveLayerWithColor(engine, history, renderer, "#00ff00");
+    expect(ok).toBe(true);
+
+    // Center of ellipse → inside → untouched (transparent).
+    expect(pixel(layer.imageBitmap, 50, 50)).toEqual([0, 0, 0, 0]);
+    // Corner of AABB (outside ellipse) → filled green.
+    expect(pixel(layer.imageBitmap, 21, 21)).toEqual([0, 255, 0, 255]);
+    // Far corner (outside AABB entirely) → filled green.
+    expect(pixel(layer.imageBitmap, 1, 1)).toEqual([0, 255, 0, 255]);
+    expect(pixel(layer.imageBitmap, 95, 95)).toEqual([0, 255, 0, 255]);
   });
 });
 

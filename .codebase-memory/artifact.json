@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "ee07f682ead38339c2b9195b321f2a0489c57401",
+    "indexed_at": "2026-07-21T11:59:38Z",
+    "project": "D-Project-image-studio",
+    "nodes": 4356,
+    "edges": 13583,
+    "original_size": 14221312,
+    "compressed_size": 2814825,
+    "compression_level": 3
+}

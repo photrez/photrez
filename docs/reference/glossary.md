@@ -45,7 +45,7 @@ Use these exact terms consistently. Do not introduce synonyms without updating t
 | **Resize** | Changing canvas or image dimensions with interpolation. | Scale (ambiguous with transform scale) |
 | **Brush stroke** | A continuous drawing path from pointer-down to pointer-up. | Paint, draw (acceptable informally) |
 | **Export** | Writing the final composited image to a file format. | Save as, render, output |
-| **Save** | In MVP: triggers export (no native project format). | — |
+| **Save** | Writes the `.ptz` project file (all layers preserved) when the source is `.ptz`; overwrites a flat source in place for single-layer images. Export produces flat JPG/PNG/WebP. | — |
 
 ## 5) Technical Terms
 

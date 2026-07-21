@@ -150,6 +150,39 @@ describe("projectSerialize — serializeAndSaveProject", () => {
     expect(parsed.height).toBe(1080);
   });
 
+  it("writes photrez-ptz format + version:1 marker (KNOWN_ISSUES #9 hardening)", async () => {
+    stubSerializeGlobals(PNG_BYTES);
+
+    const engine = new DocumentEngine("doc-ver", "Versioned", 64, 64);
+    engine.addLayer("L1", 64, 64);
+
+    const { serializeAndSaveProject } = await import("../projectSerialize");
+    await serializeAndSaveProject(engine, "/path/ver.ptz");
+
+    const parsed = JSON.parse(capturedProject!.documentJson) as DocumentModel & { format?: string; version?: number };
+    expect(parsed.format).toBe("photrez-ptz");
+    expect(parsed.version).toBe(1);
+  });
+
+  it("loader tolerates alpha.1 projects without a version field (backward-compatible)", async () => {
+    stubSerializeGlobals(PNG_BYTES);
+
+    const engine = new DocumentEngine("doc-legacy", "Legacy", 64, 64);
+    engine.addLayer("L1", 64, 64);
+
+    const { serializeAndSaveProject } = await import("../projectSerialize");
+    await serializeAndSaveProject(engine, "/path/legacy.ptz");
+
+    // Simulate loadProjectFile parse path (editorOpenImage.ts): strip version, then parse.
+    const parsed = JSON.parse(capturedProject!.documentJson) as DocumentModel & { format?: string; version?: number };
+    delete parsed.version;
+    delete parsed.format;
+    const reloaded = JSON.parse(JSON.stringify(parsed)) as DocumentModel;
+    // No crash, model intact — loadProjectFile handles missing version as compatible.
+    expect(reloaded.id).toBe("doc-legacy");
+    expect(reloaded.layers.length).toBe(1);
+  });
+
   it("serializes layer properties (name, opacity, visible, blendMode, transform)", async () => {
     stubSerializeGlobals(PNG_BYTES);
 

@@ -256,11 +256,12 @@ enum ExportFormat {
 - On crash recovery: app checks for autosave files at startup.
 - Autosave files are cleaned up on normal document close.
 
-### Future Project Format (Post-MVP)
+### Project Format (`.ptz`, shipped alpha.1)
 
-- Native project format is explicitly out of MVP scope.
-- Current persistence is autosave-only (not user-facing save/load of project files).
-- Future format will likely be a container (ZIP-like) with JSON metadata + binary layers.
+- Native project format `.ptz` is implemented: a ZIP container with `document.json` (metadata, layers, transforms) + per-layer PNG bitmaps.
+- User-facing save/load via `.ptz` (Ctrl+S overwrites a `.ptz` source; Ctrl+Shift+S = Save As dialog, default `.ptz`). Single-layer flat sources can be overwritten in place via Export-style encode.
+- Autosave also writes to temp for crash recovery.
+- Future: `.ptz` v2 container adding text/shape layer metadata (see roadmap Future Considerations, post-v1).
 
 ## 8) Memory Budget Summary
 

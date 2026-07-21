@@ -6,9 +6,9 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 ## 🚨 Critical Limitations
 
 ### 1. Startup Time
-- **Symptom:** Cold launch takes ~3.7 seconds (target: <2s).
-- **Workaround:** None. App is usable after launch.
-- **Fix planned:** Beta release (lazy loading, shader precompilation).
+- **Symptom (resolved in alpha.2):** Earlier estimate cited ~3.7s cold launch. On the installed Windows build the app launches near-instantly; frontend mount measures ~37ms (Solid + WebGL2 init). The previous 3.7s was a stale dev-first-run estimate, not representative of release builds.
+- **Fix (alpha.2):** Removed the splashscreen window — the app now shows the main window directly (Tauri guidance: splashscreen only masks slow loads; Photrez is fast enough that it only added a black flash). `main` window is visible by default with a solid editor background, so there is no white/black flash.
+- **Status:** No startup optimization needed. Target (<2s) met in practice.
 
 ### 2. Windows-Only
 - **Symptom:** No macOS or Linux builds available for alpha.
@@ -23,9 +23,10 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 - **Fix planned:** Beta release.
 
 ### 4. Selection Tools
-- **Symptom:** Only rectangular marquee is available.
-- **Not available:** Lasso, magic wand, ellipse selection.
-- **MVP scope:** Rectangular only. Advanced selection is post-v1.0.
+- **Symptom:** Rectangular + elliptical marquee only.
+- **Shipped (alpha.2):** Elliptical marquee (drag draws ellipse; copy/cut/delete scope to the ellipse; Rect/Ellipse toggle + M / Shift+M).
+- **Not available:** Lasso, magic wand.
+- **MVP scope:** Rectangular + elliptical. Advanced selection is post-v1.0.
 
 ### 5. Brush Engine
 - **Symptom:** Only round brush tip with hardness/flow/smoothing.
@@ -70,8 +71,8 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 ## 🐛 Known Bugs
 
 ### 13. Window State Restore on Multi-Monitor
-- **Symptom:** If saved window position is on a disconnected external monitor, app snaps to primary monitor center (intended), but may briefly flash at default size.
-- **Fix planned:** Beta release.
+- **Symptom (mitigated in alpha.2):** If saved window position is on a disconnected external monitor, app snaps to primary monitor center (intended). The earlier "brief flash at default size" was caused by the splashscreen restore race; removing the splashscreen (alpha.2) eliminates that flash. A minor resize flash on main-window restore may still occur on multi-monitor and is low priority.
+- **Fix planned:** Beta release (if still observable after splashscreen removal).
 
 ### 14. Custom Titlebar Accessibility
 - **Symptom:** Custom titlebar may not fully support keyboard navigation (Alt+Space system menu, F10 menu activation).

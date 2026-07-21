@@ -263,19 +263,6 @@ pub(crate) fn close_app(app: tauri::AppHandle) -> Result<Value, Value> {
     ok_response(serde_json::json!({ "closed": true }))
 }
 
-/// Close the splashscreen and show the main window.
-#[tauri::command]
-pub(crate) fn close_splashscreen(app: tauri::AppHandle) -> Result<Value, Value> {
-    use tauri::Manager;
-    if let Some(splash_window) = app.get_webview_window("splashscreen") {
-        let _ = splash_window.close();
-    }
-    if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.show();
-    }
-    ok_response(serde_json::json!({ "splashscreen_closed": true }))
-}
-
 /// Print an image file using the system's native print dialog.
 /// On Windows, calls ShellExecuteW("print") which opens the compact
 /// Windows print dialog (same one used by Paint, Photoshop, etc.)

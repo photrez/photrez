@@ -48,7 +48,7 @@ export function getRotatePath(type: string, cx: number, cy: number, ro: number, 
 }
 
 export function SelectionTransformOverlay(props: SelectionTransformOverlayProps = {}) {
-  const { zoom, pan, activeTool, setHoverHandle, setHoverPos, layerTransformSession, setLayerTransformSession, workspace, scheduler } = useEditor();
+  const { zoom, pan, activeTool, setHoverHandle, setHoverPos, layerTransformSession, setLayerTransformSession, workspace, scheduler, selection } = useEditor();
 
   let overlaySvgRef: SVGSVGElement | undefined;
 
@@ -158,19 +158,34 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
         >
           {/* Rotated group for handles and interactions in screen-space */}
           <g transform={`rotate(${rotation()} ${screenCenter().x} ${screenCenter().y})`}>
-            {/* Rotated bounding box outline */}
-            <rect
-              data-transform-box
-              x={screenTL().x}
-              y={screenTL().y}
-              width={screenW()}
-              height={screenH()}
-              fill="none"
-              stroke={layerTransformSession()?.layerId === getLayer()?.id ? "var(--color-editor-accent)" : "rgba(255,255,255,0.72)"}
-              stroke-width={1}
-              vector-effect="non-scaling-stroke"
-              style={{ "pointer-events": "none" }}
-            />
+            {/* Rotated bounding box / ellipse outline */}
+            {selection()?.shape === "ellipse" ? (
+              <ellipse
+                data-transform-box
+                cx={screenTL().x + screenW() / 2}
+                cy={screenTL().y + screenH() / 2}
+                rx={screenW() / 2}
+                ry={screenH() / 2}
+                fill="none"
+                stroke={layerTransformSession()?.layerId === getLayer()?.id ? "var(--color-editor-accent)" : "rgba(255,255,255,0.72)"}
+                stroke-width={1}
+                vector-effect="non-scaling-stroke"
+                style={{ "pointer-events": "none" }}
+              />
+            ) : (
+              <rect
+                data-transform-box
+                x={screenTL().x}
+                y={screenTL().y}
+                width={screenW()}
+                height={screenH()}
+                fill="none"
+                stroke={layerTransformSession()?.layerId === getLayer()?.id ? "var(--color-editor-accent)" : "rgba(255,255,255,0.72)"}
+                stroke-width={1}
+                vector-effect="non-scaling-stroke"
+                style={{ "pointer-events": "none" }}
+              />
+            )}
             {/* Center pivot dot */}
             <circle
               cx={screenCenter().x}

@@ -127,11 +127,14 @@ export function EditorShell() {
     });
   } else {
     // We are in Tauri environment. The UI is now hydrated and ready to be displayed.
-    // Close the splashscreen and show the main window.
+    // Show the main window directly (no splashscreen — app launches fast enough
+    // that a splashscreen only adds a black flash; Tauri guidance + KNOWN_ISSUES #1).
     onMount(() => {
       import("@tauri-apps/api/core").then(({ invoke }) => {
-        invoke("close_splashscreen").catch((err) => console.error("Failed to close splashscreen:", err));
-      }).catch(console.error);
+        invoke("close_splashscreen").catch(() => {
+          /* splashscreen may already be absent; main window is visible by default */
+        });
+      }).catch(() => {});
     });
   }
 

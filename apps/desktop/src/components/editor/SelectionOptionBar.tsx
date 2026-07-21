@@ -26,6 +26,8 @@ export function SelectionOptionBar() {
     setSelectionSizeW,
     selectionSizeH,
     setSelectionSizeH,
+    selectionShape,
+    setSelectionShape,
   } = useEditor();
 
   const engine = () => workspace.getActiveEngine();
@@ -47,7 +49,7 @@ export function SelectionOptionBar() {
   const submitW = (n: number) => {
     const s = selection();
     if (s && !isNaN(n) && n > 0) {
-      engine()?.createSelection(s.x, s.y, n, s.height);
+      engine()?.createSelection(s.x, s.y, n, s.height, s.angle, selectionShape());
       scheduler.requestRender();
     }
   };
@@ -55,7 +57,7 @@ export function SelectionOptionBar() {
   const submitH = (n: number) => {
     const s = selection();
     if (s && !isNaN(n) && n > 0) {
-      engine()?.createSelection(s.x, s.y, s.width, n);
+      engine()?.createSelection(s.x, s.y, s.width, n, s.angle, selectionShape());
       scheduler.requestRender();
     }
   };
@@ -63,7 +65,7 @@ export function SelectionOptionBar() {
   const submitX = (n: number) => {
     const s = selection();
     if (s && !isNaN(n)) {
-      engine()?.createSelection(n, s.y, s.width, s.height);
+      engine()?.createSelection(n, s.y, s.width, s.height, s.angle, selectionShape());
       scheduler.requestRender();
     }
   };
@@ -71,7 +73,7 @@ export function SelectionOptionBar() {
   const submitY = (n: number) => {
     const s = selection();
     if (s && !isNaN(n)) {
-      engine()?.createSelection(s.x, n, s.width, s.height);
+      engine()?.createSelection(s.x, n, s.width, s.height, s.angle, selectionShape());
       scheduler.requestRender();
     }
   };
@@ -79,7 +81,7 @@ export function SelectionOptionBar() {
   const submitAngle = (n: number) => {
     const s = selection();
     if (s && !isNaN(n)) {
-      engine()?.createSelection(s.x, s.y, s.width, s.height, n);
+      engine()?.createSelection(s.x, s.y, s.width, s.height, n, selectionShape());
       scheduler.requestRender();
     }
   };
@@ -142,6 +144,30 @@ export function SelectionOptionBar() {
   return (
     <>
       <ToolPill icon="rectangle" label="Selection" />
+
+      <Divider />
+
+      {/* Marquee shape toggle */}
+      <div class="flex shrink-0 items-center gap-0.5">
+        <Tooltip content="Rectangular Marquee" shortcut="M">
+          <ToggleBtn
+            active={selectionShape() === "rect"}
+            onChange={() => setSelectionShape("rect")}
+            icon="rectangle"
+            label="Rect"
+            labelClass="@max-[900px]:hidden"
+          />
+        </Tooltip>
+        <Tooltip content="Elliptical Marquee" shortcut="Shift+M">
+          <ToggleBtn
+            active={selectionShape() === "ellipse"}
+            onChange={() => setSelectionShape("ellipse")}
+            icon="circle"
+            label="Ellipse"
+            labelClass="@max-[900px]:hidden"
+          />
+        </Tooltip>
+      </div>
 
       <Divider />
 

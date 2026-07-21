@@ -122,7 +122,29 @@ export class SelectionOperations {
     try {
       if (sel.inverted) {
         ctx.drawImage(bitmap, 0, 0);
-        ctx.clearRect(Math.round(aabb.x), Math.round(aabb.y), Math.round(aabb.width), Math.round(aabb.height));
+        if (sel.shape === "ellipse") {
+          // Inverted ellipse: mask out the ellipse interior instead of a rectangle
+          const img = ctx.getImageData(0, 0, w, h);
+          const localSel: SelectionState = {
+            x: aabb.x, y: aabb.y,
+            width: aabb.width, height: aabb.height,
+            angle: 0, shape: "ellipse",
+          };
+          const ax = Math.max(0, Math.round(aabb.x));
+          const ay = Math.max(0, Math.round(aabb.y));
+          const aw = Math.min(layerW - ax, Math.round(aabb.width));
+          const ah = Math.min(layerH - ay, Math.round(aabb.height));
+          for (let py = ay; py < ay + ah; py++) {
+            for (let px = ax; px < ax + aw; px++) {
+              if (SelectionOperations.isInsideEllipse(px, py, localSel)) {
+                img.data[(py * w + px) * 4 + 3] = 0;
+              }
+            }
+          }
+          ctx.putImageData(img, 0, 0);
+        } else {
+          ctx.clearRect(Math.round(aabb.x), Math.round(aabb.y), Math.round(aabb.width), Math.round(aabb.height));
+        }
       } else {
         ctx.drawImage(
           bitmap,
@@ -134,7 +156,14 @@ export class SelectionOperations {
       // Auto-trim transparent pixels so empty areas are not included.
       // Skip for inverted selections: the excluded region may touch the
       // layer edge, causing trimTransparent to cut off visible content.
-      const trimmed = sel.inverted ? data : SelectionOperations.trimTransparent(data);
+      // For ellipse marquees, trim would cut to the bounding box — instead
+      // mask out pixels outside the ellipse so the copied region follows it.
+      let trimmed = sel.inverted ? data : SelectionOperations.trimTransparent(data);
+      if (sel.shape === "ellipse" && !sel.inverted) {
+        // data is a fresh ImageData from getImageData, safe to mutate in place.
+        SelectionOperations.maskOutsideEllipse(data, aabb, sel);
+        trimmed = data;
+      }
       SelectionOperations.clipboard = trimmed;
       return trimmed;
     } catch (err) {
@@ -268,6 +297,46 @@ export class SelectionOperations {
    * translated, or rotated. With an identity transform the result equals the
    * raw selection rect.
    */
+  /**
+   * True if document-space point (x, y) is inside an ellipse marquee
+   * defined by the selection bounds. Used when `sel.shape === "ellipse"`.
+   * Pure function — tested separately.
+   */
+  static isInsideEllipse(x: number, y: number, sel: SelectionState): boolean {
+    const cx = sel.x + sel.width / 2;
+    const cy = sel.y + sel.height / 2;
+    const rx = sel.width / 2;
+    const ry = sel.height / 2;
+    if (rx <= 0 || ry <= 0) return false;
+    const nx = (x - cx) / rx;
+    const ny = (y - cy) / ry;
+    return nx * nx + ny * ny <= 1;
+  }
+
+  /**
+   * Zero out alpha for every pixel OUTSIDE the ellipse marquee, within the
+   * given layer-local AABB. Used for ellipse copy/delete so the result
+   * follows the ellipse, not its bounding box.
+   */
+  private static maskOutsideEllipse(
+    data: ImageData,
+    aabb: { x: number; y: number; width: number; height: number },
+    sel: SelectionState,
+  ): void {
+    const left = Math.round(aabb.x);
+    const top = Math.round(aabb.y);
+    const w = data.width;
+    for (let py = 0; py < data.height; py++) {
+      for (let px = 0; px < w; px++) {
+        const docX = left + px;
+        const docY = top + py;
+        if (!SelectionOperations.isInsideEllipse(docX, docY, sel)) {
+          data.data[(py * w + px) * 4 + 3] = 0;
+        }
+      }
+    }
+  }
+
   private static fillSelectionWithTransparent(engine: DocumentEngine): void {
     const sel = engine.getSelection();
     if (!sel) return;
@@ -306,8 +375,49 @@ export class SelectionOperations {
       ctx.clearRect(0, bottom, layerW, layerH - bottom);
       ctx.clearRect(0, top, left, bottom - top);
       ctx.clearRect(right, top, layerW - right, bottom - top);
+      // Inverted ellipse: also clear the corners inside AABB but outside the ellipse
+      if (sel.shape === "ellipse") {
+        const img = ctx.getImageData(sx, sy, w, h);
+        const localSel: SelectionState = {
+          x: aabb.x, y: aabb.y,
+          width: aabb.width, height: aabb.height,
+          angle: 0, shape: "ellipse",
+        };
+        for (let py = 0; py < h; py++) {
+          for (let px = 0; px < w; px++) {
+            const docX = sx + px;
+            const docY = sy + py;
+            if (!SelectionOperations.isInsideEllipse(docX, docY, localSel)) {
+              img.data[(py * w + px) * 4 + 3] = 0;
+            }
+          }
+        }
+        ctx.putImageData(img, sx, sy);
+      }
     } else {
-      ctx.clearRect(sx, sy, w, h);
+      if (sel.shape === "ellipse") {
+        // Clear only pixels inside the ellipse marquee (layer-local AABB space),
+        // not the whole bounding box.
+        const img = ctx.getImageData(0, 0, layerW, layerH);
+        const localSel: SelectionState = {
+          x: aabb.x,
+          y: aabb.y,
+          width: aabb.width,
+          height: aabb.height,
+          angle: 0,
+          shape: "ellipse",
+        };
+        for (let py = sy; py < sy + h; py++) {
+          for (let px = sx; px < sx + w; px++) {
+            if (SelectionOperations.isInsideEllipse(px, py, localSel)) {
+              img.data[(py * layerW + px) * 4 + 3] = 0;
+            }
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+      } else {
+        ctx.clearRect(sx, sy, w, h);
+      }
     }
 
     const newBitmap = offscreen.transferToImageBitmap();

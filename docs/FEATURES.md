@@ -81,6 +81,7 @@
 | Status  | Fitur                                                                                                                                                                                        |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ✅ DONE | Rectangular selection (marquee)                                                                                                                                                              |
+| ✅ DONE | Elliptical selection (marquee) — pixel-mask copy/cut/delete interior-only; ellipse outline; Rect/Ellipse toggle in option bar (M / Shift+M); toolbar right-click fly-out variant             |
 | ✅ DONE | True inverted selection — canvas-minus-rectangle state, complement-aware cut/copy/delete, dual-boundary marquee, and authoritative engine-to-viewport synchronization                        |
 | ✅ DONE | Selection draw with Shift (constrain square) and Alt (draw from center) modifiers                                                                                                            |
 | ✅ DONE | Move selection boundary (click+drag inside marquee)                                                                                                                                          |

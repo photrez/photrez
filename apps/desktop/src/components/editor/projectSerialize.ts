@@ -22,6 +22,8 @@ export async function serializeAndSaveProject(engine: DocumentEngine, path: stri
 
   const serializedModel = {
     ...model,
+    format: "photrez-ptz",
+    version: 1,
     layers: model.layers.map((l) => ({
       ...l,
       imageBitmap: null,

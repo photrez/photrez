@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRoot } from "solid-js";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../EditorContext";
 import { LeftToolRail } from "../LeftToolRail";
@@ -207,6 +208,113 @@ describe("LeftToolRail Tooltip Wiring", () => {
     probe.click();
     expect(currentFg).toBe("#E15A17");
     expect(currentBg).toBe("#FFFFFF");
+
+    dispose();
+    root.remove();
+  });
+});
+
+describe("Selection Tool Variant Fly-out (right-click popover)", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  function setup() {
+    const ws = new WorkspaceManager();
+    const doc = WorkspaceManager.createBlankDocument("test-doc", "Test Doc", 800, 600);
+    ws.addDocument(doc);
+
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    const scheduler = { requestRender: vi.fn() };
+
+    const dispose = render(
+      () => (
+        <EditorProvider
+          workspace={ws}
+          renderer={{ uploadImage: vi.fn(), destroyTexture: vi.fn() } as any}
+          scheduler={scheduler as any}
+        >
+          <DialogProvider>
+            <LeftToolRail />
+          </DialogProvider>
+        </EditorProvider>
+      ),
+      root
+    );
+
+    return { root, dispose, scheduler };
+  }
+
+  it("right-clicking Selection button opens the variant popover", () => {
+    const { root, dispose } = setup();
+
+    // Find Selection tool button (default label is "Rectangle Select")
+    const selBtn = root.querySelector("button[aria-label='Rectangle Select']") as HTMLButtonElement;
+    expect(selBtn).not.toBeNull();
+
+    // Right-click to open popover
+    selBtn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+
+    // Popover should be visible in the DOM now
+    const popoverItem = root.querySelector("button");
+    const allButtons = root.querySelectorAll<HTMLButtonElement>("button");
+    const ellipseOpt = Array.from(allButtons).find((b) => b.textContent?.trim().includes("Elliptical Select"));
+    expect(ellipseOpt).not.toBeNull();
+
+    dispose();
+    root.remove();
+  });
+
+  it("clicking Elliptical Select in popover changes to ellipse variant", () => {
+    const { root, dispose } = setup();
+
+    const selBtn = root.querySelector("button[aria-label='Rectangle Select']") as HTMLButtonElement;
+
+    // Right-click → popover opens
+    selBtn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+
+    // Click "Elliptical Select" option
+    const allButtons = root.querySelectorAll<HTMLButtonElement>("button");
+    const ellipseOpt = Array.from(allButtons).find((b) => b.textContent?.trim().includes("Elliptical Select"));
+    ellipseOpt!.click();
+
+    // Button should now show the ellipse variant (aria-label becomes "Elliptical Select")
+    const updatedBtn = root.querySelector("button[aria-label='Elliptical Select']") as HTMLButtonElement;
+    expect(updatedBtn).not.toBeNull();
+
+    // Popover should be closed (no "Elliptical Select" as standalone text outside the button)
+    // The only "Elliptical Select" text should be on the button itself
+    const remainingEllipseOptions = Array.from(root.querySelectorAll("button"))
+      .filter((b) => b !== updatedBtn && b.textContent?.includes("Elliptical Select"));
+    expect(remainingEllipseOptions.length).toBe(0);
+
+    dispose();
+    root.remove();
+  });
+
+  it("clicking outside the popover closes it", () => {
+    const { root, dispose } = setup();
+
+    const selBtn = root.querySelector("button[aria-label='Rectangle Select']") as HTMLButtonElement;
+
+    // Right-click → popover opens
+    selBtn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+
+    // Verify popover is open
+    let allButtons = root.querySelectorAll<HTMLButtonElement>("button");
+    let ellipseOpt = Array.from(allButtons).find((b) => b.textContent?.includes("Elliptical Select"));
+    expect(ellipseOpt).not.toBeNull();
+
+    // Click outside (on document body) — the window click listener will fire
+    document.body.click();
+
+    // Popover should now be closed
+    allButtons = root.querySelectorAll<HTMLButtonElement>("button");
+    ellipseOpt = Array.from(allButtons).find((b) => b.textContent?.includes("Elliptical Select"));
+    expect(ellipseOpt).toBeUndefined();
 
     dispose();
     root.remove();

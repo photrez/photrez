@@ -287,6 +287,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
             }
           } catch (err) {
             console.error("file.new dialog failed:", err);
+            showToast("Failed to create new document", "error");
           }
         })();
         break;

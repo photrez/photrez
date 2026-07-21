@@ -9,7 +9,7 @@ vi.mock("@/viewport/coords", () => ({
 describe("startSelectionRotation", () => {
   let setBox: ReturnType<typeof vi.fn>;
   let getContainer: () => HTMLDivElement;
-  let getEngine: () => { getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number): void } | null;
+  let getEngine: () => { getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void } | null;
 
   beforeEach(() => {
     setBox = vi.fn();
@@ -155,6 +155,6 @@ describe("startSelectionRotation", () => {
     // pointerup should commit the rotated angle
     document.dispatchEvent(new PointerEvent("pointerup"));
     // mutableAngle should now be 90 (box.angle(0) + delta(90))
-    expect(createSel).toHaveBeenCalledWith(100, 100, 200, 150, 90);
+    expect(createSel).toHaveBeenCalledWith(100, 100, 200, 150, 90, undefined);
   });
 });

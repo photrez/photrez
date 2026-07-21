@@ -4,6 +4,8 @@ export interface SelectionState {
   width: number;
   height: number;
   angle: number;
+  /** Marquee shape. "rect" = existing behavior; "ellipse" = ellipse marquee. Default "rect". */
+  shape?: "rect" | "ellipse";
   /** When true, the selected pixels are everything outside these bounds. */
   inverted?: boolean;
 }

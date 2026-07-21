@@ -379,6 +379,7 @@ export function CanvasViewport() {
       w: current.width,
       h: current.height,
       angle: current.angle,
+      shape: current.shape,
       inverted: current.inverted,
     } : null);
   });
@@ -513,6 +514,7 @@ export function CanvasViewport() {
           w: sel.width,
           h: sel.height,
           angle: sel.angle,
+          shape: sel.shape,
           inverted: sel.inverted,
         });
       } else {
@@ -968,6 +970,7 @@ export function CanvasViewport() {
                     width: box().w,
                     height: box().h,
                     angle: box().angle ?? 0,
+                    shape: box().shape,
                     inverted: box().inverted,
                   }}
                   zoom={zoom()}

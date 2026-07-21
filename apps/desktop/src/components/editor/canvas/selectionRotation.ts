@@ -7,6 +7,7 @@ export interface SelectionBox {
   w: number;
   h: number;
   angle: number;
+  shape?: "rect" | "ellipse";
   inverted?: boolean;
 }
 
@@ -26,7 +27,7 @@ export function startSelectionRotation(
   getSelectionBox: () => SelectionBox | null,
   setSelectionBox: (box: SelectionBox | null) => void,
   getContainerRef: () => HTMLDivElement | undefined,
-  getActiveEngine: () => { getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number): void } | null,
+  getActiveEngine: () => { getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void } | null,
   getViewportCoords?: ViewportCoordsProvider,
 ): void {
   const box = getSelectionBox();
@@ -76,7 +77,7 @@ export function startSelectionRotation(
     // undo/redo, and pointerUp syncs (otherwise the rotation was only visual).
     const finalBox = getSelectionBox();
     if (finalBox) {
-      engine.createSelection(finalBox.x, finalBox.y, finalBox.w, finalBox.h, finalBox.angle);
+      engine.createSelection(finalBox.x, finalBox.y, finalBox.w, finalBox.h, finalBox.angle, finalBox.shape);
       // Re-sync the signal AFTER committing to engine so any concurrent
       // canvas-element pointerUp handler that read stale engine state is
       // overwritten with the correct angle. Also request a render so the

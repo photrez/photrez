@@ -82,6 +82,8 @@ export interface EditorContextValue {
   setSelectionSizeW: Setter<number>;
   selectionSizeH: Accessor<number>;
   setSelectionSizeH: Setter<number>;
+  selectionShape: Accessor<"rect" | "ellipse">;
+  setSelectionShape: Setter<"rect" | "ellipse">;
   hoveredLayerId: Accessor<string | null>;
   setHoveredLayerId: Setter<string | null>;
   hoverHandle: Accessor<string | null>;

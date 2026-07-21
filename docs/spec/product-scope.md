@@ -26,7 +26,7 @@ This file is intentionally narrow: it defines only the v1 release scope and excl
 - PSD preview/editing workflow.
 - Print checker and print preset system.
 - Command palette and plugin API.
-- Native project format rollout (extension TBD).
+- Native project format: `.ptz` shipped in alpha.1 (ZIP container: `document.json` + per-layer PNG bitmaps). Future `.ptz` v2 with text/shape layer metadata is post-v1 (see roadmap).
 
 ## Performance Budgets (MVP)
 

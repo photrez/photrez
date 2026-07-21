@@ -4,6 +4,7 @@ import type { WebGL2Backend } from "@/renderer/webgl2";
 import { compositeAllLayers } from "@/engine/layerComposite";
 import { applyBasicAdjustmentToColor } from "@/engine/layerAdjustments";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
+import type { SelectionState } from "@/features/selection/SelectionTypes";
 
 export function mergeActiveLayerDown(
   engine: DocumentEngine,
@@ -136,17 +137,69 @@ export function fillActiveLayerWithColor(
           const sw = Math.max(0, Math.round(aabb.width));
           const sh = Math.max(0, Math.round(aabb.height));
           if (sel.inverted) {
-            // Fill everything EXCEPT the (clamped) selected rect.
-            const left = Math.max(0, Math.min(w, sx));
-            const top = Math.max(0, Math.min(h, sy));
-            const right = Math.max(0, Math.min(w, sx + sw));
-            const bottom = Math.max(0, Math.min(h, sy + sh));
-            ctx.fillRect(0, 0, w, top);
-            ctx.fillRect(0, bottom, w, h - bottom);
-            ctx.fillRect(0, top, left, bottom - top);
-            ctx.fillRect(right, top, w - right, bottom - top);
+            if (sel.shape === "ellipse") {
+              // Inverted ellipse: fill everything EXCEPT the ellipse interior.
+              const img = ctx.getImageData(0, 0, w, h);
+              const hex = fillColor.replace("#", "");
+              const r = parseInt(hex.slice(0, 2), 16);
+              const g = parseInt(hex.slice(2, 4), 16);
+              const b = parseInt(hex.slice(4, 6), 16);
+              const localSel: SelectionState = {
+                x: aabb.x, y: aabb.y,
+                width: aabb.width, height: aabb.height,
+                angle: 0, shape: "ellipse",
+              };
+              for (let py = 0; py < h; py++) {
+                for (let px = 0; px < w; px++) {
+                  if (!SelectionOperations.isInsideEllipse(px, py, localSel)) {
+                    const idx = (py * w + px) * 4;
+                    img.data[idx] = r;
+                    img.data[idx + 1] = g;
+                    img.data[idx + 2] = b;
+                    img.data[idx + 3] = 255;
+                  }
+                }
+              }
+              ctx.putImageData(img, 0, 0);
+            } else {
+              // Fill everything EXCEPT the (clamped) selected rect.
+              const left = Math.max(0, Math.min(w, sx));
+              const top = Math.max(0, Math.min(h, sy));
+              const right = Math.max(0, Math.min(w, sx + sw));
+              const bottom = Math.max(0, Math.min(h, sy + sh));
+              ctx.fillRect(0, 0, w, top);
+              ctx.fillRect(0, bottom, w, h - bottom);
+              ctx.fillRect(0, top, left, bottom - top);
+              ctx.fillRect(right, top, w - right, bottom - top);
+            }
           } else {
-            ctx.fillRect(sx, sy, sw, sh);
+            if (sel.shape === "ellipse") {
+              // Non-inverted ellipse: fill only pixels INSIDE the ellipse.
+              const img = ctx.getImageData(0, 0, w, h);
+              const hex = fillColor.replace("#", "");
+              const r = parseInt(hex.slice(0, 2), 16);
+              const g = parseInt(hex.slice(2, 4), 16);
+              const b = parseInt(hex.slice(4, 6), 16);
+              const localSel: SelectionState = {
+                x: aabb.x, y: aabb.y,
+                width: aabb.width, height: aabb.height,
+                angle: 0, shape: "ellipse",
+              };
+              for (let py = sy; py < sy + sh; py++) {
+                for (let px = sx; px < sx + sw; px++) {
+                  if (SelectionOperations.isInsideEllipse(px, py, localSel)) {
+                    const idx = (py * w + px) * 4;
+                    img.data[idx] = r;
+                    img.data[idx + 1] = g;
+                    img.data[idx + 2] = b;
+                    img.data[idx + 3] = 255;
+                  }
+                }
+              }
+              ctx.putImageData(img, 0, 0);
+            } else {
+              ctx.fillRect(sx, sy, sw, sh);
+            }
           }
         } else {
           ctx.fillRect(0, 0, w, h);

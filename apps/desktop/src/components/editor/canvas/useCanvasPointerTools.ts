@@ -90,6 +90,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     setSelectedLayerId,
     setHoverHandle,
     selectionConstraintMode,
+    selectionShape,
     selectionRatioW,
     selectionRatioH,
     selectionSizeW,
@@ -255,6 +256,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     w: number;
     h: number;
     angle: number;
+    shape?: "rect" | "ellipse";
     inverted?: boolean;
   } | null>(null);
 
@@ -325,7 +327,8 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     interactiveState.selectionSizeW = typeof selectionSizeW === "function" ? selectionSizeW() : 100;
     interactiveState.selectionSizeH = typeof selectionSizeH === "function" ? selectionSizeH() : 100;
     interactiveState.onSelectionCreated = (x, y, w, h) => {
-      setSelectionBoxSignal({ x, y, w, h, angle: 0 });
+      const currentShape = typeof selectionShape === "function" ? selectionShape() : undefined;
+      setSelectionBoxSignal({ x, y, w, h, angle: 0, shape: currentShape });
       // Show W×H HUD during selection draw drag
       const sp = interactiveState.screenPos;
       if (sp) {
@@ -360,7 +363,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
         const clampedX = Math.max(-box.w + 1, Math.min(docW - 1, x));
         const clampedY = Math.max(-box.h + 1, Math.min(docH - 1, y));
         setSelectionBoxSignal({ ...box, x: clampedX, y: clampedY });
-        eng.createSelection(clampedX, clampedY, box.w, box.h, box.angle);
+        eng.createSelection(clampedX, clampedY, box.w, box.h, box.angle, box.shape);
       }
       // Show ΔX ΔY HUD during selection move
       const sp = interactiveState.screenPos;
@@ -635,7 +638,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     if (activeTool() === "selection") {
       const sel = engine.getSelection();
       if (sel) {
-        setSelectionBoxSignal({ x: sel.x, y: sel.y, w: sel.width, h: sel.height, angle: sel.angle });
+        setSelectionBoxSignal({ x: sel.x, y: sel.y, w: sel.width, h: sel.height, angle: sel.angle, shape: sel.shape });
       } else {
         setSelectionBoxSignal(null);
       }
@@ -923,6 +926,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       if (axisLock === "vertical") coords = { x: start.x, y: coords.y };
     }
     const tool = (interactiveState.dragTool ?? activeTool()) as ToolType;
+    // Feed current marquee shape into the pointer-up handler so ellipse
+    // selections are created with the right shape (not always rect).
+    interactiveState.selectionShape = typeof selectionShape === "function" ? selectionShape() : "rect";
     const isPaintTool = tool === "brush" || tool === "eraser";
     const hasPoints = isPaintTool && interactiveState.strokePoints.length > 0;
     const smoothed = isPaintTool
@@ -1027,7 +1033,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     if (activeTool() === "selection") {
       const sel = engine.getSelection();
       if (sel) {
-        setSelectionBoxSignal({ x: sel.x, y: sel.y, w: sel.width, h: sel.height, angle: sel.angle });
+        setSelectionBoxSignal({ x: sel.x, y: sel.y, w: sel.width, h: sel.height, angle: sel.angle, shape: sel.shape });
       } else {
         setSelectionBoxSignal(null);
       }
@@ -1168,7 +1174,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       // when the engine truly cleared it (Bug #5).
       const sel = engine.getSelection();
       if (sel) {
-        setSelectionBoxSignal({ x: sel.x, y: sel.y, w: sel.width, h: sel.height, angle: sel.angle });
+        setSelectionBoxSignal({ x: sel.x, y: sel.y, w: sel.width, h: sel.height, angle: sel.angle, shape: sel.shape });
       } else {
         setSelectionBoxSignal(null);
       }

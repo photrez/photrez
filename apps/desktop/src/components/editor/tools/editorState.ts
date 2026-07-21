@@ -64,6 +64,7 @@ export function createEditorState() {
   const [selectedLayerId, setSelectedLayerId] = createSignal<string | null>(null);
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   const [selectionEditMode, setSelectionEditMode] = createSignal(false);
+  const [selectionShape, setSelectionShape] = createSignal<"rect" | "ellipse">("rect");
   const [selectionConstraintMode, setSelectionConstraintMode] = createSignal<"normal" | "ratio" | "size">("normal");
   const [selectionRatioW, setSelectionRatioW] = createSignal(1);
   const [selectionRatioH, setSelectionRatioH] = createSignal(1);
@@ -136,6 +137,7 @@ export function createEditorState() {
     selectionRatioH, setSelectionRatioH,
     selectionSizeW, setSelectionSizeW,
     selectionSizeH, setSelectionSizeH,
+    selectionShape, setSelectionShape,
     fgColor, setFgColor,
     bgColor, setBgColor,
     colorPickerOpen, setColorPickerOpen,
