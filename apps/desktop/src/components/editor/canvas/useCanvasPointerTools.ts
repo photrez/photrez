@@ -661,8 +661,15 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       const bitmap = engine.getLayerImageBitmap(layerId);
       if (!bitmap) { showToast("Layer has no image data", "warn"); return; }
 
-      const offscreen = new OffscreenCanvas(layer.width, layer.height);
-      const ctx = offscreen.getContext("2d");
+      const offscreen = typeof OffscreenCanvas !== "undefined"
+        ? new OffscreenCanvas(layer.width, layer.height)
+        : (() => {
+            const el = document.createElement("canvas");
+            el.width = layer.width;
+            el.height = layer.height;
+            return el;
+          })();
+      const ctx = offscreen.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
       if (!ctx) return;
       ctx.drawImage(bitmap, 0, 0);
       const imgData = ctx.getImageData(0, 0, layer.width, layer.height);
@@ -694,10 +701,12 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
       const preSnapshot = engine.snapshot();
       ctx.putImageData(imgData, 0, 0);
-      const newBitmap = offscreen.transferToImageBitmap();
+      const newBitmap = "transferToImageBitmap" in offscreen
+        ? (offscreen as OffscreenCanvas).transferToImageBitmap()
+        : (offscreen as any);
       try {
         engine.setLayerImageBitmap(layerId, newBitmap);
-        renderer.uploadImage(layerId, newBitmap);
+        renderer?.uploadImage(layerId, newBitmap);
       } catch (err) {
         showToast(`Fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");
         trySetPointerCapture(params.getCanvasRef(), e.pointerId);
@@ -1104,25 +1113,32 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Gradient: apply on pointer up ──
     if (activeTool() === "gradient" && isGradientDragging) {
       isGradientDragging = false;
+      const resetGradientState = () => {
+        gradientDragStart = null;
+        gradientDragEnd = null;
+        if (typeof setGradientDragLine === "function") {
+          setGradientDragLine(null);
+        }
+      };
+
       const engine = workspace.getActiveEngine();
       const history = workspace.getActiveHistory();
       if (!engine || !history || !gradientDragStart || !gradientDragEnd) {
-        gradientDragStart = null;
-        gradientDragEnd = null;
+        resetGradientState();
         return;
       }
 
       const layerId = engine.getActiveLayerId();
-      if (!layerId) { gradientDragStart = null; gradientDragEnd = null; return; }
+      if (!layerId) { resetGradientState(); return; }
       const layer = engine.getLayer(layerId);
-      if (!layer) { gradientDragStart = null; gradientDragEnd = null; return; }
+      if (!layer) { resetGradientState(); return; }
 
       const bitmap = engine.getLayerImageBitmap(layerId);
-      if (!bitmap) { showToast("Layer has no image data", "warn"); gradientDragStart = null; gradientDragEnd = null; return; }
+      if (!bitmap) { showToast("Layer has no image data", "warn"); resetGradientState(); return; }
 
       const offscreen = new OffscreenCanvas(layer.width, layer.height);
       const ctx = offscreen.getContext("2d");
-      if (!ctx) { gradientDragStart = null; gradientDragEnd = null; return; }
+      if (!ctx) { resetGradientState(); return; }
       ctx.drawImage(bitmap, 0, 0);
       const imgData = ctx.getImageData(0, 0, layer.width, layer.height);
 
@@ -1130,7 +1146,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       const hex = fgColor().replace("#", "");
       const fgR = parseInt(hex.slice(0, 2), 16);
       const fgG = parseInt(hex.slice(2, 4), 16);
-      const fgB = parseInt(hex.slice(4, 6), 16);
+      const fillB_local = parseInt(hex.slice(4, 6), 16);
       const bgHex = bgColor().replace("#", "");
       const bgR = parseInt(bgHex.slice(0, 2), 16);
       const bgG = parseInt(bgHex.slice(2, 4), 16);
@@ -1139,12 +1155,12 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       let stops: ColorStop[];
       if (gradientPreset() === "fg-transparent") {
         stops = [
-          { offset: 0, r: fgR, g: fgG, b: fgB, a: 255 },
-          { offset: 1, r: fgR, g: fgG, b: fgB, a: 0 },
+          { offset: 0, r: fgR, g: fgG, b: fillB_local, a: 255 },
+          { offset: 1, r: fgR, g: fgG, b: fillB_local, a: 0 },
         ];
       } else {
         stops = [
-          { offset: 0, r: fgR, g: fgG, b: fgB, a: 255 },
+          { offset: 0, r: fgR, g: fgG, b: fillB_local, a: 255 },
           { offset: 1, r: bgR, g: bgG, b: bgB, a: 255 },
         ];
       }
@@ -1177,21 +1193,16 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       const newBitmap = offscreen.transferToImageBitmap();
       try {
         engine.setLayerImageBitmap(layerId, newBitmap);
-        renderer.uploadImage(layerId, newBitmap);
+        renderer?.uploadImage(layerId, newBitmap);
       } catch (err) {
         showToast(`Gradient fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");
-        gradientDragStart = null;
-        gradientDragEnd = null;
+        resetGradientState();
         return;
       }
       history.commit(preSnapshot, "Gradient Fill");
       scheduler.requestRender();
 
-      gradientDragStart = null;
-      gradientDragEnd = null;
-      if (typeof setGradientDragLine === "function") {
-        setGradientDragLine(null);
-      }
+      resetGradientState();
       return;
     }
 

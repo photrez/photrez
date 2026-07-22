@@ -24,7 +24,7 @@ function makeMockEngine(layers: LayerNode[], width = 2, height = 2): DocumentEng
   } as unknown as DocumentEngine;
 }
 
-function createOffscreenCtxMock() {
+function createOffscreenCtxMock(w = 2, h = 2) {
   let fillStyle = "";
   return {
     clearRect: vi.fn(),
@@ -37,6 +37,9 @@ function createOffscreenCtxMock() {
     rotate: vi.fn(),
     scale: vi.fn(),
     drawImage: vi.fn(),
+    getImageData: vi.fn().mockImplementation((_x, _y, width, height) => ({
+      data: new Uint8ClampedArray((width || w) * (height || h) * 4),
+    })),
   };
 }
 

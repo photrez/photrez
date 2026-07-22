@@ -145,10 +145,11 @@ export function LeftToolRail(props: { disabled?: boolean }) {
           });
           const currentIcon = () => activeVariant()?.icon ?? tool.icon;
           const currentLabel = () => activeVariant()?.label ?? tool.label;
+          const tooltipContent = () => currentLabel() + (tool.variants ? " (Right-click for options)" : "");
 
           return (
             <div class="relative">
-              <Tooltip content={currentLabel()} shortcut={TOOL_SHORTCUTS[tool.id]} placement="right" disabled={popoverTool() === tool.id}>
+              <Tooltip content={tooltipContent()} shortcut={TOOL_SHORTCUTS[tool.id]} placement="right" disabled={popoverTool() === tool.id}>
                 <button
                   onClick={() => handleToolChange(tool.id)}
                   onContextMenu={(e) => {
@@ -165,8 +166,21 @@ export function LeftToolRail(props: { disabled?: boolean }) {
                       : "text-editor-icon hover:bg-white/5 hover:text-editor-text"
                   )}
                   aria-label={currentLabel()}
+                  data-has-variants={tool.variants ? "true" : undefined}
                 >
                   <Icon name={currentIcon()} class="size-[18px]" strokeWidth={1.6} />
+
+                  {/* Micro-indicator (bottom-right 3px triangle) for tools with sub-variants */}
+                  <Show when={tool.variants}>
+                    <svg
+                      class="absolute bottom-1 right-1 size-[5px] text-editor-text-dim/80 pointer-events-none"
+                      viewBox="0 0 6 6"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <polygon points="6,6 0,6 6,0" />
+                    </svg>
+                  </Show>
                 </button>
               </Tooltip>
 

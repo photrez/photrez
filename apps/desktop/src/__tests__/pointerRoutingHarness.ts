@@ -14,7 +14,7 @@ import type { DocumentEngine } from "@/engine/document";
 export function createMockEditorParams(toolId: string) {
   const mockEngine = {
     getActiveLayerId: () => "layer-1",
-    getLayer: (id: string) => ({ id, locked: false, visible: true, width: 100, height: 100 }),
+    getLayer: (id: string) => ({ id, locked: false, visible: true, width: 100, height: 100, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } }),
     samplePixel: vi.fn(() => [128, 255, 64, 255]),
     getViewport: () => ({ panX: 0, panY: 0, zoom: 1 }),
     snapshot: vi.fn(() => ({})),
@@ -23,7 +23,8 @@ export function createMockEditorParams(toolId: string) {
     getLayers: () => [],
     setActiveLayer: vi.fn(),
     getSelection: () => null,
-    getLayerImageBitmap: () => undefined,
+    getLayerImageBitmap: () => (typeof document !== "undefined" ? document.createElement("canvas") : ({} as any)),
+    setLayerImageBitmap: vi.fn(),
   } as unknown as DocumentEngine;
 
   let currentLastPaintCoords: any = null;
@@ -78,6 +79,7 @@ export function createMockEditorParams(toolId: string) {
     setGradientDragLine: vi.fn(),
     setHoverHandle: vi.fn(),
     setViewportState: vi.fn(),
+    renderer: { uploadImage: vi.fn() },
     scheduler: { requestRender: vi.fn() },
   };
 
@@ -88,10 +90,11 @@ export function createMockEditorParams(toolId: string) {
     const ownedSignals: Record<string, any> = {
       workspace: merged.workspace,
       scheduler: merged.scheduler,
+      renderer: merged.renderer,
     };
 
     for (const [key, val] of Object.entries(merged)) {
-      if (key === "workspace" || key === "scheduler") continue;
+      if (key === "workspace" || key === "scheduler" || key === "renderer") continue;
       const [s, set] = createSignal(val);
       ownedSignals[key] = s;
       const setKey = "set" + key.charAt(0).toUpperCase() + key.slice(1);

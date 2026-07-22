@@ -18,10 +18,12 @@ vi.mock("../exportDocument", () => ({
   encodeComposite: mockEncodeComposite,
 }));
 
-// Mock writeFileBytes
+// Mock writeFileBytes & deleteFile
 const mockWriteFileBytes = vi.fn().mockResolvedValue(undefined);
+const mockDeleteFile = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/tauri/native", () => ({
   writeFileBytes: mockWriteFileBytes,
+  deleteFile: mockDeleteFile,
 }));
 
 const { printDocument } = await import("../printDocument");
@@ -52,6 +54,8 @@ describe("printDocument", () => {
     await printDocument(engine);
     expect(mockInvoke).toHaveBeenCalledWith("print_image", {
       path: expect.stringMatching(/^\/tmp\/photrez-print-\d+\.png$/),
+      printer: null,
+      copies: 1,
     });
   });
 });

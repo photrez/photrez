@@ -17,6 +17,7 @@ This file is intentionally narrow: it defines only the v1 release scope and excl
 - Crop + resize image/canvas.
 - Brush + eraser.
 - Export JPG/PNG/WebP with quality settings.
+- Pro-Suite Print Settings System (Paper preview viewport, scale/position/PPI inspector, paper size presets, unit converter, system printer enumeration, smart composite high-DPI print spooling; ICC color management deferred to post-v1).
 
 ## Non-Goals (MVP)
 
@@ -24,7 +25,7 @@ This file is intentionally narrow: it defines only the v1 release scope and excl
 - AI tools and cloud collaboration.
 - Admin/CMS.
 - PSD preview/editing workflow.
-- Print checker and print preset system.
+- ICC color profile conversion & soft-proofing engine (Color Management deferred to post-v1).
 - Command palette and plugin API.
 - Native project format: `.ptz` shipped in alpha.1 (ZIP container: `document.json` + per-layer PNG bitmaps). Future `.ptz` v2 with text/shape layer metadata is post-v1 (see roadmap).
 

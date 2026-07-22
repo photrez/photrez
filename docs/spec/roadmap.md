@@ -233,7 +233,7 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 The following are explicitly excluded from the alpha→v1.0 pipeline. They may be considered post-v1.
 
 - PSD open/save workflow.
-- Print checker and print preset system.
+- Full ICC color management engine & soft-proofing (Pro Print Settings UI is in alpha.2; ICC profiles post-v1).
 - Plugin/scripting runtime or API.
 - AI-powered editing features.
 - Cloud collaboration or sync.

@@ -24,7 +24,8 @@ export interface AutosaveEntry {
 
 async function autosaveDir(): Promise<string> {
   const base = await cacheDir();
-  return `${base}${AUTOSAVE_SUBDIR}`;
+  const sep = base.endsWith("/") || base.endsWith("\\") ? "" : "/";
+  return `${base}${sep}${AUTOSAVE_SUBDIR}`;
 }
 
 export async function autosavePathFor(docId: string): Promise<string> {
@@ -32,16 +33,15 @@ export async function autosavePathFor(docId: string): Promise<string> {
   return `${dir}/${docId}.ptz`;
 }
 
+const encoder = new TextEncoder();
+const decoder = new TextDecoder("utf-8");
+
 function strToBytes(s: string): Uint8Array {
-  const bytes = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
-  return bytes;
+  return encoder.encode(s);
 }
 
 function bytesToStr(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return s;
+  return decoder.decode(bytes);
 }
 
 /**
