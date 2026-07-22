@@ -2,6 +2,7 @@
 import { defineConfig } from "vitest/config";
 import solidPlugin from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
+import wasm from "vite-plugin-wasm";
 
 // Keep this list conservative: only tests that do not require browser globals,
 // Solid rendering, canvas APIs, or DOM event wiring belong in the fast project.
@@ -64,6 +65,7 @@ export default defineConfig({
   plugins: [
     solidPlugin(process.env.VITEST ? { hot: false } : undefined),
     tailwindcss(),
+    wasm(),
   ],
 
   test: {

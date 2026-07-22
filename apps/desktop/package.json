@@ -16,7 +16,8 @@
     "test:dialogs": "vitest run --maxWorkers=1 src/components/editor/dialogs/__tests__/ResizeCanvasModal.test.tsx src/components/editor/dialogs/__tests__/ExportDialog.test.tsx src/components/editor/dialogs/__tests__/DialogProvider.test.tsx",
     "perf:paint-history": "vitest run src/engine/__tests__/paintHistoryBudget.test.ts",
     "test:e2e:install": "playwright install chromium",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:wasm": "wasm-pack build ../../crates/core --target web --out-dir src/wasm/pkg"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -41,6 +42,7 @@
     "typescript": "^7.0.2",
     "vite": "^8.0.16",
     "vite-plugin-solid": "^2.8.0",
+    "vite-plugin-wasm": "^3.4.1",
     "vitest": "^4.1.7"
   }
 }

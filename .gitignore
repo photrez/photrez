@@ -88,6 +88,9 @@ model_capabilities.yaml
 skills-lock.json
 opencode.json
 
+# AI agent artifacts
+.codebase-memory/
+
 # AI agent workflow files (local, not distributed)
 .agent/
 .agents/

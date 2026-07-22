@@ -4,6 +4,7 @@ import { getEffectiveMaxDim } from "@/engine/types";
 import { writeFileBytes, showSaveDialog } from "@/tauri/native";
 import { drawLayerToContext } from "@/engine/layerComposite";
 import { bakeAdjustmentToBitmap } from "@/engine/layerAdjustments";
+import { encodeImageWithWasm } from "./wasmExport";
 
 export type ExportFormat = "png" | "jpeg" | "webp";
 
@@ -71,6 +72,15 @@ export async function encodeComposite(
     }
   }
 
+  // Attempt WASM encoding first for zero-copy performance
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const rgbaBytes = new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.byteLength);
+  const wasmResult = await encodeImageWithWasm(width, height, rgbaBytes, format, quality);
+  if (wasmResult) {
+    return wasmResult;
+  }
+
+  // Fallback to Canvas convertToBlob if WASM module unavailable
   const mimeType = getMimeType(format);
   const blob = await canvas.convertToBlob({
     type: mimeType,
