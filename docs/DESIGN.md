@@ -101,6 +101,18 @@ components:
     textColor: "{colors.text-primary}"
     rounded: "{rounded.elevated}"
     width: "390px"
+  tab-bar:
+    backgroundColor: "{colors.chrome-topbar}"
+    textColor: "{colors.text-primary}"
+    typography: "{typography.label}"
+    activeIndicator: "{colors.photon-amber}"
+    height: "38px"
+  accordion-header:
+    backgroundColor: "{colors.chrome-topbar}"
+    textColor: "{colors.text-primary}"
+    typography: "{typography.title}"
+    icon: "micro-chevron-svg"
+    height: "38px"
 ---
 
 # Design System: Photrez

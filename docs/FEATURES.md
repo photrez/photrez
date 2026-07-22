@@ -18,6 +18,7 @@
 | ✅ DONE | Hardcoded accent colors → CSS variables (`var(--color-editor-accent)`) across SelectionTransformOverlay, CropOverlayHandles, CropOverlayTooltip |
 | ✅ DONE | Hardcoded panel colors → Tailwind theme tokens (`bg-editor-panel`) in CropModeIndicator and Tooltip |
 | ✅ DONE | Smart guide colors extracted to CSS custom properties (`--guide-center`, `--guide-edge`) in `:root` |
+| ✅ DONE | `photrez-core` WASM Pilot (Export Encoding) — Compiled PNG/JPEG/WebP Rust encoders to WebAssembly (`photrez_core_bg.wasm`, 247KB optimized), integrated into Vite 8 build pipeline (`vite-plugin-wasm`), and wired into `exportDocument.ts` with zero-copy Uint8Array execution and automatic Canvas fallback |
 | ✅ DONE | `useSelectionTransformDrag.test.ts` — 42 comprehensive wiring tests (pointerDown/Move/Up/Cancel/lostCapture/Escape for move/resize/rotate) closed a ZERO-coverage gap on 429-line critical transform/resize hook |
 | ✅ DONE | Alt+resize center-drift fix — Step 3 of `applyResizeHandle` changed from incremental `vx -= dw/2` to absolute center positioning, fixing up to 160% center drift on "w"/"n" handles at all rotation angles |
 | ✅ DONE | Move tool implementation-contract tests — 18 new tests (24 total) for `useCanvasLayerDrag` covering signal state machine, guard conditions with listener isolation verification, event listener lifecycle, cancel behavior, DragController integration (beginLayerDrag/endDrag payload), auto-select OFF paths (selected layer vs hit layer, no-selection guard, locked-selected-layer fallthrough), same-doc tab drop revert, layer detection order, and invisible layer skipping; unified TestApi exposes dcState, moveSnapEnabled, moveAutoSelect, selectedLayerId |
@@ -265,11 +266,13 @@
 
 | Status  | Fitur                                                                                                                              |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| ✅ DONE | File > Print (Ctrl+P) — opens custom PrintDialog preview modal inside Photrez                                                     |
-| ✅ DONE | PrintDialog shows document name, dimensions, and JPEG preview thumbnail                                                            |
-| ✅ DONE | Uses `encodeComposite(engine, "png", 100)` to render full document composite to PNG                                                |
-| ✅ DONE | Saves composite to temp `.png` file via `writeFileBytes` Tauri command                                                             |
-| ✅ DONE | `print_image` Rust command — Windows: `ShellExecuteW("print")` opens compact native print dialog; macOS/Linux: `open::that()` fallback |
+| ✅ DONE | File > Print (Ctrl+P) — opens Photoshop-class 2-column Pro-Suite Print Settings modal (`1080×680px`) inside Photrez               |
+| ✅ DONE | Interactive SVG Paper Viewport — physical paper ratio canvas, printable margin guide, scaled image overlay, drag positioning       |
+| ✅ DONE | Print Inspector — Printer selector (`get_system_printers` via `printers` crate), Copies (`1-999`), Portrait/Landscape orientation |
+| ✅ DONE | Position & Size Inspector — Center checkbox, Top/Left offsets, Scale %, linked W/H inputs, Scale to Fit Media, Units selector     |
+| ✅ DONE | Live Resolution Calculation — Effective PPI readout with color-coded quality badge (🟢 Optimal / 🟡 Acceptable / 🔴 Low Res)       |
+| ✅ DONE | Smart Composite Execution — Frontend renders high-DPI paper composite (300 DPI) matching scale & position before native spooling   |
+| ✅ DONE | `print_image` Rust command — Windows: `ShellExecuteW("print")` native spooler; macOS/Linux: `open::that()` fallback               |
 | ✅ DONE | `window.print()` approach rejected — WebView2 print dialog is full-screen and cannot be resized by app                            |
 
 ---

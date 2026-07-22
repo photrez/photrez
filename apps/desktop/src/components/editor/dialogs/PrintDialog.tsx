@@ -1,9 +1,14 @@
-import { Show, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useEditor } from "../shell/EditorContext";
 import { encodeComposite } from "../exportDocument";
 import { printDocument } from "../printDocument";
-import { DesktopDialog, DesktopDialogButton } from "./DesktopDialog";
+import { DesktopDialog } from "./DesktopDialog";
+import { PrintPaperViewport } from "../print/PrintPaperViewport";
+import { PrintInspector } from "../print/PrintInspector";
+import type { PrintOptions } from "../print/printTypes";
+import { DEFAULT_PRINT_OPTIONS } from "../print/printTypes";
+import { calculateScaleToFit } from "../print/printGeometry";
 
 export function PrintDialog() {
   const {
@@ -16,16 +21,41 @@ export function PrintDialog() {
 
   const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
   const [printing, setPrinting] = createSignal(false);
+  const [options, setOptions] = createSignal<PrintOptions>({
+    ...DEFAULT_PRINT_OPTIONS,
+  });
 
-  // Encode preview when dialog opens
-  onMount(() => {
+  // Calculate initial Scale to Fit and encode preview whenever dialog opens
+  createEffect(() => {
+    if (!showPrintDialog()) return;
     const engine = workspace.getActiveEngine();
     if (!engine) return;
+
+    // Read current options untracked to avoid infinite signal loop
+    const currentOpts = untrack(options);
+    const fit = calculateScaleToFit(
+      docWidth(),
+      docHeight(),
+      currentOpts.paperWidthMm,
+      currentOpts.paperHeightMm,
+      currentOpts.marginMm
+    );
+    setOptions((prev) => ({
+      ...prev,
+      scaleToFit: true,
+      centerImage: true,
+      scalePercent: fit.scalePercent,
+      leftOffsetMm: fit.leftOffsetMm,
+      topOffsetMm: fit.topOffsetMm,
+    }));
+
     (async () => {
       try {
-        // Use a small preview (JPEG for speed)
-        const bytes = await encodeComposite(engine, "jpeg", 60);
+        // Fast JPEG preview for paper canvas viewport
+        const bytes = await encodeComposite(engine, "jpeg", 85);
         const blob = new Blob([bytes as BlobPart], { type: "image/jpeg" });
+        const old = previewUrl();
+        if (old) URL.revokeObjectURL(old);
         setPreviewUrl(URL.createObjectURL(blob));
       } catch {
         // Preview is optional — silent fail
@@ -43,7 +73,7 @@ export function PrintDialog() {
     if (!engine) return;
     setPrinting(true);
     try {
-      await printDocument(engine);
+      await printDocument(engine, options());
     } finally {
       setPrinting(false);
       setShowPrintDialog(false);
@@ -57,47 +87,76 @@ export function PrintDialog() {
     <Show when={showPrintDialog()}>
       <Portal mount={document.body}>
         <DesktopDialog
-          title="Print"
+          title="Photrez Print Settings"
           kind="print"
           manageFocus
           dismissible={!printing()}
           onDismiss={() => setShowPrintDialog(false)}
-          onBackdropPointerDown={() => { if (!printing()) setShowPrintDialog(false); }}
-          actions={<>
-            <DesktopDialogButton onClick={() => setShowPrintDialog(false)} disabled={printing()}>
-              Cancel
-            </DesktopDialogButton>
-            <DesktopDialogButton variant="primary" onClick={handlePrint} disabled={printing()}>
-              <Show when={printing()}>
-                <span aria-hidden="true" class="mr-1.5 inline-block size-3 animate-spin rounded-full border-2 border-editor-bg/30 border-t-editor-bg" />
-              </Show>
-              {printing() ? "Preparing..." : "Print"}
-            </DesktopDialogButton>
-          </>}
+          onBackdropPointerDown={() => {
+            if (!printing()) setShowPrintDialog(false);
+          }}
+          widthClass="max-w-[1040px] w-[1040px] h-[660px]"
+          bodyClass="p-0 h-[624px] flex flex-col justify-between"
         >
-          <div class="flex flex-col gap-4">
-            {/* Document info */}
-            <div class="flex items-center gap-3 rounded-[6px] border border-editor-divider bg-editor-field p-2.5">
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-[12px] font-semibold text-editor-text leading-tight" title={docName()}>
-                  {docName()}
-                </div>
-                <div class="truncate text-[11px] text-editor-text-dim leading-snug mt-0.5">
-                  {docWidth()} × {docHeight()} px
-                </div>
-              </div>
-            </div>
+          {/* Pro-Suite 2-Column Print Layout (Flex 1 grow) */}
+          <div class="flex flex-1 min-h-0 w-full gap-0 overflow-hidden">
+            {/* Left Pane: Interactive SVG Paper Viewport */}
+            <PrintPaperViewport
+              options={options()}
+              setOptions={setOptions}
+              previewUrl={previewUrl()}
+              docWidthPx={docWidth()}
+              docHeightPx={docHeight()}
+              docName={docName()}
+            />
 
-            {/* Preview */}
-            <Show when={previewUrl()}>
-              <div class="flex items-center justify-center rounded-[6px] border border-editor-divider bg-editor-canvas p-2">
-                <img
-                  src={previewUrl()!}
-                  alt="Print preview"
-                  class="max-h-[240px] max-w-full rounded-[4px] object-contain shadow-sm"
-                />
-              </div>
-            </Show>
+            {/* Right Pane: Print Inspector Dock (Continuous Surface) */}
+            <PrintInspector
+              options={options()}
+              setOptions={setOptions}
+              docWidthPx={docWidth()}
+              docHeightPx={docHeight()}
+            />
+          </div>
+
+          {/* Full-Width Footer Action Bar (100% Span) */}
+          <div class="flex h-[44px] shrink-0 items-center justify-between border-t border-editor-divider bg-editor-topbar px-4 select-none">
+            <label class="flex items-center gap-2 text-[11px] font-medium text-editor-text cursor-pointer">
+              <input
+                type="checkbox"
+                class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
+                checked={options().showPaperWhite}
+                onChange={(e) =>
+                  setOptions((prev) => ({
+                    ...prev,
+                    showPaperWhite: e.currentTarget.checked,
+                  }))
+                }
+              />
+              Show Paper White
+            </label>
+
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="h-[28px] rounded-[4px] border border-editor-field-border bg-editor-field px-4 text-[11.5px] font-medium text-editor-text hover:bg-editor-hover active:bg-editor-active transition-colors"
+                onClick={() => setShowPrintDialog(false)}
+                disabled={printing()}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="h-[28px] flex items-center gap-1.5 rounded-[4px] bg-editor-accent px-5 text-[11.5px] font-semibold text-white shadow-xs hover:brightness-110 active:brightness-95 disabled:opacity-50 transition-all"
+                onClick={handlePrint}
+                disabled={printing()}
+              >
+                <Show when={printing()}>
+                  <span class="inline-block size-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                </Show>
+                {printing() ? "Preparing..." : "Print"}
+              </button>
+            </div>
           </div>
         </DesktopDialog>
       </Portal>

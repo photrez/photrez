@@ -75,6 +75,8 @@ fn main() {
             commands::save_project_binary,
             commands::load_project,
             commands::print_image,
+            commands::get_system_printers,
+            commands::open_printer_properties,
             commands::delete_file,
             commands::close_app,
         ])

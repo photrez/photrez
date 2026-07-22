@@ -139,7 +139,7 @@ export function DesktopDialog(props: DesktopDialogProps) {
         <div
           id={descriptionId}
           data-dialog-body
-          class={clsx("px-4 py-4 text-[12px] leading-[18px] text-editor-text-dim", props.bodyClass)}
+          class={clsx(props.bodyClass ?? "px-4 py-4 text-[12px] leading-[18px] text-editor-text-dim")}
         >
           {props.children}
         </div>

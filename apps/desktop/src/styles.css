@@ -306,3 +306,29 @@ img {
    driven by the Web Animations API in SelectionRenderer.tsx (data-march),
    not CSS, to avoid the choppy stroke-dashoffset keyframe path in
    Chromium/WebView2. */
+
+/* ─── Studio Slim Scrollbar & Layout Shift Prevention ─── */
+@layer utilities {
+  .overflow-y-auto,
+  .overflow-auto,
+  [class*="overflow-y-auto"],
+  [class*="overflow-auto"] {
+    scrollbar-gutter: stable;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-editor-divider, #2c2c30);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-editor-text-dim, #71717a);
+}
+

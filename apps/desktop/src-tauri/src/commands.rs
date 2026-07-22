@@ -27,7 +27,7 @@ pub(crate) fn get_contract_info() -> Result<Value, Value> {
             "ping", "get_contract_info",
             "read_file_bytes", "write_file_bytes",
             "save_project", "load_project",
-            "print_image"
+            "print_image", "get_system_printers", "open_printer_properties"
         ]
     }))
 }
@@ -263,11 +263,14 @@ pub(crate) fn close_app(app: tauri::AppHandle) -> Result<Value, Value> {
     ok_response(serde_json::json!({ "closed": true }))
 }
 
-/// Print an image file using the system's native print dialog.
-/// On Windows, calls ShellExecuteW("print") which opens the compact
-/// Windows print dialog (same one used by Paint, Photoshop, etc.)
+/// Spools the image to native print system.
+/// Accepts optional target `printer` name and `copies` count.
 #[tauri::command]
-pub(crate) fn print_image(path: String) -> Result<Value, Value> {
+pub(crate) fn print_image(
+    path: String,
+    printer: Option<String>,
+    copies: Option<u32>,
+) -> Result<Value, Value> {
     validate_path_extension(&path, &["png", "jpg", "jpeg"], "print")?;
     let path = validate_path_safe(&path, "print")?;
 
@@ -276,17 +279,13 @@ pub(crate) fn print_image(path: String) -> Result<Value, Value> {
         return err_response("E_IO", &format!("File not found: {}", p.display()));
     }
 
+    let print_count = copies.unwrap_or(1).max(1);
+
     #[cfg(target_os = "windows")]
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use std::ptr::null_mut;
-
-        let wide: Vec<u16> = OsStr::new("print")
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let file_wide: Vec<u16> = p.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
 
         extern "system" {
             fn ShellExecuteW(
@@ -299,33 +298,96 @@ pub(crate) fn print_image(path: String) -> Result<Value, Value> {
             ) -> isize;
         }
 
-        let result = unsafe {
-            ShellExecuteW(
-                null_mut(),
-                wide.as_ptr(),
-                file_wide.as_ptr(),
-                null_mut(),
-                null_mut(),
-                1, // SW_SHOWNORMAL
-            )
+        let verb = if printer.as_ref().map_or(false, |s| !s.trim().is_empty()) {
+            "printto"
+        } else {
+            "print"
         };
 
-        // ShellExecute returns > 32 on success
-        if result as i32 <= 32 {
-            return err_response("E_IO", &format!("ShellExecuteW returned {}", result));
+        let verb_wide: Vec<u16> = OsStr::new(verb).encode_wide().chain(std::iter::once(0)).collect();
+        let file_wide: Vec<u16> = p.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+
+        let params_wide: Option<Vec<u16>> = printer.as_ref().filter(|s| !s.trim().is_empty()).map(|name| {
+            let formatted = format!("\"{}\"", name);
+            OsStr::new(&formatted).encode_wide().chain(std::iter::once(0)).collect()
+        });
+
+        let params_ptr = match &params_wide {
+            Some(vec) => vec.as_ptr(),
+            None => null_mut(),
+        };
+
+        for _ in 0..print_count {
+            let result = unsafe {
+                ShellExecuteW(
+                    null_mut(),
+                    verb_wide.as_ptr(),
+                    file_wide.as_ptr(),
+                    params_ptr,
+                    null_mut(),
+                    1, // SW_SHOWNORMAL
+                )
+            };
+
+            if result as i32 <= 32 {
+                return err_response("E_IO", &format!("ShellExecuteW returned {}", result));
+            }
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        // Fallback: use open crate (available on macOS/Linux)
-        match open::that(&p) {
-            Ok(_) => {}
-            Err(e) => return err_response("E_IO", &format!("Failed to open file: {}", e)),
+        for _ in 0..print_count {
+            match open::that(&p) {
+                Ok(_) => {}
+                Err(e) => return err_response("E_IO", &format!("Failed to open file: {}", e)),
+            }
         }
     }
 
-    ok_response(serde_json::json!({ "printed": p.to_string_lossy() }))
+    ok_response(serde_json::json!({ "printed": p.to_string_lossy(), "copies": print_count }))
+}
+
+/// Open native OS printer driver properties dialog for the specified printer.
+#[tauri::command]
+pub(crate) fn open_printer_properties(printer: String) -> Result<Value, Value> {
+    #[cfg(target_os = "windows")]
+    {
+        let arg = format!("/e /n \"{}\"", printer);
+        let status = std::process::Command::new("rundll32")
+            .arg("printui.dll,PrintUIEntry")
+            .arg(&arg)
+            .status();
+
+        match status {
+            Ok(_) => ok_response(serde_json::json!({ "opened": printer })),
+            Err(e) => err_response("E_IO", &format!("Failed to open printer properties: {}", e)),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        ok_response(serde_json::json!({ "opened": printer }))
+    }
+}
+
+/// Enumerate system printers using the `printers` crate.
+/// Returns list of printer names and the default printer name if set.
+#[tauri::command]
+pub(crate) fn get_system_printers() -> Result<Value, Value> {
+    let printer_list = printers::get_printers();
+    let printers_vec: Vec<String> = printer_list
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+
+    let default_name = printers::get_default_printer()
+        .map(|p| p.name.clone());
+
+    ok_response(serde_json::json!({
+        "printers": printers_vec,
+        "default": default_name,
+    }))
 }
 
 #[cfg(test)]
@@ -484,8 +546,19 @@ mod tests {
                 "write_file_bytes",
                 "save_project",
                 "load_project",
-                "print_image"
+                "print_image",
+                "get_system_printers",
+                "open_printer_properties"
             ]
         );
+    }
+
+    #[test]
+    fn test_get_system_printers_returns_envelope() {
+        let result = get_system_printers();
+        assert!(result.is_ok());
+        let value = result.unwrap();
+        assert_eq!(value["ok"], true);
+        assert!(value["data"]["printers"].is_array());
     }
 }

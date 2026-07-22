@@ -15,6 +15,7 @@ tauri-plugin-dialog = "2"
 base64 = "0.22"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 open = "5"
+printers = "2.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
