@@ -738,21 +738,40 @@ describe("PrintInspector — interactive handlers", () => {
 
   // ── 4. Margin input with scale-to-fit ─────────────────────────
 
-  it("recalculates scale percent when margin changes while scale-to-fit is enabled", async () => {
+  it("displays per-side printer hardware margins from paperSizesRes", async () => {
+    // Mock get_printer_paper_sizes to return per-side margins
+    mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "get_system_printers") {
+        return Promise.resolve({
+          ok: true,
+          data: {
+            printers: ["Epson Stylus Pro 3880", "Canon PIXMA PRO-100"],
+            default: "Epson Stylus Pro 3880",
+          },
+        });
+      }
+      if (cmd === "get_printer_paper_sizes") {
+        return Promise.resolve({
+          ok: true,
+          data: {
+            sizes: [{ name: "A4", widthMm: 210, heightMm: 297, dmPaperIndex: 9 }],
+            defaultMargins: { leftMm: 12.7, topMm: 3.2, rightMm: 12.7, bottomMm: 3.2 },
+          },
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
     render(() => (
       <PrintInspector {...createInspectorProps()} />
     ));
 
-    // Only the margin input has min="0"
-    const marginInput = document.querySelector(
-      'input[type="number"][min="0"]',
-    ) as HTMLInputElement;
-    expect(marginInput).toBeInTheDocument();
-
-    await fireEvent.input(marginInput, { target: { value: "20" } });
-
+    // Wait for paper sizes to load and margin display to appear
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("set_margin", { marginMm: 20 });
+      expect(document.body.textContent).toMatch(/L:\s*12\.7/);
+      expect(document.body.textContent).toMatch(/T:\s*3\.2/);
+      expect(document.body.textContent).toMatch(/R:\s*12\.7/);
+      expect(document.body.textContent).toMatch(/B:\s*3\.2/);
     });
   });
 

@@ -131,15 +131,25 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
     }
   };
 
+  const paperSubtitle = () => {
+    const preset = o().paperPreset || "Custom";
+    const dims = formatPhysicalDimensions(paperW(), paperH(), o().unit);
+    const hasDimensions = /\d+\s*[x×,]/i.test(preset) || /\b(mm|in|cm)\b/i.test(preset);
+    if (hasDimensions) {
+      return `Paper: ${preset}`;
+    }
+    return `Paper: ${preset} (${dims})`;
+  };
+
   return (
-    <div class="flex flex-1 flex-col items-center justify-between bg-editor-bg p-4 select-none">
+    <div class="flex flex-1 flex-col items-center justify-between bg-editor-bg p-4 select-none overflow-hidden min-w-0">
       {/* Header physical dimension badge */}
-      <div class="mb-3 flex flex-col items-center justify-center gap-0.5 rounded-[6px] border border-editor-field-border bg-editor-panel px-4 py-2 text-[11.5px] font-semibold text-editor-text shadow-xs text-center">
-        <div class="truncate font-semibold text-editor-text max-w-[340px]">
+      <div class="mb-3 flex flex-col items-center justify-center gap-0.5 rounded-[6px] border border-editor-field-border bg-editor-panel px-4 py-2 text-[11.5px] font-semibold text-editor-text shadow-xs text-center max-w-[480px] w-full min-w-0 overflow-hidden">
+        <div class="truncate font-semibold text-editor-text max-w-[440px]">
           {props.docName || "Untitled"} ({props.docWidthPx} × {props.docHeightPx} px)
         </div>
-        <div class="text-[11px] font-normal text-editor-text-dim">
-          Paper: {formatPhysicalDimensions(paperW(), paperH(), o().unit)} ({o().paperPreset})
+        <div class="truncate text-[11px] font-normal text-editor-text-dim max-w-[440px]">
+          {paperSubtitle()}
         </div>
       </div>
 

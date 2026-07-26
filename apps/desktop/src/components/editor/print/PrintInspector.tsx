@@ -331,17 +331,26 @@ export function PrintInspector(props: PrintInspectorProps) {
     if (printerSelectEl) printerSelectEl.value = o().selectedPrinter || "";
   });
 
+/**
+ * Formats paper size label for dropdown display without redundant dimensions.
+ * Driver names like "A5 148 x 210 mm" or "User Defined (210 x 297 mm)" already contain
+ * dimension text. If so, return s.name directly. Otherwise, format as "A4 (210 × 297 mm)".
+ */
+function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): string {
+  if (!name) return "";
+  const hasDimensions = /\d+\s*[x×,]/i.test(name) || /\b(mm|in|cm)\b/i.test(name) || /\(\d+/.test(name);
+  if (hasDimensions) {
+    return name;
+  }
+  return `${name} (${widthMm} × ${heightMm} mm)`;
+}
+
   // ── Build dropdown options from printer-reported sizes ───────────
   const paperSizeOptions = createMemo(() => {
     const sizes = printerPaperSizes();
-    // Only list sizes the printer driver reports.  Previously an "unlisted"
-    // entry was prepended for the current paper when it wasn't in the list,
-    // but this caused the previous printer's paper to pollute the dropdown
-    // after a printer switch — the old `paperPreset` signal still carried
-    // the stale paper name until the async set_paper IPC completed.
     return sizes.map((s) => ({
       id: s.name,
-      label: `${s.name} (${s.widthMm} × ${s.heightMm} mm)`,
+      label: formatPaperSizeLabel(s.name, s.widthMm, s.heightMm),
       widthMm: s.widthMm,
       heightMm: s.heightMm,
     }));
@@ -762,7 +771,7 @@ export function PrintInspector(props: PrintInspectorProps) {
             <div class="flex items-center justify-between gap-2">
               <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Paper Size:</label>
               <select
-                class="flex-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors cursor-pointer"
+                class="flex-1 min-w-0 truncate rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors cursor-pointer"
                 ref={paperSelectEl}
                 onChange={(e) => handlePaperSizeSelect(e.currentTarget.value)}
               >
@@ -772,44 +781,19 @@ export function PrintInspector(props: PrintInspectorProps) {
               </select>
             </div>
 
-            {/* Margin — read-only, set by printer driver minimum */}
-            {/* Best practice: content is positioned within the printable area
-                via Center/Offset controls; margin is the printer's unprintable
-                boundary, not a user-controlled value (like Photoshop/GIMP). */}
+            {/* Margin — read-only, per-side from printer driver minimum */}
             <div class="flex items-center justify-between gap-2">
               <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Margin:</label>
-              <div class="flex items-center gap-1.5 flex-1">
+              <Show when={paperSizesRes()?.defaultMargins} fallback={
                 <span class="text-[11px] font-semibold text-editor-text">{displayMargin().toFixed(1)} mm</span>
-                <Show when={paperSizesRes()?.defaultMargins}>
-                  {(margins) => {
-                    const minVal = Math.max(margins().leftMm, margins().topMm, margins().rightMm, margins().bottomMm);
-                    return displayMargin() === minVal ? (
-                      <span class="text-[10px] text-amber-400 font-medium ml-1">(printer min)</span>
-                    ) : null;
-                  }}
-                </Show>
-              </div>
+              }>
+                {(margins) => (
+                  <span class="text-[10.5px] text-editor-text-muted">
+                    L: {margins().leftMm.toFixed(1)} T: {margins().topMm.toFixed(1)} R: {margins().rightMm.toFixed(1)} B: {margins().bottomMm.toFixed(1)} mm
+                  </span>
+                )}
+              </Show>
             </div>
-
-            {/* Printer Hardware Margin Info (per-side) — info only, not editable */}
-            <Show when={paperSizesRes()?.defaultMargins}>
-              {(margins) => {
-                const maxMargin = Math.max(
-                  margins().leftMm, margins().topMm, margins().rightMm, margins().bottomMm,
-                );
-                return (
-                  <div class="flex items-center justify-between gap-2">
-                    <label class="w-[72px] shrink-0 text-editor-text-dim text-[10.5px] font-medium">Printer Min:</label>
-                    <span class="text-[10.5px] text-editor-text-muted">
-                      L: {margins().leftMm.toFixed(1)} T: {margins().topMm.toFixed(1)} R: {margins().rightMm.toFixed(1)} B: {margins().bottomMm.toFixed(1)} mm
-                      <Show when={maxMargin > 1}>
-                        <span class="text-amber-400 font-medium ml-1">(min {maxMargin.toFixed(1)}mm)</span>
-                      </Show>
-                    </span>
-                  </div>
-                );
-              }}
-            </Show>
 
             {/* Center on Page */}
             <div class="flex flex-col gap-2 pt-2 mt-1 border-t border-editor-divider/40">
