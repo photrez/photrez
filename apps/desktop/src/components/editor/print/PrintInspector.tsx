@@ -55,6 +55,12 @@ interface PaperSizeEntry {
   dmPaperIndex: number;
 }
 
+interface PaperSizesData {
+  sizes: PaperSizeEntry[];
+  defaultPaperSize?: { preset: string; widthMm: number; heightMm: number };
+  defaultMargins?: { leftMm: number; topMm: number; rightMm: number; bottomMm: number };
+}
+
 export function PrintInspector(props: PrintInspectorProps) {
   // Print state is a single source of truth from PrintDialog / usePrintSettings.
   // All callbacks invoke Rust commands directly — no fallback instance.
@@ -135,27 +141,29 @@ export function PrintInspector(props: PrintInspectorProps) {
   };
 
   // ── Resource 2: Paper sizes — auto-fetches when selectedPrinter changes ─
+  // Also returns per-printer defaultPaperSize and defaultMargins (Bug A fix:
+  // these were previously only in printersRes which is stale for non-default printers).
   // Source returns null when no printer is selected → no fetch.
   const [paperSizesRes, { refetch: refetchPaperSizes }] = createResource(
     () => {
       return (o().selectedPrinter || null) as string | null;
     },
-    async (printer: string): Promise<PaperSizeEntry[]> => {
-      if (!printer) return [];
+    async (printer: string): Promise<PaperSizesData> => {
+      if (!printer) return { sizes: [] };
       console.log("[PRINT:Inspector] Fetching paper sizes for printer:", printer);
       const res = await invoke("get_printer_paper_sizes", { printer }) as {
-        ok: boolean; data?: { sizes?: PaperSizeEntry[] };
+        ok: boolean; data?: PaperSizesData;
       };
       console.log("[PRINT:Inspector] Paper sizes response:", JSON.stringify(res));
-      if (res.ok && res.data?.sizes) return res.data.sizes;
-      return [];
+      if (res.ok && res.data?.sizes) return res.data;
+      return { sizes: [] };
     },
-    { initialValue: [] }
+    { initialValue: { sizes: [] } as PaperSizesData }
   );
 
   const printerPaperSizes = (): PaperSizeEntry[] => {
-    const sizes = paperSizesRes() ?? [];
-    return sizes;
+    const data = paperSizesRes();
+    return data?.sizes ?? [];
   };
 
   // ── Effect 1: Select default printer (fallback) ───────────────────
@@ -197,19 +205,21 @@ export function PrintInspector(props: PrintInspectorProps) {
     // Guard 3: wait for fresh paper-size data from the resource
     // (accessing .loading makes SolidJS track it as a dependency)
     const paperSizesLoading = paperSizesRes.loading;
-    const sizes = paperSizesRes();
+    const sizesData = paperSizesRes();
     const printer = o().selectedPrinter;
-    const printersData = printersRes();
 
+    const sizes = sizesData?.sizes;
     if (!sizes || sizes.length === 0 || !printer) return;
     if (paperSizesLoading) return;              // Guard 3
     if (printer === prevPrinter) return;         // not a printer change
     prevPrinter = printer;
 
-    console.log("[PRINT:Inspector] Effect 2 — sizes:", sizes.length, "printer:", printer, "defaultPaper:", JSON.stringify((printersData as PrintersData | undefined)?.defaultPaperSize));
+    console.log("[PRINT:Inspector] Effect 2 — sizes:", sizes.length, "printer:", printer, "defaultPaper:", JSON.stringify(sizesData?.defaultPaperSize));
 
-    // Always pick the new printer's default (not the previous printer's paper)
-    const defaultPaper = (printersData as PrintersData | undefined)?.defaultPaperSize;
+    // Always pick the new printer's default (not the previous printer's paper).
+    // Per-printer defaults from paperSizesRes (Bug A fix: was printersRes,
+    // which is only populated for the default printer).
+    const defaultPaper = sizesData?.defaultPaperSize;
 
     // Helper: find by name (returns [entry, name] tuple or undefined)
     const findByName = (name: string): [PaperSizeEntry, string] | undefined => {
@@ -239,8 +249,8 @@ export function PrintInspector(props: PrintInspectorProps) {
     console.log("[PRINT:Inspector] Effect 2 — selected:", matchedPreset, JSON.stringify(selected));
     setPaper(matchedPreset, selected.dmPaperIndex, selected.widthMm, selected.heightMm);
 
-    // ── Hardware margin ───────────────────────────────────────────
-    const margins = (printersData as PrintersData | undefined)?.defaultMargins;
+    // ── Hardware margin (per-printer, not default printer's) ──────
+    const margins = sizesData?.defaultMargins;
     const printerMinMargin = margins
       ? Math.max(margins.leftMm, margins.topMm, margins.rightMm, margins.bottomMm, 1.0)
       : 5.0;
@@ -249,18 +259,11 @@ export function PrintInspector(props: PrintInspectorProps) {
     // margin below printer's unprintable area.
     setMarginMm(printerMinMargin, printerMinMargin);
 
-    if (o().scaleToFit) {
-      const paperW = o().orientation === "landscape" ? selected.heightMm : selected.widthMm;
-      const paperH = o().orientation === "landscape" ? selected.widthMm : selected.heightMm;
-      const fit = calculateScaleToFit(
-        props.docWidthPx, props.docHeightPx,
-        paperW, paperH, printerMinMargin,
-      );
-      // Clamp to Rust max limit to prevent infinite loop
-      const MAX_SCALE = 1000;
-      setScalePercent(Math.min(fit.scalePercent, MAX_SCALE));
-    }
-
+    // Bug B fix: scale-to-fit recalculation is handled by Effect 3
+    // (which fires after each state change — paper, then margin).
+    // Removing the redundant setScalePercent here prevents an extra IPC
+    // call and avoids Effect 3 firing with stale margin values while
+    // Effect 2's IPC sequence is still in-flight.
   });
 
   // ── Effect 3: Recalculate ScaleToFit on paper/orientation/margin change ──
@@ -764,8 +767,8 @@ export function PrintInspector(props: PrintInspectorProps) {
               </div>
             </div>
 
-            {/* Printer Hardware Margin Info */}
-            <Show when={(printersRes() as PrintersData | undefined)?.defaultMargins}>
+            {/* Printer Hardware Margin Info — per-printer from paperSizesRes */}
+            <Show when={paperSizesRes()?.defaultMargins}>
               {(margins) => {
                 const maxMargin = Math.max(
                   margins().leftMm,

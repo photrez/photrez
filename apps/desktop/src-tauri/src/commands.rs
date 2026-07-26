@@ -649,8 +649,14 @@ pub(crate) fn get_system_printers() -> Result<Value, Value> {
     }))
 }
 
-/// Query a specific printer's supported paper sizes.
-/// Returns the list of paper sizes the printer driver reports.
+/// Query a specific printer's supported paper sizes, default paper size,
+/// and hardware margins — all for the requested printer (not just the default).
+/// Returns an object with `sizes`, `defaultPaperSize`, and `defaultMargins`.
+///
+/// This is the per-printer counterpart of `get_system_printers` — Effect 2
+/// reads defaults from this resource (which is reactive to printer changes)
+/// instead of from `printersRes` (which is fetched once at mount and stale
+/// for non-default printers).
 #[tauri::command]
 pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
     #[cfg(target_os = "windows")]
@@ -670,7 +676,20 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
                         })
                     })
                     .collect();
-                ok_response(serde_json::json!({ "sizes": entries }))
+                // Per-printer defaults (not from the default printer)
+                let default_paper = crate::print_windows::get_default_paper_size_win(&printer)
+                    .ok().map(|(preset, w_mm, h_mm)| {
+                        serde_json::json!({ "preset": preset, "widthMm": w_mm, "heightMm": h_mm })
+                    });
+                let default_margins = crate::print_windows::get_printer_margins_win(&printer)
+                    .ok().map(|(l, t, r, b)| {
+                        serde_json::json!({ "leftMm": l, "topMm": t, "rightMm": r, "bottomMm": b })
+                    });
+                ok_response(serde_json::json!({
+                    "sizes": entries,
+                    "defaultPaperSize": default_paper,
+                    "defaultMargins": default_margins,
+                }))
             }
             Err(e) => {
                 eprintln!("[RUST:commands] get_printer_paper_sizes — error: {}", e);
@@ -682,7 +701,10 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         // Resolve PPD for real paper dimensions; fall back to lpoptions list if no PPD
-        let ppd_dims = find_cups_ppd(&printer).map(|p| parse_ppd_file(&p).0);
+        let ppd_result = find_cups_ppd(&printer).map(|p| parse_ppd_file(&p));
+        // ppd_result.0 = paper_dims, ppd_result.1 = imageable_areas
+        let ppd_dims = ppd_result.as_ref().map(|(dims, _)| dims);
+        let ppd_areas = ppd_result.as_ref().map(|(_, areas)| areas);
 
         match std::process::Command::new("lpoptions")
             .arg("-p").arg(&printer).arg("-l").output()
@@ -690,31 +712,36 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let mut sizes: Vec<serde_json::Value> = Vec::new();
+                let mut default_page_size: Option<String> = None;
                 for line in stdout.lines() {
                     if line.starts_with("PageSize/") || line.starts_with("PageSize:") {
                         if let Some(val_part) = line.split(':').nth(1) {
                             for token in val_part.split_whitespace() {
                                 let name = token.trim_start_matches('*').to_string();
+                                // Detect default (has * prefix — the active/selected option)
+                                if default_page_size.is_none() && (token.starts_with('*') || name != token) {
+                                    default_page_size = Some(name.clone());
+                                }
                                 if !name.is_empty() {
                                     // Try PPD first; fall back to known table; then 0.0
-                                    let (w, h) = ppd_dims.as_ref()
-                                        .and_then(|dims| dims.iter().find(|(n, _, _)| n == &name))
-                                        .map(|(_, w, h)| (*w, *h))
-                                        .or_else(|| match name.as_str() {
-                                            "A4"     => Some((210.0, 297.0)),
-                                            "Letter" => Some((215.9, 279.4)),
-                                            "A3"     => Some((297.0, 420.0)),
-                                            "Legal"  => Some((215.9, 355.6)),
-                                            "A5"     => Some((148.0, 210.0)),
-                                            "A6"     => Some((105.0, 148.0)),
-                                            "Tabloid"    => Some((279.4, 431.8)),
-                                            "Executive"  => Some((184.15, 266.7)),
-                                            "4x6"    => Some((101.6, 152.4)),
-                                            "5x7"    => Some((127.0, 177.8)),
-                                            "8x10"   => Some((203.2, 254.0)),
-                                            _        => None,
-                                        })
-                                        .unwrap_or((0.0, 0.0));
+                                    let (w, h) = ppd_dims.and_then(|dims| {
+                                        dims.iter().find(|(n, _, _)| n == &name).map(|(_, w, h)| (*w, *h))
+                                    })
+                                    .or_else(|| match name.as_str() {
+                                        "A4"     => Some((210.0, 297.0)),
+                                        "Letter" => Some((215.9, 279.4)),
+                                        "A3"     => Some((297.0, 420.0)),
+                                        "Legal"  => Some((215.9, 355.6)),
+                                        "A5"     => Some((148.0, 210.0)),
+                                        "A6"     => Some((105.0, 148.0)),
+                                        "Tabloid"    => Some((279.4, 431.8)),
+                                        "Executive"  => Some((184.15, 266.7)),
+                                        "4x6"    => Some((101.6, 152.4)),
+                                        "5x7"    => Some((127.0, 177.8)),
+                                        "8x10"   => Some((203.2, 254.0)),
+                                        _        => None,
+                                    })
+                                    .unwrap_or((0.0, 0.0));
                                     sizes.push(serde_json::json!({
                                         "name": name,
                                         "widthMm": w,
@@ -726,7 +753,53 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
                         break;
                     }
                 }
-                ok_response(serde_json::json!({ "sizes": sizes }))
+
+                // Build defaultPaperSize from detected default + dimensions
+                let default_paper = default_page_size.as_ref().and_then(|name| {
+                    let (w, h) = ppd_dims.and_then(|dims| {
+                        dims.iter().find(|(n, _, _)| n == name).map(|(_, w, h)| (*w, *h))
+                    })
+                    .or_else(|| match name.as_str() {
+                        "A4"     => Some((210.0, 297.0)),
+                        "Letter" => Some((215.9, 279.4)),
+                        _        => None,
+                    })
+                    .unwrap_or((0.0, 0.0));
+                    if w > 0.0 && h > 0.0 {
+                        Some(serde_json::json!({ "preset": name, "widthMm": w, "heightMm": h }))
+                    } else {
+                        None
+                    }
+                });
+
+                // Build defaultMargins from PPD ImageableArea
+                let default_margins = default_page_size.as_ref().and_then(|name| {
+                    ppd_areas.and_then(|areas| areas.get(name)).map(|(x1, y1, x2, y2)| {
+                        let paper_w = default_paper.as_ref()
+                            .and_then(|v| v.get("widthMm").and_then(|v| v.as_f64()))
+                            .unwrap_or(210.0);
+                        let paper_h = default_paper.as_ref()
+                            .and_then(|v| v.get("heightMm").and_then(|v| v.as_f64()))
+                            .unwrap_or(297.0);
+                        serde_json::json!({
+                            "leftMm": x1,
+                            "topMm": y1,
+                            "rightMm": paper_w - x2,
+                            "bottomMm": paper_h - y2,
+                        })
+                    }).or_else(|| {
+                        // Fallback: 3mm standard margin
+                        Some(serde_json::json!({
+                            "leftMm": 3.0, "topMm": 3.0, "rightMm": 3.0, "bottomMm": 3.0,
+                        }))
+                    })
+                });
+
+                ok_response(serde_json::json!({
+                    "sizes": sizes,
+                    "defaultPaperSize": default_paper,
+                    "defaultMargins": default_margins,
+                }))
             }
             Err(e) => err_response("E_PRINTER", &format!("Failed to query printer: {}", e)),
         }
@@ -734,7 +807,7 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        ok_response(serde_json::json!({ "sizes": [] }))
+        ok_response(serde_json::json!({ "sizes": [], "defaultPaperSize": null, "defaultMargins": null }))
     }
 }
 
