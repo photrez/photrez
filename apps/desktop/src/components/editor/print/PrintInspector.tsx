@@ -388,6 +388,17 @@ export function PrintInspector(props: PrintInspectorProps) {
 
   const ppiQuality = () => getPPIQualityLevel(currentPPI());
 
+  // ── Display margin: prefer printer hardware min from resource ───
+  // Show the target (printer minimum) as soon as paperSizesRes loads,
+  // instead of waiting for the setMarginMm IPC round-trip to complete.
+  const displayMargin = () => {
+    const margins = paperSizesRes()?.defaultMargins;
+    if (margins) {
+      return Math.max(margins.leftMm, margins.topMm, margins.rightMm, margins.bottomMm, 1.0);
+    }
+    return o().marginMm;
+  };
+
   // ── Open native printer settings dialog ──────────────────────────
   const handleOpenPrinterProperties = async () => {
     if (!o().selectedPrinter) return;
@@ -757,11 +768,11 @@ export function PrintInspector(props: PrintInspectorProps) {
             <div class="flex items-center justify-between gap-2">
               <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Margin:</label>
               <div class="flex items-center gap-1.5 flex-1">
-                <span class="text-[11px] font-semibold text-editor-text">{o().marginMm.toFixed(1)} mm</span>
+                <span class="text-[11px] font-semibold text-editor-text">{displayMargin().toFixed(1)} mm</span>
                 <Show when={paperSizesRes()?.defaultMargins}>
                   {(margins) => {
                     const minVal = Math.max(margins().leftMm, margins().topMm, margins().rightMm, margins().bottomMm);
-                    return o().marginMm === minVal ? (
+                    return displayMargin() === minVal ? (
                       <span class="text-[10px] text-amber-400 font-medium ml-1">(printer min)</span>
                     ) : null;
                   }}
