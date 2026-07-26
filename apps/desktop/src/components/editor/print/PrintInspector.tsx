@@ -515,18 +515,22 @@ export function PrintInspector(props: PrintInspectorProps) {
   };
 
   // ── Unit input changes ───────────────────────────────────────────
-  const handleWidthChange = (valUnit: number) => {
+  const handleWidthChange = async (valUnit: number) => {
+    // Manual scale adjustment disables auto-fit
+    await setScaleToFit(false);
     const valMm = convertUnitToMm(valUnit, o().unit);
     const refMm = (props.docWidthPx / TARGET_PRINT_DPI) * MM_PER_INCH;
     const scale = Number(((valMm / refMm) * 100).toFixed(2));
-    setScalePercent(scale);
+    await setScalePercent(scale);
   };
 
-  const handleHeightChange = (valUnit: number) => {
+  const handleHeightChange = async (valUnit: number) => {
+    // Manual scale adjustment disables auto-fit
+    await setScaleToFit(false);
     const valMm = convertUnitToMm(valUnit, o().unit);
     const refMm = (props.docHeightPx / TARGET_PRINT_DPI) * MM_PER_INCH;
     const scale = Number(((valMm / refMm) * 100).toFixed(2));
-    setScalePercent(scale);
+    await setScalePercent(scale);
   };
 
   return (
@@ -829,7 +833,10 @@ export function PrintInspector(props: PrintInspectorProps) {
                   type="checkbox"
                   class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
                   checked={o().centerImage}
-                  onChange={(e) => setCenterImage(e.currentTarget.checked)}
+                  onChange={async (e) => {
+                    await setScaleToFit(false);
+                    await setCenterImage(e.currentTarget.checked);
+                  }}
                 />
                 Center on Page
               </label>
@@ -842,9 +849,10 @@ export function PrintInspector(props: PrintInspectorProps) {
                       type="number" step="0.1"
                       class="w-[60px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
                       value={convertMmToUnit(o().topOffsetMm, o().unit)}
-                      onInput={(e) => {
+                      onInput={async (e) => {
                         const valMm = convertUnitToMm(parseFloat(e.currentTarget.value) || 0, o().unit);
-                        setTopOffsetMm(valMm);
+                        await setScaleToFit(false);
+                        await setTopOffsetMm(valMm);
                       }}
                     />
                     <span class="text-[11px] text-editor-text-dim">{o().unit}</span>
@@ -855,9 +863,10 @@ export function PrintInspector(props: PrintInspectorProps) {
                       type="number" step="0.1"
                       class="w-[60px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
                       value={convertMmToUnit(o().leftOffsetMm, o().unit)}
-                      onInput={(e) => {
+                      onInput={async (e) => {
                         const valMm = convertUnitToMm(parseFloat(e.currentTarget.value) || 0, o().unit);
-                        setLeftOffsetMm(valMm);
+                        await setScaleToFit(false);
+                        await setLeftOffsetMm(valMm);
                       }}
                     />
                     <span class="text-[11px] text-editor-text-dim">{o().unit}</span>
@@ -888,18 +897,20 @@ export function PrintInspector(props: PrintInspectorProps) {
                   type="range" min="10" max="400" step="1"
                   class="flex-1 accent-[#E15A17] h-1.5 bg-editor-divider rounded-lg cursor-pointer"
                   ref={scaleSliderEl}
-                  onInput={(e) => {
+                  onInput={async (e) => {
+                    await setScaleToFit(false);
                     const scale = parseFloat(e.currentTarget.value) || 100;
-                    setScalePercent(scale);
+                    await setScalePercent(scale);
                   }}
                 />
                 <input
                   type="number" min="1" max="1000" step="0.1"
                   class="w-[60px] rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
                   ref={scaleNumberEl}
-                  onInput={(e) => {
+                  onInput={async (e) => {
+                    await setScaleToFit(false);
                     const scale = parseFloat(e.currentTarget.value) || 100;
-                    setScalePercent(scale);
+                    await setScalePercent(scale);
                   }}
                 />
                 <span class="text-[11px] text-editor-text-dim">%</span>
