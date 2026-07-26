@@ -175,7 +175,11 @@ export function usePrintSettings(src?: string) {
     },
     toggleOrientation: () => invokeSet("toggle_orientation", {}),
     setOrientation: (o: string) => invokeSet("set_orientation", { orientation: o }),
-    setMarginMm: (mm: number) => invokeSet("set_margin", { marginMm: mm }),
+    setMarginMm: (mm: number, hardwareMinMm?: number) => {
+      const args: Record<string, unknown> = { marginMm: mm };
+      if (hardwareMinMm !== undefined) args.hardwareMinMm = hardwareMinMm;
+      return invokeSet("set_margin", args);
+    },
     setScaleToFit: (enabled: boolean) => invokeSet("set_scale_to_fit", { enabled }),
     setScalePercent: (pct: number) => invokeSet("set_scale_percent", { percent: pct }),
     setCenterImage: (center: boolean) => invokeSet("set_center_image", { center }),

@@ -28,7 +28,7 @@ interface PrintInspectorProps {
   isPendingSetPaper: () => boolean;
   setPaper: (name: string, paperIndex: number, widthMm: number, heightMm: number) => Promise<void>;
   toggleOrientation: () => Promise<void>;
-  setMarginMm: (mm: number) => Promise<void>;
+  setMarginMm: (mm: number, hardwareMinMm?: number) => Promise<void>;
   setScaleToFit: (enabled: boolean) => Promise<void>;
   setScalePercent: (pct: number) => Promise<void>;
   setCenterImage: (center: boolean) => Promise<void>;
@@ -182,101 +182,89 @@ export function PrintInspector(props: PrintInspectorProps) {
   let prevPrinter: string | undefined;
 
   // ── Effect 2: Sync paper size when printer changes ─────────────────
-  // Priority: current Rust state > printer driver's default > sizes[0]
-  // This ensures user's paper selection is preserved across printer switch
-  // and prevents the printer driver's DEVMODE default from overriding the
-  // application state. For printers that report "Custom" as the DEVMODE
-  // paper name (e.g., EPSON L1110 with A4), this avoids wrongly matching
-  // the driver's raw dmFormName instead of the actual standard paper.
-  //
-    // Guards:
-    //   1. Skip until initial state is loaded from Rust (props.loading).
-    //      Prevents auto-select seeing placeholder DEFAULT_OPTIONS ("A4").
-    //   2. Skip if a user-initiated set_paper IPC is in-flight (pending).
-    //      Without this guard, Effect 2 reads stale curPreset ("A4") and
-    //      calls setPaper("A4",…), overwriting the user's pending change.
-    //      See usePrintSettings.ts — invokeSet sets _hookPendingSetPaper.
-    createEffect(() => {
+  // Picks the new printer's default paper (not the previous printer's).
+  // Guards:
+  //   1. Skip until initial state is loaded from Rust (props.loading).
+  //      Prevents auto-select seeing placeholder DEFAULT_OPTIONS ("A4").
+  //   2. Skip if a user-initiated set_paper IPC is in-flight (pending).
+  //      Without this guard, reading stale curPreset ("A4") would
+  //      overwrite the user's pending change. See usePrintSettings.ts.
+  //   3. Skip while paperSizesRes is loading — the fetched sizes are
+  //      from the PREVIOUS printer (async race).  Without this guard,
+  //      Effect 2 runs with stale sizes, updates prevPrinter, then
+  //      skips the real data when it arrives.  Real case: switching
+  //      printers keeps the old printer's paper.
+  createEffect(() => {
     if (props.loading) return;
     if (isPendingSetPaper()) return;
+
+    // Guard 3: wait for fresh paper-size data from the resource
+    // (accessing .loading makes SolidJS track it as a dependency)
+    const paperSizesLoading = paperSizesRes.loading;
     const sizes = paperSizesRes();
     const printer = o().selectedPrinter;
     const printersData = printersRes();
 
-    const curPreset = o().paperPreset;
-    const curW = o().paperWidthMm;
-    const curH = o().paperHeightMm;
+    if (!sizes || sizes.length === 0 || !printer) return;
+    if (paperSizesLoading) return;              // Guard 3
+    if (printer === prevPrinter) return;         // not a printer change
+    prevPrinter = printer;
 
-    console.log("[PRINT:Inspector] Effect 2 — sizes:", sizes?.length, "printer:", printer, "prevPrinter:", prevPrinter, "current state:", curPreset, `(${curW}\u00d7${curH})`, "defaultPaper:", JSON.stringify((printersData as PrintersData | undefined)?.defaultPaperSize));
+    console.log("[PRINT:Inspector] Effect 2 — sizes:", sizes.length, "printer:", printer, "defaultPaper:", JSON.stringify((printersData as PrintersData | undefined)?.defaultPaperSize));
 
-    // Guard: only run on printer change when sizes are available
-    if (sizes && sizes.length > 0 && printer && printer !== prevPrinter) {
-      prevPrinter = printer;
+    // Always pick the new printer's default (not the previous printer's paper)
+    const defaultPaper = (printersData as PrintersData | undefined)?.defaultPaperSize;
 
-      const defaultPaper = (printersData as PrintersData | undefined)?.defaultPaperSize;
+    // Helper: find by name (returns [entry, name] tuple or undefined)
+    const findByName = (name: string): [PaperSizeEntry, string] | undefined => {
+      const e = sizes.find((s) => s.name === name);
+      return e ? [e, name] : undefined;
+    };
+    // Helper: find by dimensions with ±0.5mm tolerance
+    const findByDim = (w: number, h: number): [PaperSizeEntry, string] | undefined => {
+      const e = sizes.find((s) => Math.abs(s.widthMm - w) <= 0.5 && Math.abs(s.heightMm - h) <= 0.5);
+      return e ? [e, e.name] : undefined;
+    };
 
-      // Helper: find by name in supported list
-      const findByName = (name: string) => sizes.find((s) => s.name === name);
-      // Helper: find by dimensions (with \u00b10.5mm tolerance)
-      const findByDim = (w: number, h: number) =>
-        sizes.find((s) => Math.abs(s.widthMm - w) <= 0.5 && Math.abs(s.heightMm - h) <= 0.5);
-
-      // ── Priority 1: Current state name in supported list ──────────
-      let selected = findByName(curPreset);
-      let matchedPreset = curPreset;
-
-      // ── Priority 2: Current state dimensions match ────────────────
-      if (!selected) {
-        selected = findByDim(curW, curH);
-        if (selected) matchedPreset = selected.name;
-      }
-
-      // ── Priority 3: Current state swapped dims (orientation) ──────
-      if (!selected) {
-        selected = findByDim(curH, curW);
-        if (selected) matchedPreset = selected.name;
-      }
-
-      // ── Priority 4: Default paper name from printer driver ────────
-      if (!selected && defaultPaper && defaultPaper.preset !== "Custom") {
-        selected = findByName(defaultPaper.preset);
-        if (selected) matchedPreset = defaultPaper.preset;
-      }
-
-      // ── Priority 5: Default paper dimensions from printer driver ──
-      if (!selected && defaultPaper && defaultPaper.widthMm > 0) {
-        selected = findByDim(defaultPaper.widthMm, defaultPaper.heightMm);
-        if (selected) matchedPreset = selected.name;
-      }
-
-      // ── Priority 6: First supported size ──────────────────────────
-      if (!selected) {
-        selected = sizes[0];
-        matchedPreset = sizes[0].name;
-      }
-
-      console.log("[PRINT:Inspector] Effect 2 — selected:", matchedPreset, JSON.stringify(selected));
-      setPaper(matchedPreset, selected.dmPaperIndex, selected.widthMm, selected.heightMm);
-
-      // ── Hardware margin ───────────────────────────────────────────
-      const margins = (printersData as PrintersData | undefined)?.defaultMargins;
-      const printerMinMargin = margins
-        ? Math.max(margins.leftMm, margins.topMm, margins.rightMm, margins.bottomMm, 1.0)
-        : 5.0;
-      setMarginMm(printerMinMargin);
-
-      if (o().scaleToFit) {
-        const paperW = o().orientation === "landscape" ? selected.heightMm : selected.widthMm;
-        const paperH = o().orientation === "landscape" ? selected.widthMm : selected.heightMm;
-        const fit = calculateScaleToFit(
-          props.docWidthPx, props.docHeightPx,
-          paperW, paperH, printerMinMargin,
-        );
-        // Clamp to Rust max limit to prevent infinite loop
-        const MAX_SCALE = 1000;
-        setScalePercent(Math.min(fit.scalePercent, MAX_SCALE));
-      }
+    // Priority 1: Default paper name from printer driver
+    let match = defaultPaper && defaultPaper.preset !== "Custom"
+      ? findByName(defaultPaper.preset) : undefined;
+    // Priority 2: Default paper dimensions
+    if (!match && defaultPaper && defaultPaper.widthMm > 0) {
+      match = findByDim(defaultPaper.widthMm, defaultPaper.heightMm);
     }
+    // Priority 3: First supported size
+    if (!match && sizes.length > 0) {
+      match = [sizes[0], sizes[0].name];
+    }
+
+    if (!match) return; // no sizes at all — abort
+    const [selected, matchedPreset] = match;
+    console.log("[PRINT:Inspector] Effect 2 — selected:", matchedPreset, JSON.stringify(selected));
+    setPaper(matchedPreset, selected.dmPaperIndex, selected.widthMm, selected.heightMm);
+
+    // ── Hardware margin ───────────────────────────────────────────
+    const margins = (printersData as PrintersData | undefined)?.defaultMargins;
+    const printerMinMargin = margins
+      ? Math.max(margins.leftMm, margins.topMm, margins.rightMm, margins.bottomMm, 1.0)
+      : 5.0;
+    // Pass hardware min so Rust stores the floor and clamps subsequent
+    // user changes — SSOT enforcement: prevents user setting
+    // margin below printer's unprintable area.
+    setMarginMm(printerMinMargin, printerMinMargin);
+
+    if (o().scaleToFit) {
+      const paperW = o().orientation === "landscape" ? selected.heightMm : selected.widthMm;
+      const paperH = o().orientation === "landscape" ? selected.widthMm : selected.heightMm;
+      const fit = calculateScaleToFit(
+        props.docWidthPx, props.docHeightPx,
+        paperW, paperH, printerMinMargin,
+      );
+      // Clamp to Rust max limit to prevent infinite loop
+      const MAX_SCALE = 1000;
+      setScalePercent(Math.min(fit.scalePercent, MAX_SCALE));
+    }
+
   });
 
   // ── Effect 3: Recalculate ScaleToFit on paper/orientation/margin change ──
@@ -333,62 +321,41 @@ export function PrintInspector(props: PrintInspectorProps) {
   });
 
   // ── Build dropdown options from printer-reported sizes ───────────
-  const UNLISTED_PREFIX = "_unlisted:";
-
   const paperSizeOptions = createMemo(() => {
     const sizes = printerPaperSizes();
-    const currentName = o().paperPreset;
-    const currentW = o().paperWidthMm;
-    const currentH = o().paperHeightMm;
-    // Match by name only (not dims) to avoid false conflict when
-    // orientation swaps width ⇄ height for the same paper.
-    const isListed = currentName != null && sizes.some((s) => s.name === currentName);
-    const currentEntry = (!currentName || isListed) ? [] : [{
-      id: `${UNLISTED_PREFIX}${currentName}`,
-      label: `${currentName} (${currentW} × ${currentH} mm)`,
-      widthMm: currentW,
-      heightMm: currentH,
-      isUnlisted: true,
-    }];
-    const result = [
-      ...currentEntry,
-      ...sizes.map((s) => ({
-        id: s.name,
-        label: `${s.name} (${s.widthMm} × ${s.heightMm} mm)`,
-        widthMm: s.widthMm,
-        heightMm: s.heightMm,
-      })),
-    ];
-    return result;
+    // Only list sizes the printer driver reports.  Previously an "unlisted"
+    // entry was prepended for the current paper when it wasn't in the list,
+    // but this caused the previous printer's paper to pollute the dropdown
+    // after a printer switch — the old `paperPreset` signal still carried
+    // the stale paper name until the async set_paper IPC completed.
+    return sizes.map((s) => ({
+      id: s.name,
+      label: `${s.name} (${s.widthMm} × ${s.heightMm} mm)`,
+      widthMm: s.widthMm,
+      heightMm: s.heightMm,
+    }));
   });
 
   // ── Find matching option ID from current dimensions ──────────────
   const currentSelectedSizeId = () => {
     const presetName = o().paperPreset;
-    // Strategy 1: match by preset name (preserves orientation state correctly)
+    // Strategy 1: match by preset name
     for (const opt of paperSizeOptions()) {
-      if (opt.id === presetName || opt.id === `${UNLISTED_PREFIX}${presetName}`) {
-        return opt.id;
-      }
+      if (opt.id === presetName) return opt.id;
     }
     // Strategy 2: match by dimensions (with tolerance, both original and swapped)
     const w = o().paperWidthMm;
     const h = o().paperHeightMm;
     for (const opt of paperSizeOptions()) {
-      if (Math.abs(w - opt.widthMm) <= 0.5 && Math.abs(h - opt.heightMm) <= 0.5) {
-        return opt.id;
-      }
+      if (Math.abs(w - opt.widthMm) <= 0.5 && Math.abs(h - opt.heightMm) <= 0.5) return opt.id;
       // also check swapped dimensions (orientation state may differ from natural orientation)
-      if (Math.abs(w - opt.heightMm) <= 0.5 && Math.abs(h - opt.widthMm) <= 0.5) {
-        return opt.id;
-      }
+      if (Math.abs(w - opt.heightMm) <= 0.5 && Math.abs(h - opt.widthMm) <= 0.5) return opt.id;
     }
-    // Fallback: return the unlisted ID if it exists, otherwise the preset name
-    const unlistedId = `${UNLISTED_PREFIX}${presetName}`;
-    if (paperSizeOptions().some((opt) => opt.id === unlistedId)) {
-      return unlistedId;
-    }
-    return presetName;
+    // Fallback: return first available option to prevent empty/broken dropdown
+    // when the preset name doesn't exist in the current printer's size list
+    // (e.g. user switched from a printer that had F4 to one that doesn't).
+    const opts = paperSizeOptions();
+    return opts.length > 0 ? opts[0].id : presetName;
   };
 
   // ── Track whether running on non-Windows ──────────────────────────
@@ -444,12 +411,6 @@ export function PrintInspector(props: PrintInspectorProps) {
   // ── Paper size selection from dropdown ───────────────────────────
   const handlePaperSizeSelect = (optionId: string) => {
     console.log("[PRINT:Inspector] handlePaperSizeSelect — optionId:", optionId, "orientation:", o().orientation, "state before:", JSON.stringify({paperPreset: o().paperPreset, paperWidthMm: o().paperWidthMm, paperHeightMm: o().paperHeightMm}));
-    // If the selected option starts with the unlisted prefix, it's the
-    // "active but unlisted" fallback entry (= current paper) — do nothing.
-    if (optionId.startsWith(UNLISTED_PREFIX)) {
-      console.log("[PRINT:Inspector] handlePaperSizeSelect — unlisted prefix, returning early");
-      return;
-    }
     const selected = printerPaperSizes().find((s) => s.name === optionId);
     if (!selected) {
       console.log("[PRINT:Inspector] handlePaperSizeSelect — selected not found in printerPaperSizes:", optionId, "sizes:", printerPaperSizes().map(s => s.name));

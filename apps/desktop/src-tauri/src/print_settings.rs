@@ -18,6 +18,9 @@ pub struct PrintSettings {
 
     // Margins
     pub margin_mm: f64,
+    /// Floor enforced by set_margin_mm — set from printer driver's
+    /// PHYSICALOFFSETX/Y (Windows) or PPD ImageableArea (macOS/Linux).
+    pub hardware_margin_min_mm: f64,
 
     // Scale & Position
     pub scale_to_fit: bool,
@@ -42,6 +45,7 @@ impl Default for PrintSettings {
             paper_height_mm: 297.0,
             orientation: "portrait".to_string(),
             margin_mm: 5.0,
+            hardware_margin_min_mm: 0.0,
             scale_to_fit: false,
             scale_percent: 100.0,
             center_image: true,
@@ -78,7 +82,7 @@ impl PrintSettings {
     }
 
     pub fn set_margin_mm(&mut self, margin: f64) {
-        self.margin_mm = margin.clamp(0.0, 100.0);
+        self.margin_mm = margin.clamp(self.hardware_margin_min_mm, 100.0);
     }
 
     pub fn set_scale_to_fit(&mut self, enabled: bool) {
@@ -183,6 +187,18 @@ mod tests {
         assert_eq!(s.margin_mm, 0.0);
         s.set_margin_mm(200.0);
         assert_eq!(s.margin_mm, 100.0);
+    }
+
+    #[test]
+    fn margin_respects_hardware_min() {
+        let mut s = PrintSettings::default();
+        s.hardware_margin_min_mm = 3.0;
+        s.set_margin_mm(0.0);
+        assert_eq!(s.margin_mm, 3.0);
+        s.set_margin_mm(2.0);
+        assert_eq!(s.margin_mm, 3.0);
+        s.set_margin_mm(5.0);
+        assert_eq!(s.margin_mm, 5.0);
     }
 
     #[test]

@@ -843,14 +843,24 @@ pub(crate) fn set_orientation(
 
 /// Set margin in mm.
 /// Skips emit if value hasn't changed (prevents cascading events).
+/// Optional `hardware_min_mm` stores the printer's unprintable-area floor;
+/// subsequent `set_margin` calls (even without the param) clamp to it.
 #[tauri::command]
 pub(crate) fn set_margin(
     margin_mm: f64,
+    hardware_min_mm: Option<f64>,
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
     let mut settings = state.lock().unwrap();
-    let changed = (settings.margin_mm - margin_mm).abs() > 0.001;
+
+    // Update hardware floor when the frontend provides it (e.g. on printer switch)
+    if let Some(hw_min) = hardware_min_mm {
+        settings.hardware_margin_min_mm = hw_min;
+    }
+
+    let changed = (settings.margin_mm - margin_mm).abs() > 0.001
+        || hardware_min_mm.is_some();
     if changed {
         settings.set_margin_mm(margin_mm);
         emit_print_settings(&app, &settings);
