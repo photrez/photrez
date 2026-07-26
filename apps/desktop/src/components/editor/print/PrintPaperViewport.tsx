@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Show, createSignal } from "solid-js";
 import type { PrintOptions } from "./printTypes";
-import { formatPhysicalDimensions } from "./printGeometry";
+import { formatPhysicalDimensions, TARGET_PRINT_DPI, MM_PER_INCH } from "./printTypes";
 
 interface PrintPaperViewportProps {
   options: PrintOptions;
-  setOptions: (updater: (prev: PrintOptions) => PrintOptions) => void;
+  setCenterImage?: (center: boolean) => void;
+  setLeftOffsetMm?: (offset: number) => void;
+  setTopOffsetMm?: (offset: number) => void;
   previewUrl: string | null;
+  previewLoading?: boolean;
   docWidthPx: number;
   docHeightPx: number;
   docName?: string;
@@ -17,13 +20,13 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
   const [dragStartPos, setDragStartPos] = createSignal<{ x: number; y: number } | null>(null);
   const [initialOffsets, setInitialOffsets] = createSignal<{ left: number; top: number }>({ left: 0, top: 0 });
 
-  // Calculate SVG paper dimensions (max preview box 480x480)
+  // Calculate SVG paper dimensions (max preview box ~480x480)
   const containerW = 440;
   const containerH = 440;
 
-  const paperW = () => props.options.paperWidthMm;
-  const paperH = () => props.options.paperHeightMm;
-  const paperAspect = () => (paperH() > 0 ? paperW() / paperH() : 1);
+  const paperW = () => Math.max(1, props.options.paperWidthMm);
+  const paperH = () => Math.max(1, props.options.paperHeightMm);
+  const paperAspect = () => paperW() / paperH();
 
   // SVG Paper display rect
   const svgPaper = () => {
@@ -41,8 +44,8 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
   const imageMm = () => {
     const scaleFactor = props.options.scalePercent / 100;
     // 300 DPI reference size in mm
-    const refWm = (props.docWidthPx / 300) * 25.4;
-    const refHm = (props.docHeightPx / 300) * 25.4;
+    const refWm = (props.docWidthPx / TARGET_PRINT_DPI) * MM_PER_INCH;
+    const refHm = (props.docHeightPx / TARGET_PRINT_DPI) * MM_PER_INCH;
 
     const wMm = refWm * scaleFactor;
     const hMm = refHm * scaleFactor;
@@ -95,15 +98,16 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
     const dxMm = dxPx / paper.scaleMmToSvg;
     const dyMm = dyPx / paper.scaleMmToSvg;
 
-    const newLeft = Number((initialOffsets().left + dxMm).toFixed(1));
-    const newTop = Number((initialOffsets().top + dyMm).toFixed(1));
+    // Clamp offsets so the image stays within the paper (with 10mm wiggle room)
+    const { wMm, hMm } = imageMm();
+    const maxLeft = paperW() - wMm + 10;
+    const maxTop = paperH() - hMm + 10;
+    const newLeft = Number(Math.max(-10, Math.min(maxLeft, initialOffsets().left + dxMm)).toFixed(1));
+    const newTop = Number(Math.max(-10, Math.min(maxTop, initialOffsets().top + dyMm)).toFixed(1));
 
-    props.setOptions((prev) => ({
-      ...prev,
-      centerImage: false,
-      leftOffsetMm: newLeft,
-      topOffsetMm: newTop,
-    }));
+    props.setCenterImage?.(false);
+    props.setLeftOffsetMm?.(newLeft);
+    props.setTopOffsetMm?.(newTop);
   };
 
   const handlePointerUp = (e: PointerEvent) => {
@@ -168,6 +172,32 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
             stroke-width="0.8"
           />
 
+          {/* Loading Spinner for Preview */}
+          <Show when={props.previewLoading}>
+            <g transform={`translate(${svgPaper().width / 2 - 12}, ${svgPaper().height / 2 - 12})`}>
+              <circle
+                cx="12" cy="12" r="10"
+                fill="none"
+                stroke="#888"
+                stroke-width="2"
+                stroke-dasharray="31.4"
+                stroke-linecap="round"
+              >
+                <animateTransform
+                  attributeName="transform"
+                  type="rotate"
+                  from="0 12 12"
+                  to="360 12 12"
+                  dur="1s"
+                  repeatCount="indefinite"
+                />
+              </circle>
+              <text x="12" y="26" text-anchor="middle" fill="#888" font-size="6" font-family="sans-serif">
+                Loading
+              </text>
+            </g>
+          </Show>
+
           {/* Image Overlay */}
           <Show when={props.previewUrl}>
             <g
@@ -202,7 +232,7 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
                 width={imageSvg().width}
                 height={imageSvg().height}
                 fill="none"
-                stroke={isDragging() ? "#e15a17" : "#e15a17"}
+                stroke="#e15a17"
                 stroke-width={isDragging() ? "2" : "1.2"}
                 stroke-dasharray={isDragging() ? "none" : "3 3"}
               />

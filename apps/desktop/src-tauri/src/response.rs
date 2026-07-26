@@ -95,20 +95,7 @@ pub fn validate_path_extension(path: &str, allowed: &[&str], operation: &str) ->
     ))
 }
 
-/// Rejects paths that attempt directory traversal (e.g. `../../etc/passwd`).
-/// Resolved paths cannot escape their intended location via `..` segments.
-pub fn validate_no_traversal(path: &str) -> Result<(), Value> {
-    use std::path::Component;
-    for component in std::path::Path::new(path).components() {
-        if let Component::ParentDir = component {
-            return Err(error_value(
-                "E_VALIDATION",
-                "Path traversal (`..`) is not allowed",
-            ));
-        }
-    }
-    Ok(())
-}
+
 
 /// Canonicalizes a path and rejects symlink-based escapes (defense in depth for CWE-22).
 ///
@@ -177,21 +164,6 @@ mod tests {
         let value = result.unwrap_err();
         assert_eq!(value["contract_version"], CONTRACT_VERSION);
         assert_eq!(value["error"]["code"], "E_VALIDATION");
-    }
-
-    #[test]
-    fn test_validate_no_traversal_rejects_parent_dir() {
-        assert!(validate_no_traversal("../escape.png").is_err());
-        assert!(validate_no_traversal("a/../../b.png").is_err());
-        assert!(validate_no_traversal("..\\escape.png").is_err());
-    }
-
-    #[test]
-    fn test_validate_no_traversal_allows_normal_paths() {
-        assert!(validate_no_traversal("project.ptz").is_ok());
-        assert!(validate_no_traversal("sub/dir/image.png").is_ok());
-        #[cfg(windows)]
-        assert!(validate_no_traversal("C:\\Users\\me\\image.png").is_ok());
     }
 
     #[test]

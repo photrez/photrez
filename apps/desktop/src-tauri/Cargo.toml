@@ -16,6 +16,7 @@ base64 = "0.22"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 open = "5"
 printers = "2.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
@@ -24,6 +25,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
 ] }
+raw-window-handle = "0.6"
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }

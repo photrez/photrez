@@ -3,18 +3,61 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "@solidjs/testing-library";
 import { PrintPaperViewport } from "../PrintPaperViewport";
 import { PrintInspector } from "../PrintInspector";
-import { DEFAULT_PRINT_OPTIONS, type PrintOptions } from "../printTypes";
+import type { PrintOptions } from "../printTypes";
 import { createSignal } from "solid-js";
+
+// Local default options (no longer importing from printTypes — BUG-10 cleanup)
+const BASE_OPTIONS: PrintOptions = {
+  selectedPrinter: "",
+  copies: 1,
+  orientation: "portrait",
+  paperPreset: "A4",
+  paperIndex: 9,
+  paperWidthMm: 210,
+  paperHeightMm: 297,
+  marginMm: 5,
+  colorHandling: "printer_manages",
+  renderingIntent: "perceptual",
+  blackPointCompensation: true,
+  centerImage: true,
+  topOffsetMm: 0,
+  leftOffsetMm: 0,
+  scalePercent: 100,
+  scaleToFit: false,
+  unit: "cm",
+  showPaperWhite: true,
+};
 
 // Mock Tauri IPC
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn().mockImplementation((cmd: string) => {
+  invoke: vi.fn().mockImplementation((cmd: string, args?: any) => {
     if (cmd === "get_system_printers") {
       return Promise.resolve({
         ok: true,
         data: {
           printers: ["Epson Stylus Pro 3880", "Canon PIXMA PRO-100"],
           default: "Epson Stylus Pro 3880",
+        },
+      });
+    }
+    if (cmd === "get_print_settings") {
+      return Promise.resolve({
+        ok: true,
+        data: {
+          selected_printer: "",
+          copies: 1,
+          paper_preset: "A4",
+          paper_width_mm: 210,
+          paper_height_mm: 297,
+          orientation: "portrait",
+          margin_mm: 5,
+          scale_to_fit: true,
+          scale_percent: 100,
+          center_image: true,
+          top_offset_mm: 0,
+          left_offset_mm: 0,
+          unit: "mm",
+          show_paper_white: true,
         },
       });
     }
@@ -25,10 +68,45 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
+/**
+ * Creates basic PrintInspector props for wiring tests.
+ * Pre-seeds selectedPrinter so the dropdown displays the default.
+ */
+function createInspectorProps() {
+  // Match Rust defaults (what get_print_settings returns),
+  // overriding BASE_OPTIONS where they differ.
+  const [opts, setOptions] = createSignal<PrintOptions>({
+    ...BASE_OPTIONS,
+    selectedPrinter: "Epson Stylus Pro 3880",
+    scaleToFit: true,   // Rust returns scale_to_fit: true
+    unit: "mm",         // Rust returns unit: "mm"
+  });
+
+  const stub = vi.fn(async () => {});
+
+  return {
+    get options() { return opts(); },
+    setOptions,
+    loading: false,
+    isPendingSetPaper: () => false,
+    docWidthPx: 3000,
+    docHeightPx: 2000,
+    setPaper: stub, toggleOrientation: stub, setMarginMm: stub,
+    setScaleToFit: stub, setScalePercent: stub, setCenterImage: stub,
+    setTopOffsetMm: stub, setLeftOffsetMm: stub, setCopies: stub,
+    setUnit: stub, setShowPaperWhite: stub, setPrinter: stub,
+    openPrinterProperties: stub,
+  };
+}
+
 describe("Pro Print Dialog Wiring", () => {
   it("renders paper viewport with physical dimension badge", () => {
     const [options, setOptions] = createSignal<PrintOptions>({
-      ...DEFAULT_PRINT_OPTIONS,
+      ...BASE_OPTIONS,
       paperWidthMm: 210,
       paperHeightMm: 297,
       unit: "cm",
@@ -37,7 +115,6 @@ describe("Pro Print Dialog Wiring", () => {
     const { getByText } = render(() => (
       <PrintPaperViewport
         options={options()}
-        setOptions={setOptions}
         previewUrl="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         docWidthPx={3000}
         docHeightPx={2000}
@@ -49,22 +126,8 @@ describe("Pro Print Dialog Wiring", () => {
   });
 
   it("renders inspector sections: Printer Setup, Color Management, Position and Size", async () => {
-    const [options, setOptions] = createSignal<PrintOptions>({
-      ...DEFAULT_PRINT_OPTIONS,
-      docWidthPx: 3000,
-      docHeightPx: 2000,
-    } as any);
-
-    const onPrint = vi.fn();
-    const onCancel = vi.fn();
-
     const { getByText, findByDisplayValue } = render(() => (
-      <PrintInspector
-        options={options()}
-        setOptions={setOptions}
-        docWidthPx={3000}
-        docHeightPx={2000}
-      />
+      <PrintInspector {...createInspectorProps()} />
     ));
 
     expect(getByText("Printer Setup")).toBeInTheDocument();
@@ -77,18 +140,8 @@ describe("Pro Print Dialog Wiring", () => {
   });
 
   it("calculates live PPI and quality badge correctly", () => {
-    const [options, setOptions] = createSignal<PrintOptions>({
-      ...DEFAULT_PRINT_OPTIONS,
-      scalePercent: 100,
-    });
-
     const { getByText } = render(() => (
-      <PrintInspector
-        options={options()}
-        setOptions={setOptions}
-        docWidthPx={3000}
-        docHeightPx={2000}
-      />
+      <PrintInspector {...createInspectorProps()} />
     ));
 
     // 3000px doc at 100% scale = 300 PPI -> Optimal
@@ -96,37 +149,18 @@ describe("Pro Print Dialog Wiring", () => {
   });
 
   it("renders unit suffix labels next to Width and Height inputs", () => {
-    const [options, setOptions] = createSignal<PrintOptions>({
-      ...DEFAULT_PRINT_OPTIONS,
-      unit: "cm",
-    });
-
     const { getAllByText } = render(() => (
-      <PrintInspector
-        options={options()}
-        setOptions={setOptions}
-        docWidthPx={3000}
-        docHeightPx={2000}
-      />
+      <PrintInspector {...createInspectorProps()} />
     ));
 
-    const cmElements = getAllByText("cm");
-    expect(cmElements.length).toBeGreaterThanOrEqual(2);
+    // Default unit from Rust is "mm"
+    const mmElements = getAllByText("mm");
+    expect(mmElements.length).toBeGreaterThanOrEqual(2);
   });
 
   it("toggles orientation layout without checkbox icons", () => {
-    const [options, setOptions] = createSignal<PrintOptions>({
-      ...DEFAULT_PRINT_OPTIONS,
-      orientation: "portrait",
-    });
-
     const { getByTitle } = render(() => (
-      <PrintInspector
-        options={options()}
-        setOptions={setOptions}
-        docWidthPx={3000}
-        docHeightPx={2000}
-      />
+      <PrintInspector {...createInspectorProps()} />
     ));
 
     const portraitBtn = getByTitle("Portrait");

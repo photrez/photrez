@@ -1,14 +1,13 @@
-import { Show, createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
+import { invoke } from "@tauri-apps/api/core";
 import { useEditor } from "../shell/EditorContext";
 import { encodeComposite } from "../exportDocument";
 import { printDocument } from "../printDocument";
 import { DesktopDialog } from "./DesktopDialog";
 import { PrintPaperViewport } from "../print/PrintPaperViewport";
 import { PrintInspector } from "../print/PrintInspector";
-import type { PrintOptions } from "../print/printTypes";
-import { DEFAULT_PRINT_OPTIONS } from "../print/printTypes";
-import { calculateScaleToFit } from "../print/printGeometry";
+import { usePrintSettings } from "../print/usePrintSettings";
 
 export function PrintDialog() {
   const {
@@ -19,48 +18,64 @@ export function PrintDialog() {
     docHeight,
   } = useEditor();
 
-  const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
-  const [printing, setPrinting] = createSignal(false);
-  const [options, setOptions] = createSignal<PrintOptions>({
-    ...DEFAULT_PRINT_OPTIONS,
-  });
+  // Rust-backed print state (single source of truth — BUG-08 fix)
+  const {
+    options,
+    setOptions,
+    loading,
+    isPendingSetPaper,
+    setPaper,
+    toggleOrientation,
+    setMarginMm,
+    setScaleToFit,
+    setScalePercent,
+    setCenterImage,
+    setTopOffsetMm,
+    setLeftOffsetMm,
+    setCopies,
+    setUnit,
+    setShowPaperWhite,
+    setPrinter,
+    openPrinterProperties,
+  } = usePrintSettings("dialog");
 
-  // Calculate initial Scale to Fit and encode preview whenever dialog opens
+  const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
+  const [previewLoading, setPreviewLoading] = createSignal(false);
+  const [printing, setPrinting] = createSignal(false);
+
+  // ── Effect: Regenerate preview when relevant options change ──
+  // Debounced at 150ms to avoid re-encoding on every keystroke.
   createEffect(() => {
     if (!showPrintDialog()) return;
+
+    const opts = options();
     const engine = workspace.getActiveEngine();
     if (!engine) return;
 
-    // Read current options untracked to avoid infinite signal loop
-    const currentOpts = untrack(options);
-    const fit = calculateScaleToFit(
-      docWidth(),
-      docHeight(),
-      currentOpts.paperWidthMm,
-      currentOpts.paperHeightMm,
-      currentOpts.marginMm
-    );
-    setOptions((prev) => ({
-      ...prev,
-      scaleToFit: true,
-      centerImage: true,
-      scalePercent: fit.scalePercent,
-      leftOffsetMm: fit.leftOffsetMm,
-      topOffsetMm: fit.topOffsetMm,
-    }));
+    let cancelled = false;
+    onCleanup(() => { cancelled = true; });
 
-    (async () => {
-      try {
-        // Fast JPEG preview for paper canvas viewport
-        const bytes = await encodeComposite(engine, "jpeg", 85);
-        const blob = new Blob([bytes as BlobPart], { type: "image/jpeg" });
-        const old = previewUrl();
-        if (old) URL.revokeObjectURL(old);
-        setPreviewUrl(URL.createObjectURL(blob));
-      } catch {
-        // Preview is optional — silent fail
-      }
-    })();
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      setPreviewLoading(true);
+
+      (async () => {
+        try {
+          const bytes = await encodeComposite(engine, "jpeg", 85);
+          if (cancelled) return;
+          const blob = new Blob([bytes as BlobPart], { type: "image/jpeg" });
+          const old = previewUrl();
+          if (old) URL.revokeObjectURL(old);
+          setPreviewUrl(URL.createObjectURL(blob));
+        } catch {
+          // Preview is optional
+        } finally {
+          if (!cancelled) setPreviewLoading(false);
+        }
+      })();
+    }, 150);
+
+    onCleanup(() => clearTimeout(timer));
   });
 
   onCleanup(() => {
@@ -73,10 +88,12 @@ export function PrintDialog() {
     if (!engine) return;
     setPrinting(true);
     try {
-      await printDocument(engine, options());
+      await printDocument(engine, docName());
+      setShowPrintDialog(false);
+    } catch {
+      // Error toast shown by printDocument
     } finally {
       setPrinting(false);
-      setShowPrintDialog(false);
     }
   };
 
@@ -98,40 +115,51 @@ export function PrintDialog() {
           widthClass="max-w-[1040px] w-[1040px] h-[660px]"
           bodyClass="p-0 h-[624px] flex flex-col justify-between"
         >
-          {/* Pro-Suite 2-Column Print Layout (Flex 1 grow) */}
           <div class="flex flex-1 min-h-0 w-full gap-0 overflow-hidden">
-            {/* Left Pane: Interactive SVG Paper Viewport */}
             <PrintPaperViewport
               options={options()}
-              setOptions={setOptions}
+              setCenterImage={setCenterImage}
+              setLeftOffsetMm={setLeftOffsetMm}
+              setTopOffsetMm={setTopOffsetMm}
               previewUrl={previewUrl()}
+              previewLoading={previewLoading()}
               docWidthPx={docWidth()}
               docHeightPx={docHeight()}
               docName={docName()}
             />
-
-            {/* Right Pane: Print Inspector Dock (Continuous Surface) */}
             <PrintInspector
-              options={options()}
-              setOptions={setOptions}
               docWidthPx={docWidth()}
               docHeightPx={docHeight()}
+              options={options()}
+              setOptions={setOptions}
+              loading={loading()}
+              isPendingSetPaper={isPendingSetPaper}
+              setPaper={setPaper}
+              toggleOrientation={toggleOrientation}
+              setMarginMm={setMarginMm}
+              setScaleToFit={setScaleToFit}
+              setScalePercent={setScalePercent}
+              setCenterImage={setCenterImage}
+              setTopOffsetMm={setTopOffsetMm}
+              setLeftOffsetMm={setLeftOffsetMm}
+              setCopies={setCopies}
+              setUnit={setUnit}
+              setShowPaperWhite={setShowPaperWhite}
+              setPrinter={setPrinter}
+              openPrinterProperties={openPrinterProperties}
             />
           </div>
 
-          {/* Full-Width Footer Action Bar (100% Span) */}
           <div class="flex h-[44px] shrink-0 items-center justify-between border-t border-editor-divider bg-editor-topbar px-4 select-none">
             <label class="flex items-center gap-2 text-[11px] font-medium text-editor-text cursor-pointer">
               <input
                 type="checkbox"
                 class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
                 checked={options().showPaperWhite}
-                onChange={(e) =>
-                  setOptions((prev) => ({
-                    ...prev,
-                    showPaperWhite: e.currentTarget.checked,
-                  }))
-                }
+                onChange={(e) => {
+                  // showPaperWhite updated via Rust event
+                  invoke("set_show_paper_white", { show: e.currentTarget.checked });
+                }}
               />
               Show Paper White
             </label>

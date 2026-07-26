@@ -1,0 +1,208 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// --- Print Settings Hook: Event-driven from Rust ---
+
+import { createSignal, onCleanup, onMount } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { PrintOptions, PrintOrientation } from "./printTypes";
+
+// Event name constant (matches Rust: EVENT_PRINT_SETTINGS_CHANGED)
+const EVENT_PRINT_SETTINGS_CHANGED = "print-settings-changed";
+
+const DEFAULT_OPTIONS: PrintOptions = {
+  selectedPrinter: "",
+  copies: 1,
+  paperPreset: "A4",
+  paperIndex: 9,
+  paperWidthMm: 210,
+  paperHeightMm: 297,
+  orientation: "portrait",
+  marginMm: 5,
+  scaleToFit: false,
+  scalePercent: 100,
+  centerImage: true,
+  topOffsetMm: 0,
+  leftOffsetMm: 0,
+  unit: "mm",
+  showPaperWhite: true,
+  colorHandling: "printer_manages",
+  renderingIntent: "perceptual",
+  blackPointCompensation: true,
+};
+
+/// Map Rust snake_case to TypeScript camelCase
+export function mapFromRust(raw: any): PrintOptions {
+  return {
+    selectedPrinter: raw.selected_printer ?? "",
+    copies: raw.copies ?? 1,
+    paperPreset: raw.paper_name ?? "A4",
+    paperIndex: raw.paper_index ?? 9,
+    paperWidthMm: raw.paper_width_mm ?? 210,
+    paperHeightMm: raw.paper_height_mm ?? 297,
+    orientation: raw.orientation ?? "portrait",
+    marginMm: raw.margin_mm ?? 5,
+    scaleToFit: raw.scale_to_fit ?? false,
+    scalePercent: raw.scale_percent ?? 100,
+    centerImage: raw.center_image ?? true,
+    topOffsetMm: raw.top_offset_mm ?? 0,
+    leftOffsetMm: raw.left_offset_mm ?? 0,
+    unit: raw.unit ?? "mm",
+    showPaperWhite: raw.show_paper_white ?? true,
+    // Keep existing color management values (not in Rust state yet)
+    colorHandling: "printer_manages",
+    renderingIntent: "perceptual",
+    blackPointCompensation: true,
+  };
+}
+
+let _hookId = 0;
+
+/** Track pending IPC operations so Effect 2 can skip auto-select
+ *  while a user-initiated set_paper is still in-flight. Prevents
+ *  a race where Effect 2 reads stale curPreset and overwrites the
+ *  user's pending paper change.
+ *  Module-level since both invokeSet and the exported hook share it. */
+let _hookPendingSetPaper = false;
+
+/** Serialise IPC calls for print settings. When the user rapidly
+ *  toggles state (spam-click scale-to-fit, etc.), multiple invoke
+ *  calls are in-flight simultaneously and responses can arrive out
+ *  of order — a response from an EARLIER command can overwrite the
+ *  signal AFTER a LATER command's response, regressing state.
+ *
+ *  Instead of sending all calls concurrently, queue them so only
+ *  one IPC is in-flight at a time.  This guarantees responses are
+ *  processed in the order the commands were issued. */
+let _ipcQueue: Promise<void> = Promise.resolve();
+
+export function usePrintSettings(src?: string) {
+  const id = src || `hook-${++_hookId}`;
+  const [options, setOptions] = createSignal<PrintOptions>(DEFAULT_OPTIONS);
+  const [loading, setLoading] = createSignal(true);
+
+  // Expose pending-op flag for PrintInspector's Effect 2 guard
+  const isPendingSetPaper = () => _hookPendingSetPaper;
+
+  // Store unlisten function for cleanup
+  let unlisten: UnlistenFn | null = null;
+
+  onMount(async () => {
+    // 1. Register event listener FIRST — before any IPC calls.
+    //    This ensures no events from Rust are lost during init.
+    //
+    //    IMPORTANT: the listener does NOT call setOptions — the invoke
+    //    response is the single source of truth (see invokeSet below).
+    //    Rust emits an event from every mutation command just before
+    //    returning the invoke response.  Both carry the same state
+    //    snapshot.  If the listener also called setOptions, a late
+    //    event from an EARLIER command (e.g. set_scale_to_fit) could
+    //    arrive AFTER a LATER invoke response (e.g. set_scale_percent)
+    //    and overwrite the signal with stale values, causing Effect 3
+    //    to re-trigger and loop.  Only log events for diagnostics.
+    unlisten = await listen<any>(EVENT_PRINT_SETTINGS_CHANGED, (event) => {
+      const data = event.payload?.data ?? event.payload;
+      const mapped = mapFromRust(data);
+      console.log(`[PRINT:${id}] Event (log only):`, JSON.stringify(mapped));
+    });
+
+    // 2. Fetch initial state from Rust (primary SSOT)
+    try {
+      const raw = await invoke<any>("get_print_settings");
+      // Command returns { ok: true, data: {...} } envelope
+      const data = raw?.data ?? raw;
+      const mapped = mapFromRust(data);
+      console.log(`[PRINT:${id}] Initial:`, JSON.stringify(mapped));
+      setOptions(mapped);
+    } catch (e) {
+      console.error(`[PRINT:${id}] Fetch failed:`, e);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  // MUST call unlisten() on cleanup to avoid memory leaks
+  onCleanup(() => {
+    unlisten?.();
+  });
+
+  /** Serialise IPC calls through _ipcQueue to guarantee response order.
+   *  Each invoke is chained onto a global promise so only one IPC is
+   *  in-flight at a time.  This prevents out-of-order responses when
+   *  the user rapidly toggles state (spam-click scale-to-fit, etc.) —
+   *  a response from an EARLIER command cannot overwrite the signal
+   *  AFTER a LATER command's response. */
+  async function invokeSet(command: string, args: Record<string, any>) {
+    const task = async () => {
+      console.log(`[PRINT:${id}] invoke -> ${command}`, JSON.stringify(args));
+      // Track pending set_paper IPC — used by PrintInspector Effect 2 to
+      // avoid auto-selecting with stale curPreset and overwriting the user's
+      // paper change. See Effect 2 guard for details.
+      const isSetPaper = command === "set_paper";
+      if (isSetPaper) _hookPendingSetPaper = true;
+      try {
+        const raw = await invoke<Record<string, unknown>>(command, args);
+        const data: unknown = raw?.data ?? raw;
+        if (data) {
+          const mapped = mapFromRust(data);
+          // DIAG: log when response paper differs from what we just set
+          if (isSetPaper && mapped.paperPreset !== args.name) {
+            console.warn(`[PRINT:${id}] DIAG: set_paper response paperPreset ("${mapped.paperPreset}") != args.name ("${args.name}") — Rust may have rejected/corrected our choice`);
+          }
+          setOptions(mapped);
+        }
+      } catch (e) {
+        console.error(`[PRINT:${id}] invoke failed ${command}:`, e);
+      } finally {
+        if (isSetPaper) _hookPendingSetPaper = false;
+      }
+    };
+    // Chain onto the queue — previous task must finish before ours starts.
+    // On rejection, the second `task` handler keeps the chain alive.
+    _ipcQueue = _ipcQueue.then(task, task);
+    await _ipcQueue;
+  }
+
+  return {
+    options,
+    setOptions,
+    loading,
+    isPendingSetPaper,
+    // User actions — each invokes a Rust command
+    setPaper: (name: string, paperIndex: number, widthMm: number, heightMm: number) => {
+      console.log(`[PRINT:${id}] setPaper called — name="${name}" index=${paperIndex} dims=(${widthMm}x${heightMm})`, new Error().stack?.split("\n").slice(2,5).join(" → "));
+      return invokeSet("set_paper", { name, paperIndex, widthMm, heightMm });
+    },
+    toggleOrientation: () => invokeSet("toggle_orientation", {}),
+    setOrientation: (o: string) => invokeSet("set_orientation", { orientation: o }),
+    setMarginMm: (mm: number) => invokeSet("set_margin", { marginMm: mm }),
+    setScaleToFit: (enabled: boolean) => invokeSet("set_scale_to_fit", { enabled }),
+    setScalePercent: (pct: number) => invokeSet("set_scale_percent", { percent: pct }),
+    setCenterImage: (center: boolean) => invokeSet("set_center_image", { center }),
+    setTopOffsetMm: (offset: number) => invokeSet("set_top_offset_mm", { offset }),
+    setLeftOffsetMm: (offset: number) => invokeSet("set_left_offset_mm", { offset }),
+    setCopies: (n: number) => invokeSet("set_copies", { copies: n }),
+    setUnit: (u: string) => invokeSet("set_unit", { unit: u }),
+    setShowPaperWhite: (show: boolean) => invokeSet("set_show_paper_white", { show }),
+    setPrinter: (p: string) => invokeSet("set_printer", { printer: p }),
+    openPrinterProperties: async () => {
+      const res = await invoke<Record<string, unknown>>("open_printer_properties_and_apply") as any;
+      console.log(`[PRINT:${id}] Properties result:`, JSON.stringify(res));
+      // Update frontend state from the native dialog result directly
+      // (bypasses event listener since it no longer calls setOptions).
+      const data: Record<string, unknown> = res?.data ?? res;
+      if (data && data.applied && data.paperPreset) {
+        const cur = options();
+        const newOrientation = (data.orientation as string) as PrintOrientation;
+        setOptions({
+          ...cur,
+          paperPreset: data.paperPreset as string,
+          paperIndex: (data.paperIndex as number) ?? cur.paperIndex,
+          paperWidthMm: (data.paperWidthMm as number) ?? cur.paperWidthMm,
+          paperHeightMm: (data.paperHeightMm as number) ?? cur.paperHeightMm,
+          orientation: newOrientation ?? cur.orientation,
+        });
+      }
+      return res;
+    },
+  };
+}

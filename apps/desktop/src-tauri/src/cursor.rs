@@ -38,12 +38,15 @@ pub(crate) fn set_native_cursor<R: Runtime>(
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::SetCursor;
-        use std::sync::Once;
 
-        static SCAN_ONCE: Once = Once::new();
-        SCAN_ONCE.call_once(|| {
-            debug_scan_cursor_resources();
-        });
+        #[cfg(debug_assertions)]
+        {
+            use std::sync::Once;
+            static SCAN_ONCE: Once = Once::new();
+            SCAN_ONCE.call_once(|| {
+                debug_scan_cursor_resources();
+            });
+        }
 
         let hcursor = load_drag_cursor_win(&icon);
         SetCursor(hcursor);

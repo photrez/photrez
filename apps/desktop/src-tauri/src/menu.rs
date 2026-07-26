@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+﻿// SPDX-License-Identifier: AGPL-3.0-or-later
 // â”€â”€â”€ Native Application Menu â”€â”€â”€
 //
 // Builds the native OS menu bar and defines which menu IDs are
@@ -14,6 +14,7 @@ pub(crate) const NATIVE_MENU_EVENT: &str = "photrez://native-menu";
 pub(crate) const EDITOR_MENU_IDS: &[&str] = &[
     "file.new",
     "file.open",
+    "file.print",
     "file.export",
     "edit.undo",
     "edit.redo",
@@ -36,10 +37,13 @@ pub(crate) fn build_native_menu<R: Runtime, M: Manager<R>>(
     let new_document = MenuItemBuilder::with_id("file.new", "&New Document")
         .accelerator("CmdOrCtrl+N")
         .build(manager)?;
-    let open = MenuItemBuilder::with_id("file.open", "&Open Imageâ€¦")
+    let open = MenuItemBuilder::with_id("file.open", "&Open Image…")
         .accelerator("CmdOrCtrl+O")
         .build(manager)?;
-    let export = MenuItemBuilder::with_id("file.export", "&Exportâ€¦")
+    let print = MenuItemBuilder::with_id("file.print", "&Print...")
+        .accelerator("CmdOrCtrl+P")
+        .build(manager)?;
+    let export = MenuItemBuilder::with_id("file.export", "&Export...")
         .accelerator("CmdOrCtrl+S")
         .build(manager)?;
     let undo = MenuItemBuilder::with_id("edit.undo", "&Undo")
@@ -84,6 +88,8 @@ pub(crate) fn build_native_menu<R: Runtime, M: Manager<R>>(
     let file_menu = SubmenuBuilder::new(manager, "&File")
         .item(&new_document)
         .item(&open)
+        .item(&print)
+        .separator()
         .item(&export)
         .separator()
         .quit()

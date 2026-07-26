@@ -268,7 +268,7 @@
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | ✅ DONE | File > Print (Ctrl+P) — opens Photoshop-class 2-column Pro-Suite Print Settings modal (`1080×680px`) inside Photrez               |
 | ✅ DONE | Interactive SVG Paper Viewport — physical paper ratio canvas, printable margin guide, scaled image overlay, drag positioning       |
-| ✅ DONE | Print Inspector — Printer selector (`get_system_printers` via `printers` crate), Copies (`1-999`), Portrait/Landscape orientation |
+| ✅ DONE | Print Inspector — Printer selector (`get_system_printers` via `printers` crate), Copies (`1-999`), Portrait/Landscape orientation. Paper sizes sourced from OS driver (`DC_PAPERS`), no hardcoded presets. "Active but unlisted" fallback for printer-reported sizes not in driver list |
 | ✅ DONE | Position & Size Inspector — Center checkbox, Top/Left offsets, Scale %, linked W/H inputs, Scale to Fit Media, Units selector     |
 | ✅ DONE | Live Resolution Calculation — Effective PPI readout with color-coded quality badge (🟢 Optimal / 🟡 Acceptable / 🔴 Low Res)       |
 | ✅ DONE | Smart Composite Execution — Frontend renders high-DPI paper composite (300 DPI) matching scale & position before native spooling   |
@@ -499,3 +499,4 @@
 | Status  | Fitur |
 | ------- | ----- |
 | ✅ DONE | Sequential save-on-close dialog: when closing app with dirty documents, shows a dialog per doc (Save / Discard / Cancel). Cancel aborts close; Discard/Save advances to next dirty doc. All resolved → window closes. 13 wiring tests guard Cancel, Discard, Save, save-failure retry, no-source-path save, and fallback paths. |
+| ✅ DONE | Print Dialog bug audit — 9 bugs fixed: scaleToFit auto-recalculate on paper preset change, async preview race condition via cancellation flag, functional Custom paper size inputs, division-by-zero guard in calculateScaleToFit, ShellExecuteW copies loop removed (single call), rundll32 argument splitting for printer properties dialog, file.print added to native menu bar, debug cursor scan gated to debug builds, non-Windows print via lpr/lp CLI with fallback to open::that |

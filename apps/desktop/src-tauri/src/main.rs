@@ -4,11 +4,16 @@
 mod commands;
 mod cursor;
 mod menu;
+mod print_geometry;
+mod print_settings;
+#[cfg(target_os = "windows")]
+mod print_windows;
 mod response;
 mod window_state;
 
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
+use print_settings::PrintSettings;
 
 struct CliState(Mutex<Option<String>>);
 
@@ -19,8 +24,21 @@ fn main() {
 
     tauri::Builder::default()
         .manage(CliState(Mutex::new(cli_path)))
+        .manage(Mutex::new(PrintSettings::default()))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // ── Initialize default printer in print settings state ──────
+            // Prevents a race condition on first dialog open: the Effect 1
+            // frontend code would otherwise call setPrinter via IPC, emitting
+            // an event that can be lost before the event listener is registered.
+            if let Ok(mut settings) = app.state::<Mutex<PrintSettings>>().lock() {
+                let had = settings.selected_printer.is_some();
+                settings.initialize_default_printer();
+                if !had && settings.selected_printer.is_some() {
+                    eprintln!("[RUST:setup] Initialized default printer: {:?}", settings.selected_printer);
+                }
+            }
+
             app.set_menu(menu::build_native_menu(app)?)?;
             app.on_menu_event(|app_handle, event| {
                 let id = event.id().0.as_str();
@@ -76,7 +94,26 @@ fn main() {
             commands::load_project,
             commands::print_image,
             commands::get_system_printers,
+            commands::get_printer_paper_sizes,
             commands::open_printer_properties,
+            commands::get_print_settings,
+            commands::set_paper,
+            commands::toggle_orientation,
+            commands::set_orientation,
+            commands::set_margin,
+            commands::set_scale_to_fit,
+            commands::set_scale_percent,
+            commands::set_center_image,
+            commands::set_top_offset_mm,
+            commands::set_left_offset_mm,
+            commands::set_copies,
+            commands::set_unit,
+            commands::set_show_paper_white,
+            commands::set_printer,
+            commands::open_printer_properties_and_apply,
+            commands::convert_mm_to_current_unit,
+            commands::convert_current_unit_to_mm,
+            cursor::set_native_cursor,
             commands::delete_file,
             commands::close_app,
         ])
