@@ -163,6 +163,10 @@ export interface PrintOptions {
   paperWidthMm: number;
   paperHeightMm: number;
   marginMm: number;
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
   colorHandling: "printer_manages" | "photrez_manages";
   renderingIntent: "perceptual" | "relative" | "saturation" | "absolute";
   blackPointCompensation: boolean;

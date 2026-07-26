@@ -166,15 +166,16 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
             rx="2"
           />
 
-          {/* Printable Area / Margin Guide */}
+          {/* Printable Area / Margin Guide — per-side from options,
+              falls back to uniform marginMm when per-side not set. */}
           <rect
-            x={o().marginMm * svgPaper().scaleMmToSvg}
-            y={o().marginMm * svgPaper().scaleMmToSvg}
+            x={(o().marginLeftMm ?? o().marginMm) * svgPaper().scaleMmToSvg}
+            y={(o().marginTopMm ?? o().marginMm) * svgPaper().scaleMmToSvg}
             width={
-              (paperW() - o().marginMm * 2) * svgPaper().scaleMmToSvg
+              (paperW() - (o().marginLeftMm ?? o().marginMm) - (o().marginRightMm ?? o().marginMm)) * svgPaper().scaleMmToSvg
             }
             height={
-              (paperH() - o().marginMm * 2) * svgPaper().scaleMmToSvg
+              (paperH() - (o().marginTopMm ?? o().marginMm) - (o().marginBottomMm ?? o().marginMm)) * svgPaper().scaleMmToSvg
             }
             fill="none"
             stroke="#71717a"

@@ -259,6 +259,17 @@ export function PrintInspector(props: PrintInspectorProps) {
     // margin below printer's unprintable area.
     setMarginMm(printerMinMargin, printerMinMargin);
 
+    // Store per-side margins in options for preview (per-side dashed rect).
+    if (margins) {
+      props.setOptions((prev) => ({
+        ...prev,
+        marginLeftMm: margins.leftMm,
+        marginRightMm: margins.rightMm,
+        marginTopMm: margins.topMm,
+        marginBottomMm: margins.bottomMm,
+      }));
+    }
+
     // Bug B fix: scale-to-fit recalculation is handled by Effect 3
     // (which fires after each state change — paper, then margin).
     // Removing the redundant setScalePercent here prevents an extra IPC
