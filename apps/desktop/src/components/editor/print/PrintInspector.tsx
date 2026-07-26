@@ -750,46 +750,24 @@ export function PrintInspector(props: PrintInspectorProps) {
               </select>
             </div>
 
-            {/* Margin */}
+            {/* Margin — read-only, set by printer driver minimum */}
+            {/* Best practice: content is positioned within the printable area
+                via Center/Offset controls; margin is the printer's unprintable
+                boundary, not a user-controlled value (like Photoshop/GIMP). */}
             <div class="flex items-center justify-between gap-2">
               <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Margin:</label>
               <div class="flex items-center gap-1.5 flex-1">
-                <input
-                  type="number" min="0" max="100" step="1"
-                  class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
-                  value={o().marginMm}
-                  onInput={(e) => {
-                    const newMargin = Math.max(0, parseFloat(e.currentTarget.value) || 0);
-                    setMarginMm(newMargin);
+                <span class="text-[11px] font-semibold text-editor-text">{o().marginMm.toFixed(1)} mm</span>
+                <Show when={paperSizesRes()?.defaultMargins}>
+                  {(margins) => {
+                    const minVal = Math.max(margins().leftMm, margins().topMm, margins().rightMm, margins().bottomMm);
+                    return o().marginMm === minVal ? (
+                      <span class="text-[10px] text-amber-400 font-medium ml-1">(printer min)</span>
+                    ) : null;
                   }}
-                />
-                <span class="text-[11px] text-editor-text-dim">mm</span>
+                </Show>
               </div>
             </div>
-
-            {/* Printer Hardware Margin Info — per-printer from paperSizesRes */}
-            <Show when={paperSizesRes()?.defaultMargins}>
-              {(margins) => {
-                const maxMargin = Math.max(
-                  margins().leftMm,
-                  margins().topMm,
-                  margins().rightMm,
-                  margins().bottomMm,
-                );
-                return (
-                  <div class="flex items-center justify-between gap-2">
-                    <label class="w-[72px] shrink-0 text-editor-text-dim text-[10.5px] font-medium">Printer Min:</label>
-                    <span class="text-[10.5px] text-editor-text-muted">
-                      L: {margins().leftMm.toFixed(1)} T: {margins().topMm.toFixed(1)} 
-                      R: {margins().rightMm.toFixed(1)} B: {margins().bottomMm.toFixed(1)} mm
-                      <Show when={maxMargin > 1}>
-                        <span class="text-amber-400 font-medium ml-1">(min {maxMargin.toFixed(1)}mm)</span>
-                      </Show>
-                    </span>
-                  </div>
-                );
-              }}
-            </Show>
 
             {/* Center on Page */}
             <div class="flex flex-col gap-2 pt-2 mt-1 border-t border-editor-divider/40">
