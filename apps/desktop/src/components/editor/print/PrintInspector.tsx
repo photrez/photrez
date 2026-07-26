@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { For, Show, createEffect, createResource, createSignal, untrack } from "solid-js";
+import { For, Show, createEffect, createMemo, createRenderEffect, createResource, createSignal, untrack } from "solid-js";
 import { showToast } from "../Toast";
 import { invoke } from "@tauri-apps/api/core";
 import type {
@@ -20,7 +20,7 @@ import {
 interface PrintInspectorProps {
   docWidthPx: number;
   docHeightPx: number;
-  options: PrintOptions;
+  options: () => PrintOptions;
   setOptions: (value: PrintOptions | ((prev: PrintOptions) => PrintOptions)) => PrintOptions;
   loading: boolean;
   /** True while a user-initiated set_paper IPC is in-flight — Effect 2
@@ -58,7 +58,7 @@ interface PaperSizeEntry {
 export function PrintInspector(props: PrintInspectorProps) {
   // Print state is a single source of truth from PrintDialog / usePrintSettings.
   // All callbacks invoke Rust commands directly — no fallback instance.
-  const o = () => props.options;
+  const o = props.options;
   const {
     setOptions,
     setPaper,
@@ -77,6 +77,14 @@ export function PrintInspector(props: PrintInspectorProps) {
     isPendingSetPaper,
   } = props;
 
+  // Reactive component-body log — runs on every re-evaluation
+  console.log("[PRINT:Inspector] RENDER — orientation:", o().orientation, "paperWidthMm:", o().paperWidthMm, "paperHeightMm:", o().paperHeightMm);
+
+  // Diagnostic: verify signal propagation reaches PrintInspector's reactive contexts
+  createEffect(() => {
+    console.log("[PRINT:Inspector] DIAG EFFECT — orientation:", o().orientation, "paperWidthMm:", o().paperWidthMm, "paperHeightMm:", o().paperHeightMm);
+  });
+
   // ── Refresh trigger signal — increment to force re-fetch printer list ─
   const [refreshKey, setRefreshKey] = createSignal(0);
 
@@ -85,6 +93,22 @@ export function PrintInspector(props: PrintInspectorProps) {
   let scaleSliderEl: HTMLInputElement | undefined;
   let scaleNumberEl: HTMLInputElement | undefined;
   let paperSelectEl: HTMLSelectElement | undefined;
+  let printerSelectEl: HTMLSelectElement | undefined;
+  let portraitBtnEl: HTMLButtonElement | undefined;
+  let landscapeBtnEl: HTMLButtonElement | undefined;
+
+  // Reactive orientation button highlight — ref-based to bypass Show cache
+  // blocking JSX class bindings. createRenderEffect tracks signal changes
+  // directly and updates DOM without relying on JSX reconciliation.
+  const ACTIVE_CLS = "bg-editor-accent text-white font-semibold shadow-xs";
+  const INACTIVE_CLS = "text-editor-text-dim hover:text-editor-text hover:bg-editor-hover/50 font-normal";
+  const BTN_BASE = "flex flex-1 items-center justify-center gap-1.5 h-[24px] rounded-[3px] text-[11px] transition-colors cursor-pointer";
+  createRenderEffect(() => {
+    const isPortrait = o().orientation === "portrait";
+    console.log("[PRINT:Inspector] RENDER EFF — orientation:", o().orientation, "isPortrait:", isPortrait, "portraitEl:", !!portraitBtnEl, "landscapeEl:", !!landscapeBtnEl);
+    if (portraitBtnEl) portraitBtnEl.className = BTN_BASE + " " + (isPortrait ? ACTIVE_CLS : INACTIVE_CLS);
+    if (landscapeBtnEl) landscapeBtnEl.className = BTN_BASE + " " + (!isPortrait ? ACTIVE_CLS : INACTIVE_CLS);
+  });
 
   // ── Resource 1: Printer list ──────────────────────────────────────
   // Fetches on mount (refreshKey=0) and whenever refreshKey increments.
@@ -152,16 +176,6 @@ export function PrintInspector(props: PrintInspectorProps) {
     console.log("[PRINT:Inspector] Effect 1 — selecting default printer:", defaultP);
     setPrinter(defaultP);
     // Paper size auto-select happens in Effect 2 once paper sizes load
-  });
-
-  // ── DIAG: Track paper reverts — log stack when paperPreset goes from non-A4 to A4 ─
-  let _diagPrevPaper = "";
-  createEffect(() => {
-    const cur = o().paperPreset;
-    if (_diagPrevPaper && _diagPrevPaper !== "A4" && cur === "A4") {
-      console.warn(`[PRINT:Inspector] DIAG: PAPER REVERTED TO A4! was="${_diagPrevPaper}" now="${cur}"`, new Error().stack);
-    }
-    _diagPrevPaper = cur;
   });
 
   // ── Track previous printer for auto-select guard ─────────────────
@@ -314,12 +328,14 @@ export function PrintInspector(props: PrintInspectorProps) {
     // Paper size dropdown: ref-based sync prevents the native <select> from
     // flashing the first option when <For> recreates <option> elements.
     if (paperSelectEl) paperSelectEl.value = currentSelectedSizeId();
+    // Printer dropdown: same ref-based sync for the same reason.
+    if (printerSelectEl) printerSelectEl.value = o().selectedPrinter || "";
   });
 
   // ── Build dropdown options from printer-reported sizes ───────────
   const UNLISTED_PREFIX = "_unlisted:";
 
-  const paperSizeOptions = () => {
+  const paperSizeOptions = createMemo(() => {
     const sizes = printerPaperSizes();
     const currentName = o().paperPreset;
     const currentW = o().paperWidthMm;
@@ -344,7 +360,7 @@ export function PrintInspector(props: PrintInspectorProps) {
       })),
     ];
     return result;
-  };
+  });
 
   // ── Find matching option ID from current dimensions ──────────────
   const currentSelectedSizeId = () => {
@@ -384,10 +400,9 @@ export function PrintInspector(props: PrintInspectorProps) {
   const [colorOpen, setColorOpen] = createSignal(false);
   const [positionOpen, setPositionOpen] = createSignal(true);
 
-  // ── Manual refresh handler ────────────────────────────────────────
+  // ── Manual refresh handler — resource auto-refetches when refreshKey changes ─
   const refreshPrinters = () => {
     setRefreshKey((k) => k + 1);
-    refetchPaperSizes();
   };
 
   // ── Live PPI calculation ─────────────────────────────────────────
@@ -456,8 +471,26 @@ export function PrintInspector(props: PrintInspectorProps) {
   };
 
   // ── Orientation toggle ───────────────────────────────────────────
+  // Debounce guard: SolidJS synchronous re-render after IPC response can
+  // cascade a single native click through event delegation, re-firing the
+  // onClick handler on the OTHER orientation button (and back again).
+  // Real case: user clicks Portrait → toggle IPC → response → setOptions
+  // → synchronous re-render → SolidJS delegates the SAME native click
+  // against updated data-solid-* attributes → Landscape button fires
+  // → toggles back → re-render → Portrait button fires again → 3 cycles
+  // from 1 click.  Debounce at 1 frame (16ms) breaks the cascade.
+  let _orientationToggleCounter = 0;
+  let _orientationToggleTimer = 0;
   const handleOrientationToggle = (newOrientation: PrintOrientation) => {
-    console.log("[PRINT:Inspector] handleOrientationToggle — new:", newOrientation, "current:", o().orientation, "state before:", JSON.stringify({paperWidthMm: o().paperWidthMm, paperHeightMm: o().paperHeightMm}));
+    const callId = ++_orientationToggleCounter;
+    console.log("[PRINT:Inspector] [#" + callId + "] handleOrientationToggle — new:", newOrientation, "current:", o().orientation, "state before:", JSON.stringify({paperWidthMm: o().paperWidthMm, paperHeightMm: o().paperHeightMm}));
+    console.trace("[PRINT:Inspector] [#" + callId + "] stack trace:");
+    const now = Date.now();
+    if (now - _orientationToggleTimer < 16) {
+      console.log("[PRINT:Inspector] [#" + callId + "] DEBOUNCED — SolidJS event cascade");
+      return;
+    }
+    _orientationToggleTimer = now;
     if (o().orientation === newOrientation) return;
     toggleOrientation();
   };
@@ -530,7 +563,7 @@ export function PrintInspector(props: PrintInspectorProps) {
               <div class="flex flex-1 items-center gap-1">
                 <select
                   class="flex-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
-                  value={o().selectedPrinter}
+                  ref={printerSelectEl}
                   disabled={loadingPrinters()}
                   onChange={(e) => {
                     const newPrinter = e.currentTarget.value;
@@ -623,12 +656,8 @@ export function PrintInspector(props: PrintInspectorProps) {
               <div class="flex items-center rounded-[4px] border border-editor-field-border bg-editor-field p-0.5 flex-1">
                 <button
                   type="button"
+                  ref={portraitBtnEl}
                   title="Portrait"
-                  class={`flex flex-1 items-center justify-center gap-1.5 h-[24px] rounded-[3px] text-[11px] transition-colors cursor-pointer ${
-                    o().orientation === "portrait"
-                      ? "bg-editor-accent text-white font-semibold shadow-xs"
-                      : "text-editor-text-dim hover:text-editor-text hover:bg-editor-hover/50 font-normal"
-                  }`}
                   onClick={() => handleOrientationToggle("portrait")}
                 >
                   <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -638,12 +667,8 @@ export function PrintInspector(props: PrintInspectorProps) {
                 </button>
                 <button
                   type="button"
+                  ref={landscapeBtnEl}
                   title="Landscape"
-                  class={`flex flex-1 items-center justify-center gap-1.5 h-[24px] rounded-[3px] text-[11px] transition-colors cursor-pointer ${
-                    o().orientation === "landscape"
-                      ? "bg-editor-accent text-white font-semibold shadow-xs"
-                      : "text-editor-text-dim hover:text-editor-text hover:bg-editor-hover/50 font-normal"
-                  }`}
                   onClick={() => handleOrientationToggle("landscape")}
                 >
                   <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">

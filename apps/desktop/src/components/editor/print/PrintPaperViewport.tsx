@@ -4,7 +4,7 @@ import type { PrintOptions } from "./printTypes";
 import { formatPhysicalDimensions, TARGET_PRINT_DPI, MM_PER_INCH } from "./printTypes";
 
 interface PrintPaperViewportProps {
-  options: PrintOptions;
+  options: () => PrintOptions;
   setCenterImage?: (center: boolean) => void;
   setLeftOffsetMm?: (offset: number) => void;
   setTopOffsetMm?: (offset: number) => void;
@@ -19,13 +19,23 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
   const [isDragging, setIsDragging] = createSignal(false);
   const [dragStartPos, setDragStartPos] = createSignal<{ x: number; y: number } | null>(null);
   const [initialOffsets, setInitialOffsets] = createSignal<{ left: number; top: number }>({ left: 0, top: 0 });
+  const o = props.options;
 
   // Calculate SVG paper dimensions (max preview box ~480x480)
+  // NOTE: paperWidthMm / paperHeightMm store the physical paper dimensions in portrait
+  // orientation. When orientation is landscape, swap them for visual display so the
+  // preview rectangle reflects the actual page orientation.
   const containerW = 440;
   const containerH = 440;
 
-  const paperW = () => Math.max(1, props.options.paperWidthMm);
-  const paperH = () => Math.max(1, props.options.paperHeightMm);
+  const paperW = (): number => {
+    const { paperWidthMm, paperHeightMm, orientation } = o();
+    return Math.max(1, orientation === "landscape" ? paperHeightMm : paperWidthMm);
+  };
+  const paperH = (): number => {
+    const { paperWidthMm, paperHeightMm, orientation } = o();
+    return Math.max(1, orientation === "landscape" ? paperWidthMm : paperHeightMm);
+  };
   const paperAspect = () => paperW() / paperH();
 
   // SVG Paper display rect
@@ -42,7 +52,7 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
 
   // Image size on paper in mm
   const imageMm = () => {
-    const scaleFactor = props.options.scalePercent / 100;
+    const scaleFactor = o().scalePercent / 100;
     // 300 DPI reference size in mm
     const refWm = (props.docWidthPx / TARGET_PRINT_DPI) * MM_PER_INCH;
     const refHm = (props.docHeightPx / TARGET_PRINT_DPI) * MM_PER_INCH;
@@ -55,10 +65,10 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
   // Image position in mm (center vs offset)
   const imagePosMm = () => {
     const { wMm, hMm } = imageMm();
-    let left = props.options.leftOffsetMm;
-    let top = props.options.topOffsetMm;
+    let left = o().leftOffsetMm;
+    let top = o().topOffsetMm;
 
-    if (props.options.centerImage) {
+    if (o().centerImage) {
       left = (paperW() - wMm) / 2;
       top = (paperH() - hMm) / 2;
     }
@@ -129,7 +139,7 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
           {props.docName || "Untitled"} ({props.docWidthPx} × {props.docHeightPx} px)
         </div>
         <div class="text-[11px] font-normal text-editor-text-dim">
-          Paper: {formatPhysicalDimensions(paperW(), paperH(), props.options.unit)} ({props.options.paperPreset})
+          Paper: {formatPhysicalDimensions(paperW(), paperH(), o().unit)} ({o().paperPreset})
         </div>
       </div>
 
@@ -141,7 +151,7 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
           viewBox={`0 0 ${svgPaper().width} ${svgPaper().height}`}
           class="rounded-[4px] shadow-[0_4px_20px_rgba(0,0,0,0.4)] transition-all duration-150"
           style={{
-            background: props.options.showPaperWhite ? "#ffffff" : "#222226",
+            background: o().showPaperWhite ? "#ffffff" : "#222226",
           }}
         >
           {/* Outer Paper Border & Pattern */}
@@ -158,13 +168,13 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
 
           {/* Printable Area / Margin Guide */}
           <rect
-            x={props.options.marginMm * svgPaper().scaleMmToSvg}
-            y={props.options.marginMm * svgPaper().scaleMmToSvg}
+            x={o().marginMm * svgPaper().scaleMmToSvg}
+            y={o().marginMm * svgPaper().scaleMmToSvg}
             width={
-              (paperW() - props.options.marginMm * 2) * svgPaper().scaleMmToSvg
+              (paperW() - o().marginMm * 2) * svgPaper().scaleMmToSvg
             }
             height={
-              (paperH() - props.options.marginMm * 2) * svgPaper().scaleMmToSvg
+              (paperH() - o().marginMm * 2) * svgPaper().scaleMmToSvg
             }
             fill="none"
             stroke="#71717a"

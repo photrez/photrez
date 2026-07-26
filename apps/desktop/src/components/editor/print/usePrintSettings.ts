@@ -4,7 +4,7 @@
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PrintOptions, PrintOrientation } from "./printTypes";
+import type { PrintOptions } from "./printTypes";
 
 // Event name constant (matches Rust: EVENT_PRINT_SETTINGS_CHANGED)
 const EVENT_PRINT_SETTINGS_CHANGED = "print-settings-changed";
@@ -141,14 +141,15 @@ export function usePrintSettings(src?: string) {
       if (isSetPaper) _hookPendingSetPaper = true;
       try {
         const raw = await invoke<Record<string, unknown>>(command, args);
+        console.log(`[PRINT:${id}] invoke response raw keys:`, Object.keys(raw), "orientation:", (raw as any)?.data?.orientation ?? (raw as any)?.orientation);
         const data: unknown = raw?.data ?? raw;
         if (data) {
           const mapped = mapFromRust(data);
-          // DIAG: log when response paper differs from what we just set
-          if (isSetPaper && mapped.paperPreset !== args.name) {
-            console.warn(`[PRINT:${id}] DIAG: set_paper response paperPreset ("${mapped.paperPreset}") != args.name ("${args.name}") — Rust may have rejected/corrected our choice`);
-          }
+          console.log(`[PRINT:${id}] invoke response mapped — orientation:`, mapped.orientation, "paperWidthMm:", mapped.paperWidthMm, "paperHeightMm:", mapped.paperHeightMm);
           setOptions(mapped);
+          console.log(`[PRINT:${id}] setOptions called — orientation set to:`, mapped.orientation, "— VERIFY options().orientation:", options().orientation);
+        } else {
+          console.log(`[PRINT:${id}] invoke response — no data field, raw keys:`, Object.keys(raw));
         }
       } catch (e) {
         console.error(`[PRINT:${id}] invoke failed ${command}:`, e);
@@ -169,7 +170,7 @@ export function usePrintSettings(src?: string) {
     isPendingSetPaper,
     // User actions — each invokes a Rust command
     setPaper: (name: string, paperIndex: number, widthMm: number, heightMm: number) => {
-      console.log(`[PRINT:${id}] setPaper called — name="${name}" index=${paperIndex} dims=(${widthMm}x${heightMm})`, new Error().stack?.split("\n").slice(2,5).join(" → "));
+      console.log(`[PRINT:${id}] setPaper — name="${name}" index=${paperIndex} dims=(${widthMm}x${heightMm})`);
       return invokeSet("set_paper", { name, paperIndex, widthMm, heightMm });
     },
     toggleOrientation: () => invokeSet("toggle_orientation", {}),
@@ -187,20 +188,11 @@ export function usePrintSettings(src?: string) {
     openPrinterProperties: async () => {
       const res = await invoke<Record<string, unknown>>("open_printer_properties_and_apply") as any;
       console.log(`[PRINT:${id}] Properties result:`, JSON.stringify(res));
-      // Update frontend state from the native dialog result directly
-      // (bypasses event listener since it no longer calls setOptions).
+      // Update frontend state from the native dialog result
       const data: Record<string, unknown> = res?.data ?? res;
-      if (data && data.applied && data.paperPreset) {
-        const cur = options();
-        const newOrientation = (data.orientation as string) as PrintOrientation;
-        setOptions({
-          ...cur,
-          paperPreset: data.paperPreset as string,
-          paperIndex: (data.paperIndex as number) ?? cur.paperIndex,
-          paperWidthMm: (data.paperWidthMm as number) ?? cur.paperWidthMm,
-          paperHeightMm: (data.paperHeightMm as number) ?? cur.paperHeightMm,
-          orientation: newOrientation ?? cur.orientation,
-        });
+      if (data && data.applied && data.settings) {
+        const mapped = mapFromRust(data.settings);
+        setOptions(mapped);
       }
       return res;
     },

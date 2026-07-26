@@ -108,6 +108,7 @@ describe("printDocument — core flow", () => {
       path: expect.stringMatching(/^\/tmp\/photrez-print-[\w-]+\.png$/),
       printer: "Default Printer",
       copies: 1,
+      orientation: "portrait",
       paperWidthMm: 210,
       paperHeightMm: 297,
       paperPreset: "A4",

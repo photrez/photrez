@@ -359,6 +359,7 @@ pub(crate) fn print_image(
     paper_preset: Option<String>,
     paper_index: Option<i16>,
     document_name: Option<String>,
+    orientation: Option<String>,
 ) -> Result<Value, Value> {
     validate_path_extension(&path, &["png", "jpg", "jpeg"], "print")?;
     let path = validate_path_safe(&path, "print")?;
@@ -372,6 +373,8 @@ pub(crate) fn print_image(
     // Hoist paper dimensions for cross-platform use (avoids repeating unwrap in each cfg block)
     let pw_mm = paper_width_mm.unwrap_or(210.0);
     let ph_mm = paper_height_mm.unwrap_or(297.0);
+    // Orientation defaults to portrait for backwards compat / safety
+    let orientation = orientation.as_deref().unwrap_or("portrait");
 
     #[cfg(target_os = "windows")]
     {
@@ -394,7 +397,7 @@ pub(crate) fn print_image(
 
         match target {
             Some(printer) => {
-                if let Err(e) = print_image_via_gdi(&p, &printer.system_name, print_count, pw_mm, ph_mm, pidx, doc_name) {
+                if let Err(e) = print_image_via_gdi(&p, &printer.system_name, print_count, pw_mm, ph_mm, pidx, doc_name, orientation) {
                     return err_response("E_PRINTER", &e);
                 }
             }
@@ -1067,12 +1070,12 @@ pub(crate) fn open_printer_properties_and_apply(
                 }
                 eprintln!("[RUST:commands] open_printer_properties_and_apply — applying: paper_name={}, paper_index={}, paper=({}, {}), orientation={}",
                     name, new_paper_index, w_mm, h_mm, new_orientation);
-                settings.paper_name = name;
-                settings.paper_index = new_paper_index;
-                settings.paper_width_mm = w_mm;
-                settings.paper_height_mm = h_mm;
-                settings.orientation = new_orientation;
-                let value = ok_response(settings.clone());
+                settings.set_paper(&name, new_paper_index, w_mm, h_mm);
+                settings.set_orientation(&new_orientation);
+                let value = ok_response(serde_json::json!({
+                    "applied": true,
+                    "settings": &*settings,
+                }));
                 emit_print_settings(&app, &settings);
                 value
             }

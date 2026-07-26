@@ -39,6 +39,15 @@ export async function printDocument(
     const raw = await invoke<{ ok: boolean; data?: RustPrintSettings }>("get_print_settings");
     const s = raw.data ?? (raw as unknown as RustPrintSettings);
 
+    // ── Compute effective dimensions for landscape output ────────────────
+    // Rust stores paper_width_mm / paper_height_mm in canonical portrait form
+    // (width ≤ height).  For landscape printing we need the canvas PNG and the
+    // print_image dimensions to reflect the actual page orientation (wider
+    // than tall).  Rust also needs the orientation flag so it can set
+    // dmOrientation = DMORIENT_LANDSCAPE in the GDI DEVMODE.
+    const effW = s.orientation === "landscape" ? s.paper_height_mm : s.paper_width_mm;
+    const effH = s.orientation === "landscape" ? s.paper_width_mm : s.paper_height_mm;
+
     // 2. Render base document composite image
     const rawImageBytes = await encodeComposite(engine, "png", 100);
 
@@ -53,8 +62,8 @@ export async function printDocument(
       // Guard against excessive canvas dimensions (max ~40 inches = ~12000px at 300dpi)
       const MAX_PAPER_MM = 1200;
       const MAX_PX = 10000;
-      const clampedPaperW = Math.min(s.paper_width_mm, MAX_PAPER_MM);
-      const clampedPaperH = Math.min(s.paper_height_mm, MAX_PAPER_MM);
+      const clampedPaperW = Math.min(effW, MAX_PAPER_MM);
+      const clampedPaperH = Math.min(effH, MAX_PAPER_MM);
 
       let paperPixelWidth = Math.round(Math.max(1, (clampedPaperW / mmToInch) * dpi));
       let paperPixelHeight = Math.round(Math.max(1, (clampedPaperH / mmToInch) * dpi));
@@ -146,8 +155,9 @@ export async function printDocument(
       path: filePath,
       printer: s.selected_printer || null,
       copies: s.copies || 1,
-      paperWidthMm: s.paper_width_mm,
-      paperHeightMm: s.paper_height_mm,
+      orientation: s.orientation,
+      paperWidthMm: effW,
+      paperHeightMm: effH,
       paperPreset: s.paper_name,
       paperIndex: s.paper_index,
       documentName: docName || "Untitled",

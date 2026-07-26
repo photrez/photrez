@@ -181,6 +181,7 @@ fn create_printer_dc_with_paper_size(
     paper_index: i16,
     paper_width_mm: f64,
     paper_height_mm: f64,
+    orientation: &str,
 ) -> Result<HDC, String> {
     // ── Open printer ─────────────────────────────────────────────
     let mut h_printer: isize = 0;
@@ -214,11 +215,19 @@ fn create_printer_dc_with_paper_size(
         return unsafe { fallback_create_dc(printer_wide, &format!("Failed to initialise DEVMODE (no DEVMODE fallback){}", err)) };
     }
 
-    // ── Set paper size fields ────────────────────────────────────
-    // Per Microsoft DEVMODE docs: dmPaperWidth/dmPaperLength OVERRIDE
-    // dmPaperSize when both are present. So we only set them for
-    // DMPAPER_USER (custom sizes). Standard sizes use dmPaperSize alone.
+    // ── Set paper size + orientation fields ──────────────────────
+    // dmOrientation must be set so the printer driver knows the page
+    // orientation — without it the DC defaults to portrait regardless
+    // of the paper dimensions. The frontend sends EFFECTIVE dimensions
+    // (swapped for landscape), so dmPaperWidth = landscape width (long
+    // edge), dmPaperLength = landscape height (short edge).
     unsafe {
+        (*p_devmode).dmFields |= DM_ORIENTATION;
+        (*p_devmode).dmOrientation = if orientation == "landscape" {
+            DMORIENT_LANDSCAPE
+        } else {
+            DMORIENT_PORTRAIT
+        };
         (*p_devmode).dmFields |= DM_PAPERSIZE;
         (*p_devmode).dmPaperSize = paper_index;
         if paper_index == DMPAPER_USER {
@@ -825,6 +834,7 @@ pub(crate) fn print_image_via_gdi(
     paper_height_mm: f64,
     paper_index: i16,
     document_name: &str,
+    orientation: &str,
 ) -> Result<(), String> {
     // ── 1. Decode image to RGBA pixels ──────────────────────────
     let img = image::open(path).map_err(|e| format!("Failed to decode image: {e}"))?;
@@ -850,7 +860,7 @@ pub(crate) fn print_image_via_gdi(
     let printer_wide: Vec<u16> =
         printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
 
-    let hdc = create_printer_dc_with_paper_size(&printer_wide, paper_index, paper_width_mm, paper_height_mm)?;
+    let hdc = create_printer_dc_with_paper_size(&printer_wide, paper_index, paper_width_mm, paper_height_mm, orientation)?;
 
     // ── 4. Query printer DPI for physical-mapping fidelity ──────
     // Best practice from Microsoft GDI: ALWAYS query the printer's actual DPI

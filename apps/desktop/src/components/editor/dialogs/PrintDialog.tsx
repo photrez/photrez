@@ -1,6 +1,5 @@
 import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
-import { invoke } from "@tauri-apps/api/core";
 import { useEditor } from "../shell/EditorContext";
 import { encodeComposite } from "../exportDocument";
 import { printDocument } from "../printDocument";
@@ -38,6 +37,13 @@ export function PrintDialog() {
     setPrinter,
     openPrinterProperties,
   } = usePrintSettings("dialog");
+
+  console.log("[PRINT:PrintDialog] RENDER — options().orientation:", options().orientation, "showPrintDialog:", showPrintDialog());
+
+  // Effect to verify signal propagation (runs independently of component re-eval)
+  createEffect(() => {
+    console.log("[PRINT:PrintDialog] EFFECT — options().orientation:", options().orientation);
+  });
 
   const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
   const [previewLoading, setPreviewLoading] = createSignal(false);
@@ -117,7 +123,7 @@ export function PrintDialog() {
         >
           <div class="flex flex-1 min-h-0 w-full gap-0 overflow-hidden">
             <PrintPaperViewport
-              options={options()}
+              options={options}
               setCenterImage={setCenterImage}
               setLeftOffsetMm={setLeftOffsetMm}
               setTopOffsetMm={setTopOffsetMm}
@@ -130,7 +136,7 @@ export function PrintDialog() {
             <PrintInspector
               docWidthPx={docWidth()}
               docHeightPx={docHeight()}
-              options={options()}
+              options={options}
               setOptions={setOptions}
               loading={loading()}
               isPendingSetPaper={isPendingSetPaper}
@@ -157,8 +163,7 @@ export function PrintDialog() {
                 class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
                 checked={options().showPaperWhite}
                 onChange={(e) => {
-                  // showPaperWhite updated via Rust event
-                  invoke("set_show_paper_white", { show: e.currentTarget.checked });
+                  setShowPaperWhite(e.currentTarget.checked);
                 }}
               />
               Show Paper White

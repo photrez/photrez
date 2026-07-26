@@ -117,6 +117,7 @@ docs/superpowers/
 docs/*AUDIT_REPORT.md
 docs/DEEP_PROJECT_REVIEW.md
 docs/photrez-brush-*.md
+*.tgz
 
 # Git worktrees
 worktrees/

@@ -89,7 +89,7 @@ function createInspectorProps() {
   const stub = vi.fn(async () => {});
 
   return {
-    get options() { return opts(); },
+    options: opts,
     setOptions,
     loading: false,
     isPendingSetPaper: () => false,
@@ -114,7 +114,7 @@ describe("Pro Print Dialog Wiring", () => {
 
     const { getByText } = render(() => (
       <PrintPaperViewport
-        options={options()}
+        options={options}
         previewUrl="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         docWidthPx={3000}
         docHeightPx={2000}

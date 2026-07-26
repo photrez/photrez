@@ -191,7 +191,9 @@ mod tests {
         s.set_scale_percent(0.0);
         assert_eq!(s.scale_percent, 1.0);
         s.set_scale_percent(1000.0);
-        assert_eq!(s.scale_percent, 500.0);
+        assert_eq!(s.scale_percent, 1000.0);
+        s.set_scale_percent(2000.0);
+        assert_eq!(s.scale_percent, 1000.0);
     }
 
     #[test]

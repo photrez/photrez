@@ -129,7 +129,7 @@ function createInspectorProps(initialOptions?: Partial<PrintOptions>) {
   }
 
   return {
-    get options() { return opts(); },
+    options: opts,
     setOptions,
     loading: false,
     isPendingSetPaper: () => false,
