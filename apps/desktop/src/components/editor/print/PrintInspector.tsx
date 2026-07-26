@@ -780,6 +780,26 @@ export function PrintInspector(props: PrintInspectorProps) {
               </div>
             </div>
 
+            {/* Printer Hardware Margin Info (per-side) — info only, not editable */}
+            <Show when={paperSizesRes()?.defaultMargins}>
+              {(margins) => {
+                const maxMargin = Math.max(
+                  margins().leftMm, margins().topMm, margins().rightMm, margins().bottomMm,
+                );
+                return (
+                  <div class="flex items-center justify-between gap-2">
+                    <label class="w-[72px] shrink-0 text-editor-text-dim text-[10.5px] font-medium">Printer Min:</label>
+                    <span class="text-[10.5px] text-editor-text-muted">
+                      L: {margins().leftMm.toFixed(1)} T: {margins().topMm.toFixed(1)} R: {margins().rightMm.toFixed(1)} B: {margins().bottomMm.toFixed(1)} mm
+                      <Show when={maxMargin > 1}>
+                        <span class="text-amber-400 font-medium ml-1">(min {maxMargin.toFixed(1)}mm)</span>
+                      </Show>
+                    </span>
+                  </div>
+                );
+              }}
+            </Show>
+
             {/* Center on Page */}
             <div class="flex flex-col gap-2 pt-2 mt-1 border-t border-editor-divider/40">
               <label class="flex items-center gap-2 font-medium text-editor-text text-[11px] cursor-pointer select-none">
