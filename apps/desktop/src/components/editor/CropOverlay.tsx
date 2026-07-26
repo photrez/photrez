@@ -124,133 +124,128 @@ export function CropOverlay(props: CropOverlayProps) {
 
   return (
     <Show when={props.cropRect}>
-      <svg
-        ref={svgRef}
-        data-crop-overlay
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-          overflow: "visible",
-          "pointer-events": navMode() ? "none" : "auto",
-          "z-index": 35,
-        }}
-        style:cursor={resolvedCursor()}
-        onPointerDown={handleSvgPointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={clearDrag}
-        onPointerCancel={clearDrag}
-        onLostPointerCapture={handleLostPointerCapture}
-        onPointerLeave={clearHover}
-      >
-        <defs>
-          <mask id="crop-shield">
+      <div class="pointer-events-none absolute inset-0 z-[35] overflow-visible">
+        <svg
+          ref={svgRef}
+          data-crop-overlay
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            overflow: "visible",
+            "pointer-events": navMode() ? "none" : "auto",
+          }}
+          style:cursor={resolvedCursor()}
+          onPointerDown={handleSvgPointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={clearDrag}
+          onPointerCancel={clearDrag}
+          onLostPointerCapture={handleLostPointerCapture}
+          onPointerLeave={clearHover}
+        >
+          <defs>
+            <mask id="crop-shield">
+              <rect
+                x={-5000}
+                y={-5000}
+                width={10000}
+                height={10000}
+                fill="white"
+              />
+              <rect
+                x={screenTL().x}
+                y={screenTL().y}
+                width={screenW()}
+                height={screenH()}
+                fill="black"
+                transform={cropRotationValue() !== 0 ? `rotate(${cropRotationValue()} ${screenCenter().x} ${screenCenter().y})` : undefined}
+              />
+            </mask>
+          </defs>
+          <rect
+            x={-5000}
+            y={-5000}
+            width={10000}
+            height={10000}
+            fill={props.deleteCropped ? "#161618" : "rgba(0,0,0,0.5)"}
+            fill-opacity={props.deleteCropped ? 0.98 : 1}
+            mask="url(#crop-shield)"
+            style={{ "pointer-events": "none" }}
+          />
+          <g transform={cropRotationValue() !== 0 ? `rotate(${cropRotationValue()} ${screenCenter().x} ${screenCenter().y})` : undefined}>
             <rect
-              x={-5000}
-              y={-5000}
-              width={10000}
-              height={10000}
-              fill="white"
+              x={screenTL().x} y={screenTL().y} width={screenW()} height={screenH()}
+              fill="none" stroke="white"
+              stroke-width={1}
+              vector-effect="non-scaling-stroke"
+              style={{ "pointer-events": "none" }}
             />
+            <CropOverlayGuides
+              x={screenTL().x}
+              y={screenTL().y}
+              w={screenW()}
+              h={screenH()}
+              zoom={1}
+              guideMode={props.guideMode}
+            />
+            {/* 360° rotate band — behind move zone and handles */}
+            <path
+              d={getRotateBandPath(
+                screenTL().x,
+                screenTL().y,
+                screenW(),
+                screenH(),
+                ROTATE_BAND_PX,
+                ROTATE_CORNER_EXTRA,
+              )}
+              fill="transparent"
+              fill-rule="evenodd"
+              data-crop-rotate-band
+              style={{ "pointer-events": navMode() ? "none" : "all" }}
+              onPointerDown={(e) => startDrag(e, "rotate")}
+              onPointerEnter={(e) => {
+                setHover("rotate");
+                setHoverPos({ x: e.clientX, y: e.clientY });
+              }}
+              onPointerMove={(e) => {
+                if (hoverHandle() === "rotate" || dragState()?.handle === "rotate")
+                  setHoverPos({ x: e.clientX, y: e.clientY });
+              }}
+              onPointerLeave={() => { if (!dragState()) setHover(null); }}
+            />
+            {/* Move hit zone */}
             <rect
               x={screenTL().x}
               y={screenTL().y}
               width={screenW()}
               height={screenH()}
-              fill="black"
-              transform={cropRotationValue() !== 0 ? `rotate(${cropRotationValue()} ${screenCenter().x} ${screenCenter().y})` : undefined}
+              fill="transparent"
+              data-crop-move
+              style={{ cursor: "move", "pointer-events": navMode() ? "none" : "all" }}
+              onPointerDown={(e) => startDrag(e, "move")}
+              onPointerEnter={() => setHover("move")}
+              onPointerLeave={() => { if (!dragState()) setHover(null); }}
+              onDblClick={(e) => {
+                e.stopPropagation();
+                props.onApplyCrop?.();
+              }}
             />
-          </mask>
-        </defs>
-        <rect
-          x={-5000}
-          y={-5000}
-          width={10000}
-          height={10000}
-          fill={props.deleteCropped ? "#161618" : "rgba(0,0,0,0.5)"}
-          fill-opacity={props.deleteCropped ? 0.98 : 1}
-          mask="url(#crop-shield)"
-          style={{ "pointer-events": "none" }}
-        />
-        <g transform={cropRotationValue() !== 0 ? `rotate(${cropRotationValue()} ${screenCenter().x} ${screenCenter().y})` : undefined}>
-          <rect
-            x={screenTL().x} y={screenTL().y} width={screenW()} height={screenH()}
-            fill="none" stroke="white"
-            stroke-width={1}
-            vector-effect="non-scaling-stroke"
-            style={{ "pointer-events": "none" }}
-          />
-          <CropOverlayGuides
-            x={screenTL().x}
-            y={screenTL().y}
-            w={screenW()}
-            h={screenH()}
-            zoom={1}
-            guideMode={props.guideMode}
-          />
-          {/* 360° rotate band — behind move zone and handles */}
-          <path
-            d={getRotateBandPath(
-              screenTL().x,
-              screenTL().y,
-              screenW(),
-              screenH(),
-              ROTATE_BAND_PX,
-              ROTATE_CORNER_EXTRA,
-            )}
-            fill="transparent"
-            fill-rule="evenodd"
-            data-crop-rotate-band
-            style={{ "pointer-events": navMode() ? "none" : "all" }}
-            onPointerDown={(e) => startDrag(e, "rotate")}
-            onPointerEnter={(e) => {
-              setHover("rotate");
-              setHoverPos({ x: e.clientX, y: e.clientY });
-            }}
-            onPointerMove={(e) => {
-              if (hoverHandle() === "rotate" || dragState()?.handle.startsWith("rotate")) {
-                setHoverPos({ x: e.clientX, y: e.clientY });
-              }
-            }}
-            onPointerLeave={() => {
-              if (!dragState()) {
-                setHover(null);
-                setHoverPos(null);
-              }
-            }}
-          />
-          {/* Move hit zone */}
-          <rect
-            x={screenTL().x}
-            y={screenTL().y}
-            width={screenW()}
-            height={screenH()}
-            fill="transparent"
-            data-crop-move
-            style={{ cursor: "move", "pointer-events": navMode() ? "none" : "all" }}
-            onPointerDown={(e) => startDrag(e, "move")}
-            onPointerEnter={() => setHover("move")}
-            onPointerLeave={() => { if (!dragState()) setHover(null); }}
-            onDblClick={(e) => {
-              e.stopPropagation();
-              props.onApplyCrop?.();
-            }}
-          />
-          <CropOverlayHandles
-            isNavigationMode={navMode()}
-            handles={handles()}
-            zoom={1}
-            hitSize={ht()}
-            activeHandle={activeHandle()}
-            hoverHandle={hoverHandle()}
-            isDragging={!!dragState()}
-            startDrag={startDrag}
-            setHover={setHover}
-            setHoverPos={setHoverPos}
-            cropRotation={cropRotationValue()}
-          />
-        </g>
+            <CropOverlayHandles
+              isNavigationMode={navMode()}
+              handles={handles()}
+              zoom={1}
+              hitSize={ht()}
+              activeHandle={activeHandle()}
+              hoverHandle={hoverHandle()}
+              isDragging={!!dragState()}
+              startDrag={startDrag}
+              setHover={setHover}
+              setHoverPos={setHoverPos}
+              cropRotation={cropRotationValue()}
+            />
+          </g>
+        </svg>
 
         <Show when={tooltip()}>
           {(t) => {
@@ -274,7 +269,7 @@ export function CropOverlay(props: CropOverlayProps) {
             );
           }}
         </Show>
-      </svg>
+      </div>
     </Show>
   );
 }

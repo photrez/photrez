@@ -106,17 +106,25 @@ export function GradientOverlay() {
           />
         </svg>
 
-        {/* Distance & Angle Readout Badge */}
+        {/* Distance & Angle Readout Badge (Unified HTML Floating Card) */}
         <div
-          class="absolute pointer-events-none rounded bg-neutral-900/90 px-2 py-0.5 text-[10px] font-mono font-medium text-white shadow-lg backdrop-blur-sm border border-neutral-700/80 transform -translate-x-1/2 -translate-y-8"
+          class="pointer-events-none absolute z-50 rounded-[6px] border border-neutral-700/80 bg-[#18181B] px-2.5 py-1.5 text-[11px] text-neutral-100 shadow-[0_4px_12px_rgba(0,0,0,0.4)] select-none transform -translate-y-full"
           style={{
-            left: `${screenEnd().x}px`,
-            top: `${screenEnd().y}px`,
+            left: `${Math.max(12, screenEnd().x + 16)}px`,
+            top: `${Math.max(50, screenEnd().y - 14)}px`,
           }}
         >
-          <span class="text-amber-400">{lineData()?.distance} px</span>
-          <span class="mx-1 text-neutral-500">•</span>
-          <span>{lineData()?.angle}°</span>
+          <div class="flex flex-col gap-0.5">
+            <div class="flex items-center gap-1.5">
+              <span class="w-7 text-[10px] font-semibold text-neutral-400 uppercase">Dist</span>
+              <span class="font-medium text-neutral-100 tabular-nums">{lineData()?.distance}</span>
+              <span class="text-[10px] text-neutral-400">px</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-7 text-[10px] font-semibold text-neutral-400 uppercase">Angle</span>
+              <span class="font-medium text-neutral-100 tabular-nums">{lineData()?.angle}°</span>
+            </div>
+          </div>
         </div>
       </div>
     </Show>

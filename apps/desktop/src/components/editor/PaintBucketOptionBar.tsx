@@ -38,7 +38,7 @@ export function PaintBucketOptionBar() {
             const val = parseInt(e.currentTarget.value, 10);
             if (!isNaN(val)) setFillTolerance(Math.max(0, Math.min(255, val)));
           }}
-          class="h-5 w-10 rounded border border-editor-field-border bg-editor-field px-1 text-right text-[11px] font-mono text-editor-text outline-none focus:border-editor-accent"
+          class="h-5 w-10 rounded border border-editor-field-border bg-editor-field px-1 text-right text-[11px] font-medium text-editor-text outline-none focus:border-editor-accent"
         />
       </div>
 
@@ -48,7 +48,7 @@ export function PaintBucketOptionBar() {
           {(preset) => (
             <button
               onClick={() => setFillTolerance(preset)}
-              class={`h-5 rounded px-1.5 text-[10px] font-mono transition-colors ${
+              class={`h-5 rounded px-1.5 text-[10px] font-medium transition-colors ${
                 fillTolerance() === preset
                   ? "bg-editor-accent/20 border border-editor-accent/40 font-semibold text-editor-accent"
                   : "bg-editor-field/60 border border-editor-field-border text-editor-text-dim hover:text-editor-text hover:bg-editor-field"

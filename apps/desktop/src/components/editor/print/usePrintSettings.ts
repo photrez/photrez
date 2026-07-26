@@ -98,12 +98,15 @@ export function usePrintSettings(src?: string) {
     //    event from an EARLIER command (e.g. set_scale_to_fit) could
     //    arrive AFTER a LATER invoke response (e.g. set_scale_percent)
     //    and overwrite the signal with stale values, causing Effect 3
-    //    to re-trigger and loop.  Only log events for diagnostics.
-    unlisten = await listen<any>(EVENT_PRINT_SETTINGS_CHANGED, (event) => {
-      const data = event.payload?.data ?? event.payload;
-      const mapped = mapFromRust(data);
-      console.log(`[PRINT:${id}] Event (log only):`, JSON.stringify(mapped));
-    });
+    try {
+      unlisten = await listen<any>(EVENT_PRINT_SETTINGS_CHANGED, (event) => {
+        const data = event.payload?.data ?? event.payload;
+        const mapped = mapFromRust(data);
+        console.log(`[PRINT:${id}] Event (log only):`, JSON.stringify(mapped));
+      });
+    } catch {
+      // Ignore listen errors during test environment teardown or mock absence
+    }
 
     // 2. Fetch initial state from Rust (primary SSOT)
     try {

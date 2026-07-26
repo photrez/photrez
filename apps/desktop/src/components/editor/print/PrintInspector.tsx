@@ -90,25 +90,14 @@ export function PrintInspector(props: PrintInspectorProps) {
 
   // ── DOM refs for one-way signal→input sync (avoids SolidJS controlled-input fight) ─
   let scaleCheckboxEl: HTMLInputElement | undefined;
+  let centerCheckboxEl: HTMLInputElement | undefined;
   let scaleSliderEl: HTMLInputElement | undefined;
   let scaleNumberEl: HTMLInputElement | undefined;
   let paperSelectEl: HTMLSelectElement | undefined;
   let printerSelectEl: HTMLSelectElement | undefined;
-  let portraitBtnEl: HTMLButtonElement | undefined;
-  let landscapeBtnEl: HTMLButtonElement | undefined;
-
-  // Reactive orientation button highlight — ref-based to bypass Show cache
-  // blocking JSX class bindings. createRenderEffect tracks signal changes
-  // directly and updates DOM without relying on JSX reconciliation.
   const ACTIVE_CLS = "bg-editor-accent text-white font-semibold shadow-xs";
   const INACTIVE_CLS = "text-editor-text-dim hover:text-editor-text hover:bg-editor-hover/50 font-normal";
   const BTN_BASE = "flex flex-1 items-center justify-center gap-1.5 h-[24px] rounded-[3px] text-[11px] transition-colors cursor-pointer";
-  createRenderEffect(() => {
-    const isPortrait = o().orientation === "portrait";
-    console.log("[PRINT:Inspector] RENDER EFF — orientation:", o().orientation, "isPortrait:", isPortrait, "portraitEl:", !!portraitBtnEl, "landscapeEl:", !!landscapeBtnEl);
-    if (portraitBtnEl) portraitBtnEl.className = BTN_BASE + " " + (isPortrait ? ACTIVE_CLS : INACTIVE_CLS);
-    if (landscapeBtnEl) landscapeBtnEl.className = BTN_BASE + " " + (!isPortrait ? ACTIVE_CLS : INACTIVE_CLS);
-  });
 
   // ── Resource 1: Printer list ──────────────────────────────────────
   // Fetches on mount (refreshKey=0) and whenever refreshKey increments.
@@ -118,9 +107,16 @@ export function PrintInspector(props: PrintInspectorProps) {
   const [printersRes, printersActions] = createResource(
     refreshKey,
     async (): Promise<PrintersData> => {
-      const res = await invoke("get_system_printers") as { ok: boolean; data?: PrintersData; error?: { message?: string } };
-      if (res.ok && res.data) return res.data;
-      throw new Error(res.error?.message || "Failed to retrieve printer list");
+      try {
+        const res = await invoke("get_system_printers") as { ok: boolean; data?: PrintersData; error?: { message?: string } };
+        if (res?.ok && res?.data) return res.data;
+        throw new Error(res?.error?.message || "Failed to retrieve printer list");
+      } catch (e) {
+        if (typeof window === "undefined" || !(window as any).__TAURI_INTERNALS__) {
+          return { printers: [] };
+        }
+        throw e;
+      }
     },
     { initialValue: { printers: [] } }
   );
@@ -311,6 +307,7 @@ export function PrintInspector(props: PrintInspectorProps) {
   createEffect(() => {
     const opts = o();
     if (scaleCheckboxEl) scaleCheckboxEl.checked = opts.scaleToFit;
+    if (centerCheckboxEl) centerCheckboxEl.checked = opts.centerImage;
     if (scaleSliderEl) scaleSliderEl.value = String(Math.round(opts.scalePercent));
     if (scaleNumberEl) scaleNumberEl.value = String(opts.scalePercent);
     // Paper size dropdown: ref-based sync prevents the native <select> from
@@ -621,23 +618,27 @@ export function PrintInspector(props: PrintInspectorProps) {
               <div class="flex items-center rounded-[4px] border border-editor-field-border bg-editor-field p-0.5 flex-1">
                 <button
                   type="button"
-                  ref={portraitBtnEl}
+                  class={`${BTN_BASE} ${o().orientation === "portrait" ? ACTIVE_CLS : INACTIVE_CLS}`}
                   title="Portrait"
                   onClick={() => handleOrientationToggle("portrait")}
                 >
-                  <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <rect x="6" y="4" width="12" height="16" rx="1.5" />
+                  <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="6" y="3.5" width="12" height="17" rx="1.5" />
+                    <line x1="9" y1="8" x2="15" y2="8" stroke-width="1.4" opacity="0.6" />
+                    <line x1="9" y1="12" x2="15" y2="12" stroke-width="1.4" opacity="0.6" />
                   </svg>
                   Portrait
                 </button>
                 <button
                   type="button"
-                  ref={landscapeBtnEl}
+                  class={`${BTN_BASE} ${o().orientation === "landscape" ? ACTIVE_CLS : INACTIVE_CLS}`}
                   title="Landscape"
                   onClick={() => handleOrientationToggle("landscape")}
                 >
-                  <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <rect x="4" y="6" width="16" height="12" rx="1.5" />
+                  <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3.5" y="6" width="17" height="12" rx="1.5" />
+                    <line x1="8" y1="9" x2="16" y2="9" stroke-width="1.4" opacity="0.6" />
+                    <line x1="8" y1="13" x2="16" y2="13" stroke-width="1.4" opacity="0.6" />
                   </svg>
                   Landscape
                 </button>
@@ -668,7 +669,7 @@ export function PrintInspector(props: PrintInspectorProps) {
             </svg>
             <span>Color Management</span>
           </div>
-          <span class="text-[10.5px] text-amber-400 font-medium">v1 Deferred</span>
+          <span class="text-[11px] text-editor-text-dim font-normal">System Managed</span>
         </button>
 
         <Show when={colorOpen()}>
@@ -752,7 +753,7 @@ export function PrintInspector(props: PrintInspectorProps) {
               <div class="flex items-center gap-1.5 flex-1">
                 <input
                   type="number" min="0" max="100" step="1"
-                  class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+                  class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
                   value={o().marginMm}
                   onInput={(e) => {
                     const newMargin = Math.max(0, parseFloat(e.currentTarget.value) || 0);
@@ -774,12 +775,12 @@ export function PrintInspector(props: PrintInspectorProps) {
                 );
                 return (
                   <div class="flex items-center justify-between gap-2">
-                    <label class="w-[72px] shrink-0 text-editor-text-dim text-[10px] font-medium">Printer Min:</label>
-                    <span class="text-[10px] text-editor-text-dim">
+                    <label class="w-[72px] shrink-0 text-editor-text-dim text-[10.5px] font-medium">Printer Min:</label>
+                    <span class="text-[10.5px] text-editor-text-muted">
                       L: {margins().leftMm.toFixed(1)} T: {margins().topMm.toFixed(1)} 
                       R: {margins().rightMm.toFixed(1)} B: {margins().bottomMm.toFixed(1)} mm
                       <Show when={maxMargin > 1}>
-                        <span class="text-amber-400 ml-1">(min {maxMargin.toFixed(1)}mm)</span>
+                        <span class="text-amber-400 font-medium ml-1">(min {maxMargin.toFixed(1)}mm)</span>
                       </Show>
                     </span>
                   </div>
@@ -788,27 +789,31 @@ export function PrintInspector(props: PrintInspectorProps) {
             </Show>
 
             {/* Center on Page */}
-            <div class="flex flex-col gap-1.5 py-1 border-t border-editor-divider/40">
-              <label class="flex items-center gap-2 font-medium text-editor-text text-[11px] cursor-pointer">
+            <div class="flex flex-col gap-2 pt-2 mt-1 border-t border-editor-divider/40">
+              <label class="flex items-center gap-2 font-medium text-editor-text text-[11px] cursor-pointer select-none">
                 <input
                   type="checkbox"
+                  ref={centerCheckboxEl}
                   class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
                   checked={o().centerImage}
-                  onChange={async (e) => {
-                    await setScaleToFit(false);
-                    await setCenterImage(e.currentTarget.checked);
+                  onChange={(e) => {
+                    const isChecked = e.currentTarget.checked;
+                    setCenterImage(isChecked);
+                    if (!isChecked) {
+                      setScaleToFit(false);
+                    }
                   }}
                 />
                 Center on Page
               </label>
 
               <Show when={!o().centerImage}>
-                <div class="flex items-center gap-3 mt-1 pl-5">
+                <div class="flex items-center gap-4 mt-0.5 pl-5">
                   <div class="flex items-center gap-1.5">
-                    <span class="text-[11px] text-editor-text-dim">Top:</span>
+                    <span class="text-[11px] text-editor-text-dim font-medium">Top:</span>
                     <input
                       type="number" step="0.1"
-                      class="w-[60px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+                      class="w-[64px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
                       value={convertMmToUnit(o().topOffsetMm, o().unit)}
                       onInput={async (e) => {
                         const valMm = convertUnitToMm(parseFloat(e.currentTarget.value) || 0, o().unit);
@@ -816,13 +821,13 @@ export function PrintInspector(props: PrintInspectorProps) {
                         await setTopOffsetMm(valMm);
                       }}
                     />
-                    <span class="text-[11px] text-editor-text-dim">{o().unit}</span>
+                    <span class="text-[11px] text-editor-text-dim font-medium">{o().unit}</span>
                   </div>
                   <div class="flex items-center gap-1.5">
-                    <span class="text-[11px] text-editor-text-dim">Left:</span>
+                    <span class="text-[11px] text-editor-text-dim font-medium">Left:</span>
                     <input
                       type="number" step="0.1"
-                      class="w-[60px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+                      class="w-[64px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
                       value={convertMmToUnit(o().leftOffsetMm, o().unit)}
                       onInput={async (e) => {
                         const valMm = convertUnitToMm(parseFloat(e.currentTarget.value) || 0, o().unit);
@@ -830,7 +835,7 @@ export function PrintInspector(props: PrintInspectorProps) {
                         await setLeftOffsetMm(valMm);
                       }}
                     />
-                    <span class="text-[11px] text-editor-text-dim">{o().unit}</span>
+                    <span class="text-[11px] text-editor-text-dim font-medium">{o().unit}</span>
                   </div>
                 </div>
               </Show>
@@ -883,7 +888,7 @@ export function PrintInspector(props: PrintInspectorProps) {
                   <span class="text-[11px] text-editor-text-dim font-medium">Width:</span>
                   <input
                     type="number" step="0.1"
-                    class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+                    class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
                     value={convertMmToUnit(imageMmWidth(), o().unit)}
                     onInput={(e) => handleWidthChange(parseFloat(e.currentTarget.value) || 0)}
                   />
@@ -893,7 +898,7 @@ export function PrintInspector(props: PrintInspectorProps) {
                   <span class="text-[11px] text-editor-text-dim font-medium">Height:</span>
                   <input
                     type="number" step="0.1"
-                    class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+                    class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
                     value={convertMmToUnit(imageMmHeight(), o().unit)}
                     onInput={(e) => handleHeightChange(parseFloat(e.currentTarget.value) || 0)}
                   />

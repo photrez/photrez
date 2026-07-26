@@ -1,4 +1,4 @@
-import { Show, createMemo } from "solid-js";
+import { Show } from "solid-js";
 
 export type HudMode = "move" | "resize" | "rotate" | "brush";
 
@@ -17,60 +17,103 @@ interface TransformHudProps {
 }
 
 export function TransformHud(props: TransformHudProps) {
-  const label = createMemo(() => {
-    switch (props.mode) {
-      case "move": {
-        let s = `ΔX ${Math.round(props.deltaX ?? 0)}  ΔY ${Math.round(props.deltaY ?? 0)}`;
-        if (props.snapActive) s += "  snap";
-        return s;
-      }
-      case "resize": {
-        let s = `W ${Math.round(props.width ?? 0)}  H ${Math.round(props.height ?? 0)}  ${Math.round(props.scalePercent ?? 100)}%`;
-        if (props.snapActive) s += "  snap";
-        return s;
-      }
-      case "rotate": {
-        let s = `${Math.round(props.angle ?? 0)}°`;
-        if (props.snapActive) s += "  snap";
-        return s;
-      }
-      case "brush": {
-        return `Size ${Math.round(props.width ?? 0)}px  Hard ${Math.round(props.height ?? 0)}%`;
-      }
-      default:
-        return "";
-    }
-  });
-
-  const padX = 16;
-const isBrushMode = () => props.mode === "brush";
-  const padY = 24;
+  // Offset to place the HUD floating at top-right of cursor pointer (X+16, Y-14 with -translate-y-full)
+  const posX = () => Math.max(12, props.clientX + 16);
+  const posY = () => Math.max(50, props.clientY - 14);
 
   return (
-    <Show when={label().length > 0}>
-      <g transform={`translate(${props.clientX + padX}, ${props.clientY + padY})`}>
-        <rect
-          x={0}
-          y={0}
-          width={label().length * 7 + 16}
-          height={20}
-          rx={4}
-          fill={isBrushMode() ? "rgba(225, 90, 23, 0.2)" : "rgba(20,20,20,0.85)"}
-          stroke={isBrushMode() ? "rgba(225, 90, 23, 0.4)" : "rgba(255,255,255,0.08)"}
-          stroke-width={1}
-        />
-        <text
-          x={8}
-          y={14}
-          fill={isBrushMode() ? "#fff" : "#E15A17"}
-          font-size="12"
-          font-weight="bold"
-          text-anchor="start"
-          style={{ "user-select": "none", "font-family": "monospace", "pointer-events": "none" }}
-        >
-          {label()}
-        </text>
-      </g>
-    </Show>
+    <div
+      class="pointer-events-none absolute z-50 rounded-[6px] border border-neutral-700/80 bg-[#18181B] px-2.5 py-1.5 text-[11px] text-neutral-100 shadow-[0_4px_12px_rgba(0,0,0,0.4)] select-none transform -translate-y-full"
+      style={{
+        left: `${posX()}px`,
+        top: `${posY()}px`,
+      }}
+    >
+      <Show when={props.mode === "resize"}>
+        <div class="flex flex-col gap-0.5">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 text-[10px] font-semibold text-neutral-400 uppercase">W</span>
+              <span class="font-medium text-neutral-100 tabular-nums">{Math.round(props.width ?? 0)}</span>
+              <span class="text-[10px] text-neutral-400">px</span>
+            </div>
+            <Show when={props.scalePercent !== undefined}>
+              <span class="text-[10px] text-neutral-400 tabular-nums">{Math.round(props.scalePercent!)}%</span>
+            </Show>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 text-[10px] font-semibold text-neutral-400 uppercase">H</span>
+              <span class="font-medium text-neutral-100 tabular-nums">{Math.round(props.height ?? 0)}</span>
+              <span class="text-[10px] text-neutral-400">px</span>
+            </div>
+            <Show when={props.snapActive}>
+              <span class="rounded-[3px] border border-emerald-700/60 bg-emerald-950/80 px-1 text-[9.5px] font-medium tracking-wider text-emerald-300 uppercase">
+                SNAP
+              </span>
+            </Show>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={props.mode === "move"}>
+        <div class="flex flex-col gap-0.5">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 text-[10px] font-semibold text-neutral-400 uppercase">X</span>
+              <span class="font-medium text-neutral-100 tabular-nums">
+                {(props.deltaX ?? 0) >= 0 ? `+${Math.round(props.deltaX ?? 0)}` : Math.round(props.deltaX ?? 0)}
+              </span>
+              <span class="text-[10px] text-neutral-400">px</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 text-[10px] font-semibold text-neutral-400 uppercase">Y</span>
+              <span class="font-medium text-neutral-100 tabular-nums">
+                {(props.deltaY ?? 0) >= 0 ? `+${Math.round(props.deltaY ?? 0)}` : Math.round(props.deltaY ?? 0)}
+              </span>
+              <span class="text-[10px] text-neutral-400">px</span>
+            </div>
+            <Show when={props.snapActive}>
+              <span class="rounded-[3px] border border-emerald-700/60 bg-emerald-950/80 px-1 text-[9.5px] font-medium tracking-wider text-emerald-300 uppercase">
+                SNAP
+              </span>
+            </Show>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={props.mode === "brush"}>
+        <div class="flex flex-col gap-0.5">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-1.5">
+              <span class="w-7 text-[10px] font-semibold text-neutral-400 uppercase">Size</span>
+              <span class="font-medium text-neutral-100 tabular-nums">{Math.round(props.width ?? 0)}</span>
+              <span class="text-[10px] text-neutral-400">px</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-1.5">
+              <span class="w-7 text-[10px] font-semibold text-neutral-400 uppercase">Hard</span>
+              <span class="font-medium text-neutral-100 tabular-nums">{Math.round(props.height ?? 0)}</span>
+              <span class="text-[10px] text-neutral-400">%</span>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={props.mode === "rotate"}>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] font-semibold text-neutral-400 uppercase">R</span>
+          <span class="font-medium text-neutral-100 tabular-nums">{(props.angle ?? 0).toFixed(1)}°</span>
+          <Show when={props.snapActive}>
+            <span class="ml-1 rounded-[3px] border border-emerald-700/60 bg-emerald-950/80 px-1 text-[9.5px] font-medium tracking-wider text-emerald-300 uppercase">
+              SNAP
+            </span>
+          </Show>
+        </div>
+      </Show>
+    </div>
   );
 }

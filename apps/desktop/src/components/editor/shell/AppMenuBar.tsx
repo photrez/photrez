@@ -253,10 +253,10 @@ export function AppMenuBar(props: AppMenuBarProps) {
             <button
               ref={(element) => triggerRefs.set(menu, element)}
               type="button"
-              class={`flex h-[26px] items-center justify-center rounded-[4px] px-2.5 text-[12.5px] tracking-wide transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-editor-accent ${
+              class={`flex h-[26px] items-center justify-center rounded-[4px] px-2.5 text-[12px] font-medium tracking-wide transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-editor-accent ${
                 openMenu() === menu
-                  ? "bg-white/[0.075] text-editor-text"
-                  : "text-editor-text/85 hover:bg-white/[0.045] hover:text-editor-text"
+                  ? "bg-white/[0.08] text-editor-text-header font-semibold"
+                  : "text-editor-text/90 hover:bg-white/[0.045] hover:text-editor-text"
               }`}
               aria-haspopup="menu"
               aria-expanded={openMenu() === menu}
@@ -298,12 +298,12 @@ export function AppMenuBar(props: AppMenuBarProps) {
                         role="menuitem"
                         aria-label={labelFor(item())}
                         disabled={!props.isEnabled(item().command)}
-                        class="flex h-7 w-full items-center justify-between gap-6 px-3 text-left outline-none hover:bg-editor-field/70 focus-visible:bg-editor-field/70 disabled:text-editor-text-dim/45 disabled:hover:bg-transparent"
+                        class="flex h-7 w-full items-center justify-between gap-6 px-3 text-left font-medium outline-none hover:bg-editor-field/70 focus-visible:bg-editor-field/70 disabled:text-editor-text-dim/45 disabled:hover:bg-transparent"
                         onClick={() => activate(item().command)}
                       >
-                        <span>{labelFor(item())}</span>
+                        <span class="text-[12px]">{labelFor(item())}</span>
                         <Show when={item().shortcut}>
-                          <span class="text-[11px] text-editor-text-dim">{item().shortcut}</span>
+                          <span class="text-[10.5px] font-normal tracking-tight text-editor-text-dim/80">{item().shortcut}</span>
                         </Show>
                       </button>
                     )}

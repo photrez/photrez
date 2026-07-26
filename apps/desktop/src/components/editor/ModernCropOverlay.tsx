@@ -375,181 +375,182 @@ export function ModernCropOverlay(props: ModernCropOverlayProps) {
   });
 
   return (
-    <svg
-      ref={svgRef}
-      data-modern-crop-overlay
-      style={{
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        overflow: "visible",
-        "pointer-events": navMode() ? "none" : "auto",
-        "z-index": 40,
-      }}
-      style:cursor={cursor()}
-      onPointerMove={handlePointerMove}
-      onPointerUp={clearDrag}
-      onPointerCancel={clearDrag}
-      onLostPointerCapture={() => clearDrag()}
-      onPointerLeave={() => {
-        if (!dragState()) {
-          setHover(null);
-          setHoverPos(null);
-        }
-      }}
-      onDblClick={(e) => {
-        if (navMode() || dragState()) return;
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        if (!el || !el.closest("[data-modern-crop-move]")) return;
-        props.onApplyCrop?.();
-      }}
-    >
-      <defs></defs>
-      {/* Canvas expansion fill — non-overlapping strips for areas where frame exceeds canvas */}
-      <For each={expansionRects()}>
-        {(r) => (
-          <rect
-            x={r.x}
-            y={r.y}
-            width={r.w}
-            height={r.h}
-            fill="rgba(255,255,255,0.08)"
-            style={{ "pointer-events": "none" }}
-          />
-        )}
-      </For>
-      <For each={darkRects()}>
-        {(r) => (
-          <rect
-            x={r.x}
-            y={r.y}
-            width={r.w}
-            height={r.h}
-            fill="rgba(0,0,0,0.55)"
-            style={{ "pointer-events": "none" }}
-          />
-        )}
-      </For>
-      <rect
-        x={screenRect().x}
-        y={screenRect().y}
-        width={screenRect().w}
-        height={screenRect().h}
-        fill="none"
-        stroke="rgba(0,0,0,0.55)"
-        stroke-width={1.5}
-        style={{ "pointer-events": "none" }}
-      />
-      <rect
-        x={screenRect().x}
-        y={screenRect().y}
-        width={screenRect().w}
-        height={screenRect().h}
-        fill="none"
-        stroke="rgba(255,255,255,0.9)"
-        stroke-width={0.75}
-        style={{ "pointer-events": "none" }}
-      />
-      {/* Canvas expansion indicator — dashed outline of original canvas when frame exceeds it */}
-      <Show when={isExpanded()}>
-        <rect
-          x={props.canvasScreenRect!.x}
-          y={props.canvasScreenRect!.y}
-          width={props.canvasScreenRect!.w}
-          height={props.canvasScreenRect!.h}
-          fill="none"
-          stroke="rgba(255,255,255,0.5)"
-          stroke-width={1}
-          stroke-dasharray="6,4"
-          style={{ "pointer-events": "none" }}
-        />
-      </Show>
-
-      <CropOverlayGuides
-        x={screenRect().x}
-        y={screenRect().y}
-        w={screenRect().w}
-        h={screenRect().h}
-        zoom={1}
-        guideMode={props.guideMode}
-      />
-      {/* 360-degree rotate hit ring — rendered behind move area and handles */}
-      <path
-        d={rotateRingPath()}
-        fill="transparent"
-        fill-rule="evenodd"
-        data-modern-crop-rotate="ring"
-        style={{ "pointer-events": navMode() ? "none" : "all" }}
-        onPointerDown={startRotate}
-        onPointerEnter={(e) => {
-          setHover("rotate");
-          setHoverPos({ x: e.clientX, y: e.clientY });
+    <div class="pointer-events-none absolute inset-0 z-40 overflow-visible">
+      <svg
+        ref={svgRef}
+        data-modern-crop-overlay
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          overflow: "visible",
+          "pointer-events": navMode() ? "none" : "auto",
         }}
-        onPointerMove={(e) => {
-          if (hoverHandle() === "rotate" || dragState()?.kind === "rotate")
-            setHoverPos({ x: e.clientX, y: e.clientY });
-        }}
+        style:cursor={cursor()}
+        onPointerMove={handlePointerMove}
+        onPointerUp={clearDrag}
+        onPointerCancel={clearDrag}
+        onLostPointerCapture={() => clearDrag()}
         onPointerLeave={() => {
           if (!dragState()) {
             setHover(null);
             setHoverPos(null);
           }
         }}
-      />
-      <rect
-        x={screenRect().x}
-        y={screenRect().y}
-        width={screenRect().w}
-        height={screenRect().h}
-        fill="transparent"
-        data-modern-crop-move
-        style={{ cursor: "move", "pointer-events": navMode() ? "none" : "all" }}
-        onPointerDown={startMove}
-        onPointerEnter={() => setHover("move")}
-        onPointerLeave={() => {
-          if (!dragState()) setHover(null);
+        onDblClick={(e) => {
+          if (navMode() || dragState()) return;
+          const el = document.elementFromPoint(e.clientX, e.clientY);
+          if (!el || !el.closest("[data-modern-crop-move]")) return;
+          props.onApplyCrop?.();
         }}
-      />
-      <For each={handles()}>
-        {(h) => (
-          <g>
+      >
+        <defs></defs>
+        {/* Canvas expansion fill — non-overlapping strips for areas where frame exceeds canvas */}
+        <For each={expansionRects()}>
+          {(r) => (
             <rect
-              x={h.cx - HANDLE_HIT / 2}
-              y={h.cy - HANDLE_HIT / 2}
-              width={HANDLE_HIT}
-              height={HANDLE_HIT}
-              fill="transparent"
-              data-modern-crop-handle={h.type}
-              style={{
-                cursor: getCursorForHandle(h.type, 0, 1, 1),
-                "pointer-events": navMode() ? "none" : "all",
-              }}
-              onPointerDown={(e) => startResize(e, h.type)}
-              onPointerEnter={() => setHover(h.type)}
-              onPointerLeave={() => {
-                if (!dragState()) setHover(null);
-              }}
-            />
-            <rect
-              x={h.cx - HANDLE_SIZE / 2}
-              y={h.cy - HANDLE_SIZE / 2}
-              width={HANDLE_SIZE}
-              height={HANDLE_SIZE}
-              rx={1}
-              ry={1}
-              fill={
-                hoverHandle() === h.type
-                  ? "rgba(255,255,255,0.95)"
-                  : "rgba(255,255,255,0.78)"
-              }
-              stroke="rgba(0,0,0,0.35)"
-              stroke-width={1}
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              fill="rgba(255,255,255,0.08)"
               style={{ "pointer-events": "none" }}
             />
-          </g>
-        )}
-      </For>
+          )}
+        </For>
+        <For each={darkRects()}>
+          {(r) => (
+            <rect
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              fill="rgba(0,0,0,0.55)"
+              style={{ "pointer-events": "none" }}
+            />
+          )}
+        </For>
+        <rect
+          x={screenRect().x}
+          y={screenRect().y}
+          width={screenRect().w}
+          height={screenRect().h}
+          fill="none"
+          stroke="rgba(0,0,0,0.55)"
+          stroke-width={1.5}
+          style={{ "pointer-events": "none" }}
+        />
+        <rect
+          x={screenRect().x}
+          y={screenRect().y}
+          width={screenRect().w}
+          height={screenRect().h}
+          fill="none"
+          stroke="rgba(255,255,255,0.9)"
+          stroke-width={0.75}
+          style={{ "pointer-events": "none" }}
+        />
+        {/* Canvas expansion indicator — dashed outline of original canvas when frame exceeds it */}
+        <Show when={isExpanded()}>
+          <rect
+            x={props.canvasScreenRect!.x}
+            y={props.canvasScreenRect!.y}
+            width={props.canvasScreenRect!.w}
+            height={props.canvasScreenRect!.h}
+            fill="none"
+            stroke="rgba(255,255,255,0.5)"
+            stroke-width={1}
+            stroke-dasharray="6,4"
+            style={{ "pointer-events": "none" }}
+          />
+        </Show>
+
+        <CropOverlayGuides
+          x={screenRect().x}
+          y={screenRect().y}
+          w={screenRect().w}
+          h={screenRect().h}
+          zoom={1}
+          guideMode={props.guideMode}
+        />
+        {/* 360-degree rotate hit ring — rendered behind move area and handles */}
+        <path
+          d={rotateRingPath()}
+          fill="transparent"
+          fill-rule="evenodd"
+          data-modern-crop-rotate="ring"
+          style={{ "pointer-events": navMode() ? "none" : "all" }}
+          onPointerDown={startRotate}
+          onPointerEnter={(e) => {
+            setHover("rotate");
+            setHoverPos({ x: e.clientX, y: e.clientY });
+          }}
+          onPointerMove={(e) => {
+            if (hoverHandle() === "rotate" || dragState()?.kind === "rotate")
+              setHoverPos({ x: e.clientX, y: e.clientY });
+          }}
+          onPointerLeave={() => {
+            if (!dragState()) {
+              setHover(null);
+              setHoverPos(null);
+            }
+          }}
+        />
+        <rect
+          x={screenRect().x}
+          y={screenRect().y}
+          width={screenRect().w}
+          height={screenRect().h}
+          fill="transparent"
+          data-modern-crop-move
+          style={{ cursor: "move", "pointer-events": navMode() ? "none" : "all" }}
+          onPointerDown={startMove}
+          onPointerEnter={() => setHover("move")}
+          onPointerLeave={() => {
+            if (!dragState()) setHover(null);
+          }}
+        />
+        <For each={handles()}>
+          {(h) => (
+            <g>
+              <rect
+                x={h.cx - HANDLE_HIT / 2}
+                y={h.cy - HANDLE_HIT / 2}
+                width={HANDLE_HIT}
+                height={HANDLE_HIT}
+                fill="transparent"
+                data-modern-crop-handle={h.type}
+                style={{
+                  cursor: getCursorForHandle(h.type, 0, 1, 1),
+                  "pointer-events": navMode() ? "none" : "all",
+                }}
+                onPointerDown={(e) => startResize(e, h.type)}
+                onPointerEnter={() => setHover(h.type)}
+                onPointerLeave={() => {
+                  if (!dragState()) setHover(null);
+                }}
+              />
+              <rect
+                x={h.cx - HANDLE_SIZE / 2}
+                y={h.cy - HANDLE_SIZE / 2}
+                width={HANDLE_SIZE}
+                height={HANDLE_SIZE}
+                rx={1}
+                ry={1}
+                fill={
+                  hoverHandle() === h.type
+                    ? "rgba(255,255,255,0.95)"
+                    : "rgba(255,255,255,0.78)"
+                }
+                stroke="rgba(0,0,0,0.35)"
+                stroke-width={1}
+                style={{ "pointer-events": "none" }}
+              />
+            </g>
+          )}
+        </For>
+      </svg>
       <Show when={tooltip()}>
         {(t) => (
           <CropOverlayTooltip
@@ -563,6 +564,6 @@ export function ModernCropOverlay(props: ModernCropOverlayProps) {
           />
         )}
       </Show>
-    </svg>
+    </div>
   );
-}
+};

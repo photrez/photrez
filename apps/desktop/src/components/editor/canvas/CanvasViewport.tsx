@@ -989,24 +989,26 @@ export function CanvasViewport() {
               isAltPressed={isAltPressed()}
               isPanning={isSpacePressed() || isPanning()}
             />
-            <Show when={hudInfo()}>
-              {(h) => (
-                <TransformHud
-                  mode={h().mode}
-                  clientX={h().clientX}
-                  clientY={h().clientY}
-                  zoom={zoom()}
-                  deltaX={h().deltaX}
-                  deltaY={h().deltaY}
-                  width={h().width}
-                  height={h().height}
-                  scalePercent={h().scalePercent}
-                  angle={h().angle}
-                  snapActive={h().snapActive}
-                />
-              )}
-            </Show>
           </svg>
+
+          {/* Live Cursor HUD Tooltip (HTML Overlay) */}
+          <Show when={hudInfo()}>
+            {(h) => (
+              <TransformHud
+                mode={h().mode}
+                clientX={h().clientX}
+                clientY={h().clientY}
+                zoom={zoom()}
+                deltaX={h().deltaX}
+                deltaY={h().deltaY}
+                width={h().width}
+                height={h().height}
+                scalePercent={h().scalePercent}
+                angle={h().angle}
+                snapActive={h().snapActive}
+              />
+            )}
+          </Show>
 
           {/* Gradient drag vector line and distance/angle overlay */}
           <GradientOverlay />

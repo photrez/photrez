@@ -122,11 +122,11 @@ export function AppTitleBar(props: AppTitleBarProps) {
         onDblClick={() => runTauriWindowAction("toggleMaximize")}
       >
         <div class="pointer-events-none flex items-center gap-1.5 opacity-90">
-          <span class="text-[12px] font-medium tracking-wide text-editor-text">
+          <span class="text-[12px] font-semibold text-editor-text-header tracking-tight">
             {activeDocName()}
           </span>
-          <span class="text-[12px] text-editor-text-dim">·</span>
-          <span class="text-[12px] tracking-wide text-editor-text-dim">photrez</span>
+          <span class="text-[11px] text-editor-text-dim/60">·</span>
+          <span class="text-[11.5px] font-medium tracking-wider text-editor-text-dim/80">photrez</span>
         </div>
       </div>
 
