@@ -195,13 +195,16 @@ describe("printDocument — core flow", () => {
       (c: unknown[]) => c[0] === "print_image_raw"
     );
     expect(invokeCall).toBeDefined();
+    // A4 portrait at 300 DPI with 5mm margin:
+    //   printable W = 210-10 = 200mm → 2362 px
+    //   printable H = 297-10 = 287mm → 3390 px
     expect(invokeCall![2].headers).toMatchObject({
       printer: "Default Printer",
       copies: "1",
       orientation: "portrait",
       documentName: "Untitled",
-      width: "2480",
-      height: "3508",
+      width: "2362",
+      height: "3390",
     });
   });
 
@@ -237,9 +240,178 @@ describe("printDocument — core flow", () => {
       paperWidthMm: "297",
       paperHeightMm: "420",
       paperIndex: "8",
-      width: "3508",
-      height: "4961",
+      width: "3390",
+      height: "4843",
     });
+  });
+});
+
+describe("printDocument — margin & orientation headers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupCompositeMock();
+    mockInvoke.mockImplementation(async (cmd: string, _args?: unknown, _options?: unknown) => {
+      if (cmd === "get_print_settings") {
+        return defaultPrintSettings;
+      }
+      return { ok: true, data: { status: "printed" } };
+    });
+  });
+
+  it("passes marginMm header to print_image_raw", async () => {
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    expect(invokeCall![2].headers).toHaveProperty("marginMm", "5");
+  });
+
+  it("passes paperWidthMm/paperHeightMm/paperIndex headers", async () => {
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    expect(invokeCall![2].headers).toMatchObject({
+      paperWidthMm: "210",
+      paperHeightMm: "297",
+      paperIndex: "9",
+    });
+  });
+
+  it("passes ALL expected print_image_raw headers for A4 portrait", async () => {
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    expect(invokeCall![2].headers).toMatchObject({
+      printer: "Default Printer",
+      copies: "1",
+      paperWidthMm: "210",
+      paperHeightMm: "297",
+      paperIndex: "9",
+      marginMm: "5",
+      documentName: "Untitled",
+      orientation: "portrait",
+      width: "2362",
+      height: "3390",
+    });
+  });
+
+  it("swaps width/height in headers for landscape orientation", async () => {
+    mockPrintSettings({
+      orientation: "landscape",
+      paper_width_mm: 210,
+      paper_height_mm: 297,
+    });
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    // Landscape: effW = paper_height_mm (297), effH = paper_width_mm (210)
+    // Canvas at 300 DPI: 297mm → 3508px, 210mm → 2480px
+    // But with 5mm margin: printable = 287×200mm → 3390×2362px
+    expect(invokeCall![2].headers).toMatchObject({
+      paperWidthMm: "297",
+      paperHeightMm: "210",
+      orientation: "landscape",
+      width: "3390",
+      height: "2362",
+    });
+  });
+
+  it("produces larger canvas with zero margin (full bleed)", async () => {
+    mockPrintSettings({ margin_mm: 0 });
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    // 0mm margin → printable = 210×297mm → 2480×3508 px at 300 DPI
+    expect(invokeCall![2].headers).toMatchObject({
+      marginMm: "0",
+      width: "2480",
+      height: "3508",
+    });
+  });
+
+  it("produces smaller canvas with custom 10mm margin", async () => {
+    mockPrintSettings({ margin_mm: 10 });
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    // 10mm margin → printable = 190×277mm → 2244×3272 px at 300 DPI
+    //   190/25.4*300 = 2244.09 → round(2244)
+    //   277/25.4*300 = 3271.65 → round(3272)
+    expect(invokeCall![2].headers).toMatchObject({
+      marginMm: "10",
+      width: "2244",
+      height: "3272",
+    });
+  });
+
+  it("handles extreme margin (larger than half paper) gracefully", async () => {
+    // paper is 210mm wide, so margin=150mm → printable width = max(1, 210-300) = 1mm
+    mockPrintSettings({ margin_mm: 150 });
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    // printable = 1mm × 1mm (clamped) → 12×12 px at 300 DPI
+    expect(invokeCall![2].headers).toMatchObject({
+      marginMm: "150",
+      width: "12",
+      height: "12",
+    });
+  });
+
+  it("handles landscape with custom 10mm margin", async () => {
+    mockPrintSettings({ orientation: "landscape", margin_mm: 10 });
+    const engine = createMockEngine();
+    await printDocument(engine);
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall).toBeDefined();
+    // Landscape: effW=297, effH=210, margin=10 → printable = 277×190mm
+    // Pixels at 300 DPI: 277mm → 3274px, 190mm → 2244px
+    expect(invokeCall![2].headers).toMatchObject({
+      paperWidthMm: "297",
+      paperHeightMm: "210",
+      marginMm: "10",
+      orientation: "landscape",
+    });
+  });
+
+  it("passes centerImage and offset settings through composite (not as headers)", async () => {
+    // Offsets are embedded in the composited pixels, NOT passed as headers.
+    // This test verifies the contract: compositeForPrint receives offset args.
+    mockPrintSettings({ center_image: false, top_offset_mm: 20, left_offset_mm: 15 });
+    const engine = createMockEngine();
+    await printDocument(engine);
+    // drawImage should be called — verifies compositeForPrint ran
+    const ctx = mockCanvasGetContext.mock.results[0]?.value;
+    expect(ctx.drawImage).toHaveBeenCalled();
+    // Headers should NOT contain centerImage/topOffsetmm/leftOffsetmm
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw"
+    );
+    expect(invokeCall![2].headers).not.toHaveProperty("centerImage");
+    expect(invokeCall![2].headers).not.toHaveProperty("topOffsetMm");
+    expect(invokeCall![2].headers).not.toHaveProperty("leftOffsetMm");
   });
 });
 

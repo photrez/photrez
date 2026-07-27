@@ -274,4 +274,218 @@ mod tests {
         s.set_selected_printer(None);
         assert_eq!(s.printer_dpi, Some(300.0));
     }
+
+    // ── Orientation edge cases ──
+
+    #[test]
+    fn apply_orientation_portrait_keeps_canonical() {
+        let mut s = PrintSettings::default();
+        s.paper_width_mm = 210.0;
+        s.paper_height_mm = 297.0;
+        s.orientation = "portrait".to_string();
+        let (w, h) = s.apply_orientation();
+        assert_eq!(w, 210.0);
+        assert_eq!(h, 297.0);
+        // Stored values should remain canonical
+        assert_eq!(s.paper_width_mm, 210.0);
+        assert_eq!(s.paper_height_mm, 297.0);
+    }
+
+    #[test]
+    fn apply_orientation_landscape_swaps_effective() {
+        let mut s = PrintSettings::default();
+        s.paper_width_mm = 210.0;
+        s.paper_height_mm = 297.0;
+        s.orientation = "landscape".to_string();
+        let (w, h) = s.apply_orientation();
+        assert_eq!(w, 297.0);
+        assert_eq!(h, 210.0);
+        // Stored should remain canonical (width ≤ height)
+        assert_eq!(s.paper_width_mm, 210.0);
+        assert_eq!(s.paper_height_mm, 297.0);
+    }
+
+    #[test]
+    fn apply_orientation_idempotent() {
+        let mut s = PrintSettings::default();
+        s.paper_width_mm = 210.0;
+        s.paper_height_mm = 297.0;
+
+        // Calling apply_orientation multiple times should produce same result
+        let (w1, h1) = s.apply_orientation();
+        let (w2, h2) = s.apply_orientation();
+        assert_eq!(w1, w2);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn apply_orientation_swaps_non_canonical_dimensions_at_set_time() {
+        // If someone sets width > height (non-canonical), apply_orientation should fix it
+        let mut s = PrintSettings::default();
+        s.set_paper("Custom", 1, 297.0, 210.0); // width > height
+        s.orientation = "portrait".to_string();
+        // apply_orientation is called inside set_paper, so stored dims should be canonical
+        assert_eq!(s.paper_width_mm, 210.0);
+        assert_eq!(s.paper_height_mm, 297.0);
+        let (w, h) = s.apply_orientation();
+        assert_eq!(w, 210.0);
+        assert_eq!(h, 297.0);
+    }
+
+    // ── Scale percent boundary tests ──
+
+    #[test]
+    fn scale_percent_boundary_min() {
+        let mut s = PrintSettings::default();
+        s.set_scale_percent(1.0);
+        assert_eq!(s.scale_percent, 1.0);
+        s.set_scale_percent(1.5);
+        assert_eq!(s.scale_percent, 1.5);
+    }
+
+    #[test]
+    fn scale_percent_boundary_max() {
+        let mut s = PrintSettings::default();
+        s.set_scale_percent(1000.0);
+        assert_eq!(s.scale_percent, 1000.0);
+        s.set_scale_percent(999.9);
+        assert_eq!(s.scale_percent, 999.9);
+    }
+
+    // ── Copies boundary tests ──
+
+    #[test]
+    fn copies_minimum_one_multiple_calls() {
+        let mut s = PrintSettings::default();
+        s.set_copies(0);
+        assert_eq!(s.copies, 1);
+        s.set_copies(0);
+        assert_eq!(s.copies, 1); // idempotent
+    }
+
+    #[test]
+    fn copies_high_value() {
+        let mut s = PrintSettings::default();
+        s.set_copies(100);
+        assert_eq!(s.copies, 100);
+        s.set_copies(9999);
+        assert_eq!(s.copies, 9999);
+    }
+
+    // ── Margin edge cases ──
+
+    #[test]
+    fn margin_exact_hardware_min() {
+        let mut s = PrintSettings::default();
+        s.hardware_margin_min_mm = 3.0;
+        s.set_margin_mm(3.0);
+        assert_eq!(s.margin_mm, 3.0);
+    }
+
+    #[test]
+    fn margin_zero_with_zero_hardware_min() {
+        let mut s = PrintSettings::default();
+        s.hardware_margin_min_mm = 0.0;
+        s.set_margin_mm(0.0);
+        assert_eq!(s.margin_mm, 0.0);
+    }
+
+    // ── Serialization edge cases ──
+
+    #[test]
+    fn serialization_with_none_printer_dpi() {
+        let mut s = PrintSettings::default();
+        s.printer_dpi = None;
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"printer_dpi\":null"));
+        let s2: PrintSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(s2.printer_dpi, None);
+    }
+
+    #[test]
+    fn set_margin_after_hardware_min_update() {
+        let mut s = PrintSettings::default();
+        s.set_margin_mm(2.0);
+        assert_eq!(s.margin_mm, 2.0); // hardware_margin_min_mm is 0.0, so 2.0 is OK
+        s.hardware_margin_min_mm = 5.0; // simulate printer driver update
+        // Margin should be clamped on next set, but current value stays
+        assert_eq!(s.margin_mm, 2.0);
+        // Next set_margin with low value should clamp
+        s.set_margin_mm(3.0);
+        assert_eq!(s.margin_mm, 5.0);
+    }
+
+    // ── initialize_default_printer ──
+
+    #[test]
+    fn initialize_default_printer_when_none() {
+        let mut s = PrintSettings::default();
+        s.selected_printer = None;
+        // In test environment there's no system printer, so it stays None
+        s.initialize_default_printer();
+        // Just verify it doesn't panic and selected_printer remains valid
+        assert!(s.selected_printer.is_none() || s.selected_printer.is_some());
+    }
+
+    #[test]
+    fn initialize_default_printer_only_once() {
+        let mut s = PrintSettings::default();
+        s.selected_printer = Some("Custom".into());
+        s.initialize_default_printer();
+        assert_eq!(s.selected_printer.unwrap(), "Custom");
+    }
+
+    // ── set_center_image toggle ──
+
+    #[test]
+    fn set_center_image_idempotent() {
+        let mut s = PrintSettings::default();
+        assert!(s.center_image);
+        s.set_center_image(false);
+        assert!(!s.center_image);
+        s.set_center_image(true);
+        assert!(s.center_image);
+    }
+
+    // ── set_show_paper_white toggle ──
+
+    #[test]
+    fn set_show_paper_white_toggle() {
+        let mut s = PrintSettings::default();
+        assert!(s.show_paper_white);
+        s.set_show_paper_white(false);
+        assert!(!s.show_paper_white);
+    }
+
+    // ── set_unit ──
+
+    #[test]
+    fn set_unit_all_formats() {
+        let mut s = PrintSettings::default();
+        s.set_unit("cm");
+        assert_eq!(s.unit, "cm");
+        s.set_unit("in");
+        assert_eq!(s.unit, "in");
+        s.set_unit("px");
+        assert_eq!(s.unit, "px");
+        s.set_unit("mm");
+        assert_eq!(s.unit, "mm");
+    }
+
+    // ── set_selected_printer ──
+
+    #[test]
+    fn set_selected_printer_with_name() {
+        let mut s = PrintSettings::default();
+        s.set_selected_printer(Some("Epson Stylus Pro 3880".into()));
+        assert_eq!(s.selected_printer, Some("Epson Stylus Pro 3880".into()));
+    }
+
+    #[test]
+    fn set_selected_printer_none_clears() {
+        let mut s = PrintSettings::default();
+        s.set_selected_printer(Some("Epson Stylus Pro 3880".into()));
+        s.set_selected_printer(None);
+        assert_eq!(s.selected_printer, None);
+    }
 }

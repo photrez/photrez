@@ -50,11 +50,14 @@ const MAX_PX = 10000;
 /// DPI using OffscreenCanvas (GPU-accelerated Canvas2D).
 ///
 /// Returns raw RGBA pixels (via ctx.getImageData) and their dimensions.
+/// The canvas is inset by marginMm so the rendered content stays within
+/// the printable area — the white background fills the margin border.
 /// Returns raw RGBA pixels with zero format encoding.
 async function compositeForPrint(
   srcBytes: Uint8Array,
   paperWidthMm: number,
   paperHeightMm: number,
+  marginMm: number,
   scalePercent: number,
   centerImage: boolean,
   leftOffsetMm: number,
@@ -65,9 +68,13 @@ async function compositeForPrint(
   const blob = new Blob([srcBytes as BlobPart], { type: "image/png" });
   const img = await createImageBitmap(blob);
 
-  // Compute canvas pixel dimensions at target DPI
-  const pixelW = Math.round((paperWidthMm / MM_PER_INCH) * targetDpi);
-  const pixelH = Math.round((paperHeightMm / MM_PER_INCH) * targetDpi);
+  // Compute printable area dimensions (paper minus margins)
+  const printW = Math.max(1, paperWidthMm - 2 * marginMm);
+  const printH = Math.max(1, paperHeightMm - 2 * marginMm);
+
+  // Compute canvas pixel dimensions at target DPI (printable area only)
+  const pixelW = Math.round((printW / MM_PER_INCH) * targetDpi);
+  const pixelH = Math.round((printH / MM_PER_INCH) * targetDpi);
 
   // Clamp to prevent OOM on absurd paper sizes
   const canvasW = Math.min(pixelW, MAX_PX);
@@ -86,7 +93,7 @@ async function compositeForPrint(
   const scaledW = Math.round(img.width * scaleFactor);
   const scaledH = Math.round(img.height * scaleFactor);
 
-  // Compute position
+  // Compute position within the printable area
   let left: number;
   let top: number;
   if (centerImage) {
@@ -150,6 +157,7 @@ export async function printDocument(
       rawImageBytes,
       effW,
       effH,
+      s.margin_mm,
       s.scale_percent,
       s.center_image,
       s.left_offset_mm,
@@ -172,6 +180,7 @@ export async function printDocument(
         copies: String(s.copies || 1),
         paperWidthMm: String(effW),
         paperHeightMm: String(effH),
+        marginMm: String(s.margin_mm),
         paperIndex: String(s.paper_index),
         documentName: docName || "Untitled",
         orientation: s.orientation,

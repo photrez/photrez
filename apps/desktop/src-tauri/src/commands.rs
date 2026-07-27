@@ -413,7 +413,7 @@ fn print_image_inner(
 
         match target {
             Some(printer) => {
-                if let Err(e) = print_image_via_gdi(&p, &printer.system_name, print_count, pw_mm, ph_mm, pidx, doc_name, orientation) {
+                if let Err(e) = print_image_via_gdi(&p, &printer.system_name, print_count, pw_mm, ph_mm, 0.0, pidx, doc_name, orientation) {
                     return err_response("E_PRINTER", &e);
                 }
             }
@@ -497,6 +497,8 @@ pub(crate) fn print_image_raw(
         .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(297.0);
     let paper_index: i16 = headers.get("paperindex")
         .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(9);
+    let margin_mm: f64 = headers.get("marginmm")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(0.0);
     let document_name = headers.get("documentname")
         .and_then(|v| v.to_str().ok()).unwrap_or("Untitled").to_string();
     let orientation = headers.get("orientation")
@@ -530,7 +532,7 @@ pub(crate) fn print_image_raw(
         render_rgba_to_printer(
             &pixels, width, height,
             &target.system_name, copies.max(1),
-            paper_width_mm, paper_height_mm, paper_index,
+            paper_width_mm, paper_height_mm, margin_mm, paper_index,
             &document_name, &orientation,
         )
         .map_err(|e| error_value("E_PRINTER", &e))?;

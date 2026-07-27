@@ -871,8 +871,8 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                   class="flex-1 accent-[#E15A17] h-1.5 bg-editor-divider rounded-lg cursor-pointer"
                   ref={scaleSliderEl}
                   onInput={async (e) => {
-                    await setScaleToFit(false);
                     const scale = parseFloat(e.currentTarget.value) || 100;
+                    await setScaleToFit(false);
                     await setScalePercent(scale);
                   }}
                 />
@@ -881,8 +881,8 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                   class="w-[60px] rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
                   ref={scaleNumberEl}
                   onInput={async (e) => {
-                    await setScaleToFit(false);
                     const scale = parseFloat(e.currentTarget.value) || 100;
+                    await setScaleToFit(false);
                     await setScalePercent(scale);
                   }}
                 />

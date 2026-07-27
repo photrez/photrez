@@ -827,9 +827,14 @@ fn query_paper_size_by_index(printer_system_name: &str, target_index: i16) -> Op
 /// 5. Renders each copy via StretchDIBits (scaled+centered, HALFTONE smoothing)
 /// Shared GDI rendering pipeline: takes already-decoded R↔B-swapped RGBA pixels
 /// and renders them to the printer via GDI. Handles BITMAPINFO, printer DC setup,
-/// DPI query, hardware margins, centering, StretchDIBits, document/page lifecycle,
-/// and copy iteration. Called by both `print_image_via_gdi` (file) and
-/// `print_image_from_memory` (raw bytes).
+/// DPI query, margin inset, StretchDIBits, document/page lifecycle,
+/// and copy iteration. Called by `print_image_via_gdi` (file) and
+/// `print_image_raw` (raw bytes).
+///
+/// The frontend composites the image within the margin-inset printable area
+/// and sends raw RGBA.  This function positions the canvas at the correct
+/// physical offset (hardware margin + user margin).  No additional centering
+/// is applied — the frontend already handles centering or manual offset.
 pub(crate) fn render_rgba_to_printer(
     pixels: &[u8],
     width: u32,
@@ -838,6 +843,7 @@ pub(crate) fn render_rgba_to_printer(
     copies: u32,
     paper_width_mm: f64,
     paper_height_mm: f64,
+    margin_mm: f64,
     paper_index: i16,
     document_name: &str,
     orientation: &str,
@@ -887,20 +893,29 @@ pub(crate) fn render_rgba_to_printer(
         return Err(format!("Failed to start print document{}", err));
     }
 
-    // ── 6. Compute scale + position ────────────────────────────
-    let scale_x = page_w as f64 / width as f64;
-    let scale_y = page_h as f64 / height as f64;
+    // ── 6. Compute user margin in printer pixels ──────────────
+    let margin_px_x = (margin_mm / MM_PER_INCH * printer_dpi_x).round() as i32;
+    let margin_px_y = (margin_mm / MM_PER_INCH * printer_dpi_y).round() as i32;
+    let printable_w = page_w - 2 * margin_px_x.max(0);
+    let printable_h = page_h - 2 * margin_px_y.max(0);
+
+    // ── 7. Scale source canvas to fill printable area ──────────
+    let scale_x = printable_w as f64 / width as f64;
+    let scale_y = printable_h as f64 / height as f64;
     let scale = scale_x.min(scale_y);
     let dest_w = (width as f64 * scale) as i32;
     let dest_h = (height as f64 * scale) as i32;
-    let dest_x = offset_x + (page_w - dest_w) / 2;
-    let dest_y = offset_y + (page_h - dest_h) / 2;
 
-    // ── 7. Set HALFTONE stretch mode ───────────────────────────
+    // Position at hardware offset + user margin.
+    // Frontend handles centering/manual-offset within the canvas.
+    let dest_x = offset_x + margin_px_x.max(0);
+    let dest_y = offset_y + margin_px_y.max(0);
+
+    // ── 8. Set HALFTONE stretch mode ───────────────────────────
     unsafe { SetStretchBltMode(hdc, 4) };
     unsafe { SetBrushOrgEx(hdc, 0, 0, std::ptr::null_mut()) };
 
-    // ── 8. Render each copy ────────────────────────────────────
+    // ── 9. Render each copy ────────────────────────────────────
     let mut render_err: Option<String> = None;
     let count = copies.max(1);
     for _ in 0..count {
@@ -937,7 +952,7 @@ pub(crate) fn render_rgba_to_printer(
         }
     }
 
-    // ── 9. End document + cleanup ──────────────────────────────
+    // ── 10. End document + cleanup ─────────────────────────────
     if render_err.is_some() {
         unsafe { AbortDoc(hdc) };
     } else {
@@ -956,6 +971,7 @@ pub(crate) fn print_image_via_gdi(
     copies: u32,
     paper_width_mm: f64,
     paper_height_mm: f64,
+    margin_mm: f64,
     paper_index: i16,
     document_name: &str,
     orientation: &str,
@@ -965,7 +981,7 @@ pub(crate) fn print_image_via_gdi(
     let (width, height) = rgba.dimensions();
     let mut pixels = rgba.into_raw();
     for px in pixels.chunks_exact_mut(4) { px.swap(0, 2); }
-    render_rgba_to_printer(&pixels, width, height, printer_system_name, copies, paper_width_mm, paper_height_mm, paper_index, document_name, orientation)
+    render_rgba_to_printer(&pixels, width, height, printer_system_name, copies, paper_width_mm, paper_height_mm, margin_mm, paper_index, document_name, orientation)
 }
 
 /// Query the printer's native DPI via GDI `GetDeviceCaps(LOGPIXELSX/Y)`.
