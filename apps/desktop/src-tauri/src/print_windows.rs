@@ -57,7 +57,7 @@ unsafe extern "system" {
 #[repr(C)]
 #[allow(non_snake_case)]
 struct DOCINFOW {
-    cbSize: u16,
+    cbSize: i32,
     lpszDocName: *const u16,
     lpszOutput: *const u16,
     lpszDatatype: *const u16,
@@ -874,7 +874,7 @@ pub(crate) fn render_rgba_to_printer(
     // ── 5. StartDocW ───────────────────────────────────────────
     let doc_name_wide: Vec<u16> = format!("{}\0", document_name).encode_utf16().collect();
     let doc_info = DOCINFOW {
-        cbSize: std::mem::size_of::<DOCINFOW>() as u16,
+        cbSize: std::mem::size_of::<DOCINFOW>() as i32,
         lpszDocName: doc_name_wide.as_ptr(),
         lpszOutput: std::ptr::null(),
         lpszDatatype: std::ptr::null(),
