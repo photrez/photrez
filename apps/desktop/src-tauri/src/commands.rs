@@ -363,7 +363,23 @@ pub(crate) fn print_image(
 ) -> Result<Value, Value> {
     validate_path_extension(&path, &["png", "jpg", "jpeg"], "print")?;
     let path = validate_path_safe(&path, "print")?;
+    print_image_inner(path, printer, copies, paper_width_mm, paper_height_mm,
+        paper_preset, paper_index, document_name, orientation)
+}
 
+/// Internal print dispatch — called by `print_image`.
+/// `path` must already be validated via `validate_path_safe`.
+fn print_image_inner(
+    path: std::path::PathBuf,
+    printer: Option<String>,
+    copies: Option<u32>,
+    paper_width_mm: Option<f64>,
+    paper_height_mm: Option<f64>,
+    paper_preset: Option<String>,
+    paper_index: Option<i16>,
+    document_name: Option<String>,
+    orientation: Option<String>,
+) -> Result<Value, Value> {
     let p = path;
     if !p.exists() {
         return err_response("E_IO", &format!("File not found: {}", p.display()));
@@ -445,6 +461,120 @@ pub(crate) fn print_image(
     }
 
     ok_response(serde_json::json!({ "printed": p.to_string_lossy(), "copies": print_count }))
+}
+
+/// Print a composited image from raw RGBA pixels via Tauri v2 raw IPC.
+/// The frontend sends raw RGBA pixels (via ctx.getImageData) as the binary
+/// body and metadata (printer, dimensions, paper, orientation) in headers.
+/// Raw pixels → GDI → printer driver. Zero format encoding.
+///
+/// Windows: sends raw RGBA directly to GDI (render_rgba_to_printer).
+/// macOS/Linux: re-encodes as PNG temp file and dispatches via CUPS lp.
+#[tauri::command]
+pub(crate) fn print_image_raw(
+    request: tauri::ipc::Request<'_>,
+) -> Result<Value, Value> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return err_response("E_VALIDATION", "Expected raw binary body");
+    };
+
+    if data.len() as u64 > MAX_FILE_IO_BYTES {
+        return err_response("E_RESOURCE_LIMIT",
+            "Print data exceeds maximum allowed size (256 MB)");
+    }
+
+    // Parse headers via error_value (returns Value directly, compatible with ?)
+    let headers = request.headers();
+    let Some(printer_str) = headers.get("printer").and_then(|v| v.to_str().ok()) else {
+        return err_response("E_VALIDATION", "Missing printer header");
+    };
+    let printer = printer_str.to_string();
+    let copies: u32 = headers.get("copies")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let paper_width_mm: f64 = headers.get("paperwidthmm")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(210.0);
+    let paper_height_mm: f64 = headers.get("paperheightmm")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(297.0);
+    let paper_index: i16 = headers.get("paperindex")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(9);
+    let document_name = headers.get("documentname")
+        .and_then(|v| v.to_str().ok()).unwrap_or("Untitled").to_string();
+    let orientation = headers.get("orientation")
+        .and_then(|v| v.to_str().ok()).unwrap_or("portrait").to_string();
+
+    // Image dimensions (raw RGBA, not encoded format) — required for GDI
+    let width: u32 = headers.get("width")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok())
+        .ok_or_else(|| error_value("E_VALIDATION", "Missing width header"))?;
+    let height: u32 = headers.get("height")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok())
+        .ok_or_else(|| error_value("E_VALIDATION", "Missing height header"))?;
+
+    // Resolve printer — use error_value for ? compatibility
+    let target = printers::get_printer_by_name(&printer)
+        .or_else(|| printers::get_default_printer())
+        .ok_or_else(|| error_value("E_PRINTER", "No printer found"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use crate::print_windows::render_rgba_to_printer;
+
+        // Raw RGBA from frontend (ctx.getImageData) is RGBA byte order.
+        // Windows GDI StretchDIBits with BI_RGB | 32bpp expects BGRA.
+        // Swap R↔B to match Windows DIB byte order.
+        let mut pixels = data.to_vec();
+        for px in pixels.chunks_exact_mut(4) {
+            px.swap(0, 2);
+        }
+
+        render_rgba_to_printer(
+            &pixels, width, height,
+            &target.system_name, copies.max(1),
+            paper_width_mm, paper_height_mm, paper_index,
+            &document_name, &orientation,
+        )
+        .map_err(|e| error_value("E_PRINTER", &e))?;
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        // Encode raw RGBA to PNG in Rust (image::load_from_memory no longer
+        // applies since the bytes are raw RGBA, not PNG). This adds encode
+        // time on macOS/Linux, but the primary optimization target is Windows.
+        use image::{ImageBuffer, Rgba};
+        let img = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, data.to_vec())
+            .ok_or_else(|| error_value("E_INTERNAL", "Failed to create image buffer"))?;
+
+        let temp_dir = std::env::temp_dir();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos()).unwrap_or(0);
+        let temp_path = temp_dir.join(format!("photrez-print-{ts}.png"));
+        img.save(&temp_path)
+            .map_err(|e| error_value("E_IO", &format!("Failed to write temp file: {e}")))?;
+
+        let media = cups_media_name("Custom", paper_width_mm, paper_height_mm);
+        let mut cmd = std::process::Command::new("lp");
+        if copies > 1 { cmd.arg(format!("-n{copies}")); }
+        cmd.arg("-d").arg(&printer);
+        cmd.arg("-t").arg(&document_name);
+        cmd.arg("-o").arg("fit-to-page");
+        cmd.arg("-o").arg(format!("media={media}"));
+        cmd.arg(&temp_path);
+
+        if !cmd.status().map(|s| s.success()).unwrap_or(false) {
+            let _ = std::fs::remove_file(&temp_path);
+            return err_response("E_PRINTER", "Print via lp failed");
+        }
+        let _ = std::fs::remove_file(&temp_path);
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        return err_response("E_PRINTER", "Printing not supported on this platform");
+    }
+
+    ok_response(serde_json::json!({ "status": "printed" }))
 }
 
 /// Open the printer driver's native settings dialog (paper size, orientation, etc.)
@@ -1375,5 +1505,26 @@ mod tests {
         let value = result.unwrap();
         assert_eq!(value["ok"], true);
         assert!(value["data"]["printers"].is_array());
+    }
+
+    // ── Print dispatch tests ─────────────────────────────────────────
+    // `print_image_inner` is private; we test it through `print_image`.
+
+    #[test]
+    fn test_print_image_rejects_nonexistent_file() {
+        // print_image validates path, then calls print_image_inner which
+        // checks p.exists(). With a nonsense path we get E_VALIDATION
+        // (validate_path_safe → canonicalize fails) or E_IO if the path
+        // passes validation but doesn't exist.
+        let result = print_image(
+            "Z:\\nope\\missing.png".to_string(),
+            None, None, None, None, None, None, None, None,
+        );
+        assert!(result.is_err(), "should fail on nonexistent path");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("E_IO") || err.contains("E_VALIDATION"),
+            "error should be E_IO or E_VALIDATION, got: {err}"
+        );
     }
 }

@@ -369,7 +369,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     if (!sourceEngine) return;
 
     // Move-tool Alt+drag = duplicate the hit layer and drag the COPY
-    // (Photoshop-style). Duplicate here (the single drag owner) so the
+    // Duplicate here (the single drag owner) so the
     // subsequent move operates on the fresh copy instead of the original —
     // doing it in onCanvasPointerDown caused both the original (this drag)
     // and the copy to be tracked, so the original moved and no duplicate

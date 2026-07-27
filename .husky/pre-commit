@@ -17,6 +17,15 @@ if [ -f ".git/COMMIT_EDITMSG" ] && grep -q 'ponytail:' .git/COMMIT_EDITMSG 2>/de
   exit 1
 fi
 
+# 0c. Block internal references from local blocklist (gitignored, internal only)
+if [ -f ".husky/internal-blocklist" ]; then
+  if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs)$' | xargs grep -nFf .husky/internal-blocklist 2>/dev/null | grep -q .; then
+    echo ""
+    echo "ERROR: Internal reference pattern detected in staged source files."
+    exit 1
+  fi
+fi
+
 # 1. TypeScript type-check only (faster than full build)
 echo ""
 echo "[1/3] Running TypeScript Type Check..."

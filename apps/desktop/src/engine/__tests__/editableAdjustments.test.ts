@@ -109,7 +109,7 @@ describe("Editable Basic Adjustments", () => {
     expect(layer.hasAdjustments).toBe(false);
   });
 
-  it("commitBasicAdjustment bakes the param into the bitmap and drops it (Photoshop-style)", () => {
+  it("commitBasicAdjustment bakes the param into the bitmap and drops it (destructive)", () => {
     const engine = new DocumentEngine("doc-1", "Test Doc", 100, 100);
     const layer = engine.addLayer("Layer 1");
     const initialBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;

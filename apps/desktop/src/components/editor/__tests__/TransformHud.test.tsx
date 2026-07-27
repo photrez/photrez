@@ -26,7 +26,7 @@ describe("TransformHud", () => {
     const card = container.firstElementChild as HTMLElement;
     expect(card).not.toBeNull();
     expect(card.style.left).toBe("116px"); // 100 + 16 offset
-    expect(card.style.top).toBe("108px");  // 120 - 12 offset
+    expect(card.style.top).toBe("106px");  // 120 - 14 offset (with -translate-y-full)
 
     expect(container.textContent).toContain("320");
     expect(container.textContent).toContain("240");

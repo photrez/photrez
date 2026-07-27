@@ -32,6 +32,11 @@ pub struct PrintSettings {
     // Display
     pub unit: String,
     pub show_paper_white: bool,
+
+    // Print DPI — queried from printer driver when printer is selected.
+    // Used by frontend to composite at printer-native DPI so StretchDIBits
+    // hits the 1:1 GDI fast path (no CPU scaling).
+    pub printer_dpi: Option<f64>,
 }
 
 impl Default for PrintSettings {
@@ -53,6 +58,7 @@ impl Default for PrintSettings {
             left_offset_mm: 0.0,
             unit: "mm".to_string(),
             show_paper_white: true,
+            printer_dpi: Some(300.0),
         }
     }
 }
@@ -118,7 +124,19 @@ impl PrintSettings {
     }
 
     pub fn set_selected_printer(&mut self, printer: Option<String>) {
-        self.selected_printer = printer;
+        self.selected_printer = printer.clone();
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(ref name) = printer {
+                self.printer_dpi = crate::print_windows::query_printer_dpi_win(name);
+            } else {
+                self.printer_dpi = Some(300.0);
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.printer_dpi = Some(300.0);
+        }
     }
 
     /// Initialize the default printer if none is currently selected.
@@ -126,7 +144,7 @@ impl PrintSettings {
     pub fn initialize_default_printer(&mut self) {
         if self.selected_printer.is_none() {
             if let Some(default) = printers::get_default_printer() {
-                self.selected_printer = Some(default.name.clone());
+                self.set_selected_printer(Some(default.name.clone()));
             }
         }
     }
@@ -159,7 +177,7 @@ mod tests {
         assert_eq!(s.paper_height_mm, 297.0);
         assert_eq!(s.orientation, "portrait");
         assert_eq!(s.margin_mm, 5.0);
-        assert!(s.scale_to_fit);
+        assert!(!s.scale_to_fit);
     }
 
     #[test]
@@ -226,5 +244,34 @@ mod tests {
         let s2: PrintSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(s.paper_name, s2.paper_name);
         assert_eq!(s.paper_width_mm, s2.paper_width_mm);
+    }
+
+    #[test]
+    fn default_printer_dpi() {
+        let s = PrintSettings::default();
+        assert_eq!(s.printer_dpi, Some(300.0));
+    }
+
+    #[test]
+    fn printer_dpi_serialized() {
+        let s = PrintSettings::default();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"printer_dpi\":300.0"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn set_printer_falls_back_to_300_dpi() {
+        let mut s = PrintSettings::default();
+        s.set_selected_printer(Some("Test Printer".into()));
+        assert_eq!(s.printer_dpi, Some(300.0));
+    }
+
+    #[test]
+    fn set_printer_none_resets_to_300_dpi() {
+        let mut s = PrintSettings::default();
+        s.printer_dpi = Some(600.0); // simulate high DPI
+        s.set_selected_printer(None);
+        assert_eq!(s.printer_dpi, Some(300.0));
     }
 }

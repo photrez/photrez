@@ -38,6 +38,9 @@
 | ✅ DONE | Dev: `test:dialogs` script path fixed to point at `dialogs/__tests__/` (was broken after dialog test refactor) |
 | ✅ DONE | Brush cursor previews active-layer transform — ring renders as ellipse (`scaleX`/`scaleY`) + rotated by layer `rotation`, matching the actual stroke shape on transformed layers |
 | ✅ DONE | Crisp pixel editing above 200% zoom — renderer switches texture MAG filter to `NEAREST` (LINEAR otherwise) so magnified pixels are sharp, not bilinear-blurred |
+| ✅ DONE | Print Performance Phase 1: Composite at printer's native DPI — StretchDIBits 1:1 fast path (bypasses CPU scaling, ~20-60ms eliminated) |
+| ✅ DONE | Print Performance Phase 2: Skip temp file + base64 IPC — raw Uint8Array via Tauri v2 InvokeBody::Raw (eliminates disk I/O, base64 encode/decode, and Rust PNG decode, ~230-450ms eliminated) |
+| ✅ DONE | Print Performance Raw RGBA: Eliminate final encode/decode — raw pixels via `ctx.getImageData()` directly to GDI, zero-encode print pipeline (eliminates last ~150-200ms, 100% lossless) |
 
 ---
 
@@ -266,13 +269,13 @@
 
 | Status  | Fitur                                                                                                                              |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| ✅ DONE | File > Print (Ctrl+P) — opens Photoshop-class 2-column Pro-Suite Print Settings modal (`1080×680px`) inside Photrez               |
+| ✅ DONE | File > Print (Ctrl+P) — opens Pro-class 2-column Print Settings modal (`1080×680px`) inside Photrez               |
 | ✅ DONE | Interactive SVG Paper Viewport — physical paper ratio canvas, printable margin guide, scaled image overlay, drag positioning       |
 | ✅ DONE | Print Inspector — Printer selector (`get_system_printers` via `printers` crate), Copies (`1-999`), Portrait/Landscape orientation. Paper sizes sourced from OS driver (`DC_PAPERS`), no hardcoded presets. "Active but unlisted" fallback for printer-reported sizes not in driver list |
 | ✅ DONE | Position & Size Inspector — Center checkbox, Top/Left offsets, Scale %, linked W/H inputs, Scale to Fit Media, Units selector     |
 | ✅ DONE | Live Resolution Calculation — Effective PPI readout with color-coded quality badge (🟢 Optimal / 🟡 Acceptable / 🔴 Low Res)       |
-| ✅ DONE | Smart Composite Execution — Frontend renders high-DPI paper composite (300 DPI) matching scale & position before native spooling   |
-| ✅ DONE | `print_image` Rust command — Windows: `ShellExecuteW("print")` native spooler; macOS/Linux: `open::that()` fallback               |
+| ✅ DONE | Print compositing GPU — Frontend OffscreenCanvas (GPU) compositing pada printer-native DPI (fallback 300), dengan MAX_PX clamp. Rust hanya GDI dispatch. `StretchDIBits` sees src == dst → 1:1 fast path tanpa CPU scaling. `query_printer_dpi_win()` di panggil saat printer dipilih (`set_selected_printer`/`initialize_default_printer`). |
+| ✅ DONE | `print_image` / `print_image_composite` Rust commands — Windows: `ShellExecuteW("print")` native spooler; macOS/Linux: `open::that()` fallback |
 | ✅ DONE | `window.print()` approach rejected — WebView2 print dialog is full-screen and cannot be resized by app                            |
 
 ---

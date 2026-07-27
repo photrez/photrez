@@ -106,6 +106,9 @@ GEMINI.md
 .github/prompts/
 .github/copilot-instructions.md
 
+# Local blocklist for pre-commit hook (brand references, internal only)
+.husky/internal-blocklist
+
 # Internal docs (not for distribution)
 docs/AI_*.md
 docs/archive/

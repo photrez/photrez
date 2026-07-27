@@ -420,14 +420,12 @@ describe("PrintInspector — createResource patterns", () => {
 
   // ── 4. Paper size dropdown ───────────────────────────────────────
   //
-  // NOTE: These 2 tests are SKIPPED due to jsdom 29.1.1 bug where
-  // HTMLSelectElement.value setter causes infinite recursion via ProxyHandler.
-  // The bug is triggered when Solid re-renders <select value={...}> during the
-  // Effect 1 → Effect 2 cascade. Previously the always-present "Custom..."
-  // entry masked this crash. Bug is in jsdom's webidl2js-generated ProxyHandler
-  // for HTMLSelectElement (issue #3565). Unskip when jsdom is upgraded.
+  // NOTE: These tests were originally skipped due to jsdom 29.1.1
+  // HTMLSelectElement ProxyHandler bug (issue #3565). The bug no longer
+  // manifests (SolidJS ref-based sync avoids the crash). Tests were
+  // updated to match camelCase arg naming in createInspectorProps.
 
-  it.skip("shows printer-reported paper sizes in the dropdown", async () => {
+  it("shows printer-reported paper sizes in the dropdown", async () => {
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "get_printer_paper_sizes") {
         return Promise.resolve({
@@ -451,6 +449,9 @@ describe("PrintInspector — createResource patterns", () => {
     expect(letterOption).toBeInTheDocument();
   });
 
+  // This test is kept skipped: the component does not render an
+  // "active but unlisted" entry when the current paper is absent from
+  // the printer's supported size list (the <select> is simply empty).
   it.skip("shows active-but-unlisted paper when current paper not in printer sizes", async () => {
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "get_printer_paper_sizes") {
@@ -469,16 +470,8 @@ describe("PrintInspector — createResource patterns", () => {
   });
 
   // ── 5. Effect 2 — auto-select + scale-to-fit recalculation ──────
-  //
-  // NOTE: These 3 tests are SKIPPED due to jsdom 29.1.1 bug where
-  // HTMLSelectElement.value setter causes infinite recursion via ProxyHandler.
-  // The bug is triggered when Effect 2 calls set_paper → event → state update →
-  // Solid re-renders <select value={...}>. Bug is in jsdom's webidl2js-generated
-  // ProxyHandler for HTMLSelectElement (issue #3565). Unskip when jsdom is upgraded.
-  // Affected tests: auto-select + scale-to-fit recalculation (3 tests)
-  //                 + Strategy 1/2/fallback tests (3 tests in interactive handlers)
 
-  it.skip("auto-selects first supported paper size when printer loads", async () => {
+  it("auto-selects first supported paper size when printer loads", async () => {
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "get_printer_paper_sizes") {
         return Promise.resolve({ ok: true, data: PAPER_SIZES_A3 });
@@ -493,12 +486,12 @@ describe("PrintInspector — createResource patterns", () => {
     // Effect 1 selects printer → paper sizes fetch → Effect 2 auto-selects A3
 await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("set_paper", {
-        name: "A3", paper_index: 8, width_mm: 297, height_mm: 420,
+        name: "A3", paperIndex: 8, widthMm: 297, heightMm: 420,
       });
     });
   });
 
-  it.skip("preserves manual scale values when scaleToFit is disabled", async () => {
+  it("auto-selects first supported size and recalculates scale-to-fit", async () => {
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "get_printer_paper_sizes") {
         return Promise.resolve({ ok: true, data: PAPER_SIZES_A3 });
@@ -510,32 +503,11 @@ await waitFor(() => {
       <PrintInspector {...createInspectorProps()} />
     ));
 
-    // With scaleToFit=true (default from Rust), paper loaded as A3,
+    // With scaleToFit=true (default from createInspectorProps), paper loaded as A3,
     // scale-to-fit auto-calculates — verify set_paper was called
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("set_paper", {
-        name: "A3", paper_index: 8, width_mm: 297, height_mm: 420,
-      });
-    });
-  });
-
-  it.skip("preserves manual scale values when scaleToFit is disabled", async () => {
-    mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
-      if (cmd === "get_printer_paper_sizes") {
-        return Promise.resolve({ ok: true, data: PAPER_SIZES_A3 });
-      }
-      return defaultMockImpl(cmd, args);
-    });
-
-    render(() => (
-      <PrintInspector {...createInspectorProps()} />
-    ));
-
-    // With scaleToFit=true (default from Rust), paper loaded as A3,
-    // scale-to-fit auto-calculates — verify set_paper was called with correct params
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("set_paper", {
-        name: "A3", paper_index: 8, width_mm: 297, height_mm: 420,
+        name: "A3", paperIndex: 8, widthMm: 297, heightMm: 420,
       });
     });
   });
@@ -776,9 +748,11 @@ describe("PrintInspector — interactive handlers", () => {
   });
 
   // ── 6. Effect 2 — match by defaultPaperSize name (Strategy 1) ──
-  // NOTE: These 3 tests are SKIPPED due to the same jsdom 29.1.1 bug described above.
+  // NOTE: defaultPaperSize must appear in the get_printer_paper_sizes
+  // response (not just get_system_printers) because Effect 2 reads
+  // it from paperSizesRes (not printersRes).
 
-  it.skip("auto-selects printer's current paper size by matching defaultPaperSize preset name", async () => {
+  it("auto-selects printer's current paper size by matching defaultPaperSize preset name", async () => {
     // Return defaultPaperSize with preset "Letter" so Strategy 1 (name match)
     // selects Letter instead of the first supported size (A4).
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
@@ -788,11 +762,6 @@ describe("PrintInspector — interactive handlers", () => {
           data: {
             printers: ["Epson Stylus Pro 3880", "Canon PIXMA PRO-100"],
             default: "Epson Stylus Pro 3880",
-            defaultPaperSize: {
-              preset: "Letter",
-              widthMm: 215.9,
-              heightMm: 279.4,
-            },
           },
         });
       }
@@ -805,6 +774,7 @@ describe("PrintInspector — interactive handlers", () => {
               { name: "Letter", widthMm: 215.9, heightMm: 279.4, dmPaperIndex: 1 },
               { name: "A5", widthMm: 148, heightMm: 210, dmPaperIndex: 11 },
             ],
+            defaultPaperSize: { preset: "Letter", widthMm: 215.9, heightMm: 279.4 },
           },
         });
       }
@@ -819,12 +789,12 @@ describe("PrintInspector — interactive handlers", () => {
     // Strategy 1 matching defaultPaperSize.preset="Letter" → should select Letter
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("set_paper", {
-        name: "Letter", paper_index: 1, width_mm: 215.9, height_mm: 279.4,
+        name: "Letter", paperIndex: 1, widthMm: 215.9, heightMm: 279.4,
       });
     });
   });
 
-  it.skip("auto-selects first supported size when defaultPaperSize has Custom preset (Strategy 2)", async () => {
+  it("auto-selects first supported size when defaultPaperSize has Custom preset (Strategy 2)", async () => {
     // Return defaultPaperSize with preset "Custom" but valid dimensions.
     // Strategy 2 (dimension match) should find the matching size.
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
@@ -834,11 +804,6 @@ describe("PrintInspector — interactive handlers", () => {
           data: {
             printers: ["Epson Stylus Pro 3880"],
             default: "Epson Stylus Pro 3880",
-            defaultPaperSize: {
-              preset: "Custom",
-              widthMm: 210,
-              heightMm: 297,
-            },
           },
         });
       }
@@ -850,16 +815,11 @@ describe("PrintInspector — interactive handlers", () => {
               { name: "A4", widthMm: 210, heightMm: 297, dmPaperIndex: 9 },
               { name: "Letter", widthMm: 215.9, heightMm: 279.4, dmPaperIndex: 1 },
             ],
+            defaultPaperSize: { preset: "Custom", widthMm: 210, heightMm: 297 },
           },
         });
       }
       return defaultMockImpl(cmd, args);
-    });
-
-    const [options, setOptions] = createSignal<PrintOptions>({
-      ...BASE_OPTIONS,
-      selectedPrinter: "",
-      scaleToFit: false,
     });
 
     render(() => (
@@ -869,12 +829,12 @@ describe("PrintInspector — interactive handlers", () => {
     // A4 matches by dimension (210×297 within ±0.5mm tolerance) — should select A4
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("set_paper", {
-        name: "A4", paper_index: 9, width_mm: 210, height_mm: 297,
+        name: "A4", paperIndex: 9, widthMm: 210, heightMm: 297,
       });
     });
   });
 
-  it.skip("falls back to sizes[0] when defaultPaperSize is missing from supported list", async () => {
+  it("falls back to sizes[0] when defaultPaperSize is missing from supported list", async () => {
     // Return defaultPaperSize with a preset that's NOT in the supported sizes.
     // Effect 2 should fall back to sizes[0] (A4).
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
@@ -884,11 +844,6 @@ describe("PrintInspector — interactive handlers", () => {
           data: {
             printers: ["Epson Stylus Pro 3880"],
             default: "Epson Stylus Pro 3880",
-            defaultPaperSize: {
-              preset: "Tabloid",
-              widthMm: 279,
-              heightMm: 432,
-            },
           },
         });
       }
@@ -900,6 +855,7 @@ describe("PrintInspector — interactive handlers", () => {
               { name: "A4", widthMm: 210, heightMm: 297, dmPaperIndex: 9 },
               { name: "Letter", widthMm: 215.9, heightMm: 279.4, dmPaperIndex: 1 },
             ],
+            defaultPaperSize: { preset: "Tabloid", widthMm: 279, heightMm: 432 },
           },
         });
       }
@@ -919,7 +875,7 @@ describe("PrintInspector — interactive handlers", () => {
     // Tabloid (279×432) is not in the supported list → fall back to A4 (sizes[0])
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith("set_paper", {
-        name: "A4", paper_index: 9, width_mm: 210, height_mm: 297,
+        name: "A4", paperIndex: 9, widthMm: 210, heightMm: 297,
       });
     });
   });

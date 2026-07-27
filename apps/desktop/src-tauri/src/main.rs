@@ -93,6 +93,7 @@ fn main() {
             commands::save_project_binary,
             commands::load_project,
             commands::print_image,
+            commands::print_image_raw,
             commands::get_system_printers,
             commands::get_printer_paper_sizes,
             commands::open_printer_properties,

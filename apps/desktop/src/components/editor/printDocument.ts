@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Print orchestration — image compositing via TS OffscreenCanvas (GPU),
+// then Rust GDI dispatch for physical printing.
+//
+// This follows Tauri best practice: the frontend owns GPU-accelerated
+// rendering (Canvas2D), and the Rust backend owns system API calls (GDI).
+//
+// Flow:
+//   1. encodeComposite — render layers onto a document-sized canvas (PNG)
+//   2. compositeForPrint — composite onto a paper-sized canvas at
+//      printer-native DPI (fallback 300), with MAX_PX clamp.
+//      Exports as raw RGBA pixels (via ctx.getImageData) — no format
+//      encoding: raw pixels → GDI → printer via Tauri raw IPC.
+//   3. invoke("print_image_raw") — sends raw RGBA pixels directly to
+//      Rust via Tauri v2 raw IPC (Uint8Array body, dimensions + printer
+//      settings in headers). Rust passes them straight to GDI
+//      (render_rgba_to_printer) with zero decode. No PNG, no JPEG,
+//      no temp file, no base64, no disk I/O.
+
 import { invoke } from "@tauri-apps/api/core";
-import { join, tempDir } from "@tauri-apps/api/path";
 import { encodeComposite } from "./exportDocument";
-import { writeFileBytes, deleteFile } from "@/tauri/native";
 import { showToast } from "./Toast";
 import type { DocumentEngine } from "@/engine/document";
-
-// Constants (formerly imported from printGeometry.ts, now inlined)
-const TARGET_PRINT_DPI = 300;
-const MM_PER_INCH = 25.4;
 
 interface RustPrintSettings {
   selected_printer: string | null;
@@ -26,123 +39,123 @@ interface RustPrintSettings {
   left_offset_mm: number;
   unit: string;
   show_paper_white: boolean;
+  printer_dpi?: number | null;
+}
+
+const MM_PER_INCH = 25.4;
+const TARGET_PRINT_DPI = 300;
+const MAX_PX = 10000;
+
+/// Composite the document image onto a paper-sized white canvas at the target
+/// DPI using OffscreenCanvas (GPU-accelerated Canvas2D).
+///
+/// Returns raw RGBA pixels (via ctx.getImageData) and their dimensions.
+/// Returns raw RGBA pixels with zero format encoding.
+async function compositeForPrint(
+  srcBytes: Uint8Array,
+  paperWidthMm: number,
+  paperHeightMm: number,
+  scalePercent: number,
+  centerImage: boolean,
+  leftOffsetMm: number,
+  topOffsetMm: number,
+  targetDpi: number,
+): Promise<{ bytes: Uint8Array; width: number; height: number }> {
+  // Decode PNG bytes to ImageBitmap via Blob
+  const blob = new Blob([srcBytes as BlobPart], { type: "image/png" });
+  const img = await createImageBitmap(blob);
+
+  // Compute canvas pixel dimensions at target DPI
+  const pixelW = Math.round((paperWidthMm / MM_PER_INCH) * targetDpi);
+  const pixelH = Math.round((paperHeightMm / MM_PER_INCH) * targetDpi);
+
+  // Clamp to prevent OOM on absurd paper sizes
+  const canvasW = Math.min(pixelW, MAX_PX);
+  const canvasH = Math.min(pixelH, MAX_PX);
+
+  // Create OffscreenCanvas (GPU-accelerated)
+  const canvas = new OffscreenCanvas(canvasW, canvasH);
+  const ctx = canvas.getContext("2d")!;
+
+  // Fill white background
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Compute scaled image dimensions
+  const scaleFactor = scalePercent / 100;
+  const scaledW = Math.round(img.width * scaleFactor);
+  const scaledH = Math.round(img.height * scaleFactor);
+
+  // Compute position
+  let left: number;
+  let top: number;
+  if (centerImage) {
+    left = Math.max(0, Math.floor((canvasW - scaledW) / 2));
+    top = Math.max(0, Math.floor((canvasH - scaledH) / 2));
+  } else {
+    left = Math.round((leftOffsetMm / MM_PER_INCH) * targetDpi);
+    top = Math.round((topOffsetMm / MM_PER_INCH) * targetDpi);
+  }
+
+  // Draw image — hardware-accelerated via Canvas2D GPU backend
+  ctx.drawImage(img, left, top, scaledW, scaledH);
+
+  // Cleanup
+  img.close();
+
+  // Read raw RGBA pixels from GPU (no format encoding)
+  const imageData = ctx.getImageData(0, 0, canvasW, canvasH);
+  return {
+    bytes: new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.byteLength),
+    width: canvasW,
+    height: canvasH,
+  };
 }
 
 export async function printDocument(
   engine: DocumentEngine,
   docName?: string,
 ): Promise<void> {
-  let filePath: string | null = null;
-
   try {
     // 1. Fetch current settings from Rust
     const raw = await invoke<{ ok: boolean; data?: RustPrintSettings }>("get_print_settings");
     const s = raw.data ?? (raw as unknown as RustPrintSettings);
 
-    // ── Compute effective dimensions for landscape output ────────────────
+    // Compute effective dimensions for landscape output.
     // Rust stores paper_width_mm / paper_height_mm in canonical portrait form
-    // (width ≤ height).  For landscape printing we need the canvas PNG and the
-    // print_image dimensions to reflect the actual page orientation (wider
-    // than tall).  Rust also needs the orientation flag so it can set
-    // dmOrientation = DMORIENT_LANDSCAPE in the GDI DEVMODE.
+    // (width ≤ height).  For landscape printing we swap them for the canvas.
     const effW = s.orientation === "landscape" ? s.paper_height_mm : s.paper_width_mm;
     const effH = s.orientation === "landscape" ? s.paper_width_mm : s.paper_height_mm;
 
-    // 2. Render base document composite image
+    // 2. Render layers onto document-sized canvas (GPU-accelerated)
     const rawImageBytes = await encodeComposite(engine, "png", 100);
 
-    let paperBytes: Uint8Array = rawImageBytes;
+    // 3. Determine print DPI — prefer printer-native DPI, fallback to 300.
+    //    Compositing at printer DPI means StretchDIBits sees src == dst
+    //    size, triggering the 1:1 GDI fast path (no CPU scaling).
+    const dpi = s.printer_dpi ?? TARGET_PRINT_DPI;
 
-    // 3. High-DPI Smart Composition (resilient against mock/test environments)
-    try {
-      const blob = new Blob([rawImageBytes as BlobPart], { type: "image/png" });
-      const dpi = TARGET_PRINT_DPI;
-      const mmToInch = MM_PER_INCH;
+    // Apply MAX_PX clamp: if the canvas at this DPI exceeds the safety
+    // limit, proportionally reduce DPI so the longest dimension fits.
+    // This preserves the 1:1 property (both source canvas and printer page
+    // are at the same clamped resolution).
+    const maxDimPx = Math.round((Math.max(effW, effH) / MM_PER_INCH) * dpi);
+    const effectiveDpi = maxDimPx > MAX_PX
+      ? ((MAX_PX / maxDimPx) * dpi)
+      : dpi;
 
-      // Guard against excessive canvas dimensions (max ~40 inches = ~12000px at 300dpi)
-      const MAX_PAPER_MM = 1200;
-      const MAX_PX = 10000;
-      const clampedPaperW = Math.min(effW, MAX_PAPER_MM);
-      const clampedPaperH = Math.min(effH, MAX_PAPER_MM);
-
-      let paperPixelWidth = Math.round(Math.max(1, (clampedPaperW / mmToInch) * dpi));
-      let paperPixelHeight = Math.round(Math.max(1, (clampedPaperH / mmToInch) * dpi));
-
-      if (paperPixelWidth > MAX_PX || paperPixelHeight > MAX_PX) {
-        const scale = MAX_PX / Math.max(paperPixelWidth, paperPixelHeight);
-        paperPixelWidth = Math.round(paperPixelWidth * scale);
-        paperPixelHeight = Math.round(paperPixelHeight * scale);
-      }
-
-      let canvas: HTMLCanvasElement | OffscreenCanvas | null = null;
-      let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
-
-      if (typeof OffscreenCanvas !== "undefined") {
-        canvas = new OffscreenCanvas(paperPixelWidth, paperPixelHeight);
-        ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
-      } else if (typeof document !== "undefined") {
-        const el = document.createElement("canvas");
-        el.width = paperPixelWidth;
-        el.height = paperPixelHeight;
-        canvas = el;
-        ctx = el.getContext("2d");
-      }
-
-      if (canvas && ctx) {
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, paperPixelWidth, paperPixelHeight);
-
-        const docW = engine.getWidth();
-        const docH = engine.getHeight();
-
-        const scaleFactor = s.scale_percent / 100;
-        // Explicit mm-through conversion for physical print sizing
-        const unscaledWMm = (docW / dpi) * mmToInch;
-        const unscaledHMm = (docH / dpi) * mmToInch;
-        const scaledWMm = unscaledWMm * scaleFactor;
-        const scaledHMm = unscaledHMm * scaleFactor;
-        const imgPixelW = Math.round((scaledWMm / mmToInch) * dpi);
-        const imgPixelH = Math.round((scaledHMm / mmToInch) * dpi);
-
-        let leftPx = Math.round((s.left_offset_mm / mmToInch) * dpi);
-        let topPx = Math.round((s.top_offset_mm / mmToInch) * dpi);
-
-        if (s.center_image) {
-          leftPx = Math.round((paperPixelWidth - imgPixelW) / 2);
-          topPx = Math.round((paperPixelHeight - imgPixelH) / 2);
-        }
-
-        if (typeof createImageBitmap !== "undefined") {
-          const imgBitmap = await createImageBitmap(blob);
-          ctx.drawImage(imgBitmap, leftPx, topPx, imgPixelW, imgPixelH);
-          imgBitmap.close();
-
-          if ("convertToBlob" in canvas) {
-            const compositeBlob = await (canvas as OffscreenCanvas).convertToBlob({
-              type: "image/png",
-              quality: 1.0,
-            });
-            const arrayBuffer = await compositeBlob.arrayBuffer();
-            paperBytes = new Uint8Array(arrayBuffer);
-          } else if (canvas instanceof HTMLCanvasElement && typeof canvas.toBlob === "function") {
-            const compositeBlob = await new Promise<Blob>((resolve, reject) => {
-              canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))), "image/png", 1.0);
-            });
-            const arrayBuffer = await compositeBlob.arrayBuffer();
-            paperBytes = new Uint8Array(arrayBuffer);
-          }
-        }
-      }
-    } catch {
-      paperBytes = rawImageBytes;
-    }
-
-    // 4. Save paper composite to temp PNG file
-    const tmpDir = await tempDir();
-    const rand = Math.random().toString(36).slice(2, 8);
-    const filename = `photrez-print-${Date.now()}-${rand}.png`;
-    filePath = await join(tmpDir, filename);
-    await writeFileBytes(filePath, paperBytes);
+    // 4. Composite onto paper-sized canvas at target DPI (GPU-accelerated).
+    //    Returns raw RGBA pixels — no format encoding.
+    const { bytes, width, height } = await compositeForPrint(
+      rawImageBytes,
+      effW,
+      effH,
+      s.scale_percent,
+      s.center_image,
+      s.left_offset_mm,
+      s.top_offset_mm,
+      effectiveDpi,
+    );
 
     // 5. Validate printer selection before dispatch
     if (!s.selected_printer) {
@@ -150,35 +163,24 @@ export async function printDocument(
       return;
     }
 
-    // 6. Dispatch to native printer spooler
-    await invoke("print_image", {
-      path: filePath,
-      printer: s.selected_printer || null,
-      copies: s.copies || 1,
-      orientation: s.orientation,
-      paperWidthMm: effW,
-      paperHeightMm: effH,
-      paperPreset: s.paper_name,
-      paperIndex: s.paper_index,
-      documentName: docName || "Untitled",
+    // 6. Send raw RGBA pixels directly to Rust via Tauri v2 raw IPC.
+    //    Raw pixels (no format encoding) in body, dimensions + printer
+    //    settings in headers. Rust passes straight to GDI with zero decode.
+    await invoke("print_image_raw", bytes, {
+      headers: {
+        printer: s.selected_printer!,
+        copies: String(s.copies || 1),
+        paperWidthMm: String(effW),
+        paperHeightMm: String(effH),
+        paperIndex: String(s.paper_index),
+        documentName: docName || "Untitled",
+        orientation: s.orientation,
+        width: String(width),
+        height: String(height),
+      },
     });
     showToast("Print job spooled to system printer", "info");
-
-    // 6. Clean up temp file
-    try {
-      await deleteFile(filePath);
-    } catch (cleanupErr) {
-      console.error("Failed to clean up temp print file:", cleanupErr);
-    }
-    filePath = null;
   } catch (err) {
-    if (filePath) {
-      try {
-        await deleteFile(filePath);
-      } catch (cleanupErr) {
-        console.error("Failed to clean up temp print file:", cleanupErr);
-      }
-    }
     let msg: string;
     if (err instanceof Error) { msg = err.message; }
     else {

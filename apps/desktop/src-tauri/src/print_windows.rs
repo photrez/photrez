@@ -367,8 +367,7 @@ pub(crate) fn get_default_paper_size_win(printer_system_name: &str) -> Result<(S
 /// PHYSICALWIDTH - HORZRES - PHYSICALOFFSETX (right) and
 /// PHYSICALHEIGHT - VERTRES - PHYSICALOFFSETY (bottom).
 ///
-/// Professional apps (Photoshop, GIMP) use these values as the minimum margin
-/// boundary — users cannot place content in the unprintable area.
+/// These values define the unprintable area — users cannot place content inside.
 pub(crate) fn get_printer_margins_win(
     printer_system_name: &str,
 ) -> Result<(f64, f64, f64, f64), String> {
@@ -826,8 +825,15 @@ fn query_paper_size_by_index(printer_system_name: &str, target_index: i16) -> Op
 /// 3. Queries printer DPI via GetDeviceCaps(LOGPIXELSX/Y) for correct physical sizing
 /// 4. Compensates for unprintable hardware margins via PHYSICALOFFSETX/Y
 /// 5. Renders each copy via StretchDIBits (scaled+centered, HALFTONE smoothing)
-pub(crate) fn print_image_via_gdi(
-    path: &Path,
+/// Shared GDI rendering pipeline: takes already-decoded R↔B-swapped RGBA pixels
+/// and renders them to the printer via GDI. Handles BITMAPINFO, printer DC setup,
+/// DPI query, hardware margins, centering, StretchDIBits, document/page lifecycle,
+/// and copy iteration. Called by both `print_image_via_gdi` (file) and
+/// `print_image_from_memory` (raw bytes).
+pub(crate) fn render_rgba_to_printer(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
     printer_system_name: &str,
     copies: u32,
     paper_width_mm: f64,
@@ -836,74 +842,44 @@ pub(crate) fn print_image_via_gdi(
     document_name: &str,
     orientation: &str,
 ) -> Result<(), String> {
-    // ── 1. Decode image to RGBA pixels ──────────────────────────
-    let img = image::open(path).map_err(|e| format!("Failed to decode image: {e}"))?;
-    let rgba = img.to_rgba8();
-    let (width, height) = rgba.dimensions();
-    let mut pixels = rgba.into_raw();
-
-    // Swap R↔B for Windows DIB byte order (BGRA)
-    for px in pixels.chunks_exact_mut(4) {
-        px.swap(0, 2);
-    }
-
-    // ── 2. Build BITMAPINFO (32-bit BI_RGB, top-down) ──────────
+    // ── 1. Build BITMAPINFO (32-bit BI_RGB, top-down) ──────────
     let mut bmi: BITMAPINFO = unsafe { std::mem::zeroed() };
     bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
     bmi.bmiHeader.biWidth = width as i32;
-    bmi.bmiHeader.biHeight = -(height as i32); // negative = top-down
+    bmi.bmiHeader.biHeight = -(height as i32);
     bmi.bmiHeader.biPlanes = 1;
     bmi.bmiHeader.biBitCount = 32;
-    // biCompression = 0 (BI_RGB), biSizeImage = 0 from zeroed()
 
-    // ── 3. Create printer DC with DEVMODE paper size ───────────
+    // ── 2. Create printer DC with DEVMODE paper size ───────────
     let printer_wide: Vec<u16> =
         printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
-
     let hdc = create_printer_dc_with_paper_size(&printer_wide, paper_index, paper_width_mm, paper_height_mm, orientation)?;
 
-    // ── 4. Query printer DPI for physical-mapping fidelity ──────
-    // Best practice from Microsoft GDI: ALWAYS query the printer's actual DPI
-    // via GetDeviceCaps(LOGPIXELSX/Y). Hardcoding (e.g. 300 DPI) causes the
-    // image to print at the wrong physical size on higher-resolution printers
-    // (e.g. 600 DPI laser printers would halve the intended print size).
+    // ── 3. Query printer DPI + page dimensions ─────────────────
     const MM_PER_INCH: f64 = 25.4;
-    // GetDeviceCaps index params are i32; the windows-sys constants are u32, so cast.
     let printer_dpi_x = unsafe { GetDeviceCaps(hdc, LOGPIXELSX as i32) } as f64;
     let printer_dpi_y = unsafe { GetDeviceCaps(hdc, LOGPIXELSY as i32) } as f64;
-
-    // Compute page dimensions in DEVICE UNITS (printer's native resolution)
     let page_w = (paper_width_mm / MM_PER_INCH * printer_dpi_x).round() as i32;
     let page_h = (paper_height_mm / MM_PER_INCH * printer_dpi_y).round() as i32;
 
     if page_w <= 0 || page_h <= 0 {
-        // StartDocW hasn't been called yet, so only DeleteDC is needed
         unsafe { DeleteDC(hdc) };
         return Err("Invalid paper dimensions".into());
     }
 
-    // ── 5. Query hardware margins ────────────────────────────────
-    // PHYSICALOFFSETX/Y reports the unprintable left/top margin in device
-    // units. We offset the destination rectangle to avoid clipping the image
-    // on printers with non-zero hardware margins.
+    // ── 4. Query hardware margins ──────────────────────────────
     let offset_x = unsafe { GetDeviceCaps(hdc, PHYSICALOFFSETX as i32) };
     let offset_y = unsafe { GetDeviceCaps(hdc, PHYSICALOFFSETY as i32) };
 
-    // ── 6. Start print document with the actual document name ──
-    // The document name (e.g. "MyPhoto.png") comes from the frontend
-    // (PrintDialog → printDocument → print_image IPC) and appears in
-    // the Windows spooler / CUPS queue so users can identify the job
-    // by the original file name rather than a generic placeholder.
-    let doc_name: Vec<u16> = format!("{}\0", document_name).encode_utf16().collect();
+    // ── 5. StartDocW ───────────────────────────────────────────
+    let doc_name_wide: Vec<u16> = format!("{}\0", document_name).encode_utf16().collect();
     let doc_info = DOCINFOW {
         cbSize: std::mem::size_of::<DOCINFOW>() as u16,
-        lpszDocName: doc_name.as_ptr(),
+        lpszDocName: doc_name_wide.as_ptr(),
         lpszOutput: std::ptr::null(),
         lpszDatatype: std::ptr::null(),
         fwType: 0,
     };
-
-    // SAFETY: StartDocW begins a GDI print job
     let job_id = unsafe { StartDocW(hdc, &doc_info) };
     if job_id <= 0 {
         let err = win32_err();
@@ -911,33 +887,20 @@ pub(crate) fn print_image_via_gdi(
         return Err(format!("Failed to start print document{}", err));
     }
 
-    // ── 7. Compute scale+position to fit page ───────────────────
-    // The composited PNG from the frontend is already sized at paper dimensions
-    // at 300 DPI. On a 300 DPI printer, scale = 1.0 (pixel-perfect match).
-    // On higher-DPI printers (e.g. 600 DPI), page_w is twice as many device
-    // units as the image width, so scale = 2.0 — StretchDIBits must upscale
-    // to fill the page at the printer's native resolution.
-    // NOTE: Do NOT cap at 1.0 — that would print half-size on 600 DPI printers.
+    // ── 6. Compute scale + position ────────────────────────────
     let scale_x = page_w as f64 / width as f64;
     let scale_y = page_h as f64 / height as f64;
     let scale = scale_x.min(scale_y);
-
     let dest_w = (width as f64 * scale) as i32;
     let dest_h = (height as f64 * scale) as i32;
     let dest_x = offset_x + (page_w - dest_w) / 2;
     let dest_y = offset_y + (page_h - dest_h) / 2;
 
-    // ── 8. Set high-quality stretch mode ────────────────────────
-    // HALFTONE=4; ignored if unsupported by printer driver.
-    // SetBrushOrgEx MUST be called after HALFTONE to prevent brush misalignment
-    // (per MSDN documentation).
+    // ── 7. Set HALFTONE stretch mode ───────────────────────────
     unsafe { SetStretchBltMode(hdc, 4) };
     unsafe { SetBrushOrgEx(hdc, 0, 0, std::ptr::null_mut()) };
 
-    // ── 9. Render each copy ─────────────────────────────────────
-    // Per Microsoft GDI best practice: on ANY failure after StartDoc,
-    // call AbortDoc (not EndPage) to cancel the current page without
-    // committing a blank/corrupt page to the spooler. Then DeleteDC.
+    // ── 8. Render each copy ────────────────────────────────────
     let mut render_err: Option<String> = None;
     let count = copies.max(1);
     for _ in 0..count {
@@ -948,9 +911,6 @@ pub(crate) fn print_image_via_gdi(
             return Err(format!("Failed to start page{}", err));
         }
 
-        // SAFETY: StretchDIBits renders via printer driver, not RAW spooling.
-        // Return value: >0 = scan lines copied (success), 0 = no scan lines /
-        // failure, -1 (GDI_ERROR) = driver cannot support the image format.
         let lines = unsafe {
             StretchDIBits(
                 hdc,
@@ -958,14 +918,12 @@ pub(crate) fn print_image_via_gdi(
                 0, 0, width as i32, height as i32,
                 pixels.as_ptr() as *const c_void,
                 &bmi as *const BITMAPINFO,
-                0,          // DIB_RGB_COLORS
-                0x00CC0020, // SRCCOPY,
+                0,
+                0x00CC0020,
             )
         };
 
         if lines <= 0 {
-            // StretchDIBits failed — abort the page, do NOT call EndPage
-            // (EndPage would commit a blank/corrupt page to the spooler)
             let err = win32_err();
             unsafe { AbortDoc(hdc) };
             unsafe { DeleteDC(hdc) };
@@ -979,18 +937,55 @@ pub(crate) fn print_image_via_gdi(
         }
     }
 
-    // ── 10. End document + cleanup ──────────────────────────────
+    // ── 9. End document + cleanup ──────────────────────────────
     if render_err.is_some() {
-        // Page-level failure: abort to cancel remaining pages cleanly
         unsafe { AbortDoc(hdc) };
     } else {
         unsafe { EndDoc(hdc) };
     }
     unsafe { DeleteDC(hdc) };
 
-    if let Some(msg) = render_err {
-        return Err(msg);
+    render_err.map(Err).unwrap_or(Ok(()))
+}
+
+/// Print via GDI — decodes a PNG from file, then delegates to
+/// `render_rgba_to_printer`.
+pub(crate) fn print_image_via_gdi(
+    path: &Path,
+    printer_system_name: &str,
+    copies: u32,
+    paper_width_mm: f64,
+    paper_height_mm: f64,
+    paper_index: i16,
+    document_name: &str,
+    orientation: &str,
+) -> Result<(), String> {
+    let img = image::open(path).map_err(|e| format!("Failed to decode image: {e}"))?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let mut pixels = rgba.into_raw();
+    for px in pixels.chunks_exact_mut(4) { px.swap(0, 2); }
+    render_rgba_to_printer(&pixels, width, height, printer_system_name, copies, paper_width_mm, paper_height_mm, paper_index, document_name, orientation)
+}
+
+/// Query the printer's native DPI via GDI `GetDeviceCaps(LOGPIXELSX/Y)`.
+///
+/// Opens a temporary printer DC (without DEVMODE — DPI is a device cap,
+/// not a per-job setting), reads the DPI, and closes the DC.
+///
+/// Returns `None` if the printer cannot be opened or the DPI is 0.
+pub(crate) fn query_printer_dpi_win(printer_system_name: &str) -> Option<f64> {
+    let printer_wide: Vec<u16> =
+        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let winspool: Vec<u16> = "WINSPOOL\0".encode_utf16().collect();
+
+    let hdc = unsafe { CreateDCW(winspool.as_ptr(), printer_wide.as_ptr(), std::ptr::null(), std::ptr::null()) };
+    if hdc.is_null() {
+        return None;
     }
 
-    Ok(())
+    let dpi = unsafe { GetDeviceCaps(hdc, LOGPIXELSX as i32) } as f64;
+    unsafe { DeleteDC(hdc) };
+
+    if dpi > 0.0 { Some(dpi) } else { None }
 }
