@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useEditor } from "../shell/EditorContext";
 import { encodeComposite } from "../exportDocument";
@@ -49,29 +49,23 @@ export function PrintDialog() {
   const [previewLoading, setPreviewLoading] = createSignal(false);
   const [printing, setPrinting] = createSignal(false);
 
-  // ── Effect: Regenerate preview when relevant options change ──
-  // Debounced at 150ms to avoid re-encoding on every keystroke.
-  createEffect(() => {
-    if (!showPrintDialog()) return;
+  function PreviewTrigger() {
+    onMount(() => {
+      const engine = workspace.getActiveEngine();
+      if (!engine) return;
 
-    const opts = options();
-    const engine = workspace.getActiveEngine();
-    if (!engine) return;
+      let cancelled = false;
+      onCleanup(() => { cancelled = true; });
 
-    let cancelled = false;
-    onCleanup(() => { cancelled = true; });
-
-    const timer = setTimeout(() => {
-      if (cancelled) return;
       setPreviewLoading(true);
+      const old = previewUrl();
 
       (async () => {
         try {
           const bytes = await encodeComposite(engine, "jpeg", 85);
           if (cancelled) return;
-          const blob = new Blob([bytes as BlobPart], { type: "image/jpeg" });
-          const old = previewUrl();
           if (old) URL.revokeObjectURL(old);
+          const blob = new Blob([bytes as BlobPart], { type: "image/jpeg" });
           setPreviewUrl(URL.createObjectURL(blob));
         } catch {
           // Preview is optional
@@ -79,10 +73,10 @@ export function PrintDialog() {
           if (!cancelled) setPreviewLoading(false);
         }
       })();
-    }, 150);
+    });
 
-    onCleanup(() => clearTimeout(timer));
-  });
+    return null;
+  }
 
   onCleanup(() => {
     const url = previewUrl();
@@ -108,6 +102,7 @@ export function PrintDialog() {
 
   return (
     <Show when={showPrintDialog()}>
+      <PreviewTrigger />
       <Portal mount={document.body}>
         <DesktopDialog
           title="Photrez Print Settings"

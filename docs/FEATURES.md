@@ -277,8 +277,7 @@
 | ✅ DONE | Print compositing GPU — Frontend OffscreenCanvas (GPU) compositing pada printer-native DPI (fallback 300), dengan MAX_PX clamp. Rust hanya GDI dispatch. `StretchDIBits` sees src == dst → 1:1 fast path tanpa CPU scaling. `query_printer_dpi_win()` di panggil saat printer dipilih (`set_selected_printer`/`initialize_default_printer`). |
 | ✅ DONE | `print_image` / `print_image_composite` Rust commands — Windows: `ShellExecuteW("print")` native spooler; macOS/Linux: `open::that()` fallback |
 | ✅ DONE | `window.print()` approach rejected — WebView2 print dialog is full-screen and cannot be resized by app                            |
-
----
+| ✅ DONE | Print preview cache — preview encodes once on dialog open (via `PreviewTrigger` + `onMount` inside `<Show>`), never re-encodes on settings changes. Eliminates 2-8s lag per settings change on large images. Uses `URL.createObjectURL` snapshot; SVG geometry still reactive via `options()` signal. |
 
 ## ↩️ History (Undo/Redo)
 
