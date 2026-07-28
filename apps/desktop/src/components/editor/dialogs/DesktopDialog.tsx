@@ -125,10 +125,15 @@ export function DesktopDialog(props: DesktopDialogProps) {
             </h2>
           </div>
           <button
-            onClick={(e) => (props.onDismiss ?? props.onBackdropPointerDown)?.(e as any)}
-            class="flex size-5 items-center justify-center rounded-[4px] text-editor-icon hover:bg-white/[0.08] hover:text-editor-text transition-colors cursor-pointer"
+            onClick={(e) => {
+              if (props.dismissible !== false) {
+                (props.onDismiss ?? props.onBackdropPointerDown)?.(e as any);
+              }
+            }}
+            class="flex size-5 items-center justify-center rounded-[4px] text-editor-icon hover:bg-white/[0.08] hover:text-editor-text transition-colors cursor-pointer disabled:opacity-30"
             aria-label="Close"
             tabindex="-1"
+            disabled={props.dismissible === false}
           >
             <svg class="size-2.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <line x1="3" y1="3" x2="13" y2="13" />

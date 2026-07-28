@@ -28,6 +28,7 @@ const DEFAULT_OPTIONS: PrintOptions = {
   colorHandling: "printer_manages",
   renderingIntent: "perceptual",
   blackPointCompensation: true,
+  printerDpi: 300,
 };
 
 /// Map Rust snake_case to TypeScript camelCase
@@ -41,6 +42,10 @@ export function mapFromRust(raw: any): PrintOptions {
     paperHeightMm: raw.paper_height_mm ?? 297,
     orientation: raw.orientation ?? "portrait",
     marginMm: raw.margin_mm ?? 5,
+    marginLeftMm: raw.margin_left_mm ?? raw.margin_mm ?? 5,
+    marginRightMm: raw.margin_right_mm ?? raw.margin_mm ?? 5,
+    marginTopMm: raw.margin_top_mm ?? raw.margin_mm ?? 5,
+    marginBottomMm: raw.margin_bottom_mm ?? raw.margin_mm ?? 5,
     scaleToFit: raw.scale_to_fit ?? false,
     scalePercent: raw.scale_percent ?? 100,
     centerImage: raw.center_image ?? true,
@@ -48,10 +53,10 @@ export function mapFromRust(raw: any): PrintOptions {
     leftOffsetMm: raw.left_offset_mm ?? 0,
     unit: raw.unit ?? "mm",
     showPaperWhite: raw.show_paper_white ?? true,
-    // Keep existing color management values (not in Rust state yet)
-    colorHandling: "printer_manages",
-    renderingIntent: "perceptual",
-    blackPointCompensation: true,
+    colorHandling: raw.color_handling ?? "printer_manages",
+    renderingIntent: raw.rendering_intent ?? "perceptual",
+    blackPointCompensation: raw.black_point_compensation ?? true,
+    printerDpi: raw.printer_dpi ?? 300,
   };
 }
 
@@ -191,6 +196,11 @@ export function usePrintSettings(src?: string) {
     setCopies: (n: number) => invokeSet("set_copies", { copies: n }),
     setUnit: (u: string) => invokeSet("set_unit", { unit: u }),
     setShowPaperWhite: (show: boolean) => invokeSet("set_show_paper_white", { show }),
+    setColorHandling: (handling: string) => invokeSet("set_color_handling", { handling }),
+    setRenderingIntent: (intent: string) => invokeSet("set_rendering_intent", { intent }),
+    setBlackPointCompensation: (enabled: boolean) => invokeSet("set_black_point_compensation", { enabled }),
+    setPerSideMargins: (left: number, right: number, top: number, bottom: number) =>
+      invokeSet("set_per_side_margins", { leftMm: left, rightMm: right, topMm: top, bottomMm: bottom }),
     setPrinter: (p: string) => invokeSet("set_printer", { printer: p }),
     openPrinterProperties: async () => {
       const res = await invoke<Record<string, unknown>>("open_printer_properties_and_apply") as any;

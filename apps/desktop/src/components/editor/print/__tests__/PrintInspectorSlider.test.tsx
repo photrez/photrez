@@ -43,6 +43,7 @@ const BASE_OPTIONS: PrintOptions = {
   scaleToFit: false,
   unit: "mm",
   showPaperWhite: true,
+  printerDpi: 300,
 };
 
 const { mockInvoke, mockListenCallback, mockListen } = vi.hoisted(() => ({
@@ -112,6 +113,7 @@ function createInspectorProps(initialOptions?: Partial<PrintOptions>) {
     setCopies: () => Promise.resolve(),
     setUnit: () => Promise.resolve(),
     setShowPaperWhite: () => Promise.resolve(),
+    setPerSideMargins: () => Promise.resolve(),
     setPrinter: () => Promise.resolve(),
     openPrinterProperties: () => Promise.resolve({ ok: true }),
   };

@@ -8,6 +8,29 @@ import { PrintPaperViewport } from "../print/PrintPaperViewport";
 import { PrintInspector } from "../print/PrintInspector";
 import { usePrintSettings } from "../print/usePrintSettings";
 
+/// Downscale an encoded image (JPEG bytes) so the longest edge is at most `maxPx`.
+/// Returns a JPEG blob suitable for preview. Falls back to original data if
+/// OffscreenCanvas is unavailable or the image is already small enough.
+async function downscalePreview(data: Uint8Array, maxPx: number): Promise<Blob> {
+  if (typeof OffscreenCanvas === "undefined") {
+    return new Blob([data as BlobPart], { type: "image/jpeg" });
+  }
+  const blob = new Blob([data as BlobPart], { type: "image/jpeg" });
+  const img = await createImageBitmap(blob);
+  const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+  if (scale >= 1) {
+    img.close();
+    return new Blob([data as BlobPart], { type: "image/jpeg" });
+  }
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(img, 0, 0, w, h);
+  img.close();
+  return canvas.convertToBlob({ type: "image/jpeg", quality: 0.85 });
+}
+
 export function PrintDialog() {
   const {
     showPrintDialog,
@@ -34,20 +57,32 @@ export function PrintDialog() {
     setCopies,
     setUnit,
     setShowPaperWhite,
+    setPerSideMargins,
     setPrinter,
     openPrinterProperties,
   } = usePrintSettings("dialog");
 
-  console.log("[PRINT:PrintDialog] RENDER — options().orientation:", options().orientation, "showPrintDialog:", showPrintDialog());
-
-  // Effect to verify signal propagation (runs independently of component re-eval)
-  createEffect(() => {
-    console.log("[PRINT:PrintDialog] EFFECT — options().orientation:", options().orientation);
-  });
-
   const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
   const [previewLoading, setPreviewLoading] = createSignal(false);
-  const [printing, setPrinting] = createSignal(false);
+  const [printPhase, setPrintPhase] = createSignal<"idle" | "preparing" | "done">("idle");
+  const printing = () => printPhase() !== "idle";
+
+  // Reset print phase when dialog opens — component stays mounted so signal persists across opens.
+  // Also clean up preview URL on close to prevent ObjectURL leak.
+  createEffect(() => {
+    if (showPrintDialog()) {
+      setPrintPhase("idle");
+    } else {
+      const url = previewUrl();
+      if (url) { URL.revokeObjectURL(url); setPreviewUrl(null); }
+    }
+  });
+
+  // Also revoke on component teardown (belt-and-suspenders for when EditorShell ever remounts)
+  onCleanup(() => {
+    const url = previewUrl();
+    if (url) URL.revokeObjectURL(url);
+  });
 
   function PreviewTrigger() {
     onMount(() => {
@@ -64,8 +99,12 @@ export function PrintDialog() {
         try {
           const bytes = await encodeComposite(engine, "jpeg", 85);
           if (cancelled) return;
+
+          // Downscale preview to max 1200px for performance (#6)
+          const blob = await downscalePreview(bytes, 1200);
+          if (cancelled) return;
+
           if (old) URL.revokeObjectURL(old);
-          const blob = new Blob([bytes as BlobPart], { type: "image/jpeg" });
           setPreviewUrl(URL.createObjectURL(blob));
         } catch {
           // Preview is optional
@@ -78,22 +117,21 @@ export function PrintDialog() {
     return null;
   }
 
-  onCleanup(() => {
-    const url = previewUrl();
-    if (url) URL.revokeObjectURL(url);
-  });
-
   const handlePrint = async () => {
     const engine = workspace.getActiveEngine();
     if (!engine) return;
-    setPrinting(true);
+    setPrintPhase("preparing");
     try {
       await printDocument(engine, docName());
+      // Guard: if dialog was closed and re-opened, printPhase was reset — bail out
+      if (printPhase() !== "preparing") return;
+      setPrintPhase("done");
+      // Brief pause so user sees the success state before dialog closes
+      await new Promise((r) => setTimeout(r, 800));
+      if (printPhase() !== "done") return;
       setShowPrintDialog(false);
     } catch {
-      // Error toast shown by printDocument
-    } finally {
-      setPrinting(false);
+      setPrintPhase("idle");
     }
   };
 
@@ -146,6 +184,7 @@ export function PrintDialog() {
               setCopies={setCopies}
               setUnit={setUnit}
               setShowPaperWhite={setShowPaperWhite}
+              setPerSideMargins={setPerSideMargins}
               setPrinter={setPrinter}
               openPrinterProperties={openPrinterProperties}
             />
@@ -180,9 +219,12 @@ export function PrintDialog() {
                 disabled={printing()}
               >
                 <Show when={printing()}>
-                  <span class="inline-block size-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  <svg style="animation: spin 1s linear infinite;" class="size-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                    <circle class="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
+                    <path class="opacity-100" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
                 </Show>
-                {printing() ? "Preparing..." : "Print"}
+                {printPhase() === "preparing" ? "Preparing..." : printPhase() === "done" ? "Sent to printer" : "Print"}
               </button>
             </div>
           </div>

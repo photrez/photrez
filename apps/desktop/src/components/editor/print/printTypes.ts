@@ -115,7 +115,8 @@ export function calculateScaleToFit(
   docHeightPx: number,
   paperWidthMm: number,
   paperHeightMm: number,
-  marginMm: number = 0
+  marginMm: number = 0,
+  dpi: number = TARGET_PRINT_DPI,
 ): CalculateFitResult {
   const availW = Math.max(1, paperWidthMm - marginMm * 2);
   const availH = Math.max(1, paperHeightMm - marginMm * 2);
@@ -137,7 +138,7 @@ export function calculateScaleToFit(
     printW = availH * docAspect;
   }
 
-  const unscaledWMm = (safeW / TARGET_PRINT_DPI) * MM_PER_INCH;
+  const unscaledWMm = (safeW / dpi) * MM_PER_INCH;
   const scalePercent = Number(((printW / unscaledWMm) * 100).toFixed(2));
 
   const leftOffsetMm = Number(((paperWidthMm - printW) / 2).toFixed(1));
@@ -177,4 +178,5 @@ export interface PrintOptions {
   scaleToFit: boolean;
   unit: PrintUnit;
   showPaperWhite: boolean;
+  printerDpi: number;
 }

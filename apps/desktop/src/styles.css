@@ -44,6 +44,8 @@
   --font-sans:
     "Inter", "Outfit", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
+
+  --animate-dialog-fade-in: dialog-fade-in 0.2s ease-out;
 }
 
 :root {

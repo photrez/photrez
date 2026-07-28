@@ -278,6 +278,13 @@
 | ✅ DONE | `print_image` / `print_image_composite` Rust commands — Windows: `ShellExecuteW("print")` native spooler; macOS/Linux: `open::that()` fallback |
 | ✅ DONE | `window.print()` approach rejected — WebView2 print dialog is full-screen and cannot be resized by app                            |
 | ✅ DONE | Print preview cache — preview encodes once on dialog open (via `PreviewTrigger` + `onMount` inside `<Show>`), never re-encodes on settings changes. Eliminates 2-8s lag per settings change on large images. Uses `URL.createObjectURL` snapshot; SVG geometry still reactive via `options()` signal. |
+| ✅ DONE | Per-side margins — `margin_left_mm`, `margin_right_mm`, `margin_top_mm`, `margin_bottom_mm` stored in Rust state, synced via `set_per_side_margins` command, position rendering in GDI matches SVG preview |
+| ✅ DONE | Color management fields — `color_handling`, `rendering_intent`, `black_point_compensation` in Rust state, no longer hardcoded in `mapFromRust` |
+| ✅ DONE | Preview downscale — `downscalePreview()` helper scales composite preview JPEG to 1200px max via OffscreenCanvas (GPU), avoiding full-res encode for the thumbnail |
+| ✅ DONE | Double-scaling eliminated — GDI 1:1 fast path (`SetDIBitsToDevice` identity path) when frontend composite dimensions already match printable area; `SetStretchBltMode(HALFTONE)` skipped in that case |
+| ✅ DONE | OffscreenCanvas fallback — `createPrintCanvas()` tries `OffscreenCanvas`, falls back to `document.createElement("canvas")` for environments without OffscreenCanvas support |
+| ✅ DONE | Preview-vs-print DPI match — preview `imageMm()` uses printer's actual DPI (from `printerDpi` in state), not hardcoded 300. PPI badge, W/H inputs, scale-to-fit, and W/H resize handlers all use printer DPI |
+| ✅ DONE | Preview-vs-print positioning match — `compositeForPrint` centers image within paper (not printable area), and converts paper-relative offset to printable-area-relative by subtracting margins. Removed `Math.max(0)` clamp — negative positions clip naturally via Canvas2D |
 
 ## ↩️ History (Undo/Redo)
 

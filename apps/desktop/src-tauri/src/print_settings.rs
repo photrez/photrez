@@ -18,6 +18,14 @@ pub struct PrintSettings {
 
     // Margins
     pub margin_mm: f64,
+    /// Per-side hardware margins from printer driver.
+    /// Wire these through `set_per_side_margins` so the compositing
+    /// and GDI positioning match the preview (which already draws per-side).
+    /// Stored alongside uniform margin_mm for backward compat.
+    pub margin_left_mm: f64,
+    pub margin_right_mm: f64,
+    pub margin_top_mm: f64,
+    pub margin_bottom_mm: f64,
     /// Floor enforced by set_margin_mm — set from printer driver's
     /// PHYSICALOFFSETX/Y (Windows) or PPD ImageableArea (macOS/Linux).
     pub hardware_margin_min_mm: f64,
@@ -32,6 +40,11 @@ pub struct PrintSettings {
     // Display
     pub unit: String,
     pub show_paper_white: bool,
+
+    // Color management (fix #7: sync from Rust, not hardcoded)
+    pub color_handling: String,
+    pub rendering_intent: String,
+    pub black_point_compensation: bool,
 
     // Print DPI — queried from printer driver when printer is selected.
     // Used by frontend to composite at printer-native DPI so StretchDIBits
@@ -50,6 +63,10 @@ impl Default for PrintSettings {
             paper_height_mm: 297.0,
             orientation: "portrait".to_string(),
             margin_mm: 5.0,
+            margin_left_mm: 5.0,
+            margin_right_mm: 5.0,
+            margin_top_mm: 5.0,
+            margin_bottom_mm: 5.0,
             hardware_margin_min_mm: 0.0,
             scale_to_fit: false,
             scale_percent: 100.0,
@@ -58,6 +75,9 @@ impl Default for PrintSettings {
             left_offset_mm: 0.0,
             unit: "mm".to_string(),
             show_paper_white: true,
+            color_handling: "printer_manages".to_string(),
+            rendering_intent: "perceptual".to_string(),
+            black_point_compensation: true,
             printer_dpi: Some(300.0),
         }
     }
@@ -91,6 +111,26 @@ impl PrintSettings {
         self.margin_mm = margin.clamp(self.hardware_margin_min_mm, 100.0);
     }
 
+    /// Set per-side margins (from printer driver hardware margins).
+    /// Also updates uniform margin_mm to be the max of all four sides
+    /// so existing consumers (compositeForPrint with uniform margin)
+    /// still get a reasonable value.
+    pub fn set_per_side_margins(
+        &mut self,
+        left_mm: f64,
+        right_mm: f64,
+        top_mm: f64,
+        bottom_mm: f64,
+    ) {
+        self.margin_left_mm = left_mm.max(0.0);
+        self.margin_right_mm = right_mm.max(0.0);
+        self.margin_top_mm = top_mm.max(0.0);
+        self.margin_bottom_mm = bottom_mm.max(0.0);
+        // Keep uniform margin_mm as the max for backward compat
+        let max_side = left_mm.max(right_mm).max(top_mm).max(bottom_mm).max(self.hardware_margin_min_mm);
+        self.margin_mm = max_side.clamp(self.hardware_margin_min_mm, 100.0);
+    }
+
     pub fn set_scale_to_fit(&mut self, enabled: bool) {
         self.scale_to_fit = enabled;
     }
@@ -117,6 +157,18 @@ impl PrintSettings {
 
     pub fn set_show_paper_white(&mut self, show: bool) {
         self.show_paper_white = show;
+    }
+
+    pub fn set_color_handling(&mut self, handling: &str) {
+        self.color_handling = handling.to_string();
+    }
+
+    pub fn set_rendering_intent(&mut self, intent: &str) {
+        self.rendering_intent = intent.to_string();
+    }
+
+    pub fn set_black_point_compensation(&mut self, enabled: bool) {
+        self.black_point_compensation = enabled;
     }
 
     pub fn set_copies(&mut self, copies: u32) {

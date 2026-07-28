@@ -50,12 +50,13 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
     return { width: w, height: h, scaleMmToSvg: w / paperW() };
   };
 
-  // Image size on paper in mm
+  // Image size on paper in mm — use printer DPI so preview matches
+  // actual print dimensions (Bug A fix: was hardcoded 300 DPI).
   const imageMm = () => {
     const scaleFactor = o().scalePercent / 100;
-    // 300 DPI reference size in mm
-    const refWm = (props.docWidthPx / TARGET_PRINT_DPI) * MM_PER_INCH;
-    const refHm = (props.docHeightPx / TARGET_PRINT_DPI) * MM_PER_INCH;
+    const dpi = o().printerDpi ?? TARGET_PRINT_DPI;
+    const refWm = (props.docWidthPx / dpi) * MM_PER_INCH;
+    const refHm = (props.docHeightPx / dpi) * MM_PER_INCH;
 
     const wMm = refWm * scaleFactor;
     const hMm = refHm * scaleFactor;

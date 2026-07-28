@@ -32,6 +32,10 @@ interface RustPrintSettings {
   paper_height_mm: number;
   orientation: string;
   margin_mm: number;
+  margin_left_mm: number;
+  margin_right_mm: number;
+  margin_top_mm: number;
+  margin_bottom_mm: number;
   scale_to_fit: boolean;
   scale_percent: number;
   center_image: boolean;
@@ -46,6 +50,21 @@ const MM_PER_INCH = 25.4;
 const TARGET_PRINT_DPI = 300;
 const MAX_PX = 10000;
 
+/// Create a Canvas2D with fallback when OffscreenCanvas is unavailable (#3).
+function createPrintCanvas(w: number, h: number): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } {
+  if (typeof OffscreenCanvas !== "undefined") {
+    const c = new OffscreenCanvas(w, h);
+    const ctx = c.getContext("2d")!;
+    return { canvas: c, ctx };
+  }
+  // Fallback for environments without OffscreenCanvas (test, headless, older browser)
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d")!;
+  return { canvas: c, ctx };
+}
+
 /// Composite the document image onto a paper-sized white canvas at the target
 /// DPI using OffscreenCanvas (GPU-accelerated Canvas2D).
 ///
@@ -57,7 +76,10 @@ async function compositeForPrint(
   srcBytes: Uint8Array,
   paperWidthMm: number,
   paperHeightMm: number,
-  marginMm: number,
+  marginLeftMm: number,
+  marginRightMm: number,
+  marginTopMm: number,
+  marginBottomMm: number,
   scalePercent: number,
   centerImage: boolean,
   leftOffsetMm: number,
@@ -68,9 +90,9 @@ async function compositeForPrint(
   const blob = new Blob([srcBytes as BlobPart], { type: "image/png" });
   const img = await createImageBitmap(blob);
 
-  // Compute printable area dimensions (paper minus margins)
-  const printW = Math.max(1, paperWidthMm - 2 * marginMm);
-  const printH = Math.max(1, paperHeightMm - 2 * marginMm);
+  // Compute printable area dimensions (paper minus per-side margins)
+  const printW = Math.max(1, paperWidthMm - marginLeftMm - marginRightMm);
+  const printH = Math.max(1, paperHeightMm - marginTopMm - marginBottomMm);
 
   // Compute canvas pixel dimensions at target DPI (printable area only)
   const pixelW = Math.round((printW / MM_PER_INCH) * targetDpi);
@@ -80,9 +102,8 @@ async function compositeForPrint(
   const canvasW = Math.min(pixelW, MAX_PX);
   const canvasH = Math.min(pixelH, MAX_PX);
 
-  // Create OffscreenCanvas (GPU-accelerated)
-  const canvas = new OffscreenCanvas(canvasW, canvasH);
-  const ctx = canvas.getContext("2d")!;
+  // Create canvas — prefer OffscreenCanvas, fallback to regular Canvas (#3)
+  const { canvas, ctx } = createPrintCanvas(canvasW, canvasH);
 
   // Fill white background
   ctx.fillStyle = "#FFFFFF";
@@ -93,15 +114,26 @@ async function compositeForPrint(
   const scaledW = Math.round(img.width * scaleFactor);
   const scaledH = Math.round(img.height * scaleFactor);
 
-  // Compute position within the printable area
+  // Compute position within the printable area.
+  // Preview coordinates are paper-relative (0,0 = paper top-left).
+  // Canvas is printable-area-relative (0,0 = top-left of printable area).
+  // Subtract margins to convert between coordinate systems (Bug B fix).
   let left: number;
   let top: number;
   if (centerImage) {
-    left = Math.max(0, Math.floor((canvasW - scaledW) / 2));
-    top = Math.max(0, Math.floor((canvasH - scaledH) / 2));
+    // Center within paper (matches preview), then adjust for printable area offset.
+    // Canvas2D drawImage natively clips negative positions (image extends beyond
+    // canvas) — no Math.max(0) needed.
+    const paperPx = Math.round((paperWidthMm / MM_PER_INCH) * targetDpi);
+    const paperHPx = Math.round((paperHeightMm / MM_PER_INCH) * targetDpi);
+    const marginLeftPx = Math.round((marginLeftMm / MM_PER_INCH) * targetDpi);
+    const marginTopPx = Math.round((marginTopMm / MM_PER_INCH) * targetDpi);
+    left = Math.floor((paperPx - scaledW) / 2) - marginLeftPx;
+    top = Math.floor((paperHPx - scaledH) / 2) - marginTopPx;
   } else {
-    left = Math.round((leftOffsetMm / MM_PER_INCH) * targetDpi);
-    top = Math.round((topOffsetMm / MM_PER_INCH) * targetDpi);
+    // leftOffsetMm/topOffsetMm are paper-relative → convert to canvas coords
+    left = Math.round(((leftOffsetMm - marginLeftMm) / MM_PER_INCH) * targetDpi);
+    top = Math.round(((topOffsetMm - marginTopMm) / MM_PER_INCH) * targetDpi);
   }
 
   // Draw image — hardware-accelerated via Canvas2D GPU backend
@@ -151,13 +183,21 @@ export async function printDocument(
       ? ((MAX_PX / maxDimPx) * dpi)
       : dpi;
 
-    // 4. Composite onto paper-sized canvas at target DPI (GPU-accelerated).
+    // 4. Use per-side margins for compositing (fix #2).
+    //    Margin values are physical paper edges, consistent between
+    //    frontend and GDI regardless of orientation.
+    const mL = s.margin_left_mm ?? s.margin_mm;
+    const mR = s.margin_right_mm ?? s.margin_mm;
+    const mT = s.margin_top_mm ?? s.margin_mm;
+    const mB = s.margin_bottom_mm ?? s.margin_mm;
+
+    // 5. Composite onto paper-sized canvas at target DPI (GPU-accelerated).
     //    Returns raw RGBA pixels — no format encoding.
     const { bytes, width, height } = await compositeForPrint(
       rawImageBytes,
       effW,
       effH,
-      s.margin_mm,
+      mL, mR, mT, mB,
       s.scale_percent,
       s.center_image,
       s.left_offset_mm,
@@ -165,13 +205,13 @@ export async function printDocument(
       effectiveDpi,
     );
 
-    // 5. Validate printer selection before dispatch
+    // 6. Validate printer selection before dispatch
     if (!s.selected_printer) {
       showToast("No printer selected. Select a printer in Print Settings.", "warn");
       return;
     }
 
-    // 6. Send raw RGBA pixels directly to Rust via Tauri v2 raw IPC.
+    // 7. Send raw RGBA pixels directly to Rust via Tauri v2 raw IPC.
     //    Raw pixels (no format encoding) in body, dimensions + printer
     //    settings in headers. Rust passes straight to GDI with zero decode.
     await invoke("print_image_raw", bytes, {
@@ -181,6 +221,10 @@ export async function printDocument(
         paperWidthMm: String(effW),
         paperHeightMm: String(effH),
         marginMm: String(s.margin_mm),
+        marginLeftMm: String(mL),
+        marginRightMm: String(mR),
+        marginTopMm: String(mT),
+        marginBottomMm: String(mB),
         paperIndex: String(s.paper_index),
         documentName: docName || "Untitled",
         orientation: s.orientation,

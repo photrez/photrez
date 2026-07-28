@@ -26,6 +26,7 @@ const BASE_OPTIONS: PrintOptions = {
   scaleToFit: false,
   unit: "cm",
   showPaperWhite: true,
+  printerDpi: 300,
 };
 
 // Mock Tauri IPC
@@ -58,6 +59,7 @@ vi.mock("@tauri-apps/api/core", () => ({
           left_offset_mm: 0,
           unit: "mm",
           show_paper_white: true,
+          printer_dpi: 300,
         },
       });
     }
@@ -98,7 +100,7 @@ function createInspectorProps() {
     setPaper: stub, toggleOrientation: stub, setMarginMm: stub,
     setScaleToFit: stub, setScalePercent: stub, setCenterImage: stub,
     setTopOffsetMm: stub, setLeftOffsetMm: stub, setCopies: stub,
-    setUnit: stub, setShowPaperWhite: stub, setPrinter: stub,
+    setUnit: stub, setShowPaperWhite: stub, setPerSideMargins: stub, setPrinter: stub,
     openPrinterProperties: stub,
   };
 }

@@ -499,6 +499,15 @@ pub(crate) fn print_image_raw(
         .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(9);
     let margin_mm: f64 = headers.get("marginmm")
         .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    // Per-side margins (from frontend composite), fallback to uniform
+    let margin_left_mm: f64 = headers.get("marginleftmm")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
+    let margin_right_mm: f64 = headers.get("marginrightmm")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
+    let margin_top_mm: f64 = headers.get("margintopmm")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
+    let margin_bottom_mm: f64 = headers.get("marginbottommm")
+        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
     let document_name = headers.get("documentname")
         .and_then(|v| v.to_str().ok()).unwrap_or("Untitled").to_string();
     let orientation = headers.get("orientation")
@@ -532,7 +541,8 @@ pub(crate) fn print_image_raw(
         render_rgba_to_printer(
             &pixels, width, height,
             &target.system_name, copies.max(1),
-            paper_width_mm, paper_height_mm, margin_mm, paper_index,
+            paper_width_mm, paper_height_mm, margin_left_mm, margin_right_mm,
+            margin_top_mm, margin_bottom_mm, paper_index,
             &document_name, &orientation,
         )
         .map_err(|e| error_value("E_PRINTER", &e))?;
@@ -1075,6 +1085,23 @@ pub(crate) fn set_margin(
     ok_response(settings.clone())
 }
 
+/// Set per-side margins (from printer driver hardware margins).
+/// Also updates uniform margin_mm to max of all sides.
+#[tauri::command]
+pub(crate) fn set_per_side_margins(
+    left_mm: f64,
+    right_mm: f64,
+    top_mm: f64,
+    bottom_mm: f64,
+    state: State<'_, Mutex<PrintSettings>>,
+    app: AppHandle,
+) -> Result<Value, Value> {
+    let mut settings = state.lock().unwrap();
+    settings.set_per_side_margins(left_mm, right_mm, top_mm, bottom_mm);
+    emit_print_settings(&app, &settings);
+    ok_response(settings.clone())
+}
+
 /// Set scale-to-fit enabled/disabled.
 #[tauri::command]
 pub(crate) fn set_scale_to_fit(
@@ -1196,6 +1223,51 @@ pub(crate) fn set_show_paper_white(
     let mut settings = state.lock().unwrap();
     if settings.show_paper_white != show {
         settings.set_show_paper_white(show);
+        emit_print_settings(&app, &settings);
+    }
+    ok_response(settings.clone())
+}
+
+/// Set color handling mode.
+#[tauri::command]
+pub(crate) fn set_color_handling(
+    handling: String,
+    state: State<'_, Mutex<PrintSettings>>,
+    app: AppHandle,
+) -> Result<Value, Value> {
+    let mut settings = state.lock().unwrap();
+    if settings.color_handling != handling {
+        settings.set_color_handling(&handling);
+        emit_print_settings(&app, &settings);
+    }
+    ok_response(settings.clone())
+}
+
+/// Set rendering intent.
+#[tauri::command]
+pub(crate) fn set_rendering_intent(
+    intent: String,
+    state: State<'_, Mutex<PrintSettings>>,
+    app: AppHandle,
+) -> Result<Value, Value> {
+    let mut settings = state.lock().unwrap();
+    if settings.rendering_intent != intent {
+        settings.set_rendering_intent(&intent);
+        emit_print_settings(&app, &settings);
+    }
+    ok_response(settings.clone())
+}
+
+/// Set black point compensation.
+#[tauri::command]
+pub(crate) fn set_black_point_compensation(
+    enabled: bool,
+    state: State<'_, Mutex<PrintSettings>>,
+    app: AppHandle,
+) -> Result<Value, Value> {
+    let mut settings = state.lock().unwrap();
+    if settings.black_point_compensation != enabled {
+        settings.set_black_point_compensation(enabled);
         emit_print_settings(&app, &settings);
     }
     ok_response(settings.clone())

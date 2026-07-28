@@ -37,6 +37,7 @@ interface PrintInspectorProps {
   setCopies: (n: number) => Promise<void>;
   setUnit: (u: string) => Promise<void>;
   setShowPaperWhite: (show: boolean) => Promise<void>;
+  setPerSideMargins: (left: number, right: number, top: number, bottom: number) => Promise<void>;
   setPrinter: (p: string) => Promise<void>;
   openPrinterProperties: () => Promise<any>;
 }
@@ -78,6 +79,7 @@ export function PrintInspector(props: PrintInspectorProps) {
     setCopies,
     setUnit,
     setShowPaperWhite,
+    setPerSideMargins,
     setPrinter,
     openPrinterProperties,
     isPendingSetPaper,
@@ -259,15 +261,10 @@ export function PrintInspector(props: PrintInspectorProps) {
     // margin below printer's unprintable area.
     setMarginMm(printerMinMargin, printerMinMargin);
 
-    // Store per-side margins in options for preview (per-side dashed rect).
+    // Sync per-side margins to Rust so compositing + GDI positioning
+    // match the preview's per-side dashed rect (fix #2).
     if (margins) {
-      props.setOptions((prev) => ({
-        ...prev,
-        marginLeftMm: margins.leftMm,
-        marginRightMm: margins.rightMm,
-        marginTopMm: margins.topMm,
-        marginBottomMm: margins.bottomMm,
-      }));
+      setPerSideMargins(margins.leftMm, margins.rightMm, margins.topMm, margins.bottomMm);
     }
 
     // Bug B fix: scale-to-fit recalculation is handled by Effect 3
@@ -293,11 +290,12 @@ export function PrintInspector(props: PrintInspectorProps) {
     const ph = opts.orientation === "landscape" ? opts.paperWidthMm : opts.paperHeightMm;
     const mm = opts.marginMm;
     const orient = opts.orientation;
-    console.log("[PRINT:Inspector] Effect 3 — paperW:", opts.paperWidthMm, "paperH:", opts.paperHeightMm, "orientation:", orient, "effective pw:", pw, "ph:", ph, "marginMm:", mm, "scaleToFit:", opts.scaleToFit, "currentScale:", untrack(() => o().scalePercent));
+    const dpi = opts.printerDpi ?? TARGET_PRINT_DPI;
+    console.log("[PRINT:Inspector] Effect 3 — paperW:", opts.paperWidthMm, "paperH:", opts.paperHeightMm, "orientation:", orient, "effective pw:", pw, "ph:", ph, "marginMm:", mm, "scaleToFit:", opts.scaleToFit, "currentScale:", untrack(() => o().scalePercent), "dpi:", dpi);
 
     const fit = calculateScaleToFit(
       props.docWidthPx, props.docHeightPx,
-      pw, ph, mm,
+      pw, ph, mm, dpi,
     );
 
     // Read current scale without tracking — prevents dependency on scalePercent
@@ -392,15 +390,18 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
     setRefreshKey((k) => k + 1);
   };
 
-  // ── Live PPI calculation ─────────────────────────────────────────
+  // ── Live PPI calculation — use printer DPI so physical size
+  // matches actual print (Bug A fix: was hardcoded 300 DPI). ──
   const imageMmWidth = () => {
     const scaleFactor = o().scalePercent / 100;
-    return (props.docWidthPx / TARGET_PRINT_DPI) * MM_PER_INCH * scaleFactor;
+    const dpi = o().printerDpi ?? TARGET_PRINT_DPI;
+    return (props.docWidthPx / dpi) * MM_PER_INCH * scaleFactor;
   };
 
   const imageMmHeight = () => {
     const scaleFactor = o().scalePercent / 100;
-    return (props.docHeightPx / TARGET_PRINT_DPI) * MM_PER_INCH * scaleFactor;
+    const dpi = o().printerDpi ?? TARGET_PRINT_DPI;
+    return (props.docHeightPx / dpi) * MM_PER_INCH * scaleFactor;
   };
 
   const currentPPI = () =>
@@ -506,12 +507,14 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
     }
   };
 
-  // ── Unit input changes ───────────────────────────────────────────
+  // ── Unit input changes — use printer DPI so W/H entries match
+  // actual print dimensions (Bug A fix: was hardcoded 300 DPI). ──
   const handleWidthChange = async (valUnit: number) => {
     // Manual scale adjustment disables auto-fit
     await setScaleToFit(false);
     const valMm = convertUnitToMm(valUnit, o().unit);
-    const refMm = (props.docWidthPx / TARGET_PRINT_DPI) * MM_PER_INCH;
+    const dpi = o().printerDpi ?? TARGET_PRINT_DPI;
+    const refMm = (props.docWidthPx / dpi) * MM_PER_INCH;
     const scale = Number(((valMm / refMm) * 100).toFixed(2));
     await setScalePercent(scale);
   };
@@ -520,7 +523,8 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
     // Manual scale adjustment disables auto-fit
     await setScaleToFit(false);
     const valMm = convertUnitToMm(valUnit, o().unit);
-    const refMm = (props.docHeightPx / TARGET_PRINT_DPI) * MM_PER_INCH;
+    const dpi = o().printerDpi ?? TARGET_PRINT_DPI;
+    const refMm = (props.docHeightPx / dpi) * MM_PER_INCH;
     const scale = Number(((valMm / refMm) * 100).toFixed(2));
     await setScalePercent(scale);
   };
@@ -592,7 +596,8 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                   aria-label="Refresh printer list"
                 >
                   <svg
-                    class={`size-3.5 ${loadingPrinters() ? "animate-spin" : ""}`}
+                    style={loadingPrinters() ? { animation: "spin 1s linear infinite" } : undefined}
+                    class="size-3.5"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"

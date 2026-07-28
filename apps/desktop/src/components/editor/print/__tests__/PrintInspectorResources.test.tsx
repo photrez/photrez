@@ -37,6 +37,7 @@ const BASE_OPTIONS: PrintOptions = {
   scaleToFit: false,
   unit: "cm",
   showPaperWhite: true,
+  printerDpi: 300,
 };
 
 // ── Mock helpers ───────────────────────────────────────────────────
@@ -147,6 +148,8 @@ function createInspectorProps(initialOptions?: Partial<PrintOptions>) {
     setCopies: (n: number) => invokeCmd("set_copies", { copies: n }),
     setUnit: (u: string) => invokeCmd("set_unit", { unit: u }),
     setShowPaperWhite: (show: boolean) => invokeCmd("set_show_paper_white", { show }),
+    setPerSideMargins: (left: number, right: number, top: number, bottom: number) =>
+      invokeCmd("set_per_side_margins", { leftMm: left, rightMm: right, topMm: top, bottomMm: bottom }),
     setPrinter: (p: string) => invokeCmd("set_printer", { printer: p }),
     openPrinterProperties: () => invokeCmd("open_printer_properties", {}),
   };

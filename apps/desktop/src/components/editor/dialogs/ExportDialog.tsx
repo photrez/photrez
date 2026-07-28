@@ -125,7 +125,7 @@ export function ExportDialog() {
             <Show when={!donePath()}>
               <DesktopDialogButton variant="primary" onClick={handleExport} disabled={exporting()}>
                 <Show when={exporting()}>
-                  <span aria-hidden="true" class="mr-1.5 inline-block size-3 animate-spin rounded-full border-2 border-editor-bg/30 border-t-editor-bg" />
+                  <span aria-hidden="true" style="animation: spin 1s linear infinite;" class="mr-1.5 inline-block size-3 rounded-full border-2 border-editor-bg/30 border-t-editor-bg" />
                 </Show>
                 {exporting() ? "Exporting..." : "Export"}
               </DesktopDialogButton>
