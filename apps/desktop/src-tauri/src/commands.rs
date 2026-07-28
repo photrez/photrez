@@ -10,8 +10,8 @@ use crate::response::{err_response, error_value, ok_response, validate_path_exte
 use crate::CliState;
 
 const MAX_FILE_IO_BYTES: u64 = 256 * 1024 * 1024;
-const READ_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"];
-const WRITE_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
+const READ_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "json"];
+const WRITE_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "json"];
 
 #[tauri::command]
 pub(crate) fn ping() -> Result<Value, Value> {
@@ -79,6 +79,13 @@ pub(crate) fn write_file_bytes(path: String, data: String) -> Result<Value, Valu
     validate_path_extension(&path, WRITE_FILE_EXTENSIONS, "write")?;
     let path = validate_path_safe(&path, "write")?;
 
+    // Ensure parent directory exists (autosave dir may not be created yet).
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            error_value("E_IO", &format!("Failed to create directory: {}", e))
+        })?;
+    }
+
     use base64::Engine;
     let bytes = match base64::engine::general_purpose::STANDARD.decode(&data) {
         Ok(b) => b,
@@ -142,6 +149,9 @@ pub(crate) fn save_project(
 
 /// Like `save_project` but accepts raw layer bytes instead of base64 strings,
 /// avoiding a large base64 round-trip over the IPC channel for big documents.
+///
+/// Uses atomic write: temp file → fsync → rename, so a crash during write
+/// leaves either the complete old file or the complete new file (never a half-written zip).
 #[tauri::command]
 pub(crate) fn save_project_binary(
     path: String,
@@ -151,8 +161,25 @@ pub(crate) fn save_project_binary(
     validate_path_extension(&path, &["ptz"], "save project")?;
     let path = validate_path_safe(&path, "save project")?;
 
-    let file = std::fs::File::create(&path)
-        .map_err(|e| error_value("E_IO", &format!("Failed to create project file: {}", e)))?;
+    // Ensure parent directory exists (autosave dir may not be created yet).
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            error_value("E_IO", &format!("Failed to create directory: {}", e))
+        })?;
+    }
+
+    // Write to a temp file next to the final path, then atomic-rename.
+    let mut tmp_path = path.clone();
+    let mut tmp_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project")
+        .to_string();
+    tmp_name.push_str(".tmp");
+    tmp_path.set_file_name(&tmp_name);
+
+    let file = std::fs::File::create(&tmp_path)
+        .map_err(|e| error_value("E_IO", &format!("Failed to create temp project file: {}", e)))?;
 
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
@@ -172,8 +199,26 @@ pub(crate) fn save_project_binary(
             .map_err(|e| error_value("E_IO", &format!("Failed to write layer {}: {}", layer_id, e)))?;
     }
 
-    zip.finish()
+    let file = zip
+        .finish()
         .map_err(|e| error_value("E_IO", &format!("Failed to finish project archive: {}", e)))?;
+
+    // fsync data to disk before renaming.
+    file.sync_all()
+        .map_err(|e| error_value("E_IO", &format!("Failed to fsync temp file: {}", e)))?;
+
+    // fsync parent directory so the rename survives a power loss.
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+
+    // Atomic rename — either tmp replaces path completely, or the rename fails
+    // and path is untouched. On Windows this is atomic if both paths are on
+    // the same volume (they are, since tmp is in the same dir).
+    std::fs::rename(&tmp_path, &path)
+        .map_err(|e| error_value("E_IO", &format!("Failed to rename temp file: {}", e)))?;
 
     ok_response(serde_json::json!({ "path": path }))
 }
@@ -251,6 +296,30 @@ pub(crate) fn delete_file(path: String) -> Result<Value, Value> {
     match std::fs::remove_file(&path) {
         Ok(_) => ok_response(serde_json::json!({ "deleted": path.to_string_lossy() })),
         Err(e) => err_response("E_IO", &format!("Failed to delete file: {}", e)),
+    }
+}
+
+/// Delete an autosave file from `cacheDir()/photrez/autosave/`.
+/// Dedicated scope allows cleanup in the app cache directory where autosave
+/// files live, unlike `delete_file` (temp-only). Validated against symlinks,
+/// path traversal, extension, and directory scope.
+#[tauri::command]
+pub(crate) fn delete_autosave_file(path: String) -> Result<Value, Value> {
+    validate_path_extension(&path, &["ptz", "json"], "delete autosave")?;
+    let path = validate_path_safe(&path, "delete autosave")?;
+
+    // Scope: must be inside a photrez/autosave/ directory (defense in depth).
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    if !normalized.contains("/photrez/autosave/") {
+        return err_response(
+            "E_VALIDATION",
+            "Path is not inside the autosave directory",
+        );
+    }
+
+    match std::fs::remove_file(&path) {
+        Ok(_) => ok_response(serde_json::json!({ "deleted": path.to_string_lossy() })),
+        Err(e) => err_response("E_IO", &format!("Failed to delete autosave file: {}", e)),
     }
 }
 

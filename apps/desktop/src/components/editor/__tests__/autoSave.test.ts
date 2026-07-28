@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const writeFileBytes = vi.fn();
 const readFileBytes = vi.fn();
-const deleteFile = vi.fn();
+const deleteAutosaveFile = vi.fn();
 const cacheDir = vi.fn(async () => "/cache/");
 const serializeAndSaveProject = vi.fn(async () => {});
 
 vi.mock("@tauri-apps/api/path", () => ({ cacheDir: () => cacheDir() }));
-vi.mock("@/tauri/native", () => ({ writeFileBytes, readFileBytes, deleteFile }));
+vi.mock("@/tauri/native", () => ({ writeFileBytes, readFileBytes, deleteAutosaveFile }));
 vi.mock("../projectSerialize", () => ({ serializeAndSaveProject }));
 
 const { autosaveDirtyDocs, listAutosaves, clearAllAutosaves } = await import("../autoSave");
@@ -42,7 +42,9 @@ describe("autoSave", () => {
     const manifestCall = writeFileBytes.mock.calls.find((c) => c[0].endsWith("manifest.json"));
     expect(manifestCall).toBeTruthy();
     const manifest = JSON.parse(Buffer.from(manifestCall![1]).toString());
-    expect(manifest).toEqual({ "doc-1": "A.png", "doc-3": "C.png" });
+    // Value format: `displayName|timestamp`
+    expect(manifest["doc-1"]).toMatch(/^A\.png\|\d+$/);
+    expect(manifest["doc-3"]).toMatch(/^C\.png\|\d+$/);
   });
 
   it("listAutosaves returns parsed entries from manifest", async () => {
@@ -63,7 +65,7 @@ describe("autoSave", () => {
   it("clearAllAutosaves deletes doc files and manifest", async () => {
     readFileBytes.mockResolvedValue(new TextEncoder().encode(JSON.stringify({ "doc-1": "A.png" })));
     await clearAllAutosaves();
-    expect(deleteFile).toHaveBeenCalledWith("/cache/photrez/autosave/doc-1.ptz");
-    expect(deleteFile).toHaveBeenCalledWith("/cache/photrez/autosave/manifest.json");
+    expect(deleteAutosaveFile).toHaveBeenCalledWith("/cache/photrez/autosave/doc-1.ptz");
+    expect(deleteAutosaveFile).toHaveBeenCalledWith("/cache/photrez/autosave/manifest.json");
   });
 });

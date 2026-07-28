@@ -120,6 +120,7 @@ fn main() {
             commands::convert_current_unit_to_mm,
             cursor::set_native_cursor,
             commands::delete_file,
+            commands::delete_autosave_file,
             commands::close_app,
         ])
         .run(tauri::generate_context!())

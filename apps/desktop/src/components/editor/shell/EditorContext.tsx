@@ -15,7 +15,7 @@ import {
 } from "../modernCropState";
 import { setupWorkspaceSync } from "../canvas/workspaceSync";
 import { openImage, openSingleFile, loadProjectFile } from "../editorOpenImage";
-import { autosaveDirtyDocs, listAutosaves, clearAllAutosaves } from "../autoSave";
+import { autosaveDirtyDocs, listAutosaves, clearAllAutosaves, setAutosaveStatus, createAutosaveTimerDebouncer } from "../autoSave";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { ViewportCamera } from "../../../viewport/viewportCamera";
 import { DragControllerProvider } from "../DragController";
@@ -503,10 +503,20 @@ export function EditorProvider(props: {
       }).catch(() => { /* ignore */ });
 
       // Periodic auto-save (debounced 60s) of dirty documents.
-      const autosaveTimer = setInterval(() => {
-        void autosaveDirtyDocs(props.workspace, (msg) => showToastImpl(msg, "error"));
-      }, 60000);
-      onCleanup(() => clearInterval(autosaveTimer));
+      const debouncedAutosave = createAutosaveTimerDebouncer(
+        props.workspace,
+        (msg) => showToastImpl(msg, "error"),
+      );
+      const autosaveTimer = setInterval(debouncedAutosave, 60000);
+      // Reset status from "saved" back to "idle" after 3 seconds so the indicator
+      // does not perpetually show "Saved" until the next cycle.
+      const statusResetTimer = setInterval(() => {
+        setAutosaveStatus((prev) => (prev === "saved" ? "idle" : prev));
+      }, 4000);
+      onCleanup(() => {
+        clearInterval(autosaveTimer);
+        clearInterval(statusResetTimer);
+      });
     }
   });
 

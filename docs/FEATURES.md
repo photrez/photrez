@@ -241,7 +241,7 @@
 | ✅ DONE         | JPEG/WebP quality dialog: custom slider (1-100, default 92) via DialogProvider.quality(); PNG uses lossless default                                                                                                                                                                      |
 | ✅ DONE         | DialogProvider extended with promise-based quality() method (slider UI, resolve number on Save, null on Cancel)                                                                                                                                                                          |
 | ✅ DONE         | `showSaveDialogAllFormats` added to native.ts for multi-filter save dialog                                                                                                                                                                                                               |
-| ✅ DONE         | Auto-save + crash recovery: dirty docs persisted to Tauri cache dir every 60s; boot-time native prompt recovers unsaved work from a prior abrupt exit (autoSave.ts + EditorContext onMount)                                                             |
+| ✅ DONE         | Auto-save + crash recovery: dirty docs persisted to Tauri cache dir every 60s; boot-time native prompt recovers unsaved work from a prior abrupt exit (autoSave.ts + EditorContext onMount). Fixed 3 runtime bugs (missing dir, missing json extension, [object Object] error). Atomic write via temp+fsync+rename. Status indicator (saving/saved/error dots). Stale cleanup >7 days. |
 
 ## 📤 Export
 

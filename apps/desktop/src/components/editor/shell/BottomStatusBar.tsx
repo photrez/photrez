@@ -1,8 +1,9 @@
-import { Show } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import { clsx } from "clsx";
 import { Icon } from "../icons";
 import { useEditor } from "./EditorContext";
 import { getPaintToolBlockReason } from "../brushToolState";
+import { autosaveStatus, autosaveError, autosaveTimestamp } from "../autoSave";
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   move: "Drag to move layer. Hold Shift for constrained movement.",
@@ -96,6 +97,23 @@ export function BottomStatusBar() {
           <span class="border-l border-editor-divider pl-3">
             Selected Layer: <strong class="text-editor-text">{activeLayerName()}</strong>
           </span>
+          {/* Autosave status indicator */}
+          <Show when={autosaveStatus() !== "idle"}>
+            <span class="border-l border-editor-divider pl-3 flex items-center gap-1">
+              <Show when={autosaveStatus() === "saving"}>
+                <span class="inline-block size-2 rounded-full bg-yellow-400 animate-pulse" />
+                <span class="text-editor-text/60">Saving…</span>
+              </Show>
+              <Show when={autosaveStatus() === "saved"}>
+                <span class="inline-block size-2 rounded-full bg-green-400" />
+                <span class="text-editor-text/60">Saved</span>
+              </Show>
+              <Show when={autosaveStatus() === "error"}>
+                <span class="inline-block size-2 rounded-full bg-red-400" />
+                <span class="text-red-400" title={autosaveError() ?? ""}>Save failed</span>
+              </Show>
+            </span>
+          </Show>
         </Show>
       </div>
 
