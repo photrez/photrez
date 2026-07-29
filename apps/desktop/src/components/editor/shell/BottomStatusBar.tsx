@@ -4,7 +4,7 @@ import { Icon } from "../icons";
 import { useEditor } from "./EditorContext";
 import { getPaintToolBlockReason } from "../brushToolState";
 import { autosaveStatus, autosaveError, autosaveTimestamp } from "../autoSave";
-import { saveInProgress, saveProgressText } from "../saveState";
+import { saveProgress } from "../saveState";
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   move: "Drag to move layer. Hold Shift for constrained movement.",
@@ -115,9 +115,33 @@ export function BottomStatusBar() {
               </Show>
             </span>
           </Show>
-          {/* Manual save status indicator */}
-          <Show when={saveInProgress()}>
-            <span class="border-l border-editor-divider pl-3 text-editor-text/40 italic">{saveProgressText()}</span>
+          {/* Manual save progress indicator — replaces old blocking overlay */}
+          <Show when={saveProgress().phase !== "idle"}>
+            <span class="border-l border-editor-divider pl-3 flex items-center gap-1">
+              <Show when={saveProgress().phase === "encoding" || saveProgress().phase === "writing"}>
+                <span class="inline-block size-2 rounded-full bg-yellow-400 animate-pulse" />
+                <span class="text-editor-text/60">{saveProgress().label}</span>
+                <Show when={saveProgress().cancel}>
+                  <button
+                    type="button"
+                    onClick={() => saveProgress().cancel?.()}
+                    class="ml-0.5 text-editor-text-dim hover:text-editor-text transition-colors"
+                    title="Cancel save"
+                    aria-label="Cancel save"
+                  >
+                    <Icon name="x" class="size-3" />
+                  </button>
+                </Show>
+              </Show>
+              <Show when={saveProgress().phase === "done"}>
+                <span class="inline-block size-2 rounded-full bg-green-400" />
+                <span class="text-editor-text/60">Saved</span>
+              </Show>
+              <Show when={saveProgress().phase === "error" || saveProgress().phase === "cancelled"}>
+                <span class="inline-block size-2 rounded-full bg-red-400" />
+                <span class="text-red-400">{saveProgress().phase === "cancelled" ? "Cancelled" : "Save failed"}</span>
+              </Show>
+            </span>
           </Show>
         </Show>
       </div>

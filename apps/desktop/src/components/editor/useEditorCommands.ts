@@ -17,7 +17,7 @@ import { serializeAndSaveProject } from "./projectSerialize";
 import { addRecentFile } from "@/lib/recentFiles";
 import { easeOutCubic } from "@/viewport/easing";
 import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } from "./exportDocument";
-import { saveInProgress, setSaveInProgress, saveActive, setSaveActive, setSaveProgressText, cancelPendingSaveDismiss, scheduleSaveDismiss } from "./saveState";
+import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss } from "./saveState";
 
 export const NATIVE_MENU_EVENT = "photrez://native-menu";
 export const EDITOR_COMMAND_EVENT = "photrez://editor-command";
@@ -90,6 +90,36 @@ const EDITOR_COMMANDS: ReadonlySet<string> = new Set<EditorCommand>([
   "window.close",
   "help.about",
 ]);
+
+// ── Save queue — prevents concurrent save race while keeping non-blocking UI ──
+let _saveRunning = false;
+let _pendingSave: (() => Promise<void>) | null = null;
+
+async function _runSaveQueue(): Promise<void> {
+  while (_pendingSave) {
+    const fn = _pendingSave;
+    _pendingSave = null;
+    try {
+      await fn();
+    } catch {
+      // Error already handled inside fn() via catch block
+    }
+  }
+  _saveRunning = false;
+}
+
+/**
+ * Queue a save operation. If another save is in flight, the new request
+ * replaces the pending slot and runs after the current save completes.
+ * This handles rapid Ctrl+S presses without blocking the keyboard handler.
+ */
+function scheduleSave(fn: () => Promise<void>): void {
+  _pendingSave = fn;
+  if (!_saveRunning) {
+    _saveRunning = true;
+    _runSaveQueue();
+  }
+}
 
 export function isEditorCommand(value: string): value is EditorCommand {
   return EDITOR_COMMANDS.has(value);
@@ -297,9 +327,6 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         void editor.openImage();
         break;
       case "file.save": {
-        // Guard: prevent concurrent save while I/O is in flight
-        if (saveActive()) break;
-
         const session = editor.workspace.getActiveSession();
         if (!session) break;
 
@@ -319,20 +346,24 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           break;
         }
 
-        // Quick overwrite — lock canvas during I/O for data safety
-        void (async () => {
+        scheduleSave(async () => {
           cancelPendingSaveDismiss();
           try {
             if (ext === "ptz") {
-              setSaveInProgress(true);
-              setSaveActive(true);
-              setSaveProgressText("Saving project...");
+              const ctrl = new AbortController();
+              setSaveProgress({ phase: "encoding", label: "Saving project...", fraction: 0, cancel: () => ctrl.abort() });
               const preSaveSnapshot = engine.snapshot();
-              await serializeAndSaveProject(engine, session.sourcePath!);
-              setSaveActive(false);
+              const totalLayers = engine.getLayers().length;
+              setSaveProgress({ phase: "writing", label: "Writing to disk...", fraction: 0.9, cancel: () => ctrl.abort() });
+              await serializeAndSaveProject(engine, session.sourcePath!, {
+                signal: ctrl.signal,
+                onEncodeProgress: (done, total) => {
+                  setSaveProgress({ phase: "encoding", label: `Encoding ${done}/${total} layers`, fraction: total > 0 ? done / total : 0, cancel: () => ctrl.abort() });
+                },
+              });
               engine.clearDirty(preSaveSnapshot);
               session.dirty = engine.isDirty();
-              setSaveProgressText("Saved");
+              setSaveProgress({ phase: "done", label: "Saved", fraction: 1 });
             } else {
               const format: ExportFormat = ext === "jpg" || ext === "jpeg" ? "jpeg"
                 : ext === "webp" ? "webp" : "png";
@@ -356,37 +387,31 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
                   quality = saved;
                 }
               }
-              setSaveInProgress(true);
-              setSaveActive(true);
-              setSaveProgressText(`Saving ${format.toUpperCase()}...`);
+              setSaveProgress({ phase: "encoding", label: `Saving ${format.toUpperCase()}...`, fraction: 0 });
               const preSaveSnapshot = engine.snapshot();
               const bytes = await encodeComposite(engine, format, quality);
               await writeFileBytes(session.sourcePath!, bytes);
-              setSaveActive(false);
               engine.clearDirty(preSaveSnapshot);
               session.dirty = engine.isDirty();
-              setSaveProgressText("Saved");
+              setSaveProgress({ phase: "done", label: "Saved", fraction: 1 });
             }
             addRecentFile(session.sourcePath!, session.displayName);
             editor.workspace.notifyVisualChange();
             editor.scheduler.requestRender();
           } catch (err) {
-            setSaveActive(false);
-            setSaveProgressText("Save failed");
+            setSaveProgress({ phase: "error", label: "Save failed", fraction: 0 });
             showToast(`Failed to save: ${err}`, "error");
           } finally {
             scheduleSaveDismiss();
           }
-        })();
+        });
         break;
       }
       case "file.save-as": {
-        // Guard: prevent concurrent save while I/O is in flight
-        if (saveActive()) break;
-
         const session = editor.workspace.getActiveSession();
         if (!session) break;
-        void (async () => {
+
+        scheduleSave(async () => {
           cancelPendingSaveDismiss();
           try {
             const engine = session.engine;
@@ -404,18 +429,22 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
 
             if (ext === "ptz") {
               // Project save — working doc switches to .ptz
-              setSaveInProgress(true);
-              setSaveActive(true);
-              setSaveProgressText("Saving project...");
+              const ctrl = new AbortController();
+              setSaveProgress({ phase: "encoding", label: "Saving project...", fraction: 0, cancel: () => ctrl.abort() });
               const preSaveSnapshot = engine.snapshot();
-              await serializeAndSaveProject(engine, path);
-              setSaveActive(false);
+              setSaveProgress({ phase: "writing", label: "Writing to disk...", fraction: 0.9, cancel: () => ctrl.abort() });
+              await serializeAndSaveProject(engine, path, {
+                signal: ctrl.signal,
+                onEncodeProgress: (done, total) => {
+                  setSaveProgress({ phase: "encoding", label: `Encoding ${done}/${total} layers`, fraction: total > 0 ? done / total : 0, cancel: () => ctrl.abort() });
+                },
+              });
               engine.clearDirty(preSaveSnapshot);
               session.dirty = engine.isDirty();
               session.sourcePath = path;
               session.displayName = path.split(/[/\\]/).pop() || session.displayName;
               addRecent(path);
-              setSaveProgressText("Saved");
+              setSaveProgress({ phase: "done", label: "Saved", fraction: 1 });
             } else {
               // Flat format save
               const format: ExportFormat = ext === "jpg" || ext === "jpeg" ? "jpeg"
@@ -436,13 +465,17 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
 
                 // Save .ptz backup if checkbox was checked
                 if (result.checked) {
-                  setSaveInProgress(true);
-                  setSaveActive(true);
-                  setSaveProgressText("Saving project backup...");
+                  const ctrl = new AbortController();
+                  setSaveProgress({ phase: "encoding", label: "Saving project backup...", fraction: 0, cancel: () => ctrl.abort() });
                   const preSaveSnapshot = engine.snapshot();
                   const backupPath = path.replace(/\.[^.]+$/, ".ptz");
-                  await serializeAndSaveProject(engine, backupPath);
-                  setSaveActive(false);
+                  setSaveProgress({ phase: "writing", label: "Writing backup to disk...", fraction: 0.9, cancel: () => ctrl.abort() });
+                  await serializeAndSaveProject(engine, backupPath, {
+                    signal: ctrl.signal,
+                    onEncodeProgress: (done, total) => {
+                      setSaveProgress({ phase: "encoding", label: `Backup encoding ${done}/${total} layers`, fraction: total > 0 ? done / total : 0, cancel: () => ctrl.abort() });
+                    },
+                  });
                   engine.clearDirty(preSaveSnapshot);
                   session.dirty = engine.isDirty();
                   addRecent(backupPath);
@@ -461,13 +494,10 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
                 quality = chosen;
                 setSavedQuality(format, chosen); // remember last-used for quick saves
               }
-              setSaveInProgress(true);
-              setSaveActive(true);
-              setSaveProgressText(`Saving ${format.toUpperCase()}...`);
+              setSaveProgress({ phase: "encoding", label: `Saving ${format.toUpperCase()}...`, fraction: 0 });
               const preSaveSnapshot = engine.snapshot();
               const bytes = await encodeComposite(engine, format, quality);
               await writeFileBytes(path, bytes);
-              setSaveActive(false);
               engine.clearDirty(preSaveSnapshot);
               session.dirty = engine.isDirty();
 
@@ -475,18 +505,17 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
               session.sourcePath = path;
               session.displayName = path.split(/[/\\]/).pop() || session.displayName;
               addRecent(path);
-              setSaveProgressText("Saved");
+              setSaveProgress({ phase: "done", label: "Saved", fraction: 1 });
             }
             editor.workspace.notifyVisualChange();
             editor.scheduler.requestRender();
           } catch (err) {
-            setSaveActive(false);
-            setSaveProgressText("Save failed");
+            setSaveProgress({ phase: "error", label: "Save failed", fraction: 0 });
             showToast(`Failed to save: ${err}`, "error");
           } finally {
             scheduleSaveDismiss();
           }
-        })();
+        });
         break;
       }
       case "file.export":

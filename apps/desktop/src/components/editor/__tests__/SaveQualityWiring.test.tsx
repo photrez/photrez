@@ -4,7 +4,7 @@ import { EditorProvider } from "@/components/editor/shell/EditorContext";
 import { WorkspaceManager } from "@/engine/workspace";
 import { useEditorCommands, dispatchEditorCommand } from "../useEditorCommands";
 import type { EditorCommand } from "../useEditorCommands";
-import { setSaveInProgress, setSaveProgressText, cancelPendingSaveDismiss } from "../saveState";
+import { setSaveProgress, cancelPendingSaveDismiss } from "../saveState";
 
 // Mock only encodeComposite so no real canvas/OffscreenCanvas work happens.
 // getSavedQuality/setSavedQuality stay real (use jsdom localStorage).
@@ -67,11 +67,10 @@ describe("file.save quality prompt (lossy vs lossless)", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
-    // Reset manual-save state so the saveInProgress guard doesn't
+    // Reset manual-save state so the save-queue guard doesn't
     // carry over from a previous test (module-level signal leak).
     cancelPendingSaveDismiss();
-    setSaveInProgress(false);
-    setSaveProgressText("");
+    setSaveProgress({ phase: "idle", label: "", fraction: 0 });
   });
 
   it("asks quality for JPEG and passes it to encodeComposite", async () => {

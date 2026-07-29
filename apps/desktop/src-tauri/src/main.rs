@@ -25,6 +25,7 @@ fn main() {
     tauri::Builder::default()
         .manage(CliState(Mutex::new(cli_path)))
         .manage(Mutex::new(PrintSettings::default()))
+        .manage(commands::StreamingSaveState::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // ── Initialize default printer in print settings state ──────
@@ -91,6 +92,10 @@ fn main() {
             commands::write_file_bytes,
             commands::save_project,
             commands::save_project_binary,
+            commands::save_project_streaming_begin,
+            commands::save_project_streaming_write_layer,
+            commands::save_project_streaming_end,
+            commands::save_project_streaming_cancel,
             commands::load_project,
             commands::print_image,
             commands::print_image_raw,

@@ -8,6 +8,28 @@ use std::collections::HashMap;
 
 use crate::response::{err_response, error_value, ok_response, validate_path_extension, validate_path_safe, CONTRACT_VERSION};
 use crate::CliState;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+// ── Streaming Save State ──
+
+/// A single active Zip-write session — created by `begin`, consumed by `end`/`cancel`.
+pub(crate) struct StreamingSaveSession {
+    tmp_path: PathBuf,
+    final_path: PathBuf,
+    zip: Option<zip::ZipWriter<std::fs::File>>,
+}
+
+/// Global map of handle → active streaming save sessions.
+pub(crate) struct StreamingSaveState {
+    pub(crate) sessions: Mutex<HashMap<String, StreamingSaveSession>>,
+}
+
+impl Default for StreamingSaveState {
+    fn default() -> Self {
+        Self { sessions: Mutex::new(HashMap::new()) }
+    }
+}
 
 const MAX_FILE_IO_BYTES: u64 = 256 * 1024 * 1024;
 const READ_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "json"];
@@ -221,6 +243,167 @@ pub(crate) fn save_project_binary(
         .map_err(|e| error_value("E_IO", &format!("Failed to rename temp file: {}", e)))?;
 
     ok_response(serde_json::json!({ "path": path }))
+}
+
+// ── Streaming Save ─────────────────────────────────────────────────────
+//
+// Multi-step protocol: begin → write_layer (N×, raw IPC) → end | cancel.
+// Rust holds a ZipWriter open across calls so each layer can be written as
+// soon as it finishes encoding, overlapping encode + write.
+
+/// Begin a streaming project save — creates temp file, writes document.json,
+/// returns a random handle_id for subsequent write_layer / end / cancel calls.
+#[tauri::command]
+pub(crate) fn save_project_streaming_begin(
+    path: String,
+    document_json: String,
+    state: tauri::State<'_, StreamingSaveState>,
+) -> Result<Value, Value> {
+    validate_path_extension(&path, &["ptz"], "save project")?;
+    let path = validate_path_safe(&path, "save project")?;
+
+    // Ensure parent directory exists.
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            error_value("E_IO", &format!("Failed to create directory: {}", e))
+        })?;
+    }
+
+    // Temp path (same dir as final, for atomic rename).
+    let mut tmp_path = path.clone();
+    let tmp_name = format!(
+        "{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("project")
+    );
+    tmp_path.set_file_name(&tmp_name);
+
+    // Create temp file (overwrites any stale .tmp from a previous crash).
+    let file = std::fs::File::create(&tmp_path)
+        .map_err(|e| error_value("E_IO", &format!("Failed to create temp file: {}", e)))?;
+
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // Write document.json immediately (always small, available at start).
+    zip.start_file("document.json", options)
+        .map_err(|e| error_value("E_IO", &format!("Failed to start document.json: {}", e)))?;
+    use std::io::Write;
+    zip.write_all(document_json.as_bytes())
+        .map_err(|e| error_value("E_IO", &format!("Failed to write document.json: {}", e)))?;
+
+    let handle_id = uuid::Uuid::new_v4().to_string();
+    let mut sessions = state.sessions.lock().unwrap();
+    sessions.insert(handle_id.clone(), StreamingSaveSession {
+        tmp_path,
+        final_path: path,
+        zip: Some(zip),
+    });
+
+    ok_response(serde_json::json!({ "handle_id": handle_id }))
+}
+
+/// Write one layer's PNG bytes to the in-progress ZIP file.
+/// Uses raw IPC (Uint8Array body + headers) — zero base64 overhead.
+#[tauri::command]
+pub(crate) fn save_project_streaming_write_layer(
+    request: tauri::ipc::Request<'_>,
+    state: tauri::State<'_, StreamingSaveState>,
+) -> Result<Value, Value> {
+    // Read raw binary body (PNG bytes, zero encoding overhead).
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return err_response("E_VALIDATION", "Expected raw binary body");
+    };
+
+    // Parse metadata from headers.
+    let handle_id = request.headers()
+        .get("handle-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| error_value("E_VALIDATION", "Missing handle-id header"))?
+        .to_string();
+
+    let layer_id = request.headers()
+        .get("layer-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| error_value("E_VALIDATION", "Missing layer-id header"))?
+        .to_string();
+
+    let mut sessions = state.sessions.lock().unwrap();
+    let session = sessions.get_mut(&handle_id)
+        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found"))?;
+
+    let zip = session.zip.as_mut()
+        .ok_or_else(|| error_value("E_INTERNAL", "Session already ended or cancelled"))?;
+
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let zip_path = format!("layers/{}.png", layer_id);
+    zip.start_file(&zip_path, options)
+        .map_err(|e| error_value("E_IO", &format!("Failed to start layer {}: {}", layer_id, e)))?;
+    use std::io::Write;
+    zip.write_all(data)
+        .map_err(|e| error_value("E_IO", &format!("Failed to write layer {}: {}", layer_id, e)))?;
+
+    ok_response(serde_json::json!({ "written": layer_id }))
+}
+
+/// Finalize the streaming save — close ZIP, fsync, atomic rename.
+#[tauri::command]
+pub(crate) fn save_project_streaming_end(
+    handle_id: String,
+    state: tauri::State<'_, StreamingSaveState>,
+) -> Result<Value, Value> {
+    let mut sessions = state.sessions.lock().unwrap();
+    let session = sessions.remove(&handle_id)
+        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found"))?;
+
+    let zip = session.zip.ok_or_else(|| {
+        error_value("E_INTERNAL", "Session zip already consumed — double end?")
+    })?;
+
+    // Finish ZipWriter (close central directory, finalize file).
+    let file = zip.finish()
+        .map_err(|e| error_value("E_IO", &format!("Failed to finalize zip: {}", e)))?;
+
+    // fsync data + directory for atomic durability.
+    file.sync_all()
+        .map_err(|e| error_value("E_IO", &format!("Failed to fsync: {}", e)))?;
+
+    if let Some(parent) = session.final_path.parent() {
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+
+    // Atomic rename — either tmp replaces path completely, or the rename fails
+    // and path is untouched. On Windows this is atomic if both paths are on
+    // the same volume (they are, since tmp is in the same dir).
+    std::fs::rename(&session.tmp_path, &session.final_path)
+        .map_err(|e| error_value("E_IO", &format!("Failed to rename: {}", e)))?;
+
+    ok_response(serde_json::json!({ "path": session.final_path }))
+}
+
+/// Cancel an in-progress streaming save — drop zip, delete temp file.
+#[tauri::command]
+pub(crate) fn save_project_streaming_cancel(
+    handle_id: String,
+    state: tauri::State<'_, StreamingSaveState>,
+) -> Result<Value, Value> {
+    let mut sessions = state.sessions.lock().unwrap();
+    let session = sessions.remove(&handle_id)
+        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found"))?;
+
+    // Drop the ZipWriter — closes without finalizing (corrupted zip, cleaned up).
+    drop(session.zip);
+
+    // Delete the temp file.
+    let _ = std::fs::remove_file(&session.tmp_path);
+
+    ok_response(serde_json::json!({ "cancelled": true }))
 }
 
 #[tauri::command]
@@ -508,6 +691,8 @@ fn print_image_inner(
         let media = cups_media_name(preset, pw_mm, ph_mm);
         let doc_name = document_name.as_deref().unwrap_or("Untitled");
 
+        // H3: Use spawn + try_wait polling with 60s deadline instead of
+        // blocking cmd.status(), matching the print_image_raw pattern.
         let mut cmd = std::process::Command::new("lp");
         if print_count > 1 {
             cmd.arg(format!("-n{}", print_count));
@@ -519,13 +704,37 @@ fn print_image_inner(
         cmd.arg("-o").arg("fit-to-page");
         cmd.arg("-o").arg(format!("media={}", media));
         cmd.arg(&p);
-        match cmd.status() {
-            Ok(status) if status.success() => {}
-            Ok(_) | Err(_) => {
-                // Fallback: open file in default viewer
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
                 let _ = open::that(&p);
-                return err_response("E_PRINTER", "Print via lp failed. File opened in viewer.");
+                return err_response("E_PRINTER", &format!("Failed to spawn lp: {e}. File opened in viewer."));
             }
+        };
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(s)) => break s,
+                Ok(None) => {
+                    if std::time::Instant::now() > deadline {
+                        let _ = child.kill();
+                        let _ = open::that(&p);
+                        return err_response("E_PRINTER", "Print via lp timed out after 60s. File opened in viewer.");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    let _ = open::that(&p);
+                    return err_response("E_IO", &format!("Failed to check lp status: {e}. File opened in viewer."));
+                }
+            }
+        };
+
+        if !status.success() {
+            let _ = open::that(&p);
+            return err_response("E_PRINTER", "Print via lp failed (non-zero exit). File opened in viewer.");
         }
     }
 
@@ -602,6 +811,12 @@ pub(crate) fn print_image_raw(
         // Raw RGBA from frontend (ctx.getImageData) is RGBA byte order.
         // Windows GDI StretchDIBits with BI_RGB | 32bpp expects BGRA.
         // Swap R↔B to match Windows DIB byte order.
+        //
+        // M4: This swap assumes frontend always sends RGBA (getImageData
+        // returns unpremultiplied RGBA in all browsers). If a future change
+        // switches to premultiplied alpha or a different byte order, the
+        // swap must be adapted. The pattern is correct: frontend RGBA →
+        // Rust swap to BGRA → StretchDIBits(BI_RGB) expects BGRA.
         let mut pixels = data.to_vec();
         for px in pixels.chunks_exact_mut(4) {
             px.swap(0, 2);
@@ -643,11 +858,37 @@ pub(crate) fn print_image_raw(
         cmd.arg("-o").arg(format!("media={media}"));
         cmd.arg(&temp_path);
 
-        if !cmd.status().map(|s| s.success()).unwrap_or(false) {
+        // H3: Spawn lp with 60-second timeout.
+        // try_wait polling avoids extra crate deps (wait_timeout) while
+        // preventing a hung lp from blocking the Tauri command forever.
+        let mut child = cmd.spawn().map_err(|e| {
             let _ = std::fs::remove_file(&temp_path);
-            return err_response("E_PRINTER", "Print via lp failed");
-        }
+            error_value("E_PRINTER", &format!("Failed to spawn lp: {e}"))
+        })?;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(s)) => break s,
+                Ok(None) => {
+                    if std::time::Instant::now() > deadline {
+                        let _ = child.kill();
+                        let _ = std::fs::remove_file(&temp_path);
+                        return err_response("E_PRINTER", "Print via lp timed out after 60s");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_file(&temp_path);
+                    return err_response("E_IO", &format!("Failed to check lp status: {e}"));
+                }
+            }
+        };
+
         let _ = std::fs::remove_file(&temp_path);
+        if !status.success() {
+            return err_response("E_PRINTER", "Print via lp failed (non-zero exit)");
+        }
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -1028,7 +1269,6 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
 
 use crate::print_geometry;
 use crate::print_settings::PrintSettings;
-use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 
 /// Event name for print settings changes (dash-separated lowercase).

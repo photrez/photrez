@@ -83,6 +83,49 @@ export async function saveProjectBinary(
   if (!result.ok) throw asError(result);
 }
 
+// ─── Streaming Project Save ───
+
+/** Begin a streaming project save — creates temp file, writes document.json, returns handle_id. */
+export async function saveProjectStreamingBegin(
+  path: string,
+  documentJson: string,
+): Promise<string> {
+  const result = await invoke("save_project_streaming_begin", { path, documentJson }) as ApiResponse<{ handle_id: string }>;
+  if (!result.ok) throw asError(result);
+  return result.data.handle_id;
+}
+
+/**
+ * Write one layer's PNG bytes to the in-progress ZIP file.
+ * Uses raw IPC (Uint8Array body + headers) — zero base64 overhead.
+ * Matches the print_image_raw pattern.
+ */
+export async function saveProjectStreamingWriteLayer(
+  handleId: string,
+  layerId: string,
+  pngBytes: Uint8Array,
+): Promise<void> {
+  const result = await invoke("save_project_streaming_write_layer", pngBytes, {
+    headers: {
+      "handle-id": handleId,
+      "layer-id": layerId,
+    },
+  }) as ApiResponse;
+  if (!result.ok) throw asError(result);
+}
+
+/** Finalize the streaming save — close ZIP, fsync, atomic rename. */
+export async function saveProjectStreamingEnd(handleId: string): Promise<void> {
+  const result = await invoke("save_project_streaming_end", { handleId }) as ApiResponse;
+  if (!result.ok) throw asError(result);
+}
+
+/** Cancel an in-progress streaming save — drop zip, delete temp file. */
+export async function saveProjectStreamingCancel(handleId: string): Promise<void> {
+  const result = await invoke("save_project_streaming_cancel", { handleId }) as ApiResponse;
+  if (!result.ok) throw asError(result);
+}
+
 export async function loadProject(path: string): Promise<{ document_json: string; layers: Record<string, string> }> {
   const result = await invoke("load_project", { path }) as ApiResponse<{ document_json: string; layers: Record<string, string> }>;
   if (!result.ok) throw asError(result);

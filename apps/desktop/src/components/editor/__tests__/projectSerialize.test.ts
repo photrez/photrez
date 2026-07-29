@@ -13,27 +13,33 @@ import { DocumentEngine } from "@/engine/document";
 import type { DocumentModel, LayerNode } from "@/engine/types";
 
 // ─── Hoisted mocks for @/tauri/native ───
-const { mockSaveProjectBinary, mockLoadProject } = vi.hoisted(() => ({
-  mockSaveProjectBinary: vi.fn<(path: string, docJson: string, layers: Record<string, Uint8Array>) => Promise<void>>(),
+const { mockSaveProjectStreamingBegin, mockSaveProjectStreamingWriteLayer, mockSaveProjectStreamingEnd, mockSaveProjectStreamingCancel, mockLoadProject } = vi.hoisted(() => ({
+  mockSaveProjectStreamingBegin: vi.fn<(path: string, docJson: string) => Promise<string>>(),
+  mockSaveProjectStreamingWriteLayer: vi.fn<(handleId: string, layerId: string, pngBytes: Uint8Array) => Promise<void>>(),
+  mockSaveProjectStreamingEnd: vi.fn<(handleId: string) => Promise<void>>(),
+  mockSaveProjectStreamingCancel: vi.fn<(handleId: string) => Promise<void>>(),
   mockLoadProject: vi.fn<(path: string) => Promise<{ document_json: string; layers: Record<string, string> }>>(),
 }));
 
 vi.mock("@/tauri/native", () => ({
-  saveProjectBinary: mockSaveProjectBinary,
+  saveProjectStreamingBegin: mockSaveProjectStreamingBegin,
+  saveProjectStreamingWriteLayer: mockSaveProjectStreamingWriteLayer,
+  saveProjectStreamingEnd: mockSaveProjectStreamingEnd,
+  saveProjectStreamingCancel: mockSaveProjectStreamingCancel,
   loadProject: mockLoadProject,
 }));
 
 // ─── Helpers ───
 
 /** Creates a minimal mock ImageBitmap of given dimensions with RGBA pixel data. */
-function makeBitmap(width: number, height: number, fill: Uint8ClampedArray): ImageBitmap {
+function makeBitmap(width: number, height: number, _fill: Uint8ClampedArray): ImageBitmap {
   // OffscreenCanvas is not available in jsdom; we mock it.  But for the test we
   // just need an object that looks like an ImageBitmap — the canvas mock
   // in serializeAndSaveProject will drawImage it, and convertToBlob returns PNG.
   return { width, height, close: vi.fn() } as unknown as ImageBitmap;
 }
 
-/** Captured data from a mocked serialize call. */
+/** Captured data from a mocked serialize call — aggregated from streaming calls. */
 interface CapturedProject {
   path: string;
   documentJson: string;
@@ -41,6 +47,7 @@ interface CapturedProject {
 }
 
 let capturedProject: CapturedProject | null = null;
+let nextHandleId = 1;
 
 /** OffscreenCanvas mock context with controllable convertToBlob. */
 function createCanvasMock(pngBytes: Uint8Array) {
@@ -81,11 +88,26 @@ describe("projectSerialize — serializeAndSaveProject", () => {
 
   beforeEach(() => {
     capturedProject = null;
-    mockSaveProjectBinary.mockClear();
+    nextHandleId = 1;
+    mockSaveProjectStreamingBegin.mockClear();
+    mockSaveProjectStreamingWriteLayer.mockClear();
+    mockSaveProjectStreamingEnd.mockClear();
+    mockSaveProjectStreamingCancel.mockClear();
     mockLoadProject.mockClear();
-    mockSaveProjectBinary.mockImplementation(async (path, docJson, layers) => {
-      capturedProject = { path, documentJson: docJson, layers };
+
+    // Streaming calls aggregate into capturedProject.layers.
+    mockSaveProjectStreamingBegin.mockImplementation(async (path, docJson) => {
+      const handleId = `handle-${nextHandleId++}`;
+      capturedProject = { path, documentJson: docJson, layers: {} };
+      return handleId;
     });
+    mockSaveProjectStreamingWriteLayer.mockImplementation(async (_handleId, layerId, pngBytes) => {
+      if (capturedProject) {
+        capturedProject.layers[layerId] = pngBytes;
+      }
+    });
+    mockSaveProjectStreamingEnd.mockImplementation(async () => { /* no-op */ });
+    mockSaveProjectStreamingCancel.mockImplementation(async () => { capturedProject = null; });
   });
 
   afterEach(() => {
@@ -103,7 +125,9 @@ describe("projectSerialize — serializeAndSaveProject", () => {
 
     await serializeAndSaveProject(engine, "/path/to/project.ptz");
 
-    expect(mockSaveProjectBinary).toHaveBeenCalledTimes(1);
+    expect(mockSaveProjectStreamingBegin).toHaveBeenCalledTimes(1);
+    expect(mockSaveProjectStreamingWriteLayer).toHaveBeenCalled(); // at least 1 layer
+    expect(mockSaveProjectStreamingEnd).toHaveBeenCalledTimes(1);
     expect(capturedProject).not.toBeNull();
     expect(capturedProject!.path).toBe("/path/to/project.ptz");
     expect(capturedProject!.layers[l1.id]).toBeDefined();
@@ -215,7 +239,8 @@ describe("projectSerialize — serializeAndSaveProject", () => {
     const { serializeAndSaveProject } = await import("../projectSerialize");
     await serializeAndSaveProject(engine, "/path/null.ptz");
 
-    expect(mockSaveProjectBinary).toHaveBeenCalledTimes(1);
+    expect(mockSaveProjectStreamingBegin).toHaveBeenCalledTimes(1);
+    expect(mockSaveProjectStreamingEnd).toHaveBeenCalledTimes(1);
     const parsed = JSON.parse(capturedProject!.documentJson) as DocumentModel;
     expect(parsed.layers.length).toBe(1);
     expect(capturedProject!.layers).toEqual({});
@@ -240,13 +265,160 @@ describe("projectSerialize — serializeAndSaveProject", () => {
     // Empty (no bitmap) is skipped, so only l3 (Top) and l1 (BG) are saved.
     expect(Object.keys(capturedProject!.layers)).toEqual([l3.id, l1.id]);
   });
+
+  // ── Dirty layer cache tests ──
+  it("only encodes dirty layers when cache is populated", async () => {
+    stubSerializeGlobals(PNG_BYTES);
+
+    const engine = new DocumentEngine("doc-cache-1", "Cache Doc", 100, 100);
+    const l1 = engine.addLayer("A", 100, 100);
+    engine.setLayerImageBitmap(l1.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+    const l2 = engine.addLayer("B", 100, 100);
+    engine.setLayerImageBitmap(l2.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+
+    // Clean import so cache is module-level
+    const { serializeAndSaveProject, clearLayerCache } = await import("../projectSerialize");
+    clearLayerCache(engine.getId());
+
+    let offscreenCount = 0;
+    vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
+      offscreenCount++;
+      this.width = w;
+      this.height = h;
+      this.getContext = () => ({ drawImage: vi.fn() });
+      this.convertToBlob = vi.fn().mockResolvedValue(new Blob([PNG_BYTES], { type: "image/png" }));
+    }));
+
+    // First save: both layers dirty → both encoded
+    await serializeAndSaveProject(engine, "/path/cache1.ptz");
+    expect(offscreenCount).toBe(2); // both layers encoded
+    expect(Object.keys(capturedProject!.layers)).toContain(l1.id);
+    expect(Object.keys(capturedProject!.layers)).toContain(l2.id);
+
+    // Simulate clearDirty (as useEditorCommands does after a successful save)
+    engine.clearDirty();
+
+    // Second save: no dirty layers → both from cache
+    offscreenCount = 0;
+    await serializeAndSaveProject(engine, "/path/cache2.ptz");
+    expect(offscreenCount).toBe(0); // no OffscreenCanvas created — all from cache
+    expect(Object.keys(capturedProject!.layers)).toContain(l1.id);
+    expect(Object.keys(capturedProject!.layers)).toContain(l2.id);
+  });
+
+  it("caches carry-forward: edited layer re-encoded, clean layer from cache", async () => {
+    const { serializeAndSaveProject, clearLayerCache } = await import("../projectSerialize");
+    clearLayerCache("doc-cache-2");
+
+    const engine = new DocumentEngine("doc-cache-2", "Incremental", 100, 100);
+    const l1 = engine.addLayer("BG", 100, 100);
+    engine.setLayerImageBitmap(l1.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+    const l2 = engine.addLayer("Edit", 100, 100);
+    engine.setLayerImageBitmap(l2.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+
+    let offscreenCount = 0;
+    vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
+      offscreenCount++;
+      this.width = w;
+      this.height = h;
+      this.getContext = () => ({ drawImage: vi.fn() });
+      this.convertToBlob = vi.fn().mockResolvedValue(new Blob([PNG_BYTES], { type: "image/png" }));
+    }));
+
+    // First save: both encoded
+    await serializeAndSaveProject(engine, "/path/inc1.ptz");
+    expect(offscreenCount).toBe(2);
+
+    // Clear dirty, simulate saved state
+    engine.clearDirty();
+
+    // Edit only layer 2
+    engine.markLayerDirty(l2.id);
+
+    // Second save: only l2 encoded, l1 from cache
+    offscreenCount = 0;
+    await serializeAndSaveProject(engine, "/path/inc2.ptz");
+    expect(offscreenCount).toBe(1); // only l2
+    expect(Object.keys(capturedProject!.layers)).toContain(l1.id);
+    expect(Object.keys(capturedProject!.layers)).toContain(l2.id);
+  });
+
+  it("clears cache for deleted layers", async () => {
+    const { serializeAndSaveProject, clearLayerCache } = await import("../projectSerialize");
+    clearLayerCache("doc-del");
+
+    const engine = new DocumentEngine("doc-del", "Delete Layer", 100, 100);
+    const l1 = engine.addLayer("Keep", 100, 100);
+    engine.setLayerImageBitmap(l1.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+    const l2 = engine.addLayer("Remove", 100, 100);
+    engine.setLayerImageBitmap(l2.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+
+    vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
+      this.width = w;
+      this.height = h;
+      this.getContext = () => ({ drawImage: vi.fn() });
+      this.convertToBlob = vi.fn().mockResolvedValue(new Blob([PNG_BYTES], { type: "image/png" }));
+    }));
+
+    // First save populates cache
+    await serializeAndSaveProject(engine, "/path/del1.ptz");
+
+    // Remove l2 and clear dirty
+    engine.deleteLayer(l2.id);
+    engine.clearDirty();
+
+    // Second save: l1 from cache, l2 should not appear
+    await serializeAndSaveProject(engine, "/path/del2.ptz");
+    expect(Object.keys(capturedProject!.layers)).toEqual([l1.id]);
+  });
+
+  it("per-document cache isolation: two engines don't share cache", async () => {
+    const { serializeAndSaveProject, clearLayerCache } = await import("../projectSerialize");
+    clearLayerCache(); // clear all
+
+    const engineA = new DocumentEngine("doc-A", "Doc A", 50, 50);
+    const la = engineA.addLayer("A", 50, 50);
+    engineA.setLayerImageBitmap(la.id, makeBitmap(50, 50, new Uint8ClampedArray(50 * 50 * 4)));
+
+    const engineB = new DocumentEngine("doc-B", "Doc B", 100, 100);
+    const lb = engineB.addLayer("B", 100, 100);
+    engineB.setLayerImageBitmap(lb.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+
+    let callCount = 0;
+    vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
+      callCount++;
+      this.width = w;
+      this.height = h;
+      this.getContext = () => ({ drawImage: vi.fn() });
+      this.convertToBlob = vi.fn().mockResolvedValue(new Blob([PNG_BYTES], { type: "image/png" }));
+    }));
+
+    // First save for both
+    await serializeAndSaveProject(engineA, "/path/a1.ptz");
+    engineA.clearDirty();
+
+    await serializeAndSaveProject(engineB, "/path/b1.ptz");
+    engineB.clearDirty();
+
+    expect(callCount).toBe(2); // each engine encoded its layer
+
+    // Second save for both — should use own cache
+    callCount = 0;
+    await serializeAndSaveProject(engineA, "/path/a2.ptz");
+    // Only engineA should use cache, but engineB is separate
+    await serializeAndSaveProject(engineB, "/path/b2.ptz");
+    expect(callCount).toBe(0); // both from cache
+  });
 });
 
 describe("projectSerialize — deserialize and engine restore", () => {
   const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
   beforeEach(() => {
-    mockSaveProjectBinary.mockClear();
+    mockSaveProjectStreamingBegin.mockClear();
+    mockSaveProjectStreamingWriteLayer.mockClear();
+    mockSaveProjectStreamingEnd.mockClear();
+    mockSaveProjectStreamingCancel.mockClear();
     mockLoadProject.mockClear();
   });
 
@@ -429,11 +601,23 @@ describe("projectSerialize — full roundtrip", () => {
   const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
   beforeEach(() => {
-    mockSaveProjectBinary.mockClear();
+    mockSaveProjectStreamingBegin.mockClear();
+    mockSaveProjectStreamingWriteLayer.mockClear();
+    mockSaveProjectStreamingEnd.mockClear();
+    mockSaveProjectStreamingCancel.mockClear();
     mockLoadProject.mockClear();
-    mockSaveProjectBinary.mockImplementation(async (path, docJson, layers) => {
-      capturedProject = { path, documentJson: docJson, layers };
+    mockSaveProjectStreamingBegin.mockImplementation(async (path, docJson) => {
+      const handleId = `handle-rt-${nextHandleId++}`;
+      capturedProject = { path, documentJson: docJson, layers: {} };
+      return handleId;
     });
+    mockSaveProjectStreamingWriteLayer.mockImplementation(async (_handleId, layerId, pngBytes) => {
+      if (capturedProject) {
+        capturedProject.layers[layerId] = pngBytes;
+      }
+    });
+    mockSaveProjectStreamingEnd.mockImplementation(async () => { /* no-op */ });
+    mockSaveProjectStreamingCancel.mockImplementation(async () => { capturedProject = null; });
   });
 
   afterEach(() => {

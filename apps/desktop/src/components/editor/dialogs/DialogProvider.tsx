@@ -810,7 +810,7 @@ export function DialogProvider(props: ParentProps) {
           </DesktopDialogButton>
         </>}
       >
-        <p>{props.request.options.message}</p>
+        <p class="break-words [word-break:break-word]">{props.request.options.message}</p>
       </DesktopDialog>
     );
   }
@@ -855,7 +855,7 @@ export function DialogProvider(props: ParentProps) {
                     </DesktopDialogButton>
                   </>}
                 >
-                  <p>
+                  <p class="break-words [word-break:break-word]">
                     {(r.options as ConfirmDialogOptions | AlertDialogOptions).message}
                   </p>
                 </DesktopDialog>

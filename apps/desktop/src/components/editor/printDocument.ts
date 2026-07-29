@@ -10,13 +10,19 @@
 //   1. encodeComposite — render layers onto a document-sized canvas (PNG)
 //   2. compositeForPrint — composite onto a paper-sized canvas at
 //      printer-native DPI (fallback 300), with MAX_PX clamp.
-//      Exports as raw RGBA pixels (via ctx.getImageData) — no format
-//      encoding: raw pixels → GDI → printer via Tauri raw IPC.
+//      Runs in a Web Worker (printWorker.ts) so GPU readback (getImageData)
+//      does not block the main thread. Falls back to main-thread execution
+//      when Worker is unavailable (jsdom test env, older runtimes).
+//      Exports as raw RGBA pixels — no format encoding.
 //   3. invoke("print_image_raw") — sends raw RGBA pixels directly to
 //      Rust via Tauri v2 raw IPC (Uint8Array body, dimensions + printer
 //      settings in headers). Rust passes them straight to GDI
 //      (render_rgba_to_printer) with zero decode. No PNG, no JPEG,
 //      no temp file, no base64, no disk I/O.
+//
+// AbortSignal: caller can cancel an in-flight print job. The worker
+// respects the signal between operations. The fallback path checks the
+// signal at each step.
 
 import { invoke } from "@tauri-apps/api/core";
 import { encodeComposite } from "./exportDocument";
@@ -46,15 +52,120 @@ interface RustPrintSettings {
   printer_dpi?: number | null;
 }
 
+interface PrintCompositeSettings {
+  paperWidthMm: number;
+  paperHeightMm: number;
+  marginLeftMm: number;
+  marginRightMm: number;
+  marginTopMm: number;
+  marginBottomMm: number;
+  scalePercent: number;
+  centerImage: boolean;
+  leftOffsetMm: number;
+  topOffsetMm: number;
+  targetDpi: number;
+  maxPx: number;
+}
+
 const MM_PER_INCH = 25.4;
 const TARGET_PRINT_DPI = 300;
-const MAX_PX = 10000;
+// C2: MAX_PX=8000 → max canvas 8000²×4 = 256 MB, stays under MAX_FILE_IO_BYTES (256 MB).
+// Previous 10000²×4 = 400 MB exceeded the Rust-side limit, causing silent failures.
+const MAX_PX = 8000;
 
-/// Create a Canvas2D with fallback when OffscreenCanvas is unavailable (#3).
+// ── Web Worker compositing ────────────────────────────────────────────
+
+interface WorkerResult {
+  type: "result";
+  id: string;
+  rawPixels: Uint8Array;
+  width: number;
+  height: number;
+}
+
+interface WorkerError {
+  type: "error";
+  id: string;
+  error: string;
+}
+
+type WorkerResponse = WorkerResult | WorkerError;
+
+/** Send compositing work to printWorker.ts. Falls back to main-thread
+ *  compositing when Worker is unavailable (jsdom test env, older runtimes). */
+async function compositeWithWorker(
+  pngBytes: Uint8Array,
+  settings: PrintCompositeSettings,
+  signal?: AbortSignal,
+): Promise<{ bytes: Uint8Array; width: number; height: number }> {
+  if (typeof Worker === "undefined") {
+    return compositeFallback(pngBytes, settings, signal);
+  }
+
+  const id = `print-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const worker = new Worker(
+    new URL("./print/printWorker.ts", import.meta.url),
+    { type: "module" },
+  );
+
+  return new Promise<{ bytes: Uint8Array; width: number; height: number }>((resolve, reject) => {
+    const onAbort = () => {
+      worker.terminate();
+      reject(new DOMException("Print was cancelled", "AbortError"));
+    };
+
+    if (signal?.aborted) {
+      worker.terminate();
+      reject(new DOMException("Print was cancelled", "AbortError"));
+      return;
+    }
+    const abortHandler = signal ? () => onAbort() : null;
+    if (abortHandler && signal) {
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
+
+    const cleanup = () => {
+      if (abortHandler) signal?.removeEventListener("abort", abortHandler);
+    };
+
+    worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      const msg = e.data;
+      if (msg.type === "result" && msg.id === id) {
+        cleanup();
+        worker.terminate();
+        resolve({ bytes: msg.rawPixels, width: msg.width, height: msg.height });
+      } else if (msg.type === "error" && msg.id === id) {
+        cleanup();
+        worker.terminate();
+        reject(new Error(`Print compositing failed: ${msg.error}`));
+      }
+    };
+
+    worker.onerror = (err) => {
+      cleanup();
+      worker.terminate();
+      reject(new Error(`Print worker error: ${err.message}`));
+    };
+
+    // Transfer the PNG buffer to the worker (zero-copy)
+    worker.postMessage(
+      { type: "composite", id, pngBytes, settings },
+      { transfer: [pngBytes.buffer] },
+    );
+  });
+}
+
+// ── Fallback: main-thread compositing (test env, no Worker) ───────────
+
+/** Create a Canvas2D with fallback when OffscreenCanvas is unavailable.
+ *  Only used in fallback path (Worker unavailable). */
 function createPrintCanvas(w: number, h: number): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } {
   if (typeof OffscreenCanvas !== "undefined") {
     const c = new OffscreenCanvas(w, h);
-    const ctx = c.getContext("2d")!;
+    // willReadFrequently: we call getImageData() once after rendering —
+    // hint the browser to keep pixels CPU-accessible for faster readback.
+    const ctx = c.getContext("2d", { willReadFrequently: true })!;
     return { canvas: c, ctx };
   }
   // Fallback for environments without OffscreenCanvas (test, headless, older browser)
@@ -65,100 +176,95 @@ function createPrintCanvas(w: number, h: number): { canvas: HTMLCanvasElement | 
   return { canvas: c, ctx };
 }
 
-/// Composite the document image onto a paper-sized white canvas at the target
-/// DPI using OffscreenCanvas (GPU-accelerated Canvas2D).
-///
-/// Returns raw RGBA pixels (via ctx.getImageData) and their dimensions.
-/// The canvas is inset by marginMm so the rendered content stays within
-/// the printable area — the white background fills the margin border.
-/// Returns raw RGBA pixels with zero format encoding.
-async function compositeForPrint(
+/** Main-thread compositing fallback. In production, compositeWithWorker uses
+ *  printWorker.ts to keep GPU readback off the main thread. */
+async function compositeFallback(
   srcBytes: Uint8Array,
-  paperWidthMm: number,
-  paperHeightMm: number,
-  marginLeftMm: number,
-  marginRightMm: number,
-  marginTopMm: number,
-  marginBottomMm: number,
-  scalePercent: number,
-  centerImage: boolean,
-  leftOffsetMm: number,
-  topOffsetMm: number,
-  targetDpi: number,
+  s: PrintCompositeSettings,
+  signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array; width: number; height: number }> {
+  signal?.throwIfAborted();
+
   // Decode PNG bytes to ImageBitmap via Blob
   const blob = new Blob([srcBytes as BlobPart], { type: "image/png" });
   const img = await createImageBitmap(blob);
+  try {
+    signal?.throwIfAborted();
 
-  // Compute printable area dimensions (paper minus per-side margins)
-  const printW = Math.max(1, paperWidthMm - marginLeftMm - marginRightMm);
-  const printH = Math.max(1, paperHeightMm - marginTopMm - marginBottomMm);
+    const printW = Math.max(1, s.paperWidthMm - s.marginLeftMm - s.marginRightMm);
+    const printH = Math.max(1, s.paperHeightMm - s.marginTopMm - s.marginBottomMm);
 
-  // Compute canvas pixel dimensions at target DPI (printable area only)
-  const pixelW = Math.round((printW / MM_PER_INCH) * targetDpi);
-  const pixelH = Math.round((printH / MM_PER_INCH) * targetDpi);
+    const pixelW = Math.round((printW / MM_PER_INCH) * s.targetDpi);
+    const pixelH = Math.round((printH / MM_PER_INCH) * s.targetDpi);
 
-  // Clamp to prevent OOM on absurd paper sizes
-  const canvasW = Math.min(pixelW, MAX_PX);
-  const canvasH = Math.min(pixelH, MAX_PX);
+    const canvasW = Math.min(pixelW, s.maxPx);
+    const canvasH = Math.min(pixelH, s.maxPx);
 
-  // Create canvas — prefer OffscreenCanvas, fallback to regular Canvas (#3)
-  const { canvas, ctx } = createPrintCanvas(canvasW, canvasH);
+    const { canvas, ctx } = createPrintCanvas(canvasW, canvasH);
 
-  // Fill white background
-  ctx.fillStyle = "#FFFFFF";
-  ctx.fillRect(0, 0, canvasW, canvasH);
+    signal?.throwIfAborted();
 
-  // Compute scaled image dimensions
-  const scaleFactor = scalePercent / 100;
-  const scaledW = Math.round(img.width * scaleFactor);
-  const scaledH = Math.round(img.height * scaleFactor);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvasW, canvasH);
 
-  // Compute position within the printable area.
-  // Preview coordinates are paper-relative (0,0 = paper top-left).
-  // Canvas is printable-area-relative (0,0 = top-left of printable area).
-  // Subtract margins to convert between coordinate systems (Bug B fix).
-  let left: number;
-  let top: number;
-  if (centerImage) {
-    // Center within paper (matches preview), then adjust for printable area offset.
-    // Canvas2D drawImage natively clips negative positions (image extends beyond
-    // canvas) — no Math.max(0) needed.
-    const paperPx = Math.round((paperWidthMm / MM_PER_INCH) * targetDpi);
-    const paperHPx = Math.round((paperHeightMm / MM_PER_INCH) * targetDpi);
-    const marginLeftPx = Math.round((marginLeftMm / MM_PER_INCH) * targetDpi);
-    const marginTopPx = Math.round((marginTopMm / MM_PER_INCH) * targetDpi);
-    left = Math.floor((paperPx - scaledW) / 2) - marginLeftPx;
-    top = Math.floor((paperHPx - scaledH) / 2) - marginTopPx;
-  } else {
-    // leftOffsetMm/topOffsetMm are paper-relative → convert to canvas coords
-    left = Math.round(((leftOffsetMm - marginLeftMm) / MM_PER_INCH) * targetDpi);
-    top = Math.round(((topOffsetMm - marginTopMm) / MM_PER_INCH) * targetDpi);
+    const scaleFactor = s.scalePercent / 100;
+    const scaledW = Math.round(img.width * scaleFactor);
+    const scaledH = Math.round(img.height * scaleFactor);
+
+    let left: number;
+    let top: number;
+    if (s.centerImage) {
+      const paperPx = Math.round((s.paperWidthMm / MM_PER_INCH) * s.targetDpi);
+      const paperHPx = Math.round((s.paperHeightMm / MM_PER_INCH) * s.targetDpi);
+      const marginLeftPx = Math.round((s.marginLeftMm / MM_PER_INCH) * s.targetDpi);
+      const marginTopPx = Math.round((s.marginTopMm / MM_PER_INCH) * s.targetDpi);
+      left = Math.floor((paperPx - scaledW) / 2) - marginLeftPx;
+      top = Math.floor((paperHPx - scaledH) / 2) - marginTopPx;
+    } else {
+      left = Math.round(((s.leftOffsetMm - s.marginLeftMm) / MM_PER_INCH) * s.targetDpi);
+      top = Math.round(((s.topOffsetMm - s.marginTopMm) / MM_PER_INCH) * s.targetDpi);
+    }
+
+    ctx.drawImage(img, left, top, scaledW, scaledH);
+
+    signal?.throwIfAborted();
+
+    const imageData = ctx.getImageData(0, 0, canvasW, canvasH);
+    const bytes = new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.byteLength);
+
+    return { bytes, width: canvasW, height: canvasH };
+  } finally {
+    img.close();
   }
-
-  // Draw image — hardware-accelerated via Canvas2D GPU backend
-  ctx.drawImage(img, left, top, scaledW, scaledH);
-
-  // Cleanup
-  img.close();
-
-  // Read raw RGBA pixels from GPU (no format encoding)
-  const imageData = ctx.getImageData(0, 0, canvasW, canvasH);
-  return {
-    bytes: new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.byteLength),
-    width: canvasW,
-    height: canvasH,
-  };
 }
 
+// ── Public API ────────────────────────────────────────────────────────
+
+/** Print the document on a system printer.
+ *
+ *  @param engine - document engine with layer data
+ *  @param docName - optional document name for the print spooler
+ *  @param signal - optional AbortSignal to cancel the print job
+ *  @throws AbortError if cancelled via signal
+ *  @throws Error if print fails */
 export async function printDocument(
   engine: DocumentEngine,
   docName?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
+
   try {
     // 1. Fetch current settings from Rust
     const raw = await invoke<{ ok: boolean; data?: RustPrintSettings }>("get_print_settings");
+    signal?.throwIfAborted();
     const s = raw.data ?? (raw as unknown as RustPrintSettings);
+
+    // Validate printer selection early
+    if (!s.selected_printer) {
+      showToast("No printer selected. Select a printer in Print Settings.", "warn");
+      return;
+    }
 
     // Compute effective dimensions for landscape output.
     // Rust stores paper_width_mm / paper_height_mm in canonical portrait form
@@ -168,6 +274,7 @@ export async function printDocument(
 
     // 2. Render layers onto document-sized canvas (GPU-accelerated)
     const rawImageBytes = await encodeComposite(engine, "png", 100);
+    signal?.throwIfAborted();
 
     // 3. Determine print DPI — prefer printer-native DPI, fallback to 300.
     //    Compositing at printer DPI means StretchDIBits sees src == dst
@@ -176,47 +283,44 @@ export async function printDocument(
 
     // Apply MAX_PX clamp: if the canvas at this DPI exceeds the safety
     // limit, proportionally reduce DPI so the longest dimension fits.
-    // This preserves the 1:1 property (both source canvas and printer page
-    // are at the same clamped resolution).
     const maxDimPx = Math.round((Math.max(effW, effH) / MM_PER_INCH) * dpi);
     const effectiveDpi = maxDimPx > MAX_PX
       ? ((MAX_PX / maxDimPx) * dpi)
       : dpi;
 
-    // 4. Use per-side margins for compositing (fix #2).
-    //    Margin values are physical paper edges, consistent between
-    //    frontend and GDI regardless of orientation.
+    // 4. Use per-side margins for compositing
     const mL = s.margin_left_mm ?? s.margin_mm;
     const mR = s.margin_right_mm ?? s.margin_mm;
     const mT = s.margin_top_mm ?? s.margin_mm;
     const mB = s.margin_bottom_mm ?? s.margin_mm;
 
-    // 5. Composite onto paper-sized canvas at target DPI (GPU-accelerated).
-    //    Returns raw RGBA pixels — no format encoding.
-    const { bytes, width, height } = await compositeForPrint(
-      rawImageBytes,
-      effW,
-      effH,
-      mL, mR, mT, mB,
-      s.scale_percent,
-      s.center_image,
-      s.left_offset_mm,
-      s.top_offset_mm,
-      effectiveDpi,
-    );
+    // 5. Composite onto paper-sized canvas at target DPI.
+    //    Uses printWorker.ts → GPU readback off main thread.
+    //    Falls back to main-thread composite when Worker unavailable.
+    const settings: PrintCompositeSettings = {
+      paperWidthMm: effW,
+      paperHeightMm: effH,
+      marginLeftMm: mL,
+      marginRightMm: mR,
+      marginTopMm: mT,
+      marginBottomMm: mB,
+      scalePercent: s.scale_percent,
+      centerImage: s.center_image,
+      leftOffsetMm: s.left_offset_mm,
+      topOffsetMm: s.top_offset_mm,
+      targetDpi: effectiveDpi,
+      maxPx: MAX_PX,
+    };
 
-    // 6. Validate printer selection before dispatch
-    if (!s.selected_printer) {
-      showToast("No printer selected. Select a printer in Print Settings.", "warn");
-      return;
-    }
+    const { bytes, width, height } = await compositeWithWorker(rawImageBytes, settings, signal);
+    signal?.throwIfAborted();
 
-    // 7. Send raw RGBA pixels directly to Rust via Tauri v2 raw IPC.
+    // 6. Send raw RGBA pixels directly to Rust via Tauri v2 raw IPC.
     //    Raw pixels (no format encoding) in body, dimensions + printer
     //    settings in headers. Rust passes straight to GDI with zero decode.
     await invoke("print_image_raw", bytes, {
       headers: {
-        printer: s.selected_printer!,
+        printer: s.selected_printer,
         copies: String(s.copies || 1),
         paperWidthMm: String(effW),
         paperHeightMm: String(effH),
@@ -234,6 +338,12 @@ export async function printDocument(
     });
     showToast("Print job spooled to system printer", "info");
   } catch (err) {
+    // M3: Distinguish AbortError — silent, no toast
+    if (err instanceof DOMException && err.name === "AbortError") {
+      console.log("[PRINT] Cancelled by user");
+      return;
+    }
+
     let msg: string;
     if (err instanceof Error) { msg = err.message; }
     else {
