@@ -10,7 +10,7 @@ import { addRecentFile } from "@/lib/recentFiles";
 import { showToast } from "./Toast";
 import { tick } from "@/lib/dom";
 
-interface OpenImageParams {
+export interface OpenImageParams {
   workspace: WorkspaceManager;
   renderer: WebGL2Backend;
   scheduler: RenderScheduler;
@@ -50,28 +50,39 @@ export async function openImage(params: OpenImageParams) {
     params.onLoading?.(`Opening ${total} file${total > 1 ? "s" : ""}...`);
 
     try {
-      // Decode + build sessions in parallel (image decoding runs in a worker
-      // thread), then add them in one batch. This avoids the per-file
-      // addDocument → activeDocumentId → full-render thrashing that the old
-      // sequential `await openSingleFile` loop caused on batch imports.
+      // Separate .ptz project files from regular images — .ptz needs
+      // sequential DocumentEngine restoration (loadProjectFile), while
+      // images can be decoded in parallel (decodeSessionFromFile).
+      const ptzPaths = paths.filter((p) => p.toLowerCase().endsWith(".ptz"));
+      const imagePaths = paths.filter((p) => !p.toLowerCase().endsWith(".ptz"));
+
+      let loadedAny = false;
+
+      // Decode regular images in parallel
       const sessions = await Promise.all(
-        paths.map((p) => decodeSessionFromFile(p, params)),
+        imagePaths.map((p) => decodeSessionFromFile(p, params)),
       );
-      let lastBgId: string | null = null;
-      let lastBitmap: ImageBitmap | null = null;
       for (const s of sessions) {
         if (!s) continue;
         params.workspace.addDocument(s.session);
         params.renderer.uploadImage(s.bgLayerId, s.bitmap);
         addRecentFile(s.path, s.fileName);
-        lastBgId = s.bgLayerId;
-        lastBitmap = s.bitmap;
-      }
-      if (lastBgId && lastBitmap) {
-        params.scheduler.requestRender();
+        loadedAny = true;
       }
 
-      showToast("File(s) loaded", "info");
+      // Open .ptz projects sequentially (each involves engine restoration
+      // and per-layer bitmap decoding — not parallelizable)
+      for (const p of ptzPaths) {
+        const fileName = p.split(/[/\\]/).pop() || "Project";
+        params.onLoading?.(`Loading project ${fileName}...`);
+        await loadProjectFile(p, params, fileName);
+        loadedAny = true;
+      }
+
+      if (loadedAny) {
+        params.scheduler.requestRender();
+        showToast("File(s) loaded", "info");
+      }
     } finally {
       params.onLoading?.(null);
     }
@@ -205,7 +216,7 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
   const session: DocumentSession = {
     engine,
     history: new CommandHistory(),
-    displayName: model.name,
+    displayName: fileName,
     sourcePath: path,
     dirty: false,
   };

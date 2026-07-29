@@ -4,6 +4,7 @@ import { Icon } from "../icons";
 import { useEditor } from "./EditorContext";
 import { getPaintToolBlockReason } from "../brushToolState";
 import { autosaveStatus, autosaveError, autosaveTimestamp } from "../autoSave";
+import { saveInProgress, saveProgressText } from "../saveState";
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   move: "Drag to move layer. Hold Shift for constrained movement.",
@@ -113,6 +114,10 @@ export function BottomStatusBar() {
                 <span class="text-red-400" title={autosaveError() ?? ""}>Save failed</span>
               </Show>
             </span>
+          </Show>
+          {/* Manual save status indicator */}
+          <Show when={saveInProgress()}>
+            <span class="border-l border-editor-divider pl-3 text-editor-text/40 italic">{saveProgressText()}</span>
           </Show>
         </Show>
       </div>

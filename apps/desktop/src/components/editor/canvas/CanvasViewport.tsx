@@ -1238,9 +1238,10 @@ export function CanvasViewport() {
             />
           )}
         </Show>
-      </Show>
-      <BrushContextMenu />
-      <CanvasContextMenu />
-    </div>
+        </Show>
+
+        <BrushContextMenu />
+        <CanvasContextMenu />
+      </div>
   );
 }

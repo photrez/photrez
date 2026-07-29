@@ -17,6 +17,7 @@ import { serializeAndSaveProject } from "./projectSerialize";
 import { addRecentFile } from "@/lib/recentFiles";
 import { easeOutCubic } from "@/viewport/easing";
 import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } from "./exportDocument";
+import { saveInProgress, setSaveInProgress, saveActive, setSaveActive, setSaveProgressText, cancelPendingSaveDismiss, scheduleSaveDismiss } from "./saveState";
 
 export const NATIVE_MENU_EVENT = "photrez://native-menu";
 export const EDITOR_COMMAND_EVENT = "photrez://editor-command";
@@ -296,6 +297,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         void editor.openImage();
         break;
       case "file.save": {
+        // Guard: prevent concurrent save while I/O is in flight
+        if (saveActive()) break;
+
         const session = editor.workspace.getActiveSession();
         if (!session) break;
 
@@ -315,14 +319,20 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           break;
         }
 
-        // Quick overwrite
+        // Quick overwrite — lock canvas during I/O for data safety
         void (async () => {
+          cancelPendingSaveDismiss();
           try {
             if (ext === "ptz") {
-              showToast("Saving project...", "info");
+              setSaveInProgress(true);
+              setSaveActive(true);
+              setSaveProgressText("Saving project...");
+              const preSaveSnapshot = engine.snapshot();
               await serializeAndSaveProject(engine, session.sourcePath!);
-              engine.clearDirty();
-              session.dirty = false;
+              setSaveActive(false);
+              engine.clearDirty(preSaveSnapshot);
+              session.dirty = engine.isDirty();
+              setSaveProgressText("Saved");
             } else {
               const format: ExportFormat = ext === "jpg" || ext === "jpeg" ? "jpeg"
                 : ext === "webp" ? "webp" : "png";
@@ -346,25 +356,38 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
                   quality = saved;
                 }
               }
+              setSaveInProgress(true);
+              setSaveActive(true);
+              setSaveProgressText(`Saving ${format.toUpperCase()}...`);
+              const preSaveSnapshot = engine.snapshot();
               const bytes = await encodeComposite(engine, format, quality);
               await writeFileBytes(session.sourcePath!, bytes);
-              engine.clearDirty();
-              session.dirty = false;
+              setSaveActive(false);
+              engine.clearDirty(preSaveSnapshot);
+              session.dirty = engine.isDirty();
+              setSaveProgressText("Saved");
             }
             addRecentFile(session.sourcePath!, session.displayName);
-            showToast("Saved", "info");
             editor.workspace.notifyVisualChange();
             editor.scheduler.requestRender();
           } catch (err) {
+            setSaveActive(false);
+            setSaveProgressText("Save failed");
             showToast(`Failed to save: ${err}`, "error");
+          } finally {
+            scheduleSaveDismiss();
           }
         })();
         break;
       }
       case "file.save-as": {
+        // Guard: prevent concurrent save while I/O is in flight
+        if (saveActive()) break;
+
         const session = editor.workspace.getActiveSession();
         if (!session) break;
         void (async () => {
+          cancelPendingSaveDismiss();
           try {
             const engine = session.engine;
             const baseName = session.displayName.replace(/\.[^.]+$/, "");
@@ -381,13 +404,18 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
 
             if (ext === "ptz") {
               // Project save — working doc switches to .ptz
+              setSaveInProgress(true);
+              setSaveActive(true);
+              setSaveProgressText("Saving project...");
+              const preSaveSnapshot = engine.snapshot();
               await serializeAndSaveProject(engine, path);
+              setSaveActive(false);
+              engine.clearDirty(preSaveSnapshot);
+              session.dirty = engine.isDirty();
               session.sourcePath = path;
               session.displayName = path.split(/[/\\]/).pop() || session.displayName;
-              engine.clearDirty();
-              session.dirty = false;
               addRecent(path);
-              showToast("Project saved", "info");
+              setSaveProgressText("Saved");
             } else {
               // Flat format save
               const format: ExportFormat = ext === "jpg" || ext === "jpeg" ? "jpeg"
@@ -408,8 +436,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
 
                 // Save .ptz backup if checkbox was checked
                 if (result.checked) {
+                  setSaveInProgress(true);
+                  setSaveActive(true);
+                  setSaveProgressText("Saving project backup...");
+                  const preSaveSnapshot = engine.snapshot();
                   const backupPath = path.replace(/\.[^.]+$/, ".ptz");
                   await serializeAndSaveProject(engine, backupPath);
+                  setSaveActive(false);
+                  engine.clearDirty(preSaveSnapshot);
+                  session.dirty = engine.isDirty();
                   addRecent(backupPath);
                 }
               }
@@ -426,21 +461,30 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
                 quality = chosen;
                 setSavedQuality(format, chosen); // remember last-used for quick saves
               }
+              setSaveInProgress(true);
+              setSaveActive(true);
+              setSaveProgressText(`Saving ${format.toUpperCase()}...`);
+              const preSaveSnapshot = engine.snapshot();
               const bytes = await encodeComposite(engine, format, quality);
               await writeFileBytes(path, bytes);
+              setSaveActive(false);
+              engine.clearDirty(preSaveSnapshot);
+              session.dirty = engine.isDirty();
 
               // Working doc switches to flat format
               session.sourcePath = path;
               session.displayName = path.split(/[/\\]/).pop() || session.displayName;
-              engine.clearDirty();
-              session.dirty = false;
               addRecent(path);
-              showToast(`Saved as ${format.toUpperCase()}`, "info");
+              setSaveProgressText("Saved");
             }
             editor.workspace.notifyVisualChange();
             editor.scheduler.requestRender();
           } catch (err) {
+            setSaveActive(false);
+            setSaveProgressText("Save failed");
             showToast(`Failed to save: ${err}`, "error");
+          } finally {
+            scheduleSaveDismiss();
           }
         })();
         break;

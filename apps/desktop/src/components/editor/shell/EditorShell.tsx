@@ -15,6 +15,7 @@ const ExportDialog = lazy(() => import("../dialogs/ExportDialog").then(m => ({ d
 const PrintDialog = lazy(() => import("../dialogs/PrintDialog").then(m => ({ default: m.PrintDialog })));
 import { ToastHost } from "../Toast";
 import { LoadingOverlay } from "../LoadingOverlay";
+import { saveInProgress, saveActive, saveProgressText } from "../saveState";
 import { GlobalDragDropHost } from "../GlobalDragDropHost";
 import { DragGlobalGuard } from "../DragController";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
@@ -79,6 +80,23 @@ function EditorLayout(props: {
       <Suspense fallback={null}><ExportDialog /></Suspense>
       <Suspense fallback={null}><PrintDialog /></Suspense>
       <LoadingOverlay />
+      <Show when={saveInProgress()}>
+        <div class="fixed inset-x-0 top-[46px] bottom-0 z-50 flex items-center justify-center bg-black/40">
+          <div class="flex flex-col items-center gap-4 rounded-lg bg-editor-panel border border-editor-divider px-8 py-6 shadow-xl">
+            <Show when={saveActive()} fallback={
+              <svg class="size-8 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            }>
+              <svg class="animate-spin size-8 text-editor-accent" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </Show>
+            <span class="text-[13px] text-editor-text">{saveProgressText()}</span>
+          </div>
+        </div>
+      </Show>
       <ToastHost />
     </div>
   );

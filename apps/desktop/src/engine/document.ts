@@ -823,13 +823,22 @@ export class DocumentEngine {
     return Array.from(this.dirtyLayerIds);
   }
 
-  clearDirty(): void {
+  /**
+   * Mark the document as clean (saved).
+   *
+   * @param baseline - Optional snapshot taken BEFORE the save operation.
+   *   When provided, it is used as the saved baseline instead of the current
+   *   model so that any edits made during an async save window are correctly
+   *   detected as dirty rather than silently accepted as the saved state.
+   */
+  clearDirty(baseline?: DocumentModel): void {
     this.dirtyLayerIds.clear();
-    this.model.dirty = false;
-    // Snapshot the saved baseline so undo back to a *different* state than
-    // what was saved is still reported dirty (regression: undo to pre-edit
-    // state after save showed "clean" because the flag lived in the model).
-    this.savedModel = createSnapshot(this.model);
+    // Use the caller-supplied pre-save snapshot as the saved baseline when
+    // available; otherwise use the current model (for new / reopened docs).
+    this.savedModel = baseline ? createSnapshot(baseline) : createSnapshot(this.model);
+    // If the current model differs from the baseline, edits happened during
+    // the async save — keep the dirty flag so they aren't silently dropped.
+    this.model.dirty = !DocumentEngine.modelsEqual(this.savedModel, this.model as DocumentModel);
   }
 
   // ─── Change Notification ───
