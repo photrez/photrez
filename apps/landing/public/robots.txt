@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://photrez.github.io/sitemap-index.xml

@@ -5,6 +5,8 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "bun run --filter photrez-desktop dev",
+    "landing:dev": "bun run --filter photrez-landing dev",
+    "landing:build": "bun run --filter photrez-landing build",
     "build": "bun run --filter photrez-desktop build",
     "test": "bun run --filter photrez-desktop test",
     "type-check": "bun run --filter photrez-desktop type-check",

@@ -1,0 +1,115 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+  canonicalUrl?: string;
+}
+
+const {
+  title = "Photrez — A Lean Desktop Image Editor for Windows",
+  description = "Photrez is a lean, offline-first desktop image editor for Windows. Layers, brush, crop, and export — no cloud uploads, no bloat.",
+  image = "https://photrez.github.io/screenshots/hero.png",
+  canonicalUrl = "https://photrez.github.io/"
+} = Astro.props;
+
+const jsonLdSchema = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Photrez",
+  "operatingSystem": "Windows 10+, macOS, Linux",
+  "applicationCategory": "GraphicsApplication",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "description": description,
+  "downloadUrl": "https://github.com/photrez/photrez/releases/latest",
+  "softwareVersion": "0.1.0",
+  "operatingSystem": "Windows 10+, macOS (planned), Linux (planned)",
+  "featureList": [
+    "Hardware-accelerated canvas rendering (WebGL2)",
+    "Non-destructive layer stack with full blend mode support",
+    "100% offline and privacy-first — zero cloud uploads",
+    "Compact installer, low memory footprint, fast startup",
+    "PNG, JPEG, and WebP export"
+  ],
+  "author": {
+    "@type": "Organization",
+    "name": "Photrez Team",
+    "url": "https://github.com/photrez"
+  }
+});
+---
+
+<!doctype html>
+<html lang="en" class="dark scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Canonical URL -->
+    <link rel="canonical" href={canonicalUrl} />
+
+    <!-- Primary Meta Tags -->
+    <title>{title}</title>
+    <meta name="title" content={title} />
+    <meta name="description" content={description} />
+    <meta name="keywords" content="photrez, desktop image editor, windows photo editor, offline image editor, open source, lightweight, solidjs, tauri" />
+    <meta name="author" content="Photrez Team" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151516" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content="Photrez Image Studio" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={image} />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content={canonicalUrl} />
+    <meta property="twitter:title" content={title} />
+    <meta property="twitter:description" content={description} />
+    <meta property="twitter:image" content={image} />
+
+    <!-- Schema.org JSON-LD for Google Rich Snippets -->
+    <script type="application/ld+json" set:html={jsonLdSchema} />
+
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#121214] text-[#E4E4E7] font-sans antialiased selection:bg-[#E15A17] selection:text-white min-h-screen flex flex-col">
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --brand-amber: #E15A17;
+    --brand-amber-light: #FFB31A;
+    --bg-dark: #121214;
+    --bg-panel: #18181B;
+    --border-subtle: #2C2C2E;
+  }
+
+  body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  h1, h2, h3, .font-heading {
+    font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Neutral Elevation Shadow */
+  .shadow-elevation {
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.65);
+  }
+</style>

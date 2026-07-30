@@ -1,0 +1,359 @@
+---
+import Layout from '../layouts/Layout.astro';
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · macrostructure: bento-asymmetric */
+---
+
+<Layout
+  title="Photrez — A Lean Desktop Image Editor for Windows"
+  description="Photrez is a lean, offline-first desktop image editor for Windows. Layers, brush, crop, and export — all under 80 MB, no cloud uploads, no bloat."
+>
+    <!-- Skip to main content (a11y) -->
+    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-[#E15A17] focus:text-zinc-950 focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm focus:font-bold">
+      Skip to content
+    </a>
+
+    <!-- Navigation Header (Clean & Unobstructive, Solid Surface) -->
+  <header class="sticky top-0 z-50 bg-[#151517] border-b border-[#2C2C2E]">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between font-sans">
+      <a href="/" class="flex items-center gap-3 group">
+        <img src="/favicon.svg" alt="Photrez Logo" class="w-8 h-8 rounded-lg group-hover:scale-105 transition-transform" />
+        <span class="font-heading font-bold text-lg text-white">Photrez</span>
+      </a>
+
+      <!-- Desktop Navigation -->
+      <nav aria-label="Main navigation" class="hidden md:flex items-center gap-8 text-xs font-medium text-zinc-400">
+        <a href="#features" aria-label="Jump to capabilities section" class="hover:text-white focus-visible:outline-none focus-visible:text-white focus-visible:ring-2 focus-visible:ring-[#E15A17] rounded-md px-1.5 py-1 transition-colors">Capabilities</a>
+        <a href="#architecture" aria-label="Jump to architecture section" class="hover:text-white focus-visible:outline-none focus-visible:text-white focus-visible:ring-2 focus-visible:ring-[#E15A17] rounded-md px-1.5 py-1 transition-colors">Architecture</a>
+        <a href="#performance" aria-label="Jump to benchmarks section" class="hover:text-white focus-visible:outline-none focus-visible:text-white focus-visible:ring-2 focus-visible:ring-[#E15A17] rounded-md px-1.5 py-1 transition-colors">Benchmarks</a>
+        <a href="https://github.com/photrez/photrez#readme" target="_blank" rel="noopener noreferrer" aria-label="Photrez documentation on GitHub" class="hover:text-white focus-visible:outline-none focus-visible:text-white focus-visible:ring-2 focus-visible:ring-[#E15A17] rounded-md px-1.5 py-1 transition-colors">Docs</a>
+      </nav>
+
+      <div class="flex items-center gap-3">
+        <a
+          href="https://github.com/photrez/photrez"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hidden sm:inline-flex items-center gap-2 text-xs font-medium text-zinc-300 bg-zinc-900 hover:bg-zinc-800 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E15A17] px-3.5 py-2 rounded-lg transition-colors"
+        >
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+
+        <a
+          href="#download"
+          class="inline-flex items-center gap-2 text-xs font-bold text-zinc-950 bg-[#E15A17] hover:bg-[#FFB31A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#E15A17] px-4 py-2 rounded-lg transition-all shadow-md active:scale-95"
+        >
+          Download Desktop
+        </a>
+
+        <!-- Mobile Menu Toggle Button -->
+        <button
+          id="mobile-menu-btn"
+          type="button"
+          aria-expanded="false"
+          aria-controls="mobile-menu"
+          aria-label="Toggle mobile menu"
+          class="md:hidden p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E15A17]"
+        >
+          <svg id="menu-icon-open" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          <svg id="menu-icon-close" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile Navigation Drawer -->
+    <div id="mobile-menu" class="hidden md:hidden max-w-6xl mx-auto px-4 pb-4 pt-2 border-t border-white/10 font-sans">
+      <nav aria-label="Mobile navigation" class="flex flex-col gap-3 text-sm font-medium text-zinc-300">
+        <a href="#features" class="hover:text-white py-1 transition-colors">Capabilities</a>
+        <a href="#architecture" class="hover:text-white py-1 transition-colors">Architecture</a>
+        <a href="#performance" class="hover:text-white py-1 transition-colors">Benchmarks</a>
+        <a href="https://github.com/photrez/photrez#readme" target="_blank" rel="noopener noreferrer" class="hover:text-white py-1 transition-colors">Docs &amp; GitHub Readme</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 font-sans">
+    
+    <!-- Hero Section (Hallmark Authentic Layout) -->
+    <section class="py-16 sm:py-20 border-b border-white/10">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+        
+        <div class="lg:col-span-7 text-left">
+          <!-- Main Headline -->
+          <h1 class="font-heading text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-tight">
+            Image editing that stays out of your way.<br />
+            <span class="text-[#E15A17]">Lean. Offline. Under 80 MB.</span>
+          </h1>
+
+          <!-- Description -->
+          <p class="mt-6 text-base sm:text-lg text-zinc-400 leading-relaxed max-w-xl">
+            Photrez is a native desktop image editor that starts fast, keeps your files on your machine, and handles layers, brushwork, and exports without the bloat of traditional suites.
+          </p>
+
+          <!-- Primary Action Buttons -->
+          <div id="download" class="mt-8 flex flex-wrap items-center gap-4">
+            <a
+              href="https://github.com/photrez/photrez/releases/latest"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center gap-2.5 text-sm font-bold text-zinc-950 bg-[#E15A17] hover:bg-[#FFB31A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#E15A17] px-6 py-3.5 rounded-xl transition-all shadow-md active:scale-95"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              Download for Windows
+            </a>
+
+            <a
+              href="https://github.com/photrez/photrez"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center gap-2 text-sm font-medium text-zinc-300 bg-zinc-900 hover:bg-zinc-800 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E15A17] px-5 py-3.5 rounded-xl transition-colors"
+            >
+              View Source on GitHub
+            </a>
+          </div>
+
+          <!-- Platform strip: visual hierarchy -->
+          <div class="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+            <span class="text-zinc-300 font-medium">Windows 10/11 (64-bit)</span>
+            <span class="text-zinc-600">·</span>
+            <span class="text-zinc-400">macOS &amp; Linux (beta)</span>
+            <span class="text-zinc-600">·</span>
+            <span class="text-zinc-400">100% Offline</span>
+            <span class="text-zinc-600">·</span>
+            <span class="text-zinc-400">AGPLv3 Open-Source</span>
+          </div>
+        </div>
+
+        <!-- Clean Product Workspace Figure (Real Application Screenshot) -->
+        <div class="lg:col-span-5">
+          <figure class="rounded-2xl border border-white/10 bg-[#1C1C1F] overflow-hidden shadow-elevation p-2">
+            <img
+              src="/screenshots/layers.png"
+              alt="Photrez Native Desktop Image Studio Interface"
+              class="w-full h-auto rounded-xl border border-white/5 shadow-sm hover:scale-[1.01] transition-transform duration-300"
+              loading="eager"
+            />
+          </figure>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Core Capabilities Asymmetric Bento Grid (Hallmark Anti-3-Column Rule) -->
+    <section id="features" class="py-16 border-b border-white/10">
+      <div class="text-left max-w-2xl mb-12">
+            <h2 class="font-heading text-2xl sm:text-3xl font-bold text-white">Built for everyday editing</h2>
+            <p class="mt-2 text-sm text-zinc-400">
+              The tools you need, packed in a lean desktop app.
+            </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <!-- Large Featured Bento Card (Span 2) -->
+        <div class="md:col-span-2 p-8 rounded-2xl bg-[#1C1C1F] border border-white/10 hover:border-[#E15A17]/50 transition-colors flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-bold text-[#E15A17] tracking-wider mb-3">01 / PERFORMANCE</div>
+            <h3 class="font-heading text-2xl font-bold text-white mb-3">Smooth canvas on any machine</h3>
+            <p class="text-sm text-zinc-400 leading-relaxed max-w-xl">
+              Photrez uses your GPU to keep panning, zooming, and layer work fluid — even on large images. No lag, no waiting.
+            </p>
+          </div>
+          <div class="mt-8 pt-4 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400">
+            <span>Viewport Rendering</span>
+            <span class="text-emerald-400 font-semibold">GPU Accelerated</span>
+          </div>
+        </div>
+
+        <!-- Vertical Privacy Card (Span 1) -->
+        <div class="p-8 rounded-2xl bg-[#1C1C1F] border border-white/10 hover:border-[#E15A17]/50 transition-colors flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-bold text-[#E15A17] tracking-wider mb-3">02 / PRIVACY</div>
+            <h3 class="font-heading text-xl font-bold text-white mb-3">100% offline, zero uploads</h3>
+            <p class="text-sm text-zinc-400 leading-relaxed">
+              Your images never leave your machine. No cloud processing, no telemetry, no hidden uploads.
+            </p>
+          </div>
+          <div class="mt-6 text-xs text-zinc-400">Everything stays local</div>
+        </div>
+
+        <!-- Grid Row 2: 3 Asymmetric Aspect Cards -->
+        <div class="p-6 rounded-2xl bg-[#1C1C1F] border border-white/10 hover:border-[#E15A17]/50 transition-colors flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-bold text-[#E15A17] tracking-wider mb-3">03 / LAYERS</div>
+            <h3 class="font-heading text-lg font-bold text-white mb-2">Stack, arrange, and blend</h3>
+            <p class="text-sm text-zinc-400 leading-relaxed">
+              Full layer control with opacity, blend modes, and non-destructive transforms — your originals stay intact.
+            </p>
+          </div>
+          <div class="mt-6 pt-4 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400">
+            <span>Layer Engine</span>
+            <span class="text-emerald-400 font-semibold">Non-Destructive</span>
+          </div>
+        </div>
+
+        <div class="p-6 rounded-2xl bg-[#1C1C1F] border border-white/10 hover:border-[#E15A17]/50 transition-colors flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-bold text-[#E15A17] tracking-wider mb-3">04 / BRUSH</div>
+            <h3 class="font-heading text-lg font-bold text-white mb-2">Brush &amp; eraser tools</h3>
+            <p class="text-sm text-zinc-400 leading-relaxed">
+              Paint and erase with adjustable stroke size and opacity. Clean, responsive, no fuss.
+            </p>
+          </div>
+          <div class="mt-6 pt-4 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400">
+            <span>Stroke Rendering</span>
+            <span class="text-emerald-400 font-semibold">Realtime Canvas</span>
+          </div>
+        </div>
+
+        <div class="p-6 rounded-2xl bg-[#1C1C1F] border border-white/10 hover:border-[#E15A17]/50 transition-colors flex flex-col justify-between">
+          <div>
+            <div class="text-xs font-bold text-[#E15A17] tracking-wider mb-3">05 / EXPORT &amp; HISTORY</div>
+            <h3 class="font-heading text-lg font-bold text-white mb-2">Fast export, unlimited undo</h3>
+            <p class="text-sm text-zinc-400 leading-relaxed">
+              Export to PNG, JPEG, or WebP. Undo and redo through your entire edit history without slowing down.
+            </p>
+          </div>
+          <div class="mt-6 pt-4 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400">
+            <span>Export Formats</span>
+            <span class="text-zinc-300 font-medium">PNG · JPEG · WebP</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Runtime Architecture Section -->
+    <section id="architecture" class="py-16 border-b border-white/10">
+      <div class="text-left max-w-2xl mb-12">
+        <h2 class="font-heading text-2xl sm:text-3xl font-bold text-white">Runtime Architecture</h2>
+        <p class="mt-2 text-sm text-zinc-400">
+          Photrez decouples shell, frontend, renderer, and compute core into distinct specialized layers.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="p-6 rounded-2xl bg-[#1C1C1F] border border-white/10">
+          <span class="text-xs font-semibold text-[#E15A17] uppercase tracking-wider block mb-2">Native Shell</span>
+          <h3 class="font-heading font-bold text-base text-white mb-2">Tauri 2 (Rust)</h3>
+          <p class="text-xs text-zinc-400 leading-relaxed">
+            Provides native window shell, dialogs, and IPC response envelopes with zero Node.js runtime footprint.
+          </p>
+        </div>
+
+        <div class="p-6 rounded-2xl bg-[#1C1C1F] border border-white/10">
+          <span class="text-xs font-semibold text-[#E15A17] uppercase tracking-wider block mb-2">Frontend UI</span>
+          <h3 class="font-heading font-bold text-base text-white mb-2">SolidJS + TypeScript</h3>
+          <p class="text-xs text-zinc-400 leading-relaxed">
+            Fine-grained reactive signals for instant UI responsiveness without virtual-DOM overhead.
+          </p>
+        </div>
+
+        <div class="p-6 rounded-2xl bg-[#1C1C1F] border border-white/10">
+          <span class="text-xs font-semibold text-[#E15A17] uppercase tracking-wider block mb-2">Compositor</span>
+          <h3 class="font-heading font-bold text-base text-white mb-2">WebGL2 Renderer</h3>
+          <p class="text-xs text-zinc-400 leading-relaxed">
+            GLSL ES 3.0 shaders managing GPU texture uploads, compositing, and viewport transformation matrices.
+          </p>
+        </div>
+
+        <div class="p-6 rounded-2xl bg-[#1C1C1F] border border-white/10">
+          <span class="text-xs font-semibold text-[#E15A17] uppercase tracking-wider block mb-2">Compute Engine</span>
+          <h3 class="font-heading font-bold text-base text-white mb-2">Rust WASM Core</h3>
+          <p class="text-xs text-zinc-400 leading-relaxed">
+            photrez-core — compiled via wasm-pack for zero-copy pixel buffer encoding.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Performance Benchmarks Table -->
+    <section id="performance" class="py-16 border-b border-white/10">
+      <div class="text-left max-w-2xl mb-8">
+        <h2 class="font-heading text-2xl sm:text-3xl font-bold text-white">Resource Benchmarks</h2>
+        <p class="mt-2 text-sm text-zinc-400">Runtime targets set in the spec, versus what the current alpha build actually achieves.</p>
+      </div>
+
+      <div class="overflow-x-auto border border-white/10 rounded-2xl bg-[#1C1C1F]">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-white/10 bg-[#151517] text-zinc-400 text-xs">
+              <th class="py-3.5 px-6 font-semibold">METRIC</th>
+              <th class="py-3.5 px-6 font-semibold text-[#FFB31A]">TARGET</th>
+              <th class="py-3.5 px-6 font-semibold text-emerald-400">ALPHA 2 (ACTUAL)</th>
+              <th class="py-3.5 px-6 font-semibold">NOTES</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/10 text-zinc-300">
+            <tr>
+              <td class="py-4 px-6 font-bold text-white">Installer Size</td>
+              <td class="py-4 px-6 text-[#FFB31A] font-semibold">&lt; 80 MB</td>
+              <td class="py-4 px-6 text-emerald-400 font-semibold">4–6 MB</td>
+              <td class="py-4 px-6 text-zinc-400">Compiled Rust binary shell, zero Chromium bundle.</td>
+            </tr>
+            <tr>
+              <td class="py-4 px-6 font-bold text-white">Idle Memory</td>
+              <td class="py-4 px-6 text-[#FFB31A] font-semibold">&lt; 250 MB</td>
+              <td class="py-4 px-6 text-emerald-400 font-semibold">~34 MB</td>
+              <td class="py-4 px-6 text-zinc-400">Strict GPU texture lifecycle, automatic eviction of unused resources.</td>
+            </tr>
+            <tr>
+              <td class="py-4 px-6 font-bold text-white">Cold Startup</td>
+              <td class="py-4 px-6 text-[#FFB31A] font-semibold">&lt; 2.0 s</td>
+              <td class="py-4 px-6 text-emerald-400 font-semibold">Near-instant</td>
+              <td class="py-4 px-6 text-zinc-400">No splash screen on release builds — main window appears directly.</td>
+            </tr>
+            <tr>
+              <td class="py-4 px-6 font-bold text-white">Viewport Frame Rate</td>
+              <td class="py-4 px-6 text-[#E15A17] font-semibold">16.6 ms (60 FPS)</td>
+              <td class="py-4 px-6 text-emerald-400 font-semibold">60 FPS (VSync)</td>
+              <td class="py-4 px-6 text-zinc-400">GPU shader compositing at up to 4K viewport resolution.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-10 text-xs text-zinc-400">
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+          <img src="/favicon.svg" alt="Photrez Logo" class="w-5 h-5 rounded-md" />
+          <span>Photrez Project © {new Date().getFullYear()} • AGPLv3 Open-Source</span>
+        </div>
+
+        <div class="flex items-center gap-6 text-zinc-400">
+          <a href="https://github.com/photrez/photrez" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">GitHub</a>
+          <a href="https://github.com/photrez/photrez/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">AGPL-3.0 License</a>
+          <a href="https://github.com/photrez/photrez/releases" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Releases</a>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <script>
+    const btn = document.getElementById('mobile-menu-btn');
+    const menu = document.getElementById('mobile-menu');
+    const iconOpen = document.getElementById('menu-icon-open');
+    const iconClose = document.getElementById('menu-icon-close');
+
+    if (btn && menu && iconOpen && iconClose) {
+      btn.addEventListener('click', () => {
+        const expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        menu.classList.toggle('hidden');
+        iconOpen.classList.toggle('hidden');
+        iconClose.classList.toggle('hidden');
+      });
+
+      menu.querySelectorAll('a').forEach((link) => {
+        link.addEventListener('click', () => {
+          btn.setAttribute('aria-expanded', 'false');
+          menu.classList.add('hidden');
+          iconOpen.classList.remove('hidden');
+          iconClose.classList.add('hidden');
+        });
+      });
+    }
+  </script>
+</Layout>

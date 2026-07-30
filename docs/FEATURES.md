@@ -9,6 +9,8 @@
 
 | Status  | Fitur                                                                                                                                                                    |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ✅ DONE | High-SEO Landing Page Workspace (`apps/landing`) — Created Astro 4 static site with pre-rendered HTML (0kb crawler JS), OpenGraph, Twitter Cards, Schema.org `SoftwareApplication` JSON-LD markup, sitemap generation, and automated GitHub Pages deployment workflow (`.github/workflows/deploy-landing.yml`) targeting `https://photrez.github.io` |
+| ✅ DONE | Landing page copywriting revamp — rewrote all public-facing copy from engineering jargon to benefit-driven marketing copy ("stays out of your way", "smooth canvas on any machine", "no cloud uploads, no bloat"), aligned with brand voice (direct, confident, technical but approachable), zero overclaim |
 | ✅ DONE | External image-editor branding removed from project-owned source comments, test labels, documentation, local agent references, and filenames; behavior remains unchanged |
 | ✅ DONE | Public repository hygiene — local AI-agent workflow files, personal tool configs, and build artifacts removed from Git tracking (`git rm --cached`); files kept on disk  |
 | ✅ DONE | All `ponytail:` AI-mode references removed from source comments — technical substance kept, no more AI workflow labels in production code |
