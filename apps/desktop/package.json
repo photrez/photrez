@@ -17,7 +17,7 @@
     "perf:paint-history": "vitest run src/engine/__tests__/paintHistoryBudget.test.ts",
     "test:e2e:install": "playwright install chromium",
     "test:e2e": "playwright test",
-    "build:wasm": "wasm-pack build ../../crates/core --target web --out-dir src/wasm/pkg"
+    "build:wasm": "node -e \"const{execSync}=require('child_process');execSync('wasm-pack build ../../crates/core --target web --out-dir '+process.cwd()+'/src/wasm/pkg',{cwd:process.cwd(),stdio:'inherit'})\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
