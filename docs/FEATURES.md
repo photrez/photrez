@@ -14,7 +14,7 @@
 | ✅ DONE | External image-editor branding removed from project-owned source comments, test labels, documentation, local agent references, and filenames; behavior remains unchanged |
 | ✅ DONE | Public repository hygiene — local AI-agent workflow files, personal tool configs, and build artifacts removed from Git tracking (`git rm --cached`); files kept on disk  |
 | ✅ DONE | All `ponytail:` AI-mode references removed from source comments — technical substance kept, no more AI workflow labels in production code |
-| ✅ DONE | UX audit fixes — 6 silent `console.error` converted to `showToast` toasts (brush stroke, eraser, renderer init, undo/redo, drag-drop) |
+| ✅ DONE | UX audit fixes — 6 silent `console.error` converted to `showToast` (brush, eraser, renderer, undo/redo, drag-drop) |
 | ✅ DONE | UX audit fix — CropModeIndicator Indonesian text translated to English |
 | ✅ DONE | ResizeObserver debounced with 100ms timeout in useViewportRenderer for performance |
 | ✅ DONE | Hardcoded accent colors → CSS variables (`var(--color-editor-accent)`) across SelectionTransformOverlay, CropOverlayHandles, CropOverlayTooltip |

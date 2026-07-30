@@ -49,8 +49,8 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 
 - Fix all items in `KNOWN_ISSUES.md` that are marked "Fix planned: Beta" where feasible early (window state flash, titlebar accessibility).
 - Startup time optimization (lazy loading, shader precompilation) — target ≤2.5s.
-- UX polish: remaining silent-error paths, UI consistency, keyboard shortcut gaps.
-- `.ptz` format stability hardening (migration path for alpha→beta documented).
+- ✅ UX polish: remaining silent-error paths resolved (merge, flatten, fill toasts), UI consistency, keyboard shortcut gaps.
+- ✅ `.ptz` format stability hardening (migration path for alpha→beta documented in `docs/guide/ptz-migration.md`).
 
 ### New Tools
 

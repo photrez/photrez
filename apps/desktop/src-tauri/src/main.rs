@@ -50,24 +50,24 @@ fn main() {
 
             if let Some(window) = app.get_webview_window("main") {
                 let mut saved = window_state::load_window_state(&app.handle());
-                // Skip restore on first launch (saved state matches
-                // `tauri.conf.json` defaults). Calling set_size/set_position
-                // here races the webview's first paint and can cause a brief
-                // layout flash on cold start; doing nothing is a true no-op.
+                // First launch: saved state matches tauri.conf.json defaults,
+                // nothing to restore — just show the window.
                 let is_first_launch = saved.x.is_none() && saved.y.is_none() && !saved.maximized;
-                if is_first_launch {
-                    return Ok(());
+                if !is_first_launch {
+                    // Guard: if saved position is off-screen (e.g., external monitor
+                    // disconnected), snap back to primary monitor center.
+                    window_state::snap_state_to_screen(&mut saved, app.handle());
+                    let _ = window.set_size(tauri::PhysicalSize::new(saved.width, saved.height));
+                    if let (Some(x), Some(y)) = (saved.x, saved.y) {
+                        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                    }
+                    if saved.maximized {
+                        let _ = window.maximize();
+                    }
                 }
-                // Guard: if saved position is off-screen (e.g., external monitor
-                // disconnected), snap back to primary monitor center.
-                window_state::snap_state_to_screen(&mut saved, app.handle());
-                let _ = window.set_size(tauri::PhysicalSize::new(saved.width, saved.height));
-                if let (Some(x), Some(y)) = (saved.x, saved.y) {
-                    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-                }
-                if saved.maximized {
-                    let _ = window.maximize();
-                }
+                // Window starts hidden ("visible": false in tauri.conf.json).
+                // Show after state is fully applied — prevents resize flash.
+                let _ = window.show();
             }
             Ok(())
         })

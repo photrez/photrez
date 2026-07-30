@@ -499,6 +499,6 @@ describe("useLayerActions wiring", () => {
     const { result } = renderHook(() => useLayerActions(), { wrapper });
     result.handleFlattenAllLayers();
 
-    expect(toastSpy).toHaveBeenCalledWith("Nothing to flatten", "warn");
+    expect(toastSpy).toHaveBeenCalledWith("Could not flatten layers", "warn");
   });
 });

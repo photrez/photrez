@@ -26,9 +26,10 @@ export function mergeActiveLayerDown(
   renderer.destroyTexture(bottomLayer.id);
 
   const mergedLayer = engine.getLayer(engine.getActiveLayerId() || "");
-  if (mergedLayer?.imageBitmap) {
-    renderer.uploadImage(mergedLayer.id, mergedLayer.imageBitmap);
+  if (!mergedLayer?.imageBitmap) {
+    return false;
   }
+  renderer.uploadImage(mergedLayer.id, mergedLayer.imageBitmap);
 
   return true;
 }
@@ -51,9 +52,10 @@ export function flattenAllLayers(
   }
 
   const flattenedLayer = engine.getLayer(engine.getActiveLayerId() || "");
-  if (flattenedLayer?.imageBitmap) {
-    renderer.uploadImage(flattenedLayer.id, flattenedLayer.imageBitmap);
+  if (!flattenedLayer?.imageBitmap) {
+    return false;
   }
+  renderer.uploadImage(flattenedLayer.id, flattenedLayer.imageBitmap);
 
   return true;
 }
@@ -207,8 +209,8 @@ export function fillActiveLayerWithColor(
         bitmap = offscreen.transferToImageBitmap();
       }
     }
-  } catch (err) {
-    console.error("Failed to fill layer with color:", err);
+  } catch (err: unknown) {
+    if (import.meta.env.DEV) console.error("Failed to fill layer with color:", err);
     return false;
   }
   if (!bitmap) return false;

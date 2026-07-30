@@ -1,4 +1,5 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { Icon } from "../icons";
 import { isTauriRuntime, runTauriWindowAction } from "@/lib/desktop";
 import { useEditor } from "./EditorContext";
@@ -66,6 +67,55 @@ export function AppTitleBar(props: AppTitleBarProps) {
       disposed = true;
       unlisten?.();
     });
+  });
+
+  // ── System menu (Alt+Space) ──
+  const [systemMenuOpen, setSystemMenuOpen] = createSignal(false);
+  let systemMenuRef!: HTMLDivElement;
+
+  // ── Keyboard accessibility: F10 (focus menu), Alt+Space (system menu) ──
+  onMount(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip when focus is in an editable control
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      // F10 without modifiers: focus first menu trigger
+      if (e.key === "F10" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        const firstMenu = document.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        firstMenu?.focus();
+        return;
+      }
+
+      // Alt+Space: toggle system menu
+      if (e.key === " " && e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        e.preventDefault();
+        setSystemMenuOpen((prev) => !prev);
+        return;
+      }
+
+      // Escape: close system menu
+      if (e.key === "Escape" && systemMenuOpen()) {
+        e.preventDefault();
+        setSystemMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
+
+  // Close system menu on outside click
+  onMount(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!systemMenuOpen()) return;
+      const target = event.target as Node;
+      if (systemMenuRef?.contains(target)) return;
+      setSystemMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    onCleanup(() => document.removeEventListener("pointerdown", handlePointerDown));
   });
 
   const activeDocName = () => {
@@ -190,6 +240,48 @@ export function AppTitleBar(props: AppTitleBarProps) {
           </button>
         </div>
       </div>
+
+      {/* System menu (Alt+Space) */}
+      <Show when={systemMenuOpen()}>
+        <Portal mount={document.body}>
+          <div
+            ref={systemMenuRef}
+            role="menu"
+            aria-label="System menu"
+            class="fixed z-[100] min-w-44 rounded-[6px] border border-editor-divider bg-editor-panel py-1 text-[12px] text-editor-text shadow-xl"
+            style="left: 0; top: 46px;"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              class="flex h-7 w-full items-center px-3 text-left outline-none hover:bg-editor-field/70 focus-visible:bg-editor-field/70"
+              onClick={() => { runTauriWindowAction("toggleMaximize"); setSystemMenuOpen(false); }}
+              tabIndex={0}
+            >
+              {isMaximized() ? "Restore" : "Maximize"}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="flex h-7 w-full items-center px-3 text-left outline-none hover:bg-editor-field/70 focus-visible:bg-editor-field/70"
+              onClick={() => { runTauriWindowAction("minimize"); setSystemMenuOpen(false); }}
+              tabIndex={0}
+            >
+              Minimize
+            </button>
+            <div role="separator" class="my-1 h-px bg-editor-divider" />
+            <button
+              type="button"
+              role="menuitem"
+              class="flex h-7 w-full items-center px-3 text-left outline-none hover:bg-red-500/85 hover:text-white focus-visible:bg-red-500/85 focus-visible:text-white"
+              onClick={() => { runTauriWindowAction("close"); setSystemMenuOpen(false); }}
+              tabIndex={0}
+            >
+              Close
+            </button>
+          </div>
+        </Portal>
+      </Show>
     </header>
   );
 }

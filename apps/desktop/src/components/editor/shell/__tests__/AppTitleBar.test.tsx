@@ -251,6 +251,82 @@ describe("AppTitleBar keyboard shortcuts", () => {
     dispose();
   });
 
+  // ── System menu (Alt+Space) ──
+
+  it("Alt+Space opens system menu", async () => {
+    const { container, dispose } = renderAppTitleBar();
+    await tick();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", altKey: true, bubbles: true }));
+    await tick();
+
+    const menu = document.querySelector('[role="menu"][aria-label="System menu"]');
+    expect(menu).not.toBeNull();
+    dispose();
+  });
+
+  it("Escape closes system menu", async () => {
+    const { dispose } = renderAppTitleBar();
+    await tick();
+
+    // Open via Alt+Space
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", altKey: true, bubbles: true }));
+    await tick();
+    expect(document.querySelector('[role="menu"][aria-label="System menu"]')).not.toBeNull();
+
+    // Close via Escape
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+    expect(document.querySelector('[role="menu"][aria-label="System menu"]')).toBeNull();
+    dispose();
+  });
+
+  it("outside click closes system menu", async () => {
+    const { dispose } = renderAppTitleBar();
+    await tick();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", altKey: true, bubbles: true }));
+    await tick();
+    expect(document.querySelector('[role="menu"][aria-label="System menu"]')).not.toBeNull();
+
+    // Click outside the menu
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await tick();
+    expect(document.querySelector('[role="menu"][aria-label="System menu"]')).toBeNull();
+    dispose();
+  });
+
+  // ── F10 menu activation ──
+
+  it("F10 focuses the first menu trigger button", async () => {
+    const { container, dispose } = renderAppTitleBar();
+    await tick();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", bubbles: true }));
+    await tick();
+
+    const firstMenu = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+    expect(document.activeElement).toBe(firstMenu);
+    dispose();
+  });
+
+  it("F10 does not activate when focus is in an INPUT element", async () => {
+    const { container, dispose } = renderAppTitleBar();
+    await tick();
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", bubbles: true }));
+    await tick();
+
+    const firstMenu = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+    expect(document.activeElement).not.toBe(firstMenu);
+    document.body.removeChild(input);
+    dispose();
+  });
+
   it("clicking undo button triggers undo", async () => {
     const { ws, container, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);

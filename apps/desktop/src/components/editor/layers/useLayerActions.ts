@@ -59,7 +59,7 @@ export function useLayerActions() {
       if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
         scheduler.requestRender();
       } else {
-        showToast("Nothing to merge", "warn");
+        showToast("Could not merge layers", "warn");
       }
     }
   };
@@ -72,7 +72,7 @@ export function useLayerActions() {
       if (flattenAllLayers(engine, history, renderer)) {
         scheduler.requestRender();
       } else {
-        showToast("Nothing to flatten", "warn");
+        showToast("Could not flatten layers", "warn");
       }
     }
   };

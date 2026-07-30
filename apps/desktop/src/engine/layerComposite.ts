@@ -42,8 +42,9 @@ export function compositeTwoLayers(
         return offscreen.transferToImageBitmap();
       }
     }
-  } catch (err) {
-    console.error("Failed to merge layers in compositeTwoLayers:", err);
+  } catch (err: unknown) {
+    if (import.meta.env.DEV) console.error("compositeTwoLayers failed:", err);
+    // Return null — callers show a toast when compositing fails.
   }
   return null;
 }
@@ -64,8 +65,9 @@ export function compositeAllLayers(
         return offscreen.transferToImageBitmap();
       }
     }
-  } catch (err) {
-    console.error("Failed to flatten layers in compositeAllLayers:", err);
+  } catch (err: unknown) {
+    if (import.meta.env.DEV) console.error("compositeAllLayers failed:", err);
+    // Return null — callers show a toast when compositing fails.
   }
   return null;
 }

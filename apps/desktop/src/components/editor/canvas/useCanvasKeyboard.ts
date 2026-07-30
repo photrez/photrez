@@ -225,6 +225,8 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
             showToast("No editable layer selected", "warn");
           } else if (fillActiveLayerWithColor(engine, history, renderer, resolveColor(fgColor))) {
             scheduler.requestRender();
+          } else {
+            showToast("Could not fill layer", "warn");
           }
           return;
         }
@@ -235,6 +237,8 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
             showToast("No editable layer selected", "warn");
           } else if (fillActiveLayerWithColor(engine, history, renderer, resolveColor(bgColor))) {
             scheduler.requestRender();
+          } else {
+            showToast("Could not fill layer", "warn");
           }
           return;
         }
@@ -646,13 +650,13 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
           if (flattenAllLayers(engine, history, renderer)) {
             scheduler.requestRender();
           } else {
-            showToast("Nothing to flatten", "warn");
+            showToast("Could not flatten layers", "warn");
           }
         } else if (activeId) {
           if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
             scheduler.requestRender();
           } else {
-            showToast("Nothing to merge", "warn");
+            showToast("Could not merge layers", "warn");
           }
         } else {
           showToast("No layer selected", "warn");

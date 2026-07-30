@@ -1,4 +1,4 @@
-name: Deploy Landing Page to GitHub Pages
+name: Deploy Landing Page to photrez.github.io
 
 on:
   push:
@@ -10,15 +10,13 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: 'pages'
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -35,18 +33,11 @@ jobs:
       - name: Build Landing Page
         run: bun run --filter photrez-landing build
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to photrez.github.io
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: ./apps/landing/dist
+          personal_token: ${{ secrets.GH_PAGES_TOKEN }}
+          external_repository: photrez/photrez.github.io
+          publish_branch: main
+          publish_dir: ./apps/landing/dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
