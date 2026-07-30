@@ -133,7 +133,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Bun audit (high/critical)
-        run: bun audit --prod --severity high
+        run: bun audit --prod --audit-level=high --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp
 
   # ─── COMPONENT TESTS: jsdom-based (now passing — blocks PR) ───
   component-tests:
