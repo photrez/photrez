@@ -33,11 +33,17 @@ jobs:
       - name: Build Landing Page
         run: bun run --filter photrez-landing build
 
+      - name: Generate GitHub App token
+        uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          app-id: ${{ vars.PHOTREZ_DEPLOY_APP_ID }}
+          private-key: ${{ secrets.PHOTREZ_DEPLOY_PRIVATE_KEY }}
+
       - name: Deploy to photrez.github.io
         uses: peaceiris/actions-gh-pages@v4
         with:
-          personal_token: ${{ secrets.GH_PAGES_TOKEN }}
+          personal_token: ${{ steps.app-token.outputs.token }}
           external_repository: photrez/photrez.github.io
           publish_branch: main
           publish_dir: ./apps/landing/dist
-
