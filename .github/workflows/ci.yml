@@ -46,6 +46,7 @@ jobs:
           key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install wasm-pack
+        shell: bash
         run: VERSION=0.15.0 curl -sSf https://wasm-bindgen.github.io/wasm-pack/installer/init.sh | sh
 
       - name: Build WASM package
@@ -163,6 +164,7 @@ jobs:
           key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install wasm-pack
+        shell: bash
         run: VERSION=0.15.0 curl -sSf https://wasm-bindgen.github.io/wasm-pack/installer/init.sh | sh
 
       - name: Build WASM package
