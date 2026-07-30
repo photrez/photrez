@@ -37,17 +37,16 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo registry + wasm-pack
+      - name: Cache Cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin/wasm-pack*
           key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
+        run: VERSION=0.15.0 curl -sSf https://wasm-bindgen.github.io/wasm-pack/installer/init.sh | sh
 
       - name: Build WASM package
         working-directory: apps/desktop
@@ -155,17 +154,16 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo registry + wasm-pack
+      - name: Cache Cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin/wasm-pack*
           key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
+        run: VERSION=0.15.0 curl -sSf https://wasm-bindgen.github.io/wasm-pack/installer/init.sh | sh
 
       - name: Build WASM package
         working-directory: apps/desktop
