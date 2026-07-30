@@ -36,7 +36,7 @@ jobs:
       - name: Deploy to photrez.github.io
         uses: peaceiris/actions-gh-pages@v4
         with:
-          personal_token: ${{ secrets.GH_PAGES_TOKEN }}
+          deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
           external_repository: photrez/photrez.github.io
           publish_branch: main
           publish_dir: ./apps/landing/dist
