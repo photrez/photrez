@@ -331,12 +331,12 @@ export class WebGL2Backend implements RenderBackend {
    * match `bakeAdjustmentToBitmap` (top-left, straight-alpha) so the result
    * can replace the layer's stored bitmap and re-upload cleanly.
    */
-  bakeLayerToBitmap(
+  private bakeRenderSetup(
     layerId: string,
     width: number,
     height: number,
     adjustment: BasicAdjustment,
-  ): ImageBitmap | null {
+  ): { gl: WebGL2RenderingContext; fbo: WebGLFramebuffer | null; texture: WebGLTexture | null; prevBlend: boolean } | null {
     const gl = this.gl;
     if (!gl || !this.layerProgram || !this.layerUniforms) return null;
     if (this.contextLost || gl.isContextLost()) return null;
@@ -387,16 +387,14 @@ export class WebGL2Backend implements RenderBackend {
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    const buf = new Uint8ClampedArray(width * height * 4);
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    return { gl, fbo, texture, prevBlend };
+  }
 
-    // Restore GL state.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.deleteFramebuffer(fbo);
-    gl.deleteTexture(texture);
-    if (prevBlend) gl.enable(gl.BLEND);
-
+  private bitmapFromPixels(
+    buf: Uint8ClampedArray<ArrayBuffer>,
+    width: number,
+    height: number,
+  ): ImageBitmap | null {
     // buf is already top-down straight-alpha: flipTexY flips the sample and
     // u_outputStraight un-premultiplies in-shader, so no JS post-pass is needed.
     try {
@@ -417,6 +415,97 @@ export class WebGL2Backend implements RenderBackend {
       return (scratchCanvas as OffscreenCanvas).transferToImageBitmap();
     } catch {
       return null;
+    }
+  }
+
+  private restoreBakeState(
+    gl: WebGL2RenderingContext,
+    fbo: WebGLFramebuffer | null,
+    texture: WebGLTexture | null,
+    prevBlend: boolean,
+  ): void {
+    // Restore GL state.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.deleteFramebuffer(fbo);
+    gl.deleteTexture(texture);
+    if (prevBlend) gl.enable(gl.BLEND);
+  }
+
+  bakeLayerToBitmap(
+    layerId: string,
+    width: number,
+    height: number,
+    adjustment: BasicAdjustment,
+  ): ImageBitmap | null {
+    const s = this.bakeRenderSetup(layerId, width, height, adjustment);
+    if (!s) return null;
+    const { gl, fbo, texture, prevBlend } = s;
+
+    const buf = new Uint8ClampedArray(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+
+    this.restoreBakeState(gl, fbo, texture, prevBlend);
+    return this.bitmapFromPixels(buf, width, height);
+  }
+
+  /**
+   * PBO-accelerated async variant of `bakeLayerToBitmap`: the readback is
+   * packed into a PIXEL_PACK_BUFFER (scheduled DMA — the call returns
+   * immediately instead of stalling the main thread) and resolved with
+   * `getBufferSubDataAsync` (WebView2 / Chromium 110+). The ~50–200ms stall
+   * of a 4K layer `readPixels` moves off the critical path. Falls back to the
+   * sync bake when the async API is unavailable (other runtimes / test env),
+   * and returns null on failure so the engine lands on the CPU pixel pass.
+   */
+  async bakeLayerToBitmapAsync(
+    layerId: string,
+    width: number,
+    height: number,
+    adjustment: BasicAdjustment,
+  ): Promise<ImageBitmap | null> {
+    const gl = this.gl;
+    if (!gl) return null;
+    const asyncRead = (
+      gl as unknown as {
+        getBufferSubDataAsync?: (
+          target: number,
+          srcByteOffset: number,
+          dstData: ArrayBufferView,
+        ) => Promise<void>;
+      }
+    ).getBufferSubDataAsync;
+    // Check the API BEFORE rendering: the sync bake renders and reads back in
+    // one pass, so we avoid drawing the layer twice on the fallback path.
+    if (typeof asyncRead !== "function") {
+      return this.bakeLayerToBitmap(layerId, width, height, adjustment);
+    }
+
+    const s = this.bakeRenderSetup(layerId, width, height, adjustment);
+    if (!s) return null;
+    const { fbo, texture, prevBlend } = s;
+
+    const pbo = gl.createBuffer();
+    try {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, width * height * 4, gl.STREAM_READ);
+      // Numeric offset (not an ArrayBufferView) → pack into the PBO; the GPU
+      // transfer is scheduled asynchronously and control returns immediately.
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+
+      const buf = new Uint8ClampedArray(width * height * 4);
+      await asyncRead.call(gl, gl.PIXEL_PACK_BUFFER, 0, buf);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.deleteBuffer(pbo);
+      return this.bitmapFromPixels(buf, width, height);
+    } catch {
+      // Async readback failed (e.g. context loss mid-await): report null so
+      // the engine falls back to the sync bake / CPU pass.
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.deleteBuffer(pbo);
+      return null;
+    } finally {
+      this.restoreBakeState(gl, fbo, texture, prevBlend);
     }
   }
 

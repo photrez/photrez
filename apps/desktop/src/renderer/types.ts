@@ -52,4 +52,17 @@ export interface RenderBackend {
     height: number,
     adjustment: BasicAdjustment,
   ): ImageBitmap | null;
+
+  /**
+   * Optional async variant of `bakeLayerToBitmap` (PBO + `getBufferSubDataAsync`):
+   * same contract but the readback does not stall the main thread. The engine
+   * prefers this when present, falls back to `bakeLayerToBitmap`, then to the
+   * CPU pixel pass. Returns null when the async path is unavailable or fails.
+   */
+  bakeLayerToBitmapAsync?(
+    layerId: string,
+    width: number,
+    height: number,
+    adjustment: BasicAdjustment,
+  ): Promise<ImageBitmap | null>;
 }

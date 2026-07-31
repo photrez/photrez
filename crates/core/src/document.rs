@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-use std::collections::HashSet;
-use serde::{Deserialize, Serialize};
 use crate::layers::Layer;
 use crate::selection::SelectionRect;
 use crate::transform::Transform;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Document {
@@ -15,7 +15,10 @@ pub struct Document {
     pub dirty_layers: HashSet<String>,
 }
 
-pub const MAX_PIXEL_BUDGET: usize = 268_435_456; // 256 MB in bytes
+// 1 GB — must stay in sync with the TS source of truth:
+// apps/desktop/src/engine/types.ts (MAX_PIXEL_BUDGET). The TypeScript engine
+// is the runtime source of truth; this crate is a WASM-only helper.
+pub const MAX_PIXEL_BUDGET: usize = 1024 * 1024 * 1024;
 
 impl Document {
     pub fn new(id: String, width: u32, height: u32) -> Self {
@@ -30,14 +33,19 @@ impl Document {
     }
 
     pub fn calculate_memory_usage(&self) -> usize {
-        self.layers.iter().map(|l| (l.width * l.height * 4) as usize).sum()
+        self.layers
+            .iter()
+            .map(|l| (l.width * l.height * 4) as usize)
+            .sum()
     }
 
     pub fn add_layer_safe(&mut self, layer: Layer) -> Result<(), String> {
         let additional_bytes = (layer.width * layer.height * 4) as usize;
         let current_bytes = self.calculate_memory_usage();
         if current_bytes + additional_bytes > MAX_PIXEL_BUDGET {
-            return Err("E_RESOURCE_LIMIT: Document memory exceeds max pixel budget of 256MB".to_string());
+            return Err(
+                "E_RESOURCE_LIMIT: Document memory exceeds max pixel budget of 1GB".to_string(),
+            );
         }
         // Insert at index 0 (top of the layer stack) to match high-fidelity design standards
         let layer_id = layer.id.clone();
@@ -51,7 +59,10 @@ impl Document {
     }
 
     pub fn delete_layer(&mut self, id: &str) -> Result<Layer, String> {
-        let index = self.layers.iter().position(|l| l.id == id)
+        let index = self
+            .layers
+            .iter()
+            .position(|l| l.id == id)
             .ok_or_else(|| format!("Layer with id '{}' not found", id))?;
         let removed = self.layers.remove(index);
         self.dirty_layers.insert(id.to_string());
@@ -76,7 +87,10 @@ impl Document {
         name: Option<String>,
         blend_mode: Option<String>,
     ) -> Result<(), String> {
-        let layer = self.layers.iter_mut().find(|l| l.id == id)
+        let layer = self
+            .layers
+            .iter_mut()
+            .find(|l| l.id == id)
             .ok_or_else(|| format!("Layer with id '{}' not found", id))?;
 
         if let Some(o) = opacity {
@@ -101,7 +115,13 @@ impl Document {
     // â”€â”€ Selection Operations â”€â”€
 
     pub fn create_selection(&mut self, x: f32, y: f32, width: f32, height: f32) {
-        let rect = SelectionRect { x, y, width, height }.normalize();
+        let rect = SelectionRect {
+            x,
+            y,
+            width,
+            height,
+        }
+        .normalize();
         let clamped = rect.clamp_to_canvas(self.width, self.height);
         self.selection = Some(clamped);
     }
@@ -131,7 +151,10 @@ impl Document {
     // â”€â”€ Layer Transform Operations â”€â”€
 
     pub fn move_layer(&mut self, id: &str, x: f32, y: f32) -> Result<(), String> {
-        let layer = self.layers.iter_mut().find(|l| l.id == id)
+        let layer = self
+            .layers
+            .iter_mut()
+            .find(|l| l.id == id)
             .ok_or_else(|| format!("Layer with id '{}' not found", id))?;
         layer.x = x;
         layer.y = y;
@@ -140,7 +163,10 @@ impl Document {
     }
 
     pub fn apply_transform(&mut self, id: &str, transform: Transform) -> Result<(), String> {
-        let layer = self.layers.iter_mut().find(|l| l.id == id)
+        let layer = self
+            .layers
+            .iter_mut()
+            .find(|l| l.id == id)
             .ok_or_else(|| format!("Layer with id '{}' not found", id))?;
         layer.transform = transform;
         self.dirty_layers.insert(id.to_string());
@@ -200,7 +226,10 @@ impl Document {
         // Enforce resource limits after decode
         let pixel_bytes = width as usize * height as usize * 4;
         if pixel_bytes > MAX_PIXEL_BUDGET {
-            return Err(format!("E_RESOURCE_LIMIT: Image too large ({}x{} exceeds memory budget)", width, height));
+            return Err(format!(
+                "E_RESOURCE_LIMIT: Image too large ({}x{} exceeds memory budget)",
+                width, height
+            ));
         }
 
         let pixel_data = rgba.into_raw();
@@ -243,9 +272,13 @@ impl Document {
                     let layer_x = x as i32 - lx;
                     let layer_y = y as i32 - ly;
 
-                    if layer_x >= 0 && layer_x < layer.width as i32
-                        && layer_y >= 0 && layer_y < layer.height as i32 {
-                        let layer_idx = ((layer_y as u32 * layer.width + layer_x as u32) * 4) as usize;
+                    if layer_x >= 0
+                        && layer_x < layer.width as i32
+                        && layer_y >= 0
+                        && layer_y < layer.height as i32
+                    {
+                        let layer_idx =
+                            ((layer_y as u32 * layer.width + layer_x as u32) * 4) as usize;
 
                         if layer_idx + 3 < layer.bitmap_ref.pixel_data.len() {
                             let sr = layer.bitmap_ref.pixel_data[layer_idx] as f32 / 255.0;
@@ -258,9 +291,20 @@ impl Document {
 
                             let out_a = alpha + da * (1.0 - alpha);
                             if out_a > 0.0 {
-                                pixels[screen_idx] = ((sr * alpha + pixels[screen_idx] as f32 * da * (1.0 - alpha)) / out_a * 255.0) as u8;
-                                pixels[screen_idx + 1] = ((sg * alpha + pixels[screen_idx + 1] as f32 * da * (1.0 - alpha)) / out_a * 255.0) as u8;
-                                pixels[screen_idx + 2] = ((sb * alpha + pixels[screen_idx + 2] as f32 * da * (1.0 - alpha)) / out_a * 255.0) as u8;
+                                pixels[screen_idx] =
+                                    ((sr * alpha + pixels[screen_idx] as f32 * da * (1.0 - alpha))
+                                        / out_a
+                                        * 255.0) as u8;
+                                pixels[screen_idx + 1] = ((sg * alpha
+                                    + pixels[screen_idx + 1] as f32 * da * (1.0 - alpha))
+                                    / out_a
+                                    * 255.0)
+                                    as u8;
+                                pixels[screen_idx + 2] = ((sb * alpha
+                                    + pixels[screen_idx + 2] as f32 * da * (1.0 - alpha))
+                                    / out_a
+                                    * 255.0)
+                                    as u8;
                                 pixels[screen_idx + 3] = (out_a * 255.0) as u8;
                             }
                         }
@@ -275,38 +319,38 @@ impl Document {
     pub fn sample_pixel(&self, x: f32, y: f32) -> [u8; 4] {
         let ix = x.floor() as i32;
         let iy = y.floor() as i32;
-        
+
         if ix < 0 || ix >= self.width as i32 || iy < 0 || iy >= self.height as i32 {
             return [0, 0, 0, 0]; // Transparent black out of bounds
         }
-        
+
         let mut blended = [0f32; 4];
-        
+
         // Reverse order: blend bottom (N-1) to top (0)
         for layer in self.layers.iter().rev() {
             if !layer.visible {
                 continue;
             }
-            
+
             let lx = ix - layer.x as i32;
             let ly = iy - layer.y as i32;
-            
+
             if lx >= 0 && lx < layer.width as i32 && ly >= 0 && ly < layer.height as i32 {
                 let idx = ((ly * layer.width as i32 + lx) * 4) as usize;
                 let src_r = layer.bitmap_ref.pixel_data[idx] as f32 / 255.0;
                 let src_g = layer.bitmap_ref.pixel_data[idx + 1] as f32 / 255.0;
                 let src_b = layer.bitmap_ref.pixel_data[idx + 2] as f32 / 255.0;
                 let src_a = layer.bitmap_ref.pixel_data[idx + 3] as f32 / 255.0 * layer.opacity;
-                
+
                 if src_a <= 0.0 {
                     continue;
                 }
-                
+
                 let dest_r = blended[0];
                 let dest_g = blended[1];
                 let dest_b = blended[2];
                 let dest_a = blended[3];
-                
+
                 let out_a = src_a + dest_a * (1.0 - src_a);
                 let out_r = if out_a > 0.0 {
                     (src_r * src_a + dest_r * dest_a * (1.0 - src_a)) / out_a
@@ -323,11 +367,11 @@ impl Document {
                 } else {
                     0.0
                 };
-                
+
                 blended = [out_r, out_g, out_b, out_a];
             }
         }
-        
+
         [
             (blended[0] * 255.0).round().min(255.0) as u8,
             (blended[1] * 255.0).round().min(255.0) as u8,
@@ -409,7 +453,8 @@ mod tests {
     #[test]
     fn test_memory_budget_over_limit() {
         let mut doc = Document::new("doc-budget-fail".to_string(), 1000, 1000);
-        let huge_layer = Layer::new("layer-huge".to_string(), "Huge".to_string(), 10000, 8000);
+        // 20000 x 16000 x 4 = 1.28 GB > MAX_PIXEL_BUDGET (1 GB)
+        let huge_layer = Layer::new("layer-huge".to_string(), "Huge".to_string(), 20000, 16000);
 
         let res = doc.add_layer_safe(huge_layer);
         assert!(res.is_err());
@@ -480,14 +525,13 @@ mod tests {
     #[test]
     fn test_sample_pixel() {
         let mut doc = Document::new("doc-1".to_string(), 2, 2);
-        
+
         let mut l1 = Layer::new("l-1".to_string(), "Layer 1".to_string(), 2, 2);
         l1.bitmap_ref.pixel_data = vec![
-            255, 0, 0, 255,   255, 0, 0, 255,
-            255, 0, 0, 255,   255, 0, 0, 255,
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
         ];
         doc.add_layer(l1);
-        
+
         let color = doc.sample_pixel(1.0, 1.0);
         assert_eq!(color, [255, 0, 0, 255]); // Sampled Red Background color
     }
@@ -632,7 +676,14 @@ mod tests {
         let mut doc = Document::new("doc-1".to_string(), 800, 600);
         let layer = Layer::new("layer-1".to_string(), "Test".to_string(), 800, 600);
         doc.add_layer(layer);
-        let result = doc.update_layer_properties("layer-1", Some(0.5), Some(false), Some(true), Some("Renamed".to_string()), None);
+        let result = doc.update_layer_properties(
+            "layer-1",
+            Some(0.5),
+            Some(false),
+            Some(true),
+            Some("Renamed".to_string()),
+            None,
+        );
         assert!(result.is_ok());
         let updated = doc.layers.iter().find(|l| l.id == "layer-1").unwrap();
         assert_eq!(updated.opacity, 0.5);
@@ -766,7 +817,8 @@ mod tests {
     #[test]
     fn test_failure_update_layer_nonexistent_id() {
         let mut doc = Document::new("doc-1".to_string(), 100, 100);
-        let result = doc.update_layer_properties("does-not-exist", Some(0.5), None, None, None, None);
+        let result =
+            doc.update_layer_properties("does-not-exist", Some(0.5), None, None, None, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }

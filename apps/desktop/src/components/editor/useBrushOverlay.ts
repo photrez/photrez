@@ -359,11 +359,11 @@ export function useBrushOverlay() {
               confirmLabel: "Apply & Paint",
               cancelLabel: "Paint as-is",
             })
-            .then((confirmed) => {
+            .then(async (confirmed) => {
               bakePromptPending = false;
               if (confirmed) {
                 const snap = activeEngine.snapshot();
-                const bakeResult = activeEngine.commitBasicAdjustment(activeId, renderer);
+                const bakeResult = await activeEngine.commitBasicAdjustment(activeId, renderer);
                 // Loud fallback: the GPU bake was available but failed, so we
                 // silently dropped to the slow CPU loop — surface it so a
                 // regression to the 150–400ms hitch isn't invisible.

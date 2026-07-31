@@ -33,6 +33,8 @@ function makeGLMock() {
     COLOR_BUFFER_BIT: 16384,
     TRIANGLES: 4,
     SCISSOR_TEST: 3089,
+    PIXEL_PACK_BUFFER: 35051,
+    STREAM_READ: 35040,
   };
 
   const handler: ProxyHandler<Record<string, any>> = {
@@ -48,6 +50,7 @@ function makeGLMock() {
           case "createTexture":
           case "createFramebuffer":
           case "createVertexArray":
+          case "createBuffer":
             return { __mock: prop, id: ++handleSeq };
           case "getShaderParameter":
           case "getProgramParameter":
@@ -139,5 +142,65 @@ describe("WebGL2Backend.bakeLayerToBitmap", () => {
     expect(
       renderer.bakeLayerToBitmap("missing", 8, 8, { brightness: 10, contrast: 0, saturation: 0 }),
     ).toBeNull();
+  });
+});
+
+describe("WebGL2Backend.bakeLayerToBitmapAsync (PBO readback)", () => {
+  let renderer: WebGL2Backend;
+  let calls: Array<{ method: string; args: any[] }>;
+
+  beforeEach(() => {
+    const mock = makeGLMock();
+    calls = mock.calls;
+    // Provide the async readback API like WebView2 / Chromium 110+.
+    (mock.gl as any).getBufferSubDataAsync = vi.fn(async () => {});
+    const canvas = makeCanvas(mock.gl);
+    renderer = new WebGL2Backend();
+    renderer.initialize(canvas);
+    renderer.uploadImage("l1", BITMAP);
+  });
+
+  it("packs the readback into a PBO and resolves via getBufferSubDataAsync", async () => {
+    const out = await renderer.bakeLayerToBitmapAsync("l1", 8, 8, {
+      brightness: 20,
+      contrast: 0,
+      saturation: 0,
+    });
+    expect(out === null || typeof out === "object").toBe(true); // jsdom: no 2d ctx → null contract
+    // The async API was called (mock is on the GL target, so it is not
+    // recorded in `calls` — assert the mock directly).
+    expect((renderer as any).gl.getBufferSubDataAsync).toHaveBeenCalled();
+    const methods = calls.map((c) => c.method);
+    expect(methods).toContain("readPixels");
+    const readPixelsArgs = calls.find((c) => c.method === "readPixels")?.args;
+    // Numeric offset (not an ArrayBufferView) → packed into the PBO, so the
+    // GPU transfer is scheduled async instead of stalling the main thread.
+    expect(readPixelsArgs?.[readPixelsArgs.length - 1]).toBe(0);
+    // PBO + GL state cleaned up afterwards.
+    expect(methods).toContain("deleteBuffer");
+    expect(methods).toContain("deleteFramebuffer");
+    expect(methods).toContain("deleteTexture");
+  });
+
+  it("falls back to the sync bake when getBufferSubDataAsync is unavailable", async () => {
+    // Fresh renderer; the async API is present on the GL object but not
+    // callable (undefined) → the sync bake must be used, rendering once.
+    const mock = makeGLMock();
+    (mock.gl as any).getBufferSubDataAsync = undefined;
+    const canvas = makeCanvas(mock.gl);
+    const syncRenderer = new WebGL2Backend();
+    syncRenderer.initialize(canvas);
+    syncRenderer.uploadImage("l1", BITMAP);
+
+    const out = await syncRenderer.bakeLayerToBitmapAsync("l1", 8, 8, {
+      brightness: 20,
+      contrast: 0,
+      saturation: 0,
+    });
+    expect(out === null || typeof out === "object").toBe(true);
+    const methods = mock.calls.map((c) => c.method);
+    expect(methods).toContain("readPixels");
+    expect(methods.filter((m) => m === "readPixels").length).toBe(1); // sync path, single render
+    expect(methods.filter((m) => m === "drawArrays").length).toBe(1);
   });
 });

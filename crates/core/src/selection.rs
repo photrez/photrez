@@ -11,10 +11,7 @@ pub struct SelectionRect {
 
 impl SelectionRect {
     pub fn contains_point(&self, px: f32, py: f32) -> bool {
-        px >= self.x
-            && px <= self.x + self.width
-            && py >= self.y
-            && py <= self.y + self.height
+        px >= self.x && px <= self.x + self.width && py >= self.y && py <= self.y + self.height
     }
 
     pub fn translate(&self, dx: f32, dy: f32) -> Self {
@@ -33,12 +30,25 @@ impl SelectionRect {
         let h = self.height.min(ch).max(1.0);
         let x = self.x.clamp(0.0, cw - w);
         let y = self.y.clamp(0.0, ch - h);
-        Self { x, y, width: w, height: h }
+        Self {
+            x,
+            y,
+            width: w,
+            height: h,
+        }
     }
 
     pub fn normalize(&self) -> Self {
-        let x = if self.width < 0.0 { self.x + self.width } else { self.x };
-        let y = if self.height < 0.0 { self.y + self.height } else { self.y };
+        let x = if self.width < 0.0 {
+            self.x + self.width
+        } else {
+            self.x
+        };
+        let y = if self.height < 0.0 {
+            self.y + self.height
+        } else {
+            self.y
+        };
         Self {
             x,
             y,
@@ -82,14 +92,24 @@ mod tests {
     fn test_selection() {
         let mut state = SelectionState::new();
         assert!(state.current_selection.is_none());
-        state.set_selection(SelectionRect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 });
+        state.set_selection(SelectionRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        });
         assert!(state.current_selection.is_some());
         assert_eq!(state.current_selection.as_ref().unwrap().width, 100.0);
     }
 
     #[test]
     fn test_contains_point() {
-        let rect = SelectionRect { x: 10.0, y: 20.0, width: 100.0, height: 50.0 };
+        let rect = SelectionRect {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 50.0,
+        };
         assert!(rect.contains_point(50.0, 40.0));
         assert!(!rect.contains_point(5.0, 40.0));
         assert!(!rect.contains_point(50.0, 10.0));
@@ -99,7 +119,12 @@ mod tests {
 
     #[test]
     fn test_translate() {
-        let rect = SelectionRect { x: 10.0, y: 20.0, width: 100.0, height: 50.0 };
+        let rect = SelectionRect {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 50.0,
+        };
         let moved = rect.translate(5.0, -10.0);
         assert_eq!(moved.x, 15.0);
         assert_eq!(moved.y, 10.0);
@@ -108,7 +133,12 @@ mod tests {
 
     #[test]
     fn test_clamp_to_canvas() {
-        let rect = SelectionRect { x: -10.0, y: 0.0, width: 200.0, height: 100.0 };
+        let rect = SelectionRect {
+            x: -10.0,
+            y: 0.0,
+            width: 200.0,
+            height: 100.0,
+        };
         let clamped = rect.clamp_to_canvas(100, 100);
         assert!(clamped.x >= 0.0);
         assert!(clamped.x + clamped.width <= 100.0);
@@ -116,7 +146,12 @@ mod tests {
 
     #[test]
     fn test_normalize() {
-        let rect = SelectionRect { x: 100.0, y: 50.0, width: -50.0, height: -25.0 };
+        let rect = SelectionRect {
+            x: 100.0,
+            y: 50.0,
+            width: -50.0,
+            height: -25.0,
+        };
         let norm = rect.normalize();
         assert_eq!(norm.x, 50.0);
         assert_eq!(norm.y, 25.0);

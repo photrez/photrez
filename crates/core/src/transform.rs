@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-use serde::{Deserialize, Serialize};
 use crate::selection::SelectionRect;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Transform {
@@ -124,7 +124,12 @@ mod tests {
     #[test]
     fn test_apply_to_rect_no_transform() {
         let t = Transform::new();
-        let rect = SelectionRect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 };
+        let rect = SelectionRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
         let result = t.apply_to_rect(&rect);
         assert_eq!(result.width, 100.0);
         assert_eq!(result.height, 50.0);
@@ -134,7 +139,12 @@ mod tests {
     fn test_apply_to_rect_scaled() {
         let mut t = Transform::new();
         t.scale(2.0, 0.5);
-        let rect = SelectionRect { x: 50.0, y: 50.0, width: 100.0, height: 100.0 };
+        let rect = SelectionRect {
+            x: 50.0,
+            y: 50.0,
+            width: 100.0,
+            height: 100.0,
+        };
         let result = t.apply_to_rect(&rect);
         assert!((result.width - 200.0).abs() < 0.001);
         assert!((result.height - 50.0).abs() < 0.001);
@@ -144,7 +154,12 @@ mod tests {
     fn test_apply_to_rect_rotated() {
         let mut t = Transform::new();
         t.set_rotation(90.0);
-        let rect = SelectionRect { x: 0.0, y: 0.0, width: 100.0, height: 50.0 };
+        let rect = SelectionRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
         let result = t.apply_to_rect(&rect);
         // After 90Â° rotation, width and height should swap
         assert!((result.width - 50.0).abs() < 0.001);

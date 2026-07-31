@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+pub mod brush;
 pub mod document;
+pub mod export;
+pub mod history;
 pub mod layers;
 pub mod selection;
 pub mod transform;
-pub mod brush;
-pub mod export;
-pub mod history;
 pub mod workspace;

@@ -743,7 +743,7 @@ export class DocumentEngine {
    * the slider drag lag-free (GPU preview) while matching the expected
    * "layer adjustment is applied to the layer's pixels" behavior.
    */
-  commitBasicAdjustment(id: LayerId, renderer?: RenderBackend): "gpu" | "cpu" | "noop" {
+  async commitBasicAdjustment(id: LayerId, renderer?: RenderBackend): Promise<"gpu" | "cpu" | "noop"> {
     const layer = this.getLayer(id);
     if (!layer || !layer.imageBitmap || !layer.basicAdjustment) return "noop";
 
@@ -754,15 +754,26 @@ export class DocumentEngine {
       return "noop";
     }
 
-    // Prefer the GPU bake (fast, off the paint path) when the renderer offers
-    // it; fall back to the CPU pixel pass otherwise (export, fill, tests).
-    let baked: ImageBitmap;
+    // Prefer the async PBO bake (non-blocking main thread readback), then the
+    // sync GPU bake, then the CPU pixel pass (export, fill, tests).
+    let baked: ImageBitmap | null = null;
     let usedGpu = false;
-    const gpu = renderer?.bakeLayerToBitmap?.(id, layer.width, layer.height, adj);
-    if (gpu) {
-      baked = gpu;
-      usedGpu = true;
-    } else {
+    const gpuAsync = renderer?.bakeLayerToBitmapAsync?.(id, layer.width, layer.height, adj);
+    if (gpuAsync) {
+      const gpu = await gpuAsync;
+      if (gpu) {
+        baked = gpu;
+        usedGpu = true;
+      }
+    }
+    if (!usedGpu) {
+      const gpu = renderer?.bakeLayerToBitmap?.(id, layer.width, layer.height, adj) ?? null;
+      if (gpu) {
+        baked = gpu;
+        usedGpu = true;
+      }
+    }
+    if (!baked) {
       baked = bakeAdjustmentToBitmap(layer.imageBitmap, layer.width, layer.height, adj);
     }
     // NOTE: do NOT close the old imageBitmap — an undo/redo snapshot may still

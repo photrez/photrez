@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-use serde::{Deserialize, Serialize};
 use crate::document::Document;
+use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -57,7 +57,8 @@ pub fn flatten_document(doc: &Document) -> Vec<u8> {
                 let src_r = layer.bitmap_ref.pixel_data[layer_idx] as f32 / 255.0;
                 let src_g = layer.bitmap_ref.pixel_data[layer_idx + 1] as f32 / 255.0;
                 let src_b = layer.bitmap_ref.pixel_data[layer_idx + 2] as f32 / 255.0;
-                let src_a = layer.bitmap_ref.pixel_data[layer_idx + 3] as f32 / 255.0 * layer_opacity;
+                let src_a =
+                    layer.bitmap_ref.pixel_data[layer_idx + 3] as f32 / 255.0 * layer_opacity;
 
                 if src_a <= 0.0 {
                     continue;
@@ -119,32 +120,48 @@ pub fn export_document(doc: &Document, settings: &ExportSettings) -> Result<Vec<
     }
 
     let mut encoded_bytes = Vec::new();
-    
-    let img_buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(doc.width, doc.height, flattened)
-        .ok_or_else(|| "Failed to create ImageBuffer from flattened pixel vector".to_string())?;
+
+    let img_buffer =
+        image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(doc.width, doc.height, flattened)
+            .ok_or_else(|| {
+                "Failed to create ImageBuffer from flattened pixel vector".to_string()
+            })?;
 
     match settings.format {
         ExportFormat::PNG => {
-            img_buffer.write_to(&mut Cursor::new(&mut encoded_bytes), image::ImageFormat::Png)
+            img_buffer
+                .write_to(
+                    &mut Cursor::new(&mut encoded_bytes),
+                    image::ImageFormat::Png,
+                )
                 .map_err(|e| format!("Failed to encode PNG: {}", e))?;
         }
         ExportFormat::JPEG => {
             // Convert to RGB first for standard JPEGs
             let rgb_buffer = image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(
-                doc.width, doc.height, 
-                img_buffer.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect::<Vec<u8>>()
-            ).ok_or_else(|| "Failed to create RGB buffer".to_string())?;
+                doc.width,
+                doc.height,
+                img_buffer
+                    .pixels()
+                    .flat_map(|p| [p[0], p[1], p[2]])
+                    .collect::<Vec<u8>>(),
+            )
+            .ok_or_else(|| "Failed to create RGB buffer".to_string())?;
 
             let quality = settings.quality.clamp(1, 100);
             let mut cursor = Cursor::new(&mut encoded_bytes);
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut cursor, quality
-            );
-            encoder.encode_image(&rgb_buffer)
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
+            encoder
+                .encode_image(&rgb_buffer)
                 .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
         }
         ExportFormat::WebP => {
-            img_buffer.write_to(&mut Cursor::new(&mut encoded_bytes), image::ImageFormat::WebP)
+            img_buffer
+                .write_to(
+                    &mut Cursor::new(&mut encoded_bytes),
+                    image::ImageFormat::WebP,
+                )
                 .map_err(|e| format!("Failed to encode WebP: {}", e))?;
         }
     }
@@ -163,7 +180,9 @@ pub fn encode_image_wasm(
     quality: u8,
 ) -> Result<Vec<u8>, JsValue> {
     if rgba_bytes.len() != (width as usize * height as usize * 4) {
-        return Err(JsValue::from_str("Invalid pixel buffer length for width and height"));
+        return Err(JsValue::from_str(
+            "Invalid pixel buffer length for width and height",
+        ));
     }
 
     let format = match format_str.to_lowercase().as_str() {
@@ -202,27 +221,37 @@ pub fn encode_image_wasm(
     match format {
         ExportFormat::PNG => {
             img_buffer
-                .write_to(&mut Cursor::new(&mut encoded_bytes), image::ImageFormat::Png)
+                .write_to(
+                    &mut Cursor::new(&mut encoded_bytes),
+                    image::ImageFormat::Png,
+                )
                 .map_err(|e| JsValue::from_str(&format!("Failed to encode PNG: {}", e)))?;
         }
         ExportFormat::JPEG => {
             let rgb_buffer = image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(
                 width,
                 height,
-                img_buffer.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect::<Vec<u8>>(),
+                img_buffer
+                    .pixels()
+                    .flat_map(|p| [p[0], p[1], p[2]])
+                    .collect::<Vec<u8>>(),
             )
             .ok_or_else(|| JsValue::from_str("Failed to create RGB buffer"))?;
 
             let clamped_quality = quality.clamp(1, 100);
             let mut cursor = Cursor::new(&mut encoded_bytes);
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, clamped_quality);
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, clamped_quality);
             encoder
                 .encode_image(&rgb_buffer)
                 .map_err(|e| JsValue::from_str(&format!("Failed to encode JPEG: {}", e)))?;
         }
         ExportFormat::WebP => {
             img_buffer
-                .write_to(&mut Cursor::new(&mut encoded_bytes), image::ImageFormat::WebP)
+                .write_to(
+                    &mut Cursor::new(&mut encoded_bytes),
+                    image::ImageFormat::WebP,
+                )
                 .map_err(|e| JsValue::from_str(&format!("Failed to encode WebP: {}", e)))?;
         }
     }
@@ -240,34 +269,32 @@ mod tests {
     #[test]
     fn test_document_flattening() {
         let mut doc = Document::new("doc-1".to_string(), 2, 2);
-        
+
         // Layer 1: Red background [255, 0, 0, 255]
         let mut l1 = Layer::new("l-1".to_string(), "Layer 1".to_string(), 2, 2);
         l1.bitmap_ref.pixel_data = vec![
-            255, 0, 0, 255,   255, 0, 0, 255,
-            255, 0, 0, 255,   255, 0, 0, 255,
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
         ];
-        
+
         // Layer 2: Semitransparent Blue overlay [0, 0, 255, 128]
         let mut l2 = Layer::new("l-2".to_string(), "Layer 2".to_string(), 2, 2);
         l2.bitmap_ref.pixel_data = vec![
-            0, 0, 255, 128,   0, 0, 255, 128,
-            0, 0, 255, 128,   0, 0, 255, 128,
+            0, 0, 255, 128, 0, 0, 255, 128, 0, 0, 255, 128, 0, 0, 255, 128,
         ];
-        
+
         // In photrez convention: layers is sorted index-0 (top) to index-N (bottom).
         doc.layers = vec![l2, l1];
-        
+
         let flattened = flatten_document(&doc);
-        
+
         // Expected blended color (Porter-Duff alpha compositing):
         // out_a = 0.5 + 1.0 * 0.5 = 1.0
         // out_r = (0.0 * 0.5 + 255.0 * 1.0 * 0.5) / 1.0 = 127.5 => ~128
         // out_b = (255.0 * 0.5 + 0.0 * 1.0 * 0.5) / 1.0 = 127.5 => ~128
         assert!(flattened[0] >= 127 && flattened[0] <= 128); // Red
-        assert_eq!(flattened[1], 0);                         // Green
+        assert_eq!(flattened[1], 0); // Green
         assert!(flattened[2] >= 127 && flattened[2] <= 128); // Blue
-        assert_eq!(flattened[3], 255);                       // Alpha
+        assert_eq!(flattened[3], 255); // Alpha
     }
 
     #[test]
@@ -275,8 +302,7 @@ mod tests {
         let mut doc = Document::new("doc-1".to_string(), 2, 2);
         let mut l1 = Layer::new("l-1".to_string(), "Layer 1".to_string(), 2, 2);
         l1.bitmap_ref.pixel_data = vec![
-            255, 0, 0, 255,   255, 0, 0, 255,
-            255, 0, 0, 255,   255, 0, 0, 255,
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
         ];
         doc.add_layer(l1);
 

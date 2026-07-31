@@ -77,7 +77,7 @@ export function useLayerActions() {
     }
   };
 
-  const handleApplyAdjustment = () => {
+  const handleApplyAdjustment = async () => {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
@@ -92,7 +92,7 @@ export function useLayerActions() {
       history.commit(engine.snapshot(), "Apply Adjustment");
       // GPU-preferred bake (falls back to CPU inside the engine); the result is
       // re-uploaded so the composited layer reflects the now-baked pixels.
-      const result = engine.commitBasicAdjustment(activeId, renderer);
+      const result = await engine.commitBasicAdjustment(activeId, renderer);
       const bakedLayer = engine.getLayer(activeId);
       if (bakedLayer?.imageBitmap) renderer.uploadImage(activeId, bakedLayer.imageBitmap);
       if (result === "cpu" && typeof renderer?.bakeLayerToBitmap === "function") {

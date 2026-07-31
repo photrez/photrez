@@ -109,7 +109,7 @@ describe("Editable Basic Adjustments", () => {
     expect(layer.hasAdjustments).toBe(false);
   });
 
-  it("commitBasicAdjustment bakes the param into the bitmap and drops it (destructive)", () => {
+  it("commitBasicAdjustment bakes the param into the bitmap and drops it (destructive)", async () => {
     const engine = new DocumentEngine("doc-1", "Test Doc", 100, 100);
     const layer = engine.addLayer("Layer 1");
     const initialBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
@@ -118,7 +118,7 @@ describe("Editable Basic Adjustments", () => {
     engine.applyBasicAdjustment(layer.id, { brightness: 10, contrast: 0, saturation: 0 });
 
     // Commit (simulates slider release)
-    engine.commitBasicAdjustment(layer.id);
+    await engine.commitBasicAdjustment(layer.id);
 
     // Adjustment is now baked into a fresh bitmap; the param is gone so the
     // next paint shows raw colors.
@@ -129,14 +129,14 @@ describe("Editable Basic Adjustments", () => {
     expect(initialBitmap.close).not.toHaveBeenCalled();
   });
 
-  it("commitBasicAdjustment with a zero adjustment just drops the param (no wasted bake)", () => {
+  it("commitBasicAdjustment with a zero adjustment just drops the param (no wasted bake)", async () => {
     const engine = new DocumentEngine("doc-1", "Test Doc", 100, 100);
     const layer = engine.addLayer("Layer 1");
     const initialBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
     engine.setLayerImageBitmap(layer.id, initialBitmap);
 
     engine.applyBasicAdjustment(layer.id, { brightness: 0, contrast: 0, saturation: 0 });
-    engine.commitBasicAdjustment(layer.id);
+    await engine.commitBasicAdjustment(layer.id);
 
     expect(layer.basicAdjustment).toBeUndefined();
     // No-op: the original bitmap is kept (no new baked bitmap allocated).

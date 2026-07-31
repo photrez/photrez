@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use crate::document::Document;
 use crate::history::HistoryStore;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub const MAX_OPEN_DOCUMENTS: usize = 16;
 
@@ -237,27 +237,27 @@ impl WorkspaceState {
 
     /// Create a workspace snapshot for the frontend.
     pub fn snapshot(&self) -> WorkspaceSnapshot {
-        let documents: Vec<DocumentTabSummary> = self.sessions.iter().map(|s| {
-            DocumentTabSummary {
+        let documents: Vec<DocumentTabSummary> = self
+            .sessions
+            .iter()
+            .map(|s| DocumentTabSummary {
                 id: s.id.clone(),
                 display_name: s.display_name.clone(),
                 is_dirty: s.dirty,
                 width: s.document.width,
                 height: s.document.height,
-            }
-        }).collect();
+            })
+            .collect();
 
-        let active_document = self.get_active_session().map(|s| {
-            DocumentSnapshot {
-                id: s.id.clone(),
-                display_name: s.display_name.clone(),
-                width: s.document.width,
-                height: s.document.height,
-                layers: s.document.layers.clone(),
-                selected_layer_id: s.selected_layer_id.clone(),
-                selection: s.document.selection,
-                dirty: s.dirty,
-            }
+        let active_document = self.get_active_session().map(|s| DocumentSnapshot {
+            id: s.id.clone(),
+            display_name: s.display_name.clone(),
+            width: s.document.width,
+            height: s.document.height,
+            layers: s.document.layers.clone(),
+            selected_layer_id: s.selected_layer_id.clone(),
+            selection: s.document.selection,
+            dirty: s.dirty,
         });
 
         WorkspaceSnapshot {
@@ -333,9 +333,12 @@ mod tests {
     #[test]
     fn test_add_multiple_documents() {
         let mut ws = WorkspaceState::new();
-        ws.add_document(make_test_session("doc-1", "a.png")).unwrap();
-        ws.add_document(make_test_session("doc-2", "b.png")).unwrap();
-        ws.add_document(make_test_session("doc-3", "c.png")).unwrap();
+        ws.add_document(make_test_session("doc-1", "a.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-2", "b.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-3", "c.png"))
+            .unwrap();
         assert_eq!(ws.open_count(), 3);
         assert_eq!(ws.active_document_id(), Some("doc-3"));
     }
@@ -344,7 +347,11 @@ mod tests {
     fn test_max_documents_enforced() {
         let mut ws = WorkspaceState::new();
         for i in 0..16 {
-            ws.add_document(make_test_session(&format!("doc-{}", i), &format!("img-{}.png", i))).unwrap();
+            ws.add_document(make_test_session(
+                &format!("doc-{}", i),
+                &format!("img-{}.png", i),
+            ))
+            .unwrap();
         }
         assert!(ws.is_full());
         let result = ws.add_document(make_test_session("doc-overflow", "overflow.png"));
@@ -355,9 +362,12 @@ mod tests {
     #[test]
     fn test_remove_active_document_activates_nearest() {
         let mut ws = WorkspaceState::new();
-        ws.add_document(make_test_session("doc-1", "a.png")).unwrap();
-        ws.add_document(make_test_session("doc-2", "b.png")).unwrap();
-        ws.add_document(make_test_session("doc-3", "c.png")).unwrap();
+        ws.add_document(make_test_session("doc-1", "a.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-2", "b.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-3", "c.png"))
+            .unwrap();
         // active is doc-3 (last added)
         assert_eq!(ws.active_document_id(), Some("doc-3"));
 
@@ -370,7 +380,8 @@ mod tests {
     #[test]
     fn test_remove_last_document() {
         let mut ws = WorkspaceState::new();
-        ws.add_document(make_test_session("doc-1", "a.png")).unwrap();
+        ws.add_document(make_test_session("doc-1", "a.png"))
+            .unwrap();
         ws.remove_document("doc-1");
         assert_eq!(ws.open_count(), 0);
         assert!(ws.active_document_id().is_none());
@@ -379,8 +390,10 @@ mod tests {
     #[test]
     fn test_switch_document() {
         let mut ws = WorkspaceState::new();
-        ws.add_document(make_test_session("doc-1", "a.png")).unwrap();
-        ws.add_document(make_test_session("doc-2", "b.png")).unwrap();
+        ws.add_document(make_test_session("doc-1", "a.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-2", "b.png"))
+            .unwrap();
         assert_eq!(ws.active_document_id(), Some("doc-2"));
 
         ws.switch_document("doc-1").unwrap();
@@ -398,11 +411,18 @@ mod tests {
     #[test]
     fn test_duplicate_display_name_disambiguation() {
         let mut ws = WorkspaceState::new();
-        ws.add_document(make_test_session("doc-1", "photo.png")).unwrap();
-        ws.add_document(make_test_session("doc-2", "photo.png")).unwrap();
-        ws.add_document(make_test_session("doc-3", "photo.png")).unwrap();
+        ws.add_document(make_test_session("doc-1", "photo.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-2", "photo.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-3", "photo.png"))
+            .unwrap();
 
-        let names: Vec<String> = ws.sessions().iter().map(|s| s.display_name.clone()).collect();
+        let names: Vec<String> = ws
+            .sessions()
+            .iter()
+            .map(|s| s.display_name.clone())
+            .collect();
         assert_eq!(names[0], "photo.png");
         assert_eq!(names[1], "photo.png (2)");
         assert_eq!(names[2], "photo.png (3)");
@@ -433,8 +453,10 @@ mod tests {
     #[test]
     fn test_snapshot_with_documents() {
         let mut ws = WorkspaceState::new();
-        ws.add_document(make_test_session("doc-1", "a.png")).unwrap();
-        ws.add_document(make_test_session("doc-2", "b.png")).unwrap();
+        ws.add_document(make_test_session("doc-1", "a.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-2", "b.png"))
+            .unwrap();
 
         let snap = ws.snapshot();
         assert_eq!(snap.documents.len(), 2);
@@ -462,8 +484,10 @@ mod tests {
     #[test]
     fn test_remove_inactive_document() {
         let mut ws = WorkspaceState::new();
-        ws.add_document(make_test_session("doc-1", "a.png")).unwrap();
-        ws.add_document(make_test_session("doc-2", "b.png")).unwrap();
+        ws.add_document(make_test_session("doc-1", "a.png"))
+            .unwrap();
+        ws.add_document(make_test_session("doc-2", "b.png"))
+            .unwrap();
         // active is doc-2
         ws.remove_document("doc-1");
         // active should still be doc-2
@@ -476,7 +500,8 @@ mod tests {
         let mut s1 = make_test_session("doc-1", "a.png");
         s1.mark_dirty();
         ws.add_document(s1).unwrap();
-        ws.add_document(make_test_session("doc-2", "b.png")).unwrap();
+        ws.add_document(make_test_session("doc-2", "b.png"))
+            .unwrap();
 
         let dirty = ws.dirty_document_ids();
         assert_eq!(dirty, vec!["doc-1".to_string()]);

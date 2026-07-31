@@ -199,6 +199,8 @@ describe("LayersPanel interactions", () => {
     expect(applyItem.disabled).toBe(false);
 
     applyItem.click();
+    // The apply handler is async (PBO readback resolves on a microtask).
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(renderer.bakeLayerToBitmap).toHaveBeenCalledWith(adjusted.id, 800, 600, {
       brightness: 20,

@@ -29,7 +29,7 @@ describe("commitBasicAdjustment GPU bake", () => {
     vi.unstubAllGlobals();
   });
 
-  it("prefers the GPU bake when the renderer provides bakeLayerToBitmap", () => {
+  it("prefers the GPU bake when the renderer provides bakeLayerToBitmap", async () => {
     const engine = new DocumentEngine("doc-1", "Test", 100, 100);
     const layer = engine.addLayer("L1");
     const initial = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
@@ -43,7 +43,7 @@ describe("commitBasicAdjustment GPU bake", () => {
       bakeLayerToBitmap: vi.fn(() => gpuBitmap),
     } as unknown as RenderBackend;
 
-    const result = engine.commitBasicAdjustment(layer.id, renderer);
+    const result = await engine.commitBasicAdjustment(layer.id, renderer);
 
     expect(result).toBe("gpu");
     expect((renderer as any).bakeLayerToBitmap).toHaveBeenCalledTimes(1);
@@ -53,14 +53,60 @@ describe("commitBasicAdjustment GPU bake", () => {
     expect(layer.imageBitmap).not.toBe(initial);
   });
 
-  it("falls back to the CPU bake when no renderer is supplied", () => {
+  it("prefers the async PBO bake when the renderer provides bakeLayerToBitmapAsync", async () => {
     const engine = new DocumentEngine("doc-1", "Test", 100, 100);
     const layer = engine.addLayer("L1");
     const initial = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
     engine.setLayerImageBitmap(layer.id, initial);
     engine.applyBasicAdjustment(layer.id, { brightness: 20, contrast: 0, saturation: 0 });
 
-    const result = engine.commitBasicAdjustment(layer.id); // no renderer
+    const gpuBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
+    const renderer = {
+      uploadImage: vi.fn(),
+      requestRender: vi.fn(),
+      bakeLayerToBitmapAsync: vi.fn(async () => gpuBitmap),
+      bakeLayerToBitmap: vi.fn(),
+    } as unknown as RenderBackend;
+
+    const result = await engine.commitBasicAdjustment(layer.id, renderer);
+
+    expect(result).toBe("gpu");
+    expect((renderer as any).bakeLayerToBitmapAsync).toHaveBeenCalledTimes(1);
+    expect((renderer as any).bakeLayerToBitmap).not.toHaveBeenCalled();
+    expect(layer.imageBitmap).toBe(gpuBitmap);
+  });
+
+  it("falls back to the sync GPU bake when the async bake returns null", async () => {
+    const engine = new DocumentEngine("doc-1", "Test", 100, 100);
+    const layer = engine.addLayer("L1");
+    const initial = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
+    engine.setLayerImageBitmap(layer.id, initial);
+    engine.applyBasicAdjustment(layer.id, { brightness: 20, contrast: 0, saturation: 0 });
+
+    const gpuBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
+    const renderer = {
+      uploadImage: vi.fn(),
+      requestRender: vi.fn(),
+      bakeLayerToBitmapAsync: vi.fn(async () => null),
+      bakeLayerToBitmap: vi.fn(() => gpuBitmap),
+    } as unknown as RenderBackend;
+
+    const result = await engine.commitBasicAdjustment(layer.id, renderer);
+
+    expect(result).toBe("gpu");
+    expect((renderer as any).bakeLayerToBitmapAsync).toHaveBeenCalledTimes(1);
+    expect((renderer as any).bakeLayerToBitmap).toHaveBeenCalledTimes(1);
+    expect(layer.imageBitmap).toBe(gpuBitmap);
+  });
+
+  it("falls back to the CPU bake when no renderer is supplied", async () => {
+    const engine = new DocumentEngine("doc-1", "Test", 100, 100);
+    const layer = engine.addLayer("L1");
+    const initial = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
+    engine.setLayerImageBitmap(layer.id, initial);
+    engine.applyBasicAdjustment(layer.id, { brightness: 20, contrast: 0, saturation: 0 });
+
+    const result = await engine.commitBasicAdjustment(layer.id); // no renderer
 
     expect(result).toBe("cpu");
     expect(layer.basicAdjustment).toBeUndefined();
@@ -68,7 +114,7 @@ describe("commitBasicAdjustment GPU bake", () => {
     expect(initial.close).not.toHaveBeenCalled();
   });
 
-  it("does not allocate when the adjustment is already zero (no-op)", () => {
+  it("does not allocate when the adjustment is already zero (no-op)", async () => {
     const engine = new DocumentEngine("doc-1", "Test", 100, 100);
     const layer = engine.addLayer("L1");
     const initial = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
@@ -81,7 +127,7 @@ describe("commitBasicAdjustment GPU bake", () => {
       bakeLayerToBitmap: vi.fn(() => ({ width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap)),
     } as unknown as RenderBackend;
 
-    const result = engine.commitBasicAdjustment(layer.id, renderer);
+    const result = await engine.commitBasicAdjustment(layer.id, renderer);
 
     expect(result).toBe("noop");
     expect((renderer as any).bakeLayerToBitmap).not.toHaveBeenCalled();

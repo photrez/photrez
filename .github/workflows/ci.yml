@@ -18,10 +18,23 @@ permissions:
 
 jobs:
   # ─── FRONTEND: TypeScript type-check + unit tests + build ───
+  # Multi-OS matrix per Tauri official CI template: the e2e suite runs a real
+  # Chromium (WebGL via SwiftShader on Linux, ANGLE on Windows, Metal on
+  # macOS) so platform-specific WebGL behavior is caught before release.
   frontend:
-    name: Frontend (TypeScript + Vitest + Build)
-    runs-on: windows-latest
-    timeout-minutes: 20
+    name: Frontend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            playwright_cache: '~\AppData\Local\ms-playwright'
+          - os: ubuntu-latest
+            playwright_cache: '~/.cache/ms-playwright'
+          - os: macos-latest
+            playwright_cache: '~/Library/Caches/ms-playwright'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -56,12 +69,18 @@ jobs:
       - name: Cache Playwright browsers
         uses: actions/cache@v5
         with:
-          path: ~\AppData\Local\ms-playwright
+          path: ${{ matrix.playwright_cache }}
           key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      - name: Install Playwright browsers
+      - name: Install Playwright browsers (Linux)
+        if: runner.os == 'Linux'
         working-directory: apps/desktop
         run: bunx playwright install chromium --with-deps
+
+      - name: Install Playwright browsers
+        if: runner.os != 'Linux'
+        working-directory: apps/desktop
+        run: bunx playwright install chromium
 
       - name: Type check
         run: bun run type-check
@@ -83,9 +102,15 @@ jobs:
   # full build needs a WebView2/windres toolchain that fails on GitHub runners
   # (pre-existing, see AGENTS.md). Binary compilation is covered by the
   # release.yml workflow (tauri-action builds all three OS targets).
+  # photrez-core is pure Rust (no WebView2), so the same tests run on all OSes
+  # to catch platform-specific path/behavior drift.
   rust:
-    name: Rust tests
-    runs-on: windows-latest
+    name: Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5

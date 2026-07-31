@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-use serde::{Deserialize, Serialize};
 use crate::transform::Transform;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum PixelFormat {
@@ -56,21 +56,26 @@ impl Layer {
         }
     }
 
-    pub fn draw_brush_stroke(&mut self, path: &[(f32, f32)], settings: &crate::brush::BrushSettings, is_eraser: bool) {
+    pub fn draw_brush_stroke(
+        &mut self,
+        path: &[(f32, f32)],
+        settings: &crate::brush::BrushSettings,
+        is_eraser: bool,
+    ) {
         if path.is_empty() || self.locked {
             return;
         }
-        
+
         let w = self.width as i32;
         let h = self.height as i32;
         let r = settings.size / 2.0;
-        
+
         let mut paint_point = |cx: f32, cy: f32| {
             let x_start = ((cx - r).floor() as i32).max(0).min(w - 1);
             let x_end = ((cx + r).ceil() as i32).max(0).min(w - 1);
             let y_start = ((cy - r).floor() as i32).max(0).min(h - 1);
             let y_end = ((cy + r).ceil() as i32).max(0).min(h - 1);
-            
+
             for py in y_start..=y_end {
                 for px in x_start..=x_end {
                     let dx = px as f32 - cx;
@@ -78,8 +83,8 @@ impl Layer {
                     let dist = (dx * dx + dy * dy).sqrt();
                     if dist <= r {
                         let idx = ((py * w + px) * 4) as usize;
-                        let pixel = &mut self.bitmap_ref.pixel_data[idx..idx+4];
-                        
+                        let pixel = &mut self.bitmap_ref.pixel_data[idx..idx + 4];
+
                         if is_eraser {
                             let hardness_r = r * settings.hardness;
                             let alpha_factor = if dist <= hardness_r {
@@ -99,17 +104,17 @@ impl Layer {
                 }
             }
         };
-        
+
         let (mut x0, mut y0) = path[0];
         paint_point(x0, y0);
-        
+
         for &(x1, y1) in path.iter().skip(1) {
             let dx = x1 - x0;
             let dy = y1 - y0;
             let len = (dx * dx + dy * dy).sqrt();
             let step_size = (settings.size * 0.1).max(0.1);
             let steps = (len / step_size).ceil() as u32;
-            
+
             if steps > 1 {
                 for step in 1..=steps {
                     let t = step as f32 / steps as f32;
@@ -143,7 +148,7 @@ mod tests {
         assert_eq!(layer.y, 0.0);
         assert_eq!(layer.width, 800);
         assert_eq!(layer.height, 600);
-        
+
         // Verify bitmap initialization
         assert_eq!(layer.bitmap_ref.width, 800);
         assert_eq!(layer.bitmap_ref.height, 600);
@@ -157,15 +162,15 @@ mod tests {
         use crate::brush::BrushSettings;
         let mut layer = Layer::new("l-1".to_string(), "Layer 1".to_string(), 10, 10);
         let settings = BrushSettings::new(2.0, 1.0, [1.0, 0.0, 0.0, 1.0]); // Fully red opaque
-        
+
         // Paint single dot at center
         layer.draw_brush_stroke(&[(5.0, 5.0)], &settings, false);
-        
+
         let idx = ((5 * 10 + 5) * 4) as usize;
         assert_eq!(layer.bitmap_ref.pixel_data[idx], 255); // Red
-        assert_eq!(layer.bitmap_ref.pixel_data[idx+1], 0);   // Green
-        assert_eq!(layer.bitmap_ref.pixel_data[idx+2], 0);   // Blue
-        assert_eq!(layer.bitmap_ref.pixel_data[idx+3], 255); // Alpha
+        assert_eq!(layer.bitmap_ref.pixel_data[idx + 1], 0); // Green
+        assert_eq!(layer.bitmap_ref.pixel_data[idx + 2], 0); // Blue
+        assert_eq!(layer.bitmap_ref.pixel_data[idx + 3], 255); // Alpha
     }
 
     #[test]
@@ -173,11 +178,11 @@ mod tests {
         use crate::brush::BrushSettings;
         let mut layer = Layer::new("l-1".to_string(), "Layer 1".to_string(), 10, 10);
         let settings = BrushSettings::new(2.0, 1.0, [0.0, 0.0, 0.0, 1.0]);
-        
+
         // Erase center point
         layer.draw_brush_stroke(&[(5.0, 5.0)], &settings, true);
-        
+
         let idx = ((5 * 10 + 5) * 4) as usize;
-        assert_eq!(layer.bitmap_ref.pixel_data[idx+3], 0); // Erased Alpha channel
+        assert_eq!(layer.bitmap_ref.pixel_data[idx + 3], 0); // Erased Alpha channel
     }
 }
