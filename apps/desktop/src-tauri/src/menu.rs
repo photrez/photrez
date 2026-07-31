@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// â”€â”€â”€ Native Application Menu â”€â”€â”€
+// --- Native Application Menu ---
 //
 // Builds the native OS menu bar and defines which menu IDs are
 // forwarded to the frontend as `photrez://native-menu` events.

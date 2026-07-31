@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// â”€â”€â”€ API Response Envelope â”€â”€â”€
+// --- API Response Envelope ---
 //
 // Standardised JSON response shapes for all Tauri IPC commands.
 // Every command returns `Result<Value, Value>` where Ok is an
@@ -223,7 +223,7 @@ mod tests {
     fn test_validate_path_safe_rejects_dotdot_in_name() {
         // The file does not exist yet (write/save scenario). The parent (.) is
         // canonicalized and the file name carries `..` segments that would
-        // escape â€” canonicalize(parent).join(name) still resolves them, and
+        // escape -- canonicalize(parent).join(name) still resolves them, and
         // the resolved path is checked. We assert it does not silently resolve
         // to a parent of cwd by requiring the call to at least not panic and
         // to produce a path rooted at cwd.

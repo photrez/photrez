@@ -15,6 +15,7 @@ import {
 } from "../modernCropState";
 import { setupWorkspaceSync } from "../canvas/workspaceSync";
 import { openImage, openSingleFile, loadProjectFile } from "../editorOpenImage";
+import { runStartupOpenChain } from "./startupOpenChain";
 import { autosaveDirtyDocs, listAutosaves, clearAllAutosaves, setAutosaveStatus, createAutosaveTimerDebouncer } from "../autoSave";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { ViewportCamera } from "../../../viewport/viewportCamera";
@@ -308,9 +309,6 @@ export function EditorProvider(props: {
   const [activeHistoryIndex, setActiveHistoryIndex] = createSignal(0);
   const [rightDockPanel, setRightDockPanel] = createSignal<"layers" | "history">("layers");
 
-  // before trusting it as a typed signal value. Corrupted state or a
-  // schema drift from a future build would otherwise pass through and
-  // produce a stale-typed state with no diagnostic.
   type RightDockLayout = "side-by-side" | "stacked";
   function readRightDockLayout(): RightDockLayout {
     if (typeof localStorage === "undefined") return "side-by-side";
@@ -455,52 +453,37 @@ export function EditorProvider(props: {
       console.error("Workspace sync failed during bootstrap:", e);
     }
 
-    // Open file passed via CLI argument
+    // -- Startup open chain: CLI file first, then crash recovery --
+    // Serialized (review #35) so the recovery dialog can never race the CLI
+    // open; each step is isolated so one failure never blocks the next.
     if (isTauriRuntime()) {
-      invoke<{ path: string | null }>("get_pending_open_path").then((res) => {
-        if (res.path) {
-          openSingleFile(res.path, {
-            workspace: props.workspace,
-            renderer: props.renderer,
-            scheduler: props.scheduler,
-            onError: (msg) => showToastImpl(msg, "error"),
-            onLoading: (msg) => editorState.setLoadingMessage(msg),
-          }).catch((e) => {
-            showToastImpl(`Failed to open file from command line: ${e instanceof Error ? e.message : String(e)}`, "error");
-          });
-        }
-      }).catch(() => {
-        // command not available (e.g. older build) — silently skip
+      void runStartupOpenChain({
+        getPendingOpenPath: () => invoke<{ path: string | null }>("get_pending_open_path"),
+        openSingleFile: (path) => openSingleFile(path, {
+          workspace: props.workspace,
+          renderer: props.renderer,
+          scheduler: props.scheduler,
+          onError: (msg) => showToastImpl(msg, "error"),
+          onLoading: (msg) => editorState.setLoadingMessage(msg),
+        }),
+        listAutosaves,
+        askRecover: (count) =>
+          ask(
+            `${count} document(s) were auto-saved before the last session ended. Recover them?`,
+            { title: "Recover unsaved work?" },
+          ),
+        recoverAutosave: (e) => loadProjectFile(e.path, {
+          workspace: props.workspace,
+          renderer: props.renderer,
+          scheduler: props.scheduler,
+          onError: (msg) => showToastImpl(msg, "error"),
+          onLoading: (msg) => editorState.setLoadingMessage(msg),
+        }, e.displayName),
+        clearAutosaves: clearAllAutosaves,
+        onError: (msg) => showToastImpl(msg, "error"),
+        onRecovered: (count) => showToastImpl(`Recovered ${count} auto-saved document(s)`, "info"),
+        onRecoverFailed: (e, msg) => showToastImpl(`Failed to recover ${e.displayName}: ${msg}`, "error"),
       });
-    }
-
-    // ── Auto-save / crash recovery ──
-    if (isTauriRuntime()) {
-      // Boot: offer to recover unsaved work from a previous abrupt exit.
-      listAutosaves().then(async (entries) => {
-        if (entries.length === 0) return;
-        const recover = await ask(
-          `${entries.length} document(s) were auto-saved before the last session ended. Recover them?`,
-          { title: "Recover unsaved work?" },
-        );
-        if (recover) {
-          for (const e of entries) {
-            try {
-              await loadProjectFile(e.path, {
-                workspace: props.workspace,
-                renderer: props.renderer,
-                scheduler: props.scheduler,
-                onError: (msg) => showToastImpl(msg, "error"),
-                onLoading: (msg) => editorState.setLoadingMessage(msg),
-              }, e.displayName);
-            } catch (err) {
-              showToastImpl(`Failed to recover ${e.displayName}: ${err instanceof Error ? err.message : String(err)}`, "error");
-            }
-          }
-          showToastImpl(`Recovered ${entries.length} auto-saved document(s)`, "info");
-        }
-        await clearAllAutosaves();
-      }).catch(() => { /* ignore */ });
 
       // Periodic auto-save (debounced 60s) of dirty documents.
       const debouncedAutosave = createAutosaveTimerDebouncer(

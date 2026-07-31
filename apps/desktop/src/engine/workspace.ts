@@ -54,14 +54,11 @@ export class WorkspaceManager {
 
   removeDocument(id: DocumentId): void {
     if (this.sessions.has(id)) {
-      // Replace callbacks with no-ops to prevent stale callback firing
-      // after the session is removed. Without this, async operations or
-      // engine-internal event cycles could trigger onChange/onVisualChange
-      // on a removed session, leading to crashes (regression: stale
-      // callbacks after document removal).
+      // Detach the engine's change callbacks entirely (instead of swapping
+      // them for no-op closures) so a removed engine holds no reference back
+      // into workspace state (review #40).
       const session = this.sessions.get(id)!;
-      session.engine.onChange(() => {});
-      session.engine.onVisualChange(() => {});
+      session.engine.clearCallbacks();
 
       const index = Array.from(this.sessions.keys()).indexOf(id);
       this.sessions.delete(id);

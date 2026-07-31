@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// â”€â”€â”€ Native OS Cursor Override â”€â”€â”€
+// --- Native OS Cursor Override ---
 //
 // On Windows, WebView2 overrides the CSS cursor by handling WM_SETCURSOR
 // in its own child window.  Tauri's built-in setCursorIcon calls SetCursor
@@ -35,10 +35,22 @@ pub(crate) fn set_native_cursor<R: Runtime>(
     _app: AppHandle<R>,
     icon: String,
 ) -> Result<(), String> {
+    // IPC boundary validation: the frontend only sends known icons, but a
+    // stale or malformed webview could send anything. Reject unknowns
+    // instead of silently falling back to the default cursor (review #33).
+    if !is_valid_cursor_icon(&icon) {
+        return Err(format!("Invalid cursor icon: {}", icon));
+    }
+
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::SetCursor;
 
+        // SAFETY (review #33): the handle comes from LoadCursorW /
+        // LoadCursorFromFileW (system-owned cursors valid for the process
+        // lifetime) or IDC_ARROW; never a freed or user-owned handle.
+        // SetCursor affects only the calling thread's message queue; this
+        // command runs on the Tauri main thread, which owns the window.
         #[cfg(debug_assertions)]
         {
             use std::sync::Once;
@@ -116,6 +128,11 @@ unsafe fn load_drag_cursor_win(icon: &str) -> *mut core::ffi::c_void {
     }
 }
 
+/// Only the three documented icons are accepted (review #33).
+fn is_valid_cursor_icon(icon: &str) -> bool {
+    matches!(icon, "copy" | "move" | "default")
+}
+
 /// Debug-only: scan system DLLs for cursor resources to find the
 /// real drag-drop cursor IDs (copy/move are composited by Explorer,
 /// but the raw cursors may live in imageres.dll / comctl32.dll).
@@ -147,5 +164,25 @@ unsafe fn debug_scan_cursor_resources() {
                 println!("[cursor_rs] scan: {}.{} is a CURSOR ({:p})", dll, id, h);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_cursor_icon;
+
+    #[test]
+    fn accepts_documented_icons() {
+        assert!(is_valid_cursor_icon("copy"));
+        assert!(is_valid_cursor_icon("move"));
+        assert!(is_valid_cursor_icon("default"));
+    }
+
+    #[test]
+    fn rejects_unknown_icons() {
+        assert!(!is_valid_cursor_icon(""));
+        assert!(!is_valid_cursor_icon("Copy")); // case-sensitive
+        assert!(!is_valid_cursor_icon("hand"));
+        assert!(!is_valid_cursor_icon("default; DROP TABLE"));
     }
 }

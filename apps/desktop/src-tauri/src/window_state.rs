@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// â”€â”€â”€ Window State Persistence â”€â”€â”€
+// --- Window State Persistence ---
 //
 // Saves and restores window size, position, and maximized state across
 // app launches. Written to `<app_config_dir>/window-state.json`.
@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn test_snap_to_screen_primary_monitor_offset() {
         // Dual monitor: primary at (0,0, 1920x1080), secondary at (1920,0, 1920x1080)
-        // Window on secondary at (2000, 100, 800x600) â€” visible, should stay
+        // Window on secondary at (2000, 100, 800x600) -- visible, should stay
         let monitors = [(0, 0, 1920u32, 1080u32), (1920, 0, 1920u32, 1080u32)];
         let (new_x, new_y) = snap_to_screen(2000, 100, 800, 600, &monitors);
         assert_eq!(new_x, Some(2000));
@@ -286,35 +286,35 @@ mod tests {
 
     #[test]
     fn test_snap_to_screen_partially_visible_stays() {
-        // Window is partially (500px overlap) on monitor â€” should stay
+        // Window is partially (500px overlap) on monitor -- should stay
         let monitors = [(0, 0, 1920u32, 1080u32)];
         let (new_x, new_y) = snap_to_screen(1800, 100, 800, 600, &monitors);
-        // Overlap: 120px (1920-1800) x 980px (1080-100) â€” well over 100px threshold
+        // Overlap: 120px (1920-1800) x 980px (1080-100) -- well over 100px threshold
         assert_eq!(new_x, Some(1800));
         assert_eq!(new_y, Some(100));
     }
 
     #[test]
     fn test_snap_to_screen_barely_visible_stays() {
-        // Only 150px visible â€” still above threshold
+        // Only 150px visible -- still above threshold
         let monitors = [(0, 0, 1920u32, 1080u32)];
         let (x, _y) = snap_to_screen(1770, 500, 800, 600, &monitors);
-        // Overlap: 150px â€” above 100px threshold
+        // Overlap: 150px -- above 100px threshold
         assert_eq!(x, Some(1770));
     }
 
     #[test]
     fn test_snap_to_screen_below_threshold_centers() {
-        // Only 50px visible â€” below 100px threshold
+        // Only 50px visible -- below 100px threshold
         let monitors = [(0, 0, 1920u32, 1080u32)];
         let (x, _y) = snap_to_screen(1870, 500, 800, 600, &monitors);
-        // Overlap: 50px â€” below 100px threshold, should center
+        // Overlap: 50px -- below 100px threshold, should center
         assert_eq!(x, Some(560));
     }
 
     #[test]
     fn test_snap_to_screen_empty_monitors() {
-        // No monitors â€” should return None
+        // No monitors -- should return None
         let monitors: [(i32, i32, u32, u32); 0] = [];
         let (new_x, new_y) = snap_to_screen(100, 100, 800, 600, &monitors);
         assert_eq!(new_x, None);

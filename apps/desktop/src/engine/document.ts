@@ -861,6 +861,13 @@ export class DocumentEngine {
     this.onVisualChangeCallback = callback;
   }
 
+  /** Detach both change callbacks — used when a document session is removed
+   *  so a removed engine never fires into workspace state (review #40). */
+  clearCallbacks(): void {
+    this.onChangeCallback = null;
+    this.onVisualChangeCallback = null;
+  }
+
   private notifyChange(): void {
     if (this.onChangeCallback) {
       this.onChangeCallback();

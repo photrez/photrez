@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { WorkspaceManager } from '../workspace';
 
 describe('WorkspaceManager', () => {
@@ -54,6 +54,23 @@ describe('WorkspaceManager', () => {
     wm.removeDocument('doc-1');
     expect(wm.getDocumentCount()).toBe(1);
     expect(wm.getActiveDocumentId()).toBe('doc-2');
+  });
+
+  it('detaches engine callbacks when a document is removed (review #40)', () => {
+    const wm = new WorkspaceManager();
+    const session = WorkspaceManager.createBlankDocument('doc-cb', 'CB Test', 400, 300);
+    const onChange = vi.fn();
+    const onVisualChange = vi.fn();
+    session.engine.onChange(onChange);
+    session.engine.onVisualChange(onVisualChange);
+
+    wm.addDocument(session);
+    wm.removeDocument('doc-cb');
+
+    // Mutating the removed engine must no longer reach the old callbacks.
+    session.engine.addLayer('Layer after removal');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onVisualChange).not.toHaveBeenCalled();
   });
 
   // ──────────────────────────────────────────────────────────────

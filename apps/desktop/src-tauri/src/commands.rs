@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// â”€â”€â”€ Tauri IPC Commands â”€â”€â”€
+// --- Tauri IPC Commands ---
 //
 // All `#[tauri::command]` handlers exposed to the frontend.
 
@@ -434,7 +434,7 @@ pub(crate) fn save_project_binary(
 
 // ── Streaming Save ─────────────────────────────────────────────────────
 //
-// Multi-step protocol: begin → write_layer (N×, raw IPC) → end | cancel.
+// Multi-step protocol: begin -> write_layer (Nx, raw IPC) -> end | cancel.
 // Rust holds a ZipWriter open across calls so each layer can be written as
 // soon as it finishes encoding, overlapping encode + write.
 
@@ -724,7 +724,7 @@ pub(crate) fn load_project(
     }))
 }
 
-/// Delete a file from disk. Restricted to the temp directory for safety â€”
+/// Delete a file from disk. Restricted to the temp directory for safety --
 /// used for cleaning up temp files (e.g. exported print spool) after print.
 #[tauri::command]
 pub(crate) fn delete_file(path: String) -> Result<Value, Value> {

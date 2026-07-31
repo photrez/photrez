@@ -44,6 +44,12 @@ export class ViewportCamera {
   public onAnimationEnd?: () => void;
   public isModernCropActive = false;
 
+  // Pre-allocated matrix buffer — `getViewProjectionMatrix` is called every
+  // render frame; allocating a Float32Array per call churns the GC. Callers
+  // must consume the matrix synchronously (the renderer applies it
+  // immediately), never store the reference across frames (review #26).
+  private readonly matrixCache = new Float32Array(16);
+
   constructor(initial?: Partial<CameraState>) {
     if (initial) {
       this.current = {
@@ -194,7 +200,8 @@ export class ViewportCamera {
     const h = canvasH ?? this.viewportHeight;
 
     const { x, y, zoom } = this.current;
-    const m = new Float32Array(16);
+    const m = this.matrixCache;
+    m.fill(0); // both paths below write a subset of the 16 elements
 
     const it = this.imageTransform;
     const hasPivot = it.pivotScreen !== null && it.pivotDocument !== null;

@@ -280,7 +280,6 @@ describe("ViewportCamera", () => {
     });
 
     const m = camera.getViewProjectionMatrix(1000, 1000);
-
     expect(m[0]).toBeCloseTo(0.004, 5);
     expect(m[1]).toBeCloseTo(0, 5);
     expect(m[4]).toBeCloseTo(0, 5);
@@ -483,6 +482,29 @@ describe("ViewportCamera", () => {
 
     expect(m[0]).toBeCloseTo(0.005, 5);
     expect(m[12]).toBeCloseTo(-0.75, 5);
+  });
+
+  it("reuses the pre-allocated matrix buffer without leaking elements between paths (review #26)", () => {
+    camera.setState({ x: 0, y: 0, zoom: 1.0 });
+
+    // Pivot path writes rotation elements (m[1], m[4])…
+    camera.setImageTransform({
+      offsetX: 0,
+      offsetY: 0,
+      rotation: Math.PI / 2,
+      scale: 1.0,
+      pivotScreen: { x: 100, y: 100 },
+      pivotDocument: { x: 100, y: 100 },
+    });
+    const withPivot = camera.getViewProjectionMatrix(800, 600);
+    expect(withPivot[1]).not.toBe(0);
+
+    // …then the no-pivot path must not see stale values from the previous call.
+    camera.setImageTransform({});
+    const withoutPivot = camera.getViewProjectionMatrix(800, 600);
+    expect(withoutPivot[1]).toBe(0);
+    expect(withoutPivot[4]).toBe(0);
+    expect(withoutPivot[14]).toBe(0);
   });
 });
 
