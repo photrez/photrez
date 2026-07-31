@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod commands;
 mod cursor;
+mod file_io;
 mod menu;
+mod print_core;
 mod print_geometry;
 mod print_settings;
+mod print_settings_cmds;
 #[cfg(target_os = "windows")]
 mod print_windows;
+mod printers;
 mod response;
+mod save_stream;
 mod window_state;
 
 use print_settings::PrintSettings;
@@ -19,7 +23,7 @@ use tauri_plugin_log::{Target, TargetKind};
 struct CliState(Mutex<Option<String>>);
 
 /// Accept only existing files with a readable extension (same whitelist as
-/// `commands::READ_FILE_EXTENSIONS` plus `.ptz`). Returns None for anything
+/// `file_io::READ_FILE_EXTENSIONS` plus `.ptz`). Returns None for anything
 /// else so garbage CLI args never enter `TrustedPathsState`.
 fn validate_cli_open_path(p: &str) -> Option<String> {
     let path = std::path::PathBuf::from(p);
@@ -58,8 +62,8 @@ fn main() {
     tauri::Builder::default()
         .manage(CliState(Mutex::new(cli_path)))
         .manage(Mutex::new(PrintSettings::default()))
-        .manage(commands::StreamingSaveState::default())
-        .manage(commands::PrintRateLimiter::default())
+        .manage(save_stream::StreamingSaveState::default())
+        .manage(print_core::PrintRateLimiter::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             // Structured logging: stdout in dev, file in app log dir in prod.
@@ -87,7 +91,7 @@ fn main() {
                 .path()
                 .app_config_dir()
                 .unwrap_or_else(|_| std::env::temp_dir());
-            let trusted = commands::TrustedPathsState::new(
+            let trusted = file_io::TrustedPathsState::new(
                 cache_dir,
                 config_dir.join("photrez").join("trusted-paths.json"),
             );
@@ -163,49 +167,49 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            commands::ping,
-            commands::get_contract_info,
-            commands::get_pending_open_path,
-            commands::set_trusted_paths,
-            commands::read_file_bytes,
-            commands::write_file_bytes,
-            commands::save_project,
-            commands::save_project_binary,
-            commands::save_project_streaming_begin,
-            commands::save_project_streaming_write_layer,
-            commands::save_project_streaming_end,
-            commands::save_project_streaming_cancel,
-            commands::load_project,
-            commands::print_image,
-            commands::print_image_raw,
-            commands::get_system_printers,
-            commands::get_printer_paper_sizes,
-            commands::open_printer_properties,
-            commands::get_print_settings,
-            commands::set_paper,
-            commands::toggle_orientation,
-            commands::set_orientation,
-            commands::set_margin,
-            commands::set_per_side_margins,
-            commands::set_scale_to_fit,
-            commands::set_scale_percent,
-            commands::set_center_image,
-            commands::set_top_offset_mm,
-            commands::set_left_offset_mm,
-            commands::set_copies,
-            commands::set_unit,
-            commands::set_show_paper_white,
-            commands::set_color_handling,
-            commands::set_rendering_intent,
-            commands::set_black_point_compensation,
-            commands::set_printer,
-            commands::open_printer_properties_and_apply,
-            commands::convert_mm_to_current_unit,
-            commands::convert_current_unit_to_mm,
+            file_io::ping,
+            file_io::get_contract_info,
+            file_io::get_pending_open_path,
+            file_io::set_trusted_paths,
+            file_io::read_file_bytes,
+            file_io::write_file_bytes,
+            file_io::save_project,
+            file_io::save_project_binary,
+            save_stream::save_project_streaming_begin,
+            save_stream::save_project_streaming_write_layer,
+            save_stream::save_project_streaming_end,
+            save_stream::save_project_streaming_cancel,
+            file_io::load_project,
+            print_core::print_image,
+            print_core::print_image_raw,
+            printers::get_system_printers,
+            printers::get_printer_paper_sizes,
+            printers::open_printer_properties,
+            print_settings_cmds::get_print_settings,
+            print_settings_cmds::set_paper,
+            print_settings_cmds::toggle_orientation,
+            print_settings_cmds::set_orientation,
+            print_settings_cmds::set_margin,
+            print_settings_cmds::set_per_side_margins,
+            print_settings_cmds::set_scale_to_fit,
+            print_settings_cmds::set_scale_percent,
+            print_settings_cmds::set_center_image,
+            print_settings_cmds::set_top_offset_mm,
+            print_settings_cmds::set_left_offset_mm,
+            print_settings_cmds::set_copies,
+            print_settings_cmds::set_unit,
+            print_settings_cmds::set_show_paper_white,
+            print_settings_cmds::set_color_handling,
+            print_settings_cmds::set_rendering_intent,
+            print_settings_cmds::set_black_point_compensation,
+            print_settings_cmds::set_printer,
+            print_settings_cmds::open_printer_properties_and_apply,
+            print_settings_cmds::convert_mm_to_current_unit,
+            print_settings_cmds::convert_current_unit_to_mm,
             cursor::set_native_cursor,
-            commands::delete_file,
-            commands::delete_autosave_file,
-            commands::close_app,
+            file_io::delete_file,
+            file_io::delete_autosave_file,
+            file_io::close_app,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");
