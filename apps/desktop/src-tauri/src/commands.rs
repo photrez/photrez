@@ -9,7 +9,10 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::response::{err_response, error_value, ok_response, validate_path_extension, validate_path_safe, CONTRACT_VERSION};
+use crate::response::{
+    err_response, error_value, ok_response, validate_path_extension, validate_path_safe,
+    CONTRACT_VERSION,
+};
 use crate::CliState;
 
 // ── Streaming Save State ──
@@ -29,7 +32,9 @@ pub(crate) struct StreamingSaveState {
 
 impl Default for StreamingSaveState {
     fn default() -> Self {
-        Self { sessions: Mutex::new(HashMap::new()) }
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -69,7 +74,11 @@ impl TrustedPathsState {
             .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
             .map(|v| v.into_iter().map(PathBuf::from).collect())
             .unwrap_or_default();
-        Self { paths: Mutex::new(paths), cache_dir, persist_path }
+        Self {
+            paths: Mutex::new(paths),
+            cache_dir,
+            persist_path,
+        }
     }
 
     /// Approve one raw path (from a dialog or CLI arg). The path is
@@ -106,17 +115,26 @@ impl TrustedPathsState {
     }
 
     pub(crate) fn is_trusted(&self, path: &PathBuf) -> bool {
-        self.paths.lock().unwrap_or_else(|e| e.into_inner()).contains(path)
+        self.paths
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(path)
             || path.starts_with(&self.cache_dir)
     }
 
     fn persist(&self) {
         let paths = self.paths.lock().unwrap_or_else(|e| e.into_inner());
-        let list: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+        let list: Vec<String> = paths
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
         if let Some(parent) = self.persist_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _ = std::fs::write(&self.persist_path, serde_json::to_string(&list).unwrap_or_default());
+        let _ = std::fs::write(
+            &self.persist_path,
+            serde_json::to_string(&list).unwrap_or_default(),
+        );
     }
 }
 
@@ -133,7 +151,9 @@ fn check_path_trusted(state: &TrustedPathsState, path: &PathBuf) -> Result<(), V
 }
 
 const MAX_FILE_IO_BYTES: u64 = 256 * 1024 * 1024;
-const READ_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "json"];
+const READ_FILE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "json",
+];
 const WRITE_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "json"];
 
 // Project archive (ZIP) hard caps — zip-bomb protection.
@@ -242,9 +262,8 @@ pub(crate) fn write_file_bytes_inner(path: String, data: String) -> Result<Value
 
     // Ensure parent directory exists (autosave dir may not be created yet).
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            error_value("E_IO", &format!("Failed to create directory: {}", e))
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| error_value("E_IO", &format!("Failed to create directory: {}", e)))?;
     }
 
     use base64::Engine;
@@ -294,14 +313,28 @@ pub(crate) fn save_project(
 
     for (layer_id, base64_data) in layers {
         use base64::Engine;
-        let bytes = base64::engine::general_purpose::STANDARD.decode(&base64_data)
-            .map_err(|e| error_value("E_VALIDATION", &format!("Invalid base64 for layer {}: {}", layer_id, e)))?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&base64_data)
+            .map_err(|e| {
+                error_value(
+                    "E_VALIDATION",
+                    &format!("Invalid base64 for layer {}: {}", layer_id, e),
+                )
+            })?;
 
         let zip_layer_path = format!("layers/{}.png", layer_id);
-        zip.start_file(&zip_layer_path, options)
-            .map_err(|e| error_value("E_IO", &format!("Failed to start layer file {}: {}", zip_layer_path, e)))?;
-        zip.write_all(&bytes)
-            .map_err(|e| error_value("E_IO", &format!("Failed to write layer {}: {}", layer_id, e)))?;
+        zip.start_file(&zip_layer_path, options).map_err(|e| {
+            error_value(
+                "E_IO",
+                &format!("Failed to start layer file {}: {}", zip_layer_path, e),
+            )
+        })?;
+        zip.write_all(&bytes).map_err(|e| {
+            error_value(
+                "E_IO",
+                &format!("Failed to write layer {}: {}", layer_id, e),
+            )
+        })?;
     }
 
     zip.finish()
@@ -328,9 +361,8 @@ pub(crate) fn save_project_binary(
 
     // Ensure parent directory exists (autosave dir may not be created yet).
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            error_value("E_IO", &format!("Failed to create directory: {}", e))
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| error_value("E_IO", &format!("Failed to create directory: {}", e)))?;
     }
 
     // Write to a temp file next to the final path, then atomic-rename.
@@ -343,8 +375,12 @@ pub(crate) fn save_project_binary(
     tmp_name.push_str(".tmp");
     tmp_path.set_file_name(&tmp_name);
 
-    let file = std::fs::File::create(&tmp_path)
-        .map_err(|e| error_value("E_IO", &format!("Failed to create temp project file: {}", e)))?;
+    let file = std::fs::File::create(&tmp_path).map_err(|e| {
+        error_value(
+            "E_IO",
+            &format!("Failed to create temp project file: {}", e),
+        )
+    })?;
 
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
@@ -358,10 +394,18 @@ pub(crate) fn save_project_binary(
 
     for (layer_id, bytes) in layers {
         let zip_layer_path = format!("layers/{}.png", layer_id);
-        zip.start_file(&zip_layer_path, options)
-            .map_err(|e| error_value("E_IO", &format!("Failed to start layer file {}: {}", zip_layer_path, e)))?;
-        zip.write_all(&bytes)
-            .map_err(|e| error_value("E_IO", &format!("Failed to write layer {}: {}", layer_id, e)))?;
+        zip.start_file(&zip_layer_path, options).map_err(|e| {
+            error_value(
+                "E_IO",
+                &format!("Failed to start layer file {}: {}", zip_layer_path, e),
+            )
+        })?;
+        zip.write_all(&bytes).map_err(|e| {
+            error_value(
+                "E_IO",
+                &format!("Failed to write layer {}: {}", layer_id, e),
+            )
+        })?;
     }
 
     let file = zip
@@ -409,9 +453,8 @@ pub(crate) fn save_project_streaming_begin(
 
     // Ensure parent directory exists.
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            error_value("E_IO", &format!("Failed to create directory: {}", e))
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| error_value("E_IO", &format!("Failed to create directory: {}", e)))?;
     }
 
     // Temp path (same dir as final, for atomic rename).
@@ -442,12 +485,15 @@ pub(crate) fn save_project_streaming_begin(
     let handle_id = uuid::Uuid::new_v4().to_string();
     let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     prune_expired_sessions(&mut sessions);
-    sessions.insert(handle_id.clone(), StreamingSaveSession {
-        tmp_path,
-        final_path: path,
-        zip: Some(zip),
-        created_at: Instant::now(),
-    });
+    sessions.insert(
+        handle_id.clone(),
+        StreamingSaveSession {
+            tmp_path,
+            final_path: path,
+            zip: Some(zip),
+            created_at: Instant::now(),
+        },
+    );
 
     ok_response(serde_json::json!({ "handle_id": handle_id }))
 }
@@ -465,13 +511,15 @@ pub(crate) fn save_project_streaming_write_layer(
     };
 
     // Parse metadata from headers.
-    let handle_id = request.headers()
+    let handle_id = request
+        .headers()
         .get("handle-id")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| error_value("E_VALIDATION", "Missing handle-id header"))?
         .to_string();
 
-    let layer_id = request.headers()
+    let layer_id = request
+        .headers()
         .get("layer-id")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| error_value("E_VALIDATION", "Missing layer-id header"))?
@@ -479,21 +527,35 @@ pub(crate) fn save_project_streaming_write_layer(
 
     let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     prune_expired_sessions(&mut sessions);
-    let session = sessions.get_mut(&handle_id)
-        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found or expired"))?;
+    let session = sessions.get_mut(&handle_id).ok_or_else(|| {
+        error_value(
+            "E_VALIDATION",
+            "Invalid handle_id: session not found or expired",
+        )
+    })?;
 
-    let zip = session.zip.as_mut()
+    let zip = session
+        .zip
+        .as_mut()
         .ok_or_else(|| error_value("E_INTERNAL", "Session already ended or cancelled"))?;
 
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
     let zip_path = format!("layers/{}.png", layer_id);
-    zip.start_file(&zip_path, options)
-        .map_err(|e| error_value("E_IO", &format!("Failed to start layer {}: {}", layer_id, e)))?;
+    zip.start_file(&zip_path, options).map_err(|e| {
+        error_value(
+            "E_IO",
+            &format!("Failed to start layer {}: {}", layer_id, e),
+        )
+    })?;
     use std::io::Write;
-    zip.write_all(data)
-        .map_err(|e| error_value("E_IO", &format!("Failed to write layer {}: {}", layer_id, e)))?;
+    zip.write_all(data).map_err(|e| {
+        error_value(
+            "E_IO",
+            &format!("Failed to write layer {}: {}", layer_id, e),
+        )
+    })?;
 
     ok_response(serde_json::json!({ "written": layer_id }))
 }
@@ -506,15 +568,20 @@ pub(crate) fn save_project_streaming_end(
 ) -> Result<Value, Value> {
     let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     prune_expired_sessions(&mut sessions);
-    let session = sessions.remove(&handle_id)
-        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found or expired"))?;
-
-    let zip = session.zip.ok_or_else(|| {
-        error_value("E_INTERNAL", "Session zip already consumed — double end?")
+    let session = sessions.remove(&handle_id).ok_or_else(|| {
+        error_value(
+            "E_VALIDATION",
+            "Invalid handle_id: session not found or expired",
+        )
     })?;
 
+    let zip = session
+        .zip
+        .ok_or_else(|| error_value("E_INTERNAL", "Session zip already consumed — double end?"))?;
+
     // Finish ZipWriter (close central directory, finalize file).
-    let file = zip.finish()
+    let file = zip
+        .finish()
         .map_err(|e| error_value("E_IO", &format!("Failed to finalize zip: {}", e)))?;
 
     // fsync data + directory for atomic durability.
@@ -544,8 +611,12 @@ pub(crate) fn save_project_streaming_cancel(
 ) -> Result<Value, Value> {
     let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     prune_expired_sessions(&mut sessions);
-    let session = sessions.remove(&handle_id)
-        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found or expired"))?;
+    let session = sessions.remove(&handle_id).ok_or_else(|| {
+        error_value(
+            "E_VALIDATION",
+            "Invalid handle_id: session not found or expired",
+        )
+    })?;
 
     // Drop the ZipWriter — closes without finalizing (corrupted zip, cleaned up).
     drop(session.zip);
@@ -575,7 +646,10 @@ pub(crate) fn load_project(
     if archive.len() > MAX_PROJECT_ENTRIES {
         return err_response(
             "E_RESOURCE_LIMIT",
-            &format!("Project archive has too many entries (max {})", MAX_PROJECT_ENTRIES),
+            &format!(
+                "Project archive has too many entries (max {})",
+                MAX_PROJECT_ENTRIES
+            ),
         );
     }
 
@@ -584,18 +658,24 @@ pub(crate) fn load_project(
     let mut total_bytes: u64 = 0;
 
     for i in 0..archive.len() {
-        let file = archive.by_index(i)
-            .map_err(|e| error_value("E_IO", &format!("Failed to read index {} inside project archive: {}", i, e)))?;
+        let file = archive.by_index(i).map_err(|e| {
+            error_value(
+                "E_IO",
+                &format!("Failed to read index {} inside project archive: {}", i, e),
+            )
+        })?;
 
         let name = file.name().to_string();
         if name == "document.json" {
             use std::io::Read;
             let mut json_limit = file.take(1024 * 1024); // 1MB cukup untuk JSON
-            json_limit.read_to_string(&mut document_json)
-                .map_err(|e| error_value("E_IO", &format!("Failed to read document.json: {}", e)))?;
+            json_limit.read_to_string(&mut document_json).map_err(|e| {
+                error_value("E_IO", &format!("Failed to read document.json: {}", e))
+            })?;
             total_bytes += document_json.len() as u64;
         } else if name.starts_with("layers/") && name.ends_with(".png") {
-            let layer_id = name.strip_prefix("layers/")
+            let layer_id = name
+                .strip_prefix("layers/")
                 .and_then(|s| s.strip_suffix(".png"))
                 .unwrap_or(&name)
                 .to_string();
@@ -604,8 +684,12 @@ pub(crate) fn load_project(
             let mut bytes = Vec::new();
             // Zip bomb protection: limit decompressed size per entry
             let mut limit_reader = file.take(MAX_FILE_IO_BYTES);
-            limit_reader.read_to_end(&mut bytes)
-                .map_err(|e| error_value("E_IO", &format!("Failed to read layer file {}: {}", name, e)))?;
+            limit_reader.read_to_end(&mut bytes).map_err(|e| {
+                error_value(
+                    "E_IO",
+                    &format!("Failed to read layer file {}: {}", name, e),
+                )
+            })?;
 
             total_bytes += bytes.len() as u64;
             if total_bytes > MAX_PROJECT_TOTAL_BYTES {
@@ -617,7 +701,10 @@ pub(crate) fn load_project(
             if layers.len() >= MAX_PROJECT_LAYERS {
                 return err_response(
                     "E_RESOURCE_LIMIT",
-                    &format!("Project archive has too many layers (max {})", MAX_PROJECT_LAYERS),
+                    &format!(
+                        "Project archive has too many layers (max {})",
+                        MAX_PROJECT_LAYERS
+                    ),
                 );
             }
 
@@ -672,10 +759,7 @@ pub(crate) fn delete_autosave_file(path: String) -> Result<Value, Value> {
     // Scope: must be inside a photrez/autosave/ directory (defense in depth).
     let normalized = path.to_string_lossy().replace('\\', "/");
     if !normalized.contains("/photrez/autosave/") {
-        return err_response(
-            "E_VALIDATION",
-            "Path is not inside the autosave directory",
-        );
+        return err_response("E_VALIDATION", "Path is not inside the autosave directory");
     }
 
     match std::fs::remove_file(&path) {
@@ -711,7 +795,11 @@ fn find_cups_ppd(printer_name: &str) -> Option<PathBuf> {
     // lpoptions output format: "ppd=/etc/cups/ppd/PrinterName.ppd"
     let path_str = line.strip_prefix("ppd=").unwrap_or(line);
     let p = Path::new(path_str);
-    if p.is_file() { Some(p.to_path_buf()) } else { None }
+    if p.is_file() {
+        Some(p.to_path_buf())
+    } else {
+        None
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -720,7 +808,12 @@ fn find_cups_ppd(printer_name: &str) -> Option<PathBuf> {
 /// PaperDimension: `*PaperDimension Name/Desc: "width_pt height_pt"`
 /// ImageableArea:  `*ImageableArea Name/Desc: "x1 y1 x2 y2"`
 /// PostScript points: 1 pt = 1/72 inch = 25.4/72 mm
-fn parse_ppd_file(ppd_path: &Path) -> (Vec<(String, f64, f64)>, HashMap<String, (f64, f64, f64, f64)>) {
+fn parse_ppd_file(
+    ppd_path: &Path,
+) -> (
+    Vec<(String, f64, f64)>,
+    HashMap<String, (f64, f64, f64, f64)>,
+) {
     let pt_to_mm = |pt: f64| pt * 25.4 / 72.0;
     let content = match std::fs::read_to_string(ppd_path) {
         Ok(c) => c,
@@ -737,7 +830,11 @@ fn parse_ppd_file(ppd_path: &Path) -> (Vec<(String, f64, f64)>, HashMap<String, 
                 let parts: Vec<&str> = dims_str.split_whitespace().collect();
                 if parts.len() >= 2 {
                     let name = trimmed["*PaperDimension ".len()..]
-                        .split('/').next().unwrap_or("").trim().to_string();
+                        .split('/')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
                     if let (Ok(w), Ok(h)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
                         paper_dims.push((name, pt_to_mm(w), pt_to_mm(h)));
                     }
@@ -749,9 +846,25 @@ fn parse_ppd_file(ppd_path: &Path) -> (Vec<(String, f64, f64)>, HashMap<String, 
                 let parts: Vec<&str> = area_str.split_whitespace().collect();
                 if parts.len() >= 4 {
                     let name = trimmed["*ImageableArea ".len()..]
-                        .split('/').next().unwrap_or("").trim().to_string();
-                    if let Some(coords) = parts.iter().map(|s| s.parse::<f64>().ok()).collect::<Option<Vec<_>>>() {
-                        imageable_areas.insert(name, (pt_to_mm(coords[0]), pt_to_mm(coords[1]), pt_to_mm(coords[2]), pt_to_mm(coords[3])));
+                        .split('/')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if let Some(coords) = parts
+                        .iter()
+                        .map(|s| s.parse::<f64>().ok())
+                        .collect::<Option<Vec<_>>>()
+                    {
+                        imageable_areas.insert(
+                            name,
+                            (
+                                pt_to_mm(coords[0]),
+                                pt_to_mm(coords[1]),
+                                pt_to_mm(coords[2]),
+                                pt_to_mm(coords[3]),
+                            ),
+                        );
                     }
                 }
             }
@@ -795,8 +908,17 @@ pub(crate) fn print_image(
     validate_path_extension(&path, &["png", "jpg", "jpeg"], "print")?;
     let path = validate_path_safe(&path, "print")?;
     check_path_trusted(&state, &path)?;
-    print_image_inner(path, printer, copies, paper_width_mm, paper_height_mm,
-        paper_preset, paper_index, document_name, orientation)
+    print_image_inner(
+        path,
+        printer,
+        copies,
+        paper_width_mm,
+        paper_height_mm,
+        paper_preset,
+        paper_index,
+        document_name,
+        orientation,
+    )
 }
 
 /// Internal print dispatch — called by `print_image`.
@@ -845,7 +967,17 @@ fn print_image_inner(
 
         match target {
             Some(printer) => {
-                if let Err(e) = print_image_via_gdi(&p, &printer.system_name, print_count, pw_mm, ph_mm, 0.0, pidx, doc_name, orientation) {
+                if let Err(e) = print_image_via_gdi(
+                    &p,
+                    &printer.system_name,
+                    print_count,
+                    pw_mm,
+                    ph_mm,
+                    0.0,
+                    pidx,
+                    doc_name,
+                    orientation,
+                ) {
                     return err_response("E_PRINTER", &e);
                 }
             }
@@ -880,7 +1012,7 @@ fn print_image_inner(
         if let Some(ref name) = printer.as_ref().filter(|s| !s.trim().is_empty()) {
             cmd.arg("-d").arg(name);
         }
-        cmd.arg("-t").arg(doc_name);  // job title = document name
+        cmd.arg("-t").arg(doc_name); // job title = document name
         cmd.arg("-o").arg("fit-to-page");
         cmd.arg("-o").arg(format!("media={}", media));
         cmd.arg(&p);
@@ -889,7 +1021,10 @@ fn print_image_inner(
             Ok(c) => c,
             Err(e) => {
                 let _ = open::that(&p);
-                return err_response("E_PRINTER", &format!("Failed to spawn lp: {e}. File opened in viewer."));
+                return err_response(
+                    "E_PRINTER",
+                    &format!("Failed to spawn lp: {e}. File opened in viewer."),
+                );
             }
         };
 
@@ -901,20 +1036,29 @@ fn print_image_inner(
                     if std::time::Instant::now() > deadline {
                         let _ = child.kill();
                         let _ = open::that(&p);
-                        return err_response("E_PRINTER", "Print via lp timed out after 60s. File opened in viewer.");
+                        return err_response(
+                            "E_PRINTER",
+                            "Print via lp timed out after 60s. File opened in viewer.",
+                        );
                     }
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
                 Err(e) => {
                     let _ = open::that(&p);
-                    return err_response("E_IO", &format!("Failed to check lp status: {e}. File opened in viewer."));
+                    return err_response(
+                        "E_IO",
+                        &format!("Failed to check lp status: {e}. File opened in viewer."),
+                    );
                 }
             }
         };
 
         if !status.success() {
             let _ = open::that(&p);
-            return err_response("E_PRINTER", "Print via lp failed (non-zero exit). File opened in viewer.");
+            return err_response(
+                "E_PRINTER",
+                "Print via lp failed (non-zero exit). File opened in viewer.",
+            );
         }
     }
 
@@ -929,16 +1073,16 @@ fn print_image_inner(
 /// Windows: sends raw RGBA directly to GDI (render_rgba_to_printer).
 /// macOS/Linux: re-encodes as PNG temp file and dispatches via CUPS lp.
 #[tauri::command]
-pub(crate) fn print_image_raw(
-    request: tauri::ipc::Request<'_>,
-) -> Result<Value, Value> {
+pub(crate) fn print_image_raw(request: tauri::ipc::Request<'_>) -> Result<Value, Value> {
     let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
         return err_response("E_VALIDATION", "Expected raw binary body");
     };
 
     if data.len() as u64 > MAX_FILE_IO_BYTES {
-        return err_response("E_RESOURCE_LIMIT",
-            "Print data exceeds maximum allowed size (256 MB)");
+        return err_response(
+            "E_RESOURCE_LIMIT",
+            "Print data exceeds maximum allowed size (256 MB)",
+        );
     }
 
     // Parse headers via error_value (returns Value directly, compatible with ?)
@@ -947,36 +1091,73 @@ pub(crate) fn print_image_raw(
         return err_response("E_VALIDATION", "Missing printer header");
     };
     let printer = printer_str.to_string();
-    let copies: u32 = headers.get("copies")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(1);
-    let paper_width_mm: f64 = headers.get("paperwidthmm")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(210.0);
-    let paper_height_mm: f64 = headers.get("paperheightmm")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(297.0);
-    let paper_index: i16 = headers.get("paperindex")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(9);
-    let margin_mm: f64 = headers.get("marginmm")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let copies: u32 = headers
+        .get("copies")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let paper_width_mm: f64 = headers
+        .get("paperwidthmm")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(210.0);
+    let paper_height_mm: f64 = headers
+        .get("paperheightmm")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(297.0);
+    let paper_index: i16 = headers
+        .get("paperindex")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(9);
+    let margin_mm: f64 = headers
+        .get("marginmm")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
     // Per-side margins (from frontend composite), fallback to uniform
-    let margin_left_mm: f64 = headers.get("marginleftmm")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
-    let margin_right_mm: f64 = headers.get("marginrightmm")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
-    let margin_top_mm: f64 = headers.get("margintopmm")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
-    let margin_bottom_mm: f64 = headers.get("marginbottommm")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok()).unwrap_or(margin_mm);
-    let document_name = headers.get("documentname")
-        .and_then(|v| v.to_str().ok()).unwrap_or("Untitled").to_string();
-    let orientation = headers.get("orientation")
-        .and_then(|v| v.to_str().ok()).unwrap_or("portrait").to_string();
+    let margin_left_mm: f64 = headers
+        .get("marginleftmm")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(margin_mm);
+    let margin_right_mm: f64 = headers
+        .get("marginrightmm")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(margin_mm);
+    let margin_top_mm: f64 = headers
+        .get("margintopmm")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(margin_mm);
+    let margin_bottom_mm: f64 = headers
+        .get("marginbottommm")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(margin_mm);
+    let document_name = headers
+        .get("documentname")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("Untitled")
+        .to_string();
+    let orientation = headers
+        .get("orientation")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("portrait")
+        .to_string();
 
     // Image dimensions (raw RGBA, not encoded format) — required for GDI
-    let width: u32 = headers.get("width")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok())
+    let width: u32 = headers
+        .get("width")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| error_value("E_VALIDATION", "Missing width header"))?;
-    let height: u32 = headers.get("height")
-        .and_then(|v| v.to_str().ok()).and_then(|s| s.parse().ok())
+    let height: u32 = headers
+        .get("height")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| error_value("E_VALIDATION", "Missing height header"))?;
 
     // Resolve printer — use error_value for ? compatibility
@@ -1003,11 +1184,20 @@ pub(crate) fn print_image_raw(
         }
 
         render_rgba_to_printer(
-            &pixels, width, height,
-            &target.system_name, copies.max(1),
-            paper_width_mm, paper_height_mm, margin_left_mm, margin_right_mm,
-            margin_top_mm, margin_bottom_mm, paper_index,
-            &document_name, &orientation,
+            &pixels,
+            width,
+            height,
+            &target.system_name,
+            copies.max(1),
+            paper_width_mm,
+            paper_height_mm,
+            margin_left_mm,
+            margin_right_mm,
+            margin_top_mm,
+            margin_bottom_mm,
+            paper_index,
+            &document_name,
+            &orientation,
         )
         .map_err(|e| error_value("E_PRINTER", &e))?;
     }
@@ -1024,14 +1214,17 @@ pub(crate) fn print_image_raw(
         let temp_dir = std::env::temp_dir();
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos()).unwrap_or(0);
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let temp_path = temp_dir.join(format!("photrez-print-{ts}.png"));
         img.save(&temp_path)
             .map_err(|e| error_value("E_IO", &format!("Failed to write temp file: {e}")))?;
 
         let media = cups_media_name("Custom", paper_width_mm, paper_height_mm);
         let mut cmd = std::process::Command::new("lp");
-        if copies > 1 { cmd.arg(format!("-n{copies}")); }
+        if copies > 1 {
+            cmd.arg(format!("-n{copies}"));
+        }
         cmd.arg("-d").arg(&printer);
         cmd.arg("-t").arg(&document_name);
         cmd.arg("-o").arg("fit-to-page");
@@ -1126,9 +1319,7 @@ pub(crate) fn open_printer_properties(
                     "orientation": orientation,
                 }))
             }
-            Ok(None) => {
-                ok_response(serde_json::json!({ "applied": false, "cancelled": true }))
-            }
+            Ok(None) => ok_response(serde_json::json!({ "applied": false, "cancelled": true })),
             Err(e) => err_response("E_PRINTER", &e),
         }
     }
@@ -1151,13 +1342,9 @@ pub(crate) fn open_printer_properties(
 #[tauri::command]
 pub(crate) fn get_system_printers() -> Result<Value, Value> {
     let printer_list = printers::get_printers();
-    let printers_vec: Vec<String> = printer_list
-        .iter()
-        .map(|p| p.name.clone())
-        .collect();
+    let printers_vec: Vec<String> = printer_list.iter().map(|p| p.name.clone()).collect();
 
-    let default_name = printers::get_default_printer()
-        .map(|p| p.name.clone());
+    let default_name = printers::get_default_printer().map(|p| p.name.clone());
 
     // Try to get the default printer's current paper size (best-effort)
     let mut default_paper: Option<serde_json::Value> = None;
@@ -1168,7 +1355,9 @@ pub(crate) fn get_system_printers() -> Result<Value, Value> {
     #[cfg(target_os = "windows")]
     {
         if let Some(ref def_name) = default_name {
-            if let Ok((preset, w_mm, h_mm)) = crate::print_windows::get_default_paper_size_win(def_name) {
+            if let Ok((preset, w_mm, h_mm)) =
+                crate::print_windows::get_default_paper_size_win(def_name)
+            {
                 default_paper = Some(serde_json::json!({
                     "preset": preset,
                     "widthMm": w_mm,
@@ -1195,7 +1384,10 @@ pub(crate) fn get_system_printers() -> Result<Value, Value> {
 
                 // Also get the current default paper size name via lpoptions
                 if let Ok(output) = std::process::Command::new("lpoptions")
-                    .arg("-p").arg(def_name).arg("-l").output()
+                    .arg("-p")
+                    .arg(def_name)
+                    .arg("-l")
+                    .output()
                 {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     for line in stdout.lines() {
@@ -1205,7 +1397,9 @@ pub(crate) fn get_system_printers() -> Result<Value, Value> {
                                     let t = token.trim_start_matches('*');
                                     if t != token || token.starts_with('*') {
                                         // Look up dimensions from parsed PPD
-                                        if let Some((_, w, h)) = paper_dims.iter().find(|(n, _, _)| n == t) {
+                                        if let Some((_, w, h)) =
+                                            paper_dims.iter().find(|(n, _, _)| n == t)
+                                        {
                                             default_paper = Some(serde_json::json!({
                                                 "preset": t,
                                                 "widthMm": w,
@@ -1214,18 +1408,18 @@ pub(crate) fn get_system_printers() -> Result<Value, Value> {
                                         } else {
                                             // Standard sizes not in PPD — use known values
                                             let (w, h) = match t {
-                                                "A4"     => (210.0, 297.0),
+                                                "A4" => (210.0, 297.0),
                                                 "Letter" => (215.9, 279.4),
-                                                "A3"     => (297.0, 420.0),
-                                                "Legal"  => (215.9, 355.6),
-                                                "A5"     => (148.0, 210.0),
-                                                "A6"     => (105.0, 148.0),
-                                                "Tabloid"    => (279.4, 431.8),
-                                                "Executive"  => (184.15, 266.7),
-                                                "4x6"    => (101.6, 152.4),
-                                                "5x7"    => (127.0, 177.8),
-                                                "8x10"   => (203.2, 254.0),
-                                                _        => (0.0, 0.0),
+                                                "A3" => (297.0, 420.0),
+                                                "Legal" => (215.9, 355.6),
+                                                "A5" => (148.0, 210.0),
+                                                "A6" => (105.0, 148.0),
+                                                "Tabloid" => (279.4, 431.8),
+                                                "Executive" => (184.15, 266.7),
+                                                "4x6" => (101.6, 152.4),
+                                                "5x7" => (127.0, 177.8),
+                                                "8x10" => (203.2, 254.0),
+                                                _ => (0.0, 0.0),
                                             };
                                             default_paper = Some(serde_json::json!({
                                                 "preset": t,
@@ -1246,8 +1440,10 @@ pub(crate) fn get_system_printers() -> Result<Value, Value> {
                 if let Some(ref dp) = default_paper {
                     if let Some(preset_name) = dp.get("preset").and_then(|v| v.as_str()) {
                         if let Some((x1, y1, x2, y2)) = imageable_areas.get(preset_name) {
-                            let paper_w = dp.get("widthMm").and_then(|v| v.as_f64()).unwrap_or(210.0);
-                            let paper_h = dp.get("heightMm").and_then(|v| v.as_f64()).unwrap_or(297.0);
+                            let paper_w =
+                                dp.get("widthMm").and_then(|v| v.as_f64()).unwrap_or(210.0);
+                            let paper_h =
+                                dp.get("heightMm").and_then(|v| v.as_f64()).unwrap_or(297.0);
                             default_margins = Some(serde_json::json!({
                                 "leftMm":   x1,
                                 "topMm":    y1,
@@ -1295,7 +1491,11 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
     {
         match crate::print_windows::get_printer_paper_sizes_win(&printer) {
             Ok(sizes) => {
-                eprintln!("[RUST:commands] get_printer_paper_sizes — printer={}, count={}", printer, sizes.len());
+                eprintln!(
+                    "[RUST:commands] get_printer_paper_sizes — printer={}, count={}",
+                    printer,
+                    sizes.len()
+                );
                 let entries: Vec<serde_json::Value> = sizes
                     .into_iter()
                     .map(|(name, w, h, idx)| {
@@ -1339,7 +1539,10 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
         let ppd_areas = ppd_result.as_ref().map(|(_, areas)| areas);
 
         match std::process::Command::new("lpoptions")
-            .arg("-p").arg(&printer).arg("-l").output()
+            .arg("-p")
+            .arg(&printer)
+            .arg("-l")
+            .output()
         {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1351,29 +1554,34 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
                             for token in val_part.split_whitespace() {
                                 let name = token.trim_start_matches('*').to_string();
                                 // Detect default (has * prefix — the active/selected option)
-                                if default_page_size.is_none() && (token.starts_with('*') || name != token) {
+                                if default_page_size.is_none()
+                                    && (token.starts_with('*') || name != token)
+                                {
                                     default_page_size = Some(name.clone());
                                 }
                                 if !name.is_empty() {
                                     // Try PPD first; fall back to known table; then 0.0
-                                    let (w, h) = ppd_dims.and_then(|dims| {
-                                        dims.iter().find(|(n, _, _)| n == &name).map(|(_, w, h)| (*w, *h))
-                                    })
-                                    .or_else(|| match name.as_str() {
-                                        "A4"     => Some((210.0, 297.0)),
-                                        "Letter" => Some((215.9, 279.4)),
-                                        "A3"     => Some((297.0, 420.0)),
-                                        "Legal"  => Some((215.9, 355.6)),
-                                        "A5"     => Some((148.0, 210.0)),
-                                        "A6"     => Some((105.0, 148.0)),
-                                        "Tabloid"    => Some((279.4, 431.8)),
-                                        "Executive"  => Some((184.15, 266.7)),
-                                        "4x6"    => Some((101.6, 152.4)),
-                                        "5x7"    => Some((127.0, 177.8)),
-                                        "8x10"   => Some((203.2, 254.0)),
-                                        _        => None,
-                                    })
-                                    .unwrap_or((0.0, 0.0));
+                                    let (w, h) = ppd_dims
+                                        .and_then(|dims| {
+                                            dims.iter()
+                                                .find(|(n, _, _)| n == &name)
+                                                .map(|(_, w, h)| (*w, *h))
+                                        })
+                                        .or_else(|| match name.as_str() {
+                                            "A4" => Some((210.0, 297.0)),
+                                            "Letter" => Some((215.9, 279.4)),
+                                            "A3" => Some((297.0, 420.0)),
+                                            "Legal" => Some((215.9, 355.6)),
+                                            "A5" => Some((148.0, 210.0)),
+                                            "A6" => Some((105.0, 148.0)),
+                                            "Tabloid" => Some((279.4, 431.8)),
+                                            "Executive" => Some((184.15, 266.7)),
+                                            "4x6" => Some((101.6, 152.4)),
+                                            "5x7" => Some((127.0, 177.8)),
+                                            "8x10" => Some((203.2, 254.0)),
+                                            _ => None,
+                                        })
+                                        .unwrap_or((0.0, 0.0));
                                     sizes.push(serde_json::json!({
                                         "name": name,
                                         "widthMm": w,
@@ -1388,15 +1596,18 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
 
                 // Build defaultPaperSize from detected default + dimensions
                 let default_paper = default_page_size.as_ref().and_then(|name| {
-                    let (w, h) = ppd_dims.and_then(|dims| {
-                        dims.iter().find(|(n, _, _)| n == name).map(|(_, w, h)| (*w, *h))
-                    })
-                    .or_else(|| match name.as_str() {
-                        "A4"     => Some((210.0, 297.0)),
-                        "Letter" => Some((215.9, 279.4)),
-                        _        => None,
-                    })
-                    .unwrap_or((0.0, 0.0));
+                    let (w, h) = ppd_dims
+                        .and_then(|dims| {
+                            dims.iter()
+                                .find(|(n, _, _)| n == name)
+                                .map(|(_, w, h)| (*w, *h))
+                        })
+                        .or_else(|| match name.as_str() {
+                            "A4" => Some((210.0, 297.0)),
+                            "Letter" => Some((215.9, 279.4)),
+                            _ => None,
+                        })
+                        .unwrap_or((0.0, 0.0));
                     if w > 0.0 && h > 0.0 {
                         Some(serde_json::json!({ "preset": name, "widthMm": w, "heightMm": h }))
                     } else {
@@ -1406,25 +1617,30 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
 
                 // Build defaultMargins from PPD ImageableArea
                 let default_margins = default_page_size.as_ref().and_then(|name| {
-                    ppd_areas.and_then(|areas| areas.get(name)).map(|(x1, y1, x2, y2)| {
-                        let paper_w = default_paper.as_ref()
-                            .and_then(|v| v.get("widthMm").and_then(|v| v.as_f64()))
-                            .unwrap_or(210.0);
-                        let paper_h = default_paper.as_ref()
-                            .and_then(|v| v.get("heightMm").and_then(|v| v.as_f64()))
-                            .unwrap_or(297.0);
-                        serde_json::json!({
-                            "leftMm": x1,
-                            "topMm": y1,
-                            "rightMm": paper_w - x2,
-                            "bottomMm": paper_h - y2,
+                    ppd_areas
+                        .and_then(|areas| areas.get(name))
+                        .map(|(x1, y1, x2, y2)| {
+                            let paper_w = default_paper
+                                .as_ref()
+                                .and_then(|v| v.get("widthMm").and_then(|v| v.as_f64()))
+                                .unwrap_or(210.0);
+                            let paper_h = default_paper
+                                .as_ref()
+                                .and_then(|v| v.get("heightMm").and_then(|v| v.as_f64()))
+                                .unwrap_or(297.0);
+                            serde_json::json!({
+                                "leftMm": x1,
+                                "topMm": y1,
+                                "rightMm": paper_w - x2,
+                                "bottomMm": paper_h - y2,
+                            })
                         })
-                    }).or_else(|| {
-                        // Fallback: 3mm standard margin
-                        Some(serde_json::json!({
-                            "leftMm": 3.0, "topMm": 3.0, "rightMm": 3.0, "bottomMm": 3.0,
-                        }))
-                    })
+                        .or_else(|| {
+                            // Fallback: 3mm standard margin
+                            Some(serde_json::json!({
+                                "leftMm": 3.0, "topMm": 3.0, "rightMm": 3.0, "bottomMm": 3.0,
+                            }))
+                        })
                 });
 
                 ok_response(serde_json::json!({
@@ -1439,7 +1655,9 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        ok_response(serde_json::json!({ "sizes": [], "defaultPaperSize": null, "defaultMargins": null }))
+        ok_response(
+            serde_json::json!({ "sizes": [], "defaultPaperSize": null, "defaultMargins": null }),
+        )
     }
 }
 
@@ -1466,9 +1684,7 @@ fn emit_print_settings(app: &AppHandle, settings: &PrintSettings) {
 
 /// Get current print settings.
 #[tauri::command]
-pub(crate) fn get_print_settings(
-    state: State<'_, Mutex<PrintSettings>>,
-) -> Result<Value, Value> {
+pub(crate) fn get_print_settings(state: State<'_, Mutex<PrintSettings>>) -> Result<Value, Value> {
     let settings = state.lock().unwrap_or_else(|e| e.into_inner());
     eprintln!("[RUST:commands] get_print_settings — paper_name={}, paper_index={}, paper=({}, {}), orientation={}, printer={:?}, copies={}",
         settings.paper_name, settings.paper_index, settings.paper_width_mm, settings.paper_height_mm,
@@ -1495,8 +1711,10 @@ pub(crate) fn set_paper(
         || (settings.paper_width_mm - width_mm).abs() > 0.001
         || (settings.paper_height_mm - height_mm).abs() > 0.001;
     if changed {
-        eprintln!("[RUST:commands] set_paper — name={}, paper_index={}, width_mm={}, height_mm={}",
-            name, paper_index, width_mm, height_mm);
+        eprintln!(
+            "[RUST:commands] set_paper — name={}, paper_index={}, width_mm={}, height_mm={}",
+            name, paper_index, width_mm, height_mm
+        );
         settings.set_paper(&name, paper_index, width_mm, height_mm);
         emit_print_settings(&app, &settings);
     } else {
@@ -1517,12 +1735,16 @@ pub(crate) fn toggle_orientation(
     } else {
         "portrait"
     };
-    eprintln!("[RUST:commands] toggle_orientation — from={} to={}, dims_before=({}, {})",
-        settings.orientation, new_orientation, settings.paper_width_mm, settings.paper_height_mm);
+    eprintln!(
+        "[RUST:commands] toggle_orientation — from={} to={}, dims_before=({}, {})",
+        settings.orientation, new_orientation, settings.paper_width_mm, settings.paper_height_mm
+    );
     settings.set_orientation(new_orientation);
     let value = ok_response(settings.clone());
-    eprintln!("[RUST:commands] toggle_orientation — after: dims=({}, {}), orientation={}",
-        settings.paper_width_mm, settings.paper_height_mm, settings.orientation);
+    eprintln!(
+        "[RUST:commands] toggle_orientation — after: dims=({}, {}), orientation={}",
+        settings.paper_width_mm, settings.paper_height_mm, settings.orientation
+    );
     emit_print_settings(&app, &settings);
     value
 }
@@ -1536,7 +1758,10 @@ pub(crate) fn set_orientation(
 ) -> Result<Value, Value> {
     let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.orientation != orientation {
-        eprintln!("[RUST:commands] set_orientation — orientation={}", orientation);
+        eprintln!(
+            "[RUST:commands] set_orientation — orientation={}",
+            orientation
+        );
         settings.set_orientation(&orientation);
         emit_print_settings(&app, &settings);
     } else {
@@ -1563,13 +1788,15 @@ pub(crate) fn set_margin(
         settings.hardware_margin_min_mm = hw_min;
     }
 
-    let changed = (settings.margin_mm - margin_mm).abs() > 0.001
-        || hardware_min_mm.is_some();
+    let changed = (settings.margin_mm - margin_mm).abs() > 0.001 || hardware_min_mm.is_some();
     if changed {
         settings.set_margin_mm(margin_mm);
         emit_print_settings(&app, &settings);
     } else {
-        eprintln!("[RUST:commands] set_margin — unchanged ({:.1}), skipping emit", margin_mm);
+        eprintln!(
+            "[RUST:commands] set_margin — unchanged ({:.1}), skipping emit",
+            margin_mm
+        );
     }
     ok_response(settings.clone())
 }
@@ -1620,7 +1847,10 @@ pub(crate) fn set_scale_percent(
         settings.set_scale_percent(percent);
         emit_print_settings(&app, &settings);
     } else {
-        eprintln!("[RUST:commands] set_scale_percent — unchanged ({:.2}), skipping emit", percent);
+        eprintln!(
+            "[RUST:commands] set_scale_percent — unchanged ({:.2}), skipping emit",
+            percent
+        );
     }
     ok_response(settings.clone())
 }
@@ -1772,7 +2002,10 @@ pub(crate) fn set_printer(
     let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     let changed = settings.selected_printer.as_deref() != Some(&printer);
     if changed {
-        eprintln!("[RUST:commands] set_printer — printer={}, previous={:?}", printer, settings.selected_printer);
+        eprintln!(
+            "[RUST:commands] set_printer — printer={}, previous={:?}",
+            printer, settings.selected_printer
+        );
         settings.set_selected_printer(Some(printer));
         emit_print_settings(&app, &settings);
     } else {
@@ -1837,7 +2070,9 @@ pub(crate) fn open_printer_properties_and_apply(
                     && (settings.paper_height_mm - h_mm).abs() < 0.01
                     && settings.orientation == new_orientation
                 {
-                    eprintln!("[RUST:commands] open_printer_properties_and_apply — unchanged, skipping");
+                    eprintln!(
+                        "[RUST:commands] open_printer_properties_and_apply — unchanged, skipping"
+                    );
                     return ok_response(serde_json::json!({
                         "applied": false,
                         "cancelled": false,
@@ -1860,7 +2095,10 @@ pub(crate) fn open_printer_properties_and_apply(
                 ok_response(serde_json::json!({ "applied": false, "cancelled": true }))
             }
             Err(e) => {
-                eprintln!("[RUST:commands] open_printer_properties_and_apply — error: {}", e);
+                eprintln!(
+                    "[RUST:commands] open_printer_properties_and_apply — error: {}",
+                    e
+                );
                 err_response("E_PRINTER", &e)
             }
         }
@@ -2085,11 +2323,17 @@ mod tests {
 
         // Autosave writes live under the app cache dir — no dialog approval needed.
         let autosave = cache.join("photrez").join("autosave").join("manifest.json");
-        assert!(state.is_trusted(&autosave), "cache-dir paths must be auto-trusted");
+        assert!(
+            state.is_trusted(&autosave),
+            "cache-dir paths must be auto-trusted"
+        );
 
         // Unapproved path outside the cache dir must be rejected.
         let outside = std::env::temp_dir().join("unrelated.png");
-        assert!(!state.is_trusted(&outside), "unapproved path must be rejected");
+        assert!(
+            !state.is_trusted(&outside),
+            "unapproved path must be rejected"
+        );
 
         let _ = std::fs::remove_file(&persist);
     }
@@ -2109,7 +2353,10 @@ mod tests {
             // the comparison happens on the canonical form — resolve it here.
             let canonical = validate_path_safe(target.to_str().unwrap(), "approve path").unwrap();
             state.trust_path(target.to_str().unwrap());
-            assert!(state.is_trusted(&canonical), "approved path must be trusted");
+            assert!(
+                state.is_trusted(&canonical),
+                "approved path must be trusted"
+            );
         }
 
         // A fresh instance loads the persisted set — recent-file opens survive restart.
@@ -2132,7 +2379,10 @@ mod tests {
         let _ = std::fs::create_dir_all(&target_dir);
         let a = target_dir.join("a.png");
         let b = target_dir.join("b.png");
-        let raw = vec![a.to_str().unwrap().to_string(), b.to_str().unwrap().to_string()];
+        let raw = vec![
+            a.to_str().unwrap().to_string(),
+            b.to_str().unwrap().to_string(),
+        ];
 
         let state = trusted_state(&cache, &persist);
         let added = state.trust_paths(&raw);
@@ -2160,7 +2410,14 @@ mod tests {
         // passes validation but doesn't exist.
         let result = print_image_inner(
             std::path::PathBuf::from("Z:\\nope\\missing.png"),
-            None, None, None, None, None, None, None, None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         );
         assert!(result.is_err(), "should fail on nonexistent path");
         let err = result.unwrap_err().to_string();

@@ -59,7 +59,10 @@ pub(crate) fn validate_window_state(mut state: SavedWindowState) -> SavedWindowS
 /// If not, centers on the primary monitor.
 /// Accepts a slice of `(x, y, width, height)` tuples for testability.
 pub(crate) fn snap_to_screen(
-    x: i32, y: i32, w: u32, h: u32,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
     monitors: &[(i32, i32, u32, u32)],
 ) -> (Option<i32>, Option<i32>) {
     let w = w as i32;
@@ -82,7 +85,10 @@ pub(crate) fn snap_to_screen(
 
     // Center on primary (first monitor in list).
     if let Some(&(mx, my, mw, mh)) = monitors.first() {
-        (Some(mx + (mw as i32) / 2 - w / 2), Some(my + (mh as i32) / 2 - h / 2))
+        (
+            Some(mx + (mw as i32) / 2 - w / 2),
+            Some(my + (mh as i32) / 2 - h / 2),
+        )
     } else {
         (None, None)
     }
@@ -98,11 +104,14 @@ pub(crate) fn snap_state_to_screen<R: Runtime>(
         _ => return, // first launch, no position to check
     };
     let monitors: Vec<(i32, i32, u32, u32)> = match app.available_monitors() {
-        Ok(ms) => ms.iter().map(|m| {
-            let pos = m.position();
-            let size = m.size();
-            (pos.x, pos.y, size.width, size.height)
-        }).collect(),
+        Ok(ms) => ms
+            .iter()
+            .map(|m| {
+                let pos = m.position();
+                let size = m.size();
+                (pos.x, pos.y, size.width, size.height)
+            })
+            .collect(),
         Err(_) => return,
     };
     let (new_x, new_y) = snap_to_screen(x, y, state.width, state.height, &monitors);

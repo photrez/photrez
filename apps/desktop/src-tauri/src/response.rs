@@ -95,8 +95,6 @@ pub fn validate_path_extension(path: &str, allowed: &[&str], operation: &str) ->
     ))
 }
 
-
-
 /// Lexically normalize a path resolving `.` and `..` components without
 /// touching the filesystem.  Uses `Path::components()` which is platform-aware
 /// (e.g. `PrefixComponent` on Windows is preserved).
@@ -105,7 +103,9 @@ fn normalize_lexical(path: &std::path::Path) -> std::path::PathBuf {
     let mut result = std::path::PathBuf::new();
     for component in path.components() {
         match component {
-            Component::ParentDir => { result.pop(); }
+            Component::ParentDir => {
+                result.pop();
+            }
             Component::CurDir => { /* skip */ }
             other => result.push(other.as_os_str()),
         }
@@ -163,22 +163,35 @@ pub fn validate_path_safe(path: &str, operation: &str) -> Result<std::path::Path
         let canonical_base = loop {
             if probe.exists() {
                 break std::fs::canonicalize(probe).map_err(|e| {
-                    error_value("E_IO", &format!("Cannot resolve base for {}: {}", operation, e))
+                    error_value(
+                        "E_IO",
+                        &format!("Cannot resolve base for {}: {}", operation, e),
+                    )
                 })?;
             }
             match probe.file_name() {
                 Some(name) => tail.push(name),
-                None => return Err(error_value(
-                    "E_VALIDATION",
-                    &format!("Cannot resolve path for {}: no existing ancestor found", operation),
-                )),
+                None => {
+                    return Err(error_value(
+                        "E_VALIDATION",
+                        &format!(
+                            "Cannot resolve path for {}: no existing ancestor found",
+                            operation
+                        ),
+                    ))
+                }
             }
             match probe.parent() {
                 Some(p) => probe = p,
-                None => return Err(error_value(
-                    "E_VALIDATION",
-                    &format!("Cannot resolve non-existent path for {}: {}", operation, path),
-                )),
+                None => {
+                    return Err(error_value(
+                        "E_VALIDATION",
+                        &format!(
+                            "Cannot resolve non-existent path for {}: {}",
+                            operation, path
+                        ),
+                    ))
+                }
             }
         };
         // Rejoin the remaining non-existent components onto the canonical base.
@@ -259,11 +272,21 @@ mod tests {
         let sub_path = base.join("new_subdir").join("test.txt");
         let result = validate_path_safe(sub_path.to_str().unwrap(), "write");
 
-        assert!(result.is_ok(), "non-existent parent must resolve: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "non-existent parent must resolve: {:?}",
+            result.err()
+        );
 
         let resolved = result.unwrap();
-        let expected = std::fs::canonicalize(&base).unwrap().join("new_subdir").join("test.txt");
-        assert_eq!(resolved, expected, "resolved path must match lexical join from canonical base");
+        let expected = std::fs::canonicalize(&base)
+            .unwrap()
+            .join("new_subdir")
+            .join("test.txt");
+        assert_eq!(
+            resolved, expected,
+            "resolved path must match lexical join from canonical base"
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -277,10 +300,18 @@ mod tests {
         let deep_path = base.join("a").join("b").join("c").join("d.ptz");
         let result = validate_path_safe(deep_path.to_str().unwrap(), "save");
 
-        assert!(result.is_ok(), "deeply nested non-existent parents must resolve");
+        assert!(
+            result.is_ok(),
+            "deeply nested non-existent parents must resolve"
+        );
 
         let resolved = result.unwrap();
-        let expected = std::fs::canonicalize(&base).unwrap().join("a").join("b").join("c").join("d.ptz");
+        let expected = std::fs::canonicalize(&base)
+            .unwrap()
+            .join("a")
+            .join("b")
+            .join("c")
+            .join("d.ptz");
         assert_eq!(resolved, expected);
 
         let _ = std::fs::remove_dir_all(&base);
@@ -298,7 +329,12 @@ mod tests {
         // Lexical normalization: base/etc/secret.txt (sub/.. = no-op, then .. goes up)
         // Wait — base/sub/../../etc → base/../etc after first sub/.. → then ../.. from base = Temp/etc
         // Let the function resolve it.
-        let path = base.join("sub").join("..").join("..").join("etc").join("secret.txt");
+        let path = base
+            .join("sub")
+            .join("..")
+            .join("..")
+            .join("etc")
+            .join("secret.txt");
         let result = validate_path_safe(path.to_str().unwrap(), "write");
 
         // After normalize_lexical the `..` are resolved, so it resolves
@@ -336,8 +372,11 @@ mod tests {
 
         assert!(clean_result.is_ok());
         assert!(dotty_result.is_ok());
-        assert_eq!(clean_result.unwrap(), dotty_result.unwrap(),
-            "paths with and without `.` must normalize to the same value");
+        assert_eq!(
+            clean_result.unwrap(),
+            dotty_result.unwrap(),
+            "paths with and without `.` must normalize to the same value"
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -351,7 +390,10 @@ mod tests {
 
         let file_path = base.join("new_file.ptz");
         let result = validate_path_safe(file_path.to_str().unwrap(), "save");
-        assert!(result.is_ok(), "non-existent file in existing dir must resolve");
+        assert!(
+            result.is_ok(),
+            "non-existent file in existing dir must resolve"
+        );
 
         let resolved = result.unwrap();
         let expected = std::fs::canonicalize(&base).unwrap().join("new_file.ptz");

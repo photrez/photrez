@@ -59,13 +59,18 @@ impl SelectionState {
             current_selection: None,
         }
     }
-
     pub fn set_selection(&mut self, rect: SelectionRect) {
         self.current_selection = Some(rect);
     }
 
     pub fn clear_selection(&mut self) {
         self.current_selection = None;
+    }
+}
+
+impl Default for SelectionState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -54,8 +54,14 @@ mod tests {
             for &unit in &units {
                 let converted = mm_to_unit(mm, unit);
                 let back = unit_to_mm(converted, unit);
-                assert!((mm - back).abs() < 0.001,
-                    "Round-trip failed: {} mm → {} {} → {} mm", mm, converted, unit, back);
+                assert!(
+                    (mm - back).abs() < 0.001,
+                    "Round-trip failed: {} mm → {} {} → {} mm",
+                    mm,
+                    converted,
+                    unit,
+                    back
+                );
             }
         }
     }

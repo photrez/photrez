@@ -60,3 +60,25 @@ jobs:
           releaseBody: "See CHANGELOG.md for details."
           releaseDraft: true
           prerelease: false
+
+      # Smoke test: verify the build actually produced non-empty installers.
+      # tauri-action fails the job when the binary build fails, but an empty
+      # bundle (misconfigured artifact glob, disk issues) would otherwise
+      # attach 0-byte files to the release unnoticed.
+      - name: Verify release artifacts (smoke test)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="apps/desktop/src-tauri/target/release/bundle"
+          if [ ! -d "$bundle_dir" ]; then
+            echo "::error::No bundle directory produced: $bundle_dir"
+            exit 1
+          fi
+          # Installers/binaries must be non-trivial (> 1 MB). macOS .app and
+          # Linux bundle dirs contain the real binary inside a directory tree,
+          # so this find walks the whole bundle.
+          find "$bundle_dir" -type f -size +1M -print | tee /tmp/photrez-artifacts.txt
+          if [ ! -s /tmp/photrez-artifacts.txt ]; then
+            echo "::error::No installer/binary larger than 1 MB found under $bundle_dir"
+            exit 1
+          fi

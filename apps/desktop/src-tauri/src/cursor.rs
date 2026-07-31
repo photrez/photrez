@@ -56,13 +56,11 @@ pub(crate) fn set_native_cursor<R: Runtime>(
     {
         // Non-Windows: attempt Tauri's built-in setCursorIcon.
         if let Some(w) = _app.get_webview_window("main") {
-            let _ = w.set_cursor_icon(
-                match icon.as_str() {
-                    "copy" => tauri::cursor::CursorIcon::Copy,
-                    "move" => tauri::cursor::CursorIcon::Move,
-                    _ => tauri::cursor::CursorIcon::Default,
-                },
-            );
+            let _ = w.set_cursor_icon(match icon.as_str() {
+                "copy" => tauri::cursor::CursorIcon::Copy,
+                "move" => tauri::cursor::CursorIcon::Move,
+                _ => tauri::cursor::CursorIcon::Default,
+            });
         }
     }
 
@@ -71,12 +69,12 @@ pub(crate) fn set_native_cursor<R: Runtime>(
 
 #[cfg(windows)]
 unsafe fn load_drag_cursor_win(icon: &str) -> *mut core::ffi::c_void {
+    use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::HMODULE;
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         LoadCursorFromFileW, LoadCursorW, IDC_ARROW,
     };
-    use std::sync::OnceLock;
 
     let res_id: u16 = match icon {
         "copy" => 3, // OLE drag-drop COPY: arrow + document + plus
@@ -90,7 +88,10 @@ unsafe fn load_drag_cursor_win(icon: &str) -> *mut core::ffi::c_void {
     // HMODULE is a raw pointer and not Sync, so cache it as usize.
     static OLE32: OnceLock<usize> = OnceLock::new();
     let hmod = *OLE32.get_or_init(|| {
-        let wide: Vec<u16> = "ole32.dll".encode_utf16().chain(std::iter::once(0)).collect();
+        let wide: Vec<u16> = "ole32.dll"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         GetModuleHandleW(wide.as_ptr()) as usize
     }) as HMODULE;
     if !hmod.is_null() {
@@ -106,10 +107,7 @@ unsafe fn load_drag_cursor_win(icon: &str) -> *mut core::ffi::c_void {
         "move" => r"C:\Windows\Cursors\aero_move.cur",
         _ => return LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
     };
-    let wide: Vec<u16> = filename
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
+    let wide: Vec<u16> = filename.encode_utf16().chain(std::iter::once(0)).collect();
     let h = LoadCursorFromFileW(wide.as_ptr());
     if h.is_null() {
         LoadCursorW(std::ptr::null_mut(), IDC_ARROW)

@@ -75,13 +75,19 @@ impl Transform {
     }
 }
 
+impl Default for Transform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_transform_default() {
-        let t = Transform::new();
+        let t = Transform::default();
         assert_eq!(t.scale_x, 1.0);
         assert_eq!(t.scale_y, 1.0);
         assert_eq!(t.rotation, 0.0);

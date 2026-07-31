@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // â”€â”€â”€ Native Application Menu â”€â”€â”€
 //
 // Builds the native OS menu bar and defines which menu IDs are
@@ -31,9 +31,7 @@ pub(crate) const EDITOR_MENU_IDS: &[&str] = &[
     "view.toggle-side-panels",
 ];
 
-pub(crate) fn build_native_menu<R: Runtime, M: Manager<R>>(
-    manager: &M,
-) -> tauri::Result<Menu<R>> {
+pub(crate) fn build_native_menu<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<Menu<R>> {
     let new_document = MenuItemBuilder::with_id("file.new", "&New Document")
         .accelerator("CmdOrCtrl+N")
         .build(manager)?;
@@ -52,16 +50,14 @@ pub(crate) fn build_native_menu<R: Runtime, M: Manager<R>>(
     let redo = MenuItemBuilder::with_id("edit.redo", "&Redo")
         .accelerator("CmdOrCtrl+Shift+Z")
         .build(manager)?;
-    let resize = MenuItemBuilder::with_id("image.resize", "Resize &Canvas...")
-        .build(manager)?;
+    let resize = MenuItemBuilder::with_id("image.resize", "Resize &Canvas...").build(manager)?;
     let new_layer = MenuItemBuilder::with_id("layer.new", "&New Layer")
         .accelerator("CmdOrCtrl+Shift+N")
         .build(manager)?;
     let duplicate_layer = MenuItemBuilder::with_id("layer.duplicate", "&Duplicate Layer")
         .accelerator("CmdOrCtrl+J")
         .build(manager)?;
-    let delete_layer = MenuItemBuilder::with_id("layer.delete", "&Delete Layer")
-        .build(manager)?;
+    let delete_layer = MenuItemBuilder::with_id("layer.delete", "&Delete Layer").build(manager)?;
     let merge_down = MenuItemBuilder::with_id("layer.merge-down", "&Merge Down")
         .accelerator("CmdOrCtrl+E")
         .build(manager)?;
@@ -130,9 +126,7 @@ pub(crate) fn build_native_menu<R: Runtime, M: Manager<R>>(
         .separator()
         .close_window()
         .build()?;
-    let help_menu = SubmenuBuilder::new(manager, "&Help")
-        .about(None)
-        .build()?;
+    let help_menu = SubmenuBuilder::new(manager, "&Help").about(None).build()?;
 
     MenuBuilder::new(manager)
         .items(&[

@@ -84,7 +84,13 @@ impl Default for PrintSettings {
 }
 
 impl PrintSettings {
-    pub fn set_paper(&mut self, name: &str, index: i16, width_mm: f64, height_mm: f64) -> (f64, f64) {
+    pub fn set_paper(
+        &mut self,
+        name: &str,
+        index: i16,
+        width_mm: f64,
+        height_mm: f64,
+    ) -> (f64, f64) {
         eprintln!("[RUST:PrintSettings] set_paper — name={}, index={}, width_mm={}, height_mm={}, canonical_before=({}, {}), orientation={}",
             name, index, width_mm, height_mm, self.paper_width_mm, self.paper_height_mm, self.orientation);
         self.paper_name = name.to_string();
@@ -98,12 +104,16 @@ impl PrintSettings {
     }
 
     pub fn set_orientation(&mut self, orientation: &str) -> (f64, f64) {
-        eprintln!("[RUST:PrintSettings] set_orientation — from={}, to={}, dims_before=({}, {})",
-            self.orientation, orientation, self.paper_width_mm, self.paper_height_mm);
+        eprintln!(
+            "[RUST:PrintSettings] set_orientation — from={}, to={}, dims_before=({}, {})",
+            self.orientation, orientation, self.paper_width_mm, self.paper_height_mm
+        );
         self.orientation = orientation.to_string();
         let result = self.apply_orientation();
-        eprintln!("[RUST:PrintSettings] set_orientation — after: stored=({}, {}), returned=({}, {})",
-            self.paper_width_mm, self.paper_height_mm, result.0, result.1);
+        eprintln!(
+            "[RUST:PrintSettings] set_orientation — after: stored=({}, {}), returned=({}, {})",
+            self.paper_width_mm, self.paper_height_mm, result.0, result.1
+        );
         result
     }
 
@@ -127,7 +137,11 @@ impl PrintSettings {
         self.margin_top_mm = top_mm.max(0.0);
         self.margin_bottom_mm = bottom_mm.max(0.0);
         // Keep uniform margin_mm as the max for backward compat
-        let max_side = left_mm.max(right_mm).max(top_mm).max(bottom_mm).max(self.hardware_margin_min_mm);
+        let max_side = left_mm
+            .max(right_mm)
+            .max(top_mm)
+            .max(bottom_mm)
+            .max(self.hardware_margin_min_mm);
         self.margin_mm = max_side.clamp(self.hardware_margin_min_mm, 100.0);
     }
 
@@ -460,7 +474,7 @@ mod tests {
         s.set_margin_mm(2.0);
         assert_eq!(s.margin_mm, 2.0); // hardware_margin_min_mm is 0.0, so 2.0 is OK
         s.hardware_margin_min_mm = 5.0; // simulate printer driver update
-        // Margin should be clamped on next set, but current value stays
+                                        // Margin should be clamped on next set, but current value stays
         assert_eq!(s.margin_mm, 2.0);
         // Next set_margin with low value should clamp
         s.set_margin_mm(3.0);

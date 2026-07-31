@@ -11,16 +11,15 @@ mod print_windows;
 mod response;
 mod window_state;
 
+use print_settings::PrintSettings;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
-use print_settings::PrintSettings;
 
 struct CliState(Mutex<Option<String>>);
 
 fn main() {
     // Accept file path as first CLI argument
-    let cli_path: Option<String> = std::env::args().nth(1)
-        .filter(|p| !p.starts_with("--"));   // skip tauri dev flags
+    let cli_path: Option<String> = std::env::args().nth(1).filter(|p| !p.starts_with("--")); // skip tauri dev flags
 
     tauri::Builder::default()
         .manage(CliState(Mutex::new(cli_path)))
@@ -31,16 +30,28 @@ fn main() {
             // ── Trusted-path state (dialog/CLI-approved file I/O) ─────────
             // Autosave writes under the app cache dir are auto-approved;
             // user-approved paths persist in the app config dir.
-            let cache_dir = app.path().app_cache_dir().unwrap_or_else(|_| std::env::temp_dir());
+            let cache_dir = app
+                .path()
+                .app_cache_dir()
+                .unwrap_or_else(|_| std::env::temp_dir());
             std::fs::create_dir_all(&cache_dir).ok();
             let cache_dir = std::fs::canonicalize(&cache_dir).unwrap_or(cache_dir);
-            let config_dir = app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir());
+            let config_dir = app
+                .path()
+                .app_config_dir()
+                .unwrap_or_else(|_| std::env::temp_dir());
             let trusted = commands::TrustedPathsState::new(
                 cache_dir,
                 config_dir.join("photrez").join("trusted-paths.json"),
             );
             // The CLI-arg path is implicitly user-approved (passed at launch).
-            if let Some(cli) = app.state::<CliState>().0.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if let Some(cli) = app
+                .state::<CliState>()
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+            {
                 trusted.trust_path(&cli);
             }
             app.manage(trusted);
@@ -53,7 +64,10 @@ fn main() {
                 let had = settings.selected_printer.is_some();
                 settings.initialize_default_printer();
                 if !had && settings.selected_printer.is_some() {
-                    eprintln!("[RUST:setup] Initialized default printer: {:?}", settings.selected_printer);
+                    eprintln!(
+                        "[RUST:setup] Initialized default printer: {:?}",
+                        settings.selected_printer
+                    );
                 }
             }
 

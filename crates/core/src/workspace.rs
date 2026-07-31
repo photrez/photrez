@@ -255,7 +255,7 @@ impl WorkspaceState {
                 height: s.document.height,
                 layers: s.document.layers.clone(),
                 selected_layer_id: s.selected_layer_id.clone(),
-                selection: s.document.selection.clone(),
+                selection: s.document.selection,
                 dirty: s.dirty,
             }
         });
@@ -278,10 +278,17 @@ impl WorkspaceState {
 
     /// Get all dirty document ids.
     pub fn dirty_document_ids(&self) -> Vec<String> {
-        self.sessions.iter()
+        self.sessions
+            .iter()
             .filter(|s| s.dirty)
             .map(|s| s.id.clone())
             .collect()
+    }
+}
+
+impl Default for WorkspaceState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

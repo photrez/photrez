@@ -16,16 +16,12 @@
 use std::path::Path;
 // Selectively import windows-sys GDI types and constants, but NOT functions
 // (we define those locally so we can use our own DEVMODEW with CreateDCW).
-use windows_sys::Win32::Graphics::Gdi::{
-    BITMAPINFO, BITMAPINFOHEADER, HDC,
-    GetDeviceCaps, DeleteDC,
-    LOGPIXELSX, LOGPIXELSY,
-    PHYSICALOFFSETX, PHYSICALOFFSETY,
-    PHYSICALWIDTH, PHYSICALHEIGHT,
-    HORZRES, VERTRES,
-    SetStretchBltMode, SetBrushOrgEx, StretchDIBits,
-};
 use std::ffi::c_void;
+use windows_sys::Win32::Graphics::Gdi::{
+    DeleteDC, GetDeviceCaps, SetBrushOrgEx, SetStretchBltMode, StretchDIBits, BITMAPINFO,
+    BITMAPINFOHEADER, HDC, HORZRES, LOGPIXELSX, LOGPIXELSY, PHYSICALHEIGHT, PHYSICALOFFSETX,
+    PHYSICALOFFSETY, PHYSICALWIDTH, VERTRES,
+};
 
 /// Capture the last Win32 error code for diagnostic messages.
 /// Must be called immediately after a failed Win32 API call.
@@ -33,7 +29,6 @@ fn win32_err() -> String {
     let err = std::io::Error::last_os_error();
     format!(" (OS: {})", err)
 }
-
 
 // ── Direct FFI for GDI printing functions ──────────────────────────
 // CreateDCW is defined locally (not via windows-sys) so we can pass our
@@ -68,7 +63,11 @@ struct DOCINFOW {
 #[link(name = "winspool")]
 #[allow(non_snake_case)]
 unsafe extern "system" {
-    fn OpenPrinterW(pPrinterName: *const u16, phPrinter: *mut isize, pDefault: *const c_void) -> i32;
+    fn OpenPrinterW(
+        pPrinterName: *const u16,
+        phPrinter: *mut isize,
+        pDefault: *const c_void,
+    ) -> i32;
     fn ClosePrinter(hPrinter: isize) -> i32;
     fn DocumentPropertiesW(
         hWnd: isize,
@@ -164,12 +163,14 @@ const DMPAPER_USER: i16 = 256;
 /// which may not match the paper size the user chose in the print dialog.
 /// Fallback: open printer DC without DEVMODE when DEVMODE manipulation fails.
 /// This lets the printer use its driver-default paper size.
-unsafe fn fallback_create_dc(
-    printer_wide: &[u16],
-    error_msg: &str,
-) -> Result<HDC, String> {
+unsafe fn fallback_create_dc(printer_wide: &[u16], error_msg: &str) -> Result<HDC, String> {
     let winspool: Vec<u16> = "WINSPOOL\0".encode_utf16().collect();
-    let hdc = CreateDCW(winspool.as_ptr(), printer_wide.as_ptr(), std::ptr::null(), std::ptr::null());
+    let hdc = CreateDCW(
+        winspool.as_ptr(),
+        printer_wide.as_ptr(),
+        std::ptr::null(),
+        std::ptr::null(),
+    );
     if hdc.is_null() {
         return Err(format!("{}{}", error_msg, win32_err()));
     }
@@ -189,17 +190,34 @@ fn create_printer_dc_with_paper_size(
     if ret == 0 || h_printer == 0 {
         // Fall back to CreateDCW without DEVMODE
         let err = win32_err();
-        return unsafe { fallback_create_dc(printer_wide, &format!("Failed to open printer (no DEVMODE fallback){}", err)) };
+        return unsafe {
+            fallback_create_dc(
+                printer_wide,
+                &format!("Failed to open printer (no DEVMODE fallback){}", err),
+            )
+        };
     }
 
     // ── Get DEVMODE buffer size ──────────────────────────────────
     let dm_size = unsafe {
-        DocumentPropertiesW(0, h_printer, printer_wide.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0)
+        DocumentPropertiesW(
+            0,
+            h_printer,
+            printer_wide.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        )
     };
     if dm_size <= 0 {
         let err = win32_err();
         unsafe { ClosePrinter(h_printer) };
-        return unsafe { fallback_create_dc(printer_wide, &format!("Failed to get DEVMODE size (no DEVMODE fallback){}", err)) };
+        return unsafe {
+            fallback_create_dc(
+                printer_wide,
+                &format!("Failed to get DEVMODE size (no DEVMODE fallback){}", err),
+            )
+        };
     }
 
     // ── Allocate and initialise DEVMODE ─────────────────────────
@@ -207,12 +225,24 @@ fn create_printer_dc_with_paper_size(
     let p_devmode = devmode_buf.as_mut_ptr() as *mut DEVMODEW;
 
     let ret = unsafe {
-        DocumentPropertiesW(0, h_printer, printer_wide.as_ptr(), p_devmode as *mut c_void, std::ptr::null_mut(), DM_OUT_BUFFER)
+        DocumentPropertiesW(
+            0,
+            h_printer,
+            printer_wide.as_ptr(),
+            p_devmode as *mut c_void,
+            std::ptr::null_mut(),
+            DM_OUT_BUFFER,
+        )
     };
     if ret <= 0 {
         let err = win32_err();
         unsafe { ClosePrinter(h_printer) };
-        return unsafe { fallback_create_dc(printer_wide, &format!("Failed to initialise DEVMODE (no DEVMODE fallback){}", err)) };
+        return unsafe {
+            fallback_create_dc(
+                printer_wide,
+                &format!("Failed to initialise DEVMODE (no DEVMODE fallback){}", err),
+            )
+        };
     }
 
     // ── Set paper size + orientation fields ──────────────────────
@@ -234,10 +264,14 @@ fn create_printer_dc_with_paper_size(
             // dmPaperWidth and dmPaperLength are in TENTHS of a millimeter (i16).
             // Clamp to i16 range to prevent overflow on custom sizes > 3276mm.
             (*p_devmode).dmFields |= DM_PAPERLENGTH | DM_PAPERWIDTH;
-            (*p_devmode).dmPaperWidth = (paper_width_mm * 10.0).round()
-                .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
-            (*p_devmode).dmPaperLength = (paper_height_mm * 10.0).round()
-                .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+            (*p_devmode).dmPaperWidth = (paper_width_mm * 10.0)
+                .round()
+                .clamp(i16::MIN as f64, i16::MAX as f64)
+                as i16;
+            (*p_devmode).dmPaperLength = (paper_height_mm * 10.0)
+                .round()
+                .clamp(i16::MIN as f64, i16::MAX as f64)
+                as i16;
         }
     }
 
@@ -256,25 +290,44 @@ fn create_printer_dc_with_paper_size(
         // Merge failed — proceed with default DEVMODE
         let err = win32_err();
         unsafe { ClosePrinter(h_printer) };
-        return unsafe { fallback_create_dc(printer_wide, &format!("Failed to merge DEVMODE (no DEVMODE fallback){}", err)) };
+        return unsafe {
+            fallback_create_dc(
+                printer_wide,
+                &format!("Failed to merge DEVMODE (no DEVMODE fallback){}", err),
+            )
+        };
     }
 
     // ── Create printer DC with the modified DEVMODE ─────────────
     let winspool: Vec<u16> = "WINSPOOL\0".encode_utf16().collect();
-    let hdc = unsafe { CreateDCW(winspool.as_ptr(), printer_wide.as_ptr(), std::ptr::null(), p_devmode as *const c_void) };
+    let hdc = unsafe {
+        CreateDCW(
+            winspool.as_ptr(),
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            p_devmode as *const c_void,
+        )
+    };
     unsafe { ClosePrinter(h_printer) };
 
     if hdc.is_null() {
-        return Err(format!("Failed to open printer DC with DEVMODE{}", win32_err()));
+        return Err(format!(
+            "Failed to open printer DC with DEVMODE{}",
+            win32_err()
+        ));
     }
     Ok(hdc)
 }
 
 /// Open a printer, get its DEVMODE, and read back the default paper size from the driver's current settings.
 /// This is how the frontend learns what paper the printer is actually configured to use.
-pub(crate) fn get_default_paper_size_win(printer_system_name: &str) -> Result<(String, f64, f64), String> {
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+pub(crate) fn get_default_paper_size_win(
+    printer_system_name: &str,
+) -> Result<(String, f64, f64), String> {
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     // ── Open printer ─────────────────────────────────────────────
     let mut h_printer: isize = 0;
@@ -285,7 +338,14 @@ pub(crate) fn get_default_paper_size_win(printer_system_name: &str) -> Result<(S
 
     // ── Get DEVMODE buffer size ──────────────────────────────────
     let dm_size = unsafe {
-        DocumentPropertiesW(0, h_printer, printer_wide.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0)
+        DocumentPropertiesW(
+            0,
+            h_printer,
+            printer_wide.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        )
     };
     if dm_size <= 0 {
         let err = win32_err();
@@ -298,7 +358,14 @@ pub(crate) fn get_default_paper_size_win(printer_system_name: &str) -> Result<(S
     let p_devmode = devmode_buf.as_mut_ptr() as *mut DEVMODEW;
 
     let ret = unsafe {
-        DocumentPropertiesW(0, h_printer, printer_wide.as_ptr(), p_devmode as *mut c_void, std::ptr::null_mut(), DM_OUT_BUFFER)
+        DocumentPropertiesW(
+            0,
+            h_printer,
+            printer_wide.as_ptr(),
+            p_devmode as *mut c_void,
+            std::ptr::null_mut(),
+            DM_OUT_BUFFER,
+        )
     };
     if ret <= 0 {
         let err = win32_err();
@@ -309,15 +376,19 @@ pub(crate) fn get_default_paper_size_win(printer_system_name: &str) -> Result<(S
     // ── Read paper size from DEVMODE ────────────────────────────
     unsafe {
         let dm_paper_size = (*p_devmode).dmPaperSize;
-        let dm_paper_width = (*p_devmode).dmPaperWidth;   // tenths of mm
+        let dm_paper_width = (*p_devmode).dmPaperWidth; // tenths of mm
         let dm_paper_length = (*p_devmode).dmPaperLength; // tenths of mm
-        // Read dmFormName for the paper name (driver's name, no hardcoded map)
+                                                          // Read dmFormName for the paper name (driver's name, no hardcoded map)
         let paper_name = {
             let name_slice = &(*p_devmode).dmFormName;
             let end = name_slice.iter().position(|&c| c == 0).unwrap_or(32);
             let name_str = String::from_utf16_lossy(&name_slice[..end]);
             let trimmed = name_str.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         };
         ClosePrinter(h_printer);
 
@@ -328,21 +399,28 @@ pub(crate) fn get_default_paper_size_win(printer_system_name: &str) -> Result<(S
             if let Some(name) = paper_name {
                 // Try to fill in dimensions from printer driver (some drivers like EPSON L1110
                 // report dmFormName but leave dmPaperWidth/dmPaperLength as 0)
-                if let Some((w, h)) = query_paper_size_by_index(printer_system_name, dm_paper_size) {
+                if let Some((w, h)) = query_paper_size_by_index(printer_system_name, dm_paper_size)
+                {
                     return Ok((name, w, h));
                 }
                 return Ok((name, 0.0, 0.0));
             }
             // dmFormName was empty — try looking up by DMPAPER index
-            if let Some(looked_up) = lookup_paper_name_by_index(printer_system_name, dm_paper_size) {
-                if let Some((w, h)) = query_paper_size_by_index(printer_system_name, dm_paper_size) {
+            if let Some(looked_up) = lookup_paper_name_by_index(printer_system_name, dm_paper_size)
+            {
+                if let Some((w, h)) = query_paper_size_by_index(printer_system_name, dm_paper_size)
+                {
                     return Ok((looked_up, w, h));
                 }
                 return Ok((looked_up, 0.0, 0.0));
             }
             // Last resort: return "Custom" with dimensions from DEVMODE
             if dm_paper_width > 0 && dm_paper_length > 0 {
-                return Ok(("Custom".to_string(), dm_paper_width as f64 / 10.0, dm_paper_length as f64 / 10.0));
+                return Ok((
+                    "Custom".to_string(),
+                    dm_paper_width as f64 / 10.0,
+                    dm_paper_length as f64 / 10.0,
+                ));
             }
         }
         // Custom size: return dimensions from DEVMODE (in mm)
@@ -371,12 +449,21 @@ pub(crate) fn get_default_paper_size_win(printer_system_name: &str) -> Result<(S
 pub(crate) fn get_printer_margins_win(
     printer_system_name: &str,
 ) -> Result<(f64, f64, f64, f64), String> {
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     let winspool: Vec<u16> = "WINSPOOL\0".encode_utf16().collect();
 
     // Open a printer DC (without DEVMODE — margins don't need paper-size-specific DEVMODE)
-    let hdc = unsafe { CreateDCW(winspool.as_ptr(), printer_wide.as_ptr(), std::ptr::null(), std::ptr::null()) };
+    let hdc = unsafe {
+        CreateDCW(
+            winspool.as_ptr(),
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
     if hdc.is_null() {
         return Err(format!("Failed to open printer DC{}", win32_err()));
     }
@@ -416,13 +503,23 @@ pub(crate) fn get_printer_margins_win(
 
 /// Query the printer for all supported paper sizes using DeviceCapabilitiesW.
 /// Returns a vector of (name, width_mm, height_mm, dm_paper_index).
-pub(crate) fn get_printer_paper_sizes_win(printer_system_name: &str) -> Result<Vec<(String, f64, f64, i16)>, String> {
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+pub(crate) fn get_printer_paper_sizes_win(
+    printer_system_name: &str,
+) -> Result<Vec<(String, f64, f64, i16)>, String> {
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     // ── First, get the number of paper sizes via DC_PAPERSIZE ────
     let count = unsafe {
-        DeviceCapabilitiesW(printer_wide.as_ptr(), std::ptr::null(), DC_PAPERSIZE, std::ptr::null_mut(), std::ptr::null())
+        DeviceCapabilitiesW(
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            DC_PAPERSIZE,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
     };
     if count <= 0 {
         // Printer doesn't support capability query or has no paper
@@ -449,7 +546,13 @@ pub(crate) fn get_printer_paper_sizes_win(printer_system_name: &str) -> Result<V
 
     // ── Also get DMPAPER index for each size via DC_PAPERS ────────
     let indices_count = unsafe {
-        DeviceCapabilitiesW(printer_wide.as_ptr(), std::ptr::null(), DC_PAPERS, std::ptr::null_mut(), std::ptr::null())
+        DeviceCapabilitiesW(
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            DC_PAPERS,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
     };
     let mut indices: Vec<i16> = Vec::new();
     if indices_count > 0 {
@@ -470,7 +573,13 @@ pub(crate) fn get_printer_paper_sizes_win(printer_system_name: &str) -> Result<V
 
     // ── Get paper names (64-char wide strings each) ────────────────
     let names_count = unsafe {
-        DeviceCapabilitiesW(printer_wide.as_ptr(), std::ptr::null(), DC_PAPERNAMES, std::ptr::null_mut(), std::ptr::null())
+        DeviceCapabilitiesW(
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            DC_PAPERNAMES,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
     };
     let mut names: Vec<String> = Vec::new();
     if names_count > 0 {
@@ -489,7 +598,10 @@ pub(crate) fn get_printer_paper_sizes_win(printer_system_name: &str) -> Result<V
             for i in 0..(ret as usize).min(names_count as usize) {
                 let start = i * 64;
                 // Find null terminator within the 64-char block
-                let end = name_buf[start..start + 64].iter().position(|&c| c == 0).unwrap_or(64);
+                let end = name_buf[start..start + 64]
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(64);
                 let name_str = String::from_utf16_lossy(&name_buf[start..start + end]);
                 names.push(name_str.trim().to_string());
             }
@@ -536,8 +648,10 @@ pub(crate) fn show_printer_settings_dialog(
     paper_height_mm: f64,
     orientation: &str,
 ) -> Result<Option<(String, f64, f64, String, i16)>, String> {
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     // ── Open printer ─────────────────────────────────────────────
     let mut h_printer: isize = 0;
@@ -548,7 +662,14 @@ pub(crate) fn show_printer_settings_dialog(
 
     // ── Get DEVMODE buffer size ──────────────────────────────────
     let dm_size = unsafe {
-        DocumentPropertiesW(0, h_printer, printer_wide.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0)
+        DocumentPropertiesW(
+            0,
+            h_printer,
+            printer_wide.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        )
     };
     if dm_size <= 0 {
         let err = win32_err();
@@ -561,7 +682,14 @@ pub(crate) fn show_printer_settings_dialog(
     let p_devmode = devmode_buf.as_mut_ptr() as *mut DEVMODEW;
 
     let ret = unsafe {
-        DocumentPropertiesW(0, h_printer, printer_wide.as_ptr(), p_devmode as *mut c_void, std::ptr::null_mut(), DM_OUT_BUFFER)
+        DocumentPropertiesW(
+            0,
+            h_printer,
+            printer_wide.as_ptr(),
+            p_devmode as *mut c_void,
+            std::ptr::null_mut(),
+            DM_OUT_BUFFER,
+        )
     };
     if ret <= 0 {
         let err = win32_err();
@@ -583,10 +711,14 @@ pub(crate) fn show_printer_settings_dialog(
             // Custom paper: set explicit dimensions in tenths of mm.
             // Clamp to i16 range to prevent overflow on sizes > 3276mm.
             (*p_devmode).dmFields |= DM_PAPERLENGTH | DM_PAPERWIDTH;
-            (*p_devmode).dmPaperWidth = (paper_width_mm * 10.0).round()
-                .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
-            (*p_devmode).dmPaperLength = (paper_height_mm * 10.0).round()
-                .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+            (*p_devmode).dmPaperWidth = (paper_width_mm * 10.0)
+                .round()
+                .clamp(i16::MIN as f64, i16::MAX as f64)
+                as i16;
+            (*p_devmode).dmPaperLength = (paper_height_mm * 10.0)
+                .round()
+                .clamp(i16::MIN as f64, i16::MAX as f64)
+                as i16;
         }
     }
 
@@ -605,7 +737,14 @@ pub(crate) fn show_printer_settings_dialog(
     if merge_ret <= 0 {
         // Merge failed — re-read fresh DEVMODE for the dialog
         let _ = unsafe {
-            DocumentPropertiesW(0, h_printer, printer_wide.as_ptr(), p_devmode as *mut c_void, std::ptr::null_mut(), DM_OUT_BUFFER)
+            DocumentPropertiesW(
+                0,
+                h_printer,
+                printer_wide.as_ptr(),
+                p_devmode as *mut c_void,
+                std::ptr::null_mut(),
+                DM_OUT_BUFFER,
+            )
         };
     }
 
@@ -647,15 +786,18 @@ pub(crate) fn show_printer_settings_dialog(
             let end = name_slice.iter().position(|&c| c == 0).unwrap_or(32);
             let name_str = String::from_utf16_lossy(&name_slice[..end]);
             let trimmed = name_str.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         };
 
         // BUG-09: Fallback dimension lookup when driver returns 0 for standard sizes
         let (w_mm, h_mm) = if dm_paper_width > 0 && dm_paper_length > 0 {
             (dm_paper_width as f64 / 10.0, dm_paper_length as f64 / 10.0)
         } else {
-            query_paper_size_by_index(printer_system_name, dm_paper_size)
-                .unwrap_or((0.0, 0.0))
+            query_paper_size_by_index(printer_system_name, dm_paper_size).unwrap_or((0.0, 0.0))
         };
 
         // Paper name: prefer dmFormName from driver.
@@ -670,7 +812,13 @@ pub(crate) fn show_printer_settings_dialog(
             "Custom".to_string()
         };
 
-        return Ok(Some((paper_name, w_mm, h_mm, result_orientation.to_string(), dm_paper_size)));
+        return Ok(Some((
+            paper_name,
+            w_mm,
+            h_mm,
+            result_orientation.to_string(),
+            dm_paper_size,
+        )));
     }
 }
 
@@ -682,12 +830,20 @@ pub(crate) fn show_printer_settings_dialog(
 /// for standard paper sizes, causing the paper name to fall back to "Custom". This helper
 /// queries the driver's paper name list directly to get the canonical name.
 fn lookup_paper_name_by_index(printer_system_name: &str, target_index: i16) -> Option<String> {
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     // Get paper names via DC_PAPERNAMES
     let names_count = unsafe {
-        DeviceCapabilitiesW(printer_wide.as_ptr(), std::ptr::null(), DC_PAPERNAMES, std::ptr::null_mut(), std::ptr::null())
+        DeviceCapabilitiesW(
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            DC_PAPERNAMES,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
     };
     if names_count <= 0 {
         return None;
@@ -710,7 +866,13 @@ fn lookup_paper_name_by_index(printer_system_name: &str, target_index: i16) -> O
 
     // Get DMPAPER indices via DC_PAPERS
     let indices_count = unsafe {
-        DeviceCapabilitiesW(printer_wide.as_ptr(), std::ptr::null(), DC_PAPERS, std::ptr::null_mut(), std::ptr::null())
+        DeviceCapabilitiesW(
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            DC_PAPERS,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
     };
     let mut indices: Vec<i16> = Vec::new();
     if indices_count > 0 {
@@ -740,8 +902,10 @@ fn lookup_paper_name_by_index(printer_system_name: &str, target_index: i16) -> O
     for (i, name_start) in (0..actual_names).map(|i| i * 64).enumerate() {
         let dm_index = indices.get(i).copied().unwrap_or(DMPAPER_USER);
         if dm_index == target_index {
-            let end = name_buf[name_start..name_start + 64].iter()
-                .position(|&c| c == 0).unwrap_or(64);
+            let end = name_buf[name_start..name_start + 64]
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(64);
             let name = String::from_utf16_lossy(&name_buf[name_start..name_start + end]);
             let trimmed = name.trim().to_string();
             if !trimmed.is_empty() {
@@ -757,12 +921,20 @@ fn lookup_paper_name_by_index(printer_system_name: &str, target_index: i16) -> O
 /// Used as fallback (BUG-09) when DEVMODE returns 0 for dmPaperWidth/dmPaperLength
 /// (some drivers set dmPaperSize but not dmPaperWidth/dmPaperLength for standard sizes).
 fn query_paper_size_by_index(printer_system_name: &str, target_index: i16) -> Option<(f64, f64)> {
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     // Get number of paper sizes via DC_PAPERSIZE
     let count = unsafe {
-        DeviceCapabilitiesW(printer_wide.as_ptr(), std::ptr::null(), DC_PAPERSIZE, std::ptr::null_mut(), std::ptr::null())
+        DeviceCapabilitiesW(
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            DC_PAPERSIZE,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
     };
     if count <= 0 {
         return None;
@@ -788,7 +960,13 @@ fn query_paper_size_by_index(printer_system_name: &str, target_index: i16) -> Op
 
     // Get DMPAPER indices via DC_PAPERS
     let indices_count = unsafe {
-        DeviceCapabilitiesW(printer_wide.as_ptr(), std::ptr::null(), DC_PAPERS, std::ptr::null_mut(), std::ptr::null())
+        DeviceCapabilitiesW(
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            DC_PAPERS,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
     };
     let mut indices: Vec<i16> = Vec::new();
     if indices_count > 0 {
@@ -860,9 +1038,17 @@ pub(crate) fn render_rgba_to_printer(
     bmi.bmiHeader.biBitCount = 32;
 
     // ── 2. Create printer DC with DEVMODE paper size ───────────
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
-    let hdc = create_printer_dc_with_paper_size(&printer_wide, paper_index, paper_width_mm, paper_height_mm, orientation)?;
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let hdc = create_printer_dc_with_paper_size(
+        &printer_wide,
+        paper_index,
+        paper_width_mm,
+        paper_height_mm,
+        orientation,
+    )?;
 
     // ── 3. Query printer DPI + page dimensions ─────────────────
     const MM_PER_INCH: f64 = 25.4;
@@ -918,7 +1104,10 @@ pub(crate) fn render_rgba_to_printer(
         let scale_x = printable_w as f64 / width as f64;
         let scale_y = printable_h as f64 / height as f64;
         let scale = scale_x.min(scale_y);
-        ((width as f64 * scale) as i32, (height as f64 * scale) as i32)
+        (
+            (width as f64 * scale) as i32,
+            (height as f64 * scale) as i32,
+        )
     };
 
     // Position at hardware offset + per-side margin.
@@ -947,8 +1136,14 @@ pub(crate) fn render_rgba_to_printer(
         let lines = unsafe {
             StretchDIBits(
                 hdc,
-                dest_x, dest_y, dest_w, dest_h,
-                0, 0, width as i32, height as i32,
+                dest_x,
+                dest_y,
+                dest_w,
+                dest_h,
+                0,
+                0,
+                width as i32,
+                height as i32,
                 pixels.as_ptr() as *const c_void,
                 &bmi as *const BITMAPINFO,
                 0,
@@ -998,8 +1193,25 @@ pub(crate) fn print_image_via_gdi(
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
     let mut pixels = rgba.into_raw();
-    for px in pixels.chunks_exact_mut(4) { px.swap(0, 2); }
-    render_rgba_to_printer(&pixels, width, height, printer_system_name, copies, paper_width_mm, paper_height_mm, margin_mm, margin_mm, margin_mm, margin_mm, paper_index, document_name, orientation)
+    for px in pixels.chunks_exact_mut(4) {
+        px.swap(0, 2);
+    }
+    render_rgba_to_printer(
+        &pixels,
+        width,
+        height,
+        printer_system_name,
+        copies,
+        paper_width_mm,
+        paper_height_mm,
+        margin_mm,
+        margin_mm,
+        margin_mm,
+        margin_mm,
+        paper_index,
+        document_name,
+        orientation,
+    )
 }
 
 /// Query the printer's native DPI via GDI `GetDeviceCaps(LOGPIXELSX/Y)`.
@@ -1009,11 +1221,20 @@ pub(crate) fn print_image_via_gdi(
 ///
 /// Returns `None` if the printer cannot be opened or the DPI is 0.
 pub(crate) fn query_printer_dpi_win(printer_system_name: &str) -> Option<f64> {
-    let printer_wide: Vec<u16> =
-        printer_system_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let printer_wide: Vec<u16> = printer_system_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     let winspool: Vec<u16> = "WINSPOOL\0".encode_utf16().collect();
 
-    let hdc = unsafe { CreateDCW(winspool.as_ptr(), printer_wide.as_ptr(), std::ptr::null(), std::ptr::null()) };
+    let hdc = unsafe {
+        CreateDCW(
+            winspool.as_ptr(),
+            printer_wide.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
     if hdc.is_null() {
         return None;
     }
@@ -1021,5 +1242,9 @@ pub(crate) fn query_printer_dpi_win(printer_system_name: &str) -> Option<f64> {
     let dpi = unsafe { GetDeviceCaps(hdc, LOGPIXELSX as i32) } as f64;
     unsafe { DeleteDC(hdc) };
 
-    if dpi > 0.0 { Some(dpi) } else { None }
+    if dpi > 0.0 {
+        Some(dpi)
+    } else {
+        None
+    }
 }

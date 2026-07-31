@@ -159,7 +159,7 @@ export function EditorShell() {
       <DragGlobalGuard />
       <TauriCloseGuard workspace={workspace} scheduler={scheduler} />
       <DesktopShortcutsGuard onToggleRightDock={toggleRightDock} />
-      <ErrorBoundary fallback={(err) => (
+      <ErrorBoundary fallback={(err, reset) => (
         <div class="flex flex-1 items-center justify-center bg-editor-bg p-8">
           <div class="max-w-md rounded-lg border border-editor-divider bg-editor-panel p-6 shadow-lg">
             <h2 class="mb-2 text-lg font-semibold text-editor-accent">Editor Error</h2>
@@ -170,6 +170,13 @@ export function EditorShell() {
               <summary class="cursor-pointer hover:text-editor-text">Error details</summary>
               <pre class="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-editor-divider bg-editor-bg p-2 font-mono text-[11px]">{err.message}</pre>
             </details>
+            <button
+              type="button"
+              class="mt-4 rounded-md bg-editor-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+              onClick={() => reset()}
+            >
+              Try Again
+            </button>
           </div>
         </div>
       )}>

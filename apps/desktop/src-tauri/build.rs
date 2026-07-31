@@ -25,8 +25,11 @@ fn main() {
         if let Ok(out_dir) = env::var("OUT_DIR") {
             let out_path = Path::new(&out_dir);
             // Go up 3 levels: out -> photrez-desktop-hash -> build -> debug/release
-            if let Some(profile_dir) = out_path.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
-                
+            if let Some(profile_dir) = out_path
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+            {
                 // 1. Copy WebView2Loader.dll
                 let build_dir = profile_dir.join("build");
                 if build_dir.exists() {
@@ -37,7 +40,8 @@ fn main() {
                             if path.is_dir() {
                                 if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
                                     if dir_name.starts_with("webview2-com-sys-") {
-                                        let dll_path = path.join("out").join("x64").join("WebView2Loader.dll");
+                                        let dll_path =
+                                            path.join("out").join("x64").join("WebView2Loader.dll");
                                         if dll_path.exists() {
                                             let dest_path = profile_dir.join("WebView2Loader.dll");
                                             if let Err(e) = fs::copy(&dll_path, &dest_path) {
@@ -114,7 +118,6 @@ fn main() {
                                 .current_dir(out_path)
                                 .status();
 
-
                             match status {
                                 Ok(s) if s.success() => {
                                     println!("cargo:warning=Successfully compiled manifest resource via windres --no-cpp");
@@ -122,7 +125,10 @@ fn main() {
                                     println!("cargo:rustc-link-arg={}", obj_path.to_str().unwrap());
                                 }
                                 Ok(s) => {
-                                    println!("cargo:warning=windres failed with exit code: {:?}", s.code());
+                                    println!(
+                                        "cargo:warning=windres failed with exit code: {:?}",
+                                        s.code()
+                                    );
                                 }
                                 Err(e) => {
                                     println!("cargo:warning=Could not execute windres: {:?}", e);
@@ -134,8 +140,4 @@ fn main() {
             }
         }
     }
-
 }
-
-
-

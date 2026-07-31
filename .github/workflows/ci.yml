@@ -105,6 +105,14 @@ jobs:
       - name: Core tests
         run: cargo test -p photrez-core
 
+      # Lint gate: `-D warnings` keeps new code clippy-clean; fmt --check
+      # keeps the tree rustfmt-stable (run `cargo fmt` locally when this fails).
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p photrez-core -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --check
+
   # ─── SECURITY: dependency audit (informational, non-blocking) ───
   # For a small OSS project the audit runs as a warning, not a hard gate: a
   # transitive RUSTSEC advisory shouldn't paint every push red. Fixes still
@@ -133,6 +141,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Bun audit (high/critical)
+        # Ignored advisories (pre-existing, transitive-only; revisit 2026-10-01):
+        #   GHSA-r28c-9q8g-f849, GHSA-2pvr-wf23-7pc7, GHSA-8hv8-536x-4wqp
+        # Remove the --ignore flags once a patched version is published or the
+        # offending dependency is dropped from the lockfile.
         run: bun audit --prod --audit-level=high --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp
 
   # ─── COMPONENT TESTS: jsdom-based (now passing — blocks PR) ───
