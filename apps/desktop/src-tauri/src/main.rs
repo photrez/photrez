@@ -14,6 +14,7 @@ mod window_state;
 use print_settings::PrintSettings;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
+use tauri_plugin_log::{Target, TargetKind};
 
 struct CliState(Mutex<Option<String>>);
 
@@ -35,7 +36,7 @@ fn validate_cli_open_path(p: &str) -> Option<String> {
     if path.is_file() && ext_ok {
         Some(p.to_string())
     } else {
-        eprintln!(
+        log::warn!(
             "[RUST:startup] Ignoring CLI open path (not a readable file): {}",
             p
         );
@@ -58,7 +59,20 @@ fn main() {
         .manage(CliState(Mutex::new(cli_path)))
         .manage(Mutex::new(PrintSettings::default()))
         .manage(commands::StreamingSaveState::default())
+        .manage(commands::PrintRateLimiter::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            // Structured logging: stdout in dev, file in app log dir in prod.
+            // Level Info hides debug!() noise from release builds; set
+            // RUST_LOG=debug (or trace) when diagnosing issues.
+            tauri_plugin_log::Builder::default()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                ])
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .setup(|app| {
             // ── Trusted-path state (dialog/CLI-approved file I/O) ─────────
             // Autosave writes under the app cache dir are auto-approved;
@@ -97,7 +111,7 @@ fn main() {
                 let had = settings.selected_printer.is_some();
                 settings.initialize_default_printer();
                 if !had && settings.selected_printer.is_some() {
-                    eprintln!(
+                    log::info!(
                         "[RUST:setup] Initialized default printer: {:?}",
                         settings.selected_printer
                     );

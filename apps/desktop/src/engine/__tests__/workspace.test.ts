@@ -73,6 +73,43 @@ describe('WorkspaceManager', () => {
     expect(onVisualChange).not.toHaveBeenCalled();
   });
 
+  it('supports multiple change listeners (Set instead of single-slot, review #34)', () => {
+    const wm = new WorkspaceManager();
+    const a = vi.fn();
+    const b = vi.fn();
+    wm.onChange(a);
+    wm.onChange(b);
+
+    wm.addDocument(WorkspaceManager.createBlankDocument('doc-multi', 'Multi', 400, 300));
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it('unsubscribed listeners stop receiving notifications (review #34)', () => {
+    const wm = new WorkspaceManager();
+    const keep = vi.fn();
+    const drop = vi.fn();
+    const unsubscribe = wm.onChange(drop);
+    wm.onChange(keep);
+
+    unsubscribe();
+    wm.addDocument(WorkspaceManager.createBlankDocument('doc-unsub', 'Unsub', 400, 300));
+    expect(drop).not.toHaveBeenCalled();
+    expect(keep).toHaveBeenCalledTimes(1);
+  });
+
+  it('supports multiple visual change listeners (review #34)', () => {
+    const wm = new WorkspaceManager();
+    const a = vi.fn();
+    const b = vi.fn();
+    wm.onVisualChange(a);
+    wm.onVisualChange(b);
+
+    wm.notifyVisualChange();
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
   // ──────────────────────────────────────────────────────────────
   // DIRTY STATE — UNDO TO CLEAN
   // ──────────────────────────────────────────────────────────────

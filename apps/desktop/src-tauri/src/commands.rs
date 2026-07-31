@@ -57,6 +57,47 @@ fn prune_expired_sessions(sessions: &mut HashMap<String, StreamingSaveSession>) 
     });
 }
 
+// ── Print Rate Limit ──
+
+/// Minimum interval between print invocations. Guards against a compromised
+/// or buggy frontend spooling an unbounded stream of print jobs (each job
+/// costs a full GDI/CUPS spool and consumes paper). 2s is far below any
+/// legitimate human print cadence (dialog → confirm is slower than that).
+const PRINT_MIN_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Global last-print timestamp. Managed as Tauri state so both `print_image`
+/// and `print_image_raw` share the same cooldown window.
+pub(crate) struct PrintRateLimiter {
+    last_print: Mutex<Option<Instant>>,
+}
+
+impl Default for PrintRateLimiter {
+    fn default() -> Self {
+        Self {
+            last_print: Mutex::new(None),
+        }
+    }
+}
+
+impl PrintRateLimiter {
+    /// Returns Err (E_RATE_LIMIT) when the previous print was more recent
+    /// than `PRINT_MIN_INTERVAL` ago; otherwise records `now` and returns Ok.
+    pub(crate) fn check(&self) -> Result<(), Value> {
+        let mut last = self.last_print.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        if let Some(prev) = *last {
+            if now.duration_since(prev) < PRINT_MIN_INTERVAL {
+                return Err(error_value(
+                    "E_RATE_LIMIT",
+                    "Print command called too frequently — wait a moment and try again",
+                ));
+            }
+        }
+        *last = Some(now);
+        Ok(())
+    }
+}
+
 /// Paths the user has explicitly approved via OS dialogs (or the CLI arg).
 /// File-IO commands only accept paths in this set, plus anything under the
 /// app cache dir (autosave). Persisted across restarts so recent-file opens
@@ -904,7 +945,9 @@ pub(crate) fn print_image(
     document_name: Option<String>,
     orientation: Option<String>,
     state: tauri::State<'_, TrustedPathsState>,
+    rate: tauri::State<'_, PrintRateLimiter>,
 ) -> Result<Value, Value> {
+    rate.check()?;
     validate_path_extension(&path, &["png", "jpg", "jpeg"], "print")?;
     let path = validate_path_safe(&path, "print")?;
     check_path_trusted(&state, &path)?;
@@ -1073,7 +1116,14 @@ fn print_image_inner(
 /// Windows: sends raw RGBA directly to GDI (render_rgba_to_printer).
 /// macOS/Linux: re-encodes as PNG temp file and dispatches via CUPS lp.
 #[tauri::command]
-pub(crate) fn print_image_raw(request: tauri::ipc::Request<'_>) -> Result<Value, Value> {
+pub(crate) fn print_image_raw(
+    request: tauri::ipc::Request<'_>,
+    rate: tauri::State<'_, PrintRateLimiter>,
+) -> Result<Value, Value> {
+    // Rate-limit before reading the (potentially 256 MB) body — a hot-loop
+    // caller is rejected without ever paying for the transfer.
+    rate.check()?;
+
     let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
         return err_response("E_VALIDATION", "Expected raw binary body");
     };
@@ -1467,7 +1517,7 @@ pub(crate) fn get_system_printers() -> Result<Value, Value> {
         }
     }
 
-    eprintln!("[RUST:commands] get_system_printers — printers={:?}, default={:?}, defaultPaperSize={:?}, defaultMargins={:?}",
+    log::debug!("[RUST:commands] get_system_printers — printers={:?}, default={:?}, defaultPaperSize={:?}, defaultMargins={:?}",
         printers_vec, default_name, default_paper, default_margins);
     ok_response(serde_json::json!({
         "printers": printers_vec,
@@ -1491,7 +1541,7 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
     {
         match crate::print_windows::get_printer_paper_sizes_win(&printer) {
             Ok(sizes) => {
-                eprintln!(
+                log::debug!(
                     "[RUST:commands] get_printer_paper_sizes — printer={}, count={}",
                     printer,
                     sizes.len()
@@ -1499,7 +1549,7 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
                 let entries: Vec<serde_json::Value> = sizes
                     .into_iter()
                     .map(|(name, w, h, idx)| {
-                        eprintln!("[RUST:commands] get_printer_paper_sizes — entry: name={}, w={}, h={}, idx={}", name, w, h, idx);
+                        log::debug!("[RUST:commands] get_printer_paper_sizes — entry: name={}, w={}, h={}, idx={}", name, w, h, idx);
                         serde_json::json!({
                             "name": name,
                             "widthMm": (w * 10.0).round() / 10.0,
@@ -1524,7 +1574,7 @@ pub(crate) fn get_printer_paper_sizes(printer: String) -> Result<Value, Value> {
                 }))
             }
             Err(e) => {
-                eprintln!("[RUST:commands] get_printer_paper_sizes — error: {}", e);
+                log::error!("[RUST:commands] get_printer_paper_sizes — error: {}", e);
                 err_response("E_PRINTER", &e)
             }
         }
@@ -1675,7 +1725,7 @@ const EVENT_PRINT_SETTINGS_CHANGED: &str = "print-settings-changed";
 /// Helper: emit print settings to all listeners.
 fn emit_print_settings(app: &AppHandle, settings: &PrintSettings) {
     if let Ok(json) = serde_json::to_value(settings) {
-        eprintln!("[RUST:commands] emit_print_settings — paper_name={}, paper_index={}, paper=({}, {}), orientation={}, printer={:?}, copies={}",
+        log::debug!("[RUST:commands] emit_print_settings — paper_name={}, paper_index={}, paper=({}, {}), orientation={}, printer={:?}, copies={}",
             settings.paper_name, settings.paper_index, settings.paper_width_mm, settings.paper_height_mm,
             settings.orientation, settings.selected_printer, settings.copies);
         app.emit(EVENT_PRINT_SETTINGS_CHANGED, json).ok();
@@ -1686,7 +1736,7 @@ fn emit_print_settings(app: &AppHandle, settings: &PrintSettings) {
 #[tauri::command]
 pub(crate) fn get_print_settings(state: State<'_, Mutex<PrintSettings>>) -> Result<Value, Value> {
     let settings = state.lock().unwrap_or_else(|e| e.into_inner());
-    eprintln!("[RUST:commands] get_print_settings — paper_name={}, paper_index={}, paper=({}, {}), orientation={}, printer={:?}, copies={}",
+    log::debug!("[RUST:commands] get_print_settings — paper_name={}, paper_index={}, paper=({}, {}), orientation={}, printer={:?}, copies={}",
         settings.paper_name, settings.paper_index, settings.paper_width_mm, settings.paper_height_mm,
         settings.orientation, settings.selected_printer, settings.copies);
     ok_response(settings.clone())
@@ -1711,14 +1761,17 @@ pub(crate) fn set_paper(
         || (settings.paper_width_mm - width_mm).abs() > 0.001
         || (settings.paper_height_mm - height_mm).abs() > 0.001;
     if changed {
-        eprintln!(
+        log::info!(
             "[RUST:commands] set_paper — name={}, paper_index={}, width_mm={}, height_mm={}",
-            name, paper_index, width_mm, height_mm
+            name,
+            paper_index,
+            width_mm,
+            height_mm
         );
         settings.set_paper(&name, paper_index, width_mm, height_mm);
         emit_print_settings(&app, &settings);
     } else {
-        eprintln!("[RUST:commands] set_paper — unchanged, skipping emit");
+        log::debug!("[RUST:commands] set_paper — unchanged, skipping emit");
     }
     ok_response(settings.clone())
 }
@@ -1735,15 +1788,20 @@ pub(crate) fn toggle_orientation(
     } else {
         "portrait"
     };
-    eprintln!(
+    log::info!(
         "[RUST:commands] toggle_orientation — from={} to={}, dims_before=({}, {})",
-        settings.orientation, new_orientation, settings.paper_width_mm, settings.paper_height_mm
+        settings.orientation,
+        new_orientation,
+        settings.paper_width_mm,
+        settings.paper_height_mm
     );
     settings.set_orientation(new_orientation);
     let value = ok_response(settings.clone());
-    eprintln!(
+    log::info!(
         "[RUST:commands] toggle_orientation — after: dims=({}, {}), orientation={}",
-        settings.paper_width_mm, settings.paper_height_mm, settings.orientation
+        settings.paper_width_mm,
+        settings.paper_height_mm,
+        settings.orientation
     );
     emit_print_settings(&app, &settings);
     value
@@ -1758,14 +1816,14 @@ pub(crate) fn set_orientation(
 ) -> Result<Value, Value> {
     let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.orientation != orientation {
-        eprintln!(
+        log::info!(
             "[RUST:commands] set_orientation — orientation={}",
             orientation
         );
         settings.set_orientation(&orientation);
         emit_print_settings(&app, &settings);
     } else {
-        eprintln!("[RUST:commands] set_orientation — unchanged, skipping emit");
+        log::debug!("[RUST:commands] set_orientation — unchanged, skipping emit");
     }
     ok_response(settings.clone())
 }
@@ -1793,7 +1851,7 @@ pub(crate) fn set_margin(
         settings.set_margin_mm(margin_mm);
         emit_print_settings(&app, &settings);
     } else {
-        eprintln!(
+        log::debug!(
             "[RUST:commands] set_margin — unchanged ({:.1}), skipping emit",
             margin_mm
         );
@@ -1847,7 +1905,7 @@ pub(crate) fn set_scale_percent(
         settings.set_scale_percent(percent);
         emit_print_settings(&app, &settings);
     } else {
-        eprintln!(
+        log::debug!(
             "[RUST:commands] set_scale_percent — unchanged ({:.2}), skipping emit",
             percent
         );
@@ -2002,14 +2060,15 @@ pub(crate) fn set_printer(
     let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     let changed = settings.selected_printer.as_deref() != Some(&printer);
     if changed {
-        eprintln!(
+        log::info!(
             "[RUST:commands] set_printer — printer={}, previous={:?}",
-            printer, settings.selected_printer
+            printer,
+            settings.selected_printer
         );
         settings.set_selected_printer(Some(printer));
         emit_print_settings(&app, &settings);
     } else {
-        eprintln!("[RUST:commands] set_printer — unchanged, skipping emit");
+        log::debug!("[RUST:commands] set_printer — unchanged, skipping emit");
     }
     ok_response(settings.clone())
 }
@@ -2023,7 +2082,7 @@ pub(crate) fn open_printer_properties_and_apply(
 ) -> Result<Value, Value> {
     let (printer, paper_index, paper_width_mm, paper_height_mm, orientation) = {
         let settings = state.lock().unwrap_or_else(|e| e.into_inner());
-        eprintln!("[RUST:commands] open_printer_properties_and_apply — reading state: printer={:?}, paper_index={}, paper=({}, {}), orientation={}",
+        log::debug!("[RUST:commands] open_printer_properties_and_apply — reading state: printer={:?}, paper_index={}, paper=({}, {}), orientation={}",
             settings.selected_printer, settings.paper_index, settings.paper_width_mm, settings.paper_height_mm, settings.orientation);
         (
             settings.selected_printer.clone().unwrap_or_default(),
@@ -2060,7 +2119,7 @@ pub(crate) fn open_printer_properties_and_apply(
             &orientation,
         ) {
             Ok(Some((name, w_mm, h_mm, new_orientation, new_paper_index))) => {
-                eprintln!("[RUST:commands] open_printer_properties_and_apply — dialog OK: name={}, w_mm={}, h_mm={}, new_orientation={}, new_paper_index={}",
+                log::info!("[RUST:commands] open_printer_properties_and_apply — dialog OK: name={}, w_mm={}, h_mm={}, new_orientation={}, new_paper_index={}",
                     name, w_mm, h_mm, new_orientation, new_paper_index);
                 let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
                 // BUG-02 defense-in-depth: skip update if nothing changed
@@ -2070,7 +2129,7 @@ pub(crate) fn open_printer_properties_and_apply(
                     && (settings.paper_height_mm - h_mm).abs() < 0.01
                     && settings.orientation == new_orientation
                 {
-                    eprintln!(
+                    log::debug!(
                         "[RUST:commands] open_printer_properties_and_apply — unchanged, skipping"
                     );
                     return ok_response(serde_json::json!({
@@ -2079,7 +2138,7 @@ pub(crate) fn open_printer_properties_and_apply(
                         "unchanged": true,
                     }));
                 }
-                eprintln!("[RUST:commands] open_printer_properties_and_apply — applying: paper_name={}, paper_index={}, paper=({}, {}), orientation={}",
+                log::info!("[RUST:commands] open_printer_properties_and_apply — applying: paper_name={}, paper_index={}, paper=({}, {}), orientation={}",
                     name, new_paper_index, w_mm, h_mm, new_orientation);
                 settings.set_paper(&name, new_paper_index, w_mm, h_mm);
                 settings.set_orientation(&new_orientation);
@@ -2091,11 +2150,11 @@ pub(crate) fn open_printer_properties_and_apply(
                 value
             }
             Ok(None) => {
-                eprintln!("[RUST:commands] open_printer_properties_and_apply — cancelled");
+                log::info!("[RUST:commands] open_printer_properties_and_apply — cancelled");
                 ok_response(serde_json::json!({ "applied": false, "cancelled": true }))
             }
             Err(e) => {
-                eprintln!(
+                log::error!(
                     "[RUST:commands] open_printer_properties_and_apply — error: {}",
                     e
                 );
@@ -2424,6 +2483,41 @@ mod tests {
         assert!(
             err.contains("E_IO") || err.contains("E_VALIDATION"),
             "error should be E_IO or E_VALIDATION, got: {err}"
+        );
+    }
+
+    // ── Print rate limiter tests (review #32) ───────────────────────
+
+    #[test]
+    fn test_rate_limiter_allows_first_call() {
+        let limiter = PrintRateLimiter::default();
+        assert!(limiter.check().is_ok(), "first print must be allowed");
+    }
+
+    #[test]
+    fn test_rate_limiter_rejects_rapid_second_call() {
+        let limiter = PrintRateLimiter::default();
+        assert!(limiter.check().is_ok());
+        // Second call within PRINT_MIN_INTERVAL (2s) must be rejected.
+        let result = limiter.check();
+        assert!(result.is_err(), "rapid second print must be rate-limited");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("E_RATE_LIMIT"), "got: {err}");
+    }
+
+    #[test]
+    fn test_rate_limiter_recovers_after_interval() {
+        let limiter = PrintRateLimiter::default();
+        assert!(limiter.check().is_ok());
+        assert!(limiter.check().is_err());
+        // Simulate the cooldown elapsing: rewind the stored timestamp.
+        {
+            let mut last = limiter.last_print.lock().unwrap_or_else(|e| e.into_inner());
+            *last = Some(Instant::now() - PRINT_MIN_INTERVAL - Duration::from_secs(1));
+        }
+        assert!(
+            limiter.check().is_ok(),
+            "print after cooldown must be allowed"
         );
     }
 }

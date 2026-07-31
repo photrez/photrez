@@ -14,8 +14,8 @@ export interface DocumentSession {
 export class WorkspaceManager {
   private sessions: Map<DocumentId, DocumentSession> = new Map();
   private activeDocumentId: DocumentId | null = null;
-  private onChangeCallback: (() => void) | null = null;
-  private onVisualChangeCallback: (() => void) | null = null;
+  private onChangeListeners: Set<() => void> = new Set();
+  private onVisualChangeListeners: Set<() => void> = new Set();
 
   // ─── Document Lifecycle ───
   addDocument(session: DocumentSession): void {
@@ -149,23 +149,31 @@ export class WorkspaceManager {
   }
 
   // ─── Change Notification ───
-  onChange(callback: () => void): void {
-    this.onChangeCallback = callback;
+  // Multiple listeners supported (Set instead of single-slot): a removed
+  // listener must unsubscribe itself — there is no automatic cleanup.
+  onChange(callback: () => void): () => void {
+    this.onChangeListeners.add(callback);
+    return () => {
+      this.onChangeListeners.delete(callback);
+    };
   }
 
   private notifyChange(): void {
-    if (this.onChangeCallback) {
-      this.onChangeCallback();
+    for (const cb of this.onChangeListeners) {
+      cb();
     }
   }
 
-  onVisualChange(callback: () => void): void {
-    this.onVisualChangeCallback = callback;
+  onVisualChange(callback: () => void): () => void {
+    this.onVisualChangeListeners.add(callback);
+    return () => {
+      this.onVisualChangeListeners.delete(callback);
+    };
   }
 
   notifyVisualChange(): void {
-    if (this.onVisualChangeCallback) {
-      this.onVisualChangeCallback();
+    for (const cb of this.onVisualChangeListeners) {
+      cb();
     }
   }
 

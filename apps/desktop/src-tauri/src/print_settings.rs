@@ -91,28 +91,34 @@ impl PrintSettings {
         width_mm: f64,
         height_mm: f64,
     ) -> (f64, f64) {
-        eprintln!("[RUST:PrintSettings] set_paper — name={}, index={}, width_mm={}, height_mm={}, canonical_before=({}, {}), orientation={}",
+        log::debug!("[RUST:PrintSettings] set_paper — name={}, index={}, width_mm={}, height_mm={}, canonical_before=({}, {}), orientation={}",
             name, index, width_mm, height_mm, self.paper_width_mm, self.paper_height_mm, self.orientation);
         self.paper_name = name.to_string();
         self.paper_index = index;
         self.paper_width_mm = width_mm;
         self.paper_height_mm = height_mm;
         let result = self.apply_orientation();
-        eprintln!("[RUST:PrintSettings] set_paper — after apply_orientation: stored=({}, {}), returned=({}, {})",
+        log::debug!("[RUST:PrintSettings] set_paper — after apply_orientation: stored=({}, {}), returned=({}, {})",
             self.paper_width_mm, self.paper_height_mm, result.0, result.1);
         result
     }
 
     pub fn set_orientation(&mut self, orientation: &str) -> (f64, f64) {
-        eprintln!(
+        log::debug!(
             "[RUST:PrintSettings] set_orientation — from={}, to={}, dims_before=({}, {})",
-            self.orientation, orientation, self.paper_width_mm, self.paper_height_mm
+            self.orientation,
+            orientation,
+            self.paper_width_mm,
+            self.paper_height_mm
         );
         self.orientation = orientation.to_string();
         let result = self.apply_orientation();
-        eprintln!(
+        log::debug!(
             "[RUST:PrintSettings] set_orientation — after: stored=({}, {}), returned=({}, {})",
-            self.paper_width_mm, self.paper_height_mm, result.0, result.1
+            self.paper_width_mm,
+            self.paper_height_mm,
+            result.0,
+            result.1
         );
         result
     }
