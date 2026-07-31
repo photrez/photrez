@@ -17,9 +17,42 @@ use tauri::{Emitter, Manager};
 
 struct CliState(Mutex<Option<String>>);
 
+/// Accept only existing files with a readable extension (same whitelist as
+/// `commands::READ_FILE_EXTENSIONS` plus `.ptz`). Returns None for anything
+/// else so garbage CLI args never enter `TrustedPathsState`.
+fn validate_cli_open_path(p: &str) -> Option<String> {
+    let path = std::path::PathBuf::from(p);
+    let ext_ok = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            [
+                "ptz", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "json",
+            ]
+            .contains(&e.to_ascii_lowercase().as_str())
+        })
+        .unwrap_or(false);
+    if path.is_file() && ext_ok {
+        Some(p.to_string())
+    } else {
+        eprintln!(
+            "[RUST:startup] Ignoring CLI open path (not a readable file): {}",
+            p
+        );
+        None
+    }
+}
+
 fn main() {
-    // Accept file path as first CLI argument
-    let cli_path: Option<String> = std::env::args().nth(1).filter(|p| !p.starts_with("--")); // skip tauri dev flags
+    // Accept file path as first CLI argument, but only after trust-boundary
+    // validation: it must be an existing file with a readable extension.
+    // `trust_path` (setup below) canonicalizes and rejects traversal; this
+    // pre-check keeps garbage CLI args (typos, folders, foreign types) out of
+    // the trusted-path store entirely. The frontend re-validates on open.
+    let cli_path: Option<String> = std::env::args()
+        .nth(1)
+        .filter(|p| !p.starts_with("--")) // skip tauri dev flags
+        .and_then(|p| validate_cli_open_path(&p));
 
     tauri::Builder::default()
         .manage(CliState(Mutex::new(cli_path)))
@@ -162,4 +195,52 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_cli_open_path;
+    use std::io::Write;
+
+    fn touch(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        let _ = std::fs::File::create(&path).unwrap().write_all(b"x");
+        path
+    }
+
+    #[test]
+    fn accepts_existing_readable_file() {
+        let p = touch("photrez-cli-test.png");
+        assert!(validate_cli_open_path(&p.to_string_lossy()).is_some());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn extension_match_is_case_insensitive() {
+        let p = touch("photrez-cli-test.PTZ");
+        assert!(validate_cli_open_path(&p.to_string_lossy()).is_some());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn rejects_unsupported_extension() {
+        let p = touch("photrez-cli-test.txt");
+        assert!(validate_cli_open_path(&p.to_string_lossy()).is_none());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn rejects_missing_file() {
+        let p = std::env::temp_dir().join("photrez-cli-missing.png");
+        let _ = std::fs::remove_file(&p);
+        assert!(validate_cli_open_path(&p.to_string_lossy()).is_none());
+    }
+
+    #[test]
+    fn rejects_directory() {
+        let dir = std::env::temp_dir().join("photrez-cli-dir-test");
+        let _ = std::fs::create_dir_all(&dir);
+        assert!(validate_cli_open_path(&dir.to_string_lossy()).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
