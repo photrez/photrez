@@ -1,7 +1,7 @@
 import type { LayerDragPayload, DropTarget } from "./dragTypes";
 import { showToast } from "./Toast";
 import type { BlendMode, DocumentModel, LayerNode, Transform2D } from "@/engine/types";
-import { MAX_LAYERS } from "@/engine/types";
+import { MAX_LAYERS, getEffectiveMaxDim } from "@/engine/types";
 import { decodeImageBytes, UnsupportedImageError, ImageTooLargeError } from "@/engine/imageDecode";
 import { readFileBytes } from "@/tauri/native";
 import { WorkspaceManager, type DocumentSession } from "@/engine/workspace";
@@ -316,6 +316,14 @@ export async function addFilesAsLayersFromFileDrop(
     try {
       // runtime decodes PNG/JPEG/WebP/etc. natively with no Tauri IPC.
       const bitmap = await createImageBitmap(file);
+      // Defense-in-depth parity with decodeImageBytes: reject bitmaps above
+      // the device limit BEFORE they reach the engine. The HTML5 drop path
+      // bypasses decodeImageBytes, so without this check a huge dropped
+      // image blows up the renderer's memory budget.
+      if (bitmap.width > getEffectiveMaxDim() || bitmap.height > getEffectiveMaxDim()) {
+        bitmap.close();
+        throw new ImageTooLargeError(bitmap.width, bitmap.height);
+      }
       const cascade = computeCascadePosition(basePos, i);
       // center=true → the cursor marks the image CENTER (not its top-left),
       // so shift by half the decoded size. Cascade still fans multiple files.

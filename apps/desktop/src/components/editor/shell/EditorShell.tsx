@@ -16,7 +16,6 @@ const PrintDialog = lazy(() => import("../dialogs/PrintDialog").then(m => ({ def
 import { ToastHost } from "../Toast";
 import { LoadingOverlay } from "../LoadingOverlay";
 import { saveProgress } from "../saveState";
-import { GlobalDragDropHost } from "../GlobalDragDropHost";
 import { DragGlobalGuard } from "../DragController";
 import { destroySaveWorkerPool } from "../saveWorkerPool";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
@@ -155,7 +154,6 @@ export function EditorShell() {
       rightDockOpen={rightDockOpen}
       setRightDockOpen={setRightDockOpen}
     >
-      <GlobalDragDropHost />
       <DragGlobalGuard />
       <TauriCloseGuard workspace={workspace} scheduler={scheduler} />
       <DesktopShortcutsGuard onToggleRightDock={toggleRightDock} />

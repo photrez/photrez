@@ -397,6 +397,29 @@ describe("addFilesAsLayersFromFileDrop — real engine integration (HTML5 file d
     expect(engine.getLayers()).toHaveLength(1); // only the background
   });
 
+  it("closes bitmap and rejects when decoded dimensions exceed device limit", async () => {
+    const closeFn = vi.fn();
+    globalThis.createImageBitmap = vi.fn().mockResolvedValue({
+      width: 20000,
+      height: 100,
+      close: closeFn,
+    } as unknown as ImageBitmap);
+
+    const file = new File(["huge"], "huge.png", { type: "image/png" });
+    const created = await addFilesAsLayersFromFileDrop(
+      [file],
+      { type: "canvas" },
+      { x: 0, y: 0 },
+      ws,
+    );
+
+    expect(created).toEqual([]);
+    // Oversized bitmap was closed, not leaked into the engine
+    expect(closeFn).toHaveBeenCalledTimes(1);
+    const engine = ws.getEngine("docA")!;
+    expect(engine.getLayers()).toHaveLength(1); // only the background
+  });
+
   it("closes decoded bitmaps when a later file fails (no GPU leak)", async () => {
     let callCount = 0;
     const closeFn = vi.fn();
