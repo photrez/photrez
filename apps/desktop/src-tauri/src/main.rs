@@ -28,6 +28,23 @@ fn main() {
         .manage(commands::StreamingSaveState::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // ── Trusted-path state (dialog/CLI-approved file I/O) ─────────
+            // Autosave writes under the app cache dir are auto-approved;
+            // user-approved paths persist in the app config dir.
+            let cache_dir = app.path().app_cache_dir().unwrap_or_else(|_| std::env::temp_dir());
+            std::fs::create_dir_all(&cache_dir).ok();
+            let cache_dir = std::fs::canonicalize(&cache_dir).unwrap_or(cache_dir);
+            let config_dir = app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir());
+            let trusted = commands::TrustedPathsState::new(
+                cache_dir,
+                config_dir.join("photrez").join("trusted-paths.json"),
+            );
+            // The CLI-arg path is implicitly user-approved (passed at launch).
+            if let Some(cli) = app.state::<CliState>().0.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+                trusted.trust_path(&cli);
+            }
+            app.manage(trusted);
+
             // ── Initialize default printer in print settings state ──────
             // Prevents a race condition on first dialog open: the Effect 1
             // frontend code would otherwise call setPrinter via IPC, emitting
@@ -88,6 +105,7 @@ fn main() {
             commands::ping,
             commands::get_contract_info,
             commands::get_pending_open_path,
+            commands::set_trusted_paths,
             commands::read_file_bytes,
             commands::write_file_bytes,
             commands::save_project,

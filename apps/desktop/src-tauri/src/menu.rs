@@ -52,7 +52,7 @@ pub(crate) fn build_native_menu<R: Runtime, M: Manager<R>>(
     let redo = MenuItemBuilder::with_id("edit.redo", "&Redo")
         .accelerator("CmdOrCtrl+Shift+Z")
         .build(manager)?;
-    let resize = MenuItemBuilder::with_id("image.resize", "Resize &Canvasâ€¦")
+    let resize = MenuItemBuilder::with_id("image.resize", "Resize &Canvas...")
         .build(manager)?;
     let new_layer = MenuItemBuilder::with_id("layer.new", "&New Layer")
         .accelerator("CmdOrCtrl+Shift+N")

@@ -12,7 +12,7 @@ import { useLayerActions } from "./layers/useLayerActions";
 import { cancelLayerTransformSession } from "./transformSession";
 import { useDialog } from "./dialogs/DialogProvider";
 import { showToast } from "./Toast";
-import { showSaveDialog, writeFileBytes, showSaveDialogAllFormats } from "@/tauri/native";
+import { showSaveDialog, writeFileBytes, showSaveDialogAllFormats, setTrustedPaths } from "@/tauri/native";
 import { serializeAndSaveProject } from "./projectSerialize";
 import { addRecentFile } from "@/lib/recentFiles";
 import { easeOutCubic } from "@/viewport/easing";
@@ -469,6 +469,8 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
                   setSaveProgress({ phase: "encoding", label: "Saving project backup...", fraction: 0, cancel: () => ctrl.abort() });
                   const preSaveSnapshot = engine.snapshot();
                   const backupPath = path.replace(/\.[^.]+$/, ".ptz");
+                  // The sibling .ptz is a new path — approve it for Rust file-IO.
+                  await setTrustedPaths([backupPath]);
                   setSaveProgress({ phase: "writing", label: "Writing backup to disk...", fraction: 0.9, cancel: () => ctrl.abort() });
                   await serializeAndSaveProject(engine, backupPath, {
                     signal: ctrl.signal,

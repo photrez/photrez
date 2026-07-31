@@ -40,19 +40,25 @@ export async function showOpenImageDialog(): Promise<string[] | null> {
   });
 
   if (!selected) return null;
-  return Array.isArray(selected) ? selected : [selected];
+  const paths = Array.isArray(selected) ? selected : [selected];
+  // Rust only allows file-IO on user-approved paths — approve dialog results.
+  await setTrustedPaths(paths);
+  return paths;
 }
 
 export async function showSaveDialog(defaultName: string): Promise<string | null> {
   const ext = defaultName.split(".").pop() || "png";
-  return await save({
+  const path = await save({
     defaultPath: defaultName,
     filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
   });
+  if (!path) return null;
+  await setTrustedPaths([path]);
+  return path;
 }
 
 export async function showSaveDialogAllFormats(defaultName: string): Promise<string | null> {
-  return await save({
+  const path = await save({
     defaultPath: defaultName,
     filters: [
       { name: "All Supported Formats", extensions: ["ptz", "png", "jpg", "jpeg", "webp"] },
@@ -62,6 +68,16 @@ export async function showSaveDialogAllFormats(defaultName: string): Promise<str
       { name: "WebP Image (*.webp)", extensions: ["webp"] }
     ]
   });
+  if (!path) return null;
+  await setTrustedPaths([path]);
+  return path;
+}
+
+/** Approve file paths (from OS dialogs) for Rust-side file-IO commands. */
+export async function setTrustedPaths(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const result = await invoke("set_trusted_paths", { paths }) as ApiResponse;
+  if (!result.ok) throw asError(result);
 }
 
 export async function saveProject(

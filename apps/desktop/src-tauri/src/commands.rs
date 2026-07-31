@@ -4,12 +4,13 @@
 // All `#[tauri::command]` handlers exposed to the frontend.
 
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use crate::response::{err_response, error_value, ok_response, validate_path_extension, validate_path_safe, CONTRACT_VERSION};
 use crate::CliState;
-use std::path::PathBuf;
-use std::sync::Mutex;
 
 // ── Streaming Save State ──
 
@@ -18,6 +19,7 @@ pub(crate) struct StreamingSaveSession {
     tmp_path: PathBuf,
     final_path: PathBuf,
     zip: Option<zip::ZipWriter<std::fs::File>>,
+    created_at: Instant,
 }
 
 /// Global map of handle → active streaming save sessions.
@@ -31,9 +33,113 @@ impl Default for StreamingSaveState {
     }
 }
 
+/// Streaming save sessions that are not touched for this long are pruned
+/// (zip dropped, temp file deleted) — guards against orphaned sessions and
+/// `.tmp` accumulation when the frontend dies mid-save.
+const STREAMING_SESSION_TTL: Duration = Duration::from_secs(600); // 10 minutes
+
+/// Drop and delete every session older than `STREAMING_SESSION_TTL`.
+fn prune_expired_sessions(sessions: &mut HashMap<String, StreamingSaveSession>) {
+    let now = Instant::now();
+    sessions.retain(|_, s| {
+        if now.duration_since(s.created_at) >= STREAMING_SESSION_TTL {
+            drop(s.zip.take());
+            let _ = std::fs::remove_file(&s.tmp_path);
+            false
+        } else {
+            true
+        }
+    });
+}
+
+/// Paths the user has explicitly approved via OS dialogs (or the CLI arg).
+/// File-IO commands only accept paths in this set, plus anything under the
+/// app cache dir (autosave). Persisted across restarts so recent-file opens
+/// keep working without re-approval.
+pub(crate) struct TrustedPathsState {
+    paths: Mutex<HashSet<PathBuf>>,
+    cache_dir: PathBuf,
+    persist_path: PathBuf,
+}
+
+impl TrustedPathsState {
+    pub(crate) fn new(cache_dir: PathBuf, persist_path: PathBuf) -> Self {
+        let paths = std::fs::read_to_string(&persist_path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+            .map(|v| v.into_iter().map(PathBuf::from).collect())
+            .unwrap_or_default();
+        Self { paths: Mutex::new(paths), cache_dir, persist_path }
+    }
+
+    /// Approve one raw path (from a dialog or CLI arg). The path is
+    /// canonicalized so it matches the canonical output of `validate_path_safe`;
+    /// unvalidatable paths are skipped (dialog paths are always validatable).
+    pub(crate) fn trust_path(&self, raw: &str) {
+        if let Ok(canonical) = validate_path_safe(raw, "approve path") {
+            let mut paths = self.paths.lock().unwrap_or_else(|e| e.into_inner());
+            let is_new = paths.insert(canonical);
+            drop(paths);
+            if is_new {
+                self.persist();
+            }
+        }
+    }
+
+    /// Approve many paths at once (open dialog returns N files). Returns the
+    /// number of newly approved paths.
+    pub(crate) fn trust_paths(&self, raw_paths: &[String]) -> usize {
+        let mut added = 0usize;
+        let mut paths = self.paths.lock().unwrap_or_else(|e| e.into_inner());
+        for raw in raw_paths {
+            if let Ok(canonical) = validate_path_safe(raw, "approve path") {
+                if paths.insert(canonical) {
+                    added += 1;
+                }
+            }
+        }
+        drop(paths);
+        if added > 0 {
+            self.persist();
+        }
+        added
+    }
+
+    pub(crate) fn is_trusted(&self, path: &PathBuf) -> bool {
+        self.paths.lock().unwrap_or_else(|e| e.into_inner()).contains(path)
+            || path.starts_with(&self.cache_dir)
+    }
+
+    fn persist(&self) {
+        let paths = self.paths.lock().unwrap_or_else(|e| e.into_inner());
+        let list: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+        if let Some(parent) = self.persist_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&self.persist_path, serde_json::to_string(&list).unwrap_or_default());
+    }
+}
+
+/// Reject paths that were not explicitly approved by the user.
+fn check_path_trusted(state: &TrustedPathsState, path: &PathBuf) -> Result<(), Value> {
+    if state.is_trusted(path) {
+        Ok(())
+    } else {
+        Err(error_value(
+            "E_VALIDATION",
+            "Path is not in the approved file list; open or save it through the file dialog first",
+        ))
+    }
+}
+
 const MAX_FILE_IO_BYTES: u64 = 256 * 1024 * 1024;
 const READ_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "json"];
 const WRITE_FILE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "json"];
+
+// Project archive (ZIP) hard caps — zip-bomb protection.
+const MAX_PROJECT_ENTRIES: usize = 1000;
+const MAX_PROJECT_TOTAL_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB decompressed total
+const MAX_PROJECT_LAYERS: usize = 200; // must match frontend MAX_LAYERS (engine/types.ts)
 
 #[tauri::command]
 pub(crate) fn ping() -> Result<Value, Value> {
@@ -64,13 +170,34 @@ pub(crate) fn get_pending_open_path(state: tauri::State<'_, CliState>) -> Result
     }
 }
 
+/// Approve file paths returned by OS dialogs for Rust-side file-IO commands.
+/// Called by the frontend immediately after an open/save dialog succeeds.
+#[tauri::command]
+pub(crate) fn set_trusted_paths(
+    paths: Vec<String>,
+    state: tauri::State<'_, TrustedPathsState>,
+) -> Result<Value, Value> {
+    let added = state.trust_paths(&paths);
+    ok_response(serde_json::json!({ "trusted": added }))
+}
+
 /// Read file bytes from disk. Returns base64-encoded bytes.
 #[tauri::command]
-pub(crate) fn read_file_bytes(path: String) -> Result<Value, Value> {
+pub(crate) fn read_file_bytes(
+    path: String,
+    state: tauri::State<'_, TrustedPathsState>,
+) -> Result<Value, Value> {
     validate_path_extension(&path, READ_FILE_EXTENSIONS, "read")?;
     let path = validate_path_safe(&path, "read")?;
+    check_path_trusted(&state, &path)?;
+    read_file_bytes_inner(&path)
+}
 
-    match std::fs::metadata(&path) {
+/// Validated file read (trusted-path gate already applied by the caller).
+pub(crate) fn read_file_bytes_inner(path: &std::path::Path) -> Result<Value, Value> {
+    validate_path_extension(&path.to_string_lossy(), READ_FILE_EXTENSIONS, "read")?;
+
+    match std::fs::metadata(path) {
         Ok(metadata) if metadata.len() > MAX_FILE_IO_BYTES => {
             return err_response(
                 "E_RESOURCE_LIMIT",
@@ -81,7 +208,7 @@ pub(crate) fn read_file_bytes(path: String) -> Result<Value, Value> {
         Err(e) => return err_response("E_IO", &format!("Failed to inspect file: {}", e)),
     }
 
-    match std::fs::read(&path) {
+    match std::fs::read(path) {
         Ok(bytes) => {
             use base64::Engine;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -97,7 +224,19 @@ pub(crate) fn read_file_bytes(path: String) -> Result<Value, Value> {
 
 /// Write bytes to disk.
 #[tauri::command]
-pub(crate) fn write_file_bytes(path: String, data: String) -> Result<Value, Value> {
+pub(crate) fn write_file_bytes(
+    path: String,
+    data: String,
+    state: tauri::State<'_, TrustedPathsState>,
+) -> Result<Value, Value> {
+    validate_path_extension(&path, WRITE_FILE_EXTENSIONS, "write")?;
+    let path = validate_path_safe(&path, "write")?;
+    check_path_trusted(&state, &path)?;
+    write_file_bytes_inner(path.to_string_lossy().to_string(), data)
+}
+
+/// Validated file write (trusted-path gate already applied by the caller).
+pub(crate) fn write_file_bytes_inner(path: String, data: String) -> Result<Value, Value> {
     validate_path_extension(&path, WRITE_FILE_EXTENSIONS, "write")?;
     let path = validate_path_safe(&path, "write")?;
 
@@ -134,9 +273,11 @@ pub(crate) fn save_project(
     path: String,
     document_json: String,
     layers: HashMap<String, String>,
+    state: tauri::State<'_, TrustedPathsState>,
 ) -> Result<Value, Value> {
     validate_path_extension(&path, &["ptz"], "save project")?;
     let path = validate_path_safe(&path, "save project")?;
+    check_path_trusted(&state, &path)?;
 
     let file = std::fs::File::create(&path)
         .map_err(|e| error_value("E_IO", &format!("Failed to create project file: {}", e)))?;
@@ -179,9 +320,11 @@ pub(crate) fn save_project_binary(
     path: String,
     document_json: String,
     layers: HashMap<String, Vec<u8>>,
+    state: tauri::State<'_, TrustedPathsState>,
 ) -> Result<Value, Value> {
     validate_path_extension(&path, &["ptz"], "save project")?;
     let path = validate_path_safe(&path, "save project")?;
+    check_path_trusted(&state, &path)?;
 
     // Ensure parent directory exists (autosave dir may not be created yet).
     if let Some(parent) = path.parent() {
@@ -258,9 +401,11 @@ pub(crate) fn save_project_streaming_begin(
     path: String,
     document_json: String,
     state: tauri::State<'_, StreamingSaveState>,
+    trusted: tauri::State<'_, TrustedPathsState>,
 ) -> Result<Value, Value> {
     validate_path_extension(&path, &["ptz"], "save project")?;
     let path = validate_path_safe(&path, "save project")?;
+    check_path_trusted(&trusted, &path)?;
 
     // Ensure parent directory exists.
     if let Some(parent) = path.parent() {
@@ -295,11 +440,13 @@ pub(crate) fn save_project_streaming_begin(
         .map_err(|e| error_value("E_IO", &format!("Failed to write document.json: {}", e)))?;
 
     let handle_id = uuid::Uuid::new_v4().to_string();
-    let mut sessions = state.sessions.lock().unwrap();
+    let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    prune_expired_sessions(&mut sessions);
     sessions.insert(handle_id.clone(), StreamingSaveSession {
         tmp_path,
         final_path: path,
         zip: Some(zip),
+        created_at: Instant::now(),
     });
 
     ok_response(serde_json::json!({ "handle_id": handle_id }))
@@ -330,9 +477,10 @@ pub(crate) fn save_project_streaming_write_layer(
         .ok_or_else(|| error_value("E_VALIDATION", "Missing layer-id header"))?
         .to_string();
 
-    let mut sessions = state.sessions.lock().unwrap();
+    let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    prune_expired_sessions(&mut sessions);
     let session = sessions.get_mut(&handle_id)
-        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found"))?;
+        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found or expired"))?;
 
     let zip = session.zip.as_mut()
         .ok_or_else(|| error_value("E_INTERNAL", "Session already ended or cancelled"))?;
@@ -356,9 +504,10 @@ pub(crate) fn save_project_streaming_end(
     handle_id: String,
     state: tauri::State<'_, StreamingSaveState>,
 ) -> Result<Value, Value> {
-    let mut sessions = state.sessions.lock().unwrap();
+    let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    prune_expired_sessions(&mut sessions);
     let session = sessions.remove(&handle_id)
-        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found"))?;
+        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found or expired"))?;
 
     let zip = session.zip.ok_or_else(|| {
         error_value("E_INTERNAL", "Session zip already consumed — double end?")
@@ -393,9 +542,10 @@ pub(crate) fn save_project_streaming_cancel(
     handle_id: String,
     state: tauri::State<'_, StreamingSaveState>,
 ) -> Result<Value, Value> {
-    let mut sessions = state.sessions.lock().unwrap();
+    let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    prune_expired_sessions(&mut sessions);
     let session = sessions.remove(&handle_id)
-        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found"))?;
+        .ok_or_else(|| error_value("E_VALIDATION", "Invalid handle_id: session not found or expired"))?;
 
     // Drop the ZipWriter — closes without finalizing (corrupted zip, cleaned up).
     drop(session.zip);
@@ -407,9 +557,13 @@ pub(crate) fn save_project_streaming_cancel(
 }
 
 #[tauri::command]
-pub(crate) fn load_project(path: String) -> Result<Value, Value> {
+pub(crate) fn load_project(
+    path: String,
+    state: tauri::State<'_, TrustedPathsState>,
+) -> Result<Value, Value> {
     validate_path_extension(&path, &["ptz"], "load project")?;
     let path = validate_path_safe(&path, "load project")?;
+    check_path_trusted(&state, &path)?;
 
     let file = std::fs::File::open(&path)
         .map_err(|e| error_value("E_IO", &format!("Failed to open project file: {}", e)))?;
@@ -417,8 +571,17 @@ pub(crate) fn load_project(path: String) -> Result<Value, Value> {
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| error_value("E_IO", &format!("Failed to read project archive: {}", e)))?;
 
+    // Zip bomb protection: cap the number of entries before iterating.
+    if archive.len() > MAX_PROJECT_ENTRIES {
+        return err_response(
+            "E_RESOURCE_LIMIT",
+            &format!("Project archive has too many entries (max {})", MAX_PROJECT_ENTRIES),
+        );
+    }
+
     let mut document_json = String::new();
     let mut layers = HashMap::new();
+    let mut total_bytes: u64 = 0;
 
     for i in 0..archive.len() {
         let file = archive.by_index(i)
@@ -430,6 +593,7 @@ pub(crate) fn load_project(path: String) -> Result<Value, Value> {
             let mut json_limit = file.take(1024 * 1024); // 1MB cukup untuk JSON
             json_limit.read_to_string(&mut document_json)
                 .map_err(|e| error_value("E_IO", &format!("Failed to read document.json: {}", e)))?;
+            total_bytes += document_json.len() as u64;
         } else if name.starts_with("layers/") && name.ends_with(".png") {
             let layer_id = name.strip_prefix("layers/")
                 .and_then(|s| s.strip_suffix(".png"))
@@ -442,6 +606,20 @@ pub(crate) fn load_project(path: String) -> Result<Value, Value> {
             let mut limit_reader = file.take(MAX_FILE_IO_BYTES);
             limit_reader.read_to_end(&mut bytes)
                 .map_err(|e| error_value("E_IO", &format!("Failed to read layer file {}: {}", name, e)))?;
+
+            total_bytes += bytes.len() as u64;
+            if total_bytes > MAX_PROJECT_TOTAL_BYTES {
+                return err_response(
+                    "E_RESOURCE_LIMIT",
+                    "Project archive decompressed size exceeds the 1 GB limit",
+                );
+            }
+            if layers.len() >= MAX_PROJECT_LAYERS {
+                return err_response(
+                    "E_RESOURCE_LIMIT",
+                    &format!("Project archive has too many layers (max {})", MAX_PROJECT_LAYERS),
+                );
+            }
 
             use base64::Engine;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -612,9 +790,11 @@ pub(crate) fn print_image(
     paper_index: Option<i16>,
     document_name: Option<String>,
     orientation: Option<String>,
+    state: tauri::State<'_, TrustedPathsState>,
 ) -> Result<Value, Value> {
     validate_path_extension(&path, &["png", "jpg", "jpeg"], "print")?;
     let path = validate_path_safe(&path, "print")?;
+    check_path_trusted(&state, &path)?;
     print_image_inner(path, printer, copies, paper_width_mm, paper_height_mm,
         paper_preset, paper_index, document_name, orientation)
 }
@@ -1289,7 +1469,7 @@ fn emit_print_settings(app: &AppHandle, settings: &PrintSettings) {
 pub(crate) fn get_print_settings(
     state: State<'_, Mutex<PrintSettings>>,
 ) -> Result<Value, Value> {
-    let settings = state.lock().unwrap();
+    let settings = state.lock().unwrap_or_else(|e| e.into_inner());
     eprintln!("[RUST:commands] get_print_settings — paper_name={}, paper_index={}, paper=({}, {}), orientation={}, printer={:?}, copies={}",
         settings.paper_name, settings.paper_index, settings.paper_width_mm, settings.paper_height_mm,
         settings.orientation, settings.selected_printer, settings.copies);
@@ -1308,7 +1488,7 @@ pub(crate) fn set_paper(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     // Guard: skip if nothing changed
     let changed = settings.paper_name != name
         || settings.paper_index != paper_index
@@ -1331,7 +1511,7 @@ pub(crate) fn toggle_orientation(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     let new_orientation = if settings.orientation == "portrait" {
         "landscape"
     } else {
@@ -1354,7 +1534,7 @@ pub(crate) fn set_orientation(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.orientation != orientation {
         eprintln!("[RUST:commands] set_orientation — orientation={}", orientation);
         settings.set_orientation(&orientation);
@@ -1376,7 +1556,7 @@ pub(crate) fn set_margin(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
 
     // Update hardware floor when the frontend provides it (e.g. on printer switch)
     if let Some(hw_min) = hardware_min_mm {
@@ -1405,7 +1585,7 @@ pub(crate) fn set_per_side_margins(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     settings.set_per_side_margins(left_mm, right_mm, top_mm, bottom_mm);
     emit_print_settings(&app, &settings);
     ok_response(settings.clone())
@@ -1418,7 +1598,7 @@ pub(crate) fn set_scale_to_fit(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.scale_to_fit != enabled {
         settings.set_scale_to_fit(enabled);
         emit_print_settings(&app, &settings);
@@ -1434,7 +1614,7 @@ pub(crate) fn set_scale_percent(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     let changed = (settings.scale_percent - percent).abs() > 0.01;
     if changed {
         settings.set_scale_percent(percent);
@@ -1452,7 +1632,7 @@ pub(crate) fn set_center_image(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.center_image != center {
         settings.set_center_image(center);
         emit_print_settings(&app, &settings);
@@ -1467,7 +1647,7 @@ pub(crate) fn set_top_offset_mm(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     let changed = (settings.top_offset_mm - offset).abs() > 0.001;
     if changed {
         settings.set_top_offset_mm(offset);
@@ -1483,7 +1663,7 @@ pub(crate) fn set_left_offset_mm(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     let changed = (settings.left_offset_mm - offset).abs() > 0.001;
     if changed {
         settings.set_left_offset_mm(offset);
@@ -1499,7 +1679,7 @@ pub(crate) fn set_copies(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.copies != copies {
         settings.set_copies(copies);
         emit_print_settings(&app, &settings);
@@ -1514,7 +1694,7 @@ pub(crate) fn set_unit(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.unit != unit {
         settings.set_unit(&unit);
         emit_print_settings(&app, &settings);
@@ -1529,7 +1709,7 @@ pub(crate) fn set_show_paper_white(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.show_paper_white != show {
         settings.set_show_paper_white(show);
         emit_print_settings(&app, &settings);
@@ -1544,7 +1724,7 @@ pub(crate) fn set_color_handling(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.color_handling != handling {
         settings.set_color_handling(&handling);
         emit_print_settings(&app, &settings);
@@ -1559,7 +1739,7 @@ pub(crate) fn set_rendering_intent(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.rendering_intent != intent {
         settings.set_rendering_intent(&intent);
         emit_print_settings(&app, &settings);
@@ -1574,7 +1754,7 @@ pub(crate) fn set_black_point_compensation(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     if settings.black_point_compensation != enabled {
         settings.set_black_point_compensation(enabled);
         emit_print_settings(&app, &settings);
@@ -1589,7 +1769,7 @@ pub(crate) fn set_printer(
     state: State<'_, Mutex<PrintSettings>>,
     app: AppHandle,
 ) -> Result<Value, Value> {
-    let mut settings = state.lock().unwrap();
+    let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
     let changed = settings.selected_printer.as_deref() != Some(&printer);
     if changed {
         eprintln!("[RUST:commands] set_printer — printer={}, previous={:?}", printer, settings.selected_printer);
@@ -1609,7 +1789,7 @@ pub(crate) fn open_printer_properties_and_apply(
     app: AppHandle,
 ) -> Result<Value, Value> {
     let (printer, paper_index, paper_width_mm, paper_height_mm, orientation) = {
-        let settings = state.lock().unwrap();
+        let settings = state.lock().unwrap_or_else(|e| e.into_inner());
         eprintln!("[RUST:commands] open_printer_properties_and_apply — reading state: printer={:?}, paper_index={}, paper=({}, {}), orientation={}",
             settings.selected_printer, settings.paper_index, settings.paper_width_mm, settings.paper_height_mm, settings.orientation);
         (
@@ -1649,7 +1829,7 @@ pub(crate) fn open_printer_properties_and_apply(
             Ok(Some((name, w_mm, h_mm, new_orientation, new_paper_index))) => {
                 eprintln!("[RUST:commands] open_printer_properties_and_apply — dialog OK: name={}, w_mm={}, h_mm={}, new_orientation={}, new_paper_index={}",
                     name, w_mm, h_mm, new_orientation, new_paper_index);
-                let mut settings = state.lock().unwrap();
+                let mut settings = state.lock().unwrap_or_else(|e| e.into_inner());
                 // BUG-02 defense-in-depth: skip update if nothing changed
                 if settings.paper_name == name
                     && settings.paper_index == new_paper_index
@@ -1702,7 +1882,7 @@ pub(crate) fn convert_mm_to_current_unit(
     val_mm: f64,
     state: State<'_, Mutex<PrintSettings>>,
 ) -> Result<Value, Value> {
-    let unit = state.lock().unwrap().unit.clone();
+    let unit = state.lock().unwrap_or_else(|e| e.into_inner()).unit.clone();
     let converted = print_geometry::mm_to_unit(val_mm, &unit);
     ok_response(converted)
 }
@@ -1713,7 +1893,7 @@ pub(crate) fn convert_current_unit_to_mm(
     val: f64,
     state: State<'_, Mutex<PrintSettings>>,
 ) -> Result<Value, Value> {
-    let unit = state.lock().unwrap().unit.clone();
+    let unit = state.lock().unwrap_or_else(|e| e.into_inner()).unit.clone();
     let mm = print_geometry::unit_to_mm(val, &unit);
     ok_response(mm)
 }
@@ -1736,7 +1916,7 @@ mod tests {
 
         let data = b"hello photrez export";
         let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-        let result = write_file_bytes(path.to_str().unwrap().to_string(), b64.clone());
+        let result = write_file_bytes_inner(path.to_str().unwrap().to_string(), b64.clone());
 
         assert!(
             result.is_ok(),
@@ -1767,12 +1947,12 @@ mod tests {
         let b64 = base64::engine::general_purpose::STANDARD.encode(&original);
 
         // Write
-        let write_result = write_file_bytes(path.to_str().unwrap().to_string(), b64.clone());
+        let write_result = write_file_bytes_inner(path.to_str().unwrap().to_string(), b64.clone());
         assert!(write_result.is_ok());
         assert!(path.exists());
 
         // Read back via read_file_bytes
-        let read_result = read_file_bytes(path.to_str().unwrap().to_string());
+        let read_result = read_file_bytes_inner(&std::path::Path::new(path.to_str().unwrap()));
         assert!(read_result.is_ok());
 
         let value = read_result.unwrap();
@@ -1789,7 +1969,7 @@ mod tests {
     #[test]
     fn test_write_file_bytes_invalid_base64() {
         let path = temp_path("test_invalid_b64.png");
-        let result = write_file_bytes(
+        let result = write_file_bytes_inner(
             path.to_str().unwrap().to_string(),
             "not-valid-base64!!!".to_string(),
         );
@@ -1803,7 +1983,7 @@ mod tests {
         let path = temp_path("test_unsupported_export.txt");
         let _ = std::fs::remove_file(&path);
         let b64 = base64::engine::general_purpose::STANDARD.encode(b"test");
-        let result = write_file_bytes(path.to_str().unwrap().to_string(), b64);
+        let result = write_file_bytes_inner(path.to_str().unwrap().to_string(), b64);
         assert!(result.is_err(), "unsupported export extension should error");
         let err_value = result.unwrap_err();
         assert!(err_value.to_string().contains("E_VALIDATION"));
@@ -1817,13 +1997,13 @@ mod tests {
     fn test_write_file_bytes_to_invalid_path() {
         let bad_path = format!("Z:\\nope\\{}", std::process::id());
         let b64 = base64::engine::general_purpose::STANDARD.encode(b"test");
-        let result = write_file_bytes(bad_path, b64);
+        let result = write_file_bytes_inner(bad_path, b64);
         assert!(result.is_err(), "write to invalid path should error");
     }
 
     #[test]
     fn test_read_file_bytes_nonexistent_file() {
-        let result = read_file_bytes("Z:\\nonexistent_file_12345.png".to_string());
+        let result = read_file_bytes_inner(std::path::Path::new("Z:\\nonexistent_file_12345.png"));
         assert!(result.is_err(), "reading nonexistent file should error");
         let err_value = result.unwrap_err();
         // The path cannot be canonicalized (drive Z: does not exist), so the
@@ -1839,7 +2019,7 @@ mod tests {
     fn test_read_file_bytes_rejects_unsupported_extension() {
         let path = temp_path("test_unsupported_import.txt");
         std::fs::write(&path, b"not an image").unwrap();
-        let result = read_file_bytes(path.to_str().unwrap().to_string());
+        let result = read_file_bytes_inner(&path);
         assert!(result.is_err(), "unsupported import extension should error");
         let err_value = result.unwrap_err();
         assert!(err_value.to_string().contains("E_VALIDATION"));
@@ -1890,6 +2070,85 @@ mod tests {
         assert!(value["data"]["printers"].is_array());
     }
 
+    // ── Trusted-path gate tests ────────────────────────────────────────
+
+    fn trusted_state(cache: &std::path::Path, persist: &std::path::Path) -> TrustedPathsState {
+        let _ = std::fs::remove_file(persist);
+        TrustedPathsState::new(cache.to_path_buf(), persist.to_path_buf())
+    }
+
+    #[test]
+    fn test_trusted_paths_cache_dir_is_auto_trusted() {
+        let cache = std::env::temp_dir().join("photrez_trusted_cache");
+        let persist = std::env::temp_dir().join("photrez_trusted_test1.json");
+        let state = trusted_state(&cache, &persist);
+
+        // Autosave writes live under the app cache dir — no dialog approval needed.
+        let autosave = cache.join("photrez").join("autosave").join("manifest.json");
+        assert!(state.is_trusted(&autosave), "cache-dir paths must be auto-trusted");
+
+        // Unapproved path outside the cache dir must be rejected.
+        let outside = std::env::temp_dir().join("unrelated.png");
+        assert!(!state.is_trusted(&outside), "unapproved path must be rejected");
+
+        let _ = std::fs::remove_file(&persist);
+    }
+
+    #[test]
+    fn test_trusted_paths_trust_path_adds_and_persists() {
+        let cache = std::env::temp_dir().join("photrez_trusted_cache2");
+        let persist = std::env::temp_dir().join("photrez_trusted_test2.json");
+        let target_dir = std::env::temp_dir().join("photrez_trusted_target");
+        let _ = std::fs::create_dir_all(&target_dir);
+        let target = target_dir.join("doc.ptz");
+
+        {
+            let state = trusted_state(&cache, &persist);
+            // Both trust_path and the command-side check canonicalize via
+            // validate_path_safe (Windows canonicalize adds a \\?\ prefix), so
+            // the comparison happens on the canonical form — resolve it here.
+            let canonical = validate_path_safe(target.to_str().unwrap(), "approve path").unwrap();
+            state.trust_path(target.to_str().unwrap());
+            assert!(state.is_trusted(&canonical), "approved path must be trusted");
+        }
+
+        // A fresh instance loads the persisted set — recent-file opens survive restart.
+        let state2 = TrustedPathsState::new(cache, persist.clone());
+        let canonical2 = validate_path_safe(target.to_str().unwrap(), "approve path").unwrap();
+        assert!(
+            state2.is_trusted(&canonical2),
+            "trusted paths must persist across state reloads"
+        );
+
+        let _ = std::fs::remove_dir_all(&target_dir);
+        let _ = std::fs::remove_file(&persist);
+    }
+
+    #[test]
+    fn test_trusted_paths_trust_paths_batch() {
+        let cache = std::env::temp_dir().join("photrez_trusted_cache3");
+        let persist = std::env::temp_dir().join("photrez_trusted_test3.json");
+        let target_dir = std::env::temp_dir().join("photrez_trusted_target3");
+        let _ = std::fs::create_dir_all(&target_dir);
+        let a = target_dir.join("a.png");
+        let b = target_dir.join("b.png");
+        let raw = vec![a.to_str().unwrap().to_string(), b.to_str().unwrap().to_string()];
+
+        let state = trusted_state(&cache, &persist);
+        let added = state.trust_paths(&raw);
+        assert_eq!(added, 2);
+        let canonical_a = validate_path_safe(a.to_str().unwrap(), "approve path").unwrap();
+        let canonical_b = validate_path_safe(b.to_str().unwrap(), "approve path").unwrap();
+        assert!(state.is_trusted(&canonical_a) && state.is_trusted(&canonical_b));
+
+        // Re-approving the same paths adds nothing new.
+        let added_again = state.trust_paths(&raw);
+        assert_eq!(added_again, 0);
+
+        let _ = std::fs::remove_dir_all(&target_dir);
+        let _ = std::fs::remove_file(&persist);
+    }
+
     // ── Print dispatch tests ─────────────────────────────────────────
     // `print_image_inner` is private; we test it through `print_image`.
 
@@ -1899,8 +2158,8 @@ mod tests {
         // checks p.exists(). With a nonsense path we get E_VALIDATION
         // (validate_path_safe → canonicalize fails) or E_IO if the path
         // passes validation but doesn't exist.
-        let result = print_image(
-            "Z:\\nope\\missing.png".to_string(),
+        let result = print_image_inner(
+            std::path::PathBuf::from("Z:\\nope\\missing.png"),
             None, None, None, None, None, None, None, None,
         );
         assert!(result.is_err(), "should fail on nonexistent path");
