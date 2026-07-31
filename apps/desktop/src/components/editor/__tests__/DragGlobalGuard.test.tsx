@@ -102,6 +102,28 @@ describe("DragGlobalGuard — document-level dragover preventDefault", () => {
     }
   });
 
+  it("cancels the default drop action for OS file drops outside drop zones", () => {
+    const ctx = setup();
+    try {
+      // OS file drag in flight (drop lands on the topbar / rail / gap —
+      // no zone handler runs, so the document-level listener is the only
+      // preventDefault. Without it WebView2 would navigate to the file).
+      ctx.probe().beginFileDrag([], { x: 0, y: 0 });
+      expect(ctx.probe().state().dragKind).toBe("file");
+
+      const evt = new Event("drop", { bubbles: true, cancelable: true }) as any;
+      evt.dataTransfer = { files: [new File(["x"], "photo.png")] };
+      document.dispatchEvent(evt);
+
+      expect(evt.defaultPrevented).toBe(true);
+      // Drop also ends the drag — no orphan state.
+      expect(ctx.probe().state().dragKind).toBeNull();
+    } finally {
+      ctx.dispose();
+      document.body.replaceChildren();
+    }
+  });
+
   it("removes the document listener on unmount", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

@@ -169,8 +169,15 @@ export function DragGlobalGuard() {
     // window (dragleave fires when cursor leaves the document, drop fires
     // on successful drop as safety net). Without these listeners, dragKind
     // stays "file" forever, blocking all subsequent drag operations.
-    const onDragEnd = () => {
+    const onDragEnd = (e: DragEvent) => {
       if (dragController.state().dragKind === "file") {
+        // MDN file drag-and-drop rule: the drop event must be cancelled at
+        // window/document level, otherwise the browser performs its default
+        // action (navigating to / opening the dropped file) when the drop
+        // lands OUTSIDE any drop zone (topbar, tool rail, panel gaps).
+        // Zone handlers already preventDefault themselves — this only
+        // covers the no-zone case.
+        e.preventDefault();
         dragController.endDrag();
       }
     };
