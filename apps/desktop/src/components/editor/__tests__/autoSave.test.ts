@@ -3,10 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const writeFileBytes = vi.fn();
 const readFileBytes = vi.fn();
 const deleteAutosaveFile = vi.fn();
-const cacheDir = vi.fn(async () => "/cache/");
+const appCacheDir = vi.fn(async () => "/cache/");
 const serializeAndSaveProject = vi.fn(async () => {});
 
-vi.mock("@tauri-apps/api/path", () => ({ cacheDir: () => cacheDir() }));
+vi.mock("@tauri-apps/api/path", () => ({ appCacheDir: () => appCacheDir() }));
 vi.mock("@/tauri/native", () => ({ writeFileBytes, readFileBytes, deleteAutosaveFile }));
 vi.mock("../projectSerialize", () => ({ serializeAndSaveProject }));
 

@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { cacheDir } from "@tauri-apps/api/path";
+import { appCacheDir } from "@tauri-apps/api/path";
 import { serializeAndSaveProject } from "./projectSerialize";
 import { writeFileBytes, readFileBytes, deleteAutosaveFile } from "@/tauri/native";
 import type { WorkspaceManager } from "@/engine/workspace";
@@ -30,7 +30,10 @@ export interface AutosaveEntry {
 }
 
 async function autosaveDir(): Promise<string> {
-  const base = await cacheDir();
+  // Must match the Rust side's `app_cache_dir()` (cacheDir() alone resolves to
+  // %LOCALAPPDATA% without the app identifier, which TrustedPathsState does
+  // not auto-approve — autosave would fail every write with E_VALIDATION).
+  const base = await appCacheDir();
   const sep = base.endsWith("/") || base.endsWith("\\") ? "" : "/";
   return `${base}${sep}${AUTOSAVE_SUBDIR}`;
 }

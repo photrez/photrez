@@ -178,7 +178,7 @@ export async function deleteFile(path: string): Promise<void> {
   if (!result.ok) throw asError(result);
 }
 
-/** Delete an autosave file from `cacheDir()/photrez/autosave/`. Uses a dedicated
+/** Delete an autosave file from `appCacheDir()/photrez/autosave/`. Uses a dedicated
  * command scoped to the autosave directory — unlike `deleteFile` (temp-only). */
 export async function deleteAutosaveFile(path: string): Promise<void> {
   const result = await invoke("delete_autosave_file", { path }) as ApiResponse;
