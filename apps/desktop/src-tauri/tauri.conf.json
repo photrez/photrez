@@ -1,7 +1,7 @@
 {
   "productName": "Photrez",
   "version": "0.1.0",
-  "identifier": "com.photrez.app",
+  "identifier": "com.photrez.desktop",
   "build": {
     "beforeDevCommand": {
     "script": "bun scripts/dev/kill-port.cjs && bun run dev",
