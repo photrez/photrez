@@ -7,15 +7,17 @@ import type { SnapResult } from "../viewport/smartGuides";
 function makeEngine(): {
   engine: DocumentEngine;
   history: CommandHistory;
-  moveLayer: ReturnType<typeof vi.fn>;
+  moveLayerSilent: ReturnType<typeof vi.fn>;
+  flushChangeNotification: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
 } {
   let currentX = 50;
   let currentY = 50;
-  const moveLayer = vi.fn((_id: string, x: number, y: number) => {
+  const moveLayerSilent = vi.fn((_id: string, x: number, y: number) => {
     currentX = x;
     currentY = y;
   });
+  const flushChangeNotification = vi.fn();
   const commit = vi.fn();
   const engine = {
     getLayer: (id: string) => ({
@@ -31,18 +33,19 @@ function makeEngine(): {
       height: 100,
       imageBitmap: null,
     }),
-    moveLayer,
+    moveLayerSilent,
+    flushChangeNotification,
     snapshot: () => ({}),
   } as unknown as DocumentEngine;
 
   const history = { commit } as unknown as CommandHistory;
 
-  return { engine, history, moveLayer, commit };
+  return { engine, history, moveLayerSilent, flushChangeNotification, commit };
 }
 
 describe("input-handler snap wiring", () => {
   it("applies snap delta and emits guide lines on move when Alt is not pressed", () => {
-    const { engine, history, moveLayer, commit } = makeEngine();
+    const { engine, history, moveLayerSilent, commit } = makeEngine();
     const snap: SnapResult = { dx: 3, dy: 0, lines: [{ x1: 100, y1: 0, x2: 100, y2: 200 }] };
     const onComputeSnap = vi.fn(() => snap);
     const onSnapLines = vi.fn();
@@ -73,12 +76,12 @@ describe("input-handler snap wiring", () => {
     // not by input-handler.handlePointerUp. Verify snap + move still work.
     expect(commit).not.toHaveBeenCalled();
     expect(onComputeSnap).toHaveBeenCalledWith({ x: 55, y: 50, w: 100, h: 100 });
-    expect(moveLayer).toHaveBeenCalledWith("L1", 58, 50);
+    expect(moveLayerSilent).toHaveBeenCalledWith("L1", 58, 50);
     expect(onSnapLines).toHaveBeenCalledWith(snap.lines);
   });
 
   it("skips snap and clears guide lines while Alt is pressed", () => {
-    const { engine, history, moveLayer } = makeEngine();
+    const { engine, history, moveLayerSilent } = makeEngine();
     const onComputeSnap = vi.fn((): SnapResult => ({ dx: 3, dy: 0, lines: [{ x1: 100, y1: 0, x2: 100, y2: 200 }] }));
     const onSnapLines = vi.fn();
     const ctx = {
@@ -104,7 +107,7 @@ describe("input-handler snap wiring", () => {
     handlePointerMove("move", 55, 50, engine, () => {}, ctx);
 
     expect(onComputeSnap).not.toHaveBeenCalled();
-    expect(moveLayer).toHaveBeenCalledWith("L1", 55, 50);
+    expect(moveLayerSilent).toHaveBeenCalledWith("L1", 55, 50);
     expect(onSnapLines).toHaveBeenCalledWith([]);
   });
 
@@ -145,7 +148,7 @@ describe("input-handler snap wiring", () => {
   });
 
   it("does not call onComputeSnap when no layer is selected", () => {
-    const { engine, history, moveLayer } = makeEngine();
+    const { engine, history, moveLayerSilent } = makeEngine();
     const onComputeSnap = vi.fn();
     const ctx = {
       fgColor: "#000",
@@ -170,6 +173,6 @@ describe("input-handler snap wiring", () => {
     handlePointerMove("move", 55, 50, engine, () => {}, ctx);
 
     expect(onComputeSnap).not.toHaveBeenCalled();
-    expect(moveLayer).not.toHaveBeenCalled();
+    expect(moveLayerSilent).not.toHaveBeenCalled();
   });
 });

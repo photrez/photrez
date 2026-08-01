@@ -1,9 +1,20 @@
+export interface FrameMetrics {
+  frames: number;
+  avgMs: number;
+  maxMs: number;
+}
+
 export class RenderScheduler {
   private framePending = false;
   private continuousMode = false;
   private renderCallback: (() => void) | null = null;
   private rafId: number | null = null;
   private continuousRafId: number | null = null;
+
+  // Render timing metrics since the last reset (dev-mode status-bar display).
+  private frameCount = 0;
+  private totalMs = 0;
+  private maxMs = 0;
 
   constructor(renderCallback: () => void) {
     this.renderCallback = renderCallback;
@@ -18,6 +29,7 @@ export class RenderScheduler {
       this.framePending = false;
       this.renderCallback?.();
       const _dt = performance.now() - _t0;
+      this.recordFrame(_dt);
       if (_dt > 5) console.warn(`[perf] scheduler.render: ${_dt.toFixed(1)}ms`);
     });
   }
@@ -38,6 +50,7 @@ export class RenderScheduler {
     const _t0 = performance.now();
     this.renderCallback?.();
     const _dt = performance.now() - _t0;
+    this.recordFrame(_dt);
     if (_dt > 5) console.warn(`[perf] scheduler.renderNow: ${_dt.toFixed(1)}ms`);
   }
 
@@ -56,6 +69,7 @@ export class RenderScheduler {
       const _t0 = performance.now();
       this.renderCallback?.();
       const _dt = performance.now() - _t0;
+      this.recordFrame(_dt);
       if (_dt > 5) console.warn(`[perf] scheduler.continuousRender: ${_dt.toFixed(1)}ms`);
       this.continuousRafId = requestAnimationFrame(loop);
     };
@@ -73,6 +87,28 @@ export class RenderScheduler {
 
   isContinuous(): boolean {
     return this.continuousMode;
+  }
+
+  /** Render timing metrics since the last reset. Zero frames → zeros. */
+  getFrameMetrics(): FrameMetrics {
+    return {
+      frames: this.frameCount,
+      avgMs: this.frameCount > 0 ? this.totalMs / this.frameCount : 0,
+      maxMs: this.maxMs,
+    };
+  }
+
+  /** Reset the timing window (called by the status-bar poller between samples). */
+  resetFrameMetrics(): void {
+    this.frameCount = 0;
+    this.totalMs = 0;
+    this.maxMs = 0;
+  }
+
+  private recordFrame(dt: number): void {
+    this.frameCount++;
+    this.totalMs += dt;
+    if (dt > this.maxMs) this.maxMs = dt;
   }
 
   cancel(): void {

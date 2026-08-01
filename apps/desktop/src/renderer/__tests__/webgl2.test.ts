@@ -146,7 +146,18 @@ describe("WebGL2Backend.render — MAG filter switches to NEAREST above 200% zoo
       documentId: "doc",
       viewport: { panX: 0, panY: 0, zoom, rotation: 0 },
       documentSize: { width: 800, height: 600 },
-      layers: [],
+      layers: [
+        {
+          id: "a",
+          textureHandle: { id: "a" },
+          visible: true,
+          opacity: 1,
+          blendMode: "normal",
+          transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+          width: 100,
+          height: 100,
+        },
+      ],
       selection: null,
       checkerboard: false,
       backgroundColor: [0, 0, 0, 0],
@@ -185,5 +196,28 @@ describe("WebGL2Backend.render — MAG filter switches to NEAREST above 200% zoo
       (c) => c.method === "texParameteri" && c.args[1] === 10240 && c.args[2] === 9729,
     );
     expect(restoreLinear).toHaveLength(1);
+  });
+
+  it("does NOT switch MAG filter for textures of hidden layers", () => {
+    restoreCtx = stub2DContext();
+    const mock = makeGLMock();
+    const canvas = makeCanvas(mock.gl);
+    const renderer = new WebGL2Backend();
+    renderer.initialize(canvas);
+
+    renderer.uploadImage("a", BITMAP);
+    renderer.uploadImage("hidden", BITMAP);
+    mock.calls.length = 0;
+
+    const state = makeRenderState(2.5);
+    state.layers[0].id = "hidden";
+    state.layers[0].visible = false; // layer "a" not in render state, "hidden" invisible
+    renderer.render(state);
+
+    const nearest = mock.calls.filter(
+      (c) => c.method === "texParameteri" && c.args[1] === 10240 && c.args[2] === 9728,
+    );
+    // Neither texture is part of visibleLayers → no texParameteri calls.
+    expect(nearest).toHaveLength(0);
   });
 });

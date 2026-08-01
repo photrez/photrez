@@ -142,11 +142,14 @@ export class SaveWorkerPool {
       const onAbort = () => {
         settled = true;
         cleanup();
-        // Terminate all workers to prevent stale results from the aborted
-        // session from leaking into a future encodeLayers call.
-        // Re-creating workers is cheaper than defending against cross-talk.
-        for (const w of this.workers) { w.terminate(); }
-        this.workers = [];
+        // Reset workers instead of terminating them: each worker drops its
+        // stale result via a reset token (see saveWorker.ts), so the pool
+        // stays warm for the next encodeLayers call. This matters for the
+        // autosave-aborted-by-manual-save path — the manual save reuses the
+        // same workers immediately instead of paying terminate + re-create.
+        for (const w of this.workers) {
+          w.postMessage({ type: "reset" });
+        }
         reject(new DOMException("The operation was aborted", "AbortError"));
       };
       signal.addEventListener("abort", onAbort, { once: true });

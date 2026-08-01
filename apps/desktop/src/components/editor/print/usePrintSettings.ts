@@ -149,7 +149,7 @@ export function usePrintSettings(src?: string) {
       if (isSetPaper) _hookPendingSetPaper = true;
       try {
         const raw = await invoke<Record<string, unknown>>(command, args);
-        console.log(`[PRINT:${id}] invoke response raw keys:`, Object.keys(raw), "orientation:", (raw as any)?.data?.orientation ?? (raw as any)?.orientation);
+        console.log(`[PRINT:${id}] invoke response raw keys:`, Object.keys(raw), "orientation:", (raw?.data as { orientation?: unknown } | undefined)?.orientation ?? (raw as { orientation?: unknown }).orientation);
         const data: unknown = raw?.data ?? raw;
         if (data) {
           const mapped = mapFromRust(data);
@@ -203,10 +203,14 @@ export function usePrintSettings(src?: string) {
       invokeSet("set_per_side_margins", { leftMm: left, rightMm: right, topMm: top, bottomMm: bottom }),
     setPrinter: (p: string) => invokeSet("set_printer", { printer: p }),
     openPrinterProperties: async () => {
-      const res = await invoke<Record<string, unknown>>("open_printer_properties_and_apply") as any;
+      const res = await invoke<{
+        data?: { applied?: boolean; settings?: unknown };
+        applied?: boolean;
+        settings?: unknown;
+      }>("open_printer_properties_and_apply");
       console.log(`[PRINT:${id}] Properties result:`, JSON.stringify(res));
       // Update frontend state from the native dialog result
-      const data: Record<string, unknown> = res?.data ?? res;
+      const data = res?.data ?? res;
       if (data && data.applied && data.settings) {
         const mapped = mapFromRust(data.settings);
         setOptions(mapped);

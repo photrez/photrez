@@ -17,7 +17,8 @@ import { serializeAndSaveProject } from "./projectSerialize";
 import { addRecentFile } from "@/lib/recentFiles";
 import { easeOutCubic } from "@/viewport/easing";
 import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } from "./exportDocument";
-import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss } from "./saveState";
+import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss, scheduleSave } from "./saveState";
+import { cancelAutosave } from "./autoSave";
 
 export const NATIVE_MENU_EVENT = "photrez://native-menu";
 export const EDITOR_COMMAND_EVENT = "photrez://editor-command";
@@ -91,35 +92,7 @@ const EDITOR_COMMANDS: ReadonlySet<string> = new Set<EditorCommand>([
   "help.about",
 ]);
 
-// ── Save queue — prevents concurrent save race while keeping non-blocking UI ──
-let _saveRunning = false;
-let _pendingSave: (() => Promise<void>) | null = null;
-
-async function _runSaveQueue(): Promise<void> {
-  while (_pendingSave) {
-    const fn = _pendingSave;
-    _pendingSave = null;
-    try {
-      await fn();
-    } catch {
-      // Error already handled inside fn() via catch block
-    }
-  }
-  _saveRunning = false;
-}
-
-/**
- * Queue a save operation. If another save is in flight, the new request
- * replaces the pending slot and runs after the current save completes.
- * This handles rapid Ctrl+S presses without blocking the keyboard handler.
- */
-function scheduleSave(fn: () => Promise<void>): void {
-  _pendingSave = fn;
-  if (!_saveRunning) {
-    _saveRunning = true;
-    _runSaveQueue();
-  }
-}
+// ── Save queue — lives in saveState.ts (shared with the autosave timer) ──
 
 export function isEditorCommand(value: string): value is EditorCommand {
   return EDITOR_COMMANDS.has(value);
@@ -346,6 +319,10 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           break;
         }
 
+        // Cancel any in-flight autosave so it neither blocks this save nor
+        // collides with the SaveWorkerPool (autosave is skipped, not an error).
+        cancelAutosave();
+
         scheduleSave(async () => {
           cancelPendingSaveDismiss();
           try {
@@ -410,6 +387,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       case "file.save-as": {
         const session = editor.workspace.getActiveSession();
         if (!session) break;
+
+        // Same preemption as file.save — manual save wins over autosave.
+        cancelAutosave();
 
         scheduleSave(async () => {
           cancelPendingSaveDismiss();

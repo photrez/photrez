@@ -269,6 +269,29 @@ describe('CommandHistory', () => {
       expect(shared.close).not.toHaveBeenCalled();
     });
 
+    it('does NOT close a bitmap still referenced by the live document model', () => {
+      const live = { close: vi.fn() };
+      const history = new CommandHistory(2);
+      history.attachLiveBitmapGetter(() => [live as unknown as ImageBitmap]);
+      history.commit(makeModelWithBitmap('S1', live));
+      history.commit(makeModelWithBitmap('S2', { close: vi.fn() }));
+      history.commit(makeModelWithBitmap('S3', { close: vi.fn() })); // evicts S1
+
+      // live model still uses the bitmap → must survive eviction
+      expect(live.close).not.toHaveBeenCalled();
+    });
+
+    it('closes the bitmap once the live model no longer references it', () => {
+      const gone = { close: vi.fn() };
+      const history = new CommandHistory(2);
+      history.attachLiveBitmapGetter(() => []); // live model no longer holds it
+      history.commit(makeModelWithBitmap('S1', gone));
+      history.commit(makeModelWithBitmap('S2', { close: vi.fn() }));
+      history.commit(makeModelWithBitmap('S3', { close: vi.fn() })); // evicts S1
+
+      expect(gone.close).toHaveBeenCalledTimes(1);
+    });
+
     it('clear() disposes all stacked bitmaps (stacks are dropped)', () => {
       const shared = { close: vi.fn() };
       const other = { close: vi.fn() };

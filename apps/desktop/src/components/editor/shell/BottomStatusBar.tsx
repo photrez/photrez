@@ -1,10 +1,11 @@
-import { Show, createMemo } from "solid-js";
+import { Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { clsx } from "clsx";
 import { Icon } from "../icons";
 import { useEditor } from "./EditorContext";
 import { getPaintToolBlockReason } from "../brushToolState";
 import { autosaveStatus, autosaveError, autosaveTimestamp } from "../autoSave";
 import { saveProgress } from "../saveState";
+import type { FrameMetrics } from "@/renderer/scheduler";
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   move: "Drag to move layer. Hold Shift for constrained movement.",
@@ -33,7 +34,21 @@ export function BottomStatusBar() {
     setRightDockPanel,
     setRightDockOpen,
     gradientDragLine,
+    scheduler,
   } = useEditor();
+
+  // ── Dev-mode frame timing (avg render ms per 2s window) ──
+  // Production builds skip this entirely (import.meta.env.DEV is false).
+  const [frameStats, setFrameStats] = createSignal<FrameMetrics | null>(null);
+  onMount(() => {
+    if (!import.meta.env.DEV) return;
+    const timer = setInterval(() => {
+      setFrameStats(scheduler.getFrameMetrics());
+      scheduler.resetFrameMetrics();
+    }, 2000);
+    onCleanup(() => clearInterval(timer));
+  });
+  const devFrameStats = () => (import.meta.env.DEV ? frameStats() : null);
 
   const activeLayerName = () => {
     const activeId = activeTool() === "move" ? selectedLayerId() : activeLayerId();
@@ -98,6 +113,13 @@ export function BottomStatusBar() {
           <span class="border-l border-editor-divider pl-3">
             Selected Layer: <strong class="text-editor-text">{activeLayerName()}</strong>
           </span>
+          {/* Dev-mode render timing — production builds keep the bar clean */}
+          <Show when={devFrameStats() && devFrameStats()!.frames > 0}>
+            <span class="border-l border-editor-divider pl-3">
+              Frame: <strong class="text-editor-text">{devFrameStats()!.avgMs.toFixed(1)}ms avg</strong>
+              <span class="text-editor-text/40"> max {devFrameStats()!.maxMs.toFixed(1)}ms</span>
+            </span>
+          </Show>
           {/* Autosave status indicator */}
           <Show when={autosaveStatus() !== "idle"}>
             <span class="border-l border-editor-divider pl-3 flex items-center gap-1">

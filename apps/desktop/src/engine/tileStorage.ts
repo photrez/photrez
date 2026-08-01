@@ -89,27 +89,9 @@ export async function splitIntoTiles(
 }
 
 /**
- * Reconstruct a full ImageBitmap from an array of tiles.
- *
- * Useful for backwards-compatible reads — callers that expect a single
- * ImageBitmap (e.g. export, legacy render path) get one.
+ * NOTE: a full-image compose path was removed (was `composeFromTiles`, sync
+ * OffscreenCanvas draw of every tile). It had zero production callers and a
+ * sync compose would block the main thread for large documents (16K×16K ≈
+ * 4096 tiles). The tile pipeline is slated for beta.2 (WASM strategy); any
+ * future compose must be async (Worker/OffscreenCanvas) by design.
  */
-export function composeFromTiles(
-  tiles: Tile[],
-  width: number,
-  height: number,
-  tileSize: number = TILE_SIZE,
-): ImageBitmap {
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext("2d")!;
-
-  for (const tile of tiles) {
-    if (tile.imageBitmap) {
-      const dx = tile.gridX * tileSize;
-      const dy = tile.gridY * tileSize;
-      ctx.drawImage(tile.imageBitmap, dx, dy);
-    }
-  }
-
-  return canvas.transferToImageBitmap();
-}

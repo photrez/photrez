@@ -182,7 +182,7 @@ export function SelectionOptionBar() {
         <select
           value={selectionConstraintMode()}
           onChange={(e) => {
-            setSelectionConstraintMode(e.currentTarget.value as any);
+            setSelectionConstraintMode(e.currentTarget.value as "normal" | "ratio" | "size");
           }}
           class="absolute inset-0 h-full w-full opacity-0 cursor-pointer text-[11px]"
         >

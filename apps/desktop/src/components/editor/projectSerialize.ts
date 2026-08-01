@@ -4,16 +4,74 @@ import { getSaveWorkerPool, resetSaveWorkerPool } from "./saveWorkerPool";
 import type { EncodeTask, EncodeProgressCallback } from "./saveWorkerPool";
 
 // ── Per-document dirty layer cache ──
-// Map<DocId, Map<LayerId, Uint8Array>>
-// Caches encoded PNG bytes so clean layers skip re-encode on consecutive saves.
+// Map<DocId, Map<LayerId, Uint8Array>> with a global byte budget. Layers stay
+// cached so clean layers skip re-encode on consecutive saves. The budget caps
+// memory (a large 4K layer PNG can be tens of MB; many dirty docs would
+// otherwise balloon RAM) by evicting the least-recently-used entries.
 const dirtyLayerCache = new Map<string, Map<string, Uint8Array>>();
+let cacheByteBudget = 256 * 1024 * 1024; // 256 MiB
+let cacheBytes = 0;
+
+/** Insert or refresh a cached layer. Moves the entry to most-recent position. */
+function cacheSet(docId: string, layerId: string, bytes: Uint8Array): void {
+  let cache = dirtyLayerCache.get(docId);
+  if (!cache) {
+    cache = new Map();
+    dirtyLayerCache.set(docId, cache);
+  }
+  const prev = cache.get(layerId);
+  cacheBytes += bytes.byteLength - (prev?.byteLength ?? 0);
+  cache.delete(layerId); // re-insert so the entry counts as most-recent
+  cache.set(layerId, bytes);
+  evictIfOverBudget();
+}
+
+/** Read a cached layer, moving it to most-recent position on a hit. */
+function cacheRead(docId: string, layerId: string): Uint8Array | undefined {
+  const cache = dirtyLayerCache.get(docId);
+  if (!cache) return undefined;
+  const bytes = cache.get(layerId);
+  if (bytes === undefined) return undefined;
+  cache.delete(layerId);
+  cache.set(layerId, bytes);
+  return bytes;
+}
+
+function evictIfOverBudget(): void {
+  while (cacheBytes > cacheByteBudget) {
+    // Map iteration order = insertion order, so the first doc/layer is the
+    // least-recently-used across the whole cache. Re-reading after cacheSet
+    // keeps the scan O(docs) per eviction, not O(entries).
+    let evictDoc: string | null = null;
+    let evictLayer: string | null = null;
+    for (const [docId, cache] of dirtyLayerCache) {
+      const first = cache.keys().next();
+      if (!first.done) {
+        evictDoc = docId;
+        evictLayer = first.value;
+        break;
+      }
+    }
+    if (evictDoc === null || evictLayer === null) break;
+    const cache = dirtyLayerCache.get(evictDoc)!;
+    const bytes = cache.get(evictLayer);
+    if (bytes) cacheBytes -= bytes.byteLength;
+    cache.delete(evictLayer);
+    if (cache.size === 0) dirtyLayerCache.delete(evictDoc);
+  }
+}
 
 /** Clear the layer-encode cache for a specific document, or all documents. */
 export function clearLayerCache(docId?: string): void {
   if (docId) {
-    dirtyLayerCache.delete(docId);
+    const cache = dirtyLayerCache.get(docId);
+    if (cache) {
+      for (const bytes of cache.values()) cacheBytes -= bytes.byteLength;
+      dirtyLayerCache.delete(docId);
+    }
   } else {
     dirtyLayerCache.clear();
+    cacheBytes = 0;
   }
 }
 
@@ -50,13 +108,6 @@ export async function serializeAndSaveProject(
     for (const layer of model.layers) {
       if (layer.imageBitmap) dirtyIds.add(layer.id);
     }
-  }
-
-  // Ensure per-document cache entry exists.
-  let cache = dirtyLayerCache.get(docId);
-  if (!cache) {
-    cache = new Map();
-    dirtyLayerCache.set(docId, cache);
   }
 
   // ── Serialize model JSON (before any IPC, fast local work) ──
@@ -114,10 +165,11 @@ export async function serializeAndSaveProject(
 
     for (const layer of model.layers) {
       const isDirty = dirtyIds.has(layer.id);
+      const cached = cacheRead(docId, layer.id);
 
-      if (!isDirty && cache.has(layer.id) && layer.imageBitmap) {
+      if (!isDirty && cached && layer.imageBitmap) {
         // Clean layer: write from cache immediately (parallel).
-        cleanLayerWrites.push(writeLayer(layer.id, cache.get(layer.id)!));
+        cleanLayerWrites.push(writeLayer(layer.id, cached));
         continue;
       }
 
@@ -139,7 +191,7 @@ export async function serializeAndSaveProject(
       // Start clean writes AND dirty encoding simultaneously.
       await Promise.all([
         pool.encodeLayers(encodeTasks, effectiveSignal, options?.onEncodeProgress, (layerId, pngBytes) => {
-          cache!.set(layerId, pngBytes);
+          cacheSet(docId, layerId, pngBytes);
           const p = writeLayer(layerId, pngBytes).catch((err) => {
             // Stop encoding on write failure — abort triggers pool termination.
             abortController.abort();
@@ -160,10 +212,15 @@ export async function serializeAndSaveProject(
 
     // ── Evict deleted layers from cache ──
     const currentIds = new Set(model.layers.map((l) => l.id));
-    for (const [id] of cache) {
-      if (!currentIds.has(id)) {
-        cache.delete(id);
+    const docCache = dirtyLayerCache.get(docId);
+    if (docCache) {
+      for (const [id, bytes] of docCache) {
+        if (!currentIds.has(id)) {
+          cacheBytes -= bytes.byteLength;
+          docCache.delete(id);
+        }
       }
+      if (docCache.size === 0) dirtyLayerCache.delete(docId);
     }
 
     // ── End: Rust finalizes ZIP, fsync, atomic rename ──
@@ -187,4 +244,9 @@ export async function serializeAndSaveProject(
  */
 export function resetTestWorkerPool(): void {
   resetSaveWorkerPool();
+}
+
+/** Override the LRU byte budget (test support). */
+export function setLayerCacheBudget(bytes: number): void {
+  cacheByteBudget = bytes;
 }

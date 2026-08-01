@@ -43,6 +43,24 @@ describe('RenderScheduler', () => {
     scheduler.dispose();
   });
 
+  it('records frame timing metrics and resets the window', () => {
+    const scheduler = new RenderScheduler(() => {});
+
+    scheduler.renderNow();
+    scheduler.renderNow();
+
+    const m = scheduler.getFrameMetrics();
+    expect(m.frames).toBe(2);
+    expect(m.avgMs).toBeGreaterThanOrEqual(0);
+    expect(m.maxMs).toBeGreaterThanOrEqual(0);
+    expect(m.maxMs).toBeGreaterThanOrEqual(m.avgMs);
+
+    scheduler.resetFrameMetrics();
+    expect(scheduler.getFrameMetrics()).toEqual({ frames: 0, avgMs: 0, maxMs: 0 });
+
+    scheduler.dispose();
+  });
+
   it('runs continuous render loop when started and stops when requested', async () => {
     const callback = vi.fn();
     const scheduler = new RenderScheduler(callback);

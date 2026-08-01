@@ -79,7 +79,7 @@ export interface NewDocumentResult {
   backgroundColor: "white" | "transparent";
 }
 
-interface DialogContextValue {
+export interface DialogContextValue {
   confirm: (options: ConfirmDialogOptions) => Promise<boolean>;
   alert: (options: AlertDialogOptions) => Promise<void>;
   quality: (options: QualityDialogOptions) => Promise<number | null>;

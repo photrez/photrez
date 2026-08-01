@@ -303,7 +303,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         // Trigger sync so the History Panel updates immediately.
         // history.commit only pushes to the history stack — without a
         // notify call, the UI won't know the history changed until the
-        // next engine mutation (regression 2026-07-03: user reports
+        // next engine mutation (@regression 2026-07-03: user reports
         // "sebenarnya tercatat tapi kayak harus diklik layer dulu baru muncul").
         workspace.notifyVisualChange();
       }
@@ -396,7 +396,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     // selected layer. The normal move handler (input-handler.ts) always moves
     // the selected layer via engine.getActiveLayerId(). If we move a different
     // layer here, both handlers fight — causing two layers to drift apart
-    // (regression 2026-07-03: user reports "saya drag layer b, layer b gerak"
+    // (@regression 2026-07-03: user reports "saya drag layer b, layer b gerak"
     // even though layer A was selected with auto-select off).
     //
     // Fix: when auto-select is OFF and the layer under cursor is not selected,

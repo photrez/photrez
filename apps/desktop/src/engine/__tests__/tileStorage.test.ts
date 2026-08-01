@@ -5,7 +5,6 @@ import {
   tileKey,
   createEmptyTiles,
   splitIntoTiles,
-  composeFromTiles,
 } from "../tileStorage";
 
 // ─── computeTileGrid (pure — no mocks needed) ───
@@ -168,76 +167,7 @@ describe("splitIntoTiles", () => {
   });
 });
 
-// ─── composeFromTiles (needs OffscreenCanvas mock) ───
+// ─── composeFromTiles REMOVED 2026-08-01 (#44) — zero production callers,
+// sync compose would block the main thread for large docs; tile pipeline is
+// deferred to beta.2 (WASM). Any future compose must be async. ───
 
-describe("composeFromTiles", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("draws each tile bitmap at the correct position", () => {
-    const drawImageMock = vi.fn();
-    const transferToImageBitmapMock = vi.fn(() => ({ width: 512, height: 512 }) as ImageBitmap);
-    vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
-      this.width = w;
-      this.height = h;
-      this.getContext = () => ({ drawImage: drawImageMock } as unknown as OffscreenCanvasRenderingContext2D);
-      this.transferToImageBitmap = transferToImageBitmapMock;
-    }));
-
-    const tiles = [
-      { gridX: 0, gridY: 0, imageBitmap: { width: 256, height: 256 } as ImageBitmap, width: 256, height: 256 },
-      { gridX: 1, gridY: 0, imageBitmap: { width: 256, height: 256 } as ImageBitmap, width: 256, height: 256 },
-      { gridX: 0, gridY: 1, imageBitmap: { width: 256, height: 256 } as ImageBitmap, width: 256, height: 256 },
-      { gridX: 1, gridY: 1, imageBitmap: { width: 256, height: 256 } as ImageBitmap, width: 256, height: 256 },
-    ];
-
-    const result = composeFromTiles(tiles, 512, 512, 256);
-    expect(result).toBeDefined();
-    expect((result as any).width).toBe(512);
-    expect((result as any).height).toBe(512);
-    expect(drawImageMock).toHaveBeenCalledTimes(4);
-    expect(drawImageMock).toHaveBeenCalledWith(tiles[0].imageBitmap, 0, 0);
-    expect(drawImageMock).toHaveBeenCalledWith(tiles[1].imageBitmap, 256, 0);
-    expect(drawImageMock).toHaveBeenCalledWith(tiles[2].imageBitmap, 0, 256);
-    expect(drawImageMock).toHaveBeenCalledWith(tiles[3].imageBitmap, 256, 256);
-    expect(transferToImageBitmapMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("handles a single tile (smaller than TILE_SIZE)", () => {
-    const drawImageMock = vi.fn();
-    const transferToImageBitmapMock = vi.fn(() => ({ width: 100, height: 100 }) as ImageBitmap);
-    vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
-      this.width = w;
-      this.height = h;
-      this.getContext = () => ({ drawImage: drawImageMock } as unknown as OffscreenCanvasRenderingContext2D);
-      this.transferToImageBitmap = transferToImageBitmapMock;
-    }));
-
-    const tiles = [
-      { gridX: 0, gridY: 0, imageBitmap: { width: 100, height: 100 } as ImageBitmap, width: 100, height: 100 },
-    ];
-
-    const result = composeFromTiles(tiles, 100, 100, 256);
-    expect((result as any).width).toBe(100);
-    expect((result as any).height).toBe(100);
-    expect(drawImageMock).toHaveBeenCalledTimes(1);
-    expect(drawImageMock).toHaveBeenCalledWith(tiles[0].imageBitmap, 0, 0);
-  });
-
-  it("returns blank canvas when all tiles are null", () => {
-    const drawImageMock = vi.fn();
-    const transferToImageBitmapMock = vi.fn(() => ({ width: 256, height: 256 }) as ImageBitmap);
-    vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
-      this.width = w;
-      this.height = h;
-      this.getContext = () => ({ drawImage: drawImageMock } as unknown as OffscreenCanvasRenderingContext2D);
-      this.transferToImageBitmap = transferToImageBitmapMock;
-    }));
-
-    const tiles = createEmptyTiles(256, 256);
-    expect(() => composeFromTiles(tiles, 256, 256, 256)).not.toThrow();
-    // drawImage should not be called since all images are null
-    expect(drawImageMock).not.toHaveBeenCalled();
-  });
-});

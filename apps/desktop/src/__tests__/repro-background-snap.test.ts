@@ -3,8 +3,8 @@ import { handlePointerDown, handlePointerMove, handlePointerUp } from "../viewpo
 import { createMockEngine, createMockHistory, createToolContext } from "./test-builders";
 
 describe("repro: move tool with Background layer selected emits no snap lines", () => {
-  it("input-handler move path: background selected → no moveLayer, no onSnapLines during drag", () => {
-    const engine = createMockEngine(["snapshot", "moveLayer", "getLayer"]);
+  it("input-handler move path: background selected → no moveLayerSilent, no onSnapLines during drag", () => {
+    const engine = createMockEngine(["snapshot", "moveLayerSilent", "flushChangeNotification", "getLayer"]);
     const bgLayer = {
       id: "bg-1",
       name: "Background",
@@ -36,7 +36,7 @@ describe("repro: move tool with Background layer selected emits no snap lines", 
     handlePointerDown("move", 50, 50, engine, history, vi.fn(), context);
     handlePointerMove("move", 200, 150, engine, vi.fn(), context);
 
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
     expect(onSnapLines).not.toHaveBeenCalled();
     expect(onComputeSnap).not.toHaveBeenCalled();
 

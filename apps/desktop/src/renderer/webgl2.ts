@@ -458,11 +458,22 @@ export class WebGL2Backend implements RenderBackend {
 
     // Crisp pixel editing above 200% zoom: switch texture MAG filter to
     // NEAREST so magnified pixels are sharp instead of bilinear-blurred.
-    // Only touch the bound textures when the mode actually changes.
+    // Only touch textures of layers that will actually be rendered this
+    // frame (visible layers with textures) — avoids up to 200 texParameteri
+    // calls per threshold crossing for layers that are hidden or unloaded.
+    const visibleLayers = [];
+    for (let i = state.layers.length - 1; i >= 0; i--) {
+      const renderLayer = state.layers[i];
+      if (renderLayer.visible && this.textures.has(renderLayer.id)) {
+        visibleLayers.push(renderLayer);
+      }
+    }
+
     const wantNearest = state.viewport.zoom > 2;
     if (wantNearest !== this.magFilterNearest) {
       this.magFilterNearest = wantNearest;
-      for (const ref of this.textures.values()) {
+      for (const layer of visibleLayers) {
+        const ref = this.textures.get(layer.id)!;
         gl.bindTexture(gl.TEXTURE_2D, ref.texture);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, wantNearest ? gl.NEAREST : gl.LINEAR);
       }
@@ -472,15 +483,6 @@ export class WebGL2Backend implements RenderBackend {
     const docW = state.documentSize.width;
     const docH = state.documentSize.height;
     const viewProj = viewProjectionMatrix || computeViewMatrix(docW, docH);
-
-    // Filter visible layers with textures
-    const visibleLayers = [];
-    for (let i = state.layers.length - 1; i >= 0; i--) {
-      const renderLayer = state.layers[i];
-      if (renderLayer.visible && this.textures.has(renderLayer.id)) {
-        visibleLayers.push(renderLayer);
-      }
-    }
 
     // Clear stale texture unit bindings from previous frame.
     // TEXTURE1 can retain a reference to the previous frame's pingPong texture.

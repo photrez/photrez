@@ -253,7 +253,7 @@ export function NewDocumentDialogContent(props: {
               <select
                 class={desktopDialogFieldClass}
                 value={background()}
-                onChange={(e) => setBackground(e.currentTarget.value as any)}
+                onChange={(e) => setBackground(e.currentTarget.value as "transparent" | "white")}
               >
                 <option value="transparent">Transparent</option>
                 <option value="white">White</option>

@@ -372,6 +372,44 @@ describe("projectSerialize — serializeAndSaveProject", () => {
     expect(Object.keys(capturedProject!.layers)).toEqual([l1.id]);
   });
 
+  it("LRU evicts least-recently-used layers when byte budget is exceeded", async () => {
+    const { serializeAndSaveProject, clearLayerCache, setLayerCacheBudget } = await import("../projectSerialize");
+    clearLayerCache(); // clear all (also resets byte accounting)
+    setLayerCacheBudget(30); // tiny budget: two 12-byte PNG entries fit, a third forces eviction
+    try {
+      const engine = new DocumentEngine("doc-lru", "LRU", 100, 100);
+      const l1 = engine.addLayer("A", 100, 100);
+      engine.setLayerImageBitmap(l1.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+      const l2 = engine.addLayer("B", 100, 100);
+      engine.setLayerImageBitmap(l2.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+      const l3 = engine.addLayer("C", 100, 100);
+      engine.setLayerImageBitmap(l3.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+
+      let offscreenCount = 0;
+      vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
+        offscreenCount++;
+        this.width = w;
+        this.height = h;
+        this.getContext = () => ({ drawImage: vi.fn() });
+        this.convertToBlob = vi.fn().mockResolvedValue(new Blob([PNG_BYTES], { type: "image/png" }));
+      }));
+
+      // First save: all three encoded; A is evicted (oldest) to stay in budget
+      await serializeAndSaveProject(engine, "/path/lru1.ptz");
+      expect(offscreenCount).toBe(3);
+
+      engine.clearDirty();
+
+      // Second save: B and C served from cache; A (evicted) must re-encode
+      offscreenCount = 0;
+      await serializeAndSaveProject(engine, "/path/lru2.ptz");
+      expect(offscreenCount).toBe(1); // only A re-encoded
+    } finally {
+      setLayerCacheBudget(256 * 1024 * 1024); // restore production budget
+      clearLayerCache();
+    }
+  });
+
   it("per-document cache isolation: two engines don't share cache", async () => {
     const { serializeAndSaveProject, clearLayerCache } = await import("../projectSerialize");
     clearLayerCache(); // clear all

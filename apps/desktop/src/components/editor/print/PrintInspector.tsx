@@ -2,6 +2,7 @@
 import { For, Show, createEffect, createMemo, createRenderEffect, createResource, createSignal, untrack } from "solid-js";
 import { showToast } from "../Toast";
 import { invoke } from "@tauri-apps/api/core";
+import { isTauriRuntime } from "@/lib/desktop";
 import type {
   PrintOptions,
   PrintOrientation,
@@ -120,7 +121,7 @@ export function PrintInspector(props: PrintInspectorProps) {
         if (res?.ok && res?.data) return res.data;
         throw new Error(res?.error?.message || "Failed to retrieve printer list");
       } catch (e) {
-        if (typeof window === "undefined" || !(window as any).__TAURI_INTERNALS__) {
+        if (!isTauriRuntime()) {
           return { printers: [] };
         }
         throw e;

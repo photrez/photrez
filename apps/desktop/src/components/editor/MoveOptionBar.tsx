@@ -68,7 +68,7 @@ export function MoveOptionBar() {
     if (engine && id) {
       const layer = engine.getLayer(id);
       // Skip if already at default — prevents ghost undo entries on
-      // repeated Reset clicks (regression 2026-06-18 follow-up).
+      // repeated Reset clicks (@regression 2026-06-18 follow-up).
       if (
         layer &&
         layer.transform.x === 0 &&

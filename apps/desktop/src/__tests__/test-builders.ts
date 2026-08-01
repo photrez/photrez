@@ -30,7 +30,7 @@ const DEFAULT_LAYER: LayerNode = {
 /** Creates a mock DocumentEngine with vi.fn() stubs for listed methods.
  *  getLayer returns a default unlocked layer at (100,50).
  *  snapshot returns a minimal empty model. */
-export function createMockEngine(methods: EngineMethod[] = ["snapshot", "getLayer", "moveLayer", "samplePixel", "createSelection", "clearSelection"]) {
+export function createMockEngine(methods: EngineMethod[] = ["snapshot", "getLayer", "moveLayer", "moveLayerSilent", "flushChangeNotification", "samplePixel", "createSelection", "clearSelection"]) {
   const stub: Record<string, unknown> = {};
   for (const m of methods) {
     if (m === "getLayer") {

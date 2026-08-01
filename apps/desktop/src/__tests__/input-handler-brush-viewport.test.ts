@@ -259,8 +259,8 @@ describe("brush tool coordinate chain — viewport integration", () => {
     expect(onPaintStroke).toHaveBeenCalledWith(
       expect.arrayContaining([{ x: 150, y: 100 }]), false, PAINT_SETTINGS,
     );
-    // engine.moveLayer should NOT be called (it's brush, not move)
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    // engine.moveLayerSilent should NOT be called (it's brush, not move)
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
   });
 });
 

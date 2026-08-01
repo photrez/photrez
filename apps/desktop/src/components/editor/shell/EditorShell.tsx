@@ -13,6 +13,22 @@ import { ErrorBoundary } from "../ErrorBoundary";
 const ResizeCanvasModal = lazy(() => import("../dialogs/ResizeCanvasModal").then(m => ({ default: m.ResizeCanvasModal })));
 const ExportDialog = lazy(() => import("../dialogs/ExportDialog").then(m => ({ default: m.ExportDialog })));
 const PrintDialog = lazy(() => import("../dialogs/PrintDialog").then(m => ({ default: m.PrintDialog })));
+
+// Prefetch lazy dialog chunks during idle time so the first open has no
+// network/module-resolution stall. `lazy()` factories call the same
+// `import()` — once a chunk is cached, the later dynamic import resolves
+// from the module cache. Idle callback is cancelled-safe: re-imports are
+// idempotent, so no onCleanup is needed.
+function prefetchDialogChunks() {
+  const idle = typeof window !== "undefined" && "requestIdleCallback" in window
+    ? (cb: () => void) => window.requestIdleCallback(cb)
+    : (cb: () => void) => window.setTimeout(cb, 2000);
+  idle(() => {
+    void import("../dialogs/ResizeCanvasModal");
+    void import("../dialogs/ExportDialog");
+    void import("../dialogs/PrintDialog");
+  });
+}
 import { ToastHost } from "../Toast";
 import { LoadingOverlay } from "../LoadingOverlay";
 import { saveProgress } from "../saveState";
@@ -27,7 +43,7 @@ import { cancelLayerTransformSession } from "../transformSession";
 import { WorkspaceManager } from "@/engine/workspace";
 import { WebGL2Backend } from "@/renderer/webgl2";
 import { RenderScheduler } from "@/renderer/scheduler";
-import { EditorProvider, useEditor, useGPUCameraForModernCrop } from "./EditorContext";
+import { EditorProvider, useEditor } from "./EditorContext";
 import { ViewportCamera } from "../../../viewport/viewportCamera";
 
 function EditorLayout(props: {
@@ -90,13 +106,18 @@ export function EditorShell() {
   const toggleRightDock = () => setRightDockOpen((open) => !open);
 
   useDesktopGuards();
+  prefetchDialogChunks();
 
   // ─── Singletons Initialization ───
   const workspace = new WorkspaceManager();
   const camera = new ViewportCamera();
   const renderer = new WebGL2Backend();
+  // Feature-flag signal owned by this component instance (not module scope):
+  // the RenderScheduler callback below reads it via closure, and it is passed
+  // into EditorProvider so the context value stays in sync.
+  const [useGPUCameraForModernCrop, setUseGPUCameraForModernCrop] = createSignal(true);
   // Render scheduler uses the shared useGPUCameraForModernCrop signal
-  // (defined at module level in EditorContext) so it stays in sync
+  // (created here in EditorShell) so it stays in sync
   // with the context flag. When the flag is true, the new GPU-camera
   // path always passes a VP matrix (image transform is in the matrix).
   // When false, falls back to the legacy CSS-path conditional.
@@ -153,6 +174,8 @@ export function EditorShell() {
       camera={camera}
       rightDockOpen={rightDockOpen}
       setRightDockOpen={setRightDockOpen}
+      useGPUCameraForModernCrop={useGPUCameraForModernCrop}
+      setUseGPUCameraForModernCrop={setUseGPUCameraForModernCrop}
     >
       <DragGlobalGuard />
       <TauriCloseGuard workspace={workspace} scheduler={scheduler} />
@@ -194,7 +217,7 @@ function TauriCloseGuard(props: {
   scheduler: import("@/renderer/scheduler").RenderScheduler;
 }) {
   const dialog = useDialog();
-  useTauriCloseHandler(props.workspace, dialog as any, props.scheduler);
+  useTauriCloseHandler(props.workspace, dialog, props.scheduler);
   return null;
 }
 

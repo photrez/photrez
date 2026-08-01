@@ -53,7 +53,7 @@ describe("input-handler: move tool", () => {
     expect(context.pendingOriginalLayerPos).toEqual({ x: 100, y: 50 });
   });
 
-  it("pointerMove with move tool calls engine.moveLayer with offset", () => {
+  it("pointerMove with move tool calls engine.moveLayerSilent with offset", () => {
     const engine = createMockEngine();
     const context = createToolContext({
       isDragging: true,
@@ -61,14 +61,14 @@ describe("input-handler: move tool", () => {
       selectedLayerId: "layer-1",
     });
     handlePointerMove("move", 200, 100, engine, vi.fn(), context);
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 150, 70);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 150, 70);
   });
 
   it("pointerMove does nothing when not dragging", () => {
     const engine = createMockEngine();
     const context = createToolContext({ isDragging: false });
     handlePointerMove("move", 100, 100, engine, vi.fn(), context);
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
   });
 
   it("pointerMove updates dragCurrent", () => {
@@ -93,12 +93,12 @@ describe("input-handler: move tool", () => {
     expect(onSnapLines).not.toHaveBeenCalled();
   });
 
-  it("non-move tools do not trigger moveLayer", () => {
+  it("non-move tools do not trigger moveLayerSilent", () => {
     const engine = createMockEngine();
     const history = createMockHistory();
     const context = createToolContext();
     handlePointerDown("brush", 150, 80, engine, history, vi.fn(), context);
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
   });
 
   it("handlePointerUp uses dragTool from pointerdown even when called with different tool", () => {
@@ -135,8 +135,8 @@ describe("input-handler: move tool", () => {
     const engine = createMockEngine();
     handlePointerMove("move", 60, 60, engine, requestRender, context);
 
-    // Should NOT call engine.moveLayer because brush branch doesn't move layers
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    // Should NOT call engine.moveLayerSilent because brush branch doesn't move layers
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
   });
 });
 
@@ -158,9 +158,9 @@ describe("input-handler: move tool — deferred history commit (regression 2026-
   ) {
     let currentX = initialX;
     let currentY = initialY;
-    const engine = createMockEngine(["snapshot", "moveLayer", "getLayer"]);
+    const engine = createMockEngine(["snapshot", "moveLayer", "moveLayerSilent", "flushChangeNotification", "getLayer"]);
     vi.mocked(engine.snapshot).mockReturnValue({ snap: Date.now() } as never);
-    vi.mocked(engine.moveLayer).mockImplementation((_id: string, x: number, y: number) => {
+    vi.mocked(engine.moveLayerSilent).mockImplementation((_id: string, x: number, y: number) => {
       currentX = x;
       currentY = y;
     });
@@ -281,7 +281,7 @@ describe("input-handler: move tool — deferred history commit (regression 2026-
     handlePointerDown("move", 150, 80, engine, history, vi.fn(), context);
     expect(context.pendingHistorySnapshot).toBeNull();
     handlePointerMove("move", 200, 130, engine, vi.fn(), context);
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
     handlePointerUp("move", 200, 130, engine, history, vi.fn(), context);
     expect(context.pendingHistorySnapshot).toBeNull();
   });

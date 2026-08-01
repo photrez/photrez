@@ -49,3 +49,45 @@ export function scheduleSaveDismiss(delay = 2000): void {
     dismissTimer = null;
   }, delay);
 }
+
+// ── Save queue — prevents concurrent save race while keeping non-blocking UI ──
+// Lives here (not in useEditorCommands) so EditorContext's autosave timer can
+// schedule through the same queue without a module cycle.
+let _saveRunning = false;
+let _pendingSave: (() => void) | null = null;
+
+async function _runSaveQueue(): Promise<void> {
+  while (_pendingSave) {
+    const fn = _pendingSave;
+    _pendingSave = null;
+    try {
+      await fn();
+    } catch {
+      // Error already handled inside fn() via catch block
+    }
+  }
+  _saveRunning = false;
+}
+
+/**
+ * Queue a save operation. Only one save runs at a time (SaveWorkerPool
+ * rejects concurrent encodes). If another save is in flight, the new request
+ * replaces the pending slot and runs after the current save completes.
+ * This handles rapid Ctrl+S presses without blocking the keyboard handler.
+ *
+ * `lowPriority` (autosave) jobs are skipped entirely when any save is running
+ * or queued — they must never preempt or displace a manual save.
+ */
+export function scheduleSave(fn: () => void, lowPriority = false): void {
+  if (lowPriority && (_pendingSave || _saveRunning)) return;
+  _pendingSave = fn;
+  if (!_saveRunning) {
+    _saveRunning = true;
+    _runSaveQueue();
+  }
+}
+
+/** True while a save (manual or autosave) is running or queued. */
+export function isSaveRunning(): boolean {
+  return _saveRunning || _pendingSave !== null;
+}

@@ -31,7 +31,7 @@ export class WorkspaceManager {
     // Only mark session as dirty if the engine itself reports dirty — this way
     // undo/redo to a clean snapshot (model.dirty === false) correctly clears the
     // dirty indicator. Save handlers must call engine.clearDirty() to keep the
-    // engine dirty flag in sync (regression 2026-07-03: session.dirty was always
+    // engine dirty flag in sync (@regression 2026-07-03: session.dirty was always
     // set to true unconditionally, making every document appear dirty on open).
     session.engine.onChange(() => {
       if (session.engine.isDirty()) {
@@ -44,7 +44,7 @@ export class WorkspaceManager {
       // undo to a clean snapshot (engine.restore → notifyVisualChange with
       // model.dirty === false) correctly clears the session dirty flag.
       // Previously this was set unconditionally to true, which left the
-      // document stuck dirty after undo (regression 2026-07-06).
+      // document stuck dirty after undo (@regression 2026-07-06).
       session.dirty = session.engine.isDirty();
       this.notifyVisualChange();
     });
@@ -203,9 +203,16 @@ export class WorkspaceManager {
 
     engine.clearDirty();
 
+    const history = new CommandHistory();
+    history.attachLiveBitmapGetter(() =>
+      engine.getModel().layers.flatMap((l) =>
+        [l.imageBitmap, l.baseImageBitmap].filter((b): b is ImageBitmap | null => b !== undefined),
+      ),
+    );
+
     return {
       engine,
-      history: new CommandHistory(),
+      history,
       displayName: name,
       sourcePath: null,
       dirty: false
@@ -225,9 +232,16 @@ export class WorkspaceManager {
     bgLayer.lockRotation = true;
     engine.clearDirty();
 
+    const history = new CommandHistory();
+    history.attachLiveBitmapGetter(() =>
+      engine.getModel().layers.flatMap((l) =>
+        [l.imageBitmap, l.baseImageBitmap].filter((b): b is ImageBitmap | null => b !== undefined),
+      ),
+    );
+
     return {
       engine,
-      history: new CommandHistory(),
+      history,
       displayName: name,
       sourcePath: null,
       dirty: false

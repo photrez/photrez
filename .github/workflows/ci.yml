@@ -77,8 +77,13 @@ jobs:
         working-directory: apps/desktop
         run: bunx playwright install chromium --with-deps
 
+      - name: Install Playwright browsers (macOS — adds WebKit for e2e)
+        if: runner.os == 'macOS'
+        working-directory: apps/desktop
+        run: bunx playwright install chromium webkit
+
       - name: Install Playwright browsers
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && runner.os != 'macOS'
         working-directory: apps/desktop
         run: bunx playwright install chromium
 

@@ -39,9 +39,22 @@ export class CommandHistory {
   private redoStack: SnapshotEntry[] = [];
   private maxDepth: number;
   private currentLastPaintCoords: { x: number; y: number } | null = null;
+  private liveBitmapGetter: (() => Iterable<ImageBitmap | null>) | null = null;
 
   constructor(maxDepth: number = MAX_HISTORY_DEPTH) {
     this.maxDepth = maxDepth;
+  }
+
+  /**
+   * Register a getter for the bitmaps referenced by the LIVE document model.
+   * Max-depth eviction consults this so a bitmap still in use by the model is
+   * never closed, even when no remaining snapshot references it. Without it,
+   * editing one layer >MAX_HISTORY_DEPTH times could close the bitmap of an
+   * untouched layer (snapshot evicted → bitmap detached → "image source is
+   * detached" on the next render). See workspace.ts attach call sites.
+   */
+  attachLiveBitmapGetter(getter: () => Iterable<ImageBitmap | null>): void {
+    this.liveBitmapGetter = getter;
   }
 
   setLastPaintCoords(coords: { x: number; y: number } | null): void {
@@ -66,10 +79,14 @@ export class CommandHistory {
     // Enforce max depth
     if (this.undoStack.length > this.maxDepth) {
       const evicted = this.undoStack.shift()!; // Evict oldest
+      // Bitmaps still referenced by the live document model (not just other
+      // snapshots) must survive eviction — see attachLiveBitmapGetter.
+      const liveBitmaps = this.liveBitmapGetter ? Array.from(this.liveBitmapGetter()) : [];
       const live = (b: unknown) =>
         this.undoStack.some((e) => e.snapshot.layers.some((l) => l.imageBitmap === b || l.baseImageBitmap === b)) ||
         this.redoStack.some((e) => e.snapshot.layers.some((l) => l.imageBitmap === b || l.baseImageBitmap === b)) ||
-        snapshot.layers.some((l) => l.imageBitmap === b || l.baseImageBitmap === b);
+        snapshot.layers.some((l) => l.imageBitmap === b || l.baseImageBitmap === b) ||
+        liveBitmaps.includes(b as ImageBitmap);
       disposeSnapshot(evicted.snapshot, live);
     }
   }

@@ -44,7 +44,7 @@ describe("move tool coordinate chain — viewport integration", () => {
    *   → getDocCoords() using pan()/zoom() signals
    *   → handlePointerDown("move", docX, docY, ...)
    *   → handlePointerMove("move", docX, docY, ...)
-   *   → engine.moveLayer(layerId, newX, newY)
+   *   → engine.moveLayerSilent(layerId, newX, newY)
    * 
    * By varying pan and zoom, we verify that the move tool correctly
    * translates screen-space gestures to document-space layer positions.
@@ -73,7 +73,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     handlePointerMove("move", doc2.x, doc2.y, engine, vi.fn(), context);
     // new position = doc - dragStart = (150 - 0, 100 - 0) = (150, 100)
 
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 150, 100);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 150, 100);
   });
 
   it("zoom=2, pan=(0,0): screen delta 50px moves layer 25px in doc space", () => {
@@ -95,7 +95,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     handlePointerMove("move", doc2.x, doc2.y, engine, vi.fn(), context);
     // new position = doc - dragStart = (75 - (-50), 50 - (-25)) = (125, 75)
 
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 125, 75);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 125, 75);
   });
 
   it("zoom=0.5, pan=(0,0): screen delta 50px moves layer 100px in doc space", () => {
@@ -117,7 +117,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     handlePointerMove("move", doc2.x, doc2.y, engine, vi.fn(), context);
     // new position = doc - dragStart = (300 - 100, 200 - 50) = (200, 150)
 
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 200, 150);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 200, 150);
   });
 
   it("zoom=1, pan=(200, 100): screen delta accounts for pan offset", () => {
@@ -140,7 +140,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     handlePointerMove("move", doc2.x, doc2.y, engine, vi.fn(), context);
     // new position = doc - dragStart = (50 - (-100), 50 - (-50)) = (150, 100)
 
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 150, 100);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 150, 100);
   });
 
   it("zoom=2, pan=(-200, -100): negative pan + zoom combined", () => {
@@ -163,7 +163,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     handlePointerMove("move", doc2.x, doc2.y, engine, vi.fn(), context);
     // new position = doc - 0 = (125, 75)
 
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 125, 75);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 125, 75);
   });
 
   it("zoom=4, pan=(300, 150): extreme zoom + large pan", () => {
@@ -185,7 +185,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     handlePointerMove("move", doc2.x, doc2.y, engine, vi.fn(), context);
     // new position = doc - dragStart = (50 - (-100), 50 - (-50)) = (150, 100)
 
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 150, 100);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 150, 100);
   });
 
   it("zoom=0 guard: any screen delta maps to doc (0,0) → layer stays at original position", () => {
@@ -211,7 +211,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     handlePointerMove("move", docPointerMove.x, docPointerMove.y, engine, vi.fn(), context);
     // new position = (0 - (-100), 0 - (-50)) = (100, 50) — same as original!
 
-    expect(engine.moveLayer).toHaveBeenCalledWith("layer-1", 100, 50);
+    expect(engine.moveLayerSilent).toHaveBeenCalledWith("layer-1", 100, 50);
   });
 
   it("zoom negative guard: returns {0,0} like zoom=0", () => {
@@ -224,7 +224,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     expect(doc).toEqual({ x: 0, y: 0 });
 
     handlePointerDown("move", doc.x, doc.y, engine, history, vi.fn(), context);
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
   });
 
   it("zoom NaN guard: returns {0,0} like zoom=0", () => {
@@ -237,7 +237,7 @@ describe("move tool coordinate chain — viewport integration", () => {
     expect(doc).toEqual({ x: 0, y: 0 });
 
     handlePointerDown("move", doc.x, doc.y, engine, history, vi.fn(), context);
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
   });
 
   it("wrap-around: screenToDocument + handlePointerDown set correct dragStart offset", () => {
@@ -303,6 +303,6 @@ describe("move tool coordinate chain — viewport integration", () => {
     // dragStart should be raw doc coords (not offset by layer transform)
     expect(context.dragStart).toEqual({ x: doc.x, y: doc.y });
     expect(context.pendingHistorySnapshot).toBeNull();
-    expect(engine.moveLayer).not.toHaveBeenCalled();
+    expect(engine.moveLayerSilent).not.toHaveBeenCalled();
   });
 });

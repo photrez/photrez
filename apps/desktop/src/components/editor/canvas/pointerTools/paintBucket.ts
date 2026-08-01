@@ -75,9 +75,12 @@ export function applyPaintBucketFill(
 
   const preSnapshot = engine.snapshot();
   ctx2d.putImageData(imgData, 0, 0);
-  const newBitmap = "transferToImageBitmap" in offscreen
-    ? (offscreen as OffscreenCanvas).transferToImageBitmap()
-    : (offscreen as any);
+  // OffscreenCanvas → true ImageBitmap. HTMLCanvasElement fallback (only
+  // reachable when OffscreenCanvas is unavailable) is structurally compatible
+  // (width/height + drawImage source) but not typed as ImageBitmap.
+  const newBitmap = typeof OffscreenCanvas !== "undefined" && offscreen instanceof OffscreenCanvas
+    ? offscreen.transferToImageBitmap()
+    : offscreen as unknown as ImageBitmap;
   try {
     engine.setLayerImageBitmap(layerId, newBitmap);
     renderer?.uploadImage(layerId, newBitmap);

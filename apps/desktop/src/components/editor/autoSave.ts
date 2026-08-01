@@ -57,11 +57,18 @@ function bytesToStr(bytes: Uint8Array): string {
 /**
  * Persist every dirty document to the cache directory so an abrupt crash can
  * be recovered. Called on a debounced timer — not on every edit.
+ *
+ * `signal` lets a manual save abort an in-flight autosave: the PNG encode
+ * (and any pending write) is cancelled promptly and the worker pool stays
+ * warm (reset, not terminated), so the manual save runs without waiting.
+ * An aborted autosave is not an error — it is silently skipped.
  */
 export async function autosaveDirtyDocs(
   workspace: WorkspaceManager,
   onError?: (message: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) return;
   setAutosaveStatus("saving");
   setAutosaveError(null);
   try {
@@ -86,7 +93,7 @@ export async function autosaveDirtyDocs(
       if (!engine || !engine.isDirty()) continue;
       const docId = engine.getId();
       const path = await autosavePathFor(docId);
-      await serializeAndSaveProject(engine, path);
+      await serializeAndSaveProject(engine, path, { signal });
       // Store displayName + timestamp so stale cleanup knows when the file was saved.
       manifest[docId] = `${session.displayName ?? docId}|${now}`;
     }
@@ -98,11 +105,31 @@ export async function autosaveDirtyDocs(
     setAutosaveStatus("saved");
     setAutosaveTimestamp(now);
   } catch (e: unknown) {
+    if (signal?.aborted) {
+      // Cancelled by a manual save — not a failure.
+      setAutosaveStatus("idle");
+      return;
+    }
     const msg = extractErrorMessage(e);
     console.error("[autosaveDirtyDocs]", msg, e);
     setAutosaveStatus("error");
     setAutosaveError(msg);
     onError?.(`Auto-save failed: ${msg}`);
+  }
+}
+
+/** Abort controller for the in-flight autosave cycle, if any. */
+let autosaveAbort: AbortController | null = null;
+
+/**
+ * Abort an in-flight autosave. Called by the manual save path (Ctrl+S /
+ * File → Save / Save As) so the user's save never waits for — or collides
+ * with — a background autosave. Safe to call when no autosave is running.
+ */
+export function cancelAutosave(): void {
+  if (autosaveAbort) {
+    autosaveAbort.abort();
+    autosaveAbort = null;
   }
 }
 
@@ -115,8 +142,11 @@ export function createAutosaveTimerDebouncer(
   return () => {
     if (pending) return; // skip if previous cycle still in-flight
     pending = true;
+    autosaveAbort = new AbortController();
+    const signal = autosaveAbort.signal;
     setAutosaveStatus("saving");
-    autosaveDirtyDocs(workspace, onError).finally(() => {
+    autosaveDirtyDocs(workspace, onError, signal).finally(() => {
+      if (autosaveAbort?.signal === signal) autosaveAbort = null;
       pending = false;
     });
   };

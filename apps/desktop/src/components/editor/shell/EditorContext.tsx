@@ -17,6 +17,7 @@ import { setupWorkspaceSync } from "../canvas/workspaceSync";
 import { openImage, openSingleFile, loadProjectFile } from "../editorOpenImage";
 import { runStartupOpenChain } from "./startupOpenChain";
 import { autosaveDirtyDocs, listAutosaves, clearAllAutosaves, setAutosaveStatus, createAutosaveTimerDebouncer } from "../autoSave";
+import { scheduleSave } from "../saveState";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { ViewportCamera } from "../../../viewport/viewportCamera";
 import { DragControllerProvider } from "../DragController";
@@ -278,11 +279,6 @@ export function shouldExposeEditorDebugHandle(env: EditorDebugEnv = import.meta.
   return env.DEV === true || env.MODE === "test" || env.VITE_PHOTREZ_DEBUG_EDITOR === "1";
 }
 
-// Module-level signal so render callbacks outside the provider
-// (e.g., EditorShell's RenderScheduler) can read the same flag.
-const [useGPUCameraForModernCrop, setUseGPUCameraForModernCrop] = createSignal(true);
-export { useGPUCameraForModernCrop, setUseGPUCameraForModernCrop };
-
 export function useEditor(): EditorContextValue {
   const context = useContext(EditorContext);
   if (!context) {
@@ -298,10 +294,18 @@ export function EditorProvider(props: {
   camera?: ViewportCamera;
   rightDockOpen?: Accessor<boolean>;
   setRightDockOpen?: (open: boolean) => void;
+  // Feature flag signal can be owned by the caller (EditorShell creates it so
+  // the RenderScheduler callback closure can read it) and passed in; when
+  // absent the provider owns a fresh signal.
+  useGPUCameraForModernCrop?: Accessor<boolean>;
+  setUseGPUCameraForModernCrop?: Setter<boolean>;
   children: JSX.Element;
 }) {
   const camera = props.camera || new ViewportCamera();
   const editorState = createEditorState();
+  const [gpuCameraSignal, setGpuCameraSignal] = createSignal(true);
+  const useGPUCameraForModernCrop = props.useGPUCameraForModernCrop ?? gpuCameraSignal;
+  const setUseGPUCameraForModernCrop = props.setUseGPUCameraForModernCrop ?? setGpuCameraSignal;
   const cropState = createCropState();
   const modernCropState = createModernCropState();
 
@@ -486,11 +490,16 @@ export function EditorProvider(props: {
       });
 
       // Periodic auto-save (debounced 60s) of dirty documents.
+      // Runs through the shared save queue as a LOW-PRIORITY job: it is
+      // skipped entirely when a manual save is running or queued, and a
+      // manual save preempts an in-flight autosave via cancelAutosave().
       const debouncedAutosave = createAutosaveTimerDebouncer(
         props.workspace,
         (msg) => showToastImpl(msg, "error"),
       );
-      const autosaveTimer = setInterval(debouncedAutosave, 60000);
+      const autosaveTimer = setInterval(() => {
+        scheduleSave(() => debouncedAutosave(), true);
+      }, 60000);
       // Reset status from "saved" back to "idle" after 3 seconds so the indicator
       // does not perpetually show "Saved" until the next cycle.
       const statusResetTimer = setInterval(() => {

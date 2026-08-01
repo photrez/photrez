@@ -2,13 +2,11 @@ import { onCleanup } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import type { WorkspaceManager } from "@/engine/workspace";
+import type { DialogContextValue } from "@/components/editor/dialogs/DialogProvider";
 
-// Minimal dialog interface matching useDialog() return type
-// Accept any object that has confirm + confirmSave (duck typing)
-interface CloseDialog {
-  confirm: (opts: Record<string, unknown>) => Promise<boolean>;
-  confirmSave: (opts: Record<string, unknown>) => Promise<"save" | "discard" | "cancel">;
-}
+// Minimal dialog interface: only the two dialog methods the close flow needs
+// are required (duck typing), so tests can pass any conforming object.
+type CloseDialog = Pick<DialogContextValue, "confirm" | "confirmSave">;
 
 /**
  * Handles Tauri window close requests with sequential save-confirm dialogs

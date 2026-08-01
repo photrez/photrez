@@ -18,7 +18,7 @@ interface DesktopDialogProps extends ParentProps {
   onDismiss?: () => void;
   dialogRef?: (element: HTMLDivElement) => void;
   onKeyDown?: JSX.EventHandler<HTMLDivElement, KeyboardEvent>;
-  onBackdropPointerDown?: JSX.EventHandler<HTMLDivElement, PointerEvent>;
+  onBackdropPointerDown?: () => void;
 }
 
 export function DesktopDialog(props: DesktopDialogProps) {
@@ -127,7 +127,13 @@ export function DesktopDialog(props: DesktopDialogProps) {
           <button
             onClick={(e) => {
               if (props.dismissible !== false) {
-                (props.onDismiss ?? props.onBackdropPointerDown)?.(e as any);
+                // Split the call — onDismiss takes no args while
+                // onBackdropPointerDown takes the event (avoids a union cast).
+                if (props.onDismiss) {
+                  props.onDismiss();
+                } else {
+                  props.onBackdropPointerDown?.();
+                }
               }
             }}
             class="flex size-5 items-center justify-center rounded-[4px] text-editor-icon hover:bg-white/[0.08] hover:text-editor-text transition-colors cursor-pointer disabled:opacity-30"

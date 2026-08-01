@@ -46,6 +46,8 @@ export interface ToolContext {
   dragCurrent: { x: number; y: number };
   strokePoints: { x: number; y: number }[];
   dragTool: ToolType | null;
+  /** Set by the move drag path when moveLayerSilent suppressed onChange. */
+  dragMovePendingNotify?: boolean;
   // Screen-space cursor position (for HUD positioning inside the screen-space SVG overlay)
   screenPos?: { x: number; y: number };
   
@@ -84,7 +86,7 @@ export interface ToolContext {
   // Deferred-history pattern: pointerDown records the pre-mutation snapshot
   // here without committing. pointerUp commits IF and ONLY IF the operation
   // actually mutated state (compared via pendingOriginal*). Prevents ghost
-  // undo entries on click-without-drag (regression 2026-06-18 — user-visible
+  // undo entries on click-without-drag (@regression 2026-06-18 — user-visible
   // as "history kadang ke-save kadang tidak" because consecutive ghost entries
   // make undo appear to skip steps with no visual change).
   pendingHistorySnapshot?: DocumentModel | null;
@@ -300,7 +302,12 @@ export function handlePointerMove(
       } else {
         context.onSnapLines?.([]);
       }
-      engine.moveLayer(context.selectedLayerId, nextX, nextY);
+      // Silent move during drag: engine.moveLayer() fires onChange per
+      // pointermove (50+ fps) → workspace sync per frame. Use the silent
+      // variant and flush ONE notification on pointer-up. The layer model
+      // still updates every move (renderer reads it directly).
+      engine.moveLayerSilent(context.selectedLayerId, nextX, nextY);
+      context.dragMovePendingNotify = true;
     }
   }
   requestRender();
@@ -460,6 +467,14 @@ export function handlePointerUp(
     context.pendingHistorySnapshot = null;
     context.pendingOriginalLayerPos = null;
     context.onSnapLines?.([]);
+    // Flush the deferred onChange from moveLayerSilent drag moves. Note:
+    // a pointer-cancel mid-drag skips this branch; the dirty flag is already
+    // set in the model, so the next interaction notifies. (Pointer cancel is
+    // rare and only delays tab-dirty sync, never loses data.)
+    if (context.dragMovePendingNotify) {
+      engine.flushChangeNotification();
+      context.dragMovePendingNotify = false;
+    }
   }
   requestRender();
 }

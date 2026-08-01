@@ -57,7 +57,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     // snapshot here and only commit it on pointerUp IF the layer actually
     // moved. Prevents ghost undo entries on click-without-drag. Other handle
     // types (rotate / resize) bundle their commit into the parent transform
-    // session, not here. (Regression 2026-06-18 follow-up.)
+    // session, not here. (@regression 2026-06-18 follow-up.)
     pendingMoveSnapshot?: DocumentModel | null;
   } | null>(null);
 

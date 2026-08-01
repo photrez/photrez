@@ -249,6 +249,22 @@ export class DocumentEngine {
     this.notifyChange();
   }
 
+  /**
+   * Move layer WITHOUT firing onChange — for live drag updates that fire
+   * notifyChange on EVERY pointermove (50+ fps). The caller MUST call
+   * flushChangeNotification() once when the interaction ends so workspace
+   * sync (tab dirty state, title) still runs. Keyboard nudges and other
+   * single-shot callers keep using moveLayer().
+   */
+  moveLayerSilent(id: LayerId, x: number, y: number): void {
+    applyMoveLayer(this.model, id, x, y);
+  }
+
+  /** Fire the deferred onChange after a moveLayerSilent interaction. */
+  flushChangeNotification(): void {
+    this.notifyChange();
+  }
+
   transformLayer(id: LayerId, transform: Partial<Transform2D>): void {
     applyTransformLayer(this.model, id, transform);
     this.notifyChange();
@@ -642,7 +658,7 @@ export class DocumentEngine {
     // Mark all restored layers as dirty so any consumer (renderer, UI)
     // knows textures need re-upload.  Previous code called dirtyLayerIds.clear()
     // here, which left consumers with no signal that the layer bitmaps had
-    // changed (regression 2026-07-05: "layer turns black on undo" because
+    // changed (@regression 2026-07-05: "layer turns black on undo" because
     // the renderer's WebGL texture was re-uploaded only by the direct caller
     // (restoreHistorySnapshot), but code paths such as cancelLayerTransformSession
     // called engine.restore() without the re-upload step).
