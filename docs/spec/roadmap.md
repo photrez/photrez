@@ -12,35 +12,52 @@ A lightweight, fast desktop image editor that content creators and small busines
 
 ## Current Status
 
-- **Version:** `v0.1.0-alpha.1` (2026-07-19)
-- **MVP v1:** Complete — layer system, selection/transform, crop/resize, brush/eraser, export. See `FEATURES.md`.
+- **Version:** `v0.1.0-alpha.2` (2026-08-01)
+- **MVP v1:** Complete — layer system, selection/transform, crop/resize, brush/eraser, gradient/fill, elliptical selection, export. See `FEATURES.md`.
 - **Platform:** Windows-only.
-- **Engine:** TypeScript `DocumentEngine`. Rust `photrez-core` is the domain-model reference + test coverage; WASM compute not yet wired.
+- **Engine:** TypeScript `DocumentEngine`. Rust `photrez-core` is the domain-model reference + test coverage; WASM export encode pilot wired (`photrez_core_bg.wasm` with Canvas fallback).
 - **Windowing:** Single main window, in-app document tabs. No detached panels, no multi-document windows.
-- **Tests:** 2499 frontend + 113 Rust cases (incl. Playwright E2E).
+- **Tests:** 2683 frontend + 171 Rust cases (incl. Playwright E2E).
 - **Installer:** ~4-6 MB (well below 80 MB target).
 
 ---
 
 ## Release Pipeline
 
+Stable releases ship **per feature batch** (SemVer MINOR). Each batch runs its own alpha → beta → rc pre-release cycle, and every stable release is user-installable behind a quality gate. Post-MVP batches are ordered by user value: text & shapes (daily-driver tools) ship first, windowing work ships last.
+
 ```
-alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (stable)
+alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01)
+  → 0.1.0-beta.1 (MVP polish, ~Q4 2026) → 0.1.0 (STABLE MVP, ~Q4 2026)
+  → 0.2.0 (text & shapes + full blend modes, ~Q1 2027)
+  → 0.3.0 (floating panels, ~Q2 2027)
+  → 0.4.0 (multi-image windows + WASM extension, ~Q3 2027)
+  → 1.0.0-rc → 1.0.0 (cross-platform + perf gate, format final, ~Q4 2027)
 ```
 
-| Stage | Theme | User Outcome | Target |
+| Version | Theme | User Outcome | Target |
 | --- | --- | --- | --- |
-| `alpha.2` | Stability, polish, small tools + WASM pilot | Fewer bugs, gradient/fill/ellipse; export runs faster (WASM proven) | ~Q3 2026 |
-| `beta.1` | Floating panels + blend modes | Tear-off panels, full blend modes | ~Q4 2026 |
-| `beta.2` | Multi-image windows + WASM extension | Each image in its own window; brush/transform faster via WASM | ~Q1 2027 |
-| `beta.3` | Text & shapes | Text layers, shape drawing — daily-driver tools for content creators | ~Q2 2027 |
-| `rc` | Cross-platform + perf gate | Works on Linux, macOS, Windows; all budgets met | ~Q3 2027 |
-| `v1.0.0` | Stable daily-driver | Backward-compatible, production-ready on 3 OS | ~Q4 2027 |
+| `0.1.0-beta.1` | Final MVP polish | MVP feature-freeze; bug-fix only, `.ptz` v1 locked for MVP scope | ~Q4 2026 |
+| `0.1.0` | **Stable MVP** | First stable release — `.ptz` backward-compat guaranteed from here | ~Q4 2026 |
+| `0.2.0` | Text & shapes + full blend modes | Text layers, shape drawing, all blend modes — daily-driver tools | ~Q1 2027 |
+| `0.3.0` | Floating panels | Tear-off/re-dock Layers & Inspector panels | ~Q2 2027 |
+| `0.4.0` | Multi-image windows + WASM extension | Each image in its own window; brush/transform faster via WASM | ~Q3 2027 |
+| `1.0.0-rc` | Cross-platform + perf gate | Works on Linux, macOS, Windows; all budgets met | ~Q3 2027 |
+| `v1.0.0` | Stable daily-driver | Backward-compatible, production-ready on 3 OS; `.ptz` format final | ~Q4 2027 |
+
+### Versioning Policy
+
+- SemVer with pre-release suffix (`-alpha.N`, `-beta.N`, `-rc.N`). During `0.x`, MINOR may contain breaking changes; PATCH is bug-fix only. Bump rules: see `CHANGELOG.md` history and `docs/plans/reports/photrez-versioning-discussion.md` (internal).
+- **`.ptz` backward-compat starts at `0.1.0`**: all later format changes must be additive and ship a migrator (`docs/guide/ptz-migration.md`). `v1.0.0` marks the final format lock.
+- **Command contract version is independent** of the app version (`docs/reference/command-contract-spec.md`) and is frozen during each beta cycle.
+- Post-1.0, breaking changes require a MAJOR bump. `1.0.0` itself follows the measurable DoD checklist in its section below.
 
 ---
 
 ## alpha.2 — Stability, Polish, Small Tools & WASM Pilot
 
+> **Status:** ✅ DONE — tagged `v0.1.0-alpha.2` (2026-08-01)
+>
 > **Target:** ~Q3 2026 &nbsp;|&nbsp; **Confidence:** High
 
 **User sees:** A noticeably more stable and polished editor. Known alpha.1 bugs fixed, startup time improved, three new tools (gradient, fill, elliptical selection), and export runs faster thanks to the first WASM module.
@@ -77,11 +94,11 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 
 ---
 
-## beta.1 — Floating Panels + Blend Modes
+## 0.3.0 — Floating Panels
 
-> **Target:** ~Q4 2026 &nbsp;|&nbsp; **Confidence:** Medium
+> **Target:** ~Q2 2027 &nbsp;|&nbsp; **Confidence:** Medium
 
-**User sees:** Tear off panels (Layers, Inspector) into separate floating windows and re-dock them. All blend modes unlocked.
+**User sees:** Tear off panels (Layers, Inspector) into separate floating windows and re-dock them.
 
 ### Architecture (required before any UI)
 
@@ -93,14 +110,11 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 ### Features
 
 - **Detachable panels:** Layers panel can tear off into a native floating window and re-dock. Panel window shares the Solid store via the event bridge (view + input only; main webview remains owner).
-- **Full blend modes:** Unlock remaining blend modes already in shader (Multiply, Screen, Overlay are in alpha; add Darken, Lighten, Color Dodge, Color Burn, Soft Light, Hard Light, Difference, Exclusion) once WebGL preview / Canvas2D export parity tests pass.
-
 ### Definition of Done
 
 - Window spawn/close lifecycle verified.
 - Layers panel detaches/re-docks without state loss.
 - Bridge sync test proves isolation + revision-gate correctness.
-- All unlocked blend modes render correctly in both preview AND export.
 
 ### Known Risks
 
@@ -109,9 +123,9 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 
 ---
 
-## beta.2 — Multi-Image Windows + WASM Extension
+## 0.4.0 — Multi-Image Windows + WASM Extension
 
-> **Target:** ~Q1 2027 &nbsp;|&nbsp; **Confidence:** Medium-Low
+> **Target:** ~Q3 2027 &nbsp;|&nbsp; **Confidence:** Medium-Low
 
 **User sees:** Open each image in its own native window. Drag layers/tabs between windows. Brush strokes and transforms run noticeably faster.
 
@@ -146,28 +160,51 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 
 ---
 
-## beta.3 — Text & Shapes
+## 0.1.0-beta.1 — Final MVP Polish
 
-> **Target:** ~Q2 2027 &nbsp;|&nbsp; **Confidence:** Medium-Low
+> **Target:** ~Q4 2026 &nbsp;|&nbsp; **Confidence:** High
 
-**User sees:** Add text to images — titles, captions, watermarks. Draw shapes for annotations and design elements. These are the tools that make Photrez a real daily-driver for content creators.
+**User sees:** The MVP feature set frozen. No new features — only bug fixes, polish, and stability verification ahead of the first stable release.
+
+### Work
+
+- Feature-freeze the MVP scope (`product-scope.md`).
+- Resolve alpha.2 follow-ups: dependency audit (`bun audit` clean) + bundle hygiene (index chunk under the 500 kB budget).
+- `.ptz` v1 locked for the MVP scope; document the migration path (`docs/guide/ptz-migration.md`).
+- Regression pass over all MVP workflows; measure startup on release builds.
+
+### Definition of Done
+
+- No new features merged after this stage starts (bug-fix only).
+- All tests green; no P0 issues open.
+- Release-candidate quality verified on the Windows release build.
+
+---
+
+## 0.2.0 — Text & Shapes + Full Blend Modes
+
+> **Target:** ~Q1 2027 &nbsp;|&nbsp; **Confidence:** Medium-Low
+
+**User sees:** Add text to images — titles, captions, watermarks. Draw shapes for annotations and design elements. All blend modes unlocked. These are the tools that make Photrez a real daily-driver for content creators.
 
 ### Features
 
 - **Text tool:** Click to place text, type to edit. Font family, size, color, alignment, bold/italic. Text lives on its own layer (non-destructive — editable until rasterized). Rasterize command bakes text to pixels.
 - **Shape tool:** Rectangle, ellipse, line, arrow. Fill and/or stroke with foreground/background color. Shape lives on its own layer (vector until rasterized). Option bar: shape type, fill/stroke toggle, stroke width.
+- **Full blend modes:** Unlock remaining blend modes already in shader (Multiply, Screen, Overlay are in alpha; add Darken, Lighten, Color Dodge, Color Burn, Soft Light, Hard Light, Difference, Exclusion) once WebGL preview / Canvas2D export parity tests pass.
 
 ### Architecture Notes
 
 - Text and shape layers extend the `LayerType` union in `DocumentEngine` — they carry metadata (font, shape params) alongside or instead of a pixel buffer.
 - Rendering: WebGL2 rasterizes text/shape to a temporary texture for compositing (same pipeline as pixel layers). No new renderer required.
-- `.ptz` format extension: text/shape layer metadata stored in `document.json`; rasterized fallback bitmap stored alongside for forward-compatibility.
+- `.ptz` format extension (additive v2, backward-compat from `0.1.0`): text/shape layer metadata stored in `document.json`; rasterized fallback bitmap stored alongside. Ships a migrator per `docs/guide/ptz-migration.md`.
 
 ### Definition of Done
 
 - Text tool: place, edit, style (font/size/color/alignment/bold/italic), move, transform, rasterize, undo/redo. Option bar complete.
 - Shape tool: rectangle, ellipse, line, arrow. Fill + stroke. Move, transform, rasterize, undo/redo. Option bar complete.
 - Both tool types: export correctly (rasterized to output), saved/loaded in `.ptz`.
+- All unlocked blend modes render correctly in both preview AND export.
 - Keyboard shortcut: T (text), U (shape).
 
 ### Known Risks
@@ -177,7 +214,7 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 
 ---
 
-## rc — Cross-Platform + Perf Gate + Polish
+## 1.0.0-rc — Cross-Platform + Perf Gate + Polish
 
 > **Target:** ~Q3 2027 &nbsp;|&nbsp; **Confidence:** Low (depends on beta outcomes)
 
@@ -194,7 +231,7 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 - Accessibility audit: keyboard navigation, screen reader labels, contrast.
 - Bug-fix only — no new features.
 - Documentation: user guide + alpha→stable migration note.
-- `.ptz` format freeze: backward-compat from this point forward.
+- `.ptz` finalization: format has been backward-compat since `0.1.0`; v1.0.0 freezes the format.
 
 ### Known Risks
 
@@ -210,6 +247,14 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 > **Target:** ~Q4 2027 &nbsp;|&nbsp; **Confidence:** Low (depends on rc outcomes)
 
 **User sees:** A reliable, daily-driver image editor on Windows, Linux, and macOS.
+
+### Definition of Done (measurable)
+
+- All features through 0.4.0 working on Windows, Linux, and macOS without data loss.
+- Perf gate green on all 3 OS: installer < 80 MB, idle RAM < 250 MB, startup < 2s.
+- Every `.ptz` saved by 0.1.0 → 0.4.0 opens without error (backward-compat evidence incl. migrator tests).
+- No P0/P1 known issues open.
+- `contract_version` frozen across the rc cycle (see `command-contract-spec.md` §11).
 
 ### What "Daily-Driver Ready" Means
 
@@ -230,10 +275,10 @@ alpha.1 (DONE) → alpha.2 → beta.1 → beta.2 → beta.3 → rc → v1.0.0 (s
 
 ## Out of Scope (v1 Cycle)
 
-The following are explicitly excluded from the alpha→v1.0 pipeline. They may be considered post-v1.
+The following are explicitly excluded from the pre-1.0 pipeline. They may be considered post-v1.
 
 - PSD open/save workflow.
-- Full ICC color management engine & soft-proofing (Pro Print Settings UI is in alpha.2; ICC profiles post-v1).
+- Full ICC color management engine & soft-proofing (Pro Print Settings UI is in the MVP; ICC profiles post-v1).
 - Plugin/scripting runtime or API.
 - AI-powered editing features.
 - Cloud collaboration or sync.
@@ -256,7 +301,7 @@ Reference: `product-scope.md`
 | Touch-up | Blur, sharpen, smudge brush |
 | Drawing | Pen tool / vector paths |
 | Extensibility | Plugin SDK / scripting API |
-| Formats | PSD import/export, `.ptz` v2 format |
+| Formats | PSD import/export |
 | Platform | Command palette, touch/tablet pressure dynamics |
 | Performance | GPU compute via WebGPU (when stable in Tauri) |
 

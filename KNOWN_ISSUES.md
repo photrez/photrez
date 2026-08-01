@@ -92,10 +92,10 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 
 ## 🔄 Migration Path
 
-### From v0.1.0-alpha.1 to v0.1.0-beta
-- `.ptz` files saved in alpha should load in beta (no breaking change planned).
+### From v0.1.0-alpha.2 to v0.1.0 (first stable)
+- `.ptz` backward-compat is guaranteed from `v0.1.0`: all later format changes are additive and ship a migrator (`docs/guide/ptz-migration.md`). Files saved in alpha/beta stay loadable.
 - Settings and window state will migrate automatically.
-- If breaking change is required, it will be documented in beta release notes.
+- Breaking changes may still land during `0.x` MINOR bumps (per SemVer) — always documented in release notes.
 
 ## 📞 Reporting Issues
 
@@ -103,4 +103,4 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 - **Security reports:** See `SECURITY.md` (report privately before public disclosure)
 - **Feature requests:** Open a discussion or issue with `feature-request` label
 
-Thank you for testing Photrez alpha! Your feedback helps shape the beta and v1.0 releases.
+Thank you for testing Photrez alpha! Your feedback helps shape the 0.1.0 stable and 1.0 releases.

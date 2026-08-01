@@ -1,4 +1,10 @@
-# .ptz Format Migration Guide (alpha → beta)
+# .ptz Format Migration Guide
+
+## Format Stability Policy
+
+- **Backward compatibility is guaranteed starting `v0.1.0`** (first stable release): every later format change must be additive and ship a migrator (see "How to Bump Format Version").
+- **`v1.0.0` is the final format lock.** Between `0.1.0` and `1.0.0` the `version` field may still grow (`1`, `2`, ...) as features land (e.g. text/shape layer metadata), but files never become unreadable.
+- Pre-release (`-alpha` / `-beta`) files remain loadable after `0.1.0` via the absent/`0`/`1` compat path below.
 
 ## Current Format (v1, alpha.1+)
 
@@ -48,7 +54,7 @@ Example: adding `"guides": [...]` in v2 — old files without the field get `und
    };
    ```
 3. For each version gap, apply migrators sequentially.
-4. Keep old version files loadable — never drop backward compat without a major-version bump.
+4. Keep old version files loadable — after `v0.1.0` backward compat may **never** be dropped (additive + migrator only). Post-`v1.0.0`, dropping compatibility requires a MAJOR app version bump.
 
 ## Testing
 

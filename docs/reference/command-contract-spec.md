@@ -246,3 +246,11 @@ At minimum, contract tests must verify:
 - Any change to envelope, versioning semantics, or error code set must update:
 1. `docs/spec/trd.md`
 2. Contract tests and evidence in milestone report.
+
+## 11) Contract Version Bump Rules
+
+- `contract_version` is **independent** of the app version — a SemVer pre-release suffix (`-alpha.N`, `-beta.N`, `-rc.N`) never affects it.
+- Bump MAJOR for: envelope shape changes, command removal/rename, error-code set changes, breaking payload semantics.
+- Bump MINOR for: additive commands, optional payload fields, new error codes that do not remap existing ones.
+- **Frozen during each beta cycle**: once a release enters beta, the contract is locked for that release; subsequent `-beta.N` / `-rc.N` app versions keep the same contract version.
+- Alpha stages may bump freely. Every bump must update `docs/spec/trd.md` (envelope section) and this spec, and §9.4 (`supported_commands` == registered commands) must stay green.

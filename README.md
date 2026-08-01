@@ -25,7 +25,7 @@
 
 Photrez is an open-source desktop image editor with a compact, familiar workflow: layers, selection, transform, crop, brush, eraser, export, history, and a WebGL2 canvas. It is built with Tauri, SolidJS, TypeScript, and Rust (for future core compute).
 
-Photrez is currently in **alpha** (`v0.1.0-alpha.1`). The editor is usable, but expect bugs, breaking changes, and incomplete features. Not recommended for production use.
+Photrez is currently in **alpha** (`v0.1.0-alpha.2`). The editor is usable, but expect bugs, breaking changes, and incomplete features. Not recommended for production use.
 
 - **Supported platform:** Windows 10/11 (macOS/Linux planned for beta)
 - **Known issues:** See [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
@@ -47,8 +47,8 @@ A few things we care about:
 > **Note:** Pre-release — for testing only, not for production use.
 
 **Windows 10/11:**
-- MSI installer: [Photrez_0.1.0_x64_en-US.msi](https://github.com/rahmanqolbi/photrez/releases/download/v0.1.0-alpha.1/Photrez_0.1.0_x64_en-US.msi)
-- NSIS installer: [Photrez_0.1.0_x64-setup.exe](https://github.com/rahmanqolbi/photrez/releases/download/v0.1.0-alpha.1/Photrez_0.1.0_x64-setup.exe)
+- MSI installer: [Photrez_0.1.0_x64_en-US.msi](https://github.com/rahmanqolbi/photrez/releases/download/v0.1.0-alpha.2/Photrez_0.1.0_x64_en-US.msi)
+- NSIS installer: [Photrez_0.1.0_x64-setup.exe](https://github.com/rahmanqolbi/photrez/releases/download/v0.1.0-alpha.2/Photrez_0.1.0_x64-setup.exe)
 
 All releases: https://github.com/rahmanqolbi/photrez/releases
 
