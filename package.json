@@ -17,6 +17,8 @@
     "perf:paint-history": "bun run --filter photrez-desktop perf:paint-history",
     "perf:budget": "bun scripts/performance-budget.mjs",
     "verify": "bun run type-check && bun run lint && bun audit --prod && bun run --filter photrez-desktop test --run && bun run build && bun run perf:budget && cargo test -p photrez-core && cargo test --workspace",
+    "version:bump": "bun run scripts/bump-version.ts",
+    "version:show": "node -e \"console.log(require('./apps/desktop/package.json').version)\"",
     "tauri": "tauri",
     "prepare": "husky"
   },

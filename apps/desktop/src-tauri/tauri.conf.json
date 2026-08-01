@@ -1,12 +1,12 @@
 {
   "productName": "Photrez",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.2",
   "identifier": "com.photrez.desktop",
   "build": {
     "beforeDevCommand": {
-    "script": "bun scripts/dev/kill-port.cjs && bun run dev",
-    "wait": false
-  },
+      "script": "bun scripts/dev/kill-port.cjs && bun run dev",
+      "wait": false
+    },
     "beforeBuildCommand": "bun run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"

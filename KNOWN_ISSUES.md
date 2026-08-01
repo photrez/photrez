@@ -1,4 +1,4 @@
-# Known Issues — Photrez v0.1.0-alpha.1
+# Known Issues — Photrez v0.1.0-alpha.2
 
 This document lists known limitations and bugs in the current alpha release.
 For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/issues.
@@ -49,10 +49,10 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 - **Symptom:** Cannot open or export `.psd` files.
 - **MVP scope:** PSD is non-goal. Use PNG/JPEG/WebP for export.
 
-### 9. Project Format (`.ptz`) May Change
+### 9. Project Format (`.ptz`) Stabilization
 - **Symptom:** `.ptz` format is not stable. Future versions may break compatibility.
 - **Workaround:** Export to PNG/JPEG/WebP for long-term storage.
-- **Stabilization:** v1.0.0 will lock `.ptz` format.
+- **Stabilization:** Backward compatibility is guaranteed starting with the first stable release (`v0.1.0`): all subsequent format changes must be additive and ship with a migrator (`docs/guide/ptz-migration.md`). `v1.0.0` marks the final format lock.
 
 ## 🔧 Development Limitations
 
@@ -88,7 +88,7 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 
 ### 16. Idle RAM: ~34 MB — well below 250 MB target.
 ### 17. Installer Size: 4-6 MB — well below 80 MB target.
-### 18. Test Coverage: 2499 frontend + 113 Rust cases (incl. Playwright E2E).
+### 18. Test Coverage: 2683 frontend + 171 Rust cases (incl. Playwright E2E).
 
 ## 🔄 Migration Path
 
