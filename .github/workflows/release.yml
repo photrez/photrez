@@ -66,7 +66,7 @@ jobs:
         run: bun run build:wasm
 
       - name: Build & publish with tauri-action
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No TAURI_SIGNING_* secrets: this project ships installers without
