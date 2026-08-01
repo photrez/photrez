@@ -2,6 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "solid-js/web";
 import { createSignal, createEffect, type JSX } from "solid-js";
 import { EditorProvider, useEditor } from "../EditorContext";
+import { useEditorCore } from "../contexts/EditorCoreContext";
+import { useToolSettings } from "../contexts/ToolSettingsContext";
+import { useDocumentState } from "../contexts/DocumentStateContext";
+import { useDialogChrome } from "../contexts/DialogChromeContext";
+import { useHistoryDock } from "../contexts/HistoryDockContext";
 import { WorkspaceManager } from "@/engine/workspace";
 
 // Minimal Tauri mocks so EditorProvider's onMount chain (startup open,
@@ -74,6 +79,82 @@ describe("EditorProvider — GPU camera feature flag ownership (#24)", () => {
     expect(values.at(-1)).toBe(true);
 
     dispose();
+    container.remove();
+  });
+});
+
+describe("EditorProvider — domain context composition (#19)", () => {
+  it("provisions all 5 domain contexts and the facade reads the same state", async () => {
+    const seen: Record<string, boolean> = {};
+    function Probe() {
+      const editor = useEditor();
+      const core = useEditorCore();
+      const tool = useToolSettings();
+      const doc = useDocumentState();
+      const dialog = useDialogChrome();
+      const dock = useHistoryDock();
+
+      // Same underlying accessor functions are exposed per domain and via facade.
+      seen.coreWorkspace = core.workspace === editor.workspace;
+      seen.coreShowToast = core.showToast === editor.showToast;
+      seen.toolActiveTool = tool.activeTool === editor.activeTool;
+      seen.toolCropRect = tool.cropRect === editor.cropRect;
+      seen.docDocuments = doc.documents === editor.documents;
+      seen.docZoom = doc.zoom === editor.zoom;
+      seen.dialogLoading = dialog.loadingMessage === editor.loadingMessage;
+      seen.dockPanel = dock.rightDockPanel === editor.rightDockPanel;
+
+      // Write via a domain setter, read via the facade (and vice versa) to prove
+      // the facade reads the SAME signals the domain context exposes.
+      tool.setActiveTool("brush");
+      editor.setActiveTool("move");
+      doc.setSelectedLayerId("layer-a");
+      editor.setSelectedLayerId("layer-b");
+      dialog.setLoadingMessage("loading");
+      editor.setLoadingMessage("done");
+      dock.setRightDockPanel("history");
+      editor.setRightDockPanel("layers");
+      core.setUseGPUCameraForModernCrop(false);
+      editor.setUseGPUCameraForModernCrop(true);
+
+      seen.facadeReadsTool = editor.activeTool() === "move";
+      seen.domainReadsFacadeTool = tool.activeTool() === "move";
+      seen.facadeReadsDoc = editor.selectedLayerId() === "layer-b";
+      seen.domainReadsFacadeDoc = doc.selectedLayerId() === "layer-b";
+      seen.facadeReadsDialog = editor.loadingMessage() === "done";
+      seen.domainReadsFacadeDialog = dialog.loadingMessage() === "done";
+      seen.facadeReadsDock = editor.rightDockPanel() === "layers";
+      seen.domainReadsFacadeDock = dock.rightDockPanel() === "layers";
+      seen.facadeReadsCore = editor.useGPUCameraForModernCrop() === true;
+      seen.domainReadsFacadeCore = core.useGPUCameraForModernCrop() === true;
+
+      return null;
+    }
+
+    const { dispose, container } = mount(() => (
+      <EditorProvider workspace={makeWorkspace()} renderer={{ uploadImage: vi.fn() } as any} scheduler={{ requestRender: vi.fn() } as any}>
+        <Probe />
+      </EditorProvider>
+    ));
+
+    for (const [key, value] of Object.entries(seen)) {
+      expect([key, value]).toEqual([key, true]);
+    }
+
+    dispose();
+    container.remove();
+  });
+
+  it("throws a loud error when a domain hook is used outside EditorProvider", () => {
+    const container = document.createElement("div");
+    function Probe() {
+      useToolSettings();
+      return null;
+    }
+
+    expect(() => render(() => Probe(), container)).toThrow(
+      "useToolSettings must be used within an EditorProvider",
+    );
     container.remove();
   });
 });
