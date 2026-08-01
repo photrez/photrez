@@ -145,16 +145,46 @@ describe("EditorProvider — domain context composition (#19)", () => {
     container.remove();
   });
 
-  it("throws a loud error when a domain hook is used outside EditorProvider", () => {
-    const container = document.createElement("div");
-    function Probe() {
-      useToolSettings();
-      return null;
-    }
+  it("throws a loud error when any domain hook is used outside EditorProvider", () => {
+    const hooks: Array<[string, () => unknown]> = [
+      ["useEditorCore", useEditorCore],
+      ["useToolSettings", useToolSettings],
+      ["useDocumentState", useDocumentState],
+      ["useDialogChrome", useDialogChrome],
+      ["useHistoryDock", useHistoryDock],
+    ];
 
-    expect(() => render(() => Probe(), container)).toThrow(
-      "useToolSettings must be used within an EditorProvider",
-    );
+    for (const [name, hook] of hooks) {
+      const container = document.createElement("div");
+      function Probe() {
+        hook();
+        return null;
+      }
+
+      expect(() => render(() => Probe(), container)).toThrow(
+        `${name} must be used within an EditorProvider`,
+      );
+      container.remove();
+    }
+  });
+
+  it("exposes window.__photrezEditor composed from all 5 domain values (E2E contract)", () => {
+    const { dispose, container } = mount(() => (
+      <EditorProvider workspace={makeWorkspace()} renderer={{ uploadImage: vi.fn() } as any} scheduler={{ requestRender: vi.fn() } as any}>
+        <Harness onValue={() => {}} />
+      </EditorProvider>
+    ));
+
+    const handle = (window as unknown as { __photrezEditor?: ReturnType<typeof useEditor> }).__photrezEditor;
+    expect(handle).toBeTruthy();
+    // One representative member per domain proves the handle is composed from all 5.
+    expect(typeof handle!.setActiveTool).toBe("function"); // ToolSettings
+    expect(handle!.documents).toBeTypeOf("function"); // DocumentState
+    expect(typeof handle!.setLoadingMessage).toBe("function"); // DialogChrome
+    expect(handle!.rightDockPanel).toBeTypeOf("function"); // HistoryDock
+    expect(handle!.workspace).toBeInstanceOf(WorkspaceManager); // EditorCore
+
+    dispose();
     container.remove();
   });
 });
