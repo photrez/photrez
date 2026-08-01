@@ -9,11 +9,11 @@
 // handlePointerDown called with that tool type.  For crop+modern mode
 // the expected behavior is different (early return before handlePointerDown).
 
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import { useCanvasPointerTools } from "../canvas/useCanvasPointerTools";
 import * as InputHandlerModule from "@/viewport/input-handler";
-import * as EditorContextModule from "../shell/EditorContext";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
 
 // Mock input-handler so we can spy on handlePointerDown calls
@@ -46,7 +46,7 @@ describe.each([
 ] as const)("pointer routing: %s", (label, toolId) => {
   it(`routes onCanvasPointerDown to handlePointerDown with tool='${toolId}'`, () => {
     const { signals, dispose } = createMockEditorParams(toolId);
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -83,7 +83,7 @@ describe.each([
 describe("eyedropper routes to handlePointerDown (samples color)", () => {
   it("calls handlePointerDown with tool='eyedropper' when activeTool is eyedropper", () => {
     const { signals, dispose } = createMockEditorParams("eyedropper");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -114,7 +114,7 @@ describe("crop + modern mode exits early (no handlePointerDown)", () => {
     // Override to modern mode
     const cropMode = createSignal<"modern" | "classic">("modern");
     signals.cropInteractionMode = cropMode[0];
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -140,7 +140,7 @@ describe("crop + modern mode exits early (no handlePointerDown)", () => {
 describe("paintBucket + gradient bypass handlePointerDown (same pattern as modern crop)", () => {
   it("does NOT call handlePointerDown when paintBucket active", () => {
     const { signals, dispose } = createMockEditorParams("paintBucket");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -162,7 +162,7 @@ describe("paintBucket + gradient bypass handlePointerDown (same pattern as moder
 
   it("does NOT call handlePointerDown when gradient active", () => {
     const { signals, dispose } = createMockEditorParams("gradient");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -186,7 +186,7 @@ describe("paintBucket + gradient bypass handlePointerDown (same pattern as moder
 describe("brush/eraser + Alt (eyedropper) intercepts before handlePointerDown", () => {
   it("does NOT call handlePointerDown when brush+Alt (eyedropper shortcut)", () => {
     const { signals, dispose } = createMockEditorParams("brush");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -232,7 +232,7 @@ describe("move auto-select calls setActiveLayer before handlePointerDown", () =>
         setLastPaintCoords: vi.fn(),
       }),
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -263,7 +263,7 @@ describe("right-click and middle-click block routing", () => {
     ["brush", "brush"],
   ] as const)("does NOT call handlePointerDown when button=2 (right-click) for %s", (label, toolId) => {
     const { signals, dispose } = createMockEditorParams(toolId);
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -288,7 +288,7 @@ describe("right-click and middle-click block routing", () => {
     ["brush", "brush"],
   ] as const)("does NOT call handlePointerDown when button=1 (middle-click) for %s", (label, toolId) => {
     const { signals, dispose } = createMockEditorParams(toolId);
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -326,7 +326,7 @@ describe("brush/eraser locked layer blocks routing", () => {
         setLastPaintCoords: vi.fn(),
       }),
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -355,7 +355,7 @@ describe("no active engine returns early (no crash)", () => {
       getActiveHistory: () => null,
       getActiveSession: () => null,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -382,7 +382,7 @@ describe("no active engine returns early (no crash)", () => {
       getActiveEngine: () => mockEngine,
       getActiveHistory: () => null,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -406,7 +406,7 @@ describe("no active engine returns early (no crash)", () => {
 describe("space/pan early return blocks routing", () => {
   it("does NOT call handlePointerDown when space is pressed (pan mode)", () => {
     const { signals, dispose } = createMockEditorParams("move");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -427,7 +427,7 @@ describe("space/pan early return blocks routing", () => {
 
   it("does NOT call handlePointerDown when isPanning is true", () => {
     const { signals, dispose } = createMockEditorParams("move");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { createSignal } from "solid-js";
-import * as EditorContextModule from "../shell/EditorContext";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
 import { useBrushOverlay } from "../useBrushOverlay";
 import type { DocumentEngine } from "@/engine/document";
@@ -104,7 +104,7 @@ beforeAll(() => {
 });
 
 function createHarness() {
-  vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(defaultMockEditor as any);
+  mockUseEditor(defaultMockEditor);
 
   const getImageData = vi.fn((_x: number, _y: number, width: number, height: number) => (
     createImageData(width, height)
@@ -190,7 +190,7 @@ function createRealHarness(layerOverrides: Record<string, any> = {}) {
     eraserSize: () => 20,
     eraserHardness: () => 1,
   };
-  vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditor as any);
+  mockUseEditor(mockEditor);
 
   // Real overlay canvas
   const overlayCanvas = document.createElement("canvas");
@@ -310,7 +310,7 @@ describe("useBrushOverlay bake-on-paint adjustment WYSIWYG", () => {
       eraserSize: () => 20,
       eraserHardness: () => 1,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditor as any);
+    mockUseEditor(mockEditor);
 
     // Real overlay canvas so the commit composite path can drawImage() it.
     const canvas = document.createElement("canvas");
@@ -415,7 +415,7 @@ describe("useBrushOverlay bake-on-paint adjustment WYSIWYG", () => {
 
 describe("useBrushOverlay setOverlayCanvasRef", () => {
   it("initializes overlay canvas with doc dimensions", () => {
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(defaultMockEditor as any);
+    mockUseEditor(defaultMockEditor);
     const newCanvas = document.createElement("canvas");
     const overlay = useBrushOverlay();
     overlay.setOverlayCanvasRef(newCanvas);
@@ -424,7 +424,7 @@ describe("useBrushOverlay setOverlayCanvasRef", () => {
   });
 
   it("accepts null ref without crashing", () => {
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(defaultMockEditor as any);
+    mockUseEditor(defaultMockEditor);
     const overlay = useBrushOverlay();
     expect(() => overlay.setOverlayCanvasRef(null)).not.toThrow();
   });
@@ -446,7 +446,7 @@ describe("useBrushOverlay blocked painting", () => {
       ...defaultMockEditor,
       workspace: { getActiveEngine: () => engine },
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditor as any);
+    mockUseEditor(mockEditor);
 
     const getImageData = vi.fn((_x, _y, w, h) => createImageData(w, h));
     const canvas = {
@@ -482,7 +482,7 @@ describe("useBrushOverlay blocked painting", () => {
       ...defaultMockEditor,
       workspace: { getActiveEngine: () => engine },
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditor as any);
+    mockUseEditor(mockEditor);
 
     const getImageData = vi.fn((_x, _y, w, h) => createImageData(w, h));
     const canvas = {
@@ -730,7 +730,7 @@ describe("useBrushOverlay pre-warm debounce", () => {
       eraserHardness: () => 1,
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditor as any);
+    mockUseEditor(mockEditor);
 
     const ctx = {
       canvas: { width: 100, height: 80 },
@@ -806,7 +806,7 @@ describe("useBrushOverlay pre-warm debounce", () => {
       eraserHardness: () => 1,
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditor as any);
+    mockUseEditor(mockEditor);
 
     const ctx = {
       canvas: { width: 100, height: 80 },

@@ -12,8 +12,8 @@
 //      (the 2026-07-11 bug)
 //   2. a removed/changed eyedropper branch inside handlePointerDown
 
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import * as EditorContextModule from "../components/editor/shell/EditorContext";
 import { createMockEngine } from "./test-builders";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "./pointerRoutingHarness";
 
@@ -25,7 +25,7 @@ describe("eyedropper: real hook → real handler → fgColor signal", () => {
     // Real engine whose samplePixel returns a deterministic color.
     mockEngine.samplePixel = vi.fn((): [number, number, number, number] => [128, 255, 64, 255]);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),

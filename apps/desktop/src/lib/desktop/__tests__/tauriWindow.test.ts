@@ -22,43 +22,43 @@ describe("runTauriWindowAction", () => {
   });
 
   afterEach(() => {
-    delete (window as any).__TAURI_INTERNALS__;
+    delete window.__TAURI_INTERNALS__;
   });
 
   it("calls getCurrentWindow().close() for 'close' action in Tauri runtime", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     await runTauriWindowAction("close");
     expect(closeMock).toHaveBeenCalledOnce();
   });
 
   it("calls getCurrentWindow().minimize() for 'minimize' action", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     await runTauriWindowAction("minimize");
     expect(minimizeMock).toHaveBeenCalledOnce();
   });
 
   it("calls getCurrentWindow().toggleMaximize() for 'toggleMaximize' action", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     await runTauriWindowAction("toggleMaximize");
     expect(toggleMaximizeMock).toHaveBeenCalledOnce();
   });
 
   it("calls getCurrentWindow().startDragging() for 'startDragging' action", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     await runTauriWindowAction("startDragging");
     expect(startDraggingMock).toHaveBeenCalledOnce();
   });
 
   it("does nothing when not in Tauri runtime", async () => {
     // Ensure __TAURI_INTERNALS__ is not set
-    delete (window as any).__TAURI_INTERNALS__;
+    delete window.__TAURI_INTERNALS__;
     expect(isTauriRuntime()).toBe(false);
     await runTauriWindowAction("close");
     expect(closeMock).not.toHaveBeenCalled();
   });
 
   it("does not throw when getCurrentWindow()[action] fails", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     closeMock.mockRejectedValueOnce(new Error("Tauri error"));
     // Should not throw — caught internally
     await expect(runTauriWindowAction("close")).resolves.toBeUndefined();

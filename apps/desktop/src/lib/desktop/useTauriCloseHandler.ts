@@ -6,7 +6,7 @@ import type { DialogContextValue } from "@/components/editor/dialogs/DialogProvi
 
 // Minimal dialog interface: only the two dialog methods the close flow needs
 // are required (duck typing), so tests can pass any conforming object.
-type CloseDialog = Pick<DialogContextValue, "confirm" | "confirmSave">;
+export type CloseDialog = Pick<DialogContextValue, "confirm" | "confirmSave">;
 
 /**
  * Handles Tauri window close requests with sequential save-confirm dialogs

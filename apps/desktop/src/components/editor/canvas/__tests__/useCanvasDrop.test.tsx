@@ -37,10 +37,16 @@ function createCamera() {
 }
 
 // jsdom does not implement DragEvent — use plain Event instead
-function dragEvent(type: string, opts: Partial<EventInit> & { relatedTarget?: EventTarget | null } = {}): Event {
-  const evt = new Event(type, { bubbles: true, cancelable: true, ...opts });
+function dragEvent(
+  type: string,
+  opts: Partial<EventInit> & { relatedTarget?: EventTarget | null; dataTransfer?: { dropEffect: string } } = {},
+): DragEvent {
+  const evt = new Event(type, { bubbles: true, cancelable: true, ...opts }) as DragEvent;
   if ("relatedTarget" in opts) {
     Object.defineProperty(evt, "relatedTarget", { value: opts.relatedTarget });
+  }
+  if (opts.dataTransfer) {
+    Object.defineProperty(evt, "dataTransfer", { value: opts.dataTransfer });
   }
   return evt;
 }
@@ -77,10 +83,9 @@ describe("useCanvasDrop", () => {
         renderer: {} as any,
         scheduler: { requestRender: vi.fn() },
       });
-      const evt = dragEvent("dragover") as DragEvent;
-      (evt as any).dataTransfer = { dropEffect: "" };
+      const evt = dragEvent("dragover", { dataTransfer: { dropEffect: "" } });
       onDragOver(evt);
-      return (evt as any).dataTransfer.dropEffect;
+      return evt.dataTransfer!.dropEffect;
     };
     expect(make("doc-A", "doc-B")).toBe("copy"); // cross-doc
     expect(make("doc-A", "doc-A")).toBe("move"); // same-doc reorder

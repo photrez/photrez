@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
+import * as EditorContextModule from "../shell/EditorContext";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { render as solidRender } from "solid-js/web";
 import { createSignal, type JSX } from "solid-js";
 import { CropOverlay } from "../CropOverlay";
 import { ModernCropOverlay } from "../ModernCropOverlay";
-import * as EditorContextModule from "../shell/EditorContext";
 import { ViewportCamera } from "../../../viewport/viewportCamera";
 import { WorkspaceManager } from "@/engine/workspace";
 import type { WebGL2Backend } from "@/renderer/webgl2";
@@ -809,7 +810,7 @@ describe("CropOverlay viewport panning", () => {
       setHoverPos: vi.fn(),
     };
 
-    const useEditorSpy = vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    const useEditorSpy = mockUseEditor(mockValue);
 
     const onCropRectChange = vi.fn();
     const container = document.createElement("div");

@@ -317,3 +317,24 @@ These directories and file patterns are in `.gitignore` and cover internal/dev-o
 If a new internal-only path is added, update `.gitignore` before committing. If accidentally committed, `git rm --cached <path>` then add to `.gitignore`.
 
 Screenshots in `docs/screenshots/*.png` are explicitly un-ignored (`!docs/screenshots/*.png`) for documentation use; internal dev screenshots go under `docs/archive/` (gitignored).
+
+---
+
+## 8. Test Mock Patterns - When is a Cast Acceptable
+
+Guiding rule: cast in ONE place (helper), keep call sites clean. s unknown as Type in a central helper beats s any at 100 call sites.
+
+### Legit (acceptable)
+- { workspace: {} as any } - partial mock; the test does not touch that field. Prefer central cast helpers when the shape repeats.
+- (document as any).elementFromPoint - jsdom does not implement elementFromPoint; documented workaround (see useCanvasLayerDrag.test.tsx).
+- { button: 0, clientX: 50 } as PointerEvent (partial-field pointer events) - jsdom PointerEvent constructor is limited; production only reads a few fields. Must include every field the code under test reads.
+- {} as any passed as an irrelevant DocumentModel snapshot to ealHistory.commit/undo - content never inspected by the assertion.
+
+### Code smell (must use typed helper)
+- i.spyOn(EditorContextModule, "useEditor").mockReturnValue(X as any) - use mockUseEditor(X) from src/__tests__/mockUseEditor.ts (never add value-imports of EditorContext to 	est-builders.ts - crashes unit-node env tests).
+- Record<string, any> for mock editor signals/values - use Record<string, unknown> for inputs, keep the dynamic signal registry Record<string, any> only where tests index arbitrary keys (marked // ponytail:).
+- (c: any) => ... in mock functions - annotate with the production type (e.g. { x: number; y: number } | null for setLastPaintCoords).
+- (window as any).__TAURI_INTERNALS__ - no longer needed; typed as __TAURI_INTERNALS__?: unknown via declare global in lib/desktop/tauriWindow.ts.
+
+### Forbidden
+- s any in production code (non-test) unless justified and documented. Current production count: 0.

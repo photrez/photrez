@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { MoveOptionBar } from "../MoveOptionBar";
-import * as EditorContextModule from "../shell/EditorContext";
 import type { LayerNode } from "@/engine/types";
 import { mockEditorContext } from "../../../__tests__/test-builders";
 
@@ -59,7 +59,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -89,7 +89,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -119,7 +119,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -150,7 +150,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -182,7 +182,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -217,7 +217,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -253,7 +253,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -293,7 +293,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -333,7 +333,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -374,7 +374,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -411,7 +411,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -456,7 +456,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -495,7 +495,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -532,7 +532,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -569,7 +569,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -606,7 +606,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -643,7 +643,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -680,7 +680,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -716,7 +716,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -754,7 +754,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -786,7 +786,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -833,7 +833,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -878,7 +878,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -923,7 +923,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -973,7 +973,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -1013,7 +1013,7 @@ describe("MoveOptionBar", () => {
       docWidth: () => 800,
       docHeight: () => 600,
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockEditorContext(mockValue));
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);

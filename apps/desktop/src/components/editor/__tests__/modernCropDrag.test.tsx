@@ -13,11 +13,11 @@
 // editor signals (setModernCropFrame / setModernCropImageTransform /
 // setViewportState) are mutated.
 
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createSignal } from "solid-js";
 import { useCanvasPointerTools } from "../canvas/useCanvasPointerTools";
 import * as InputHandlerModule from "@/viewport/input-handler";
-import * as EditorContextModule from "../shell/EditorContext";
 import * as CropToolActions from "../cropToolActions";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
 
@@ -93,7 +93,7 @@ function makeModernCropSignals(initialFrame: { x: number; y: number; w: number; 
 }
 
 function mountPointerTools(signals: any) {
-  vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+  mockUseEditor(signals);
   return createPointerTools({ ...baseParams });
 }
 

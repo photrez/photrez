@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { TransformOptionBar } from "../TransformOptionBar";
-import * as EditorContextModule from "../shell/EditorContext";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 
 function qs<T extends HTMLElement>(root: HTMLElement, sel: string): T | null {
   return root.querySelector(sel) as T | null;
@@ -111,7 +111,7 @@ describe("TransformOptionBar", () => {
       setConstrainRatio: vi.fn(),
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -178,7 +178,7 @@ describe("TransformOptionBar", () => {
       setConstrainRatio: vi.fn(),
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -234,7 +234,7 @@ describe("TransformOptionBar", () => {
       setConstrainRatio: vi.fn(),
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -297,7 +297,7 @@ describe("TransformOptionBar", () => {
       setConstrainRatio: vi.fn(),
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -319,7 +319,7 @@ describe("TransformOptionBar", () => {
   // ─── Field rendering ─────────────────────────────────────────────────
 
   it("renders X, Y, W, H, R input fields with layer values", () => {
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(makeMockValue() as any);
+    mockUseEditor(makeMockValue());
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -338,7 +338,7 @@ describe("TransformOptionBar", () => {
   it("renders Lock Ratio toggle when session exists", () => {
     const [, setLayerTransformSession] = createSignal<any>(mockSession());
     const mv = makeMockValue({ setLayerTransformSession });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -350,7 +350,7 @@ describe("TransformOptionBar", () => {
   });
 
   it("renders Reset Preview button", () => {
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(makeMockValue() as any);
+    mockUseEditor(makeMockValue());
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -365,7 +365,7 @@ describe("TransformOptionBar", () => {
 
   it("X field submit calls transformLayer with updated x", async () => {
     const mv = makeMockValue();
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -384,7 +384,7 @@ describe("TransformOptionBar", () => {
 
   it("Y field submit calls transformLayer with updated y", async () => {
     const mv = makeMockValue();
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -403,7 +403,7 @@ describe("TransformOptionBar", () => {
 
   it("R field submit calls transformLayer with updated rotation", async () => {
     const mv = makeMockValue();
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -447,7 +447,7 @@ describe("TransformOptionBar", () => {
       constrainRatio: () => false,
       setConstrainRatio: vi.fn(),
     };
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -464,7 +464,7 @@ describe("TransformOptionBar", () => {
 
   it("ArrowUp on X field nudges value up by 1 and calls transformLayer", async () => {
     const mv = makeMockValue();
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -485,7 +485,7 @@ describe("TransformOptionBar", () => {
 
   it("Shift+ArrowUp on X field nudges value up by 10", async () => {
     const mv = makeMockValue();
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);
@@ -505,7 +505,7 @@ describe("TransformOptionBar", () => {
 
   it("ArrowDown on Y field nudges value down by 1", async () => {
     const mv = makeMockValue();
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mv as any);
+    mockUseEditor(mv);
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <TransformOptionBar />, container);

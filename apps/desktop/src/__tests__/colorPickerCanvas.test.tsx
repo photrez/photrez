@@ -7,8 +7,8 @@
 // hook (same harness as eyedropper-regression.test.tsx) so it catches
 // a silently-no-op dispatcher, not just a mocked branch.
 
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import * as EditorContextModule from "../components/editor/shell/EditorContext";
 import { createMockEngine } from "./test-builders";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "./pointerRoutingHarness";
 
@@ -19,7 +19,7 @@ describe("color picker: canvas click samples into target", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("move");
     mockEngine.samplePixel = vi.fn((): [number, number, number, number] => [10, 20, 30, 255]);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -48,7 +48,7 @@ describe("color picker: canvas click samples into target", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("move");
     mockEngine.samplePixel = vi.fn((): [number, number, number, number] => [40, 50, 60, 255]);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -77,7 +77,7 @@ describe("color picker: canvas click samples into target", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("move");
     mockEngine.samplePixel = vi.fn((): [number, number, number, number] => [10, 20, 30, 255]);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),
@@ -105,7 +105,7 @@ describe("color picker: canvas click samples into target", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("move");
     mockEngine.samplePixel = vi.fn((): [number, number, number, number] => [200, 100, 50, 255]);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const { tools, dispose: disposeTools } = createPointerTools({
       getCanvasContainerRef: () => document.createElement("div"),

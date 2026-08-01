@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { BrushCursorOverlay } from "../BrushCursorOverlay";
-import * as EditorContextModule from "../shell/EditorContext";
 import { ViewportCamera } from "../../../viewport/viewportCamera";
 
 describe("BrushCursorOverlay", () => {
@@ -12,7 +12,7 @@ describe("BrushCursorOverlay", () => {
     const [brushSize] = createSignal(24);
     const [brushHardness, setBrushHardness] = createSignal(0);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+    mockUseEditor({
       activeTool,
       setActiveTool,
       zoom,
@@ -23,7 +23,7 @@ describe("BrushCursorOverlay", () => {
       eraserSize: () => 40,
       eraserHardness: () => 1,
       eraserOpacity: () => 1,
-    } as any);
+    });
 
     const root = document.createElement("svg");
     document.body.appendChild(root);
@@ -46,7 +46,7 @@ describe("BrushCursorOverlay", () => {
     const [zoom] = createSignal(1);
     const [eraserSize] = createSignal(40);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+    mockUseEditor({
       activeTool,
       setActiveTool,
       zoom,
@@ -57,7 +57,7 @@ describe("BrushCursorOverlay", () => {
       eraserSize,
       eraserHardness: () => 0,
       eraserOpacity: () => 1,
-    } as any);
+    });
 
     const root = document.createElement("svg");
     document.body.appendChild(root);
@@ -76,7 +76,7 @@ describe("BrushCursorOverlay", () => {
     const [zoom] = createSignal(2);
     const [brushSize] = createSignal(24);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+    mockUseEditor({
       activeTool,
       zoom,
       camera: new ViewportCamera(),
@@ -86,7 +86,7 @@ describe("BrushCursorOverlay", () => {
       eraserSize: () => 40,
       eraserHardness: () => 1,
       eraserOpacity: () => 1,
-    } as any);
+    });
 
     const root = document.createElement("svg");
     document.body.appendChild(root);
@@ -109,7 +109,7 @@ describe("BrushCursorOverlay", () => {
     vpContainer.setAttribute("data-viewport-container", "");
     document.body.appendChild(vpContainer);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+    mockUseEditor({
       activeTool,
       zoom,
       camera: new ViewportCamera(),
@@ -119,7 +119,7 @@ describe("BrushCursorOverlay", () => {
       eraserSize: () => 40,
       eraserHardness: () => 1,
       eraserOpacity: () => 1,
-    } as any);
+    });
 
     const root = document.createElement("svg");
     document.body.appendChild(root);
@@ -151,7 +151,7 @@ describe("BrushCursorOverlay", () => {
     const [zoom] = createSignal(1);
     const [eraserSize] = createSignal(40);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+    mockUseEditor({
       activeTool,
       setActiveTool: () => {},
       zoom,
@@ -162,7 +162,7 @@ describe("BrushCursorOverlay", () => {
       eraserSize,
       eraserHardness: () => 0,
       eraserOpacity: () => 1,
-    } as any);
+    });
 
     const root = document.createElement("svg");
     document.body.appendChild(root);
@@ -181,7 +181,7 @@ describe("BrushCursorOverlay", () => {
     const [zoom] = createSignal(1);
     const [brushSize] = createSignal(24);
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+    mockUseEditor({
       activeTool,
       setActiveTool: () => {},
       zoom,
@@ -192,7 +192,7 @@ describe("BrushCursorOverlay", () => {
       eraserSize: () => 40,
       eraserHardness: () => 1,
       eraserOpacity: () => 1,
-    } as any);
+    });
 
     const root = document.createElement("svg");
     document.body.appendChild(root);

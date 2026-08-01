@@ -5,10 +5,10 @@
 // 2. Gradient: pointerdown -> pointermove -> pointerup updates gradientDragLine signal and handles Shift 45° angle lock.
 // 3. Cursor Resolver: resolveCursor returns custom SVG cursors for paintBucket and gradient.
 
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveCursor } from "@/viewport/cursorResolver";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
-import * as EditorContextModule from "../shell/EditorContext";
 
 describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
   beforeEach(() => {
@@ -68,7 +68,7 @@ describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
         setLastPaintCoords: () => {},
       }) as any;
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+      mockUseEditor(signals);
 
       const { tools, dispose: disposeTools } = createPointerTools({
         getCanvasContainerRef: () => document.createElement("div"),
@@ -103,7 +103,7 @@ describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
         setLastPaintCoords: () => {},
       }) as any;
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+      mockUseEditor(signals);
 
       const { tools, dispose: disposeTools } = createPointerTools({
         getCanvasContainerRef: () => document.createElement("div"),

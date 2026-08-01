@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { BrushContextMenu } from "../BrushContextMenu";
-import * as EditorContextModule from "../shell/EditorContext";
 
 function createMockEditor(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
@@ -42,7 +42,7 @@ describe("BrushContextMenu", () => {
 
   it("renders nothing by default (not open)", () => {
     const mock = createMockEditor({ activeTool: "brush" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     root = document.createElement("div");
     document.body.appendChild(root);
@@ -55,7 +55,7 @@ describe("BrushContextMenu", () => {
 
   it("opens on contextmenu event on the canvas container", () => {
     const mock = createMockEditor({ activeTool: "brush" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     container = document.createElement("div");
     container.id = "canvas-container";
@@ -81,7 +81,7 @@ describe("BrushContextMenu", () => {
 
   it("does not open for non-paint tools", () => {
     const mock = createMockEditor({ activeTool: "move" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     container = document.createElement("div");
     container.id = "canvas-container";
@@ -105,7 +105,7 @@ describe("BrushContextMenu", () => {
 
   it("size slider updates brush size signal via non-linear mapping", async () => {
     const mock = createMockEditor({ activeTool: "brush", brushSize: 30 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     container = document.createElement("div");
     container.id = "canvas-container";
@@ -140,7 +140,7 @@ describe("BrushContextMenu", () => {
 
   it("hardness slider updates brush hardness signal synchronously", () => {
     const mock = createMockEditor({ activeTool: "brush", brushHardness: 0.5 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     container = document.createElement("div");
     container.id = "canvas-container";
@@ -168,7 +168,7 @@ describe("BrushContextMenu", () => {
 
   it("strength slider updates brush opacity signal synchronously", () => {
     const mock = createMockEditor({ activeTool: "brush", brushOpacity: 0.7 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     container = document.createElement("div");
     container.id = "canvas-container";
@@ -196,7 +196,7 @@ describe("BrushContextMenu", () => {
 
   it("closes on Escape key", () => {
     const mock = createMockEditor({ activeTool: "brush" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     container = document.createElement("div");
     container.id = "canvas-container";
@@ -229,7 +229,7 @@ describe("BrushContextMenu", () => {
       brushPresetId: "brush-preset",
       eraserPresetId: "eraser-preset",
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     container = document.createElement("div");
     container.id = "canvas-container";

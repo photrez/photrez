@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { BrushOptionBar } from "../BrushOptionBar";
-import * as EditorContextModule from "../shell/EditorContext";
 
 function createMockEditor(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
@@ -34,7 +34,7 @@ function createMockEditor(overrides: Record<string, any> = {}) {
 describe("BrushOptionBar", () => {
   it("shows brush settings for Brush tool", () => {
     const mock = createMockEditor({ activeTool: "brush", brushSize: 20, brushHardness: 0.8, brushOpacity: 1 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -52,7 +52,7 @@ describe("BrushOptionBar", () => {
 
   it("shows eraser settings for Eraser tool", () => {
     const mock = createMockEditor({ activeTool: "eraser", eraserSize: 32, eraserHardness: 1, eraserOpacity: 1 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -69,7 +69,7 @@ describe("BrushOptionBar", () => {
 
   it("updates active tool size without changing inactive size", async () => {
     const mock = createMockEditor({ activeTool: "eraser", eraserSize: 32, brushSize: 20 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -88,7 +88,7 @@ describe("BrushOptionBar", () => {
 
   it("renders flow and smoothing inputs", () => {
     const mock = createMockEditor({ activeTool: "brush", brushFlow: 0.8, brushSmoothing: 25 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -106,7 +106,7 @@ describe("BrushOptionBar", () => {
 
   it("renders preset dropdown with current preset name or Custom", () => {
     const mock = createMockEditor({ activeTool: "brush", brushPresetId: null });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -123,7 +123,7 @@ describe("BrushOptionBar", () => {
 
   it("range slider [data-paint-size-slider] fires synchronous signal write (no RAF)", () => {
     const mock = createMockEditor({ activeTool: "brush", brushSize: 50 });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -156,7 +156,7 @@ describe("BrushOptionBar", () => {
       brushFlow: 0.6,
       brushSmoothing: 30,
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);

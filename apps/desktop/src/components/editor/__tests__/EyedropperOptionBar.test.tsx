@@ -1,7 +1,7 @@
 import { render } from "solid-js/web";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { EyedropperOptionBar } from "../EyedropperOptionBar";
-import * as EditorContextModule from "../shell/EditorContext";
 import { createSignal } from "solid-js";
 
 function createMockEditor(initialColor = "#ff0000") {
@@ -23,7 +23,7 @@ describe("EyedropperOptionBar", () => {
 
   it("renders Eyedropper tool pill and color code", () => {
     const mock = createMockEditor("#ff0000");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -38,7 +38,7 @@ describe("EyedropperOptionBar", () => {
 
   it("renders Auto-Copy checkbox and toggles it", () => {
     const mock = createMockEditor("#00ff00");
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);

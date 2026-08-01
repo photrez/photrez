@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { SelectionOptionBar } from "../SelectionOptionBar";
-import * as EditorContextModule from "../shell/EditorContext";
 
 function createMockEditor(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
@@ -50,7 +50,7 @@ function createMockEditor(overrides: Record<string, any> = {}) {
 describe("SelectionOptionBar", () => {
   it("renders with style selector and disabled fields when no selection", () => {
     const mock = createMockEditor({ selection: null });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -85,7 +85,7 @@ describe("SelectionOptionBar", () => {
     const mock = createMockEditor({
       selection: { x: 10, y: 20, width: 300, height: 200, angle: 0 },
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -114,7 +114,7 @@ describe("SelectionOptionBar", () => {
       selectionRatioW: 16,
       selectionRatioH: 9,
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -151,7 +151,7 @@ describe("SelectionOptionBar", () => {
       selectionSizeW: 400,
       selectionSizeH: 300,
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mock as any);
+    mockUseEditor(mock);
 
     const root = document.createElement("div");
     document.body.appendChild(root);

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { useCanvasPointerTools } from "../canvas/useCanvasPointerTools";
-import * as EditorContextModule from "../shell/EditorContext";
 import { createRoot, createSignal } from "solid-js";
 import { CommandHistory } from "../../../engine/history";
 
 // Helper to create mock editor context values
-function createMockEditor(overrides: Record<string, any> = {}) {
+function createMockEditor(overrides: Record<string, unknown> = {}) {
   const mockEngine = {
     getActiveLayerId: () => "layer-1",
     getLayer: () => ({ id: "layer-1", locked: false, visible: true, width: 100, height: 100 }),
@@ -17,14 +17,14 @@ function createMockEditor(overrides: Record<string, any> = {}) {
     getLayers: () => [],
   };
 
-  let currentLastPaintCoords: any = null;
-  const defaults: Record<string, any> = {
+  let currentLastPaintCoords: { x: number; y: number } | null = null;
+  const defaults: Record<string, unknown> = {
     workspace: {
       getActiveEngine: () => mockEngine,
       getActiveHistory: () => ({
         commit: vi.fn(),
         getLastPaintCoords: () => currentLastPaintCoords,
-        setLastPaintCoords: (c: any) => { currentLastPaintCoords = c; },
+        setLastPaintCoords: (c: { x: number; y: number } | null) => { currentLastPaintCoords = c; },
       }),
     },
     activeTool: "brush",
@@ -58,6 +58,7 @@ function createMockEditor(overrides: Record<string, any> = {}) {
   let dispose = () => {};
   const signals = createRoot((rootDispose) => {
     dispose = rootDispose;
+    // Dynamic signal registry keyed by string — `any` is structural, not laziness
     const ownedSignals: Record<string, any> = {
       workspace: merged.workspace,
       scheduler: { requestRender: vi.fn() },
@@ -83,7 +84,7 @@ function createPointerTools(params: Parameters<typeof useCanvasPointerTools>[0])
 describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
   it("samples pixel and updates fgColor when Alt is held in pointerDown/move", () => {
     const { signals, mockEngine, dispose } = createMockEditor({ activeTool: "brush" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     let isAltPressed = true;
     const canvas = document.createElement("canvas");
@@ -139,7 +140,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
 
   it("connects lastPaintCoords with straight line when Shift is held on pointerDown", () => {
     const { signals, dispose } = createMockEditor({ activeTool: "brush" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const canvas = document.createElement("canvas");
     canvas.setPointerCapture = vi.fn();
@@ -157,7 +158,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
       stopMomentum: vi.fn(),
       fitToScreenAndRender: vi.fn(),
       // Replicates production: live lastPaintCoords advances to the stroke end.
-      commitBrushStroke: vi.fn((_e: any, _h: any, _id: any, _er: any, _a: any) => {
+      commitBrushStroke: vi.fn((_e: unknown, _h: unknown, _id: unknown, _er: unknown, _a: unknown) => {
         if (strokePointsReceived.length) {
           historyApi.setLastPaintCoords(strokePointsReceived[strokePointsReceived.length - 1]);
         }
@@ -188,7 +189,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
 
   it("locks coordinate to horizontal or vertical axis when Shift is held on pointerMove", () => {
     const { signals, dispose } = createMockEditor({ activeTool: "brush" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const canvas = document.createElement("canvas");
     canvas.setPointerCapture = vi.fn();
@@ -228,7 +229,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
 
   it("forwards the exact pointer-up coordinate as a final paint sample before commit", () => {
     const { signals, dispose } = createMockEditor({ activeTool: "brush" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const canvas = document.createElement("canvas");
     canvas.setPointerCapture = vi.fn();
@@ -268,7 +269,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
     "%s finalizes the last sampled endpoint before committing",
     (terminalHandler) => {
       const { signals, dispose } = createMockEditor({ activeTool: "brush" });
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+      mockUseEditor(signals);
 
       const canvas = document.createElement("canvas");
       canvas.setPointerCapture = vi.fn();
@@ -309,7 +310,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
       selectedLayerId: null, // simulate move deselect
       activeTool: "brush",
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const canvas = document.createElement("canvas");
     canvas.setPointerCapture = vi.fn();
@@ -351,7 +352,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
 
   it("clears stale brushAdjustStart on pointerDown so eraser works after leaked Alt+RightClick", () => {
     const { signals, dispose } = createMockEditor({ activeTool: "eraser" });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const canvas = document.createElement("canvas");
     canvas.setPointerCapture = vi.fn();
@@ -406,7 +407,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
     const mockHistory = {
       commit: vi.fn(),
       getLastPaintCoords: () => mockCoords,
-      setLastPaintCoords: (c: any) => { mockCoords = c; },
+      setLastPaintCoords: (c: { x: number; y: number } | null) => { mockCoords = c; },
     };
 
     const { signals, dispose } = createMockEditor({
@@ -424,7 +425,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
       },
       activeTool: "brush",
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const canvas = document.createElement("canvas");
     canvas.setPointerCapture = vi.fn();
@@ -439,7 +440,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
       stopMomentum: vi.fn(),
       fitToScreenAndRender: vi.fn(),
       // Replicates production: live lastPaintCoords advances to the stroke end.
-      commitBrushStroke: vi.fn((_e: any, _h: any, _id: any, _er: any, _a: any) => {
+      commitBrushStroke: vi.fn((_e: unknown, _h: unknown, _id: unknown, _er: unknown, _a: unknown) => {
         if (pts397.length) mockHistory.setLastPaintCoords(pts397[pts397.length - 1]);
       }),
       onPaintStroke: vi.fn((p: { x: number; y: number }[]) => {
@@ -478,7 +479,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
         getActiveHistory: () => realHistory,
       },
     });
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(signals as any);
+    mockUseEditor(signals);
 
     const canvas = document.createElement("canvas");
     canvas.setPointerCapture = vi.fn();
@@ -488,7 +489,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
     let pts: { x: number; y: number }[] = [];
     // Replicates the production commitBrushStroke contract with a real history:
     // the snapshot records the pre-stroke anchor, then live advances to the stroke end.
-    const commitBrushStroke = vi.fn((_e: any, _h: any, _id: any, _er: any, anchor: any) => {
+    const commitBrushStroke = vi.fn((_e: unknown, _h: unknown, _id: unknown, _er: unknown, anchor?: { x: number; y: number } | null) => {
       realHistory.setLastPaintCoords(anchor ?? realHistory.getLastPaintCoords());
       realHistory.commit({} as any, "Brush Stroke");
       const end = pts[pts.length - 1];

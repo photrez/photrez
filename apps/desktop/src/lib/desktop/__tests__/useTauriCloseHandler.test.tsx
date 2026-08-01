@@ -53,12 +53,28 @@ vi.mock("@/components/editor/projectSerialize", () => ({
 }));
 
 import { useTauriCloseHandler } from "../useTauriCloseHandler";
+import type { CloseDialog } from "../useTauriCloseHandler";
+import type { WorkspaceManager } from "@/engine/workspace";
 
 // ─── Helpers ───
 
 /** Flush pending microtasks (dynamic import .then callbacks etc). */
 function flush(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
+}
+
+/** Typed mock dialog. Cast-free call sites; overrides pick which methods the test exercises. */
+type MockCloseDialog = CloseDialog & {
+  confirm: ReturnType<typeof vi.fn>;
+  confirmSave: ReturnType<typeof vi.fn>;
+};
+
+function createMockDialog(overrides: Partial<MockCloseDialog> = {}): MockCloseDialog {
+  return {
+    confirm: vi.fn().mockResolvedValue(false),
+    confirmSave: vi.fn().mockResolvedValue("cancel"),
+    ...overrides,
+  };
 }
 
 interface MockSession {
@@ -101,10 +117,10 @@ function makeWorkspace(sessions: MockSession[]) {
 /** Minimal harness that just runs the hook. */
 function Harness(props: {
   workspace: ReturnType<typeof makeWorkspace>;
-  dialog: Record<string, unknown>;
+  dialog: CloseDialog;
   scheduler: { requestRender: () => void };
 }) {
-  useTauriCloseHandler(props.workspace as any, props.dialog as any, props.scheduler);
+  useTauriCloseHandler(props.workspace as unknown as WorkspaceManager, props.dialog, props.scheduler);
   return null;
 }
 
@@ -134,16 +150,16 @@ describe("useTauriCloseHandler", () => {
   afterEach(() => {
     dispose?.();
     container.remove();
-    delete (window as any).__TAURI_INTERNALS__;
+    delete window.__TAURI_INTERNALS__;
     vi.restoreAllMocks();
   });
 
   // ─── Listener Wiring ───
 
   it("sets up close-requested listener in Tauri runtime", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const workspace = makeWorkspace([]);
-    const dialog = { confirmSave: vi.fn() };
+    const dialog = createMockDialog();
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -153,9 +169,9 @@ describe("useTauriCloseHandler", () => {
   });
 
   it("calls listen() synchronously during render (no dynamic import deferral)", () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const workspace = makeWorkspace([]);
-    const dialog = { confirmSave: vi.fn() };
+    const dialog = createMockDialog();
 
     // Render WITHOUT await — after render() returns, listen() should have been called.
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
@@ -168,9 +184,9 @@ describe("useTauriCloseHandler", () => {
     // Edge case: the listen() promise resolves (microtask) after the component
     // has already been disposed. The cancelled flag prevents assigning unlisten
     // to a stale variable in the .then() callback.
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const workspace = makeWorkspace([]);
-    const dialog = { confirmSave: vi.fn() };
+    const dialog = createMockDialog();
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
 
@@ -187,7 +203,7 @@ describe("useTauriCloseHandler", () => {
 
   it("does NOT set up listener outside Tauri runtime", async () => {
     const workspace = makeWorkspace([]);
-    const dialog = { confirmSave: vi.fn() };
+    const dialog = createMockDialog();
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -197,9 +213,9 @@ describe("useTauriCloseHandler", () => {
   });
 
   it("cleans up listener on unmount", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const workspace = makeWorkspace([]);
-    const dialog = { confirmSave: vi.fn() };
+    const dialog = createMockDialog();
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -215,10 +231,10 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: No Dirty Docs ───
 
   it("invokes close_app when no dirty documents exist", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [makeSession("doc-1", "Doc 1", false, "/path/doc1.png")];
     const workspace = makeWorkspace(sessions);
-    const dialog = { confirmSave: vi.fn() };
+    const dialog = createMockDialog();
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -233,13 +249,13 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: Cancel ───
 
   it("stops close on Cancel button (no dirty docs resolved)", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
       makeSession("doc-2", "Doc 2", true, "/path/doc2.png"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = { confirmSave: vi.fn().mockResolvedValue("cancel") };
+    const dialog = createMockDialog({ confirmSave: vi.fn().mockResolvedValue("cancel") });
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -255,17 +271,17 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: Discard ───
 
   it("discards dirty doc and moves to next dirty doc", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
       makeSession("doc-2", "Doc 2", true, "/path/doc2.png"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = {
+    const dialog = createMockDialog({
       confirmSave: vi.fn()
         .mockResolvedValueOnce("discard")  // Discard doc-1
         .mockResolvedValueOnce("cancel"),  // Cancel on doc-2
-    };
+    });
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -282,17 +298,17 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: Save ───
 
   it("saves dirty doc with sourcePath and moves to next", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
       makeSession("doc-2", "Doc 2", true, "/path/doc2.png"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = {
+    const dialog = createMockDialog({
       confirmSave: vi.fn()
         .mockResolvedValueOnce("save")    // Save doc-1
         .mockResolvedValueOnce("cancel"), // Cancel on doc-2
-    };
+    });
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -311,17 +327,17 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: Save All → Close ───
 
   it("saves all dirty docs then closes window", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
       makeSession("doc-2", "Doc 2", true, "/path/doc2.jpg"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = {
+    const dialog = createMockDialog({
       confirmSave: vi.fn()
         .mockResolvedValueOnce("save")  // Save doc-1 (.png)
         .mockResolvedValueOnce("save"), // Save doc-2 (.jpg → jpeg)
-    };
+    });
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -340,12 +356,12 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: No sourcePath Save ───
 
   it("shows save dialog for docs without sourcePath, then saves", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, null),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = { confirmSave: vi.fn().mockResolvedValue("save") };
+    const dialog = createMockDialog({ confirmSave: vi.fn().mockResolvedValue("save") });
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -365,15 +381,12 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: Save Failure ───
 
   it("shows retry dialog on save failure", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = {
-      confirmSave: vi.fn().mockResolvedValue("save"),
-      confirm: vi.fn(),
-    };
+    const dialog = createMockDialog({ confirmSave: vi.fn().mockResolvedValue("save") });
     dialog.confirm.mockResolvedValue(true); // Retry: Discard
 
     const { writeFileBytes } = await import("@/tauri/native");
@@ -393,15 +406,12 @@ describe("useTauriCloseHandler", () => {
   });
 
   it("stops close on retry Cancel", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = {
-      confirmSave: vi.fn().mockResolvedValue("save"),
-      confirm: vi.fn(),
-    };
+    const dialog = createMockDialog({ confirmSave: vi.fn().mockResolvedValue("save") });
 
     const { writeFileBytes } = await import("@/tauri/native");
     (writeFileBytes as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Disk full"));
@@ -421,17 +431,17 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: Discard all → Close ───
 
   it("discards all dirty docs then closes window", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
       makeSession("doc-2", "Doc 2", true, "/path/doc2.png"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = {
+    const dialog = createMockDialog({
       confirmSave: vi.fn()
         .mockResolvedValueOnce("discard")  // Discard doc-1
         .mockResolvedValueOnce("discard"), // Discard doc-2
-    };
+    });
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();
@@ -448,12 +458,13 @@ describe("useTauriCloseHandler", () => {
   // ─── Dialog Flow: no confirmSave (fallback) ───
 
   it("uses confirm() fallback when confirmSave is missing", async () => {
-    (window as any).__TAURI_INTERNALS__ = {};
+    window.__TAURI_INTERNALS__ = {};
     const sessions = [
       makeSession("doc-1", "Doc 1", true, "/path/doc1.png"),
     ];
     const workspace = makeWorkspace(sessions);
-    const dialog = { confirm: vi.fn().mockResolvedValue(true) }; // Discard
+    // Fallback path: confirmSave must be absent → undefined override
+    const dialog = createMockDialog({ confirmSave: undefined, confirm: vi.fn().mockResolvedValue(true) }); // Discard
 
     dispose = render(() => Harness({ workspace, dialog, scheduler: { requestRender: vi.fn() } }), container);
     await flush();

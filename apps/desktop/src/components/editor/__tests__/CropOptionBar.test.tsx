@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { CropOptionBar } from "../CropOptionBar";
-import * as EditorContextModule from "../shell/EditorContext";
 
 function clickPill(container: HTMLElement, label: string) {
   let searchLabel = label;
@@ -77,7 +77,7 @@ function runWithContainer(fn: (container: HTMLElement, dispose: () => void) => v
 }
 
 function renderOptionBar(mockValue: any, container: HTMLElement) {
-  vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+  mockUseEditor(mockValue);
   return render(() => <CropOptionBar />, container);
 }
 
@@ -359,7 +359,7 @@ describe("CropOptionBar", () => {
 
       const container = document.createElement("div");
       document.body.appendChild(container);
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+      mockUseEditor(mockValue);
       const dispose = render(() => <CropOptionBar />, container);
 
       // Click "+" to expand custom W:H fields, then submit W=5 H=4
@@ -450,7 +450,7 @@ describe("CropOptionBar", () => {
       const setCropAspectSpy = vi.fn((a) => setCropAspect(a));
       const setCropModeSpy = vi.fn((m) => setCropMode(m));
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect, setCropRect: setCropRectSpy,
         cropInteractionMode: () => "classic" as const, setCropInteractionMode: vi.fn(),
@@ -467,7 +467,7 @@ describe("CropOptionBar", () => {
         hiddenCropPreview: () => null, setHiddenCropPreview: vi.fn(),
         docWidth: () => 1600, docHeight: () => 1200,
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -498,7 +498,7 @@ describe("CropOptionBar", () => {
       const setModernFrameSpy = vi.fn((f) => setModernFrame(f));
       const setCropRectSpy = vi.fn();
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect: () => null, setCropRect: setCropRectSpy,
         cropInteractionMode: () => "modern" as const, setCropInteractionMode: vi.fn(),
@@ -523,7 +523,7 @@ describe("CropOptionBar", () => {
         resetModernCrop: vi.fn(),
         commitCropState: vi.fn(),
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -554,7 +554,7 @@ describe("CropOptionBar", () => {
       const setModernFrameSpy = vi.fn((f) => setModernFrame(f));
       const setCropRectSpy = vi.fn();
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect: () => null, setCropRect: setCropRectSpy,
         cropInteractionMode: () => "modern" as const, setCropInteractionMode: vi.fn(),
@@ -579,7 +579,7 @@ describe("CropOptionBar", () => {
         resetModernCrop: vi.fn(),
         commitCropState: vi.fn(),
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -609,7 +609,7 @@ describe("CropOptionBar", () => {
       const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
       const setCropModeSpy = vi.fn((m) => setCropMode(m));
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect, setCropRect: setCropRectSpy,
         cropInteractionMode: () => "classic" as const, setCropInteractionMode: vi.fn(),
@@ -626,7 +626,7 @@ describe("CropOptionBar", () => {
         hiddenCropPreview: () => null, setHiddenCropPreview: vi.fn(),
         docWidth: () => 1600, docHeight: () => 1200,
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -654,7 +654,7 @@ describe("CropOptionBar", () => {
       const setCropRectSpy = vi.fn((r) => setCropRect(r));
       const setCropModeSpy = vi.fn((m) => setCropMode(m));
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect, setCropRect: setCropRectSpy,
         cropInteractionMode: () => "classic" as const, setCropInteractionMode: vi.fn(),
@@ -671,7 +671,7 @@ describe("CropOptionBar", () => {
         hiddenCropPreview: () => null, setHiddenCropPreview: vi.fn(),
         docWidth: () => 1600, docHeight: () => 1200,
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -693,7 +693,7 @@ describe("CropOptionBar", () => {
       const setCropModeSpy = vi.fn((m) => setCropMode(m));
       const setModernFrameSpy = vi.fn((f) => setModernFrame(f));
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect: () => null, setCropRect: vi.fn(),
         cropInteractionMode: () => "modern" as const, setCropInteractionMode: vi.fn(),
@@ -718,7 +718,7 @@ describe("CropOptionBar", () => {
         resetModernCrop: vi.fn(),
         commitCropState: vi.fn(),
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -747,7 +747,7 @@ describe("CropOptionBar", () => {
       const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
       const setCropModeSpy = vi.fn((m) => setCropMode(m));
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect, setCropRect: setCropRectSpy,
         cropInteractionMode: () => "classic" as const, setCropInteractionMode: vi.fn(),
@@ -764,7 +764,7 @@ describe("CropOptionBar", () => {
         hiddenCropPreview: () => null, setHiddenCropPreview: vi.fn(),
         docWidth: () => 1600, docHeight: () => 1200,
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -792,7 +792,7 @@ describe("CropOptionBar", () => {
       const setCropRectSpy = vi.fn((r) => setCropRect(r));
       const setCropModeSpy = vi.fn((m) => setCropMode(m));
 
-      vi.spyOn(EditorContextModule, "useEditor").mockReturnValue({
+      mockUseEditor({
         workspace: {}, setActiveTool: vi.fn(), scheduler: {},
         cropRect, setCropRect: setCropRectSpy,
         cropInteractionMode: () => "classic" as const, setCropInteractionMode: vi.fn(),
@@ -809,7 +809,7 @@ describe("CropOptionBar", () => {
         hiddenCropPreview: () => null, setHiddenCropPreview: vi.fn(),
         docWidth: () => 1600, docHeight: () => 1200,
         activeDocumentId: () => "mock-doc-id",
-      } as any);
+      });
 
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -873,7 +873,7 @@ describe("CropOptionBar", () => {
       commitCropState: vi.fn(),
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -956,7 +956,7 @@ describe("CropOptionBar", () => {
       activeDocumentId: () => "mock-doc-id",
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -1035,7 +1035,7 @@ describe("CropOptionBar", () => {
       activeDocumentId: () => "mock-doc-id",
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -1114,7 +1114,7 @@ describe("CropOptionBar", () => {
       activeDocumentId: () => "mock-doc-id",
     };
 
-    vi.spyOn(EditorContextModule, "useEditor").mockReturnValue(mockValue as any);
+    mockUseEditor(mockValue);
 
     const container = document.createElement("div");
     document.body.appendChild(container);
