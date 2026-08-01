@@ -16,6 +16,16 @@ vi.mock("../exportDocument", async (importOriginal) => {
   };
 });
 
+// Spy on cancelAutosave only — all other autoSave exports (used by
+// EditorProvider's autosave timer) stay real.
+vi.mock("../autoSave", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../autoSave")>();
+  return {
+    ...actual,
+    cancelAutosave: vi.fn(),
+  };
+});
+
 // Mock native write path.
 vi.mock("@/tauri/native", () => ({
   writeFileBytes: vi.fn().mockResolvedValue(undefined),
@@ -224,10 +234,59 @@ describe("file.save quality prompt (lossy vs lossless)", () => {
       ),
       c2,
     );
+
     await run("file.save");
     expect(qualitySpy).toHaveBeenCalledTimes(1);
     expect(getSavedQuality("webp")).toBe(60);
     d2();
     c2.remove();
+  });
+
+  it("file.save preempts an in-flight autosave: cancelAutosave is called (wiring)", async () => {
+    const { ws } = makeSession("C:/img/save.png");
+    const { cancelAutosave } = await import("../autoSave");
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={{ uploadImage: vi.fn() } as any} scheduler={{ requestRender: vi.fn() } as any}>
+          {harness()}
+        </EditorProvider>
+      ),
+      container,
+    );
+
+    await run("file.save");
+
+    expect(cancelAutosave).toHaveBeenCalled();
+
+    dispose();
+    container.remove();
+  });
+
+  it("file.save-as preempts an in-flight autosave: cancelAutosave is called before the dialog (wiring)", async () => {
+    const { ws } = makeSession("C:/img/save.png");
+    const { cancelAutosave } = await import("../autoSave");
+    const { showSaveDialogAllFormats } = await import("@/tauri/native");
+    vi.mocked(showSaveDialogAllFormats).mockResolvedValue("/path/out.ptz");
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={{ uploadImage: vi.fn() } as any} scheduler={{ requestRender: vi.fn() } as any}>
+          {harness()}
+        </EditorProvider>
+      ),
+      container,
+    );
+
+    await run("file.save-as");
+
+    expect(cancelAutosave).toHaveBeenCalled();
+
+    dispose();
+    container.remove();
   });
 });
