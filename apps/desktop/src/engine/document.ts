@@ -1,17 +1,61 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// DocumentEngine — the document model facade.
+// All mutation logic lives in domain modules (layerOps / viewportOps /
+// selectionOps / cropApply / layerFactory / layerComposite / snapshot /
+// pixelSample / layerAdjustments). This class owns the DocumentModel instance
+// plus engine-level side effects: texture handles, dirty tracking, change
+// callbacks, memory budget and GPU bake coordination.
+// (Report #20 phase 3: split from a single 1006-LOC file into domain modules.)
+
 import type {
   DocumentId, LayerId, DocumentModel, LayerNode,
   ViewportState, SelectionState, RenderState, BlendMode,
   Transform2D, TextureHandle, RenderLayer
 } from "./types";
-import { MAX_LAYERS, MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
+import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 
-import { createLayerNode, duplicateLayerNode, createMergedLayerNode } from "./layerFactory";
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
 import { normalizeBasicAdjustment, bakeAdjustmentToBitmap, type BasicAdjustment } from "./layerAdjustments";
 import type { RenderBackend } from "../renderer/types";
+
+import {
+  addLayer as applyAddLayer,
+  duplicateLayer as applyDuplicateLayer,
+  mergeDown as applyMergeDown,
+  flattenLayers as applyFlattenLayers,
+  deleteLayer as applyDeleteLayer,
+  reorderLayer as applyReorderLayer,
+  setActiveLayer as applySetActiveLayer,
+  setLayerOpacity as applySetLayerOpacity,
+  setLayerVisibility as applySetLayerVisibility,
+  setLayerLocked as applySetLayerLocked,
+  setLayerLockTransparency as applySetLayerLockTransparency,
+  setLayerLockPosition as applySetLayerLockPosition,
+  setLayerLockRotation as applySetLayerLockRotation,
+  setLayerName as applySetLayerName,
+  setLayerBlendMode as applySetLayerBlendMode,
+  moveLayer as applyMoveLayer,
+  transformLayer as applyTransformLayer,
+  flipLayer as applyFlipLayer,
+  calculateMemoryUsage as calcLayerMemory,
+  canAddLayer as canFitLayer,
+} from "./layerOps";
+import {
+  setViewport as applySetViewport,
+  pan as applyPan,
+  zoom as applyZoom,
+  fitToScreen as applyFitToScreen,
+  zoomToSelection as applyZoomToSelection,
+} from "./viewportOps";
+import {
+  createSelection as applyCreateSelection,
+  clearSelection as applyClearSelection,
+  selectAll as applySelectAll,
+  invertSelection as applyInvertSelection,
+} from "./selectionOps";
 
 export { drawLayerToContext };
 
@@ -95,494 +139,171 @@ export class DocumentEngine {
 
   // ─── Layer Operations ───
   addLayer(name: string, width?: number, height?: number): LayerNode {
-    if (this.model.layers.length >= MAX_LAYERS) {
-      throw new Error(`Maximum layer limit of ${MAX_LAYERS} reached`);
-    }
-
-    const w = width ?? this.model.width;
-    const h = height ?? this.model.height;
-    if (w > getEffectiveMaxDim() || h > getEffectiveMaxDim()) {
-      throw new Error(`Layer dimensions exceed device limit ${getEffectiveMaxDim()}px per side`);
-    }
-
-    if (!this.canAddLayer(w, h)) {
-      throw new Error("E_RESOURCE_LIMIT: Adding this layer exceeds maximum pixel memory budget.");
-    }
-
-    const newLayer = createLayerNode(name, w, h);
-
-    // Insert directly above active layer if selected, else at front (top) of stack
-    const activeId = this.model.activeLayerId;
-    const activeIndex = activeId ? this.model.layers.findIndex(l => l.id === activeId) : -1;
-    if (activeIndex !== -1) {
-      this.model.layers = [
-        ...this.model.layers.slice(0, activeIndex),
-        newLayer,
-        ...this.model.layers.slice(activeIndex)
-      ];
-    } else {
-      this.model.layers = [newLayer, ...this.model.layers];
-    }
-    this.model.activeLayerId = newLayer.id;
-    this.model.dirty = true;
+    const newLayer = applyAddLayer(this.model, name, width, height);
     this.markLayerDirty(newLayer.id);
     this.notifyChange();
-
     return newLayer;
   }
 
   duplicateLayer(id: LayerId): LayerNode {
-    if (this.model.layers.length >= MAX_LAYERS) {
-      throw new Error(`Maximum layer limit of ${MAX_LAYERS} reached`);
-    }
-
-    const layer = this.getLayer(id);
-    if (!layer) {
-      throw new Error(`Layer with ID ${id} not found`);
-    }
-
-    if (!this.canAddLayer(layer.width, layer.height)) {
-      throw new Error("E_RESOURCE_LIMIT: Duplicating this layer exceeds maximum pixel memory budget.");
-    }
-
-    const duplicated = duplicateLayerNode(layer);
-
-    // Rename with numeric suffix instead of "copy"
-    // "Background" → "Background 2", "Background 2" → "Background 3", etc.
-    duplicated.name = this.nextDuplicateName(layer.name);
-
-    const index = this.model.layers.findIndex(l => l.id === id);
-    if (index !== -1) {
-      const updated = [...this.model.layers];
-      updated.splice(index, 0, duplicated);
-      this.model.layers = updated;
-    } else {
-      this.model.layers = [duplicated, ...this.model.layers];
-    }
-
-    this.model.activeLayerId = duplicated.id;
-    this.model.dirty = true;
+    const duplicated = applyDuplicateLayer(this.model, id);
     this.markLayerDirty(duplicated.id);
     this.notifyChange();
-
     return duplicated;
   }
 
   mergeDown(id: LayerId): void {
-    const index = this.model.layers.findIndex(l => l.id === id);
-    if (index === -1 || index >= this.model.layers.length - 1) {
-      return;
-    }
-
-    const top = this.model.layers[index];
-    const bottom = this.model.layers[index + 1];
-
-    const mergedW = this.model.width;
-    const mergedH = this.model.height;
-
-    const mergedBitmap = compositeTwoLayers(top, bottom, mergedW, mergedH);
-
-    const mergedLayer = createMergedLayerNode(
-      `${top.name} + ${bottom.name}`,
-      mergedW,
-      mergedH,
-      mergedBitmap,
-      bottom.locked || top.locked,
-      bottom.blendMode
-    );
+    const result = applyMergeDown(this.model, id);
+    if (!result) return;
 
     // Clean up WebGL textures for merged layers
-    this.dirtyLayerIds.delete(top.id);
-    this.textureHandles.delete(top.id);
-    this.dirtyLayerIds.delete(bottom.id);
-    this.textureHandles.delete(bottom.id);
-
-    const updated = [...this.model.layers];
-    updated.splice(index, 2, mergedLayer);
-    this.model.layers = updated;
-
-    this.model.activeLayerId = mergedLayer.id;
-    this.model.dirty = true;
-    this.markLayerDirty(mergedLayer.id);
+    for (const removedId of result.removedIds) {
+      this.dirtyLayerIds.delete(removedId);
+      this.textureHandles.delete(removedId);
+    }
+    this.markLayerDirty(result.merged.id);
     this.notifyChange();
   }
 
   flattenLayers(): void {
-    if (this.model.layers.length <= 1) return;
+    const removedIds = applyFlattenLayers(this.model);
+    if (removedIds.length === 0) return;
 
-    const mergedW = this.model.width;
-    const mergedH = this.model.height;
-
-    const mergedBitmap = compositeAllLayers(this.model.layers, mergedW, mergedH);
-
-    const flattenedLayer = createMergedLayerNode(
-      "Background",
-      mergedW,
-      mergedH,
-      mergedBitmap,
-      false,
-      "normal"
-    );
-    // The flattened result is the new bottom layer — flag it as the
-    // Background (with the position/rotation locks the app's real
-    // Background layers carry) so it matches the bg invariant.
-    flattenedLayer.isBackground = true;
-    flattenedLayer.lockPosition = true;
-    flattenedLayer.lockRotation = true;
-
-    for (const layer of this.model.layers) {
-      this.dirtyLayerIds.delete(layer.id);
-      this.textureHandles.delete(layer.id);
+    for (const removedId of removedIds) {
+      this.dirtyLayerIds.delete(removedId);
+      this.textureHandles.delete(removedId);
     }
-
-    this.model.layers = [flattenedLayer];
-    this.model.activeLayerId = flattenedLayer.id;
-    this.model.dirty = true;
-    this.markLayerDirty(flattenedLayer.id);
+    this.markLayerDirty(this.model.activeLayerId!);
     this.notifyChange();
   }
 
   deleteLayer(id: LayerId): void {
-    const layer = this.getLayer(id);
-    if (layer?.isBackground) return;
+    const removedId = applyDeleteLayer(this.model, id);
+    if (removedId === null) return;
 
-    if (this.model.layers.length <= 1) {
-      return; // prevent deleting the last layer
-    }
-
-    const index = this.model.layers.findIndex(l => l.id === id);
-    if (index !== -1) {
-      const removed = this.model.layers[index];
-      this.model.layers = this.model.layers.filter(l => l.id !== id);
-      this.dirtyLayerIds.delete(id);
-      this.textureHandles.delete(id);
-      // NOTE: we intentionally do NOT close any bitmaps from the
-      // removed layer here.  Snapshots in the undo/redo stack may
-      // hold a reference to them; closing them here would make
-      // those snapshots point to closed/detached bitmaps, causing
-      // "image source is detached" errors on restore (undo/redo).
-      // Memory is reclaimed by GC once no snapshot or layer
-      // references remain.
-      // deleteLayer is called AFTER history.commit() in
-      // every production path, so the undo-stack snapshot already
-      // holds a reference to these bitmaps.
-
-      // Select another layer
-      if (this.model.activeLayerId === id) {
-        const nextActiveIndex = Math.min(index, this.model.layers.length - 1);
-        this.model.activeLayerId = this.model.layers[nextActiveIndex].id;
-      }
-
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    this.dirtyLayerIds.delete(removedId);
+    this.textureHandles.delete(removedId);
+    this.notifyChange();
   }
 
   reorderLayer(fromIndex: number, toIndex: number): void {
-    if (fromIndex < 0 || fromIndex >= this.model.layers.length ||
-        toIndex < 0 || toIndex >= this.model.layers.length) {
-      return;
-    }
-
-    const fromLayer = this.model.layers[fromIndex];
-    // The Background layer is locked to the bottom of the stack — it can
-    // never be reordered, and no other layer may be placed below it (a
-    // layer beneath the opaque Background would be unreachable / hidden).
-    if (fromLayer?.isBackground) return;
-
-    const updated = [...this.model.layers];
-    const [moved] = updated.splice(fromIndex, 1);
-    updated.splice(toIndex, 0, moved);
-
-    // Invariant: the Background is always the bottommost layer. If the move
-    // pushed it off the bottom, re-seat it there so a normal layer can
-    // never end up hidden behind it.
-    const bgIdx = updated.findIndex((l) => l.isBackground);
-    if (bgIdx >= 0 && bgIdx !== updated.length - 1) {
-      const [bg] = updated.splice(bgIdx, 1);
-      updated.push(bg);
-    }
-
-    this.model.layers = updated;
-    this.model.dirty = true;
+    applyReorderLayer(this.model, fromIndex, toIndex);
     this.notifyChange();
   }
 
   setActiveLayer(id: LayerId | null): void {
-    if (id === null || this.model.layers.some(l => l.id === id)) {
-      this.model.activeLayerId = id;
-      this.notifyChange();
-    }
+    applySetActiveLayer(this.model, id);
+    this.notifyChange();
   }
 
   // ─── Layer Properties ───
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerOpacity(id: LayerId, opacity: number): void {
-    const layer = this.getLayer(id);
-    if (layer && !layer.locked) {
-      layer.opacity = Math.max(0.0, Math.min(1.0, opacity));
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applySetLayerOpacity(this.model, id, opacity);
+    this.notifyChange();
   }
 
   setLayerVisibility(id: LayerId, visible: boolean): void {
-    const layer = this.getLayer(id);
-    if (layer) {
-      layer.visible = visible;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applySetLayerVisibility(this.model, id, visible);
+    this.notifyChange();
   }
 
   setLayerLocked(id: LayerId, locked: boolean): void {
-    const layer = this.getLayer(id);
-    if (layer) {
-      layer.locked = locked;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applySetLayerLocked(this.model, id, locked);
+    this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockTransparency(id: LayerId, locked: boolean): void {
-    const layer = this.getLayer(id);
-    if (layer) {
-      layer.lockTransparency = locked;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applySetLayerLockTransparency(this.model, id, locked);
+    this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockPosition(id: LayerId, locked: boolean): void {
-    const layer = this.getLayer(id);
-    if (layer) {
-      layer.lockPosition = locked;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applySetLayerLockPosition(this.model, id, locked);
+    this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockRotation(id: LayerId, locked: boolean): void {
-    const layer = this.getLayer(id);
-    if (layer) {
-      layer.lockRotation = locked;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
-  }
-
-  /** Strip trailing number from a layer name to get the base name */
-  private baseName(name: string): string {
-    const match = name.match(/^(.*?)\s*(\d+)$/);
-    return match ? match[1].trimEnd() : name.trimEnd();
-  }
-
-  /** Generate the next numeric-suffixed name for a duplicating layer.
-   *  "Background" → "Background 2", "Background 2" → "Background 3", etc. */
-  private nextDuplicateName(layerName: string): string {
-    const base = this.baseName(layerName);
-    const prefix = `${base} `;
-    let maxNum = 1;
-    for (const l of this.model.layers) {
-      if (l.name.startsWith(prefix)) {
-        const num = parseInt(l.name.slice(prefix.length), 10);
-        if (!isNaN(num) && num > maxNum) maxNum = num;
-      }
-    }
-    return `${base} ${maxNum + 1}`;
+    applySetLayerLockRotation(this.model, id, locked);
+    this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerName(id: LayerId, name: string): void {
-    const layer = this.getLayer(id);
-    if (layer) {
-      // Renaming Background → normal layer
-      if (layer.isBackground) {
-        layer.isBackground = undefined;
-        layer.lockPosition = false;
-        layer.lockRotation = false;
-      }
-      layer.name = name;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applySetLayerName(this.model, id, name);
+    this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerBlendMode(id: LayerId, mode: BlendMode): void {
-    const layer = this.getLayer(id);
-    if (layer && !layer.locked) {
-      layer.blendMode = mode;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applySetLayerBlendMode(this.model, id, mode);
+    this.notifyChange();
   }
 
   // ─── Layer Transform ───
   moveLayer(id: LayerId, x: number, y: number): void {
-    const layer = this.getLayer(id);
-    if (layer && !layer.locked && !layer.lockPosition) {
-      layer.transform.x = x;
-      layer.transform.y = y;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applyMoveLayer(this.model, id, x, y);
+    this.notifyChange();
   }
 
   transformLayer(id: LayerId, transform: Partial<Transform2D>): void {
-    const layer = this.getLayer(id);
-    if (layer && !layer.locked) {
-      const updatedTransform = { ...layer.transform };
-
-      // Apply positional changes only if position lock is false
-      if (!layer.lockPosition) {
-        if (transform.x !== undefined) updatedTransform.x = transform.x;
-        if (transform.y !== undefined) updatedTransform.y = transform.y;
-      }
-
-      // Apply rotational changes only if rotation lock is false
-      if (!layer.lockRotation) {
-        if (transform.rotation !== undefined) updatedTransform.rotation = transform.rotation;
-      }
-
-      // Scale, flips, etc. are always applied (or add more locks if needed in the future)
-      if (transform.scaleX !== undefined) updatedTransform.scaleX = transform.scaleX;
-      if (transform.scaleY !== undefined) updatedTransform.scaleY = transform.scaleY;
-      if (transform.flipH !== undefined) updatedTransform.flipH = transform.flipH;
-      if (transform.flipV !== undefined) updatedTransform.flipV = transform.flipV;
-
-      layer.transform = updatedTransform;
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applyTransformLayer(this.model, id, transform);
+    this.notifyChange();
   }
 
   flipLayer(id: LayerId, axis: "h" | "v"): void {
-    const layer = this.getLayer(id);
-    if (layer && !layer.locked) {
-      if (axis === "h") {
-        layer.transform.flipH = !layer.transform.flipH;
-      } else {
-        layer.transform.flipV = !layer.transform.flipV;
-      }
-      this.model.dirty = true;
-      this.notifyChange();
-    }
+    applyFlipLayer(this.model, id, axis);
+    this.notifyChange();
   }
 
   // ─── Selection ───
   createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void {
-    // Only store `shape` when non-default (ellipse) so the selection object
-    // stays backward-compatible (rect selections have no `shape` key).
-    this.model.selection = shape === "ellipse"
-      ? { x, y, width: w, height: h, angle: angle ?? 0, shape: "ellipse" }
-      : { x, y, width: w, height: h, angle: angle ?? 0 };
+    applyCreateSelection(this.model, x, y, w, h, angle, shape);
     this.notifyChange();
   }
 
   clearSelection(): void {
-    this.model.selection = null;
+    applyClearSelection(this.model);
     this.notifyChange();
   }
 
   selectAll(): void {
-    this.model.selection = {
-      x: 0,
-      y: 0,
-      width: this.model.width,
-      height: this.model.height,
-      angle: 0,
-    };
+    applySelectAll(this.model);
     this.notifyChange();
   }
 
   invertSelection(): void {
-    if (this.model.selection) {
-      this.model.selection = {
-        ...this.model.selection,
-        inverted: !this.model.selection.inverted,
-      };
-    } else {
-      this.selectAll();
-      return;
-    }
+    applyInvertSelection(this.model);
     this.notifyChange();
   }
 
   // ─── Viewport ───
   setViewport(viewport: Partial<ViewportState>): void {
-    this.model.viewport = {
-      ...this.model.viewport,
-      ...viewport
-    };
+    applySetViewport(this.model, viewport);
     this.notifyChange();
   }
 
   pan(dx: number, dy: number): void {
-    this.model.viewport.panX += dx;
-    this.model.viewport.panY += dy;
+    applyPan(this.model, dx, dy);
     this.notifyChange();
   }
 
   zoom(factor: number, anchorX?: number, anchorY?: number): void {
-    const currentZoom = this.model.viewport.zoom;
-    const nextZoom = Math.max(0.01, Math.min(100.0, currentZoom * factor));
-
-    if (anchorX !== undefined && anchorY !== undefined) {
-      // Zoom centered at anchor point
-      this.model.viewport.panX = anchorX - (anchorX - this.model.viewport.panX) * (nextZoom / currentZoom);
-      this.model.viewport.panY = anchorY - (anchorY - this.model.viewport.panY) * (nextZoom / currentZoom);
-    }
-
-    this.model.viewport.zoom = nextZoom;
+    applyZoom(this.model, factor, anchorX, anchorY);
     this.notifyChange();
   }
 
   fitToScreen(containerWidth: number, containerHeight: number): void {
-    const padding = 80;
-    const fitZoom = Math.min(
-      (containerWidth - padding) / this.model.width,
-      (containerHeight - padding) / this.model.height,
-      10.0
-    );
-
-    this.model.viewport.zoom = Math.max(0.05, fitZoom);
-    this.model.viewport.panX = (containerWidth - this.model.width * this.model.viewport.zoom) / 2;
-    this.model.viewport.panY = (containerHeight - this.model.height * this.model.viewport.zoom) / 2;
+    applyFitToScreen(this.model, containerWidth, containerHeight);
     this.notifyChange();
   }
 
-  /**
-   * Fit the active selection bounds into the viewport (centered), like a
-   * zoom-to-selection command in similar editors. Clamps the rect to the
-   * document and falls back to the whole-document fit when no selection
-   * exists (so it is always safe to call).
-   */
   zoomToSelection(containerWidth: number, containerHeight: number): void {
-    const sel = this.model.selection;
-    if (sel) {
-      const left = Math.max(0, Math.min(this.model.width, sel.x));
-      const top = Math.max(0, Math.min(this.model.height, sel.y));
-      const right = Math.max(0, Math.min(this.model.width, sel.x + sel.width));
-      const bottom = Math.max(0, Math.min(this.model.height, sel.y + sel.height));
-      const w = Math.max(1, right - left);
-      const h = Math.max(1, bottom - top);
-      const padding = 80;
-      const zoom = Math.min(
-        (containerWidth - padding) / w,
-        (containerHeight - padding) / h,
-        10.0
-      );
-      this.model.viewport.zoom = Math.max(0.05, zoom);
-      this.model.viewport.panX = (containerWidth - w * this.model.viewport.zoom) / 2 - left * this.model.viewport.zoom;
-      this.model.viewport.panY = (containerHeight - h * this.model.viewport.zoom) / 2 - top * this.model.viewport.zoom;
-      this.notifyChange();
-      return;
-    }
-    this.fitToScreen(containerWidth, containerHeight);
+    applyZoomToSelection(this.model, containerWidth, containerHeight);
+    this.notifyChange();
   }
 
   // ─── Canvas Operations ───
@@ -785,7 +506,6 @@ export class DocumentEngine {
     this.model.dirty = true;
     this.markLayerDirty(id);
     return usedGpu ? "gpu" : "cpu";
-    this.notifyVisualChange();
   }
 
   // ─── Texture Handles ───
@@ -982,16 +702,11 @@ export class DocumentEngine {
 
   // ─── Memory Budget ───
   calculateMemoryUsage(): number {
-    let bytes = 0;
-    for (const layer of this.model.layers) {
-      bytes += layer.width * layer.height * 4; // RGBA8
-    }
-    return bytes;
+    return calcLayerMemory(this.model);
   }
 
   canAddLayer(width: number, height: number): boolean {
-    const projected = this.calculateMemoryUsage() + (width * height * 4);
-    return projected <= MAX_PIXEL_BUDGET;
+    return canFitLayer(this.model, width, height);
   }
 
   // ─── Pixel Sampling (Eyedropper support) ───

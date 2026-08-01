@@ -1,15 +1,15 @@
 import { createMemo, createSignal, createEffect, Show } from "solid-js";
 import { screenToDocument } from "@/viewport/coords";
 import { computeSnapAdjustment } from "@/viewport/smartGuides";
-import type { SnapRect } from "@/viewport/smartGuides";
-import { getLayerAabb } from "@/viewport/transformGeometry";
-import { hitTestLayers, type LayerInfo } from "@/viewport/layerHitTest";
+import { buildTransformSnapTargets } from "@/viewport/transformSnapTargets";
 import { useEditor } from "../shell/EditorContext";
 import { useCanvasKeyboard } from "./useCanvasKeyboard";
 import { useBrushOverlay } from "../useBrushOverlay";
 import { usePanNavigation } from "./usePanNavigation";
 import { useViewportRenderer } from "./useViewportRenderer";
 import { useCanvasPointerTools } from "./useCanvasPointerTools";
+import { usePasteboardGesture } from "./usePasteboardGesture";
+import { useCropOverlayStyles } from "./useCropOverlayStyles";
 import { useCanvasLayerDrag } from "../layers/useCanvasLayerDrag";
 import { useCanvasDerivedState } from "./useCanvasDerivedState";
 import { useDragController } from "../DragController";
@@ -26,7 +26,6 @@ import { SelectionRenderer } from "@/features/selection/SelectionRenderer";
 import { BrushContextMenu } from "../BrushContextMenu";
 import { CanvasContextMenu } from "./CanvasContextMenu";
 import { GradientOverlay } from "./GradientOverlay";
-import { getPasteboardClickAction } from "../tools/pasteboardClickPolicy";
 import {
   docFrameToScreenFrame,
   getDefaultModernCropFrame,
@@ -40,9 +39,6 @@ import { fitCropRectToAspect } from "@/viewport/cropAutoFit";
 import {
   clearCropPreview,
   applyCropPreview,
-  hideCropPreview,
-  hasCropReplacementDragDistance,
-  createCropRectFromDocumentPoints,
 } from "../cropToolActions";
 
 export function CanvasViewport() {
@@ -138,14 +134,6 @@ export function CanvasViewport() {
   // Active crop handle drag state
   const [isCropDragging, setIsCropDragging] = createSignal(false);
 
-  const [pendingPasteboardCropGesture, setPendingPasteboardCropGesture] =
-    createSignal<{
-      pointerId: number;
-      startClient: { clientX: number; clientY: number };
-      startDocument: { x: number; y: number };
-      replacementStarted: boolean;
-    } | null>(null);
-
   // Sync modern crop state to camera image transform.
   // The camera's VP matrix will include this transform, eliminating
   // the need for CSS transform on the canvas.
@@ -207,6 +195,21 @@ export function CanvasViewport() {
     scheduler.requestRender();
   });
 
+  const { resolvedCropFillColor, classicCropFillPreviewStyle, modernCropScreenFrame, modernCropFillPreviewStyle, canvasScreenRect } =
+    useCropOverlayStyles({
+      cropRect,
+      cropRotation,
+      zoom,
+      pan,
+      cropFillSource,
+      bgColor,
+      cropFillCustomColor,
+      modernCropFrame,
+      modernCropImageTransform,
+      docWidth,
+      docHeight,
+    });
+
   // Modern crop CSS transform string (used only when feature flag is OFF)
   const modernImageTransformStyle = createMemo(() => {
     const frame = modernCropFrame();
@@ -235,45 +238,6 @@ export function CanvasViewport() {
       `scale(${zoom() * transform.scale})`,
       `translate3d(${-pivot.document.x}px, ${-pivot.document.y}px, 0)`,
     ].join(" ");
-  });
-
-  const resolvedCropFillColor = createMemo(() =>
-    cropFillSource() === "background" ? bgColor() : cropFillCustomColor(),
-  );
-
-  const classicCropFillPreviewStyle = createMemo(() => {
-    const rect = cropRect();
-    if (!rect) return {};
-    return {
-      position: "absolute" as const,
-      width: `${rect.w * zoom()}px`,
-      height: `${rect.h * zoom()}px`,
-      "background-color": resolvedCropFillColor(),
-      transform: `translate(${pan().x + rect.x * zoom()}px, ${pan().y + rect.y * zoom()}px) rotate(${cropRotation()}deg)`,
-      "transform-origin": "center",
-      "pointer-events": "none" as const,
-      "will-change": "transform",
-    };
-  });
-
-  // Derived screen-space frame from doc-space frame + zoom + pan.
-  // Used for rendering, pivot computation, and overlay positioning.
-  const modernCropScreenFrame = createMemo(() => {
-    return docFrameToScreenFrame(modernCropFrame(), zoom(), pan());
-  });
-
-  const modernCropFillPreviewStyle = createMemo(() => {
-    const frame = modernCropScreenFrame();
-    if (!frame) return {};
-    return {
-      position: "absolute" as const,
-      left: `${frame.x}px`,
-      top: `${frame.y}px`,
-      width: `${frame.w}px`,
-      height: `${frame.h}px`,
-      "background-color": resolvedCropFillColor(),
-      "pointer-events": "none" as const,
-    };
   });
 
   const activeLayer = createMemo(() => {
@@ -363,6 +327,42 @@ export function CanvasViewport() {
     onPaintStroke,
     cropSnapTargets: () => cropSnapTargets(),
     moveSnapEnabled: () => moveSnapEnabled(),
+  });
+
+  const {
+    handlePasteboardPointerDown,
+    handlePasteboardPointerMove,
+    handlePasteboardPointerUp,
+    handlePasteboardPointerCancel,
+    handleMoveAutoSelect,
+  } = usePasteboardGesture({
+    getCanvasContainerRef: () => canvasContainerRef,
+    getCanvasRef: () => canvasRef,
+    isSpacePressed,
+    isPanning,
+    activeTool,
+    cropRect,
+    cropRotation,
+    hiddenCropPreview,
+    cropInteractionMode,
+    docWidth,
+    docHeight,
+    moveAutoSelect,
+    layerTransformSession,
+    selectionBox,
+    selectedLayerId,
+    getEngine: () => workspace.getActiveEngine(),
+    screenToDocumentPoint,
+    onCanvasPointerDown,
+    setSelectedLayerId,
+    setSelectionBoxSignal,
+    setHoverHandle,
+    setSnapLines,
+    setHudInfo,
+    setCropRect,
+    setCropRotation,
+    setHiddenCropPreview,
+    scheduler,
   });
 
   // The engine/context selection is authoritative. Pointer tools keep a local
@@ -523,253 +523,6 @@ export function CanvasViewport() {
       }
     },
   });
-
-  // Derived canvas screen rect for expansion fill indicator →memo outside Show to guarantee reactivity
-  // The dashed canvas boundary line represents the TRANSFORMED image boundary,
-  // including offset/scale/rotation from modernCropImageTransform. This ensures
-  // the expansion fill and dashed outline track the image, not just the
-  // viewport-space doc position.
-  const canvasScreenRect = createMemo(() => {
-    const p = pan();
-    const z = zoom();
-    const docW = docWidth();
-    const docH = docHeight();
-    const transform = modernCropImageTransform();
-    // Apply image offset and scale so the dashed line tracks the image
-    const sx = p.x + transform.offsetX;
-    const sy = p.y + transform.offsetY;
-    const sz = z * (transform.scale ?? 1);
-    const rot = transform.rotation;
-    if (rot !== 0) {
-      // Under rotation the document is skewed; compute an axis-aligned
-      // bounding box that covers the rotated canvas so the expansion
-      // fill and dashed boundary outline remain visible as reference.
-      const cx = sx + (docW * sz) / 2;
-      const cy = sy + (docH * sz) / 2;
-      const rad = (Math.abs(rot) * Math.PI) / 180;
-      const hw = (docW * sz) / 2;
-      const hh = (docH * sz) / 2;
-      const cos = Math.cos(rad);
-      const sin = Math.sin(rad);
-      // Rotate the four corners and find the bounding box
-      const corners = [
-        { x: -hw, y: -hh }, { x: hw, y: -hh },
-        { x: hw, y: hh }, { x: -hw, y: hh },
-      ].map(c => ({
-        x: c.x * cos - c.y * sin + cx,
-        y: c.x * sin + c.y * cos + cy,
-      }));
-      const minX = Math.min(...corners.map(c => c.x));
-      const minY = Math.min(...corners.map(c => c.y));
-      const maxX = Math.max(...corners.map(c => c.x));
-      const maxY = Math.max(...corners.map(c => c.y));
-      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-    }
-    return {
-      x: sx,
-      y: sy,
-      w: docW * sz,
-      h: docH * sz,
-    };
-  });
-
-  const isPasteboardPointerDown = (e: PointerEvent) => {
-    if (e.target === canvasContainerRef) return true;
-    // The SVG overlay (z-index 40, full viewport) sits on top of the canvas.
-    // Clicks outside the document bounds that land on the SVG are pasteboard clicks.
-    const target = e.target as Element | null;
-    if (target?.closest?.("[data-overlay-svg]")) {
-      if (activeTool() === "crop" && !cropRect()) return false;
-      const point = screenToDocumentPoint(e);
-      return (
-        point.x < 0 ||
-        point.y < 0 ||
-        point.x > docWidth() ||
-        point.y > docHeight()
-      );
-    }
-    if (e.target === canvasRef) {
-      if (activeTool() === "crop" && !cropRect()) return false;
-      const point = screenToDocumentPoint(e);
-      return (
-        point.x < 0 ||
-        point.y < 0 ||
-        point.x > docWidth() ||
-        point.y > docHeight()
-      );
-    }
-    // In Modern crop mode, the SVG overlay (z-index 40, full viewport)
-    // captures pasteboard clicks. Route them to the canvas handler.
-    if (activeTool() === "crop" && cropInteractionMode() === "modern") {
-      if (!target?.closest) return false;
-      if (!target.closest("[data-modern-crop-overlay]")) return false;
-      // If the click hit an interactive child (handle, move rect, rotate ring),
-      // it's a frame interaction, not a pasteboard click.
-      return !target.closest(
-        "[data-modern-crop-handle], [data-modern-crop-move], [data-modern-crop-rotate]",
-      );
-    }
-    return false;
-  };
-
-  const handleMoveAutoSelect = (e: PointerEvent) => {
-    if (activeTool() !== "move") return;
-    if (!moveAutoSelect()) return;
-    if (isSpacePressed() || isPanning()) return;
-    const target = e.target as Element | null;
-
-    const isSvgOverlayClick = target?.closest?.("[data-overlay-svg]");
-    if (isSvgOverlayClick) {
-      // Only intercept clicks on the SVG root (not on child elements like
-      // move rect/handles which have their own onPointerDown).
-      if (target !== target?.closest?.("[data-overlay-svg]")) return;
-    } else {
-      // If there is no SVG overlay, allow clicks directly on the canvas or container
-      if (target !== canvasRef && target !== canvasContainerRef) return;
-    }
-
-    const engine = workspace.getActiveEngine();
-    if (!engine) return;
-
-    const coords = screenToDocumentPoint(e);
-    const docW = docWidth();
-    const docH = docHeight();
-    if (coords.x < 0 || coords.y < 0 || coords.x > docW || coords.y > docH)
-      return;
-
-    const allLayers = [...engine.getLayers()];
-    const hit = hitTestLayers(coords, allLayers as LayerInfo[], (id, x, y) => engine.sampleLayerAlpha(id, x, y));
-    if (hit && hit.id !== selectedLayerId()) {
-      engine.setActiveLayer(hit.id);
-      setSelectedLayerId(hit.id);
-      scheduler.requestRender();
-    } else if (!hit) {
-      setSelectedLayerId(null);
-    }
-  };
-
-  const handlePasteboardPointerDown = (e: PointerEvent) => {
-    if (!isPasteboardPointerDown(e)) return;
-    if (e.button !== 0) return;
-
-    if (activeTool() === "crop") {
-      if (isSpacePressed() || isPanning()) return;
-      if (cropInteractionMode() === "modern") {
-        // Route to canvas handler →it calls canvas.setPointerCapture()
-        // and tracks modernDragStart for drag-to-create. After canvas
-        // captures the pointer, subsequent events go to canvas handlers.
-        onCanvasPointerDown(e);
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-
-      const startDocument = screenToDocumentPoint(e);
-      setPendingPasteboardCropGesture({
-        pointerId: e.pointerId,
-        startClient: { clientX: e.clientX, clientY: e.clientY },
-        startDocument,
-        replacementStarted: false,
-      });
-      (e.currentTarget as HTMLElement)?.setPointerCapture(e.pointerId);
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-
-    const engine = workspace.getActiveEngine();
-    const action = getPasteboardClickAction({
-      hasDocument: Boolean(engine),
-      activeTool: activeTool(),
-      isNavigationMode: isSpacePressed() || isPanning(),
-      hasLayerTransformSession: Boolean(layerTransformSession()),
-      hasCropRect: Boolean(cropRect()),
-      hasSelectionPreview: Boolean(selectionBox()),
-    });
-
-    if (action === "noop") return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (action === "clear-active-layer" && engine) {
-      setSelectedLayerId(null);
-      setHoverHandle(null);
-      setSnapLines([]);
-      setHudInfo(null);
-      scheduler.requestRender();
-      return;
-    }
-
-    if (action === "clear-selection-preview") {
-      setSelectionBoxSignal(null);
-      engine?.clearSelection();
-      setSnapLines([]);
-      setHudInfo(null);
-      scheduler.requestRender();
-      return;
-    }
-  };
-
-  const handlePasteboardPointerMove = (e: PointerEvent) => {
-    const pending = pendingPasteboardCropGesture();
-    if (pending && e.pointerId === pending.pointerId) {
-      if (!hasCropReplacementDragDistance(pending.startClient, e)) {
-        return;
-      }
-
-      const nextRect = createCropRectFromDocumentPoints(
-        pending.startDocument,
-        screenToDocumentPoint(e),
-      );
-      if (!nextRect) {
-        return;
-      }
-
-      setHiddenCropPreview(null);
-      setCropRotation(0);
-      setCropRect(nextRect);
-      setPendingPasteboardCropGesture({ ...pending, replacementStarted: true });
-      e.preventDefault();
-    }
-  };
-
-  const handlePasteboardPointerUp = (e: PointerEvent) => {
-    const pending = pendingPasteboardCropGesture();
-    if (pending && e.pointerId === pending.pointerId) {
-      setPendingPasteboardCropGesture(null);
-      try {
-        (e.currentTarget as HTMLElement)?.releasePointerCapture(e.pointerId);
-      } catch {}
-
-      if (
-        !pending.replacementStarted &&
-        !hasCropReplacementDragDistance(pending.startClient, e)
-      ) {
-        hideCropPreview({
-          cropRect,
-          cropRotation,
-          hiddenCropPreview,
-          setCropRect,
-          setCropRotation,
-          setHiddenCropPreview,
-        });
-        setHoverHandle(null);
-        setSnapLines([]);
-        setHudInfo(null);
-        scheduler.requestRender();
-      }
-
-      e.preventDefault();
-    }
-  };
-
-  const handlePasteboardPointerCancel = (e: PointerEvent) => {
-    const pending = pendingPasteboardCropGesture();
-    if (pending && e.pointerId === pending.pointerId) {
-      setPendingPasteboardCropGesture(null);
-    }
-  };
 
   const dragController = useDragController();
 
@@ -1021,49 +774,12 @@ export function CanvasViewport() {
               onComputeSnap={(rect) => {
                 const engine = workspace.getActiveEngine();
                 if (!engine) return { dx: 0, dy: 0, lines: [] };
-                const movingId = engine.getActiveLayerId();
-                const docW = engine.getWidth();
-                const docH = engine.getHeight();
-                const layerTargets: SnapRect[] = engine
-                  .getLayers()
-                  .filter((l) => l.visible && l.id !== movingId)
-                  .map((l) => {
-                    const aabb = getLayerAabb(l.transform, l.width, l.height);
-                    return {
-                      x: aabb.x,
-                      y: aabb.y,
-                      w: aabb.width,
-                      h: aabb.height,
-                    };
-                  });
-                const snapTargets: SnapRect[] = [
-                  {
-                    x: 0,
-                    y: 0,
-                    w: docW,
-                    h: docH,
-                    snapThreshold: 12,
-                    snapPriority: 3,
-                  },
-                  {
-                    x: docW / 2,
-                    y: -Infinity,
-                    w: 0,
-                    h: Infinity,
-                    snapThreshold: 6,
-                    snapPriority: 2,
-                  },
-                  {
-                    x: -Infinity,
-                    y: docH / 2,
-                    w: Infinity,
-                    h: 0,
-                    snapThreshold: 6,
-                    snapPriority: 2,
-                  },
-                  ...layerTargets,
-                ];
-                const result = computeSnapAdjustment(rect, snapTargets, 5, zoom());
+                const result = computeSnapAdjustment(
+                  rect,
+                  buildTransformSnapTargets(engine, engine.getWidth(), engine.getHeight()),
+                  5,
+                  zoom(),
+                );
                 setSnapLines(result.lines);
                 return result;
               }}

@@ -10,85 +10,25 @@ import {
 } from "./shaders";
 import { getCheckerboardColors } from "./checkerboard";
 import { blendModeToShaderId } from "../engine/blendModes";
+import {
+  projectDocumentScissor,
+  getInterLayerCopyQuad,
+  getRequiredUniformLocation,
+  WEBGL2_CONTEXT_OPTIONS,
+  WEBGL2_CONTEXT_RESTORED_EVENT,
+  compileShader,
+  createProgram,
+  computeViewMatrix,
+} from "./glHelpers";
 
-export function projectDocumentScissor(
-  viewProj: Float32Array,
-  docW: number,
-  docH: number,
-  canvasW: number,
-  canvasH: number,
-): { x: number; y: number; width: number; height: number } {
-  const project = (x: number, y: number) => {
-    const ndcX = viewProj[0] * x + viewProj[4] * y + viewProj[12];
-    const ndcY = viewProj[1] * x + viewProj[5] * y + viewProj[13];
-    return {
-      x: ((ndcX + 1) / 2) * canvasW,
-      y: ((1 - ndcY) / 2) * canvasH,
-    };
-  };
-
-  const corners = [
-    project(0, 0),
-    project(docW, 0),
-    project(0, docH),
-    project(docW, docH),
-  ];
-  const minX = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.x))));
-  const maxX = Math.min(canvasW, Math.ceil(Math.max(...corners.map((p) => p.x))));
-  const minYTop = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.y))));
-  const maxYTop = Math.min(canvasH, Math.ceil(Math.max(...corners.map((p) => p.y))));
-  const width = Math.max(0, maxX - minX);
-  const height = Math.max(0, maxYTop - minYTop);
-
-  return {
-    x: minX,
-    y: Math.max(0, canvasH - maxYTop),
-    width,
-    height,
-  };
-}
-
-/**
- * Computes the uniform values for the inter-layer ping-pong COPY pass.
- *
- * Regression note (2026-06-18): the copy must cover the ENTIRE FBO
- * (logical viewport), not just the doc-coord region. The sampler reads the
- * whole source FBO via texCoord 0..1; if the destination quad only writes
- * the doc-region, the source FBO (layer + transparent margins) is squeezed
- * into that smaller region — previous layers visually shrank by the
- * doc/viewport ratio on every layer above them. Merging masked the bug
- * because a single layer skips the copy branch entirely.
- */
-export function getInterLayerCopyQuad(
-  logicalWidth: number,
-  logicalHeight: number,
-): { rect: [number, number, number, number]; center: [number, number] } {
-  return {
-    rect: [0, 0, logicalWidth, logicalHeight],
-    center: [logicalWidth / 2, logicalHeight / 2],
-  };
-}
-
-export function getRequiredUniformLocation(
-  gl: WebGL2RenderingContext,
-  program: WebGLProgram,
-  name: string,
-): WebGLUniformLocation {
-  const location = gl.getUniformLocation(program, name);
-  if (!location) {
-    throw new Error(`Required WebGL uniform not found: ${name}`);
-  }
-  return location;
-}
-
-export const WEBGL2_CONTEXT_OPTIONS: WebGLContextAttributes = {
-  premultipliedAlpha: false,
-  alpha: true,
-  antialias: true,
-  preserveDrawingBuffer: false,
-};
-
-export const WEBGL2_CONTEXT_RESTORED_EVENT = "photrez:webglcontextrestored";
+// Re-export for existing consumers (tests, useViewportRenderer).
+export {
+  projectDocumentScissor,
+  getInterLayerCopyQuad,
+  getRequiredUniformLocation,
+  WEBGL2_CONTEXT_OPTIONS,
+  WEBGL2_CONTEXT_RESTORED_EVENT,
+} from "./glHelpers";
 
 export class WebGL2Backend implements RenderBackend {
   readonly name = "webgl2";
@@ -174,13 +114,13 @@ export class WebGL2Backend implements RenderBackend {
     if (!gl || this.contextLost || gl.isContextLost()) return;
 
     // Compile programs
-    const vs = this.compileShader(gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
-    const fs = this.compileShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
-    this.layerProgram = this.createProgram(vs, fs);
+    const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
+    this.layerProgram = createProgram(gl, vs, fs);
 
-    const checkFs = this.compileShader(gl.FRAGMENT_SHADER, CHECKERBOARD_FRAGMENT_SOURCE);
-    const checkVs = this.compileShader(gl.VERTEX_SHADER, CHECKERBOARD_VERTEX_SOURCE);
-    this.checkerboardProgram = this.createProgram(checkVs, checkFs);
+    const checkFs = compileShader(gl, gl.FRAGMENT_SHADER, CHECKERBOARD_FRAGMENT_SOURCE);
+    const checkVs = compileShader(gl, gl.VERTEX_SHADER, CHECKERBOARD_VERTEX_SOURCE);
+    this.checkerboardProgram = createProgram(gl, checkVs, checkFs);
 
     // Get Uniforms
     this.layerUniforms = {
@@ -367,7 +307,7 @@ export class WebGL2Backend implements RenderBackend {
     gl.bindTexture(gl.TEXTURE_2D, ref.texture);
     gl.uniform1i(this.layerUniforms.texture, 0);
 
-    const viewProj = this.computeViewMatrix(width, height);
+    const viewProj = computeViewMatrix(width, height);
     gl.uniformMatrix4fv(this.layerUniforms.viewProj, false, viewProj);
     gl.uniform1f(this.layerUniforms.opacity, 1.0);
     gl.uniform1i(this.layerUniforms.blendMode, 0); // Normal
@@ -531,7 +471,7 @@ export class WebGL2Backend implements RenderBackend {
     // Ensure ping-pong FBOs exist and are sized properly
     const docW = state.documentSize.width;
     const docH = state.documentSize.height;
-    const viewProj = viewProjectionMatrix || this.computeViewMatrix(docW, docH);
+    const viewProj = viewProjectionMatrix || computeViewMatrix(docW, docH);
 
     // Filter visible layers with textures
     const visibleLayers = [];
@@ -639,7 +579,7 @@ export class WebGL2Backend implements RenderBackend {
           // the doc-region of the target FBO, shrinking the previous layer
           // by the doc/viewport ratio on every layer above it. Merging
           // hid the bug because a single layer skips this branch entirely.
-          const copyProj = this.computeViewMatrix(this.logicalWidth, this.logicalHeight);
+          const copyProj = computeViewMatrix(this.logicalWidth, this.logicalHeight);
           gl.uniformMatrix4fv(this.layerUniforms.viewProj, false, copyProj);
           gl.uniform1f(this.layerUniforms.opacity, 1.0);
           gl.uniform1i(this.layerUniforms.blendMode, 0);
@@ -766,7 +706,7 @@ export class WebGL2Backend implements RenderBackend {
       gl.bindTexture(gl.TEXTURE_2D, this.pingPongTextures[activeFboIndex]);
       gl.uniform1i(this.layerUniforms.texture, 0);
 
-      const identityProj = this.computeViewMatrix(this.logicalWidth, this.logicalHeight);
+      const identityProj = computeViewMatrix(this.logicalWidth, this.logicalHeight);
       gl.uniformMatrix4fv(this.layerUniforms.viewProj, false, identityProj);
       gl.uniform1f(this.layerUniforms.opacity, 1.0);
       gl.uniform1i(this.layerUniforms.blendMode, 0); // Normal
@@ -1001,50 +941,5 @@ export class WebGL2Backend implements RenderBackend {
     }
     this.contextLost = false;
     this.canvas = null;
-  }
-
-  // ─── Compile Helpers ───
-  private compileShader(type: number, source: string): WebGLShader {
-    const gl = this.gl!;
-    const shader = gl.createShader(type)!;
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      const log = gl.getShaderInfoLog(shader);
-      gl.deleteShader(shader);
-      throw new Error(`Shader compile error: ${log}`);
-    }
-    return shader;
-  }
-
-  private createProgram(vs: WebGLShader, fs: WebGLShader): WebGLProgram {
-    const gl = this.gl!;
-    const program = gl.createProgram()!;
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      const log = gl.getProgramInfoLog(program);
-      gl.deleteProgram(program);
-      throw new Error(`Shader program link error: ${log}`);
-    }
-    return program;
-  }
-
-  private computeViewMatrix(docW: number, docH: number): Float32Array {
-    // Identity orthographic projection: map document bounds [0,docW]x[0,docH]
-    // directly to NDC [-1,1]x[-1,1]. Pan and zoom are handled entirely by
-    // the CSS transform in CanvasViewport — the WebGL canvas renders at 1:1
-    // document pixel resolution with no viewport transform applied here.
-    const m = new Float32Array(16);
-    m[0] = 2.0 / docW;   // scale X: [0, docW] → [-1, 1]
-    m[5] = -2.0 / docH;  // scale Y: [0, docH] → [1, -1] (Y flip)
-    m[10] = 1.0;
-    m[12] = -1.0;         // offset X: center
-    m[13] = 1.0;          // offset Y: center
-    m[15] = 1.0;
-    return m;
   }
 }
