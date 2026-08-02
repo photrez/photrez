@@ -148,5 +148,16 @@ export default defineConfig({
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     // produce sourcemaps for debug builds
     sourcemap: !!process.env.TAURI_DEBUG,
+    // Split stable, heavy groups out of the main index chunk so no single
+    // file exceeds the 500 kB performance budget (scripts/performance-budget.mjs).
+    rolldownOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes("node_modules/solid-js") || id.includes("node_modules/solid-primitives")) return "vendor-solid";
+          if (id.includes("/src/engine/")) return "engine";
+          if (id.includes("/src/renderer/")) return "renderer";
+        },
+      },
+    },
   },
 });

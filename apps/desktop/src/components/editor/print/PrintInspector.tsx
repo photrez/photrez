@@ -355,6 +355,19 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
     }));
   });
 
+  // Active-but-unlisted: when the printer driver reports no sizes, the
+  // select would be empty. Keep the current paper visible so the user
+  // can still see and print with the active size. Rendered via <Show>
+  // (not inside paperSizeOptions) so the dropdown <For> never depends
+  // on the print options signal.
+  const unlistedPaper = createMemo(() => {
+    if (paperSizeOptions().length > 0 || !o().paperPreset) return null;
+    return {
+      id: o().paperPreset,
+      label: `${formatPaperSizeLabel(o().paperPreset, o().paperWidthMm, o().paperHeightMm)} (not listed on this printer)`,
+    };
+  });
+
   // ── Find matching option ID from current dimensions ──────────────
   const currentSelectedSizeId = () => {
     const presetName = o().paperPreset;
@@ -784,6 +797,9 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                 <For each={paperSizeOptions()}>
                   {(opt) => <option value={opt.id}>{opt.label}</option>}
                 </For>
+                <Show when={unlistedPaper()}>
+                  {(u) => <option value={u().id}>{u().label}</option>}
+                </Show>
               </select>
             </div>
 
