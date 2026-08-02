@@ -168,9 +168,9 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01)
 
 ### Work
 
-- Feature-freeze the MVP scope (`product-scope.md`).
-- Resolve alpha.2 follow-ups: dependency audit (`bun audit` clean) + bundle hygiene (index chunk under the 500 kB budget).
-- `.ptz` v1 locked for the MVP scope; document the migration path (`docs/guide/ptz-migration.md`).
+- ✅ Feature-freeze the MVP scope (`product-scope.md`) — FROZEN 2026-08-02, effective `0.1.0-beta.1`.
+- ✅ Resolve alpha.2 follow-ups: dependency audit (`bun audit` clean — 0 high, 2 moderate + 1 low astro pending upstream bump) + bundle hygiene (index chunk 485.7 kB, under the 500 kB budget) + contract spec §7 sync (`PUBLIC_CONTRACT_COMMANDS` subset).
+- ✅ `.ptz` v1 locked for the MVP scope; document the migration path (`docs/guide/ptz-migration.md`).
 - Regression pass over all MVP workflows; measure startup on release builds.
 
 ### Definition of Done

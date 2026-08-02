@@ -6,6 +6,12 @@ Build a lightweight desktop image editor for Windows with familiar editing flow 
 
 This file is intentionally narrow: it defines only the v1 release scope and excludes roadmap expansions.
 
+## Feature Freeze Status (beta.1)
+
+- **FROZEN (2026-08-02, effective `0.1.0-beta.1`):** the MVP feature set below is locked. From this stage on, no new features merge into the MVP — only bug fixes, polish, and stability work (see `roadmap.md` §0.1.0-beta.1).
+- Requests that touch the feature set below are **scope-change proposals**: they must be deferred to a post-MVP MINOR (`0.2.0` text & shapes, `0.3.0` floating panels, `0.4.0` multi-image windows) or rejected as non-goals, not merged into MVP.
+- This file is the authoritative lock; `FEATURES.md` tracks implementation status only and cannot expand scope.
+
 ## Target User
 
 - Primary: content creator / UMKM.

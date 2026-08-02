@@ -76,8 +76,8 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 
 ### 14. Custom Titlebar Accessibility
 - **Symptom:** Custom titlebar may not fully support keyboard navigation (Alt+Space system menu, F10 menu activation).
-- **Workaround:** Use standard keyboard shortcuts (Ctrl+N, Ctrl+O, etc.).
-- **Fix planned:** Beta release.
+- **Mitigation (code evidence, 2026-08-02):** Native menu bar is installed via `app.set_menu` (`main.rs:125`) with `on_menu_event` routing to the frontend — Windows handles F10/Alt+Space activation for windows with a native menu bar. Workaround: standard keyboard shortcuts (Ctrl+N, Ctrl+O, etc.).
+- **Status:** Verify manually during the beta.1 regression pass; fix only if F10/Alt+Space still fail on a release build.
 
 ### 15. CSP Allows `unsafe-inline` for Styles
 - **Symptom:** Content Security Policy allows inline styles (required for Tailwind CSS v4).
