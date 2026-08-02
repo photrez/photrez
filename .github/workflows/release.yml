@@ -90,11 +90,13 @@ jobs:
       # tauri-action fails the job when the binary build fails, but an empty
       # bundle (misconfigured artifact glob, disk issues) would otherwise
       # attach 0-byte files to the release unnoticed.
+      # Cargo workspace root is the repo root, so the target dir (and the
+      # bundle output) lives at <repo>/target/release/bundle.
       - name: Verify release artifacts (smoke test)
         shell: bash
         run: |
           set -euo pipefail
-          bundle_dir="apps/desktop/src-tauri/target/release/bundle"
+          bundle_dir="target/release/bundle"
           if [ ! -d "$bundle_dir" ]; then
             echo "::error::No bundle directory produced: $bundle_dir"
             exit 1
