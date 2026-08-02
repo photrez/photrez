@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createEffect } from "solid-js";
 import { render } from "solid-js/web";
 import { EditorProvider } from "../../shell/EditorContext";
 import { useEditor } from "../../shell/EditorContext";
@@ -262,6 +263,71 @@ describe("canvas layer keyboard shortcuts", () => {
     expect(editor.camera.getState().zoom).toBeCloseTo(1.0, 2);
 
     dispose();
+  });
+
+  it("Ctrl+P: always preventDefault (never WebView2 browser print), opens app print dialog only when no modal is open", async () => {
+    const ws = new WorkspaceManager();
+    const session = WorkspaceManager.createBlankDocument("print-doc", "Print", 800, 600);
+    const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+    const scheduler = { requestRender: vi.fn() };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let captured: ReturnType<typeof useEditor> | undefined;
+    const dialogOpen: boolean[] = [];
+
+    // Observe the shared showPrintDialog signal (setShowPrintDialog is not
+    // exposed on the useEditor object identity, so spy-on-object is unusable).
+    function PrintDialogStateHarness(props: { onChange: (open: boolean) => void }) {
+      const { showPrintDialog } = useEditor();
+      createEffect(() => props.onChange(showPrintDialog()));
+      return null;
+    }
+
+    const dispose = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={renderer as any} scheduler={scheduler as any}>
+          <ZoomCommandHarness captureEditor={(e) => { captured = e; }} />
+          <PrintDialogStateHarness onChange={(open) => dialogOpen.push(open)} />
+        </EditorProvider>
+      ),
+      container,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // addDocument AFTER mount: workspace.onChange -> syncState sets the
+    // activeDocumentId signal required by requiresDocument("file.print").
+    ws.addDocument(session);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const editor = captured!;
+    dialogOpen.length = 0;
+
+    try {
+      // No modal open: Ctrl+P swallows the key and opens the app print dialog.
+      const ev1 = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(ev1);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(ev1.defaultPrevented).toBe(true);
+      expect(dialogOpen).toContain(true);
+
+      // Modal open: command is suppressed, but the key MUST still be
+      // preventDefault'ed so WebView2's default browser print dialog never
+      // appears (regression: handler returned without preventDefault while
+      // aria-modal was open).
+      editor.setShowPrintDialog(false);
+      dialogOpen.length = 0;
+      const modal = document.createElement("div");
+      modal.setAttribute("aria-modal", "true");
+      document.body.appendChild(modal);
+
+      const ev2 = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(ev2);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(ev2.defaultPrevented).toBe(true);
+      expect(dialogOpen).not.toContain(true);
+    } finally {
+      dispose();
+    }
   });
 
   it("Ctrl+= still works when a range slider has focus (regression: isEditableTarget)", async () => {

@@ -537,6 +537,41 @@ describe("useBrushOverlay eraser pixel output", () => {
     imageBitmap.close();
   });
 
+  it("final eraser composite rebuilds the overlay, clearing the non-final drag outline (no black edge)", async () => {
+    const { overlay, overlayCanvas, sourceCanvas, engine, history } = createRealHarness();
+    const imageBitmap = await createImageBitmap(sourceCanvas);
+    engine.getLayer("layer-1").imageBitmap = imageBitmap;
+
+    const ctx = overlayCanvas.getContext("2d")!;
+    const clearRectSpy = vi.spyOn(ctx, "clearRect");
+    const strokeSpy = vi.spyOn(ctx, "stroke");
+
+    // Queue RAF callbacks instead of running them, then flush exactly one
+    // frame manually. Running them synchronously would loop forever through
+    // the hold-timer tick (requestAnimationFrame(tick) -> tick).
+    const rafCbs: FrameRequestCallback[] = [];
+    const rafSpy = vi.spyOn(globalThis, "requestAnimationFrame")
+      .mockImplementation((cb) => { rafCbs.push(cb); return rafCbs.length; });
+
+    try {
+      // Non-final stroke: outline feedback drawn on the overlay.
+      overlay.onPaintStroke([{ x: 50, y: 40 }], true, settings, false);
+      rafCbs.splice(0).forEach((cb) => cb(0));
+      expect(strokeSpy).toHaveBeenCalled();
+
+      // Final stroke: composite must rebuild the overlay from scratch
+      // (clearRect -> re-seed -> re-cut), NOT layer dabs over the outline.
+      // Without the rebuild the outline is baked into the committed layer
+      // as a black edge.
+      overlay.onPaintStroke([{ x: 50, y: 40 }], true, settings, true);
+      expect(clearRectSpy).toHaveBeenCalled();
+    } finally {
+      rafSpy.mockRestore();
+    }
+
+    imageBitmap.close();
+  });
+
   it("eraser commit makes pixels transparent at dab position", async () => {
     const { overlay, sourceCanvas, engine, history } = createRealHarness();
     const imageBitmap = await createImageBitmap(sourceCanvas);

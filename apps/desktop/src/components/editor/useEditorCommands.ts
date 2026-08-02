@@ -691,6 +691,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     registerShortcut("Ctrl+-", "useEditorCommands");
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Ctrl+P must never fall through to the WebView2 default browser print.
+      // Prevent default unconditionally — even while a modal is open or an
+      // input is focused — so the app print dialog is the only print surface.
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        if (!document.querySelector('[aria-modal="true"]')) execute("file.print");
+        return;
+      }
+
       if (document.querySelector('[aria-modal="true"]')) return;
 
       if (
@@ -711,7 +720,6 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       else if (commandKey && event.shiftKey && key === "s") command = "file.save-as";
       else if (commandKey && key === "s") command = "file.save";
       else if (commandKey && event.altKey && key === "e") command = "file.export";
-      else if (commandKey && key === "p") command = "file.print";
       else if (commandKey && key === "1") command = "view.actual-size";
       else if (commandKey && event.altKey && key === "0") command = "view.zoom-to-selection";
       else if (commandKey && (key === "=" || key === "+")) command = "view.zoom-in";

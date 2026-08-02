@@ -575,6 +575,25 @@ export function useBrushOverlay() {
       // holes the user sees the WebGL composited result (checkerboard + layers
       // behind the active layer). This gives a correct "real transparency"
       // preview that matches the final commit.
+      if (final) {
+        // Rebuild the overlay from scratch: non-final composites draw a
+        // drag-feedback outline (rgba(0,0,0,0.25) circle) that would
+        // otherwise be baked into the committed bitmap by commitBrushStroke
+        // (which copies the overlay directly) — the reported "black edge"
+        // on eraser strokes. Reconstructing from the layer content + ALL
+        // dabs (no outline) guarantees a clean commit.
+        overlayCtx!.globalCompositeOperation = "source-over";
+        overlayCtx!.clearRect(0, 0, overlayCanvasRef!.width, overlayCanvasRef!.height);
+        if (layer.imageBitmap) overlayCtx!.drawImage(layer.imageBitmap, 0, 0);
+        overlayCtx!.globalCompositeOperation = "destination-out";
+        for (let i = 0; i < session.dabPositions.length; i++) {
+          drawDab(session.dabPositions[i]);
+        }
+        overlayCtx!.globalAlpha = 1;
+        overlayCtx!.globalCompositeOperation = "source-over";
+        session.dabsRendered = session.dabPositions.length;
+        return;
+      }
       const startFrom = session.dabsRendered;
       overlayCtx!.globalCompositeOperation = "destination-out";
       for (let i = startFrom; i < session.dabPositions.length; i++) {
