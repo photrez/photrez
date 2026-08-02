@@ -10,6 +10,14 @@ fn main() {
         // target/release/WebView2Loader.dll) and fails a fresh checkout
         // if the DLL is not already in the profile directory.
         copy_webview2_loader();
+    } else {
+        // tauri.conf.json lists WebView2Loader.dll in bundle.resources so the
+        // Windows (msvc) installer ships the real DLL. tauri-build validates
+        // that path on EVERY platform, so create an empty placeholder here on
+        // macOS/Linux. Nothing ever loads it there; it exists only to satisfy
+        // the resource validation. (A non-matching glob is NOT allowed --
+        // tauri-utils returns GlobPathNotFound.)
+        ensure_placeholder_webview2_loader();
     }
     if target.contains("windows-gnu") {
         println!("cargo:warning=MinGW target detected. Using custom manifest compiler workaround.");
@@ -106,6 +114,25 @@ fn main() {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Create an empty WebView2Loader.dll placeholder in the profile directory
+/// on non-Windows targets (see comment in main()).
+fn ensure_placeholder_webview2_loader() {
+    if let Ok(out_dir) = env::var("OUT_DIR") {
+        let out_path = Path::new(&out_dir);
+        // Go up 3 levels: out -> photrez-desktop-hash -> build -> debug/release
+        if let Some(profile_dir) = out_path
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
+            let dest_path = profile_dir.join("WebView2Loader.dll");
+            if !dest_path.exists() {
+                let _ = fs::write(&dest_path, []);
             }
         }
     }
