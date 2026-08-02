@@ -109,3 +109,38 @@ jobs:
             echo "::error::No installer/binary larger than 1 MB found under $bundle_dir"
             exit 1
           fi
+
+  # Finalize the draft release once every platform job has attached its
+  # installers: generate SHA-256 checksums (Photrez is not code-signed, so
+  # checksums are the only integrity verification users can do) and replace
+  # the placeholder body with RELEASE_NOTES.md.
+  finalize:
+    name: Attach checksums & release notes
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p assets
+          gh release download "${{ github.ref_name }}" --dir assets
+
+      - name: Generate SHA256SUMS
+        working-directory: assets
+        run: sha256sum * > SHA256SUMS
+
+      - name: Upload checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" assets/SHA256SUMS --clobber
+
+      - name: Set release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
