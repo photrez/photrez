@@ -113,6 +113,6 @@ See `KNOWN_ISSUES.md` for the full list. Highlights:
 
 ### 🔗 Links
 
-- Source: https://github.com/rahmanqolbi/photrez
-- Issues: https://github.com/rahmanqolbi/photrez/issues
+- Source: https://github.com/photrez/photrez
+- Issues: https://github.com/photrez/photrez/issues
 - Security: see SECURITY.md

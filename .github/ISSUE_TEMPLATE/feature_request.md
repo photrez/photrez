@@ -16,7 +16,7 @@ A clear and concise description of what you want to happen.
 A clear and concise description of any alternative solutions or features you've considered.
 
 **Scope check**
-Does this feature fit within the current [product scope](https://github.com/rahmanqolbi/photrez/blob/main/docs/spec/product-scope.md)?
+Does this feature fit within the current [product scope](https://github.com/photrez/photrez/blob/main/docs/spec/product-scope.md)?
 - [ ] Yes, it aligns with the MVP or documented roadmap
 - [ ] It may require a scope discussion first
 

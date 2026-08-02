@@ -11,10 +11,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rahmanqolbi/photrez/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/rahmanqolbi/photrez/ci.yml?branch=main&label=ci&style=flat-square"></a>
-  <a href="https://github.com/rahmanqolbi/photrez/blob/main/LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-E15A17?style=flat-square"></a>
-  <a href="https://github.com/rahmanqolbi/photrez/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/rahmanqolbi/photrez?style=flat-square"></a>
-  <a href="https://github.com/rahmanqolbi/photrez/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rahmanqolbi/photrez?style=flat-square"></a>
+  <a href="https://github.com/photrez/photrez/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/photrez/photrez/ci.yml?branch=main&label=ci&style=flat-square"></a>
+  <a href="https://github.com/photrez/photrez/blob/main/LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-E15A17?style=flat-square"></a>
+  <a href="https://github.com/photrez/photrez/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/photrez/photrez?style=flat-square"></a>
+  <a href="https://github.com/photrez/photrez/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/photrez/photrez?style=flat-square"></a>
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square">
   <img alt="SolidJS" src="https://img.shields.io/badge/SolidJS-TypeScript-2C4F7C?style=flat-square">
 </p>
@@ -29,7 +29,7 @@ Photrez is currently in **alpha** (`v0.1.0-alpha.2`). The editor is usable, but 
 
 - **Supported platform:** Windows 10/11 (macOS/Linux planned for beta)
 - **Known issues:** See [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
-- **Bug reports:** [GitHub Issues](https://github.com/rahmanqolbi/photrez/issues)
+- **Bug reports:** [GitHub Issues](https://github.com/photrez/photrez/issues)
 - **Security:** See [SECURITY.md](SECURITY.md)
 
 ## Why Photrez
@@ -47,10 +47,9 @@ A few things we care about:
 > **Note:** Pre-release — for testing only, not for production use.
 
 **Windows 10/11:**
-- MSI installer: [Photrez_0.1.0_x64_en-US.msi](https://github.com/rahmanqolbi/photrez/releases/download/v0.1.0-alpha.2/Photrez_0.1.0_x64_en-US.msi)
-- NSIS installer: [Photrez_0.1.0_x64-setup.exe](https://github.com/rahmanqolbi/photrez/releases/download/v0.1.0-alpha.2/Photrez_0.1.0_x64-setup.exe)
+- NSIS installer: [Photrez_0.1.0-alpha.2_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0-alpha.2/Photrez_0.1.0-alpha.2_x64-setup.exe)
 
-All releases: https://github.com/rahmanqolbi/photrez/releases
+All releases: https://github.com/photrez/photrez/releases
 
 ## Screenshots
 

@@ -1,7 +1,7 @@
 # Known Issues — Photrez v0.1.0-alpha.2
 
 This document lists known limitations and bugs in the current alpha release.
-For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/issues.
+For bug reports, please open an issue at https://github.com/photrez/photrez/issues.
 
 ## 🚨 Critical Limitations
 
@@ -99,7 +99,7 @@ For bug reports, please open an issue at https://github.com/rahmanqolbi/photrez/
 
 ## 📞 Reporting Issues
 
-- **Bug reports:** https://github.com/rahmanqolbi/photrez/issues
+- **Bug reports:** https://github.com/photrez/photrez/issues
 - **Security reports:** See `SECURITY.md` (report privately before public disclosure)
 - **Feature requests:** Open a discussion or issue with `feature-request` label
 
