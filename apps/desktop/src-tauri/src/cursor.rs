@@ -69,9 +69,9 @@ pub(crate) fn set_native_cursor<R: Runtime>(
         // Non-Windows: attempt Tauri's built-in setCursorIcon.
         if let Some(w) = _app.get_webview_window("main") {
             let _ = w.set_cursor_icon(match icon.as_str() {
-                "copy" => tauri::cursor::CursorIcon::Copy,
-                "move" => tauri::cursor::CursorIcon::Move,
-                _ => tauri::cursor::CursorIcon::Default,
+                "copy" => tauri::CursorIcon::Copy,
+                "move" => tauri::CursorIcon::Move,
+                _ => tauri::CursorIcon::Default,
             });
         }
     }

@@ -5,6 +5,8 @@
 // (used by print_core.rs). CUPS helpers are macOS/Linux-only.
 
 use serde_json::Value;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use std::collections::HashMap;
 
 use crate::response::{err_response, ok_response};
 
