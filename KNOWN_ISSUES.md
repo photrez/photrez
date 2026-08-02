@@ -20,7 +20,7 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 ### 3. Blend Modes
 - **Symptom:** Only Normal, Multiply, Screen, Overlay are available in UI.
 - **Reason:** Other modes exist in shader but are blocked pending WebGL preview / Canvas2D export parity tests.
-- **Fix planned:** Beta release.
+- **Fix planned:** 0.2.0 (post-MVP; roadmap moved full blend modes out of the pre-1.0 MVP pipeline).
 
 ### 4. Selection Tools
 - **Symptom:** Rectangular + elliptical marquee only.

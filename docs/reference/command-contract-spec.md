@@ -191,14 +191,33 @@ Failure:
 
 ## 7) Implemented & Registered IPC Commands
 
-The following commands are registered and implemented in `apps/desktop/src-tauri/src/main.rs`:
+The following commands are registered in `apps/desktop/src-tauri/src/main.rs` (`tauri::generate_handler!`).
+
+### 7.1 Public contract commands (frontend bridge)
+
+These are the commands exposed via `get_contract_info.supported_commands` (see `PUBLIC_CONTRACT_COMMANDS` in `src/file_io.rs`). The frontend shell treats this set as the stable bridge contract:
 
 - `ping` (Bridge health check)
 - `get_contract_info` (Version and command metadata)
 - `read_file_bytes` (Base64 file import bridge, max 256 MB)
 - `write_file_bytes` (Base64 file export bridge, max 256 MB)
+- `save_project` (ZIP project save)
+- `load_project` (ZIP project load)
+- `print_image` (Print dispatch)
+- `get_system_printers` (Printer enumeration)
+- `open_printer_properties` (Printer properties dialog)
 
-Any addition or modification of IPC contract interfaces must update this registry.
+### 7.2 Internal shell commands (not part of the public contract)
+
+Registered and implemented, but NOT listed in `supported_commands` — they are internal to the desktop shell and may change without a contract bump:
+
+- `get_pending_open_path`, `set_trusted_paths`, `save_project_binary`
+- `save_project_streaming_begin`, `save_project_streaming_write_layer`, `save_project_streaming_end`, `save_project_streaming_cancel`
+- `print_image_raw`, `get_printer_paper_sizes`
+- `get_print_settings`, `set_paper`, `toggle_orientation`, `set_orientation`, `set_margin`, `set_per_side_margins`, `set_scale_to_fit`, `set_scale_percent`, `set_center_image`, `set_top_offset_mm`, `set_left_offset_mm`, `set_copies`, `set_unit`, `set_show_paper_white`, `set_color_handling`, `set_rendering_intent`, `set_black_point_compensation`, `set_printer`, `open_printer_properties_and_apply`, `convert_mm_to_current_unit`, `convert_current_unit_to_mm`
+- `set_native_cursor`, `delete_file`, `delete_autosave_file`, `close_app`
+
+Any addition or modification of the PUBLIC contract (7.1) must update this registry AND `PUBLIC_CONTRACT_COMMANDS` in `src/file_io.rs`. Internal commands (7.2) only need the registry above.
 
 ## 8) Example Error Cases
 
@@ -237,7 +256,7 @@ At minimum, contract tests must verify:
 1. Envelope shape for success and error.
 2. `contract_version` presence in all responses.
 3. Deterministic `E_VALIDATION` on malformed payload.
-4. Runtime `get_contract_info.supported_commands` exactly matches registered commands.
+4. Runtime `get_contract_info.supported_commands` exactly matches the public contract registry in §7.1 (enforced by `test_get_contract_info_includes_write_command` in `src/file_io.rs`).
 5. No panic/uncaught failure leaks to shell.
 
 ## 10) Ownership and Change Control

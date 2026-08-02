@@ -365,6 +365,7 @@
 | ✅ DONE | Status bar (dimensions, cursor pos, zoom, RAM)                                                    |
 | ✅ DONE | Tauri bridge IPC (`invoke` → `#[tauri::command]`)                                                 |
 | ✅ DONE | Response envelope contract (v2.0.0 Tauri shell runtime: ping, contract info, file read/write)     |
+| ✅ DONE | Command contract spec §7 sync: public subset (9 commands) vs internal shell commands (~34) documented; `PUBLIC_CONTRACT_COMMANDS` const + snapshot test enforce §9.4 |
 | ✅ DONE | File open dialog (Ctrl+O)                                                                         |
 | ✅ DONE | Native menu integration (mirrors custom menu; shared command routing)                             |
 | ✅ DONE | Window state persistence (size/position/maximized, manual core-API impl in `main.rs`)             |

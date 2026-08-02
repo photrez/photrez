@@ -120,17 +120,23 @@ pub(crate) fn ping() -> Result<Value, Value> {
     ok_response(serde_json::json!({ "status": "ok", "service": "native" }))
 }
 
+/// Public IPC contract subset, documented in `docs/reference/command-contract-spec.md` §7.
+/// Only commands the frontend shell treats as a stable bridge contract belong here;
+/// internal shell commands (save_stream_*, print_settings_cmds, cursor, delete_*) are
+/// NOT part of the public contract. Keep in sync with the `generate_handler!` list in main.rs.
+pub(crate) const PUBLIC_CONTRACT_COMMANDS: &[&str] = &[
+    "ping", "get_contract_info",
+    "read_file_bytes", "write_file_bytes",
+    "save_project", "load_project",
+    "print_image", "get_system_printers", "open_printer_properties",
+];
+
 #[tauri::command]
 pub(crate) fn get_contract_info() -> Result<Value, Value> {
     ok_response(serde_json::json!({
         "name": "photrez-command-contract",
         "version": CONTRACT_VERSION,
-        "supported_commands": [
-            "ping", "get_contract_info",
-            "read_file_bytes", "write_file_bytes",
-            "save_project", "load_project",
-            "print_image", "get_system_printers", "open_printer_properties"
-        ]
+        "supported_commands": PUBLIC_CONTRACT_COMMANDS
     }))
 }
 
