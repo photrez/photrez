@@ -119,6 +119,22 @@ describe("PrintDialog", () => {
     view.dispose();
   });
 
+  it("keeps dialog body full-bleed (!p-0 overrides base px-4 py-4)", async () => {
+    // Tailwind v4 compiles base `px-4 py-4` (DesktopDialog) into
+    // padding-inline/block longhand emitted AFTER shorthand `p-0`, so a plain
+    // `p-0` silently loses and the dialog keeps 16px padding. jsdom cannot
+    // compute the CSS cascade, so pin the `!` marker here.
+    // Regression: PrintDialog used `p-0` and the padding stayed visible
+    // (@bug 2026-08-03).
+    const view = renderDialog();
+    await tick();
+    const body = view.dialog()!.querySelector("[data-dialog-body]")!;
+    const classes = body.className.split(" ");
+    expect(classes).toContain("!p-0");
+    expect(classes).not.toContain("p-0");
+    view.dispose();
+  });
+
   it("calls printDocument on Print button click", async () => {
     mockPrintDocument.mockResolvedValue(undefined);
     const view = renderDialog();

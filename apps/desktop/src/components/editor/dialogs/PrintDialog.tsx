@@ -152,7 +152,7 @@ export function PrintDialog() {
             if (!printing()) setShowPrintDialog(false);
           }}
           widthClass="max-w-[1040px] w-[1040px] h-[660px]"
-          bodyClass="p-0 h-[624px] flex flex-col justify-between"
+          bodyClass="!p-0 h-[624px] flex flex-col justify-between"
         >
           <div class="flex flex-1 min-h-0 w-full gap-0 overflow-hidden">
             <PrintPaperViewport
