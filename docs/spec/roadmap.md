@@ -12,12 +12,12 @@ A lightweight, fast desktop image editor that content creators and small busines
 
 ## Current Status
 
-- **Version:** `v0.1.0-alpha.2` (2026-08-01)
+- **Version:** `v0.1.0-beta.1` (2026-08-03)
 - **MVP v1:** Complete — layer system, selection/transform, crop/resize, brush/eraser, gradient/fill, elliptical selection, export. See `FEATURES.md`.
-- **Platform:** Windows-only.
+- **Platform:** Windows primary (macOS/Linux pre-release builds available, not yet fully QA'd).
 - **Engine:** TypeScript `DocumentEngine`. Rust `photrez-core` is the domain-model reference + test coverage; WASM export encode pilot wired (`photrez_core_bg.wasm` with Canvas fallback).
 - **Windowing:** Single main window, in-app document tabs. No detached panels, no multi-document windows.
-- **Tests:** 2683 frontend + 171 Rust cases (incl. Playwright E2E).
+- **Tests:** 2687 frontend (jsdom) + 84 Rust core cases.
 - **Installer:** ~4-6 MB (well below 80 MB target).
 
 ---
@@ -27,8 +27,8 @@ A lightweight, fast desktop image editor that content creators and small busines
 Stable releases ship **per feature batch** (SemVer MINOR). Each batch runs its own alpha → beta → rc pre-release cycle, and every stable release is user-installable behind a quality gate. Post-MVP batches are ordered by user value: text & shapes (daily-driver tools) ship first, windowing work ships last.
 
 ```
-alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01)
-  → 0.1.0-beta.1 (MVP polish, ~Q4 2026) → 0.1.0 (STABLE MVP, ~Q4 2026)
+alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE, 2026-08-03)
+  → 0.1.0 (STABLE MVP, ~Q4 2026)
   → 0.2.0 (text & shapes + full blend modes, ~Q1 2027)
   → 0.3.0 (floating panels, ~Q2 2027)
   → 0.4.0 (multi-image windows + WASM extension, ~Q3 2027)
@@ -37,7 +37,7 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01)
 
 | Version | Theme | User Outcome | Target |
 | --- | --- | --- | --- |
-| `0.1.0-beta.1` | Final MVP polish | MVP feature-freeze; bug-fix only, `.ptz` v1 locked for MVP scope | ~Q4 2026 |
+| `0.1.0-beta.1` | Final MVP polish | ✅ Released 2026-08-03 — MVP feature-freeze; `.ptz` v1 locked; cross-platform pre-release builds | DONE |
 | `0.1.0` | **Stable MVP** | First stable release — `.ptz` backward-compat guaranteed from here | ~Q4 2026 |
 | `0.2.0` | Text & shapes + full blend modes | Text layers, shape drawing, all blend modes — daily-driver tools | ~Q1 2027 |
 | `0.3.0` | Floating panels | Tear-off/re-dock Layers & Inspector panels | ~Q2 2027 |
@@ -162,7 +162,7 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01)
 
 ## 0.1.0-beta.1 — Final MVP Polish
 
-> **Target:** ~Q4 2026 &nbsp;|&nbsp; **Confidence:** High
+> **Status:** ✅ DONE — tagged `v0.1.0-beta.1` (2026-08-03)
 
 **User sees:** The MVP feature set frozen. No new features — only bug fixes, polish, and stability verification ahead of the first stable release.
 
@@ -172,12 +172,14 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01)
 - ✅ Resolve alpha.2 follow-ups: dependency audit (`bun audit` clean — 0 high, 2 moderate + 1 low astro pending upstream bump) + bundle hygiene (index chunk 485.7 kB, under the 500 kB budget) + contract spec §7 sync (`PUBLIC_CONTRACT_COMMANDS` subset).
 - ✅ `.ptz` v1 locked for the MVP scope; document the migration path (`docs/guide/ptz-migration.md`).
 - ✅ Regression pass over all MVP workflows (2026-08-02: 2683 frontend + 171 Rust + 25 E2E green); startup verified against the existing release-gate evidence (`KNOWN_ISSUES.md` #1 — <2s target met, no perf regression since alpha.2; bundle shrank 585 → 485.7 kB).
+- ✅ Cross-platform pre-release builds (Windows NSIS, macOS DMG, Linux deb/rpm/AppImage) in the beta.1 release.
+- ✅ Beta.1 follow-up fixes: move-tool drag hit-test aligned with selection at transparent pixels; print dialog body padding override (`!p-0`); Ctrl+P browser-print interference; eraser composite artifacts.
 
 ### Definition of Done
 
-- No new features merged after this stage starts (bug-fix only).
-- All tests green; no P0 issues open.
-- Release-candidate quality verified on the Windows release build.
+- ✅ No new features merged after this stage starts (bug-fix only).
+- ✅ All tests green (2687 frontend + 84 Rust core); no P0 issues open.
+- ⏳ Release-candidate quality verified on the Windows release build (pending user smoke test of the beta.1 installer).
 
 ---
 

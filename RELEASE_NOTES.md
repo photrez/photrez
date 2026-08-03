@@ -45,7 +45,7 @@ spot-checking example:
 
 ```
 $ sha256sum Photrez_0.1.0-beta.1_x64-setup.exe
-<fill in hash>  Photrez_0.1.0-beta.1_x64-setup.exe
+3d112fe03315e253a6225e8b8fcfded1e664eff6151ab476d502716ef3d686f1  Photrez_0.1.0-beta.1_x64-setup.exe
 ```
 
 Compare against the `SHA256SUMS` asset attached to this release.

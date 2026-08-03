@@ -10,6 +10,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [0.1.0-beta.1] — 2026-08-03
+
+### ⚠️ Pre-Release Notice
+
+This is the first beta release. It marks the **feature freeze** for the 0.1.0 MVP: the `.ptz` document format is now locked to v1, and no new features will be added until the stable release — only fixes.
+
+### ✨ Added
+
+- Cross-platform pre-release builds: Windows (NSIS), macOS (Apple Silicon DMG), Linux (`.deb`, `.rpm`, `.AppImage`).
+- Print dialog: unlisted paper sizes can now be selected from the paper dropdown.
+
+### 🎨 Changed
+
+- MVP scope frozen in `docs/spec/product-scope.md` (effective `0.1.0-beta.1`).
+- `.ptz` v1 format locked; migration contract documented in `docs/guide/ptz-migration.md`.
+- Command contract spec synced: `supported_commands` now reflects the public frontend subset.
+- Frontend bundle split into vendor chunks (Solid, engine, renderer) to improve load.
+
+### 🐛 Fixed
+
+- Ctrl+P now opens the app's print dialog; the browser's native print dialog no longer interferes.
+- Eraser strokes no longer leave black outline artifacts in the final committed composite.
+- Move tool: dragging at transparent pixels now moves the same layer the panel selects (alpha-aware drag hit-test; previously the drag could target a transparent top layer while the selection fell through to the layer below).
+- Print dialog: the dialog body is now truly full-bleed — the `!p-0` override now wins over the base `px-4 py-4` padding.
+
+### 🧪 Testing
+
+- Beta.1 regression pass: 2687 frontend + 84 Rust core test cases green; type-check and build green.
+
+### 📦 Distribution
+
+- Tagged `v0.1.0-beta.1` as a GitHub pre-release with installers for Windows, macOS, and Linux plus `SHA256SUMS`.
+
+---
+
 ## [0.1.0-alpha.2] — 2026-08-01
 
 ### ⚠️ Pre-Release Notice

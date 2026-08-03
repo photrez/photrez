@@ -1,6 +1,6 @@
-# Known Issues — Photrez v0.1.0-alpha.2
+# Known Issues — Photrez v0.1.0-beta.1
 
-This document lists known limitations and bugs in the current alpha release.
+This document lists known limitations and bugs in the current beta release.
 For bug reports, please open an issue at https://github.com/photrez/photrez/issues.
 
 ## 🚨 Critical Limitations
@@ -10,10 +10,10 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 - **Fix (alpha.2):** Removed the splashscreen window — the app now shows the main window directly (Tauri guidance: splashscreen only masks slow loads; Photrez is fast enough that it only added a black flash). `main` window is visible by default with a solid editor background, so there is no white/black flash.
 - **Status:** No startup optimization needed. Target (<2s) met in practice.
 
-### 2. Windows-Only
-- **Symptom:** No macOS or Linux builds available for alpha.
-- **Workaround:** Use Windows 10/11. For Mac/Linux, build from source (untested).
-- **Fix planned:** Beta release (cross-platform CI matrix).
+### 2. Cross-Platform Quality
+- **Symptom:** macOS and Linux builds exist as pre-releases (DMG, `.deb`, `.rpm`, `.AppImage`) but are not yet fully QA'd — the MVP QA pass targets Windows.
+- **Workaround:** Windows 10/11 is the primary supported platform; report macOS/Linux issues via GitHub Issues.
+- **Fix planned:** 0.1.0 stable (cross-platform QA pass).
 
 ## 🎨 Editor Limitations
 
@@ -50,9 +50,8 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 - **MVP scope:** PSD is non-goal. Use PNG/JPEG/WebP for export.
 
 ### 9. Project Format (`.ptz`) Stabilization
-- **Symptom:** `.ptz` format is not stable. Future versions may break compatibility.
+- **Status (beta.1):** `.ptz` format is **locked to v1** as of `v0.1.0-beta.1` (feature freeze). Backward compatibility is guaranteed from here: all subsequent format changes must be additive and ship with a migrator (`docs/guide/ptz-migration.md`). `v1.0.0` marks the final format lock.
 - **Workaround:** Export to PNG/JPEG/WebP for long-term storage.
-- **Stabilization:** Backward compatibility is guaranteed starting with the first stable release (`v0.1.0`): all subsequent format changes must be additive and ship with a migrator (`docs/guide/ptz-migration.md`). `v1.0.0` marks the final format lock.
 
 ## 🔧 Development Limitations
 
@@ -72,12 +71,12 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 
 ### 13. Window State Restore on Multi-Monitor
 - **Symptom (mitigated in alpha.2):** If saved window position is on a disconnected external monitor, app snaps to primary monitor center (intended). The earlier "brief flash at default size" was caused by the splashscreen restore race; removing the splashscreen (alpha.2) eliminates that flash. A minor resize flash on main-window restore may still occur on multi-monitor and is low priority.
-- **Fix planned:** Beta release (if still observable after splashscreen removal).
+- **Fix planned:** 0.1.0 stable (if still observable after splashscreen removal).
 
 ### 14. Custom Titlebar Accessibility
 - **Symptom:** Custom titlebar may not fully support keyboard navigation (Alt+Space system menu, F10 menu activation).
 - **Mitigation (code evidence, 2026-08-02):** Native menu bar is installed via `app.set_menu` (`main.rs:125`) with `on_menu_event` routing to the frontend — Windows handles F10/Alt+Space activation for windows with a native menu bar. Workaround: standard keyboard shortcuts (Ctrl+N, Ctrl+O, etc.).
-- **Status:** Verify manually during the beta.1 regression pass; fix only if F10/Alt+Space still fail on a release build.
+- **Status:** Pending manual verification on the beta.1 release build; fix only if F10/Alt+Space still fail.
 
 ### 15. CSP Allows `unsafe-inline` for Styles
 - **Symptom:** Content Security Policy allows inline styles (required for Tailwind CSS v4).
@@ -88,12 +87,12 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 
 ### 16. Idle RAM: ~34 MB — well below 250 MB target.
 ### 17. Installer Size: 4-6 MB — well below 80 MB target.
-### 18. Test Coverage: 2683 frontend + 171 Rust cases (incl. Playwright E2E).
+### 18. Test Coverage: 2687 frontend (jsdom) + 84 Rust core cases.
 
 ## 🔄 Migration Path
 
-### From v0.1.0-alpha.2 to v0.1.0 (first stable)
-- `.ptz` backward-compat is guaranteed from `v0.1.0`: all later format changes are additive and ship a migrator (`docs/guide/ptz-migration.md`). Files saved in alpha/beta stay loadable.
+### From v0.1.0-beta.1 to v0.1.0 (first stable)
+- `.ptz` backward-compat is guaranteed from `v0.1.0` (format locked to v1 in beta.1): all later format changes are additive and ship a migrator (`docs/guide/ptz-migration.md`). Files saved in beta stay loadable.
 - Settings and window state will migrate automatically.
 - Breaking changes may still land during `0.x` MINOR bumps (per SemVer) — always documented in release notes.
 
@@ -103,4 +102,4 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 - **Security reports:** See `SECURITY.md` (report privately before public disclosure)
 - **Feature requests:** Open a discussion or issue with `feature-request` label
 
-Thank you for testing Photrez alpha! Your feedback helps shape the 0.1.0 stable and 1.0 releases.
+Thank you for testing Photrez beta! Your feedback helps shape the 0.1.0 stable and 1.0 releases.
