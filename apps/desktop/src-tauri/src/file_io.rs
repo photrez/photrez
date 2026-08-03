@@ -125,10 +125,15 @@ pub(crate) fn ping() -> Result<Value, Value> {
 /// internal shell commands (save_stream_*, print_settings_cmds, cursor, delete_*) are
 /// NOT part of the public contract. Keep in sync with the `generate_handler!` list in main.rs.
 pub(crate) const PUBLIC_CONTRACT_COMMANDS: &[&str] = &[
-    "ping", "get_contract_info",
-    "read_file_bytes", "write_file_bytes",
-    "save_project", "load_project",
-    "print_image", "get_system_printers", "open_printer_properties",
+    "ping",
+    "get_contract_info",
+    "read_file_bytes",
+    "write_file_bytes",
+    "save_project",
+    "load_project",
+    "print_image",
+    "get_system_printers",
+    "open_printer_properties",
 ];
 
 #[tauri::command]
