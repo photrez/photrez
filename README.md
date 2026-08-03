@@ -7,23 +7,24 @@
 </h1>
 
 <p align="center">
-  A small, lightweight desktop image editor for everyday image work.
+  A fast, lightweight desktop image editor for everyday image work.
+  Layers, selection, transform, crop, brush &amp; eraser, and print-ready export —
+  built for content creators and small business owners who want a no-nonsense editor
+  that opens instantly and stays out of the way.
 </p>
 
 <p align="center">
   <a href="https://github.com/photrez/photrez/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/photrez/photrez/ci.yml?branch=main&label=ci&style=flat-square"></a>
+  <a href="https://github.com/photrez/photrez/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/photrez/photrez?style=flat-square"></a>
   <a href="https://github.com/photrez/photrez/blob/main/LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-E15A17?style=flat-square"></a>
   <a href="https://github.com/photrez/photrez/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/photrez/photrez?style=flat-square"></a>
   <a href="https://github.com/photrez/photrez/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/photrez/photrez?style=flat-square"></a>
-  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square">
-  <img alt="SolidJS" src="https://img.shields.io/badge/SolidJS-TypeScript-2C4F7C?style=flat-square">
+  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square">
 </p>
 
----
+![Photrez Editor](docs/screenshots/hero.png)
 
-> **Note:** Photrez is a small open-source project. It started as a focused attempt to build a fast, no-nonsense desktop image editor without the bloat. If you find it useful or just want to poke around the code, welcome! Bug reports and small contributions are appreciated.
-
-Photrez is an open-source desktop image editor with a compact, familiar workflow: layers, selection, transform, crop, brush, eraser, export, history, and a WebGL2 canvas. It is built with Tauri, SolidJS, TypeScript, and Rust (for future core compute).
+Photrez is an open-source desktop image editor with a compact, familiar workflow: layers, selection, transform, crop, brush, eraser, history, print settings, and a WebGL2 canvas. It is built with Tauri, SolidJS, TypeScript, and Rust (for core compute).
 
 Photrez is currently in **alpha** (`v0.1.0-alpha.2`). The editor is usable, but expect bugs, breaking changes, and incomplete features. Not recommended for production use.
 
@@ -32,46 +33,80 @@ Photrez is currently in **alpha** (`v0.1.0-alpha.2`). The editor is usable, but 
 - **Bug reports:** [GitHub Issues](https://github.com/photrez/photrez/issues)
 - **Security:** See [SECURITY.md](SECURITY.md)
 
-## Why Photrez
+## Contents
 
-A few things we care about:
+- [Install](#install)
+- [Quick Start (for Developers)](#quick-start-for-developers)
+- [Features](#features)
+- [Why Photrez](#why-photrez)
+- [Tech Stack](#tech-stack)
+- [Runtime Architecture](#runtime-architecture)
+- [Repository Layout](#repository-layout)
+- [Documentation](#documentation)
+- [Roadmap](#roadmap)
+- [FAQ](#faq)
+- [Contributing](#contributing)
 
-- **Lightweight desktop feel:** a Tauri shell, compact editor chrome, and a tool-first workflow.
-- **Practical editing core:** layers, transforms, crop, brush, eraser, color, export, and history.
-- **Fast feedback loop:** focused unit, component, pointer-chain, browser, and Rust tests.
-- **Clear boundaries:** SolidJS owns the UI, TypeScript owns the current MVP document engine, WebGL2 owns active rendering, and the Rust crates track core domain work.
-- **Open-source first:** public contribution, security, governance, issue, and pull request docs are all included.
-
-## Download (Alpha)
+## Install
 
 > **Note:** Pre-release — for testing only, not for production use.
 
 **Windows 10/11:**
-- NSIS installer: [Photrez_0.1.0-alpha.2_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0-alpha.2/Photrez_0.1.0-alpha.2_x64-setup.exe)
+
+1. Download [Photrez_0.1.0-alpha.2_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0-alpha.2/Photrez_0.1.0-alpha.2_x64-setup.exe) from the [latest release](https://github.com/photrez/photrez/releases).
+2. Run the installer and follow the steps.
+3. If SmartScreen shows an unverified-publisher warning, click **More info** then **Run anyway** — the installer is not code-signed yet.
 
 All releases: https://github.com/photrez/photrez/releases
 
-## Screenshots
+## Quick Start (for Developers)
 
-![Photrez Editor](docs/screenshots/layers.png)
-*Main editor workspace showing an open document with the transform options, layers list, and navigator*
+### Requirements
 
-![Start Screen](docs/screenshots/hero.png)
-*Start screen showing the document creation dialog and empty workspace*
+- **Bun 1.3.14** (from [bun.com](https://bun.com)) — the repo pins it via `packageManager`, so `bun install` uses the matching version
+- **Rust** stable toolchain (via [rustup](https://rustup.rs))
+- **Tauri 2 prerequisites** for your OS: <https://v2.tauri.app/start/prerequisites/>
+- **System WebView** (Windows: WebView2; macOS: Cocoa; Linux: webkit2gtk) — required by the Tauri shell
 
-## Current Capabilities
+### Install, run, build, verify
+
+```bash
+bun install          # install dependencies
+bun run tauri dev    # run the desktop app
+bun run build        # build the frontend
+bun run verify       # full check (tests + build + audit + perf budget)
+```
+
+Focused checks:
+
+```bash
+bun run --filter photrez-desktop test --run
+bun run build
+cargo test -p photrez-core
+cargo test --workspace
+```
+
+## Features
 
 | Area | Status |
 | --- | --- |
 | Desktop shell | Custom title bar, menus, dialogs, native window actions, file open/export |
 | Workspace | Multi-document tabs, drag and drop, cross-document layer movement |
 | Layers | Add, duplicate, delete, reorder, opacity, visibility, lock, merge down, flatten |
-| Selection | Rectangle selection, inverted selection, cut/copy/paste/delete |
+| Selection | Rectangle + elliptical marquee, inverted selection, cut/copy/paste/delete |
 | Transform | Move, scale, rotate, flip, snapping, keyboard nudges |
 | Crop and resize | Classic and modern crop modes, canvas expansion, resize dialog |
-| Paint | Brush and eraser with calibrated round-tip hardness, flow, smoothing, presets |
+| Paint | Brush and eraser with calibrated round-tip hardness, flow, smoothing, presets; gradient and fill tools |
+| Print | Pro-Suite print settings: paper preview, scale/position/PPI inspector, paper presets, unit converter, high-DPI print spooling |
 | Export | PNG, JPEG, and WebP |
 | Testing | Frontend, Rust, browser, export, dialog, pointer-chain, and paint regression coverage |
+
+## Why Photrez
+
+- **Lightweight desktop feel:** a Tauri shell, compact editor chrome, and a tool-first workflow.
+- **Practical editing core:** layers, transforms, crop, brush, eraser, color, export, and history.
+- **Fast feedback loop:** focused unit, component, pointer-chain, browser, and Rust tests.
+- **Clear boundaries:** SolidJS owns the UI, TypeScript owns the current MVP document engine, WebGL2 owns active rendering, and the Rust crates track core domain work.
 
 ## Tech Stack
 
@@ -98,48 +133,6 @@ flowchart TD
     Shell -- IPC --> Tauri[Tauri Bridge]
     Tauri --> FileIO[Rust File I/O]
     Tauri -. Reference .-> RustCore[photrez-core crate]
-```
-
-## Getting Started
-
-### Requirements
-
-- **Bun 1.3.14** (from [bun.com](https://bun.com)) — the repo pins it via `packageManager`, so `bun install` uses the matching version
-- **Rust** stable toolchain (via [rustup](https://rustup.rs))
-- **Tauri 2 prerequisites** for your OS: <https://v2.tauri.app/start/prerequisites/>
-- **System WebView** (Windows: WebView2; macOS: Cocoa; Linux: webkit2gtk) — required by the Tauri shell
-
-### Install
-
-```bash
-bun install
-```
-
-### Run the desktop app
-
-```bash
-bun run tauri dev
-```
-
-### Build
-
-```bash
-bun run build
-```
-
-### Verify
-
-```bash
-bun run verify
-```
-
-Focused checks:
-
-```bash
-bun run --filter photrez-desktop test --run
-bun run build
-cargo test -p photrez-core
-cargo test --workspace
 ```
 
 ## Repository Layout
@@ -172,15 +165,30 @@ docs/PRODUCT.md     Product context
 
 ## Roadmap
 
-Near-term work is focused on:
+- **Next: `0.1.0-beta.1`** — final MVP polish: feature-freeze, bug fixes, `.ptz` v1 format lock, and a full regression pass. Release-candidate quality on Windows.
+- **`0.1.0`** — first stable release; `.ptz` backward compatibility guaranteed from here.
+- **`0.2.0`** — text & shapes layers plus full blend modes.
+- **`0.3.0`** — floating panels. **`0.4.0`** — multi-image windows + WASM extension.
 
-- First-run and empty workspace polish.
-- Native runtime smoke evidence.
-- UI cleanup for placeholder-looking surfaces.
-- Continued test coverage around real user wiring paths.
-- Release notes and packaging polish.
+See [roadmap.md](docs/spec/roadmap.md) for the full plan.
 
-See [Feature Status](docs/FEATURES.md) for the current implementation map.
+## FAQ
+
+**Is Photrez production-ready?**
+
+No — it is in alpha. The MVP feature set works on Windows, but expect bugs and breaking changes until `0.1.0`.
+
+**Why Windows-only?**
+
+The MVP targets Windows 10/11 to keep scope tight. macOS/Linux builds are planned for beta.
+
+**Does Photrez support PSD files?**
+
+Not yet. `.ptz` (Photrez project format) and common image formats are supported today; PSD is on the longer-term roadmap.
+
+**Can I contribute?**
+
+Yes. See [Contributing](#contributing) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing
 
