@@ -1,29 +1,33 @@
-# Photrez v0.1.0-beta.1 — <short title>
+# Photrez v0.1.0-beta.1 — Feature-Freeze Release
 
-<2-3 sentences: what this release is about and who it is for. Example:
-"This is the first beta of Photrez. It marks the feature freeze for the
-0.1.0 MVP: the document format is now locked, and no new features will
-be added until the stable release — only fixes.">
+This is the first beta of Photrez. It marks the feature freeze for the
+0.1.0 MVP: the `.ptz` document format is now locked, and no new features
+will be added until the stable release — only fixes.
 
 ## Release highlights
 
-- <One sentence per headline feature, focused on user impact.>
-- <Example: "Layers panel with drag-and-drop reordering — organize your
-  composition without hunting through menus.">
+- **Feature freeze** — the MVP scope is locked; no new features until `0.1.0`, only fixes.
+- **`.ptz` format locked to v1** — projects saved by beta releases stay readable by future stable versions.
+- **Eraser fixed** — no more black edge artifacts at the end of an eraser stroke.
+- **Ctrl+P fixed** — the app's print dialog opens; the browser's native print dialog no longer interferes.
 
 ## What changed
 
 ### New features
 
-- <Details, one bullet per item.>
+- None — this is a freeze release. All MVP features shipped in alpha releases are carried over.
 
 ### Improvements
 
-- <Performance, UX, under-the-hood wins.>
+- MVP scope frozen in `product-scope.md` (effective `0.1.0-beta.1`).
+- `.ptz` v1 format locked; migration contract documented in `docs/guide/ptz-migration.md`.
+- Command contract spec synced: `supported_commands` now reflects the public frontend subset.
+- Beta.1 regression pass complete — 2685 frontend + 84 Rust core test cases green, type-check and build green.
 
 ### Bug fixes
 
-- <Fixed issues, with issue numbers when known.>
+- Ctrl+P no longer triggers the browser's native print dialog; the app's print dialog is used consistently.
+- Eraser strokes no longer leave black outline artifacts in the final committed composite.
 
 ## Downloads
 
