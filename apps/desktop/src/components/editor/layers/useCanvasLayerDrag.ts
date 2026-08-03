@@ -5,6 +5,7 @@ import { addLayerFromCrossDoc } from "../crossDocLayerOps";
 import type { LayerNode } from "@/engine/types";
 import { computeSnapAdjustment, type SnapRect, type SnapLine } from "@/viewport/smartGuides";
 import { getLayerAabb } from "@/viewport/transformGeometry";
+import { ALPHA_HIT_THRESHOLD } from "@/viewport/layerHitTest";
 
 interface CanvasLayerDrag {
   layerId: string;
@@ -74,6 +75,14 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         docY >= layer.transform.y &&
         docY <= layer.transform.y + h
       ) {
+        // Alpha-aware: transparent pixels fall through to the layer below,
+        // matching the canvas click-select path (handleMoveAutoSelect). Two
+        // hit-tests with different rules made the drag target diverge from
+        // the panel selection (@bug 2026-08-03: "drag layer 2 but panel
+        // selects layer background").
+        if (engine.sampleLayerAlpha(layer.id, docX, docY) < ALPHA_HIT_THRESHOLD) {
+          continue;
+        }
         return layer;
       }
     }

@@ -2371,3 +2371,122 @@ describe("Crop resize: frame stays in doc coords (no screen leak)", () => {
     expect(frame!.h).toBeGreaterThan(300);
   });
 });
+
+describe("Move auto-select: drag target matches panel selection (alpha-aware)", () => {
+  let ws: WorkspaceManager;
+  let renderer: any;
+  let scheduler: any;
+  let container: HTMLDivElement;
+  let dispose: () => void;
+  let editorRef: { current: any };
+
+  beforeEach(() => {
+    ws = new WorkspaceManager();
+    renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+    scheduler = { requestRender: vi.fn() };
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    editorRef = { current: null };
+
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+  });
+
+  afterEach(() => {
+    if (dispose) dispose();
+    container.parentNode?.removeChild(container);
+    vi.restoreAllMocks();
+  });
+
+  function renderViewport() {
+    const session = WorkspaceManager.createBlankDocument("doc-move-alpha", "Move Doc", 800, 600);
+    ws.addDocument(session);
+
+    const EditorRefCapture = () => {
+      editorRef.current = useEditor();
+      return null;
+    };
+
+    const result = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={renderer} scheduler={scheduler}>
+          <EditorRefCapture />
+          <CanvasViewport />
+        </EditorProvider>
+      ),
+      container,
+    );
+
+    dispose = result;
+    return { session };
+  }
+
+  it("drag target and panel selection stay consistent when the top layer is transparent at the click point", async () => {
+    renderViewport();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    editorRef.current.setActiveTool("move");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const engine = ws.getActiveEngine()!;
+
+    // Remove the locked background so both test layers are freely movable.
+    const bg = engine.getLayers().find((l) => l.isBackground);
+    if (bg) engine.deleteLayer(bg.id);
+    const bottom = engine.addLayer("bottom", 800, 600);
+    const top = engine.addLayer("top", 800, 600);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The click point (200,200) sits inside BOTH layers. The top layer is
+    // transparent there (alpha 0) so alpha-aware hit-testing must fall
+    // through to the bottom layer. Both auto-select paths must agree.
+    const alphaSpy = vi.spyOn(engine, "sampleLayerAlpha").mockImplementation(
+      (id: string) => (id === top.id ? 0 : 1),
+    );
+
+    // Real-user pre-condition: the top layer is already selected before the
+    // click (context.selectedLayerId is captured at pointerdown).
+    engine.setActiveLayer(top.id);
+    editorRef.current.setSelectedLayerId(top.id);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
+    if (!canvas) throw new Error("Canvas not found");
+
+    const tfSpy = vi.spyOn(engine, "transformLayer");
+
+    const topStartX = top.transform.x;
+    const topStartY = top.transform.y;
+    const bottomStartX = bottom.transform.x;
+    const bottomStartY = bottom.transform.y;
+
+    canvas.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true, cancelable: true, button: 0, pointerId: 99,
+      clientX: 200, clientY: 200,
+    }));
+    canvas.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true, cancelable: true, button: 0, pointerId: 99,
+      clientX: 230, clientY: 230,
+    }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true, cancelable: true, button: 0, pointerId: 99,
+      clientX: 230, clientY: 230,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Panel selection == engine active layer (both hit-test paths agree)
+    expect(editorRef.current.selectedLayerId()).toBe(bottom.id);
+    expect(engine.getActiveLayerId()).toBe(bottom.id);
+
+    // The layer that actually moved == the selected layer. The transparent
+    // top layer must NOT move while the panel shows the bottom layer.
+    const topAfter = engine.getLayer(top.id)!;
+    const bottomAfter = engine.getLayer(bottom.id)!;
+    expect(topAfter.transform.x).toBe(topStartX);
+    expect(topAfter.transform.y).toBe(topStartY);
+    expect(bottomAfter.transform.x).not.toBe(bottomStartX);
+    expect(bottomAfter.transform.y).not.toBe(bottomStartY);
+
+    alphaSpy.mockRestore();
+  });
+});

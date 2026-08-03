@@ -53,6 +53,10 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
     a.transform.y = 100;
     a.width = 200;
     a.height = 200;
+    // Test layers carry no bitmap, so sampleLayerAlpha would report 0
+    // (transparent) and the alpha-aware hit-test would skip every layer.
+    // Force opaque so these wiring tests exercise the drag mechanics.
+    vi.spyOn(session.engine, "sampleLayerAlpha").mockReturnValue(1);
 
     const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
     const scheduler = { requestRender: vi.fn() };
@@ -113,6 +117,11 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
     a.transform.y = 100;
     a.width = 200;
     a.height = 200;
+    // Test layers carry no bitmap, so sampleLayerAlpha would report 0
+    // (transparent) and the alpha-aware hit-test would skip every layer.
+    // Force opaque so these wiring tests exercise the drag mechanics.
+    vi.spyOn(source.engine, "sampleLayerAlpha").mockReturnValue(1);
+    vi.spyOn(target.engine, "sampleLayerAlpha").mockReturnValue(1);
 
     const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
     const scheduler = { requestRender: vi.fn() };

@@ -36,7 +36,7 @@ export interface LayerInfo {
  */
 export type AlphaSampler = (layerId: string, x: number, y: number) => number | null;
 
-const ALPHA_HIT_THRESHOLD = 0.1;
+export const ALPHA_HIT_THRESHOLD = 0.1;
 
 export function hitTestLayer(
   point: { x: number; y: number },

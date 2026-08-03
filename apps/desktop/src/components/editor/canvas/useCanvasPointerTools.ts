@@ -419,7 +419,10 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     if (activeTool() === "move" && moveAutoSelect()) {
       const coords = getDocCoords(e);
       const allLayers = [...engine.getLayers()];
-      const hit = hitTestLayers(coords, allLayers as LayerInfo[]);
+      // Alpha-aware hit-test — same sampler as handleMoveAutoSelect so the
+      // transient canvas-handler selection never diverges from the panel
+      // selection at transparent pixels (@bug 2026-08-03).
+      const hit = hitTestLayers(coords, allLayers as LayerInfo[], (id, x, y) => engine.sampleLayerAlpha(id, x, y));
       if (hit && hit.id !== engine.getActiveLayerId()) {
         engine.setActiveLayer(hit.id);
         setSelectedLayerId(hit.id);
