@@ -40,6 +40,7 @@ pub(crate) fn render_rgba_to_printer(
     paper_index: i16,
     document_name: &str,
     orientation: &str,
+    output_path: Option<&str>,
 ) -> Result<(), String> {
     // ── 1. Build BITMAPINFO (32-bit BI_RGB, top-down) ──────────
     let mut bmi: BITMAPINFO = unsafe { std::mem::zeroed() };
@@ -79,11 +80,17 @@ pub(crate) fn render_rgba_to_printer(
     let offset_y = unsafe { GetDeviceCaps(hdc, PHYSICALOFFSETY as i32) };
 
     // ── 5. StartDocW ───────────────────────────────────────────
+    // Print-to-PDF drivers (PORTPROMPT) REQUIRE an output path — with
+    // lpszOutput = NULL, Windows tries to show a system "Save output as"
+    // dialog that fails from this context with ERROR_ACCESS_DENIED (5).
     let doc_name_wide: Vec<u16> = format!("{}\0", document_name).encode_utf16().collect();
+    // Kept alive for the duration of StartDocW — pointer must remain valid.
+    let output_wide: Option<Vec<u16>> = output_path
+        .map(|p| format!("{}\0", p).encode_utf16().collect());
     let doc_info = DOCINFOW {
         cbSize: std::mem::size_of::<DOCINFOW>() as i32,
         lpszDocName: doc_name_wide.as_ptr(),
-        lpszOutput: std::ptr::null(),
+        lpszOutput: output_wide.as_ref().map_or(std::ptr::null(), |w| w.as_ptr()),
         lpszDatatype: std::ptr::null(),
         fwType: 0,
     };
@@ -223,6 +230,8 @@ pub(crate) fn print_image_via_gdi(
         paper_index,
         document_name,
         orientation,
+        // This path is a temp file we decode ourselves — no output needed.
+        None,
     )
 }
 

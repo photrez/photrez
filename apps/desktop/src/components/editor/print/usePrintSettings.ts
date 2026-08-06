@@ -56,7 +56,10 @@ export function mapFromRust(raw: any): PrintOptions {
     colorHandling: raw.color_handling ?? "printer_manages",
     renderingIntent: raw.rendering_intent ?? "perceptual",
     blackPointCompensation: raw.black_point_compensation ?? true,
-    printerDpi: raw.printer_dpi ?? 300,
+    // Cap at 300 DPI to match printDocument.ts — physical-size math in
+    // the preview must agree with the actual composite DPI, or PDF
+    // drivers (reporting 600) would show wrong fit/scale on paper.
+    printerDpi: Math.min(raw.printer_dpi ?? 300, 300),
   };
 }
 

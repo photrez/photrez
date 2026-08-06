@@ -160,6 +160,25 @@ describe("PrintDialog", () => {
     view.dispose();
   });
 
+  it("spinner uses animate-spin class (keyframe exists via utility)", async () => {
+    let finish!: (value: unknown) => void;
+    mockPrintDocument.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = renderDialog();
+    await tick();
+    button(view.dialog()!, "Print").click();
+    await tick();
+    const btn = button(view.dialog()!, "Preparing...");
+    const spinner = btn.querySelector("svg");
+    expect(spinner).not.toBeNull();
+    expect(spinner!.className.baseVal).toContain("animate-spin");
+    // Inline `animation: spin ...` without a matching @keyframes is a no-op —
+    // that's why the preparing spinner previously never rotated.
+    expect(spinner!.getAttribute("style") ?? "").not.toContain("animation");
+    finish(undefined);
+    await tick();
+    view.dispose();
+  });
+
   it.each(["Cancel", "Escape", "Backdrop"])("dismisses via %s and restores focus", async (method) => {
     const view = renderDialog();
     await tick();

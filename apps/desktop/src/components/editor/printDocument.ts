@@ -25,8 +25,10 @@
 // signal at each step.
 
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import { encodeComposite } from "./exportDocument";
 import { showToast } from "./Toast";
+import { MM_PER_INCH, TARGET_PRINT_DPI, MAX_PX } from "./print/printTypes";
 import type { DocumentEngine } from "@/engine/document";
 
 interface RustPrintSettings {
@@ -67,11 +69,19 @@ interface PrintCompositeSettings {
   maxPx: number;
 }
 
-const MM_PER_INCH = 25.4;
-const TARGET_PRINT_DPI = 300;
-// C2: MAX_PX=8000 → max canvas 8000²×4 = 256 MB, stays under MAX_FILE_IO_BYTES (256 MB).
-// Previous 10000²×4 = 400 MB exceeded the Rust-side limit, causing silent failures.
-const MAX_PX = 8000;
+/** Guard against "Invalid array length" RangeErrors — NaN/Infinity/zero/oversize
+ *  canvas dimensions crash OffscreenCanvas, and pixel budgets beyond typed-array
+ *  limits make Uint8Array allocation fail. Keeps the failure readable, not cryptic. */
+function assertValidPrintDims(w: number, h: number, tag: string): void {
+  const valid =
+    Number.isFinite(w) && Number.isFinite(h) && w >= 1 && h >= 1 &&
+    w <= MAX_PX && h <= MAX_PX && w * h * 4 <= 0x1_0000_0000; // 2^32-1 byte
+  if (!valid) {
+    throw new Error(
+      `Invalid print composite dimensions ${w}x${h}px (${tag}) — exceeds safe canvas limits`,
+    );
+  }
+}
 
 // ── Web Worker compositing ────────────────────────────────────────────
 
@@ -200,6 +210,9 @@ async function compositeFallback(
     const canvasW = Math.min(pixelW, s.maxPx);
     const canvasH = Math.min(pixelH, s.maxPx);
 
+    // Guard "Invalid array length" RangeErrors from NaN/Infinity/oversize dims.
+    assertValidPrintDims(canvasW, canvasH, `paper ${s.paperWidthMm}x${s.paperHeightMm}mm dpi ${s.targetDpi}`);
+
     const { canvas, ctx } = createPrintCanvas(canvasW, canvasH);
 
     signal?.throwIfAborted();
@@ -246,12 +259,13 @@ async function compositeFallback(
  *  @param docName - optional document name for the print spooler
  *  @param signal - optional AbortSignal to cancel the print job
  *  @throws AbortError if cancelled via signal
- *  @throws Error if print fails */
+ *  @throws Error if print fails
+ *  @returns false if the user cancelled the PDF output dialog (no job sent) */
 export async function printDocument(
   engine: DocumentEngine,
   docName?: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<boolean> {
   signal?.throwIfAborted();
 
   try {
@@ -263,7 +277,7 @@ export async function printDocument(
     // Validate printer selection early
     if (!s.selected_printer) {
       showToast("No printer selected. Select a printer in Print Settings.", "warn");
-      return;
+      return false;
     }
 
     // Compute effective dimensions for landscape output.
@@ -279,7 +293,11 @@ export async function printDocument(
     // 3. Determine print DPI — prefer printer-native DPI, fallback to 300.
     //    Compositing at printer DPI means StretchDIBits sees src == dst
     //    size, triggering the 1:1 GDI fast path (no CPU scaling).
-    const dpi = s.printer_dpi ?? TARGET_PRINT_DPI;
+    //    Cap at 300 DPI (industry standard for photo print; browsers
+    //    rasterize at 300 too). PDF drivers report 600 DPI → 4× buffer
+    //    (139MB vs 35MB for A4) with no visible gain at normal viewing
+    //    distance — GDI scales 300 → printer DPI cheaply.
+    const dpi = Math.min(s.printer_dpi ?? TARGET_PRINT_DPI, TARGET_PRINT_DPI);
 
     // Apply MAX_PX clamp: if the canvas at this DPI exceeds the safety
     // limit, proportionally reduce DPI so the longest dimension fits.
@@ -315,6 +333,23 @@ export async function printDocument(
     const { bytes, width, height } = await compositeWithWorker(rawImageBytes, settings, signal);
     signal?.throwIfAborted();
 
+    // Print-to-PDF drivers (PORTPROMPT, e.g. "Microsoft Print to PDF") fail
+    // StartDocW with ERROR_ACCESS_DENIED when lpszOutput is NULL — they require
+    // an explicit output path. Ask the user where to save the PDF here.
+    let outputPath: string | undefined;
+    if (/print to pdf|printtopdf/i.test(s.selected_printer)) {
+      const chosen = await save({
+        defaultPath: `${(docName || "print").replace(/\.[^.]+$/, "")}.pdf`,
+        filters: [{ name: "PDF Document (*.pdf)", extensions: ["pdf"] }],
+      });
+      if (!chosen) {
+        // User cancelled the save dialog — no print job, keep the print
+        // dialog open (caller treats `false` as "not sent").
+        return false;
+      }
+      outputPath = chosen;
+    }
+
     // 6. Send raw RGBA pixels directly to Rust via Tauri v2 raw IPC.
     //    Raw pixels (no format encoding) in body, dimensions + printer
     //    settings in headers. Rust passes straight to GDI with zero decode.
@@ -334,14 +369,19 @@ export async function printDocument(
         orientation: s.orientation,
         width: String(width),
         height: String(height),
+        ...(outputPath ? { outputPath } : {}),
       },
     });
-    showToast("Print job spooled to system printer", "info");
+    showToast(
+      outputPath ? `PDF saved: ${outputPath.split(/[/\\]/).pop() ?? outputPath}` : "Print job sent to printer",
+      "info",
+    );
+    return true;
   } catch (err) {
     // M3: Distinguish AbortError — silent, no toast
     if (err instanceof DOMException && err.name === "AbortError") {
       console.log("[PRINT] Cancelled by user");
-      return;
+      return false;
     }
 
     let msg: string;

@@ -44,6 +44,12 @@ function mockPrintSettings(overrides: Record<string, unknown>) {
   });
 }
 
+// Mock Tauri dialog (save for PDF output)
+const mockSave = vi.fn().mockResolvedValue(null);
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: (...args: unknown[]) => mockSave(...args),
+}));
+
 // Mock encodeComposite — returns raw image bytes
 const mockEncodeComposite = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
 vi.mock("../exportDocument", () => ({
@@ -130,21 +136,22 @@ describe("printDocument — core flow", () => {
     expect(ctx.getImageData).toHaveBeenCalledOnce();
   });
 
-  it("uses printer DPI from settings when available", async () => {
+  it("caps composite DPI at 300 even when printer reports 600", async () => {
     mockPrintSettings({ printer_dpi: 600 });
     const engine = createMockEngine();
     await printDocument(engine);
-    // A4 portrait at 600 DPI:
-    //   width  = (210 / 25.4) * 600 ≈ 4961
-    //   height = (297 / 25.4) * 600 ≈ 7016
+    // PDF drivers report 600 DPI; we cap at 300 (industry best practice,
+    // matches browser print engines). A4 portrait at 300 DPI:
+    //   width  = (210 / 25.4) * 300 ≈ 2480
+    //   height = (297 / 25.4) * 300 ≈ 3508
     expect(mockOffscreenCanvas).toHaveBeenCalledWith(
       expect.any(Number),
       expect.any(Number),
     );
     const calls = mockOffscreenCanvas.mock.calls;
     const lastCall = calls[calls.length - 1];
-    expect(lastCall[0]).toBeGreaterThan(4000); // width > 4000
-    expect(lastCall[1]).toBeGreaterThan(6000); // height > 6000
+    expect(lastCall[0]).toBeLessThan(2500); // capped, NOT ~4961 at 600
+    expect(lastCall[1]).toBeLessThan(3600); // capped, NOT ~7016 at 600
   });
 
   it("falls back to 300 DPI when printer_dpi is null", async () => {
@@ -161,13 +168,12 @@ describe("printDocument — core flow", () => {
   });
 
   it("clamps composite DPI to prevent oversized canvas", async () => {
-    // 1200 DPI on A4 = 9921×14031 → height exceeds MAX_PX=10000
+    // 1200 DPI on A4 would be 9921×14031 → the 300-DPI cap kicks in
+    // FIRST (Math.min), so effective DPI = 300 → canvas 2480×3508.
+    // MAX_PX clamp remains as a second guard for very large papers.
     mockPrintSettings({ printer_dpi: 1200 });
     const engine = createMockEngine();
     await printDocument(engine);
-    // DPI should be proportionally reduced:
-    //   effectiveDpi = (10000 / 14031) * 1200 ≈ 855
-    //   canvas height at 855 DPI ≈ (297/25.4) * 855 ≈ 9998 ≤ MAX_PX
     const calls = mockOffscreenCanvas.mock.calls;
     const lastCall = calls[calls.length - 1];
     expect(lastCall[1]).toBeLessThanOrEqual(10000);
@@ -515,6 +521,92 @@ describe("printDocument — error handling", () => {
       expect.stringContaining("custom error message"),
       "error",
     );
+  });
+
+  it("reports a readable dimension error instead of a cryptic RangeError when canvas size is invalid", async () => {
+    // printer_dpi: 0 → printableWidth * 0 = 0px → composite guard must fail
+    // with a readable message (previously: "Invalid array length" RangeError).
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockPrintSettings({ printer_dpi: 0 });
+    const engine = createMockEngine();
+    await expect(printDocument(engine)).rejects.toBeTruthy();
+    expect(mockShowToast).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid print composite dimensions"),
+      "error",
+    );
+    consoleSpy.mockRestore();
+  });
+});
+
+describe("printDocument — Print to PDF (PORTPROMPT)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupCompositeMock();
+    // restore default invoke impl (get_print_settings + ok for print_image_raw)
+    mockInvoke.mockImplementation(async (cmd: string, _args?: unknown, _options?: unknown) => {
+      if (cmd === "get_print_settings") {
+        return defaultPrintSettings;
+      }
+      return { ok: true, data: { status: "printed" } };
+    });
+    mockSave.mockResolvedValue(null); // default: no PDF dialog outcome
+  });
+
+  it("passes outputPath header when printing to 'Microsoft Print to PDF'", async () => {
+    mockPrintSettings({ selected_printer: "Microsoft Print to PDF" });
+    mockSave.mockResolvedValue("C:/Users/x/Documents/out.pdf");
+    const engine = createMockEngine();
+    const result = await printDocument(engine, "Photo.png");
+    expect(result).toBe(true);
+    expect(mockSave).toHaveBeenCalledOnce();
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw",
+    );
+    expect(invokeCall).toBeDefined();
+    expect(invokeCall![2].headers).toHaveProperty("outputPath", "C:/Users/x/Documents/out.pdf");
+  });
+
+  it("suggests a .pdf filename derived from the document name", async () => {
+    mockPrintSettings({ selected_printer: "Microsoft Print to PDF" });
+    mockSave.mockResolvedValue("C:/out.pdf");
+    const engine = createMockEngine();
+    await printDocument(engine, "Photo.png");
+    expect(mockSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: "Photo.pdf",
+        filters: [{ name: "PDF Document (*.pdf)", extensions: ["pdf"] }],
+      }),
+    );
+  });
+
+  it("aborts cleanly (returns false, no print_image_raw) when the user cancels the PDF save dialog", async () => {
+    mockPrintSettings({ selected_printer: "Microsoft Print to PDF" });
+    mockSave.mockResolvedValue(null); // user cancelled
+    const engine = createMockEngine();
+    const result = await printDocument(engine);
+    expect(result).toBe(false);
+    // The actual print call must NOT be dispatched
+    expect(
+      mockInvoke.mock.calls.find((c: unknown[]) => c[0] === "print_image_raw"),
+    ).toBeUndefined();
+    // No error toast on cancel — cancelling your own save dialog is not an error
+    expect(mockShowToast).not.toHaveBeenCalledWith(
+      expect.stringContaining("Print failed"),
+      "error",
+    );
+  });
+
+  it("works without save dialog for regular printers (no outputPath header)", async () => {
+    // default printer = "Default Printer" (not a PDF printer)
+    const engine = createMockEngine();
+    const result = await printDocument(engine);
+    expect(result).toBe(true);
+    expect(mockSave).not.toHaveBeenCalled();
+    const invokeCall = mockInvoke.mock.calls.find(
+      (c: unknown[]) => c[0] === "print_image_raw",
+    );
+    expect(invokeCall).toBeDefined();
+    expect(invokeCall![2].headers).not.toHaveProperty("outputPath");
   });
 });
 

@@ -36,7 +36,21 @@ interface CompositeRequest {
   settings: PrintSettings;
 }
 
-const MM_PER_INCH = 25.4;
+import { MM_PER_INCH, MAX_PX } from "./printTypes";
+
+/** Guard against "Invalid array length" RangeErrors — NaN/Infinity/zero/oversize
+ *  canvas dimensions crash OffscreenCanvas, and pixel budgets beyond typed-array
+ *  limits make Uint8Array allocation fail. */
+function assertValidDims(w: number, h: number, tag: string): void {
+  const valid =
+    Number.isFinite(w) && Number.isFinite(h) && w >= 1 && h >= 1 &&
+    w <= MAX_PX && h <= MAX_PX && w * h * 4 <= 0x1_0000_0000; // 2^32-1 byte
+  if (!valid) {
+    throw new Error(
+      `Invalid print composite dimensions ${w}x${h}px (${tag}) — exceeds safe canvas limits`,
+    );
+  }
+}
 
 self.onmessage = async (e: MessageEvent<CompositeRequest>) => {
   const { type, id, pngBytes, settings } = e.data;
@@ -75,6 +89,8 @@ async function compositeInWorker(
 
     const canvasW = Math.min(pixelW, s.maxPx);
     const canvasH = Math.min(pixelH, s.maxPx);
+
+    assertValidDims(canvasW, canvasH, `paper ${s.paperWidthMm}x${s.paperHeightMm}mm dpi ${s.targetDpi}`);
 
     // ── 3. OffscreenCanvas compositing ────────────────
     const canvas = new OffscreenCanvas(canvasW, canvasH);

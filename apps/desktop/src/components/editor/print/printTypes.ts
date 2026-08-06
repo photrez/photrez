@@ -17,6 +17,9 @@ export const MM_PER_INCH = 25.4;
 export const CM_PER_INCH = 2.54;
 export const DEFAULT_SCREEN_DPI = 96;
 export const TARGET_PRINT_DPI = 300;
+// MAX_PX=8000 → max canvas 8000²×4 = 256 MB, stays under the Rust-side
+// MAX_FILE_IO_BYTES cap (256 MiB). A larger budget silently fails IPC.
+export const MAX_PX = 8000;
 
 export function convertMmToUnit(valMm: number, unit: PrintUnit): number {
   switch (unit) {

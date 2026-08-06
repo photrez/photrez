@@ -17,6 +17,14 @@ use crate::response::{
 
 const PRINT_MIN_INTERVAL: Duration = Duration::from_secs(2);
 
+/// Guard for the raw-IPC trust boundary: GDI's `StretchDIBits` reads
+/// `width × height × 4` bytes from the pixel buffer we pass, so a length
+/// mismatch would be a heap out-of-bounds read. The frontend always pairs
+/// dimensions with the exact buffer, but the command must not assume it.
+fn validate_print_buffer(width: u32, height: u32, data_len: usize) -> bool {
+    data_len as u64 == width as u64 * height as u64 * 4
+}
+
 /// Global last-print timestamp. Managed as Tauri state so both `print_image`
 /// and `print_image_raw` share the same cooldown window.
 pub(crate) struct PrintRateLimiter {
@@ -315,6 +323,14 @@ pub(crate) fn print_image_raw(
         .unwrap_or("portrait")
         .to_string();
 
+    // Optional output path — required by print-to-PDF drivers (PORTPROMPT),
+    // which fail StartDocW with ERROR_ACCESS_DENIED when lpszOutput is NULL.
+    let output_path = headers
+        .get("outputpath")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
     // Image dimensions (raw RGBA, not encoded format) — required for GDI
     let width: u32 = headers
         .get("width")
@@ -326,6 +342,15 @@ pub(crate) fn print_image_raw(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| error_value("E_VALIDATION", "Missing height header"))?;
+
+    // Trust-boundary guard: buffer length must exactly match the declared
+    // dimensions (4 bytes per RGBA pixel) — see validate_print_buffer.
+    if !validate_print_buffer(width, height, data.len()) {
+        return err_response(
+            "E_VALIDATION",
+            "Print data size does not match width × height × 4",
+        );
+    }
 
     // Resolve printer — use error_value for ? compatibility
     let target = printers::get_printer_by_name(&printer)
@@ -365,6 +390,7 @@ pub(crate) fn print_image_raw(
             paper_index,
             &document_name,
             &orientation,
+            output_path.as_deref(),
         )
         .map_err(|e| error_value("E_PRINTER", &e))?;
     }
@@ -442,6 +468,31 @@ pub(crate) fn print_image_raw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_print_buffer_exact_match_accepted() {
+        // 2×2 RGBA = 16 bytes
+        assert!(validate_print_buffer(2, 2, 16));
+        // Real-world A4@300dpi composite buffer
+        assert!(validate_print_buffer(2480, 3508, 2480 * 3508 * 4));
+    }
+
+    #[test]
+    fn test_validate_print_buffer_rejects_mismatch() {
+        // Too short — GDI StretchDIBits would read past the buffer end
+        assert!(!validate_print_buffer(2480, 3508, 2480 * 3508 * 4 - 1));
+        // Too long — buffer bigger than the declared dimensions
+        assert!(!validate_print_buffer(2, 2, 17));
+        // Zero dimensions with data — nonsensical but must not pass
+        assert!(!validate_print_buffer(0, 0, 16));
+    }
+
+    #[test]
+    fn test_spool_limits_under_max_file_io() {
+        // MAX_PX (8000) × 8000 × 4 bytes must fit under the IPC body cap
+        let max_px_buffer = 8000u64 * 8000u64 * 4;
+        assert!(max_px_buffer <= MAX_FILE_IO_BYTES);
+    }
 
     #[test]
     fn test_print_image_rejects_nonexistent_file() {

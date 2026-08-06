@@ -122,7 +122,8 @@ export function PrintDialog() {
     if (!engine) return;
     setPrintPhase("preparing");
     try {
-      await printDocument(engine, docName());
+      const sent = await printDocument(engine, docName());
+      if (!sent) { setPrintPhase("idle"); return; }
       // Guard: if dialog was closed and re-opened, printPhase was reset — bail out
       if (printPhase() !== "preparing") return;
       setPrintPhase("done");
@@ -219,7 +220,7 @@ export function PrintDialog() {
                 disabled={printing()}
               >
                 <Show when={printing()}>
-                  <svg style="animation: spin 1s linear infinite;" class="size-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                  <svg class="size-3.5 text-white animate-spin" viewBox="0 0 24 24" fill="none">
                     <circle class="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
                     <path class="opacity-100" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
