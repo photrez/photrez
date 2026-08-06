@@ -1,84 +1,63 @@
-﻿# Photrez v0.1.0 â€” First Stable Release
+﻿# Photrez v0.1.0 — First Stable Release
 
-Photrez is out of beta. The MVP scope is locked at `0.1.0-beta.1` and this
-stable release ships the fixes from the beta cycle plus a rebuilt Windows
-installer that upgrades in place. No new features were added in this release.
+**2026-08-06 · Windows x64**
 
-## Release highlights
+Photrez is out of beta. This first stable release ships the complete MVP: a full editing toolkit, the layered document model, and the locked `.ptz` project format. Everything you can do in the app today — from the first brush stroke to print — is part of this release.
 
-- **First stable release** â€” the `.ptz` v1 format is locked; projects saved
-  since `0.1.0-beta.1` stay readable in this and future releases.
-- **Print is fast** â€” composite DPI is capped at 300, the industry standard
-  for photo print. Printing to "Microsoft Print to PDF" is roughly 4x faster
-  on A4 (was 4961Ã—7016 px â‰ˆ 139 MB, now 2480Ã—3508 px â‰ˆ 35 MB) with no visible
-  loss; GDI scales up to the printer DPI cheaply.
-- **Eraser clean** â€” the black halo that appeared around the eraser while
-  dragging is gone. Position feedback now comes only from the cursor ring,
-  never from the committed layer.
-- **Installer upgrades in place** â€” running the setup over an existing
-  installation no longer prompts to uninstall first; files are replaced
-  in place. Installers are unsigned; verify with the SHA-256 checksums
-  below.
-- **Hardened IPC** â€” the print command now validates the raw pixel buffer
-  against its declared dimensions before handing it to GDI, preventing an
-  out-of-bounds read if the two ever disagree.
+## What's inside
 
-## What changed
+### Complete editing toolkit
 
-### Improvements
+- **Brush & Eraser** — pressure-style strokes with live cursor feedback; the eraser works on any layer without the black halo that plagued the beta.
+- **Paint Bucket & Gradient** — flood-fill with tolerance and anti-aliased edges, plus linear and radial gradients.
+- **Selection** — rectangular and elliptical selections with ratio and size constraints; move, transform, and resize selected content.
+- **Crop & Resize** — canvas crop with a modern interaction mode, and exact document resize.
+- **Eyedropper** — sample any color from the canvas into the foreground or background slot.
 
-- Print composite DPI capped at 300 â€” faster print jobs, identical output at
-  normal viewing distance.
-- Test suite fully green with zero skipped tests: 2700 frontend + Rust core
-  tests.
+### Layers & document model
 
-### Bug fixes
+- **Full layer system** — add, delete, reorder, and rename layers; alpha-aware click-to-select; move and transform per layer.
+- **Locked `.ptz` v1 format** — every project saved since `0.1.0-beta.1` opens in this release and will open in every future release.
+- **Undo / Redo** — complete history across every tool and operation.
+
+### Workflow
+
+- **Print is roughly 4x faster** — A4 composite output drops from 139 MB to 35 MB by capping print DPI at 300, the photo-print standard. No visible quality loss at normal viewing distance.
+- **Export & save** — export finished work, autosave, and native Windows save dialogs.
+- **Drag & drop** — open files from the OS or another open project by dragging them in.
+- **Desktop shell** — built on Tauri 2: native window chrome, dockable panels, and a fast WASM compositor.
+
+## Improvements
+
+- Print composite DPI capped at 300 — faster print jobs, identical output at normal viewing distance.
+- Installers upgrade in place — running setup over an existing installation no longer asks to uninstall first.
+- Test suite fully green with zero skipped tests: 2700 frontend + Rust core tests.
+
+## Bug fixes
 
 - Eraser no longer shows a black halo around the cursor during a live stroke.
-- Print-to-PDF keeps working with the DPI cap (the save dialog flow is
-  unchanged).
+- Print-to-PDF keeps working with the DPI cap (the save dialog flow is unchanged).
 
-### Hardening
+## Hardening
 
-- `print_image_raw` validates `data length == width Ã— height Ã— 4` before
-  rendering (IPC trust-boundary guard, covered by unit tests).
-- Print size constants (`TARGET_PRINT_DPI`, `MAX_PX`) now have a single
-  source of truth â€” no more drift between worker, main thread, and preview.
+- `print_image_raw` validates the raw pixel buffer against its declared dimensions before handing it to the printer — prevents an out-of-bounds read if the two ever disagree.
+- Print size constants now have a single source of truth — no more drift between worker, main thread, and preview.
+- Paper-size fetch failures degrade gracefully to an empty list instead of surfacing an unhandled rejection.
 
 ## Downloads
 
-Installers are attached to this release (see the Assets section above). This
-build was produced on Windows:
+[![Download Photrez v0.1.0](https://img.shields.io/badge/Download_Photrez_v0.1.0-6MB-blue?style=for-the-badge)](https://github.com/photrez/photrez/releases/download/v0.1.0/Photrez_0.1.0_x64-setup.exe)
 
-- **Windows**: `.exe` (x64, NSIS)
+- **Windows**: [Photrez_0.1.0_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0/Photrez_0.1.0_x64-setup.exe) (x64, NSIS, ~6 MB) — or grab it from the Assets section below.
 
-The macOS `.dmg` and Linux `.deb`/`.rpm`/`.AppImage` builds are produced from
-their native platforms and will be attached to future releases.
+macOS and Linux builds will be produced from their native platforms and attached to future releases.
 
-## SHA-256 checksums
+## Verify the download
 
-Photrez is not yet code-signed, so checksums are the only way to verify an
-installer's integrity. The full list is attached as the `SHA256SUMS` asset;
-spot-checking example:
+The installer is not yet code-signed, so the SHA-256 checksum is the way to confirm the file you downloaded is the one we built:
 
-```
-$ sha256sum Photrez_0.1.0_x64-setup.exe
+```text
 b700c49f5353e076e77d4b1ae47f9571752462db5c0c80aee6afb157363e3eca  Photrez_0.1.0_x64-setup.exe
 ```
 
-Compare against the `SHA256SUMS` asset attached to this release. (Values
-above were recorded from the installer built on 2026-08-06.)
-
-## Running on Windows and macOS
-
-Photrez is not yet code-signed, so Windows and macOS may show warnings when
-launching the app.
-
-- **Windows**: You may see a Windows Defender SmartScreen warning.
-  Click **"More info" -> "Run anyway"** to proceed.
-- **macOS**: You'll need to remove the quarantine flag after installation,
-  otherwise macOS may report the app as corrupted:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Photrez.app
-```
+The full list is attached as the `SHA256SUMS` asset. Windows may show a Defender SmartScreen warning when launching — click **More info → Run anyway**.
