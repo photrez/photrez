@@ -12,7 +12,7 @@ import { useLayerActions } from "./layers/useLayerActions";
 import { cancelLayerTransformSession } from "./transformSession";
 import { useDialog } from "./dialogs/DialogProvider";
 import { showToast } from "./Toast";
-import { showSaveDialog, writeFileBytes, showSaveDialogAllFormats, setTrustedPaths } from "@/tauri/native";
+import { showSaveDialog, writeFileBytes, showSaveDialogAllFormats, setTrustedPaths, ipcErrorMessage } from "@/tauri/native";
 import { serializeAndSaveProject } from "./projectSerialize";
 import { addRecentFile } from "@/lib/recentFiles";
 import { easeOutCubic } from "@/viewport/easing";
@@ -377,7 +377,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
             editor.scheduler.requestRender();
           } catch (err) {
             setSaveProgress({ phase: "error", label: "Save failed", fraction: 0 });
-            showToast(`Failed to save: ${err}`, "error");
+            showToast(`Failed to save: ${ipcErrorMessage(err)}`, "error");
           } finally {
             scheduleSaveDismiss();
           }
@@ -493,7 +493,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
             editor.scheduler.requestRender();
           } catch (err) {
             setSaveProgress({ phase: "error", label: "Save failed", fraction: 0 });
-            showToast(`Failed to save: ${err}`, "error");
+            showToast(`Failed to save: ${ipcErrorMessage(err)}`, "error");
           } finally {
             scheduleSaveDismiss();
           }

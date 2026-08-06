@@ -19,6 +19,48 @@ function asError(result: ApiError): Error {
   return new Error(`${result.error.code}: ${result.error.message}`);
 }
 
+/** Extract a human-readable message from any invoke rejection.
+ *  Rust commands return `Err(Value)` via err_response/error_value on failure,
+ *  which makes the JS promise reject with an OBJECT envelope ({ok,error:{...}},
+ *  NOT with an Error instance and NOT with {ok:false} — so `asError()` above never runs
+ *  and the raw object leaks to callers. Normalize to a readable Error and export.
+ */
+export function ipcErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  const e = err as { error?: { message?: string }; message?: string; code?: string };
+  return e.error?.message ?? (e.message || "Unknown IPC error");
+}
+
+/**
+ * invoke() wrapper: normalize BOTH resolution (ok:false envelope) and rejection
+ * (Tauri Err(Value)) into a rejected Error with a readable message, so callers
+ * never see `[object Object]` and every failure has a code: message.
+ */
+async function invokeApi<T = unknown>(
+  cmd: string,
+  args?: unknown,
+  options?: unknown,
+): Promise<ApiSuccess<T>> {
+  let result: ApiResponse<T>;
+  try {
+    // Only pass `options` when present — invoke() reports call shape in logs/tests.
+    result = (options === undefined
+      ? await invoke(cmd, args as never)
+      : await invoke(cmd, args as never, options as never)) as ApiResponse<T>;
+  } catch (err) {
+    const e = err as { error?: { code?: string; message?: string }; message?: string; code?: string };
+    const message =
+      e?.error?.message ??
+      e?.message ??
+      (typeof err === "string" ? err : `Unknown IPC error for ${cmd}`);
+    const code = e?.error?.code ?? e?.code;
+    throw new Error(code ? `${code}: ${message}` : message);
+  }
+  if (!result.ok) throw asError(result);
+  return result;
+}
+
 // ─── File Dialog ───
 export async function showOpenImageDialog(): Promise<string[] | null> {
   const selected = await open({
@@ -76,8 +118,7 @@ export async function showSaveDialogAllFormats(defaultName: string): Promise<str
 /** Approve file paths (from OS dialogs) for Rust-side file-IO commands. */
 export async function setTrustedPaths(paths: string[]): Promise<void> {
   if (paths.length === 0) return;
-  const result = await invoke("set_trusted_paths", { paths }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("set_trusted_paths", { paths });
 }
 
 export async function saveProject(
@@ -85,8 +126,7 @@ export async function saveProject(
   documentJson: string,
   layers: Record<string, string>
 ): Promise<void> {
-  const result = await invoke("save_project", { path, documentJson, layers }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("save_project", { path, documentJson, layers });
 }
 
 /** Binary variant of `saveProject` — avoids a large base64 IPC round-trip. */
@@ -95,8 +135,7 @@ export async function saveProjectBinary(
   documentJson: string,
   layers: Record<string, Uint8Array>
 ): Promise<void> {
-  const result = await invoke("save_project_binary", { path, documentJson, layers }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("save_project_binary", { path, documentJson, layers });
 }
 
 // ─── Streaming Project Save ───
@@ -106,8 +145,7 @@ export async function saveProjectStreamingBegin(
   path: string,
   documentJson: string,
 ): Promise<string> {
-  const result = await invoke("save_project_streaming_begin", { path, documentJson }) as ApiResponse<{ handle_id: string }>;
-  if (!result.ok) throw asError(result);
+  const result = await invokeApi<{ handle_id: string }>("save_project_streaming_begin", { path, documentJson });
   return result.data.handle_id;
 }
 
@@ -121,38 +159,32 @@ export async function saveProjectStreamingWriteLayer(
   layerId: string,
   pngBytes: Uint8Array,
 ): Promise<void> {
-  const result = await invoke("save_project_streaming_write_layer", pngBytes, {
+  await invokeApi("save_project_streaming_write_layer", pngBytes, {
     headers: {
       "handle-id": handleId,
       "layer-id": layerId,
     },
-  }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  });
 }
 
 /** Finalize the streaming save — close ZIP, fsync, atomic rename. */
 export async function saveProjectStreamingEnd(handleId: string): Promise<void> {
-  const result = await invoke("save_project_streaming_end", { handleId }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("save_project_streaming_end", { handleId });
 }
 
 /** Cancel an in-progress streaming save — drop zip, delete temp file. */
 export async function saveProjectStreamingCancel(handleId: string): Promise<void> {
-  const result = await invoke("save_project_streaming_cancel", { handleId }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("save_project_streaming_cancel", { handleId });
 }
 
 export async function loadProject(path: string): Promise<{ document_json: string; layers: Record<string, string> }> {
-  const result = await invoke("load_project", { path }) as ApiResponse<{ document_json: string; layers: Record<string, string> }>;
-  if (!result.ok) throw asError(result);
+  const result = await invokeApi<{ document_json: string; layers: Record<string, string> }>("load_project", { path });
   return result.data;
 }
 
 // ─── File I/O ───
 export async function readFileBytes(path: string): Promise<Uint8Array> {
-  const result = await invoke("read_file_bytes", { path }) as ApiResponse<{ data: string }>;
-  if (!result.ok) throw asError(result);
-
+  const result = await invokeApi<{ data: string }>("read_file_bytes", { path });
   const binaryString = atob(result.data.data);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -168,27 +200,24 @@ export async function writeFileBytes(path: string, data: Uint8Array): Promise<vo
   }
   const b64 = btoa(binary);
 
-  const result = await invoke("write_file_bytes", { path, data: b64 }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("write_file_bytes", { path, data: b64 });
 }
 
 // ─── File Deletion (temp file cleanup) ───
 export async function deleteFile(path: string): Promise<void> {
-  const result = await invoke("delete_file", { path }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("delete_file", { path });
 }
 
 /** Delete an autosave file from `appCacheDir()/photrez/autosave/`. Uses a dedicated
  * command scoped to the autosave directory — unlike `deleteFile` (temp-only). */
 export async function deleteAutosaveFile(path: string): Promise<void> {
-  const result = await invoke("delete_autosave_file", { path }) as ApiResponse;
-  if (!result.ok) throw asError(result);
+  await invokeApi("delete_autosave_file", { path });
 }
 
 // ─── Ping ───
 export async function ping(): Promise<boolean> {
   try {
-    const result = await invoke("ping") as ApiResponse;
+    const result = await invokeApi("ping");
     return result.ok;
   } catch {
     return false;
