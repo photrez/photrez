@@ -1,8 +1,8 @@
 ﻿# Photrez v0.1.0 â€” First Stable Release
 
 Photrez is out of beta. The MVP scope is locked at `0.1.0-beta.1` and this
-stable release ships the fixes from the beta cycle plus a new MSI installer
-for Windows. No new features were added in this release.
+stable release ships the fixes from the beta cycle plus a rebuilt Windows
+installer that upgrades in place. No new features were added in this release.
 
 ## Release highlights
 
@@ -15,8 +15,10 @@ for Windows. No new features were added in this release.
 - **Eraser clean** â€” the black halo that appeared around the eraser while
   dragging is gone. Position feedback now comes only from the cursor ring,
   never from the committed layer.
-- **New: Windows MSI installer** â€” alongside the NSIS `.exe`. Both installers
-  are unsigned; verify with the SHA-256 checksums below.
+- **Installer upgrades in place** â€” running the setup over an existing
+  installation no longer prompts to uninstall first; files are replaced
+  in place. Installers are unsigned; verify with the SHA-256 checksums
+  below.
 - **Hardened IPC** â€” the print command now validates the raw pixel buffer
   against its declared dimensions before handing it to GDI, preventing an
   out-of-bounds read if the two ever disagree.
@@ -48,7 +50,7 @@ for Windows. No new features were added in this release.
 Installers are attached to this release (see the Assets section above). This
 build was produced on Windows:
 
-- **Windows**: `.exe` (x64, NSIS) and `.msi` (x64, MSI)
+- **Windows**: `.exe` (x64, NSIS)
 
 The macOS `.dmg` and Linux `.deb`/`.rpm`/`.AppImage` builds are produced from
 their native platforms and will be attached to future releases.
@@ -62,8 +64,6 @@ spot-checking example:
 ```
 $ sha256sum Photrez_0.1.0_x64-setup.exe
 b700c49f5353e076e77d4b1ae47f9571752462db5c0c80aee6afb157363e3eca  Photrez_0.1.0_x64-setup.exe
-$ sha256sum Photrez_0.1.0_x64_en-US.msi
-b85c6eebae92ca81ac93419364090020c961637b7a6d5959ea67d252e9b26903  Photrez_0.1.0_x64_en-US.msi
 ```
 
 Compare against the `SHA256SUMS` asset attached to this release. (Values
