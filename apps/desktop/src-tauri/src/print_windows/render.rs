@@ -85,12 +85,14 @@ pub(crate) fn render_rgba_to_printer(
     // dialog that fails from this context with ERROR_ACCESS_DENIED (5).
     let doc_name_wide: Vec<u16> = format!("{}\0", document_name).encode_utf16().collect();
     // Kept alive for the duration of StartDocW — pointer must remain valid.
-    let output_wide: Option<Vec<u16>> = output_path
-        .map(|p| format!("{}\0", p).encode_utf16().collect());
+    let output_wide: Option<Vec<u16>> =
+        output_path.map(|p| format!("{}\0", p).encode_utf16().collect());
     let doc_info = DOCINFOW {
         cbSize: std::mem::size_of::<DOCINFOW>() as i32,
         lpszDocName: doc_name_wide.as_ptr(),
-        lpszOutput: output_wide.as_ref().map_or(std::ptr::null(), |w| w.as_ptr()),
+        lpszOutput: output_wide
+            .as_ref()
+            .map_or(std::ptr::null(), |w| w.as_ptr()),
         lpszDatatype: std::ptr::null(),
         fwType: 0,
     };

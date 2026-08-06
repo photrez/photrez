@@ -103,6 +103,11 @@ export default defineConfig({
           setupFiles: ["./src/test/setup.ts"],
           css: false,
           pool: "forks",
+          // CI windows runners are slow: 3 tests hit the 5000ms default and
+          // flaked (crossDocDragDropWiring, PropertiesPanelBasicAdjustments,
+          // useBrushOverlay). Re-run --failed always passed - runner slowness,
+          // not a regression. 30000ms removes the flake structurally.
+          testTimeout: 30000,
         },
         extends: true,
         esbuild: {
