@@ -537,7 +537,45 @@ describe("useBrushOverlay eraser pixel output", () => {
     imageBitmap.close();
   });
 
-  it("final eraser composite rebuilds the overlay, clearing the non-final drag outline (no black edge)", async () => {
+  it("does NOT draw a drag outline on non-final eraser composites (no live black halo)", async () => {
+    const { overlay, overlayCanvas, sourceCanvas, engine, layer } = createRealHarness();
+    const imageBitmap = await createImageBitmap(sourceCanvas);
+    engine.getLayer("layer-1").imageBitmap = imageBitmap;
+
+    const ctx = overlayCanvas.getContext("2d")!;
+    const strokeSpy = vi.spyOn(ctx, "stroke");
+    const arcSpy = vi.spyOn(ctx, "arc");
+
+    // Queue RAF callbacks instead of running them, then flush exactly one
+    // frame manually (running them synchronously loops forever through the
+    // hold-timer tick: requestAnimationFrame(tick) -> tick).
+    const rafCbs: FrameRequestCallback[] = [];
+    const rafSpy = vi.spyOn(globalThis, "requestAnimationFrame")
+      .mockImplementation((cb) => { rafCbs.push(cb); return rafCbs.length; });
+
+    try {
+      // Non-final stroke: the old drag-feedback circle (rgba(0,0,0,0.25))
+      // used to be drawn here — asserting it now DOES NOT is the regression
+      // guard against the live black halo during eraser.
+      overlay.onPaintStroke([{ x: 50, y: 40 }], true, settings, false);
+      rafCbs.splice(0).forEach((cb) => cb(0));
+      expect(strokeSpy).not.toHaveBeenCalled();
+      expect(arcSpy).not.toHaveBeenCalled();
+      // Overlay must stay free of the black outline around the dab: the old
+      // ring was stroked at radius tipRadius-0.5 = 4.5px from the dab center,
+      // so sample right where it used to be (4-5px out), not just at center.
+      const edge = ctx.getImageData(54, 40, 1, 1).data;
+      expect(edge[3]).toBe(0);
+      const edge2 = ctx.getImageData(55, 40, 1, 1).data;
+      expect(edge2[3]).toBe(0);
+    } finally {
+      rafSpy.mockRestore();
+    }
+
+    imageBitmap.close();
+  });
+
+  it("final eraser composite rebuilds the overlay from layer content + dabs (no black edge)", async () => {
     const { overlay, overlayCanvas, sourceCanvas, engine, history } = createRealHarness();
     const imageBitmap = await createImageBitmap(sourceCanvas);
     engine.getLayer("layer-1").imageBitmap = imageBitmap;
@@ -554,15 +592,14 @@ describe("useBrushOverlay eraser pixel output", () => {
       .mockImplementation((cb) => { rafCbs.push(cb); return rafCbs.length; });
 
     try {
-      // Non-final stroke: outline feedback drawn on the overlay.
+      // Non-final stroke: no outline may be drawn (was the drag feedback
+      // that leaked as the black ring in the old behavior).
       overlay.onPaintStroke([{ x: 50, y: 40 }], true, settings, false);
       rafCbs.splice(0).forEach((cb) => cb(0));
-      expect(strokeSpy).toHaveBeenCalled();
+      expect(strokeSpy).not.toHaveBeenCalled();
 
       // Final stroke: composite must rebuild the overlay from scratch
-      // (clearRect -> re-seed -> re-cut), NOT layer dabs over the outline.
-      // Without the rebuild the outline is baked into the committed layer
-      // as a black edge.
+      // (clearRect -> re-seed -> re-cut), never stamp over stale content.
       overlay.onPaintStroke([{ x: 50, y: 40 }], true, settings, true);
       expect(clearRectSpy).toHaveBeenCalled();
     } finally {

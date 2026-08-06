@@ -602,23 +602,12 @@ export function useBrushOverlay() {
       overlayCtx!.globalAlpha = 1;
       overlayCtx!.globalCompositeOperation = "source-over";
       session.dabsRendered = session.dabPositions.length;
-
-      // Draw a thin circle outline at the current (last) dab position as
-      // explicit visual feedback for the eraser position, so the user
-      // always sees SOMETHING even when the layer has no content to erase.
-      // SKIP on final composite: the outline would pollute the overlay
-      // and force commitBrushStroke to reconstruct from scratch instead
-      // of reading the clean overlay directly.
-      if (!final) {
-        const lastDab = session.dabPositions[session.dabPositions.length - 1];
-        if (lastDab) {
-          overlayCtx!.strokeStyle = "rgba(0,0,0,0.25)";
-          overlayCtx!.lineWidth = 1;
-          overlayCtx!.beginPath();
-          overlayCtx!.arc(Math.round(lastDab.x), Math.round(lastDab.y), tipRadius - 0.5, 0, Math.PI * 2);
-          overlayCtx!.stroke();
-        }
-      }
+      // NOTE: no drag-feedback outline here. The old rgba(0,0,0,0.25)
+      // circle stroked on the overlay was visible as a black halo around
+      // the eraser DURING the stroke (baked into the live view; the final
+      // composite rebuild only cleaned it up at release). Position feedback
+      // is provided by the BrushCursorOverlay SVG ring instead — drawn in
+      // screen space, never committed to the layer.
     } else {
       // ── Brush: incremental drawImage (skip already-rendered dabs) ──
       // Hanya draw dabs BARU sejak composite terakhir. Tidak perlu clear
