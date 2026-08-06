@@ -45,11 +45,13 @@ for Windows. No new features were added in this release.
 
 ## Downloads
 
-Installers are attached to this release (see the Assets section above):
+Installers are attached to this release (see the Assets section above). This
+build was produced on Windows:
 
 - **Windows**: `.exe` (x64, NSIS) and `.msi` (x64, MSI)
-- **macOS**: `.dmg` (Apple Silicon / ARM64)
-- **Linux**: `.deb`, `.rpm`, `.AppImage` (x86_64)
+
+The macOS `.dmg` and Linux `.deb`/`.rpm`/`.AppImage` builds are produced from
+their native platforms and will be attached to future releases.
 
 ## SHA-256 checksums
 
@@ -59,11 +61,13 @@ spot-checking example:
 
 ```
 $ sha256sum Photrez_0.1.0_x64-setup.exe
-<empty>  Photrez_0.1.0_x64-setup.exe
+9a7fb21b0a9a148f3827409c6da25373af388a5236761056c8d64031174e8753  Photrez_0.1.0_x64-setup.exe
+$ sha256sum Photrez_0.1.0_x64_en-US.msi
+6c617118a70c87d9123a1d974596bc371fb983794ff66c751f0ab1c60a9408bd  Photrez_0.1.0_x64_en-US.msi
 ```
 
-Compare against the `SHA256SUMS` asset attached to this release. (Checksum
-values are filled in after the installer is built.)
+Compare against the `SHA256SUMS` asset attached to this release. (Values
+above were recorded from the installer built on 2026-08-06.)
 
 ## Running on Windows and macOS
 
