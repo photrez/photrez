@@ -153,11 +153,16 @@ export function PrintInspector(props: PrintInspectorProps) {
     },
     async (printer: string): Promise<PaperSizesData> => {
       if (!printer) return { sizes: [] };
-      const res = await invoke("get_printer_paper_sizes", { printer }) as {
-        ok: boolean; data?: PaperSizesData;
-      };
-      if (res.ok && res.data?.sizes) return res.data;
-      return { sizes: [] };
+      try {
+        const res = await invoke("get_printer_paper_sizes", { printer }) as {
+          ok: boolean; data?: PaperSizesData;
+        };
+        if (res.ok && res.data?.sizes) return res.data;
+        return { sizes: [] };
+      } catch {
+        // Tauri v2 rejects on Rust Err; degrade to empty list (same as ok:false)
+        return { sizes: [] };
+      }
     },
     { initialValue: { sizes: [] } as PaperSizesData }
   );
