@@ -1,6 +1,6 @@
 {
   "productName": "Photrez",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0",
   "identifier": "com.photrez.desktop",
   "build": {
     "beforeDevCommand": {
@@ -50,7 +50,8 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "headerImage": null
-      }
+      },
+      "msi": {}
     }
   }
 }
