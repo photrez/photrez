@@ -153,11 +153,9 @@ export function PrintInspector(props: PrintInspectorProps) {
     },
     async (printer: string): Promise<PaperSizesData> => {
       if (!printer) return { sizes: [] };
-      console.log("[PRINT:Inspector] Fetching paper sizes for printer:", printer);
       const res = await invoke("get_printer_paper_sizes", { printer }) as {
         ok: boolean; data?: PaperSizesData;
       };
-      console.log("[PRINT:Inspector] Paper sizes response:", JSON.stringify(res));
       if (res.ok && res.data?.sizes) return res.data;
       return { sizes: [] };
     },

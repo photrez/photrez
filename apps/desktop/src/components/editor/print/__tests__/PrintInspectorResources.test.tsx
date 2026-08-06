@@ -452,10 +452,10 @@ describe("PrintInspector — createResource patterns", () => {
     expect(letterOption).toBeInTheDocument();
   });
 
-  // This test is kept skipped: the component does not render an
-  // "active but unlisted" entry when the current paper is absent from
-  // the printer's supported size list (the <select> is simply empty).
-  it.skip("shows active-but-unlisted paper when current paper not in printer sizes", async () => {
+  // The component renders an "active but unlisted" entry when the current
+  // paper is absent from the printer's supported size list, so the <select>
+  // is never empty (unlistedPaper memo + <Show> in PrintInspector.tsx).
+  it("shows active-but-unlisted paper when current paper not in printer sizes", async () => {
     mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "get_printer_paper_sizes") {
         return Promise.resolve({ ok: true, data: { sizes: [] } });
@@ -468,8 +468,30 @@ describe("PrintInspector — createResource patterns", () => {
     ));
 
     // Current paper (A4) not in driver list → shown as "active but unlisted"
-    const a4Option = await findByText(/A4/i);
-    expect(a4Option).toBeInTheDocument();
+    const unlistedOption = await findByText(/not listed on this printer/i);
+    expect(unlistedOption).toBeInTheDocument();
+    expect(unlistedOption.textContent).toMatch(/A4/i);
+  });
+
+  // Invalid-input path: Tauri v2 REJECTS (envelope object) when the Rust
+  // command returns Err(Value). The resource must not crash — it degrades
+  // to an empty size list and the active paper stays visible via the
+  // unlisted entry (real runtime behavior, not a resolved {ok:false}).
+  it("handles get_printer_paper_sizes rejection with graceful degradation", async () => {
+    mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "get_printer_paper_sizes") {
+        return Promise.reject({ ok: false, error: { code: "E_PRINTER", message: "printer offline" } });
+      }
+      return defaultMockImpl(cmd, args);
+    });
+
+    const { findByText } = render(() => (
+      <PrintInspector {...createInspectorProps()} />
+    ));
+
+    const unlistedOption = await findByText(/not listed on this printer/i);
+    expect(unlistedOption).toBeInTheDocument();
+    expect(unlistedOption.textContent).toMatch(/A4/i);
   });
 
   // ── 5. Effect 2 — auto-select + scale-to-fit recalculation ──────
