@@ -10,6 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [0.1.0] — 2026-08-06
+
+### 🎉 First Stable Release
+
+`v0.1.0` is the first stable release of the MVP. The `.ptz` document format is backward-compatible from this version onward; any later format change must be additive and ship a migrator (`docs/guide/ptz-migration.md`).
+
+### ✨ Complete Editing Toolkit (MVP)
+- **Tools:** move, selection, crop, eyedropper, brush, eraser, paint bucket, gradient.
+- **Layers & document model:** non-destructive layer stack, blend modes, history (undo/redo).
+- **Workflow:** print settings with paper-size presets, PNG/JPEG/WebP export, `.ptz` project files.
+- **Performance & privacy:** WebGL2 canvas, offline-first, no cloud uploads.
+
+### 🔧 Stability
+- Paper-size fetch failures now degrade gracefully (empty preset list) instead of breaking the print inspector — fixed unhandled rejection that failed the full component-test suite.
+- Full 1517 component-test suite green; `cargo fmt --check` clean; `bun audit --prod --audit-level=high` clean.
+- Component tests no longer flake on slow CI runners (5000ms → 30000ms jsdom timeout).
+
+### 📦 Delivery
+- Windows x64 NSIS installer + `SHA256SUMS`, tagged `v0.1.0` as a GitHub release (not a pre-release).
+- Release notes and download links live at https://github.com/photrez/photrez/releases/tag/v0.1.0.
+
+---
+
 ## [0.1.0-beta.1] — 2026-08-03
 
 ### ⚠️ Pre-Release Notice

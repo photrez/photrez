@@ -12,7 +12,7 @@ A lightweight, fast desktop image editor that content creators and small busines
 
 ## Current Status
 
-- **Version:** `v0.1.0-beta.1` (2026-08-03)
+- **Version:** `v0.1.0` (2026-08-06) — first stable release
 - **MVP v1:** Complete — layer system, selection/transform, crop/resize, brush/eraser, gradient/fill, elliptical selection, export. See `FEATURES.md`.
 - **Platform:** Windows primary (macOS/Linux pre-release builds available, not yet fully QA'd).
 - **Engine:** TypeScript `DocumentEngine`. Rust `photrez-core` is the domain-model reference + test coverage; WASM export encode pilot wired (`photrez_core_bg.wasm` with Canvas fallback).
@@ -28,7 +28,7 @@ Stable releases ship **per feature batch** (SemVer MINOR). Each batch runs its o
 
 ```
 alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE, 2026-08-03)
-  → 0.1.0 (STABLE MVP, ~Q4 2026)
+  → 0.1.0 (STABLE MVP, DONE 2026-08-06)
   → 0.2.0 (text & shapes + full blend modes, ~Q1 2027)
   → 0.3.0 (floating panels, ~Q2 2027)
   → 0.4.0 (multi-image windows + WASM extension, ~Q3 2027)
@@ -38,7 +38,7 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE
 | Version | Theme | User Outcome | Target |
 | --- | --- | --- | --- |
 | `0.1.0-beta.1` | Final MVP polish | ✅ Released 2026-08-03 — MVP feature-freeze; `.ptz` v1 locked; cross-platform pre-release builds | DONE |
-| `0.1.0` | **Stable MVP** | First stable release — `.ptz` backward-compat guaranteed from here | ~Q4 2026 |
+| `0.1.0` | **Stable MVP** | ✅ Released 2026-08-06 — first stable release; `.ptz` backward-compat guaranteed from here | DONE |
 | `0.2.0` | Text & shapes + full blend modes | Text layers, shape drawing, all blend modes — daily-driver tools | ~Q1 2027 |
 | `0.3.0` | Floating panels | Tear-off/re-dock Layers & Inspector panels | ~Q2 2027 |
 | `0.4.0` | Multi-image windows + WASM extension | Each image in its own window; brush/transform faster via WASM | ~Q3 2027 |

@@ -1,6 +1,6 @@
-# Known Issues — Photrez v0.1.0-beta.1
+# Known Issues — Photrez v0.1.0
 
-This document lists known limitations and bugs in the current beta release.
+This document lists known limitations and bugs in the current release.
 For bug reports, please open an issue at https://github.com/photrez/photrez/issues.
 
 ## 🚨 Critical Limitations
@@ -71,12 +71,12 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 
 ### 13. Window State Restore on Multi-Monitor
 - **Symptom (mitigated in alpha.2):** If saved window position is on a disconnected external monitor, app snaps to primary monitor center (intended). The earlier "brief flash at default size" was caused by the splashscreen restore race; removing the splashscreen (alpha.2) eliminates that flash. A minor resize flash on main-window restore may still occur on multi-monitor and is low priority.
-- **Fix planned:** 0.1.0 stable (if still observable after splashscreen removal).
+- **Fix planned:** 0.2.0 (if still observable after splashscreen removal).
 
 ### 14. Custom Titlebar Accessibility
 - **Symptom:** Custom titlebar may not fully support keyboard navigation (Alt+Space system menu, F10 menu activation).
 - **Mitigation (code evidence, 2026-08-02):** Native menu bar is installed via `app.set_menu` (`main.rs:125`) with `on_menu_event` routing to the frontend — Windows handles F10/Alt+Space activation for windows with a native menu bar. Workaround: standard keyboard shortcuts (Ctrl+N, Ctrl+O, etc.).
-- **Status:** Pending manual verification on the beta.1 release build; fix only if F10/Alt+Space still fail.
+- **Status:** Pending manual verification on the v0.1.0 release build; fix only if F10/Alt+Space still fail.
 
 ### 15. CSP Allows `unsafe-inline` for Styles
 - **Symptom:** Content Security Policy allows inline styles (required for Tailwind CSS v4).
@@ -91,8 +91,8 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 
 ## 🔄 Migration Path
 
-### From v0.1.0-beta.1 to v0.1.0 (first stable)
-- `.ptz` backward-compat is guaranteed from `v0.1.0` (format locked to v1 in beta.1): all later format changes are additive and ship a migrator (`docs/guide/ptz-migration.md`). Files saved in beta stay loadable.
+### From v0.1.0 (first stable) onward
+- `.ptz` backward-compat is guaranteed from `v0.1.0` (format locked to v1 in beta.1): all later format changes are additive and ship a migrator (`docs/guide/ptz-migration.md`). Files saved in v0.1.0 stay loadable.
 - Settings and window state will migrate automatically.
 - Breaking changes may still land during `0.x` MINOR bumps (per SemVer) — always documented in release notes.
 
@@ -102,4 +102,4 @@ For bug reports, please open an issue at https://github.com/photrez/photrez/issu
 - **Security reports:** See `SECURITY.md` (report privately before public disclosure)
 - **Feature requests:** Open a discussion or issue with `feature-request` label
 
-Thank you for testing Photrez beta! Your feedback helps shape the 0.1.0 stable and 1.0 releases.
+Thank you for using Photrez! Your feedback helps shape the 0.2.0 and 1.0 releases.

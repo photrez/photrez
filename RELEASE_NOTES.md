@@ -1,6 +1,4 @@
-﻿**2026-08-06 · Windows x64**
-
-Photrez is out of beta. This first stable release ships the complete MVP: a full editing toolkit, the layered document model, and the locked `.ptz` project format.
+﻿Photrez is out of beta. This first stable release ships the complete MVP: a full editing toolkit, the layered document model, and the locked `.ptz` project format.
 
 ## Download
 

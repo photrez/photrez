@@ -26,9 +26,9 @@
 
 Photrez is an open-source desktop image editor with a compact, familiar workflow: layers, selection, transform, crop, brush, eraser, history, print settings, and a WebGL2 canvas. It is built with Tauri, SolidJS, TypeScript, and Rust (for core compute).
 
-Photrez is currently in **beta** (`v0.1.0-beta.1`). The editor is usable, but expect bugs, breaking changes, and incomplete features. Not recommended for production use.
+Photrez `v0.1.0` is the first stable release of the MVP: the complete editing toolkit, layered document model, and the locked `.ptz` project format (backward-compatible from here on). Windows 10/11 is the supported platform; macOS/Linux builds are planned.
 
-- **Supported platform:** Windows 10/11 (macOS/Linux pre-release builds available)
+- **Supported platform:** Windows 10/11 (macOS/Linux builds planned)
 - **Known issues:** See [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
 - **Bug reports:** [GitHub Issues](https://github.com/photrez/photrez/issues)
 - **Security:** See [SECURITY.md](SECURITY.md)
@@ -49,11 +49,11 @@ Photrez is currently in **beta** (`v0.1.0-beta.1`). The editor is usable, but ex
 
 ## Install
 
-> **Note:** Pre-release — for testing only, not for production use.
+> **Note:** The Windows installer is not code-signed yet — SmartScreen may show an unverified-publisher warning (see step 3).
 
 **Windows 10/11:**
 
-1. Download [Photrez_0.1.0-beta.1_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0-beta.1/Photrez_0.1.0-beta.1_x64-setup.exe) from the [latest release](https://github.com/photrez/photrez/releases).
+1. Download [Photrez_0.1.0_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0/Photrez_0.1.0_x64-setup.exe) from the [latest release](https://github.com/photrez/photrez/releases).
 2. Run the installer and follow the steps.
 3. If SmartScreen shows an unverified-publisher warning, click **More info** then **Run anyway** — the installer is not code-signed yet.
 
@@ -150,7 +150,7 @@ docs/PRODUCT.md     Product context
 
 ## Documentation
 
-- [Known Issues (Beta)](KNOWN_ISSUES.md)
+- [Known Issues](KNOWN_ISSUES.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Feature Status](docs/FEATURES.md)
 - [Product Scope](docs/spec/product-scope.md)
@@ -165,9 +165,8 @@ docs/PRODUCT.md     Product context
 
 ## Roadmap
 
-- **Released: `0.1.0-beta.1`** — final MVP polish: feature-freeze, bug fixes, `.ptz` v1 format lock, full regression pass, cross-platform pre-release builds.
-- **Next: `0.1.0`** — first stable release; `.ptz` backward compatibility guaranteed from here.
-- **`0.2.0`** — text & shapes layers plus full blend modes.
+- **Released: `0.1.0`** (2026-08-06) — first stable release: complete MVP toolkit, `.ptz` v1 backward compatibility guaranteed from here, Windows x64 installer.
+- **Next: `0.2.0`** — text & shapes layers plus full blend modes.
 - **`0.3.0`** — floating panels. **`0.4.0`** — multi-image windows + WASM extension.
 
 See [roadmap.md](docs/spec/roadmap.md) for the full plan.
@@ -176,11 +175,11 @@ See [roadmap.md](docs/spec/roadmap.md) for the full plan.
 
 **Is Photrez production-ready?**
 
-No — it is in beta. The MVP feature set works on Windows (macOS/Linux pre-release builds are available), but expect bugs and breaking changes until `0.1.0`.
+Yes. `v0.1.0` is the first stable release on Windows. The MVP feature set works end-to-end; known limitations are tracked in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 **Why Windows-only?**
 
-The MVP targets Windows 10/11 to keep scope tight. macOS/Linux builds are planned for beta.
+The MVP targets Windows 10/11 to keep scope tight. macOS/Linux builds are planned.
 
 **Does Photrez support PSD files?**
 
