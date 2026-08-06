@@ -17,9 +17,9 @@ interface TransformHudProps {
 }
 
 export function TransformHud(props: TransformHudProps) {
-  // Offset to place the HUD floating at top-right of cursor pointer (X+16, Y-14 with -translate-y-full)
+  // Offset to place the HUD floating at top-right of cursor pointer with tight 4px gap (X+16, Y-4 with -translate-y-full)
   const posX = () => Math.max(12, props.clientX + 16);
-  const posY = () => Math.max(50, props.clientY - 14);
+  const posY = () => Math.max(50, props.clientY - 4);
 
   return (
     <div

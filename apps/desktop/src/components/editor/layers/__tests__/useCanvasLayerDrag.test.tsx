@@ -33,6 +33,7 @@ interface TestApi {
   setMoveAutoSelect: (v: boolean) => void;
   setSelectedLayerId: (id: string | null) => void;
   onSnapLinesChange: Mock<(lines: SnapLine[]) => void>;
+  onHudUpdate: Mock<(hud: any) => void>;
 }
 
 describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => {
@@ -77,7 +78,11 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
       const ed = useEditor();
       const dc = useDragController();
       testApi.onSnapLinesChange = vi.fn<(lines: SnapLine[]) => void>();
-      testApi.dragApi = useCanvasLayerDrag({ onSnapLinesChange: testApi.onSnapLinesChange });
+      testApi.onHudUpdate = vi.fn<(hud: any) => void>();
+      testApi.dragApi = useCanvasLayerDrag({
+        onSnapLinesChange: testApi.onSnapLinesChange,
+        onHudUpdate: testApi.onHudUpdate,
+      });
       testApi.dcState = () => dc.state();
       testApi.setTool = (t: ToolId) => ed.setActiveTool(t);
       testApi.setMoveSnapEnabled = (v: boolean) => ed.setMoveSnapEnabled(v);
@@ -1061,6 +1066,34 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
 
       expect(ctx.testApi.dragApi.isDragging()).toBe(true);
       expect(ctx.testApi.onSnapLinesChange).toHaveBeenCalled();
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("layer drag emits onHudUpdate with deltaX/deltaY during move and null on pointerup", () => {
+    const ctx = setupWithLayer();
+    try {
+      ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, button: 0, clientX: 150, clientY: 150,
+      }));
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, button: 0, clientX: 200, clientY: 180,
+      }));
+
+      expect(ctx.testApi.onHudUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        mode: "move",
+        clientX: 200,
+        clientY: 180,
+        deltaX: 50,
+        deltaY: 30,
+      }));
+
+      document.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true, button: 0, clientX: 200, clientY: 180,
+      }));
+
+      expect(ctx.testApi.onHudUpdate).toHaveBeenLastCalledWith(null);
     } finally {
       teardown(ctx);
     }

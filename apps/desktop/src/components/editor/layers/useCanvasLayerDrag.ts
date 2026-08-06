@@ -6,6 +6,7 @@ import type { LayerNode } from "@/engine/types";
 import { computeSnapAdjustment, type SnapRect, type SnapLine } from "@/viewport/smartGuides";
 import { getLayerAabb } from "@/viewport/transformGeometry";
 import { ALPHA_HIT_THRESHOLD } from "@/viewport/layerHitTest";
+import type { HudMode } from "../TransformHud";
 
 interface CanvasLayerDrag {
   layerId: string;
@@ -25,6 +26,18 @@ export interface CanvasLayerDragApi {
 
 export interface CanvasLayerDragOptions {
   onSnapLinesChange?: (lines: SnapLine[]) => void;
+  onHudUpdate?: (hud: {
+    mode: HudMode;
+    clientX: number;
+    clientY: number;
+    deltaX: number;
+    deltaY: number;
+    width: number;
+    height: number;
+    scalePercent: number;
+    angle: number;
+    snapActive: boolean;
+  } | null) => void;
   isSpacePressed?: () => boolean;
   isPanning?: () => boolean;
 }
@@ -109,6 +122,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         dragController.cancelTabHover();
       }
       opts.onSnapLinesChange?.([]);
+      opts.onHudUpdate?.(null);
       return;
     }
 
@@ -126,6 +140,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         dragController.setDropTarget({ type: "canvas" });
         dragController.cancelTabHover();
         opts.onSnapLinesChange?.([]);
+        opts.onHudUpdate?.(null);
         scheduler.requestRender();
         return;
       }
@@ -145,6 +160,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     // (lockPosition) so snap guides would fire with no visible movement.
     if (layer.lockPosition) {
       opts.onSnapLinesChange?.([]);
+      opts.onHudUpdate?.(null);
       return;
     }
 
@@ -152,6 +168,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     let newY = d.startTransformY + dy;
 
     const altHeld = e.altKey;
+    let snapActive = false;
     if (!altHeld && moveSnapEnabled()) {
       const docW = engine.getWidth();
       const docH = engine.getHeight();
@@ -183,6 +200,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       const result = computeSnapAdjustment(rect, snapTargets, 5, zoom());
       newX += result.dx;
       newY += result.dy;
+      snapActive = result.lines.length > 0;
       opts.onSnapLinesChange?.(result.lines);
     } else {
       opts.onSnapLinesChange?.([]);
@@ -190,6 +208,21 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
 
     engine.transformLayer(d.layerId, { x: newX, y: newY });
     scheduler.requestRender();
+
+    const actualDx = newX - d.startTransformX;
+    const actualDy = newY - d.startTransformY;
+    opts.onHudUpdate?.({
+      mode: "move",
+      clientX: e.clientX,
+      clientY: e.clientY,
+      deltaX: actualDx,
+      deltaY: actualDy,
+      width: layer.width,
+      height: layer.height,
+      scalePercent: 100,
+      angle: layer.transform.rotation,
+      snapActive,
+    });
 
     // Update drop target for non-cross-doc hover.
     const tabBarEl = el?.closest("[data-tab-bar-empty]") as HTMLElement | null;
@@ -212,6 +245,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     document.removeEventListener("pointercancel", onPointerCancel);
 
     opts.onSnapLinesChange?.([]);
+    opts.onHudUpdate?.(null);
 
     const dropTarget = dragController.state().dropTarget;
     // Use the source docId captured at pointerdown, NOT the current
@@ -330,6 +364,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     document.removeEventListener("pointerup", onPointerUp);
     document.removeEventListener("pointercancel", onPointerCancel);
     opts.onSnapLinesChange?.([]);
+    opts.onHudUpdate?.(null);
 
     const src = d?.sourceDocId ?? activeDocumentId();
     if (src) {

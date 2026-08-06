@@ -112,6 +112,7 @@
 | ✅ DONE | Keyboard nudge (Arrow=1px, Shift+Arrow=10px)                                                                                                                                                 |
 | ✅ DONE | Canvas auto-select (click-to-select visible layer under cursor)                                                                                                                              |
 | ✅ DONE | Transform HUD (ΔX/ΔY, W/H/%, angle near cursor)                                                                                                                                              |
+| ✅ DONE | Move tool layer drag HUD (floating ΔX/ΔY offset & SNAP badge near cursor during layer drag)                                                                                                  |
 | ✅ DONE | Transform HUD fixed screen-size metrics during zoom (resize W/H tooltip does not scale with viewport zoom)                                                                                   |
 | ✅ DONE | HUD "snap" label when snap lines active                                                                                                                                                      |
 | ✅ DONE | Dynamic rotate cursor (SVG data-URI, angle-based, cached per degree)                                                                                                                         |

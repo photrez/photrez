@@ -387,6 +387,7 @@ export function CanvasViewport() {
 
   const canvasLayerDrag = useCanvasLayerDrag({
     onSnapLinesChange: setSnapLines,
+    onHudUpdate: setHudInfo,
     isSpacePressed,
     isPanning,
   });
