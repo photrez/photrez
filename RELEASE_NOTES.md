@@ -1,4 +1,4 @@
-# Photrez v0.1.0 — First Stable Release
+﻿# Photrez v0.1.0 â€” First Stable Release
 
 Photrez is out of beta. The MVP scope is locked at `0.1.0-beta.1` and this
 stable release ships the fixes from the beta cycle plus a new MSI installer
@@ -6,18 +6,18 @@ for Windows. No new features were added in this release.
 
 ## Release highlights
 
-- **First stable release** — the `.ptz` v1 format is locked; projects saved
+- **First stable release** â€” the `.ptz` v1 format is locked; projects saved
   since `0.1.0-beta.1` stay readable in this and future releases.
-- **Print is fast** — composite DPI is capped at 300, the industry standard
+- **Print is fast** â€” composite DPI is capped at 300, the industry standard
   for photo print. Printing to "Microsoft Print to PDF" is roughly 4x faster
-  on A4 (was 4961×7016 px ≈ 139 MB, now 2480×3508 px ≈ 35 MB) with no visible
+  on A4 (was 4961Ã—7016 px â‰ˆ 139 MB, now 2480Ã—3508 px â‰ˆ 35 MB) with no visible
   loss; GDI scales up to the printer DPI cheaply.
-- **Eraser clean** — the black halo that appeared around the eraser while
+- **Eraser clean** â€” the black halo that appeared around the eraser while
   dragging is gone. Position feedback now comes only from the cursor ring,
   never from the committed layer.
-- **New: Windows MSI installer** — alongside the NSIS `.exe`. Both installers
+- **New: Windows MSI installer** â€” alongside the NSIS `.exe`. Both installers
   are unsigned; verify with the SHA-256 checksums below.
-- **Hardened IPC** — the print command now validates the raw pixel buffer
+- **Hardened IPC** â€” the print command now validates the raw pixel buffer
   against its declared dimensions before handing it to GDI, preventing an
   out-of-bounds read if the two ever disagree.
 
@@ -25,7 +25,7 @@ for Windows. No new features were added in this release.
 
 ### Improvements
 
-- Print composite DPI capped at 300 — faster print jobs, identical output at
+- Print composite DPI capped at 300 â€” faster print jobs, identical output at
   normal viewing distance.
 - Test suite fully green with zero skipped tests: 2700 frontend + Rust core
   tests.
@@ -38,10 +38,10 @@ for Windows. No new features were added in this release.
 
 ### Hardening
 
-- `print_image_raw` validates `data length == width × height × 4` before
+- `print_image_raw` validates `data length == width Ã— height Ã— 4` before
   rendering (IPC trust-boundary guard, covered by unit tests).
 - Print size constants (`TARGET_PRINT_DPI`, `MAX_PX`) now have a single
-  source of truth — no more drift between worker, main thread, and preview.
+  source of truth â€” no more drift between worker, main thread, and preview.
 
 ## Downloads
 
@@ -61,9 +61,9 @@ spot-checking example:
 
 ```
 $ sha256sum Photrez_0.1.0_x64-setup.exe
-9a7fb21b0a9a148f3827409c6da25373af388a5236761056c8d64031174e8753  Photrez_0.1.0_x64-setup.exe
+b700c49f5353e076e77d4b1ae47f9571752462db5c0c80aee6afb157363e3eca  Photrez_0.1.0_x64-setup.exe
 $ sha256sum Photrez_0.1.0_x64_en-US.msi
-6c617118a70c87d9123a1d974596bc371fb983794ff66c751f0ab1c60a9408bd  Photrez_0.1.0_x64_en-US.msi
+b85c6eebae92ca81ac93419364090020c961637b7a6d5959ea67d252e9b26903  Photrez_0.1.0_x64_en-US.msi
 ```
 
 Compare against the `SHA256SUMS` asset attached to this release. (Values

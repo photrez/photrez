@@ -49,9 +49,10 @@
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
-        "headerImage": null
+        "headerImage": null,
+        "template": "native/installer.nsi"
       },
-      "msi": {}
+      "wix": {}
     }
   }
 }
