@@ -1,8 +1,14 @@
-﻿# Photrez v0.1.0 — First Stable Release
+﻿**2026-08-06 · Windows x64**
 
-**2026-08-06 · Windows x64**
+Photrez is out of beta. This first stable release ships the complete MVP: a full editing toolkit, the layered document model, and the locked `.ptz` project format.
 
-Photrez is out of beta. This first stable release ships the complete MVP: a full editing toolkit, the layered document model, and the locked `.ptz` project format. Everything you can do in the app today — from the first brush stroke to print — is part of this release.
+## Download
+
+| Platform | Download | Size |
+| --- | --- | --- |
+| Windows | [Photrez_0.1.0_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0/Photrez_0.1.0_x64-setup.exe) | ~6 MB |
+
+Also available in the Assets section below. macOS and Linux builds will be produced from their native platforms and attached to future releases.
 
 ## What's inside
 
@@ -43,14 +49,6 @@ Photrez is out of beta. This first stable release ships the complete MVP: a full
 - `print_image_raw` validates the raw pixel buffer against its declared dimensions before handing it to the printer — prevents an out-of-bounds read if the two ever disagree.
 - Print size constants now have a single source of truth — no more drift between worker, main thread, and preview.
 - Paper-size fetch failures degrade gracefully to an empty list instead of surfacing an unhandled rejection.
-
-## Downloads
-
-[![Download Photrez v0.1.0](https://img.shields.io/badge/Download_Photrez_v0.1.0-6MB-blue?style=for-the-badge)](https://github.com/photrez/photrez/releases/download/v0.1.0/Photrez_0.1.0_x64-setup.exe)
-
-- **Windows**: [Photrez_0.1.0_x64-setup.exe](https://github.com/photrez/photrez/releases/download/v0.1.0/Photrez_0.1.0_x64-setup.exe) (x64, NSIS, ~6 MB) — or grab it from the Assets section below.
-
-macOS and Linux builds will be produced from their native platforms and attached to future releases.
 
 ## Verify the download
 
