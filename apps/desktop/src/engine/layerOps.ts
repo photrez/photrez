@@ -47,6 +47,37 @@ export function addLayer(model: DocumentModel, name: string, width?: number, hei
   return newLayer;
 }
 
+/** Add a parametric shape layer above the active layer (or at top when none). */
+export function addShapeLayer(
+  model: DocumentModel,
+  name: string,
+  params: ShapeParams
+): LayerNode {
+  if (model.layers.length >= MAX_LAYERS) {
+    throw new Error(`Maximum layer limit of ${MAX_LAYERS} reached`);
+  }
+  // Budget check (canAddLayer) deliberately skipped per plan scope — Task 6
+  // temp shape layers are tiny; add it if real layers grow.
+  const newLayer = createShapeLayerNode(name, params);
+
+  // Insert directly above active layer if selected, else at front (top) of stack
+  const activeId = model.activeLayerId;
+  const activeIndex = activeId ? model.layers.findIndex(l => l.id === activeId) : -1;
+  if (activeIndex !== -1) {
+    model.layers = [
+      ...model.layers.slice(0, activeIndex),
+      newLayer,
+      ...model.layers.slice(activeIndex),
+    ];
+  } else {
+    model.layers = [newLayer, ...model.layers];
+  }
+  model.activeLayerId = newLayer.id;
+  model.dirty = true;
+
+  return newLayer;
+}
+
 /** Duplicate a layer (with numeric-suffix rename) directly above the source. */
 export function duplicateLayer(model: DocumentModel, id: LayerId): LayerNode {
   if (model.layers.length >= MAX_LAYERS) {

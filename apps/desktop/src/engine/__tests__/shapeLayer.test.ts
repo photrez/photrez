@@ -80,6 +80,16 @@ describe("engine shape layer ops", () => {
     expect(s.engine.getLayer(rasterId)!.type).toBe("raster");
   });
 
+  it("updateShapeParams with invalid dims (width 0) throws and prior state is intact", () => {
+    const s = makeSession();
+    const layer = s.engine.addShapeLayer("Shape 1", params);
+    expect(() => s.engine.updateShapeParams(layer.id, { ...params, width: 0 })).toThrow();
+    const after = s.engine.getLayer(layer.id)!;
+    expect(after.shapeParams).toEqual(params);
+    expect(after.width).toBe(108);
+    expect(after.height).toBe(58);
+  });
+
   it("shapeLayerToRaster drops shapeParams but keeps the bitmap", () => {
     const s = makeSession();
     const layer = s.engine.addShapeLayer("Shape 1", params);

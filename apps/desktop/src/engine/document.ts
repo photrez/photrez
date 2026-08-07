@@ -12,7 +12,7 @@ import type {
   ViewportState, SelectionState, RenderState, BlendMode,
   Transform2D, TextureHandle, RenderLayer
 } from "./types";
-import { MAX_PIXEL_BUDGET, MAX_LAYERS, getEffectiveMaxDim } from "./types";
+import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { performCropCanvas, performApplyCrop } from "./cropApply";
@@ -23,6 +23,7 @@ import type { RenderBackend } from "../renderer/types";
 
 import {
   addLayer as applyAddLayer,
+  addShapeLayer as applyAddShapeLayer,
   duplicateLayer as applyDuplicateLayer,
   mergeDown as applyMergeDown,
   flattenLayers as applyFlattenLayers,
@@ -42,7 +43,7 @@ import {
   flipLayer as applyFlipLayer,
   calculateMemoryUsage as calcLayerMemory,
   canAddLayer as canFitLayer,
-  createShapeLayerNode,
+  isShapeLayer as applyIsShapeLayer,
   shapeLayerToRaster as applyShapeLayerToRaster,
 } from "./layerOps";
 import { renderShapeToBitmap } from "./shapeRaster";
@@ -156,24 +157,6 @@ export class DocumentEngine {
     return duplicated;
   }
 
-  /** Insert a ready-made node above the active layer (or at top when none). */
-  private insertLayerNode(newLayer: LayerNode): void {
-    const activeIndex = this.model.activeLayerId
-      ? this.model.layers.findIndex(l => l.id === this.model.activeLayerId)
-      : -1;
-    if (activeIndex !== -1) {
-      this.model.layers = [
-        ...this.model.layers.slice(0, activeIndex),
-        newLayer,
-        ...this.model.layers.slice(activeIndex),
-      ];
-    } else {
-      this.model.layers = [newLayer, ...this.model.layers];
-    }
-    this.model.activeLayerId = newLayer.id;
-    this.model.dirty = true;
-  }
-
   mergeDown(id: LayerId): void {
     const result = applyMergeDown(this.model, id);
     if (!result) return;
@@ -220,11 +203,7 @@ export class DocumentEngine {
 
   // ─── Shape Layers ───
   addShapeLayer(name: string, params: ShapeParams): LayerNode {
-    if (this.model.layers.length >= MAX_LAYERS) {
-      throw new Error(`Maximum layer limit of ${MAX_LAYERS} reached`);
-    }
-    const layer = createShapeLayerNode(name, params);
-    this.insertLayerNode(layer);
+    const layer = applyAddShapeLayer(this.model, name, params);
     this.markLayerDirty(layer.id);
     this.notifyChange();
     return layer;
@@ -244,7 +223,7 @@ export class DocumentEngine {
 
   shapeLayerToRaster(id: LayerId): void {
     const layer = this.getLayer(id);
-    if (!layer) return;
+    if (!layer || layer.type !== "shape") return;
     applyShapeLayerToRaster(layer);
     this.markLayerDirty(id);
     this.notifyChange();
@@ -252,7 +231,7 @@ export class DocumentEngine {
 
   isShapeLayer(id: LayerId): boolean {
     const layer = this.getLayer(id);
-    return !!layer && layer.type === "shape";
+    return !!layer && applyIsShapeLayer(layer);
   }
 
   // ─── Layer Properties ───
