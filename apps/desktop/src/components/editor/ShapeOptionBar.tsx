@@ -9,6 +9,25 @@ import type { LayerNode, ShapeParams, ShapeKind } from "@/engine/types";
 
 type ShapeLayer = LayerNode & { type: "shape"; shapeParams: ShapeParams };
 
+/** Field-by-field no-op check: skips commit when the edit is a no-op (avoids
+ *  ghost undo entries on repeated range/color input events). Mirrors
+ *  MoveOptionBar's transform no-op guard. */
+function shallowEqualParams(cur: ShapeParams, next: Partial<ShapeParams>): boolean {
+  if (next.kind !== undefined && next.kind !== cur.kind) return false;
+  if (next.radius !== undefined && next.radius !== cur.radius) return false;
+  if (next.arrowHead !== undefined && next.arrowHead !== cur.arrowHead) return false;
+  if (next.stroke) {
+    if (next.stroke.enabled !== undefined && next.stroke.enabled !== cur.stroke.enabled) return false;
+    if (next.stroke.color !== undefined && next.stroke.color !== cur.stroke.color) return false;
+    if (next.stroke.width !== undefined && next.stroke.width !== cur.stroke.width) return false;
+  }
+  if (next.fill) {
+    if (next.fill.kind !== undefined && next.fill.kind !== cur.fill.kind) return false;
+    if (next.fill.color !== undefined && next.fill.color !== cur.fill.color) return false;
+  }
+  return true;
+}
+
 const KIND_BTNS: { kind: ShapeKind; arrow: boolean; icon: "rectangle" | "circle" | "line" | "arrowUpRight"; label: string; short: string; content: string }[] = [
   { kind: "rect", arrow: false, icon: "rectangle", label: "Rectangle", short: "Rect", content: "Solid/filled rectangle" },
   { kind: "ellipse", arrow: false, icon: "circle", label: "Ellipse", short: "Ellipse", content: "Solid/filled ellipse" },
@@ -28,6 +47,7 @@ const KIND_BTNS: { kind: ShapeKind; arrow: boolean; icon: "rectangle" | "circle"
 export function ShapeOptionBar() {
   const {
     workspace,
+    layers,
     selectedLayerId,
     shapeKind, setShapeKind,
     shapeFillEnabled, setShapeFillEnabled,
@@ -38,13 +58,14 @@ export function ShapeOptionBar() {
     shapeArrowHead, setShapeArrowHead,
   } = useEditor();
 
+  // Read through the reactive `layers()` signal: setupWorkspaceSync re-publishes
+  // the layer array on every engine change (updateShapeParams → notifyChange),
+  // so the label/kind derive happens on an actual signal — not a stale live read.
   const selectedShape = (): ShapeLayer | null => {
-    const engine = workspace.getActiveEngine();
-    if (!engine) return null;
     const id = selectedLayerId();
     if (!id) return null;
-    const layer = engine.getLayer(id);
-    // guard: engine could be a partial/skinny mock or the layer is a raster
+    const layer = layers().find((l) => l.id === id);
+    // guard: the layer could be a raster/group, or lack shapeParams
     return layer && layer.type === "shape" && layer.shapeParams ? (layer as ShapeLayer) : null;
   };
 
@@ -64,9 +85,14 @@ export function ShapeOptionBar() {
     const history = workspace.getActiveHistory();
     const layer = selectedShape();
     if (!layer || !engine || !history) return;
+    const next = { ...layer.shapeParams, ...patch };
+    // No-op guard: skip commit when the patch doesn't change the current
+    // params — prevents ghost undo entries from range/color per-tick input
+    // events and from clicking a control at its current value.
+    if (shallowEqualParams(layer.shapeParams, next)) return;
     // commit BEFORE mutation (AGENTS.md wiring rule)
     history.commit(engine.snapshot(), "Edit Shape");
-    engine.updateShapeParams(layer.id, { ...layer.shapeParams, ...patch });
+    engine.updateShapeParams(layer.id, next);
   };
 
   const selectKind = (next: ShapeKind, arrow: boolean) => {

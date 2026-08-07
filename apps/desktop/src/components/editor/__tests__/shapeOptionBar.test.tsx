@@ -33,6 +33,23 @@ function makeShapeLayer(overrides: Partial<LayerNode> = {}): LayerNode {
   };
 }
 
+function makeRasterLayer(overrides: Partial<LayerNode> = {}): LayerNode {
+  return {
+    id: "r1",
+    name: "Raster",
+    type: "raster",
+    width: 8,
+    height: 8,
+    opacity: 1,
+    visible: true,
+    locked: false,
+    blendMode: "normal",
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+    imageBitmap: null,
+    ...overrides,
+  };
+}
+
 type Setters = {
   setShapeKind: ReturnType<typeof vi.fn>;
   setShapeFillEnabled: ReturnType<typeof vi.fn>;
@@ -63,6 +80,7 @@ function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
       getActiveHistory: () => ({ commit }),
     },
     activeTool: () => "shape",
+    layers: () => (layer ? [layer] : []),
     selectedLayerId: () => (layer ? layer.id : null),
     fgColor: () => "#E15A17",
     shapeKind: () => (layer ? layer.shapeParams!.kind : "rect"),
@@ -288,6 +306,51 @@ describe("ShapeOptionBar", () => {
     expect(commit.mock.invocationCallOrder[0]).toBeLessThan(engine.updateShapeParams.mock.invocationCallOrder[0]);
     cleanup();
   });
+
+  it("edit mode: clicking the already-active kind does not push a ghost commit", () => {
+    const layer = makeShapeLayer({
+      id: "s2",
+      shapeParams: { ...baseParams, kind: "ellipse", stroke: { enabled: true, color: "#00ff00", width: 10 } },
+    });
+    const { engine, commit } = buildMock({}, layer);
+    const { container, cleanup } = mountShapeBar();
+
+    // Ellipse is the active kind — clicking it again is a no-op, must not commit.
+    const ellipse = qs<HTMLButtonElement>(container, 'button[aria-label="Ellipse"]')!;
+    ellipse.click();
+    expect(commit).not.toHaveBeenCalled();
+    expect(engine.updateShapeParams).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("stroke width 0 is clamped to >= 1", () => {
+    const { setters } = buildMock({ shapeStrokeEnabled: () => true });
+    const { container, cleanup } = mountShapeBar();
+    const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
+    width.value = "0";
+    width.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(setters.setShapeStrokeWidth).toHaveBeenCalledWith(1);
+    cleanup();
+  });
+
+  it("Arrow → Line → Arrow round-trip toggles arrow head without leaking to other kinds", () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountShapeBar();
+    const arrow = qs<HTMLButtonElement>(container, 'button[aria-label="Arrow"]')!;
+    const line = qs<HTMLButtonElement>(container, 'button[aria-label="Line"]')!;
+
+    arrow.click();
+    expect(setters.setShapeKind).toHaveBeenLastCalledWith("line");
+    expect(setters.setShapeArrowHead).toHaveBeenLastCalledWith(true);
+
+    line.click();
+    expect(setters.setShapeKind).toHaveBeenCalled();
+    expect(setters.setShapeArrowHead).toHaveBeenLastCalledWith(false);
+
+    arrow.click();
+    expect(setters.setShapeArrowHead).toHaveBeenLastCalledWith(true);
+    cleanup();
+  });
 });
 
 describe("OptionBar shape mount gating", () => {
@@ -308,6 +371,21 @@ describe("OptionBar shape mount gating", () => {
 
   it("hides ShapeOptionBar when move tool is active and no shape is selected", () => {
     mockUseEditor(optionBarEditor({ activeTool: () => "move" }) as any);
+    const { container, cleanup } = mountOptionBar();
+    expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
+    cleanup();
+  });
+
+  it("hides ShapeOptionBar when a raster layer is selected (not a shape)", () => {
+    const raster = makeRasterLayer();
+    mockUseEditor(optionBarEditor({ activeTool: () => "move" }, raster) as any);
+    const { container, cleanup } = mountOptionBar();
+    expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
+    cleanup();
+  });
+
+  it("does not crash and hides the bar when the engine returns null", () => {
+    mockUseEditor(optionBarEditor({ activeTool: () => "move", selectedLayerId: () => "ghost" }) as any);
     const { container, cleanup } = mountOptionBar();
     expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
     cleanup();
