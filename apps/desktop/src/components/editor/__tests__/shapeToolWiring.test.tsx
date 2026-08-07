@@ -29,6 +29,7 @@ function makePointerTools(signals: Record<string, any>) {
 describe("shape tool pointer wiring", () => {
   it("pointerdown starts drag, pointermove updates preview bitmap, pointerup commits a shape layer", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    const history = signals.workspace.getActiveHistory();
     (mockEngine as any).addShapeLayer = vi.fn(() => ({
       id: "shape-1", type: "shape", name: "Shape 1",
       width: 100, height: 100, imageBitmap: {} as ImageBitmap,
@@ -43,6 +44,10 @@ describe("shape tool pointer wiring", () => {
     tools.onCanvasPointerMove(makePointerEvent({ clientX: 110, clientY: 60 }));
     expect(mockEngine.updateShapeParams).toHaveBeenCalled();
     tools.onCanvasPointerUp(makePointerEvent({ clientX: 110, clientY: 60 }));
+    // drag (10,10)→(110,60): w=100, h=50, both ≥ 3px → committed, temp kept.
+    expect(history.commit).toHaveBeenCalled();
+    expect(history.commit).toHaveBeenCalledWith(expect.anything(), "Add Shape");
+    expect(mockEngine.deleteLayer).not.toHaveBeenCalled();
     disposeTools();
     dispose();
   });
@@ -89,6 +94,12 @@ describe("shape tool pointer wiring", () => {
     const lastCall = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
     expect(lastCall.width).toBe(50);
     expect(lastCall.height).toBe(40);
+    // Alt centers the box on the drag start: w=50, h=40 from start (100,100)
+    // → top-left docX = 100-50 = 50, docY = 100-40 = 60.
+    expect(mockEngine.transformLayer).toHaveBeenCalledWith(
+      "shape-1",
+      { x: 50, y: 60 },
+    );
     disposeTools();
     dispose();
   });
