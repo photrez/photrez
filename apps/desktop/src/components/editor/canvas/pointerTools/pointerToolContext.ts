@@ -88,7 +88,8 @@ export interface GradientDragState {
 export interface ShapeDragState {
   start: { x: number; y: number } | null;
   tempLayerId: string | null;
-  params: import("@/engine/types").ShapeParams | null;
+  /** Document model snapshot taken BEFORE the temp layer was added. */
+  preSnapshot: import("@/engine/types").DocumentModel | null;
   isDragging: boolean;
   reset: () => void;
 }

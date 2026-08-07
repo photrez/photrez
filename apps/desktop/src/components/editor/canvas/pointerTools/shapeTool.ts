@@ -27,6 +27,7 @@ function buildParams(
     w = side;
     h = side;
   }
+  // Shift+alt: square pre-doubling, then double → square box centered on start.
   if (kind !== "line") {
     w = Math.max(1, w);
     h = Math.max(1, h);
@@ -37,8 +38,16 @@ function buildParams(
   let docX = Math.min(start.x, end.x);
   let docY = Math.min(start.y, end.y);
   if (altKey) {
-    docX = start.x - w;
-    docY = start.y - h;
+    // Alt: the drag start is the CENTER of the shape. The box spans
+    // start ± delta (cursor at the far corner), so width/height are double
+    // the cursor delta while the top-left corner sits one delta back from
+    // the center.
+    const extentX = w;
+    const extentY = h;
+    w = extentX * 2;
+    h = extentY * 2;
+    docX = start.x - extentX;
+    docY = start.y - extentY;
   }
 
   const params: ShapeParams = {
@@ -64,12 +73,13 @@ export function startShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
   const coords = ctx.getDocCoords(e);
   state.start = { x: coords.x, y: coords.y };
   state.isDragging = true;
+  // Snapshot BEFORE the temp layer exists so undo of "Add Shape" removes it.
+  state.preSnapshot = engine.snapshot();
 
   try {
     const first = buildParams(ctx, state.start, state.start, false, false);
     const layer = engine.addShapeLayer("Shape", first.params);
     state.tempLayerId = layer.id;
-    state.params = null;
   } catch (err) {
     showToast(`Shape failed: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
     state.reset();
@@ -89,7 +99,6 @@ export function trackShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
 
   const coords = ctx.getDocCoords(e);
   const { params, docX, docY } = buildParams(ctx, state.start, coords, e.shiftKey, e.altKey);
-  state.params = params;
   try {
     engine.updateShapeParams(state.tempLayerId, params);
     engine.transformLayer(state.tempLayerId, { x: docX, y: docY });
@@ -115,13 +124,24 @@ export function applyShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
   const coords = ctx.getDocCoords(e);
   const { params, docX, docY } = buildParams(ctx, state.start, coords, e.shiftKey, e.altKey);
 
-  if (Math.abs(params.width) < MIN_DRAG_PX || Math.abs(params.height) < MIN_DRAG_PX) {
+  // Accidental click guard. For lines, height 0 is legal (rasterizer allows
+  // horizontal lines), so measure the drag length via hypot instead of the
+  // per-axis check (which would delete a valid horizontal line).
+  const isClick = params.kind === "line"
+    ? Math.hypot(params.width, params.height) < MIN_DRAG_PX
+    : Math.abs(params.width) < MIN_DRAG_PX || Math.abs(params.height) < MIN_DRAG_PX;
+  if (isClick) {
     engine.deleteLayer(tempId);
     state.reset();
     return true;
   }
 
-  const preSnapshot = engine.snapshot();
+  const preSnapshot = state.preSnapshot;
+  if (!preSnapshot) {
+    engine.deleteLayer(tempId);
+    state.reset();
+    return true;
+  }
   try {
     engine.updateShapeParams(tempId, params);
     engine.transformLayer(tempId, { x: docX, y: docY });

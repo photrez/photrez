@@ -90,16 +90,36 @@ describe("shape tool pointer wiring", () => {
 
     const { tools, dispose: disposeTools } = makePointerTools(signals);
     tools.onCanvasPointerDown(makePointerEvent({ clientX: 100, clientY: 100 }));
-    tools.onCanvasPointerMove(makePointerEvent({ clientX: 150, clientY: 140, altKey: true }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 150, clientY: 120, altKey: true }));
     const lastCall = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
-    expect(lastCall.width).toBe(50);
+    // Alt: start is the center; box spans start ± delta → dims doubled.
+    // delta = (50,20) → width 100, height 40, cursor at the far corner.
+    expect(lastCall.width).toBe(100);
     expect(lastCall.height).toBe(40);
-    // Alt centers the box on the drag start: w=50, h=40 from start (100,100)
-    // → top-left docX = 100-50 = 50, docY = 100-40 = 60.
+    // top-left = center - delta = (100-50, 100-20) = (50, 80)
     expect(mockEngine.transformLayer).toHaveBeenCalledWith(
       "shape-1",
-      { x: 50, y: 60 },
+      { x: 50, y: 80 },
     );
+    disposeTools();
+    dispose();
+  });
+
+  it("horizontal line is not deleted (degenerate height allowed)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    const history = signals.workspace.getActiveHistory();
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).updateShapeParams = vi.fn();
+    (mockEngine as any).deleteLayer = vi.fn();
+    signals.setShapeKind("line");
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 150, clientY: 50 }));
+    tools.onCanvasPointerUp(makePointerEvent({ clientX: 150, clientY: 50 }));
+    // 100px horizontal line (height 0) → hypot=100 ≥ 3 → kept + committed.
+    expect(mockEngine.deleteLayer).not.toHaveBeenCalled();
+    expect(history.commit).toHaveBeenCalled();
     disposeTools();
     dispose();
   });

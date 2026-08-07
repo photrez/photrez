@@ -121,12 +121,12 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
   const shapeDragState: ShapeDragState = {
     start: null,
     tempLayerId: null,
-    params: null,
+    preSnapshot: null,
     isDragging: false,
     reset: () => {
       shapeDragState.start = null;
       shapeDragState.tempLayerId = null;
-      shapeDragState.params = null;
+      shapeDragState.preSnapshot = null;
       shapeDragState.isDragging = false;
     },
   };
