@@ -33,11 +33,35 @@ export interface Transform2D {
   flipV: boolean;
 }
 
+// ─── Shape layers (spec #2, 2026-08-07) ───
+export type ShapeKind = "rect" | "ellipse" | "line";
+
+export interface ShapeStroke {
+  enabled: boolean;
+  color: string; // hex, e.g. "#E15A17" — matches fgColor/bgColor convention
+  width: number; // px, clamped >= 1 at render
+}
+
+export interface ShapeFill {
+  kind: "none" | "solid";
+  color: string; // hex
+}
+
+export interface ShapeParams {
+  kind: ShapeKind;
+  width: number;  // shape box width, local space, > 0
+  height: number; // shape box height, local space, > 0
+  radius: number; // rect corner radius, px, >= 0, clamped <= min(w,h)/2
+  fill: ShapeFill;
+  stroke: ShapeStroke;
+  arrowHead: boolean; // line only
+}
+
 // ─── Layer ───
 export interface LayerNode {
   id: LayerId;
   name: string;
-  type: "raster" | "adjustment" | "group";
+  type: "raster" | "adjustment" | "group" | "shape";
   visible: boolean;
   opacity: number;   // 0.0 - 1.0
   locked: boolean;
@@ -55,6 +79,8 @@ export interface LayerNode {
   // Pixel data reference — actual pixels stored as ImageBitmap or
   // texture handle, NOT as raw RGBA array in JS (too expensive)
   imageBitmap: ImageBitmap | null;
+  /** Shape layer only: parametric source of truth. Absent for other types. */
+  shapeParams?: ShapeParams;
 }
 
 // ─── Selection ───
