@@ -138,6 +138,22 @@ export interface ToolSettingsValue {
     distance: number;
   } | null>;
 
+  // Shape tool settings
+  shapeKind: Accessor<"rect" | "ellipse" | "line">;
+  setShapeKind: Setter<"rect" | "ellipse" | "line">;
+  shapeFillEnabled: Accessor<boolean>;
+  setShapeFillEnabled: Setter<boolean>;
+  shapeStrokeEnabled: Accessor<boolean>;
+  setShapeStrokeEnabled: Setter<boolean>;
+  shapeStrokeColor: Accessor<string>;
+  setShapeStrokeColor: Setter<string>;
+  shapeStrokeWidth: Accessor<number>;
+  setShapeStrokeWidth: Setter<number>;
+  shapeRadius: Accessor<number>;
+  setShapeRadius: Setter<number>;
+  shapeArrowHead: Accessor<boolean>;
+  setShapeArrowHead: Setter<boolean>;
+
   // Transform mini undo/redo
   commitTransformState: (transform: Transform2D) => void;
   canTransformUndo: () => boolean;

@@ -25,18 +25,25 @@ export function createMockEditorParams(toolId: string) {
     getSelection: () => null,
     getLayerImageBitmap: () => (typeof document !== "undefined" ? document.createElement("canvas") : ({} as any)),
     setLayerImageBitmap: vi.fn(),
+    transformLayer: vi.fn(),
+    isShapeLayer: vi.fn(() => false),
+    addShapeLayer: vi.fn(() => ({ id: "shape-1", type: "shape", width: 1, height: 1 })),
+    updateShapeParams: vi.fn(),
+    deleteLayer: vi.fn(),
   } as unknown as DocumentEngine;
 
   let currentLastPaintCoords: any = null;
+  const historyMock = {
+    commit: vi.fn(),
+    getLastPaintCoords: () => currentLastPaintCoords,
+    setLastPaintCoords: (c: any) => { currentLastPaintCoords = c; },
+  };
+  (mockEngine as any).__historyMock = historyMock;
 
   const defaults: Record<string, any> = {
     workspace: {
       getActiveEngine: () => mockEngine,
-      getActiveHistory: () => ({
-        commit: vi.fn(),
-        getLastPaintCoords: () => currentLastPaintCoords,
-        setLastPaintCoords: (c: any) => { currentLastPaintCoords = c; },
-      }),
+      getActiveHistory: () => historyMock,
     },
     activeTool: toolId,
     fgColor: "#000000",
@@ -81,6 +88,13 @@ export function createMockEditorParams(toolId: string) {
     setViewportState: vi.fn(),
     renderer: { uploadImage: vi.fn() },
     scheduler: { requestRender: vi.fn() },
+    shapeKind: "rect",
+    shapeFillEnabled: true,
+    shapeStrokeEnabled: false,
+    shapeStrokeColor: "#000000",
+    shapeStrokeWidth: 4,
+    shapeRadius: 0,
+    shapeArrowHead: false,
   };
 
   const merged = { ...defaults };

@@ -22,8 +22,9 @@ import { startSelectionRotation as startSelectionRotationFn } from "./selectionR
 import { prepareToolContext as prepareToolContextImpl } from "./pointerTools/prepareToolContext";
 import { applyPaintBucketFill } from "./pointerTools/paintBucket";
 import { startGradientDrag, trackGradientDrag, applyGradientFill } from "./pointerTools/gradientTool";
+import { startShapeDrag, trackShapeDrag, applyShapeDrag } from "./pointerTools/shapeTool";
 import { startCropDrag, trackModernCropDrag, handleCropPointerUp } from "./pointerTools/modernCrop";
-import type { PointerToolContext, ModernDragState, GradientDragState } from "./pointerTools/pointerToolContext";
+import type { PointerToolContext, ModernDragState, GradientDragState, ShapeDragState } from "./pointerTools/pointerToolContext";
 
 const NOOP = () => {};
 
@@ -113,6 +114,20 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       gradientDragState.start = null;
       gradientDragState.end = null;
       gradientDragState.isDragging = false;
+    },
+  };
+
+  // ── Shape drag state (shared with pointerTools/shapeTool.ts) ──
+  const shapeDragState: ShapeDragState = {
+    start: null,
+    tempLayerId: null,
+    params: null,
+    isDragging: false,
+    reset: () => {
+      shapeDragState.start = null;
+      shapeDragState.tempLayerId = null;
+      shapeDragState.params = null;
+      shapeDragState.isDragging = false;
     },
   };
 
@@ -461,6 +476,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Gradient: start drag ──
     if (startGradientDrag(pointerCtx, e, gradientDragState)) return;
 
+    // ── Shape: start drag ──
+    if (startShapeDrag(pointerCtx, e, shapeDragState)) return;
+
     // Sync selectionBox from engine state before starting a drag.
     // SelectionOptionBar calls engine.createSelection(…) which updates the
     // engine but NOT the local signal — without this sync the drag would
@@ -573,6 +591,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
     // ── Gradient: track end point during drag (with Shift 45° angle lock) ──
     if (trackGradientDrag(pointerCtx, e, gradientDragState)) return;
+
+    // ── Shape: track drag end for live preview ──
+    if (trackShapeDrag(pointerCtx, e, shapeDragState)) return;
 
     // Modern crop drag-to-create: show selection preview rect
     if (trackModernCropDrag(pointerCtx, e, modernDragState)) return;
@@ -723,6 +744,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Gradient: apply on pointer up ──
     if (applyGradientFill(pointerCtx, gradientDragState)) return;
 
+    // ── Shape: apply/commit on pointer up (deletes temp under 3px) ──
+    if (applyShapeDrag(pointerCtx, e, shapeDragState)) return;
+
     // Modern crop: handle drag end or click fallback + classic pending-click
     handleCropPointerUp(pointerCtx, e, modernDragState, coords, interactiveState, tool);
 
@@ -792,6 +816,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     modernDragState.reset();
     // ── Reset gradient drag state ──
     gradientDragState.reset();
+    // ── Cancel shape drag: remove temp layer, no history entry ──
+    if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
+    shapeDragState.reset();
   };
 
   const onCanvasLostPointerCapture = (e: PointerEvent) => {
@@ -828,6 +855,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     modernDragState.reset();
     // ── Reset gradient drag state ──
     gradientDragState.reset();
+    // ── Cancel shape drag: remove temp layer, no history entry ──
+    if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
+    shapeDragState.reset();
   };
 
   const startSelectionRotation = () =>

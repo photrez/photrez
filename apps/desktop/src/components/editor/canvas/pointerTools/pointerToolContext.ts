@@ -84,3 +84,11 @@ export interface GradientDragState {
   isDragging: boolean;
   reset: () => void;
 }
+
+export interface ShapeDragState {
+  start: { x: number; y: number } | null;
+  tempLayerId: string | null;
+  params: import("@/engine/types").ShapeParams | null;
+  isDragging: boolean;
+  reset: () => void;
+}

@@ -3,7 +3,7 @@ import type { LayerTransformSession } from "../editorState";
 import type { ToolCleanupContext } from "../toolLifecycle";
 import { runToolSwitchCleanup, TOOL_CLEANUP_HANDLERS } from "../toolLifecycle";
 
-const TOOL_IDS = ["move", "selection", "crop", "eyedropper", "brush", "eraser", "paintBucket", "gradient"] as const;
+const TOOL_IDS = ["move", "selection", "crop", "eyedropper", "brush", "eraser", "paintBucket", "gradient", "shape"] as const;
 
 function createCleanupContext() {
   const calls = {

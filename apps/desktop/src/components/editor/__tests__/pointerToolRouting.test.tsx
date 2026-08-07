@@ -81,7 +81,7 @@ describe.each([
 });
 
 describe("shape routes to handlePointerDown", () => {
-  it("calls handlePointerDown with tool='shape' when activeTool is shape", () => {
+  it("does NOT call handlePointerDown when shape active (intercepted by drag-create)", () => {
     const { signals, dispose } = createMockEditorParams("shape");
     mockUseEditor(signals);
 
@@ -98,10 +98,9 @@ describe("shape routes to handlePointerDown", () => {
 
     tools.onCanvasPointerDown(makePointerEvent());
 
-    // shape is not intercepted by paintBucket/gradient/crop guards — it
-    // must reach the shared input-handler so Task 6 can add canvas behavior.
-    expect(handlePointerDownSpy).toHaveBeenCalledTimes(1);
-    expect(handlePointerDownSpy.mock.calls[0][0]).toBe("shape");
+    // shape is intercepted by startShapeDrag (drag-to-create) and exits early
+    // BEFORE the shared input-handler — same pattern as paintBucket/gradient.
+    expect(handlePointerDownSpy).not.toHaveBeenCalled();
 
     disposeTools();
     dispose();
