@@ -74,6 +74,16 @@ export function createEditorState() {
     distance: number;
   } | null>(null);
 
+  // Shape tool: deterministic defaults per session (fill = fgColor, stroke = none).
+  // No cross-session "last-used" persistence (research pain point).
+  const [shapeKind, setShapeKind] = createSignal<"rect" | "ellipse" | "line">("rect");
+  const [shapeFillEnabled, setShapeFillEnabled] = createSignal(true);
+  const [shapeStrokeEnabled, setShapeStrokeEnabled] = createSignal(false);
+  const [shapeStrokeColor, setShapeStrokeColor] = createSignal("#000000");
+  const [shapeStrokeWidth, setShapeStrokeWidth] = createSignal(4);
+  const [shapeRadius, setShapeRadius] = createSignal(0);
+  const [shapeArrowHead, setShapeArrowHead] = createSignal(false);
+
   const [selectedLayerId, setSelectedLayerId] = createSignal<string | null>(null);
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   const [selectionEditMode, setSelectionEditMode] = createSignal(false);
@@ -191,6 +201,13 @@ export function createEditorState() {
     gradientType, setGradientType,
     gradientPreset, setGradientPreset,
     gradientDragLine, setGradientDragLine,
+    shapeKind, setShapeKind,
+    shapeFillEnabled, setShapeFillEnabled,
+    shapeStrokeEnabled, setShapeStrokeEnabled,
+    shapeStrokeColor, setShapeStrokeColor,
+    shapeStrokeWidth, setShapeStrokeWidth,
+    shapeRadius, setShapeRadius,
+    shapeArrowHead, setShapeArrowHead,
     showResizeDialog, setShowResizeDialog,
     showExportDialog, setShowExportDialog,
     showPrintDialog, setShowPrintDialog,
