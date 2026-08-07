@@ -12,7 +12,20 @@ describe("blend mode parity registry", () => {
   it("only exposes blend modes covered by the engine BlendMode contract", () => {
     const values = BLEND_MODE_OPTIONS.map((option) => option.value);
 
-    expect(values).toEqual(["normal", "multiply", "screen", "overlay"]);
+    expect(values).toEqual([
+      "normal",
+      "multiply",
+      "screen",
+      "overlay",
+      "darken",
+      "lighten",
+      "color-dodge",
+      "color-burn",
+      "soft-light",
+      "hard-light",
+      "difference",
+      "exclusion",
+    ]);
   });
 
   it("maps every exposed mode to an explicit Canvas2D export operation", () => {
@@ -21,6 +34,14 @@ describe("blend mode parity registry", () => {
       multiply: "multiply",
       screen: "screen",
       overlay: "overlay",
+      darken: "darken",
+      lighten: "lighten",
+      "color-dodge": "color-dodge",
+      "color-burn": "color-burn",
+      "soft-light": "soft-light",
+      "hard-light": "hard-light",
+      difference: "difference",
+      exclusion: "exclusion",
     };
 
     for (const option of BLEND_MODE_OPTIONS) {
@@ -29,9 +50,11 @@ describe("blend mode parity registry", () => {
   });
 
   it("rejects modes that are implemented in shaders but not approved for UI/export parity", () => {
-    expect(isBlendMode("darken")).toBe(false);
-    expect(isBlendMode("color-dodge")).toBe(false);
-    expect(isBlendMode("difference")).toBe(false);
+    // Every W3C/Canvas2D blend mode is now exposed; only non-blend modes
+    // (e.g. hue/saturation from other pipelines) must be rejected.
+    expect(isBlendMode("hue")).toBe(false);
+    expect(isBlendMode("saturation")).toBe(false);
+    expect(isBlendMode("luminosity")).toBe(false);
   });
 
   it("maps every BlendMode to its WebGL shader id (parity with the preview renderer)", () => {
@@ -40,6 +63,14 @@ describe("blend mode parity registry", () => {
       multiply: 1,
       screen: 2,
       overlay: 3,
+      darken: 4,
+      lighten: 5,
+      "color-dodge": 6,
+      "color-burn": 7,
+      "hard-light": 8,
+      "soft-light": 9,
+      difference: 10,
+      exclusion: 11,
     };
 
     // Record<BlendMode, number> forces all union members present at compile

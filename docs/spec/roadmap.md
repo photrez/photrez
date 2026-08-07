@@ -24,7 +24,7 @@ A lightweight, fast desktop image editor that content creators and small busines
 
 ## Release Pipeline
 
-Stable releases ship **per feature batch** (SemVer MINOR). Each batch runs its own alpha → beta → rc pre-release cycle, and every stable release is user-installable behind a quality gate. Post-MVP batches are ordered by user value: text & shapes (daily-driver tools) ship first, windowing work ships last.
+Stable releases ship **per feature batch** (SemVer MINOR). Each batch runs a lean solo-dev pre-release cycle: `alpha` is internal-only (no public release), one `beta.N` pre-release is published for user feedback, then the stable MINOR; `rc` is used only if the beta surfaces blockers. Every stable release is user-installable behind a quality gate. Post-MVP batches are ordered by user value: text & shapes (daily-driver tools) ship first, windowing work ships last.
 
 ```
 alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE, 2026-08-03)
@@ -47,7 +47,7 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE
 
 ### Versioning Policy
 
-- SemVer with pre-release suffix (`-alpha.N`, `-beta.N`, `-rc.N`). During `0.x`, MINOR may contain breaking changes; PATCH is bug-fix only. Bump rules: see `CHANGELOG.md` history and `docs/plans/reports/photrez-versioning-discussion.md` (internal).
+- SemVer with pre-release suffix (`-alpha.N`, `-beta.N`, `-rc.N`). During `0.x`, MINOR may contain breaking changes; PATCH is bug-fix only. Bump rules: see `CHANGELOG.md` history and `docs/plans/reports/photrez-versioning-discussion.md` (internal). Per-batch cycle since `0.2.0`: alpha is **internal-only** (never published), one public `beta.N` pre-release per batch, optional `rc` after beta blockers; PATCH ships directly as stable without a pre-release cycle (bug-fix only).
 - **`.ptz` backward-compat starts at `0.1.0`**: all later format changes must be additive and ship a migrator (`docs/guide/ptz-migration.md`). `v1.0.0` marks the final format lock.
 - **Command contract version is independent** of the app version (`docs/reference/command-contract-spec.md`) and is frozen during each beta cycle.
 - Post-1.0, breaking changes require a MAJOR bump. `1.0.0` itself follows the measurable DoD checklist in its section below.

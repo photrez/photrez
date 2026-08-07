@@ -5,7 +5,22 @@ export type DocumentId = string;
 export type LayerId = string;
 
 // ─── Blend Modes ───
-export type BlendMode = "normal" | "multiply" | "screen" | "overlay";
+// Order follows shaders.ts blendColors() case ids (0-11). The simple modes
+// (multiply/screen/overlay via source-over canvas ops + shader ids 1-3) shipped
+// in v0.1.0; the advanced set (ids 4-11) was added in 0.2.0.
+export type BlendMode =
+  | "normal"
+  | "multiply"
+  | "screen"
+  | "overlay"
+  | "darken"
+  | "lighten"
+  | "color-dodge"
+  | "color-burn"
+  | "soft-light"
+  | "hard-light"
+  | "difference"
+  | "exclusion";
 
 // ─── Transform ───
 export interface Transform2D {
