@@ -103,6 +103,13 @@ export function handleToolNavKey(
     return true;
   }
 
+  if (!ctrl && key === "u") {
+    e.preventDefault();
+    setActiveTool("shape");
+    scheduler.requestRender();
+    return true;
+  }
+
   if (!ctrl && (e.key === "[" || e.key === "]") && (activeTool() === "brush" || activeTool() === "eraser")) {
     e.preventDefault();
     if (e.shiftKey) {

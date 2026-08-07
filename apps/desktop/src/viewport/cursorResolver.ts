@@ -67,5 +67,6 @@ export function resolveCursor(ctx: CursorContext): string {
   if (ctx.activeTool === "eyedropper") return "crosshair";
   if (ctx.activeTool === "paintBucket") return PAINT_BUCKET_CURSOR;
   if (ctx.activeTool === "gradient") return GRADIENT_CURSOR;
+  if (ctx.activeTool === "shape") return "crosshair";
   return "default";
 }

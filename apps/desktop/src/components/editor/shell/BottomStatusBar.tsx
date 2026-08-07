@@ -16,6 +16,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   eraser: "Click and drag to erase. Hold Alt for eyedropper.",
   paintBucket: "Click to flood fill matching pixels with foreground color.",
   gradient: "Click and drag to apply linear or radial gradient. Hold Shift for 45° angle lock.",
+  shape: "Shape Tool",
 };
 
 export function BottomStatusBar() {

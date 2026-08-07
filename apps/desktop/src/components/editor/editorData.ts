@@ -39,6 +39,7 @@ export const TOOL_ITEMS: readonly ToolItem[] = [
   { id: "eraser", icon: "eraser", label: "Eraser Tool" },
   { id: "paintBucket", icon: "paint-bucket", label: "Paint Bucket" },
   { id: "gradient", icon: "swatch", label: "Gradient" },
+  { id: "shape", icon: "rectangle", label: "Shape Tool" },
 ] as const;
 
 export const INSPECTOR_TABS: readonly InspectorTab[] = [

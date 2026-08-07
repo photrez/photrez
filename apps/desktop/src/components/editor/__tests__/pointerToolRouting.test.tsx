@@ -80,6 +80,34 @@ describe.each([
   });
 });
 
+describe("shape routes to handlePointerDown", () => {
+  it("calls handlePointerDown with tool='shape' when activeTool is shape", () => {
+    const { signals, dispose } = createMockEditorParams("shape");
+    mockUseEditor(signals);
+
+    const { tools, dispose: disposeTools } = createPointerTools({
+      getCanvasContainerRef: () => document.createElement("div"),
+      getCanvasRef: () => document.createElement("canvas"),
+      isSpacePressed: () => false,
+      isPanning: () => false,
+      isAltPressed: () => false,
+      stopMomentum: vi.fn(),
+      fitToScreenAndRender: vi.fn(),
+      commitBrushStroke: vi.fn(),
+    });
+
+    tools.onCanvasPointerDown(makePointerEvent());
+
+    // shape is not intercepted by paintBucket/gradient/crop guards — it
+    // must reach the shared input-handler so Task 6 can add canvas behavior.
+    expect(handlePointerDownSpy).toHaveBeenCalledTimes(1);
+    expect(handlePointerDownSpy.mock.calls[0][0]).toBe("shape");
+
+    disposeTools();
+    dispose();
+  });
+});
+
 describe("eyedropper routes to handlePointerDown (samples color)", () => {
   it("calls handlePointerDown with tool='eyedropper' when activeTool is eyedropper", () => {
     const { signals, dispose } = createMockEditorParams("eyedropper");
