@@ -509,6 +509,13 @@
 | ✅ DONE | FG→BG and FG→Transparent presets |
 | ✅ DONE | Selection-aware gradient fill (rect + ellipse, inverted) |
 
+## 📐 Shape Tool
+
+| Status  | Fitur |
+| ------- | ----- |
+| ✅ DONE | Parametric Shape Tool (U) — rect / ellipse / line + arrow, non-destructive shape layers (rasterized bitmap kept in sync on create/edit) |
+| ✅ DONE | Shape option bar — kind segmented control (Rect/Ellipse/Line/Arrow), Fill + Stroke toggles, stroke color swatch + width, corner Radius (rect only), Arrow-head (line only); draws via shape-tool signals, edits a selected shape layer live with commit-before-mutation; mounts on shape tool active OR shape-layer selected |
+
 ## 🪟 Desktop / Window
 
 | Status  | Fitur |

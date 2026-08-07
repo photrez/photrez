@@ -8,6 +8,7 @@ import {
   AlignStartVertical,
   AlignEndVertical,
   ArrowLeftRight,
+  ArrowUpRight,
   Aperture,
   Box,
   Brush,
@@ -33,6 +34,7 @@ import {
   Image as ImageIcon,
   ImagePlus,
   Layers,
+  LineChart,
   Link,
   Lock,
   Unlink,
@@ -98,6 +100,7 @@ export type IconName =
   | "cursor"
   | "crop"
   | "rectangle"
+  | "line"
   | "slice"
   | "brush"
   | "stamp"
@@ -121,6 +124,7 @@ export type IconName =
   | "swatch"
   | "sparkles"
   | "aperture"
+  | "arrowUpRight"
   | "eye"
   | "lock"
   | "unlock"
@@ -184,6 +188,7 @@ const ICONS: Record<IconName, LucideIcon> = {
   columns: Columns2,
   "split-h": SplitSquareHorizontal,
   layers: Layers,
+  line: LineChart,
   contrast: Contrast,
   spline: ChartSpline,
   "grid-3": Grid3X3,
@@ -209,6 +214,7 @@ const ICONS: Record<IconName, LucideIcon> = {
   "rotate-ccw": RotateCcw,
   "rotate-cw": RotateCw,
   swap: ArrowLeftRight,
+  "arrowUpRight": ArrowUpRight,
   "panel-right-open": PanelRightOpen,
   "panel-right-close": PanelRightClose,
   image: ImageIcon,
