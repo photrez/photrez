@@ -68,6 +68,7 @@ export function BottomStatusBar() {
       case "eraser": return "Eraser Tool";
       case "paintBucket": return "Paint Bucket Tool";
       case "gradient": return "Gradient Tool";
+      case "shape": return "Shape Tool";
       default: return "Select Tool";
     }
   };
