@@ -10,6 +10,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveCursor } from "@/viewport/cursorResolver";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
 
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
+}));
+
 describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

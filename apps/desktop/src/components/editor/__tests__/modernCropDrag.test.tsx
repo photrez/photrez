@@ -21,6 +21,10 @@ import * as InputHandlerModule from "@/viewport/input-handler";
 import * as CropToolActions from "../cropToolActions";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
 
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
+}));
+
 // Mock the shared input-handler so the chain stops at our handlers.
 vi.mock("@/viewport/input-handler", () => ({
   handlePointerDown: vi.fn(),

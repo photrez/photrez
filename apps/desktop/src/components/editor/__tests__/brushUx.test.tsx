@@ -4,6 +4,10 @@ import { useCanvasPointerTools } from "../canvas/useCanvasPointerTools";
 import { createRoot, createSignal } from "solid-js";
 import { CommandHistory } from "../../../engine/history";
 
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
+}));
+
 // Helper to create mock editor context values
 function createMockEditor(overrides: Record<string, unknown> = {}) {
   const mockEngine = {
@@ -15,6 +19,8 @@ function createMockEditor(overrides: Record<string, unknown> = {}) {
     getWidth: () => 100,
     getHeight: () => 100,
     getLayers: () => [],
+    isShapeLayer: () => false,
+    shapeLayerToRaster: vi.fn(),
   };
 
   let currentLastPaintCoords: { x: number; y: number } | null = null;
@@ -420,6 +426,8 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
           getWidth: () => 100,
           getHeight: () => 100,
           getLayers: () => [],
+          isShapeLayer: () => false,
+          shapeLayerToRaster: vi.fn(),
         }),
         getActiveHistory: () => mockHistory,
       },

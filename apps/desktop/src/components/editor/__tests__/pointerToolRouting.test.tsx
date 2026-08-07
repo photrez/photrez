@@ -11,6 +11,12 @@
 
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Mock the dialog provider so useCanvasPointerTools can mount without a real
+// provider (the shape-subtest confirms the provider is only needed to exist).
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
+}));
 import { createRoot, createSignal } from "solid-js";
 import { useCanvasPointerTools } from "../canvas/useCanvasPointerTools";
 import * as InputHandlerModule from "@/viewport/input-handler";

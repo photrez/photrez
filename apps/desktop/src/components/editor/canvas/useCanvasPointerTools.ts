@@ -15,6 +15,7 @@ import { getPaintToolBlockReason, type PaintToolSettings } from "../brushToolSta
 import { PaintSmoother, smoothingToWindowSize } from "../paintSmoothing";
 import { tryReleasePointerCapture, trySetPointerCapture } from "../tools/pointerCapture";
 import { showToast } from "../Toast";
+import { useDialog } from "../dialogs/DialogProvider";
 import type { HudMode } from "../TransformHud";
 import { rgbToHex, interpolateLinePoints } from "./pointerUtils";
 import { computeEdgeScroll } from "./edgeScroll";
@@ -62,6 +63,7 @@ type HudData = {
 
 export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
   const editor = useEditor();
+  const dialogs = useDialog();
   const {
     workspace,
     renderer,
@@ -453,6 +455,30 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       let activePaintLayer: ReturnType<DocumentEngine["getLayer"]> | null = null;
       if (layerId) {
         activePaintLayer = engine.getLayer(layerId);
+      }
+      // Shape-layer pixel guard: painting on a shape layer would desync the
+      // bitmap from its shapeParams (a later param edit would silently wipe
+      // the painted pixels). Convert explicitly after the user confirms —
+      // never silently. Lazy "confirm → convert → user re-draws".
+      if (activePaintLayer && engine.isShapeLayer(activePaintLayer.id)) {
+        const paintLayerId = activePaintLayer.id;
+        void dialogs.confirm({
+          title: "Convert shape to pixels?",
+          message: "Painting on this shape layer will convert it to a plain pixel layer. Shape editing (fill, stroke, radius) will no longer be available.",
+          confirmLabel: "Convert",
+          tone: "default",
+        }).then((ok) => {
+          if (!ok) return;
+          // Decision is async — re-check the engine/history are still alive.
+          const liveEngine = workspace.getActiveEngine();
+          const liveHistory = workspace.getActiveHistory();
+          if (!liveEngine || !liveHistory) return;
+          const pre = liveEngine.snapshot();
+          liveEngine.shapeLayerToRaster(paintLayerId);
+          liveHistory.commit(pre, "Convert Shape to Pixels");
+          scheduler.requestRender();
+        });
+        return; // stroke waits for the decision
       }
       const blockReason = getPaintToolBlockReason(activePaintLayer, activeTool() === "eraser");
       if (blockReason) {

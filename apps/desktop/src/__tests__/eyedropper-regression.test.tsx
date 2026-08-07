@@ -17,6 +17,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { createMockEngine } from "./test-builders";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "./pointerRoutingHarness";
 
+vi.mock("../components/editor/dialogs/DialogProvider", () => ({
+  useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
+}));
+
 describe("eyedropper: real hook → real handler → fgColor signal", () => {
   afterEach(() => vi.restoreAllMocks());
 

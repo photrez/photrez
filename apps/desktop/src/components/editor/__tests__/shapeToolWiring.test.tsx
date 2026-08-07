@@ -11,6 +11,10 @@ import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi } from "vitest";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
 
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
+}));
+
 function makePointerTools(signals: Record<string, any>) {
   mockUseEditor(signals);
   const params = {

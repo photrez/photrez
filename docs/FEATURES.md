@@ -515,6 +515,7 @@
 | ------- | ----- |
 | ✅ DONE | Parametric Shape Tool (U) — rect / ellipse / line + arrow, non-destructive shape layers (rasterized bitmap kept in sync on create/edit) |
 | ✅ DONE | Shape option bar — kind segmented control (Rect/Ellipse/Line/Arrow), Fill + Stroke toggles, stroke color swatch + width, corner Radius (rect only), Arrow-head (line only); draws via shape-tool signals, edits a selected shape layer live with commit-before-mutation; mounts on shape tool active OR shape-layer selected |
+| ✅ DONE | Pixel-tool guard — brush/eraser stroke on a shape layer shows a "Convert shape to pixels?" confirm dialog; on confirm, rasterizes the layer (`shapeLayerToRaster`) with snapshot/commit/render and waits for re-draw; on cancel, no-op. Non-shape layers paint normally with no dialog. |
 
 ## 🪟 Desktop / Window
 
