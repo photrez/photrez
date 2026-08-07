@@ -61,7 +61,8 @@ export function duplicateLayerNode(layer: LayerNode): LayerNode {
     imageBitmap: clonedBitmap,
     baseImageBitmap: clonedBaseBitmap,
     basicAdjustment: layer.basicAdjustment ? { ...layer.basicAdjustment } : undefined,
-    hasAdjustments: layer.hasAdjustments
+    hasAdjustments: layer.hasAdjustments,
+    shapeParams: layer.shapeParams ? { ...layer.shapeParams } : undefined
   };
 }
 

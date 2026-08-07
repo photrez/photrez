@@ -5,10 +5,11 @@
 // Logic was moved verbatim out of document.ts (report #20 phase 3) — behavior
 // must stay identical; regression comments are preserved with the code.
 
-import type { DocumentModel, LayerNode, LayerId, BlendMode, Transform2D } from "./types";
+import type { DocumentModel, LayerNode, LayerId, BlendMode, Transform2D, ShapeParams } from "./types";
 import { MAX_LAYERS, MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 import { createLayerNode, duplicateLayerNode, createMergedLayerNode } from "./layerFactory";
 import { compositeTwoLayers, compositeAllLayers } from "./layerComposite";
+import { renderShapeToBitmap } from "./shapeRaster";
 
 /** Insert a new layer directly above the active layer (or at top when none). */
 export function addLayer(model: DocumentModel, name: string, width?: number, height?: number): LayerNode {
@@ -380,4 +381,35 @@ export function calculateMemoryUsage(model: DocumentModel): number {
 export function canAddLayer(model: DocumentModel, width: number, height: number): boolean {
   const projected = calculateMemoryUsage(model) + (width * height * 4);
   return projected <= MAX_PIXEL_BUDGET;
+}
+
+// ─── Shape Layers ───
+/** True when the layer is a parametric shape layer. */
+export function isShapeLayer(layer: LayerNode): boolean {
+  return layer.type === "shape";
+}
+
+/** Build a shape layer node; bitmap already rasterized from params.
+ *  Layer width/height come from the ACTUAL bitmap dims so they can never
+ *  diverge from the rasterized pixels (stroke margin is baked by the
+ *  rasterizer). */
+export function createShapeLayerNode(
+  name: string,
+  params: ShapeParams
+): LayerNode {
+  const bitmap = renderShapeToBitmap(params);
+  const layer = createLayerNode(name, 1, 1);
+  layer.type = "shape";
+  layer.shapeParams = params;
+  layer.width = bitmap.width;
+  layer.height = bitmap.height;
+  layer.imageBitmap = bitmap;
+  return layer;
+}
+
+/** Convert a shape layer to a plain raster layer (drops params, keeps bitmap). */
+export function shapeLayerToRaster(layer: LayerNode): void {
+  if (layer.type !== "shape") return;
+  layer.type = "raster";
+  delete layer.shapeParams;
 }
