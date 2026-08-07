@@ -49,8 +49,8 @@ export interface ShapeFill {
 
 export interface ShapeParams {
   kind: ShapeKind;
-  width: number;  // shape box width, local space, > 0
-  height: number; // shape box height, local space, > 0
+  width: number;  // shape box width, local space, >= 0 (0 for vertical line)
+  height: number; // shape box height, local space, >= 0 (0 for horizontal line)
   radius: number; // rect corner radius, px, >= 0, clamped <= min(w,h)/2
   fill: ShapeFill;
   stroke: ShapeStroke;
