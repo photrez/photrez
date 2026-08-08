@@ -10,6 +10,9 @@ import { MAX_LAYERS, MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 import { createLayerNode, duplicateLayerNode, createMergedLayerNode } from "./layerFactory";
 import { compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { renderShapeToBitmap } from "./shapeRaster";
+import type { TextData } from "./textTypes";
+import { normalizeTextData } from "./textTypes";
+import { rasterizeText } from "./textRasterizer";
 
 /** Insert a new layer directly above the active layer (or at top when none). */
 export function addLayer(model: DocumentModel, name: string, width?: number, height?: number): LayerNode {
@@ -59,6 +62,37 @@ export function addShapeLayer(
   // Budget check (canAddLayer) deliberately skipped per plan scope — Task 6
   // temp shape layers are tiny; add it if real layers grow.
   const newLayer = createShapeLayerNode(name, params);
+
+  // Insert directly above active layer if selected, else at front (top) of stack
+  const activeId = model.activeLayerId;
+  const activeIndex = activeId ? model.layers.findIndex(l => l.id === activeId) : -1;
+  if (activeIndex !== -1) {
+    model.layers = [
+      ...model.layers.slice(0, activeIndex),
+      newLayer,
+      ...model.layers.slice(activeIndex),
+    ];
+  } else {
+    model.layers = [newLayer, ...model.layers];
+  }
+  model.activeLayerId = newLayer.id;
+  model.dirty = true;
+
+  return newLayer;
+}
+
+/** Add a parametric text layer above the active layer (or at top when none). */
+export function addTextLayer(
+  model: DocumentModel,
+  name: string,
+  data: TextData
+): LayerNode {
+  if (model.layers.length >= MAX_LAYERS) {
+    throw new Error(`Maximum layer limit of ${MAX_LAYERS} reached`);
+  }
+  // Budget check (canAddLayer) deliberately skipped — temp text layers are
+  // tiny (clamped to 8192 by the rasterizer); revisit if real layers grow.
+  const newLayer = createTextLayerNode(name, data);
 
   // Insert directly above active layer if selected, else at front (top) of stack
   const activeId = model.activeLayerId;
@@ -443,4 +477,37 @@ export function shapeLayerToRaster(layer: LayerNode): void {
   if (layer.type !== "shape") return;
   layer.type = "raster";
   delete layer.shapeParams;
+}
+
+// ─── Text Layers ───
+/** True when the layer is a parametric text layer. */
+export function isTextLayer(layer: LayerNode): boolean {
+  return layer.type === "text";
+}
+
+/** Build a text layer node; bitmap already rasterized from textData.
+ *  Layer width/height come from the ACTUAL bitmap dims (returned by the
+ *  rasterizer in document space, RASTER_SCALE baked in). textData is stored
+ *  NORMALIZED so the layer params can never diverge from the rasterized
+ *  pixels (rasterizeText normalizes internally and never throws). */
+export function createTextLayerNode(
+  name: string,
+  data: TextData
+): LayerNode {
+  const normalized = normalizeTextData(data);
+  const { imageBitmap, width, height } = rasterizeText(normalized);
+  const layer = createLayerNode(name, 1, 1);
+  layer.type = "text";
+  layer.textData = normalized;
+  layer.width = width;
+  layer.height = height;
+  layer.imageBitmap = imageBitmap;
+  return layer;
+}
+
+/** Convert a text layer to a plain raster layer (drops params, keeps bitmap). */
+export function textLayerToRaster(layer: LayerNode): void {
+  if (layer.type !== "text") return;
+  layer.type = "raster";
+  delete layer.textData;
 }

@@ -29,7 +29,11 @@ export function createSnapshot(model: DocumentModel): DocumentModel {
       width: l.width,
       height: l.height,
       imageBitmap: l.imageBitmap, // Reuse reference to immutable ImageBitmap
-      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined
+      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined,
+      // TextData is a flat object; spread is a full deep copy. Undo/redo of
+      // any text op MUST restore the params or the layer loads as plain text
+      // without content (shape-tool bug class d1b1403).
+      textData: l.textData ? { ...l.textData } : undefined
     }))
   };
 }
@@ -63,7 +67,11 @@ export function restoreSnapshot(snapshot: DocumentModel): DocumentModel {
       width: l.width,
       height: l.height,
       imageBitmap: l.imageBitmap,
-      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined
+      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined,
+      // TextData is a flat object; spread is a full deep copy. Undo/redo of
+      // any text op MUST restore the params or the layer loads as plain text
+      // without content (shape-tool bug class d1b1403).
+      textData: l.textData ? { ...l.textData } : undefined
     }))
   };
 }

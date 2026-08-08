@@ -114,7 +114,7 @@ export async function serializeAndSaveProject(
   const serializedModel = {
     ...model,
     format: "photrez-ptz",
-    version: 2,
+    version: 3,
     layers: model.layers.map((l) => ({
       ...l,
       imageBitmap: null,

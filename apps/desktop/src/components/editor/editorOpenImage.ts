@@ -186,9 +186,10 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
   const model = JSON.parse(result.document_json) as DocumentModel;
 
   // .ptz versioning (KNOWN_ISSUES #9): alpha.1 files have no `version` field.
-  // Absent / 0 / 1 are compatible with this loader. Newer files warn but still load.
+  // Absent / 0 / 1 / 2 (shape v2) are compatible with this loader. Newer files
+  // warn but still load. v3 = text layers (textData rides the layer spread).
   const fileVersion = (model as DocumentModel & { version?: number }).version;
-  if (typeof fileVersion === "number" && fileVersion > 2) {
+  if (typeof fileVersion === "number" && fileVersion > 3) {
     showToast(`This project was saved by a newer Photrez version (v${fileVersion}). It may not load correctly.`, "error");
   }
 

@@ -11,6 +11,7 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import type { DocumentModel, LayerNode, ShapeParams } from "@/engine/types";
+import type { TextData } from "@/engine/textTypes";
 
 // ─── Hoisted mocks for @/tauri/native ───
 const { mockSaveProjectStreamingBegin, mockSaveProjectStreamingWriteLayer, mockSaveProjectStreamingEnd, mockSaveProjectStreamingCancel, mockLoadProject } = vi.hoisted(() => ({
@@ -73,6 +74,17 @@ function createCanvasMock(pngBytes: Uint8Array) {
     ctx.clearRect = vi.fn();
     ctx.save = vi.fn();
     ctx.restore = vi.fn();
+    // Text-capable seam so the REAL engine text rasterizer runs under jsdom
+    // (mirrors the shape-rasterizer extension added for shape v2).
+    ctx.font = "";
+    ctx.textBaseline = "alphabetic";
+    ctx.letterSpacing = "0px";
+    ctx.measureText = vi.fn(() => ({
+      width: 10,
+      fontBoundingBoxAscent: 80,
+      fontBoundingBoxDescent: 24,
+    }));
+    ctx.fillText = vi.fn();
     return ctx;
   };
   return {
@@ -192,7 +204,7 @@ describe("projectSerialize — serializeAndSaveProject", () => {
     expect(parsed.height).toBe(1080);
   });
 
-  it("writes photrez-ptz format + version:2 marker (.ptz v2 additive)", async () => {
+  it("writes photrez-ptz format + version:3 marker (.ptz v3 additive)", async () => {
     stubSerializeGlobals(PNG_BYTES);
 
     const engine = new DocumentEngine("doc-ver", "Versioned", 64, 64);
@@ -203,7 +215,7 @@ describe("projectSerialize — serializeAndSaveProject", () => {
 
     const parsed = JSON.parse(capturedProject!.documentJson) as DocumentModel & { format?: string; version?: number };
     expect(parsed.format).toBe("photrez-ptz");
-    expect(parsed.version).toBe(2);
+    expect(parsed.version).toBe(3);
   });
 
   it("loader tolerates alpha.1 projects without a version field (backward-compatible)", async () => {
@@ -790,7 +802,7 @@ describe("projectSerialize — full roundtrip", () => {
     expect(capturedProject!.layers[l1.id]).not.toEqual(capturedProject!.layers[l2.id]);
   });
 
-  it("roundtrips a shape layer with shapeParams through version 2 (additive)", async () => {
+  it("roundtrips a shape layer with shapeParams through version 3 (additive)", async () => {
     stubSerializeGlobals(PNG_BYTES);
 
     const rectParams: ShapeParams = {
@@ -814,9 +826,10 @@ describe("projectSerialize — full roundtrip", () => {
     await serializeAndSaveProject(engine, "/tmp/shape-v2.ptz");
     expect(capturedProject).not.toBeNull();
 
-    // Serialized JSON carries version 2 (additive bump).
+    // Serialized JSON carries version 3 (additive bump — v2 shape fields ride
+    // the `{...l}` spread through v3 unchanged).
     const model = JSON.parse(capturedProject!.documentJson) as DocumentModel & { version?: number };
-    expect(model.version).toBe(2);
+    expect(model.version).toBe(3);
 
     // shapeParams rides the `{...l}` spread through JSON — no explicit field.
     const shapeLayerJson = model.layers.find((l) => l.id === shapeId)!;
@@ -909,5 +922,91 @@ describe("projectSerialize — full roundtrip", () => {
     expect(loaded.isShapeLayer("s1")).toBe(true);
     expect(loaded.getLayer("s1")!.shapeParams).toBeUndefined();
     expect(loaded.getLayer("s1")!.imageBitmap).not.toBeNull();
+  });
+
+  it("roundtrips a text layer with textData through version 3 (additive)", async () => {
+    stubSerializeGlobals(PNG_BYTES);
+
+    const textData: TextData = {
+      content: "Hello\nWorld",
+      fontFamily: "Arial",
+      fontSize: 48,
+      fontWeight: 700,
+      fontStyle: "italic",
+      color: "#123456",
+      align: "center",
+      lineHeight: 1.6,
+      letterSpacing: 2,
+      boxMode: "point",
+      boxWidth: 0,
+    };
+
+    const engine = new DocumentEngine("doc-text-v3", "Text V3", 200, 150);
+    const textId = engine.addTextLayer("Caption", textData).id;
+
+    const { serializeAndSaveProject } = await import("../projectSerialize");
+    await serializeAndSaveProject(engine, "/tmp/text-v3.ptz");
+    expect(capturedProject).not.toBeNull();
+
+    // Serialized JSON carries version 3; textData rides the `{...l}` spread.
+    const model = JSON.parse(capturedProject!.documentJson) as DocumentModel & { version?: number };
+    expect(model.version).toBe(3);
+    const textLayerJson = model.layers.find((l) => l.id === textId)!;
+    expect((textLayerJson as LayerNode & { textData?: TextData }).type).toBe("text");
+    expect((textLayerJson as LayerNode & { textData?: TextData }).textData).toEqual(textData);
+
+    // Bitmap decodes from result.layers[textId] (rasterized at 2x).
+    expect(capturedProject!.layers[textId]).toBeDefined();
+
+    // Simulate loadProjectFile: decode PNG bytes → set imageBitmap → engine.restore.
+    for (const layer of model.layers) {
+      const bytes = capturedProject!.layers[layer.id];
+      if (bytes) {
+        const blob = new Blob([bytes as BlobPart], { type: "image/png" });
+        layer.imageBitmap = { width: layer.width, height: layer.height, close: vi.fn() } as unknown as ImageBitmap;
+      }
+    }
+
+    const loaded = new DocumentEngine(model.id, model.name, model.width, model.height);
+    loaded.restore(model, { restoreViewport: true });
+
+    // REAL-ENGINE assertion — v3 additive: text layer reloads as a text layer
+    // with its full parametric data intact (snapshot carries textData).
+    expect(loaded.isTextLayer(textId)).toBe(true);
+    expect(loaded.getLayer(textId)!.textData).toEqual(textData);
+    expect(loaded.getLayer(textId)!.imageBitmap).not.toBeNull();
+  });
+
+  it("v3 file with malformed textData:null does not crash the loader (lenient fallback)", async () => {
+    const v3Json = JSON.stringify({
+      id: "doc-bad-text", name: "Bad Text", width: 100, height: 100,
+      activeLayerId: null, selection: null,
+      viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
+      dirty: false,
+      version: 3,
+      layers: [{
+        id: "t1", name: "Broken Text", type: "text",
+        visible: true, opacity: 1, locked: false,
+        blendMode: "normal", width: 100, height: 100,
+        textData: null,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+      }],
+    } as any);
+
+    const model = JSON.parse(v3Json) as DocumentModel;
+    const b64 = btoa(String.fromCharCode(...PNG_BYTES));
+    const binaryString = atob(b64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "image/png" });
+    model.layers[0].imageBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
+
+    const loaded = new DocumentEngine(model.id, model.name, model.width, model.height);
+    expect(() => loaded.restore(model, { restoreViewport: true })).not.toThrow();
+    expect(loaded.getLayers().length).toBe(1);
+    // Loader's lenient path: type stays "text", bitmap decodes, params absent.
+    expect(loaded.isTextLayer("t1")).toBe(true);
+    expect(loaded.getLayer("t1")!.textData).toBeUndefined();
+    expect(loaded.getLayer("t1")!.imageBitmap).not.toBeNull();
   });
 });

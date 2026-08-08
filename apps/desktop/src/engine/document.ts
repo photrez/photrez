@@ -45,8 +45,13 @@ import {
   canAddLayer as canFitLayer,
   isShapeLayer as applyIsShapeLayer,
   shapeLayerToRaster as applyShapeLayerToRaster,
+  addTextLayer as applyAddTextLayer,
+  isTextLayer as applyIsTextLayer,
+  textLayerToRaster as applyTextLayerToRaster,
 } from "./layerOps";
 import { renderShapeToBitmap } from "./shapeRaster";
+import { rasterizeText } from "./textRasterizer";
+import { normalizeTextData, type TextData } from "./textTypes";
 import type { ShapeParams } from "./types";
 import {
   setViewport as applySetViewport,
@@ -232,6 +237,40 @@ export class DocumentEngine {
   isShapeLayer(id: LayerId): boolean {
     const layer = this.getLayer(id);
     return !!layer && applyIsShapeLayer(layer);
+  }
+
+  // ─── Text Layers ───
+  addTextLayer(name: string, data: TextData): LayerNode {
+    const layer = applyAddTextLayer(this.model, name, data);
+    this.markLayerDirty(layer.id);
+    this.notifyChange();
+    return layer;
+  }
+
+  updateTextData(id: LayerId, data: TextData): void {
+    const layer = this.getLayer(id);
+    if (!layer || layer.type !== "text") return; // no-op on non-text
+    const normalized = normalizeTextData(data);
+    const { imageBitmap, width, height } = rasterizeText(normalized);
+    layer.width = width;
+    layer.height = height;
+    layer.textData = normalized;
+    layer.imageBitmap = imageBitmap;
+    this.markLayerDirty(id);
+    this.notifyChange();
+  }
+
+  textLayerToRaster(id: LayerId): void {
+    const layer = this.getLayer(id);
+    if (!layer || layer.type !== "text") return;
+    applyTextLayerToRaster(layer);
+    this.markLayerDirty(id);
+    this.notifyChange();
+  }
+
+  isTextLayer(id: LayerId): boolean {
+    const layer = this.getLayer(id);
+    return !!layer && applyIsTextLayer(layer);
   }
 
   // ─── Layer Properties ───
@@ -725,6 +764,10 @@ export class DocumentEngine {
       if (
         x.id !== y.id ||
         x.name !== y.name ||
+        // Parametric layer rasterization (shapeLayerToRaster/textLayerToRaster)
+        // flips `type` WITHOUT replacing the bitmap; without this check an undo
+        // of a rasterize-after-save would falsely report the doc clean.
+        x.type !== y.type ||
         x.visible !== y.visible ||
         x.opacity !== y.opacity ||
         x.locked !== y.locked ||

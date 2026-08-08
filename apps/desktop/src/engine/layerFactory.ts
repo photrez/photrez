@@ -1,4 +1,5 @@
 import type { LayerNode, BlendMode } from "./types";
+import { rasterizeText } from "./textRasterizer";
 
 export function createLayerNode(name: string, width: number, height: number): LayerNode {
   return {
@@ -28,11 +29,19 @@ export function createLayerNode(name: string, width: number, height: number): La
 export function duplicateLayerNode(layer: LayerNode): LayerNode {
   let clonedBitmap: ImageBitmap | null = null;
   if (layer.imageBitmap) {
-    const offscreen = new OffscreenCanvas(layer.width, layer.height);
-    const ctx = offscreen.getContext("2d");
-    if (ctx) {
-      ctx.drawImage(layer.imageBitmap, 0, 0);
-      clonedBitmap = offscreen.transferToImageBitmap();
+    // Text layers re-rasterize from their textData so the duplicate keeps the
+    // same 2x RASTER_SCALE crispness as the original (a plain bitmap clone at
+    // layer dims would bake the text at 1x). Parametric layers behave like
+    // their source: textData stays editable on the duplicate.
+    if (layer.type === "text" && layer.textData) {
+      clonedBitmap = rasterizeText(layer.textData).imageBitmap;
+    } else {
+      const offscreen = new OffscreenCanvas(layer.width, layer.height);
+      const ctx = offscreen.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(layer.imageBitmap, 0, 0);
+        clonedBitmap = offscreen.transferToImageBitmap();
+      }
     }
   }
 
@@ -62,7 +71,8 @@ export function duplicateLayerNode(layer: LayerNode): LayerNode {
     baseImageBitmap: clonedBaseBitmap,
     basicAdjustment: layer.basicAdjustment ? { ...layer.basicAdjustment } : undefined,
     hasAdjustments: layer.hasAdjustments,
-    shapeParams: layer.shapeParams ? { ...layer.shapeParams } : undefined
+    shapeParams: layer.shapeParams ? { ...layer.shapeParams } : undefined,
+    textData: layer.textData ? { ...layer.textData } : undefined
   };
 }
 
