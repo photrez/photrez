@@ -3,7 +3,9 @@ import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { CanvasViewport } from "../CanvasViewport";
 import { WorkspaceManager } from "@/engine/workspace";
+import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import { ViewportCamera } from "@/viewport/viewportCamera";
+import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
 import { OptionBar } from "../../shell/OptionBar";
 import * as Toast from "../../Toast";
 
@@ -2807,5 +2809,335 @@ describe("Shape tool Phase 3 contract", () => {
     setSelectedLayerIdState(null);
     await tick();
     expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
+  });
+});
+
+describe("Text tool Phase 3 contract", () => {
+  let ws: WorkspaceManager;
+  let renderer: any;
+  let scheduler: any;
+  let container: HTMLDivElement;
+  let dispose: () => void;
+  let editorRef: { current: any };
+
+  const tick = (ms = 50) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  // Capture the real editor so session state + activeTool assertions go
+  // through the same signals the app uses (no hand-rolled state).
+  const TextConsumer = () => {
+    editorRef.current = useEditor();
+    return null;
+  };
+
+  beforeEach(async () => {
+    ws = new WorkspaceManager();
+    renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+    scheduler = { requestRender: vi.fn() };
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    editorRef = { current: null };
+
+    mockOnViewportPointerDown.mockClear();
+    mockOnViewportPointerUp.mockClear();
+    mockOnViewportPointerCancel.mockClear();
+    mockOnViewportLostPointerCapture.mockClear();
+    mockCommitBrushStroke.mockClear();
+    mockSpacePressed = false;
+    mockPanningActive = false;
+
+    // jsdom has no OffscreenCanvas and its <canvas>.getContext('2d') returns
+    // null, so the text rasterizer's jsdom fallback would throw E_CANVAS.
+    // Shared text-capable seam (10px/char, live-dims transferToImageBitmap).
+    stubTextOffscreenCanvas();
+
+    const session = WorkspaceManager.createBlankDocument("text-p3", "Text P3", 800, 600);
+    ws.addDocument(session);
+
+    dispose = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={renderer} scheduler={scheduler}>
+          <TestConsumer />
+          <TextConsumer />
+          <CanvasViewport />
+        </EditorProvider>
+      ),
+      container,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  afterEach(() => {
+    if (dispose) dispose();
+    if (container.parentNode) container.parentNode.removeChild(container);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function getCanvas(): HTMLCanvasElement {
+    const c = container.querySelector("canvas") as HTMLCanvasElement;
+    if (!c) throw new Error("Canvas not found");
+    return c;
+  }
+
+  function textLayers(): any[] {
+    return (ws.getActiveEngine()?.getLayers() ?? []).filter((l) => l.type === "text");
+  }
+
+  // jsdom's PointerEvent init drops MouseEvent modifiers; force-set them
+  // (mirrors the shape describe's firePointer helper).
+  function firePointer(
+    canvas: HTMLCanvasElement,
+    type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+  ) {
+    const ev = new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId,
+      clientX,
+      clientY,
+    });
+    canvas.dispatchEvent(ev);
+  }
+
+  // Click = pointerdown+up at the same point (default zoom/pan → doc coords
+  // equal client coords because jsdom's container rect is all-zero).
+  function clickText(canvas: HTMLCanvasElement, x: number, y: number, pointerId = 10) {
+    firePointer(canvas, "pointerdown", pointerId, x, y);
+    firePointer(canvas, "pointerup", pointerId, x, y);
+  }
+
+  function getOverlay(): HTMLTextAreaElement {
+    const t = container.querySelector("[data-text-edit-overlay]") as HTMLTextAreaElement;
+    if (!t) throw new Error("Text edit overlay not found — session may not be open");
+    return t;
+  }
+
+  // Typing goes through the SAME surface a user uses: set the textarea value
+  // and fire an input event (Solid's onInput reads e.currentTarget.value).
+  function typeText(text: string) {
+    const ta = getOverlay();
+    ta.value = text;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  // Ctrl+Enter flushes the debounce and commits the session (one undo step).
+  function commitWithCtrlEnter() {
+    getOverlay().dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Enter",
+        ctrlKey: true,
+      }),
+    );
+  }
+
+  it("idle -> text click -> typed session -> Ctrl+Enter commit -> tool-switch round-trip leaves no orphan state", async () => {
+    setTool("text");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+    expect(engine.getLayers().length).toBe(1); // background only
+
+    clickText(getCanvas(), 100, 100);
+    await tick();
+
+    // Session open: temp text layer + edit overlay mounted.
+    expect(textLayers().length).toBe(1);
+    expect(editorRef.current.textEditSession()).not.toBeNull();
+    getOverlay();
+
+    typeText("Hello");
+    commitWithCtrlEnter();
+    await tick();
+
+    // Committed: exactly ONE text layer with the typed content.
+    expect(textLayers().length).toBe(1);
+    expect(engine.getLayers().length).toBe(2);
+    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(editorRef.current.textEditSession()).toBeNull();
+
+    const t = textLayers()[0];
+    expect(t.textData.content).toBe("Hello");
+    expect(t.transform.x).toBe(100);
+    expect(t.transform.y).toBe(100);
+    expect(engine.getActiveLayerId()).toBe(t.id);
+
+    // Tool switch round-trip: text -> brush -> text -> move.
+    setTool("brush");
+    await tick();
+    setTool("text");
+    await tick();
+    setTool("move");
+    await tick();
+
+    // No orphan state: tool normalized, same layer count, no temp leftover.
+    expect(editorRef.current.activeTool()).toBe("move");
+    expect(editorRef.current.textEditSession()).toBeNull();
+    expect(engine.getLayers().length).toBe(2);
+    expect(textLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline + 1);
+
+    // A fresh text session after the round-trip still commits cleanly.
+    setTool("text");
+    await tick();
+    clickText(getCanvas(), 300, 300, 11);
+    await tick();
+    typeText("Again");
+    commitWithCtrlEnter();
+    await tick();
+    expect(textLayers().length).toBe(2);
+    expect(history.getUndoCount()).toBe(baseline + 2);
+  });
+
+  it("tool switch auto-commits an open session (typed content persists, no temp layer)", async () => {
+    setTool("text");
+    await tick();
+
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    clickText(getCanvas(), 120, 80);
+    await tick();
+    expect(textLayers().length).toBe(1);
+    expect(editorRef.current.textEditSession()).not.toBeNull();
+
+    typeText("Watermark");
+    // No Ctrl+Enter: switching tools must flush pending content and commit.
+    setTool("move");
+    await tick();
+
+    expect(textLayers().length).toBe(1);
+    expect(textLayers()[0].textData.content).toBe("Watermark");
+    expect(editorRef.current.textEditSession()).toBeNull();
+    expect(history.getUndoCount()).toBe(baseline + 1);
+  });
+
+  it("empty click (no typing) commits to nothing: temp layer deleted, no history entry", async () => {
+    setTool("text");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    clickText(getCanvas(), 100, 100);
+    await tick();
+    expect(textLayers().length).toBe(1);
+
+    commitWithCtrlEnter();
+    await tick();
+
+    // Empty-commit cleanup: no placeholder text ever left behind (research R1).
+    expect(textLayers().length).toBe(0);
+    expect(engine.getLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline);
+    expect(editorRef.current.textEditSession()).toBeNull();
+  });
+
+  it("undo removes exactly the added text; redo restores it with textData intact", async () => {
+    setTool("text");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    clickText(getCanvas(), 100, 100);
+    await tick();
+    typeText("Hello");
+    commitWithCtrlEnter();
+    await tick();
+    expect(textLayers().length).toBe(1);
+
+    // Undo/redo through the same primitives the app's Ctrl+Z handler uses
+    // (mirrors the shape describe — snapshot must carry textData).
+    const undone = history.undo(engine.snapshot());
+    expect(undone).not.toBeNull();
+    engine.restore(undone!);
+    await tick();
+    expect(textLayers().length).toBe(0);
+    expect(engine.getLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline);
+    expect(history.getRedoCount()).toBe(1);
+
+    // Redo: exactly one layer returns, same content, no temp leftovers.
+    const redone = history.redo(engine.snapshot());
+    expect(redone).not.toBeNull();
+    engine.restore(redone!);
+    await tick();
+    expect(textLayers().length).toBe(1);
+    // Full textData roundtrip (not just content): snapshot must carry every
+    // field — font, color, alignment, box — not just the string. Color is the
+    // live foreground color the tool used when creating the layer.
+    expect(textLayers()[0].textData).toMatchObject({
+      ...DEFAULT_TEXT_DATA,
+      content: "Hello",
+      color: editorRef.current.fgColor(),
+    });
+    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getRedoCount()).toBe(0);
+  });
+
+  it("area-box drag creates an area text layer with boxMode/boxWidth", async () => {
+    setTool("text");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    const canvas = getCanvas();
+    firePointer(canvas, "pointerdown", 10, 100, 100);
+    firePointer(canvas, "pointermove", 10, 300, 200); // 200 doc px wide
+    firePointer(canvas, "pointerup", 10, 300, 200);
+    await tick();
+
+    // Session is area mode before commit (drag beyond the 3px threshold).
+    const s = editorRef.current.textEditSession();
+    expect(s).not.toBeNull();
+    expect(s.boxMode).toBe("area");
+    expect(s.boxWidth).toBe(200);
+
+    typeText("Area text");
+    commitWithCtrlEnter();
+    await tick();
+
+    const t = textLayers()[0];
+    expect(t.textData.boxMode).toBe("area");
+    expect(t.textData.boxWidth).toBe(200);
+    expect(t.textData.content).toBe("Area text");
+    expect(history.getUndoCount()).toBe(baseline + 1);
+  });
+
+  it("pointercancel mid-session removes the temp layer without committing", async () => {
+    setTool("text");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    const canvas = getCanvas();
+    firePointer(canvas, "pointerdown", 10, 100, 100);
+    firePointer(canvas, "pointercancel", 10, 100, 100);
+    await tick();
+
+    expect(textLayers().length).toBe(0);
+    expect(engine.getLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline);
+    expect(editorRef.current.textEditSession()).toBeNull();
+
+    // Drag state fully released: a fresh click still opens a session.
+    clickText(canvas, 200, 200, 11);
+    await tick();
+    expect(textLayers().length).toBe(1);
+    expect(editorRef.current.textEditSession()).not.toBeNull();
   });
 });

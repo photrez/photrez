@@ -97,3 +97,40 @@ export function mockEngineMethod<T extends (...args: never[]) => unknown>(
   if (!fn?.mock) throw new Error(`Method ${String(method)} is not a vi.fn() mock`);
   return fn as ReturnType<typeof vi.fn<T>>;
 }
+
+/**
+ * Stubs globalThis.OffscreenCanvas with a text-capable 2D seam.
+ * jsdom has no OffscreenCanvas and its <canvas>.getContext('2d') returns null,
+ * so the text rasterizer's jsdom fallback would throw E_CANVAS. Mirrors the
+ * seam used by textRasterizer.test.ts: measureText width = 10px/char with
+ * ascent/descent above the 0.8/0.2 fontSize fallback (so provided metrics win)
+ * and transferToImageBitmap reads LIVE dims because rasterizeText resizes the
+ * canvas after construction. Call vi.unstubAllGlobals() in afterEach.
+ */
+export function stubTextOffscreenCanvas() {
+  const Mock = function (this: any, w: number, h: number) {
+    this.width = w;
+    this.height = h;
+    const ctx: Record<string, unknown> & {
+      font: string;
+      fillStyle: string;
+      textBaseline: string;
+      letterSpacing: string;
+    } = {
+      font: "",
+      fillStyle: "",
+      textBaseline: "alphabetic",
+      letterSpacing: "0px",
+      measureText: (s: string) => ({
+        width: s.length * 10,
+        fontBoundingBoxAscent: 80,
+        fontBoundingBoxDescent: 24,
+      }),
+      fillText: () => undefined,
+      drawImage: () => undefined,
+    };
+    this.getContext = () => ctx;
+    this.transferToImageBitmap = () => ({ width: this.width, height: this.height });
+  } as any;
+  vi.stubGlobal("OffscreenCanvas", Mock);
+}

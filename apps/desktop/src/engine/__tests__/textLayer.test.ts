@@ -3,46 +3,16 @@ import { WorkspaceManager } from "../workspace";
 import type { LayerNode } from "../types";
 import { DEFAULT_TEXT_DATA, normalizeTextData } from "../textTypes";
 import type { TextData } from "../textTypes";
+import { stubTextOffscreenCanvas } from "../../__tests__/test-builders";
 
 function makeSession() {
   return WorkspaceManager.createBlankDocument("text-test", "Text Test", 400, 300);
 }
 
 // jsdom provides no OffscreenCanvas; both the text rasterizer and
-// duplicateLayerNode rely on it. The stub mirrors textRasterizer.test.ts:
-// the 2D context is a text-capable seam (measureText/descent-ascent/fillText)
-// and transferToImageBitmap reads LIVE dims because rasterizeText resizes the
-// canvas after construction. measureText width = 10px/char; ascent/descent
-// are above the 0.8/0.2 fontSize fallback so provided metrics win.
-function stubOffscreenCanvas() {
-  const Mock = function (this: any, w: number, h: number) {
-    this.width = w;
-    this.height = h;
-    const ctx: Record<string, unknown> & {
-      font: string;
-      fillStyle: string;
-      textBaseline: string;
-      letterSpacing: string;
-    } = {
-      font: "",
-      fillStyle: "",
-      textBaseline: "alphabetic",
-      letterSpacing: "0px",
-      measureText: (s: string) => ({
-        width: s.length * 10,
-        fontBoundingBoxAscent: 80,
-        fontBoundingBoxDescent: 24,
-      }),
-      fillText: () => undefined,
-      drawImage: () => undefined,
-    };
-    this.getContext = () => ctx;
-    this.transferToImageBitmap = () => ({ width: this.width, height: this.height });
-  } as any;
-  vi.stubGlobal("OffscreenCanvas", Mock);
-}
-
-beforeEach(() => stubOffscreenCanvas());
+// duplicateLayerNode rely on it. Shared text-capable seam (10px/char,
+// live-dims transferToImageBitmap) — see stubTextOffscreenCanvas.
+beforeEach(() => stubTextOffscreenCanvas());
 afterEach(() => vi.unstubAllGlobals());
 
 // DEFAULT_TEXT_DATA, fontSize 48 (fontPx 96 at RASTER_SCALE 2), lineHeight 1.4:
