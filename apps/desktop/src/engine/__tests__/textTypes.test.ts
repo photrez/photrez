@@ -51,6 +51,13 @@ describe("normalizeTextData", () => {
     expect(normalizeTextData({ fontWeight: 400 }).fontWeight).toBe(400);
   });
 
+  it("rounds fontWeight half-up at the step boundary (150 -> 200, 149 -> 100)", () => {
+    expect(normalizeTextData({ fontWeight: 150 }).fontWeight).toBe(200);
+    expect(normalizeTextData({ fontWeight: 149 }).fontWeight).toBe(100);
+    expect(normalizeTextData({ fontWeight: 250 }).fontWeight).toBe(300);
+    expect(normalizeTextData({ fontWeight: 849 }).fontWeight).toBe(800);
+  });
+
   it("clamps lineHeight to 0.5..5.0 and letterSpacing to -100..500", () => {
     expect(normalizeTextData({ lineHeight: 0 }).lineHeight).toBe(0.5);
     expect(normalizeTextData({ lineHeight: 99 }).lineHeight).toBe(5.0);
