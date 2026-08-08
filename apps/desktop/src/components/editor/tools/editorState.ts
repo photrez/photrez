@@ -2,6 +2,21 @@ import { createSignal } from "solid-js";
 import type { LayerNode, DocumentTabSummary, Transform2D, DocumentModel, SelectionState } from "@/engine/types";
 import type { ToolId } from "./toolTypes";
 
+export interface TextEditSession {
+  /** Text layer being edited (new or existing). */
+  layerId: string;
+  /** Doc-space anchor (top-left of the text box). */
+  docX: number;
+  docY: number;
+  boxMode: "point" | "area";
+  /** Area box width (0 when point mode). */
+  boxWidth: number;
+  /** True when the layer was created by this pointer gesture (temp layer). */
+  isNewLayer: boolean;
+  /** Snapshot taken BEFORE the gesture — committed on session close. */
+  preSnapshot: DocumentModel;
+}
+
 export interface LayerTransformSession {
   documentId: string;
   layerId: string;
@@ -91,6 +106,9 @@ export function createEditorState() {
   const [textFontWeight, setTextFontWeight] = createSignal(400);
   const [textFontItalic, setTextFontItalic] = createSignal(false);
   const [textAlign, setTextAlign] = createSignal<"left" | "center" | "right">("left");
+  // Active text edit session (new layer temp or re-edit of an existing layer).
+  // Non-null while the edit overlay is open; cleared on commit/cancel.
+  const [textEditSession, setTextEditSession] = createSignal<TextEditSession | null>(null);
 
   const [selectedLayerId, setSelectedLayerId] = createSignal<string | null>(null);
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
@@ -221,6 +239,7 @@ export function createEditorState() {
     textFontWeight, setTextFontWeight,
     textFontItalic, setTextFontItalic,
     textAlign, setTextAlign,
+    textEditSession, setTextEditSession,
     showResizeDialog, setShowResizeDialog,
     showExportDialog, setShowExportDialog,
     showPrintDialog, setShowPrintDialog,

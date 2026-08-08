@@ -1,7 +1,7 @@
 import { createContext, useContext, type JSX } from "solid-js";
 import type { Accessor, Setter } from "solid-js";
 import type { ToolId } from "../../tools/toolTypes";
-import type { LayerTransformSession } from "../../tools/editorState";
+import type { LayerTransformSession, TextEditSession } from "../../tools/editorState";
 import type { Transform2D } from "@/engine/types";
 import type { CropPreview, CropFillSource } from "../../cropState";
 import type {
@@ -165,6 +165,9 @@ export interface ToolSettingsValue {
   setTextFontItalic: Setter<boolean>;
   textAlign: Accessor<"left" | "center" | "right">;
   setTextAlign: Setter<"left" | "center" | "right">;
+  /** Active text edit session (new temp layer or re-edit); null when closed. */
+  textEditSession: Accessor<TextEditSession | null>;
+  setTextEditSession: Setter<TextEditSession | null>;
 
   // Transform mini undo/redo
   commitTransformState: (transform: Transform2D) => void;

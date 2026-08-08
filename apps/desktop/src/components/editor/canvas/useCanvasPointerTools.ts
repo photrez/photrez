@@ -24,8 +24,10 @@ import { prepareToolContext as prepareToolContextImpl } from "./pointerTools/pre
 import { applyPaintBucketFill } from "./pointerTools/paintBucket";
 import { startGradientDrag, trackGradientDrag, applyGradientFill } from "./pointerTools/gradientTool";
 import { startShapeDrag, trackShapeDrag, applyShapeDrag } from "./pointerTools/shapeTool";
+import { startTextPointer, trackTextPointer, applyTextPointer, cancelTextSession } from "./pointerTools/textTool";
 import { startCropDrag, trackModernCropDrag, handleCropPointerUp } from "./pointerTools/modernCrop";
 import type { PointerToolContext, ModernDragState, GradientDragState, ShapeDragState } from "./pointerTools/pointerToolContext";
+import type { TextPointerState } from "./pointerTools/textTool";
 
 const NOOP = () => {};
 
@@ -130,6 +132,16 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       shapeDragState.tempLayerId = null;
       shapeDragState.preSnapshot = null;
       shapeDragState.isDragging = false;
+    },
+  };
+
+  // ── Text pointer state (session lives in editorState.textEditSession) ──
+  const textPointerState: TextPointerState = {
+    start: null,
+    isDragging: false,
+    reset: () => {
+      textPointerState.start = null;
+      textPointerState.isDragging = false;
     },
   };
 
@@ -368,6 +380,22 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // guards against. Other tools keep double-click-to-fit.
     if (params.isPanning() || params.isSpacePressed()) return;
     if (activeTool() === "brush" || activeTool() === "eraser") return;
+
+    // Re-edit (R3): double-click a text layer with a non-paint tool → switch
+    // to the text tool and open an edit session on that layer.
+    const dblEngine = workspace.getActiveEngine();
+    if (dblEngine) {
+      const dblCoords = getDocCoords(e as unknown as PointerEvent);
+      const allLayers = [...dblEngine.getLayers()];
+      const hit = hitTestLayers(dblCoords, allLayers as LayerInfo[], (id, x, y) => dblEngine.sampleLayerAlpha(id, x, y));
+      const layer = hit ? dblEngine.getLayer(hit.id) : null;
+      if (layer && layer.type === "text" && layer.textData) {
+        editor.setActiveTool("text");
+        startTextPointer(pointerCtx, e as unknown as PointerEvent, textPointerState);
+        return;
+      }
+    }
+
     const container = params.getCanvasContainerRef();
     const canvas = params.getCanvasRef();
     if (e.target === container || e.target === canvas) {
@@ -511,6 +539,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Shape: start drag ──
     if (startShapeDrag(pointerCtx, e, shapeDragState)) return;
 
+    // ── Text: click-to-create / click-to-edit / drag-to-area ──
+    if (startTextPointer(pointerCtx, e, textPointerState)) return;
+
     // Sync selectionBox from engine state before starting a drag.
     // SelectionOptionBar calls engine.createSelection(…) which updates the
     // engine but NOT the local signal — without this sync the drag would
@@ -626,6 +657,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
     // ── Shape: track drag end for live preview ──
     if (trackShapeDrag(pointerCtx, e, shapeDragState)) return;
+
+    // ── Text: grow area box during drag ──
+    if (trackTextPointer(pointerCtx, e, textPointerState)) return;
 
     // Modern crop drag-to-create: show selection preview rect
     if (trackModernCropDrag(pointerCtx, e, modernDragState)) return;
@@ -779,6 +813,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Shape: apply/commit on pointer up (deletes temp under 3px) ──
     if (applyShapeDrag(pointerCtx, e, shapeDragState)) return;
 
+    // ── Text: release capture; session stays open for typing ──
+    if (applyTextPointer(pointerCtx, e, textPointerState)) return;
+
     // Modern crop: handle drag end or click fallback + classic pending-click
     handleCropPointerUp(pointerCtx, e, modernDragState, coords, interactiveState, tool);
 
@@ -851,6 +888,11 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Cancel shape drag: remove temp layer, no history entry ──
     if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
     shapeDragState.reset();
+    // ── Cancel text session: remove temp layer, no history entry ──
+    if (activeTool() === "text") {
+      cancelTextSession(editor);
+      textPointerState.reset();
+    }
   };
 
   const onCanvasLostPointerCapture = (e: PointerEvent) => {
@@ -890,6 +932,11 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Cancel shape drag: remove temp layer, no history entry ──
     if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
     shapeDragState.reset();
+    // ── Cancel text session: remove temp layer, no history entry ──
+    if (activeTool() === "text") {
+      cancelTextSession(editor);
+      textPointerState.reset();
+    }
   };
 
   const startSelectionRotation = () =>

@@ -29,6 +29,10 @@ export function createMockEditorParams(toolId: string) {
     isShapeLayer: vi.fn(() => false),
     addShapeLayer: vi.fn(() => ({ id: "shape-1", type: "shape", width: 1, height: 1 })),
     updateShapeParams: vi.fn(),
+    isTextLayer: vi.fn(() => false),
+    addTextLayer: vi.fn(() => ({ id: "text-1", type: "text", width: 1, height: 1 })),
+    updateTextData: vi.fn(),
+    sampleLayerAlpha: vi.fn(() => 1),
     deleteLayer: vi.fn(),
   } as unknown as DocumentEngine;
 
@@ -95,6 +99,12 @@ export function createMockEditorParams(toolId: string) {
     shapeStrokeWidth: 4,
     shapeRadius: 0,
     shapeArrowHead: false,
+    textFontFamily: "Arial",
+    textFontSize: 48,
+    textFontWeight: 400,
+    textFontItalic: false,
+    textAlign: "left",
+    textEditSession: null,
   };
 
   const merged = { ...defaults };

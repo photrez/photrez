@@ -18,6 +18,7 @@ import { showToast as showToastImpl } from "../Toast";
 import { runToolSwitchCleanup } from "../tools/toolLifecycle";
 import { DialogProvider } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession, commitLayerTransformSession } from "../transformSession";
+import { commitTextSession } from "../canvas/pointerTools/textTool";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import {
@@ -323,6 +324,18 @@ export function EditorProvider(props: {
   createEffect(() => {
     const tool = editorState.activeTool();
     if (prevActiveTool !== null && tool !== prevActiveTool) {
+      // Auto-commit an active text edit session when LEAVING the text tool.
+      // Guarded on prevActiveTool === "text": the double-click re-edit path
+      // switches INTO the text tool and opens a fresh session synchronously —
+      // committing whatever session is open here would instantly close it.
+      if (prevActiveTool === "text" && editorState.textEditSession()) {
+        commitTextSession({
+          workspace: props.workspace,
+          textEditSession: editorState.textEditSession,
+          setTextEditSession: editorState.setTextEditSession,
+          scheduler: props.scheduler,
+        });
+      }
       // Auto-commit an active transform session before switching tools.
       // Otherwise the transform changes would silently persist without a
       // history entry (the session is cleared but the engine transform is
@@ -447,6 +460,8 @@ export function EditorProvider(props: {
     setTextFontItalic: editorState.setTextFontItalic,
     textAlign: editorState.textAlign,
     setTextAlign: editorState.setTextAlign,
+    textEditSession: editorState.textEditSession,
+    setTextEditSession: editorState.setTextEditSession,
     commitTransformState: editorState.commitTransformState,
     canTransformUndo: editorState.canTransformUndo,
     canTransformRedo: editorState.canTransformRedo,
