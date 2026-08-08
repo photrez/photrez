@@ -88,6 +88,24 @@ function makeEngine(opts: { id: string; layerCount?: number; width?: number; hei
       layerArr.push(newLayer);
       return newLayer;
     }),
+    addTextLayer: vi.fn((name: string, textData: any) => {
+      const newLayer: any = {
+        id: `new-${++newLayerCounter}`,
+        name: typeof name === "string" ? name : "Imported",
+        type: "text",
+        visible: true,
+        locked: false,
+        blendMode: "normal" as BlendMode,
+        width: 200,
+        height: 150,
+        transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1, flipH: false, flipV: false },
+        opacity: 1,
+        imageBitmap: null,
+        textData,
+      };
+      layerArr.push(newLayer);
+      return newLayer;
+    }),
     moveLayer: vi.fn((lid: string, x: number, y: number) => {
       const l = layerArr.find((layer) => layer.id === lid);
       if (l) l.transform = { ...l.transform, x, y };

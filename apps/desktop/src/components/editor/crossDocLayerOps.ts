@@ -1,6 +1,7 @@
 import type { LayerDragPayload, DropTarget } from "./dragTypes";
 import { showToast } from "./Toast";
 import type { BlendMode, DocumentModel, LayerNode, ShapeParams, Transform2D } from "@/engine/types";
+import type { TextData } from "@/engine/textTypes";
 import { MAX_LAYERS, getEffectiveMaxDim } from "@/engine/types";
 import { decodeImageBytes, UnsupportedImageError, ImageTooLargeError } from "@/engine/imageDecode";
 import { readFileBytes } from "@/tauri/native";
@@ -21,6 +22,8 @@ export interface EngineFacade {
   addLayer(name: string, width?: number, height?: number): LayerNode;
   /** Shape layers stay parametric across documents (re-rasterized on the target). */
   addShapeLayer(name: string, params: ShapeParams): LayerNode;
+  /** Text layers stay parametric across documents (re-rasterized on the target). */
+  addTextLayer(name: string, textData: TextData): LayerNode;
   moveLayer(id: string, x: number, y: number): void;
   transformLayer(id: string, transform: Partial<Transform2D>): void;
   setLayerOpacity(id: string, opacity: number): void;
@@ -170,13 +173,16 @@ export function addLayerFromCrossDoc(
   const targetHistory = ws.getHistory(targetDocId);
   if (targetHistory) targetHistory.commit(targetEngine.snapshot(), "Drag Layer");
 
-  // Shape layers keep their params across documents (parity with in-document
-    // duplicateLayerNode); the target re-rasterizes from params instead of
-    // cloning the bitmap. Plain layers keep the bitmap-clone path below.
+  // Shape/text layers keep their params across documents (parity with
+    // in-document duplicateLayerNode); the target re-rasterizes from params
+    // instead of cloning the bitmap. Plain layers keep the bitmap-clone path.
     const shapeParams = sourceLayer.type === "shape" ? sourceLayer.shapeParams : undefined;
+    const textData = sourceLayer.type === "text" ? sourceLayer.textData : undefined;
     const added = shapeParams
       ? targetEngine.addShapeLayer(sourceLayer.name, { ...shapeParams })
-      : targetEngine.addLayer(sourceLayer.name, sourceLayer.width, sourceLayer.height);
+      : textData
+        ? targetEngine.addTextLayer(sourceLayer.name, { ...textData })
+        : targetEngine.addLayer(sourceLayer.name, sourceLayer.width, sourceLayer.height);
     const newId = added.id;
     if (newId) {
       targetEngine.transformLayer(newId, { ...sourceLayer.transform, x: targetPos.x, y: targetPos.y });
@@ -184,7 +190,7 @@ export function addLayerFromCrossDoc(
       targetEngine.setLayerBlendMode(newId, sourceLayer.blendMode);
       targetEngine.setLayerVisibility(newId, sourceLayer.visible);
       targetEngine.setLayerLocked(newId, sourceLayer.locked);
-      if (!shapeParams && sourceLayer.imageBitmap) {
+      if (!shapeParams && !textData && sourceLayer.imageBitmap) {
       // Clone the bitmap so source and target don't share a reference.
       // Without this, deleteLayer on the source (move) or a subsequent
       // adjustment (copy) would close the bitmap the target now holds.

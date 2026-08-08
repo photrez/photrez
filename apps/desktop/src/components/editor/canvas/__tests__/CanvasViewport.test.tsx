@@ -3116,6 +3116,58 @@ describe("Text tool Phase 3 contract", () => {
     expect(history.getUndoCount()).toBe(baseline + 1);
   });
 
+  it("move tool + double-click a committed text layer re-opens the edit session (R3)", async () => {
+    setTool("text");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    // Create + commit a text layer at (100,100). "Hello" rasterizes to
+    // ~27x122 doc px (10px/char + 2px padding, ceil'd line box), so a
+    // double-click at (110,110) hits it.
+    clickText(getCanvas(), 100, 100);
+    await tick();
+    typeText("Hello");
+    commitWithCtrlEnter();
+    await tick();
+    const textId = textLayers()[0].id;
+    expect(textLayers().length).toBe(1);
+
+    // Switch to move, then double-click the text on the canvas (R3: move
+    // tool + dblclick → switch to text tool + edit session, no new layer).
+    // NOTE: the hit resolves via layer BOUNDS — the OffscreenCanvas stub's
+    // fillText paints no ink, so the alpha-aware sample can't read real
+    // pixels in jsdom. (110,110) is safely inside the ~27x122px layer box,
+    // which is what this test verifies: the R3 re-edit wiring, not
+    // pixel-accurate hit testing.
+    setTool("move");
+    await tick();
+    getCanvas().dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true, cancelable: true, clientX: 110, clientY: 110 }),
+    );
+    await tick();
+
+    expect(editorRef.current.activeTool()).toBe("text");
+    const s = editorRef.current.textEditSession();
+    expect(s).not.toBeNull();
+    expect(s.layerId).toBe(textId);
+    expect(s.isNewLayer).toBe(false);
+    // Overlay re-selects the existing content for editing.
+    expect(getOverlay().value).toBe("Hello");
+
+    // Edit the content and commit: one "Edit Text" undo step, same layer id.
+    typeText("Hello world");
+    commitWithCtrlEnter();
+    await tick();
+    expect(textLayers().length).toBe(1);
+    expect(textLayers()[0].id).toBe(textId);
+    expect(textLayers()[0].textData.content).toBe("Hello world");
+    expect(history.getUndoCount()).toBe(baseline + 2); // add + edit
+    expect(editorRef.current.textEditSession()).toBeNull();
+  });
+
   it("pointercancel mid-session removes the temp layer without committing", async () => {
     setTool("text");
     await tick();

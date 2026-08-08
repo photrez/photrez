@@ -13,6 +13,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { WorkspaceManager } from "@/engine/workspace";
+import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
+import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
 import { addLayerFromCrossDoc, addFilesAsLayers, addFilesAsLayersFromFileDrop, createNewDocsFromFiles, type WorkspaceFacade } from "../crossDocLayerOps";
 import type { LayerDragPayload } from "../dragTypes";
 import { resetToasts } from "../Toast";
@@ -546,5 +548,43 @@ describe("shape layer cross-doc drop", () => {
     expect(cloned.type).toBe("shape");
     expect(cloned.shapeParams).toEqual(shapeParams);
     expect(targetEngine.isShapeLayer(cloned.id)).toBe(true);
+  });
+
+  it("preserves text data when dragging a text layer across documents", () => {
+    // Text layers rasterize through the text-capable OffscreenCanvas seam
+    // (10px/char measureText, live-dims transferToImageBitmap) on BOTH the
+    // source (create) and the target (re-rasterize from textData).
+    stubTextOffscreenCanvas();
+
+    const engineA = ws.getEngine(sourceDocId)!;
+    const textData = { ...DEFAULT_TEXT_DATA, content: "Watermark" };
+    const textLayer = engineA.addTextLayer("MyText", textData);
+    const payload = {
+      version: 1,
+      sourceDocId,
+      layerId: textLayer.id,
+      sourceName: "MyText",
+      isAltPressed: false,
+    } satisfies LayerDragPayload;
+
+    addLayerFromCrossDoc(
+      payload,
+      { type: "tab", docId: targetDocId },
+      { x: 0, y: 0 },
+      ws as unknown as WorkspaceFacade,
+    );
+
+    const targetEngine = ws.getEngine(targetDocId)!;
+    const cloned = targetEngine.getLayers().find((l) => l.name === "MyText")!;
+    expect(cloned.type).toBe("text");
+    // Full textData survives the cross-doc hop (re-rasterized on the target,
+    // not bitmap-cloned) — mirrors the shape-params contract.
+    expect(cloned.textData).toEqual({ ...DEFAULT_TEXT_DATA, content: "Watermark" });
+    expect(cloned.imageBitmap).not.toBeNull();
+    // Bitmap lifetime safety: the target re-rasterizes from textData and must
+    // NOT share the source layer's ImageBitmap (a shared reference would be
+    // closed when either side is deleted or adjusted).
+    expect(cloned.imageBitmap).not.toBe(textLayer.imageBitmap);
+    expect(targetEngine.isTextLayer(cloned.id)).toBe(true);
   });
 });
