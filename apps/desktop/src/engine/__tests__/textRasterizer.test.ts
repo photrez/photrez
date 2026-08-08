@@ -359,4 +359,40 @@ describe("rasterizeText", () => {
     expect(bitmap.width).toBeGreaterThan(0);
     expect(bitmap.height).toBeGreaterThan(0);
   });
+
+  it("fallback without OffscreenCanvas: returns canvas with no-op close() (ancient WebKit path)", () => {
+    // Mirrors the shapeRaster.test.ts fallback seam test. This file runs in
+    // unit-node (no jsdom), so document is stubbed instead of spied.
+    vi.stubGlobal("OffscreenCanvas", undefined);
+    const ctxStub: Record<string, unknown> & {
+      font: string;
+      fillStyle: string;
+      textBaseline: string;
+      letterSpacing: string;
+    } = {
+      font: "",
+      fillStyle: "",
+      textBaseline: "alphabetic",
+      letterSpacing: "0px",
+      measureText: (s: string) => ({
+        width: s.length * 10,
+        fontBoundingBoxAscent: 80,
+        fontBoundingBoxDescent: 24,
+      }),
+      fillText: () => undefined,
+    };
+    const canvasMock = {
+      width: 0,
+      height: 0,
+      getContext: () => ctxStub,
+    } as unknown as HTMLCanvasElement;
+    vi.stubGlobal("document", { createElement: () => canvasMock });
+
+    const result = rasterizeText(DEFAULT_TEXT_DATA);
+    const bitmap = result.imageBitmap as unknown as { close?: () => void; width: number };
+    expect(typeof bitmap.close).toBe("function");
+    // Consumers call bitmap.close() on replace/dispose; the fallback must not throw.
+    expect(() => bitmap.close?.()).not.toThrow();
+    expect(bitmap.width).toBeGreaterThan(0);
+  });
 });
