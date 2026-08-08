@@ -10,7 +10,7 @@
 
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { DocumentEngine } from "@/engine/document";
-import type { DocumentModel, LayerNode } from "@/engine/types";
+import type { DocumentModel, LayerNode, ShapeParams } from "@/engine/types";
 
 // ─── Hoisted mocks for @/tauri/native ───
 const { mockSaveProjectStreamingBegin, mockSaveProjectStreamingWriteLayer, mockSaveProjectStreamingEnd, mockSaveProjectStreamingCancel, mockLoadProject } = vi.hoisted(() => ({
@@ -49,34 +49,52 @@ interface CapturedProject {
 let capturedProject: CapturedProject | null = null;
 let nextHandleId = 1;
 
-/** OffscreenCanvas mock context with controllable convertToBlob. */
+/** OffscreenCanvas mock context with controllable convertToBlob.
+ *  The 2D context is a full-enough stub that both the engine shape
+ *  rasterizer (translate/fill/style/beginPath/path ops) and the serializer
+ *  encode path (drawImage/convertToBlob) can run under jsdom. */
 function createCanvasMock(pngBytes: Uint8Array) {
-  let ctx: any = null;
+  const mkCtx = () => {
+    const ctx: any = {};
+    ctx.fillStyle = "#000000";
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1;
+    ctx.lineCap = "butt";
+    ctx.translate = vi.fn(() => ctx);
+    ctx.beginPath = vi.fn();
+    ctx.rect = vi.fn();
+    ctx.roundRect = vi.fn();
+    ctx.ellipse = vi.fn();
+    ctx.moveTo = vi.fn();
+    ctx.lineTo = vi.fn();
+    ctx.fill = vi.fn();
+    ctx.stroke = vi.fn();
+    ctx.drawImage = vi.fn();
+    ctx.clearRect = vi.fn();
+    ctx.save = vi.fn();
+    ctx.restore = vi.fn();
+    return ctx;
+  };
   return {
     width: 0,
     height: 0,
-    getContext: () => {
-      if (!ctx) {
-        ctx = {
-          drawImage: vi.fn(),
-          clearRect: vi.fn(),
-          save: vi.fn(),
-          restore: vi.fn(),
-        };
-      }
-      return ctx;
+    getContext: () => mkCtx(),
+    transferToImageBitmap: function (this: any) {
+      return makeBitmap(Math.max(1, this.width), Math.max(1, this.height), new Uint8ClampedArray(0));
     },
     convertToBlob: vi.fn().mockResolvedValue(new Blob([pngBytes as BlobPart], { type: "image/png" })),
   };
 }
 
-/** Stubs global OffscreenCanvas so serializeAndSaveProject can encode layers. */
+/** Stubs global OffscreenCanvas so the engine shape rasterizer AND serialize
+ *  encode path can run under jsdom. */
 function stubSerializeGlobals(pngBytes: Uint8Array) {
   const mockCanvas = createCanvasMock(pngBytes);
   vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
     this.width = w;
     this.height = h;
     this.getContext = () => mockCanvas.getContext();
+    this.transferToImageBitmap = mockCanvas.transferToImageBitmap;
     this.convertToBlob = mockCanvas.convertToBlob;
   }));
 }
@@ -174,7 +192,7 @@ describe("projectSerialize — serializeAndSaveProject", () => {
     expect(parsed.height).toBe(1080);
   });
 
-  it("writes photrez-ptz format + version:1 marker (KNOWN_ISSUES #9 hardening)", async () => {
+  it("writes photrez-ptz format + version:2 marker (.ptz v2 additive)", async () => {
     stubSerializeGlobals(PNG_BYTES);
 
     const engine = new DocumentEngine("doc-ver", "Versioned", 64, 64);
@@ -185,7 +203,7 @@ describe("projectSerialize — serializeAndSaveProject", () => {
 
     const parsed = JSON.parse(capturedProject!.documentJson) as DocumentModel & { format?: string; version?: number };
     expect(parsed.format).toBe("photrez-ptz");
-    expect(parsed.version).toBe(1);
+    expect(parsed.version).toBe(2);
   });
 
   it("loader tolerates alpha.1 projects without a version field (backward-compatible)", async () => {
@@ -770,5 +788,126 @@ describe("projectSerialize — full roundtrip", () => {
     expect(capturedProject!.layers[l1.id]).toEqual(pngA);
     expect(capturedProject!.layers[l2.id]).toEqual(pngB);
     expect(capturedProject!.layers[l1.id]).not.toEqual(capturedProject!.layers[l2.id]);
+  });
+
+  it("roundtrips a shape layer with shapeParams through version 2 (additive)", async () => {
+    stubSerializeGlobals(PNG_BYTES);
+
+    const rectParams: ShapeParams = {
+      kind: "rect", width: 120, height: 60, radius: 14,
+      fill: { kind: "solid", color: "#ff0000" },
+      stroke: { enabled: false, color: "#000000", width: 6 },
+      arrowHead: false,
+    };
+    const lineParams: ShapeParams = {
+      kind: "line", width: 80, height: 40, radius: 0,
+      fill: { kind: "none", color: "#000000" },
+      stroke: { enabled: true, color: "#000000", width: 4 },
+      arrowHead: true,
+    };
+
+    const engine = new DocumentEngine("doc-shape-v2", "Shape V2", 200, 150);
+    const shapeId = engine.addShapeLayer("Shape", rectParams).id;
+    const lineId = engine.addShapeLayer("Arrow", lineParams).id;
+
+    const { serializeAndSaveProject } = await import("../projectSerialize");
+    await serializeAndSaveProject(engine, "/tmp/shape-v2.ptz");
+    expect(capturedProject).not.toBeNull();
+
+    // Serialized JSON carries version 2 (additive bump).
+    const model = JSON.parse(capturedProject!.documentJson) as DocumentModel & { version?: number };
+    expect(model.version).toBe(2);
+
+    // shapeParams rides the `{...l}` spread through JSON — no explicit field.
+    const shapeLayerJson = model.layers.find((l) => l.id === shapeId)!;
+    expect(shapeLayerJson.shapeParams).toEqual(rectParams);
+    expect((shapeLayerJson as LayerNode & { shapeParams?: ShapeParams }).type).toBe("shape");
+    const lineLayerJson = model.layers.find((l) => l.id === lineId)!;
+    expect((lineLayerJson as LayerNode & { shapeParams?: ShapeParams }).shapeParams).toEqual(lineParams);
+
+    // Bitmaps decode from result.layers[layer.id] for both shape layers.
+    expect(capturedProject!.layers[shapeId]).toBeDefined();
+    expect(capturedProject!.layers[lineId]).toBeDefined();
+
+    // Simulate loadProjectFile: decode PNG bytes → set imageBitmap → engine.restore.
+    for (const layer of model.layers) {
+      const bytes = capturedProject!.layers[layer.id];
+      if (bytes) {
+        const blob = new Blob([bytes as BlobPart], { type: "image/png" });
+        layer.imageBitmap = { width: layer.width, height: layer.height, close: vi.fn() } as unknown as ImageBitmap;
+      }
+    }
+
+    const loaded = new DocumentEngine(model.id, model.name, model.width, model.height);
+    loaded.restore(model, { restoreViewport: true });
+
+    // REAL-ENGINE assertion — v2 additive: shape layer reloads as a shape.
+    expect(loaded.isShapeLayer(shapeId)).toBe(true);
+    expect(loaded.isShapeLayer(lineId)).toBe(true);
+    expect(loaded.getLayer(shapeId)!.shapeParams).toEqual(rectParams);
+    expect(loaded.getLayer(lineId)!.shapeParams).toEqual(lineParams);
+    expect(loaded.getLayer(shapeId)!.imageBitmap).not.toBeNull();
+    expect(loaded.getLayer(shapeId)!.imageBitmap!.width).toBeGreaterThan(0);
+  });
+
+  it("v1 fixture (no shape layers, no version) still loads without error (additive regression)", async () => {
+    const v1Json = JSON.stringify({
+      id: "doc-v1", name: "Legacy", width: 100, height: 100,
+      activeLayerId: null, selection: null,
+      viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
+      dirty: false,
+      layers: [{
+        id: "l1", name: "Bg", type: "raster",
+        visible: true, opacity: 1, locked: false,
+        blendMode: "normal", width: 100, height: 100,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+      }],
+    } as any);
+
+    const model = JSON.parse(v1Json) as DocumentModel;
+    const b64 = btoa(String.fromCharCode(...PNG_BYTES));
+    const binaryString = atob(b64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "image/png" });
+    model.layers[0].imageBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
+
+    const loaded = new DocumentEngine(model.id, model.name, model.width, model.height);
+    expect(() => loaded.restore(model, { restoreViewport: true })).not.toThrow();
+    expect(loaded.getLayers().length).toBe(1);
+    expect(loaded.isShapeLayer("l1")).toBe(false);
+  });
+
+  it("v2 file with malformed shapeParams:null does not crash the loader (lenient fallback)", async () => {
+    const v2Json = JSON.stringify({
+      id: "doc-bad", name: "Bad Shape", width: 100, height: 100,
+      activeLayerId: null, selection: null,
+      viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
+      dirty: false,
+      version: 2,
+      layers: [{
+        id: "s1", name: "Broken Shape", type: "shape",
+        visible: true, opacity: 1, locked: false,
+        blendMode: "normal", width: 100, height: 100,
+        shapeParams: null,
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+      }],
+    } as any);
+
+    const model = JSON.parse(v2Json) as DocumentModel;
+    const b64 = btoa(String.fromCharCode(...PNG_BYTES));
+    const binaryString = atob(b64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "image/png" });
+    model.layers[0].imageBitmap = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
+
+    const loaded = new DocumentEngine(model.id, model.name, model.width, model.height);
+    expect(() => loaded.restore(model, { restoreViewport: true })).not.toThrow();
+    expect(loaded.getLayers().length).toBe(1);
+    // Loader's lenient path: type stays "shape", bitmap decodes, params absent.
+    expect(loaded.isShapeLayer("s1")).toBe(true);
+    expect(loaded.getLayer("s1")!.shapeParams).toBeUndefined();
+    expect(loaded.getLayer("s1")!.imageBitmap).not.toBeNull();
   });
 });
