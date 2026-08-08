@@ -77,10 +77,15 @@ export function applyPaintBucketFill(
   ctx2d.putImageData(imgData, 0, 0);
   // OffscreenCanvas → true ImageBitmap. HTMLCanvasElement fallback (only
   // reachable when OffscreenCanvas is unavailable) is structurally compatible
-  // (width/height + drawImage source) but not typed as ImageBitmap.
+  // (width/height + drawImage source) but not typed as ImageBitmap; add a
+  // no-op close() so history/export resource-release calls don't throw.
   const newBitmap = typeof OffscreenCanvas !== "undefined" && offscreen instanceof OffscreenCanvas
     ? offscreen.transferToImageBitmap()
-    : offscreen as unknown as ImageBitmap;
+    : (() => {
+        const html = offscreen as HTMLCanvasElement & { close?: () => void };
+        html.close = () => {};
+        return html as unknown as ImageBitmap;
+      })();
   try {
     engine.setLayerImageBitmap(layerId, newBitmap);
     renderer?.uploadImage(layerId, newBitmap);

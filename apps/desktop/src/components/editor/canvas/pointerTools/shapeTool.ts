@@ -32,8 +32,11 @@ function buildParams(
     w = Math.max(1, w);
     h = Math.max(1, h);
   } else {
-    w = Math.max(1, w);
+    // Vertical (w=0) and horizontal (h=0) lines are legal; only the fully
+    // degenerate 0×0 point is clamped so the initial temp layer rasterizes.
+    w = Math.max(0, w);
     h = Math.max(0, h);
+    if (w === 0 && h === 0) w = 1;
   }
   let docX = Math.min(start.x, end.x);
   let docY = Math.min(start.y, end.y);

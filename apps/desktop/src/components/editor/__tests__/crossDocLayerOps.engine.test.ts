@@ -482,3 +482,69 @@ describe("addFilesAsLayersFromFileDrop — real engine integration (HTML5 file d
     expect(engine.getLayers()).toHaveLength(200);
   });
 });
+
+describe("shape layer cross-doc drop", () => {
+  let ws: WorkspaceManager;
+  let sourceDocId: string;
+  let targetDocId: string;
+  let originalCreateImageBitmap: typeof globalThis.createImageBitmap;
+
+  beforeEach(() => {
+    originalCreateImageBitmap = globalThis.createImageBitmap;
+    globalThis.createImageBitmap = vi.fn().mockResolvedValue({ width: 100, height: 100 } as ImageBitmap);
+    ws = new WorkspaceManager();
+    ws.addDocument(WorkspaceManager.createBlankDocument("docA", "DocA", 800, 600));
+    ws.addDocument(WorkspaceManager.createBlankDocument("docB", "DocB", 1000, 800));
+    ws.switchDocument("docA");
+    sourceDocId = "docA";
+    targetDocId = "docB";
+  });
+
+  afterEach(() => {
+    globalThis.createImageBitmap = originalCreateImageBitmap;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("preserves shape params when dragging a shape layer across documents", () => {
+    const MockOffscreenCanvas = function (this: any, w: number, h: number) {
+      this.width = w;
+      this.height = h;
+      this.getContext = () => ({
+        translate: () => {}, fillStyle: "", strokeStyle: "", lineWidth: 1, lineCap: "",
+        beginPath: () => {}, rect: () => {}, ellipse: () => {}, moveTo: () => {},
+        lineTo: () => {}, closePath: () => {}, fill: () => {}, stroke: () => {},
+      });
+      this.transferToImageBitmap = () => ({ width: w, height: h });
+    } as any;
+    vi.stubGlobal("OffscreenCanvas", MockOffscreenCanvas);
+
+    const engineA = ws.getEngine(sourceDocId)!;
+    const shapeParams = {
+      kind: "rect" as const, width: 100, height: 50, radius: 10,
+      fill: { kind: "solid" as const, color: "#E15A17" },
+      stroke: { enabled: true as const, color: "#000000", width: 6 }, arrowHead: false,
+    };
+    const shapeLayer = engineA.addShapeLayer("MyShape", shapeParams);
+    const payload = {
+      version: 1,
+      sourceDocId,
+      layerId: shapeLayer.id,
+      sourceName: "MyShape",
+      isAltPressed: false,
+    } satisfies LayerDragPayload;
+
+    addLayerFromCrossDoc(
+      payload,
+      { type: "tab", docId: targetDocId },
+      { x: 0, y: 0 },
+      ws as unknown as WorkspaceFacade,
+    );
+
+    const targetEngine = ws.getEngine(targetDocId)!;
+    const cloned = targetEngine.getLayers().find((l) => l.name === "MyShape")!;
+    expect(cloned.type).toBe("shape");
+    expect(cloned.shapeParams).toEqual(shapeParams);
+    expect(targetEngine.isShapeLayer(cloned.id)).toBe(true);
+  });
+});

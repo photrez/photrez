@@ -101,4 +101,40 @@ describe("renderShapeToBitmap", () => {
     expect(instances[0].calls).toContain("moveTo");
     expect(instances[0].calls).toContain("lineTo");
   });
+
+  it("vertical line (width 0) rasterizes without tilting and without throwing", () => {
+    const line = { ...rectParams, kind: "line" as const, width: 0, height: 100,
+      fill: { kind: "none" as const, color: "#000000" } };
+    const bitmap = renderShapeToBitmap(line) as unknown as { width: number; height: number };
+    expect(bitmap.width).toBe(12); // 0 + 2*6 stroke margin, min 1
+    expect(bitmap.height).toBe(112);
+  });
+
+  it("stroke-less line keeps a 1px bitmap on its zero axis", () => {
+    const line = { ...rectParams, kind: "line" as const, width: 0, height: 100,
+      stroke: { enabled: false, color: "#000000", width: 6 },
+      fill: { kind: "none" as const, color: "#000000" } };
+    const bitmap = renderShapeToBitmap(line) as unknown as { width: number; height: number };
+    expect(bitmap.width).toBe(1);
+    expect(bitmap.height).toBe(100);
+  });
+
+  it("fallback without OffscreenCanvas: returns canvas with no-op close() (ancient WebKit path)", () => {
+    vi.stubGlobal("OffscreenCanvas", undefined);
+    const ctxStub = {
+      translate: () => {}, fillStyle: "", strokeStyle: "", lineWidth: 1, lineCap: "butt",
+      beginPath: () => {}, rect: () => {}, ellipse: () => {}, moveTo: () => {},
+      lineTo: () => {}, closePath: () => {}, fill: () => {}, stroke: () => {},
+    };
+    const canvasMock = { width: 0, height: 0, getContext: () => ctxStub } as unknown as HTMLCanvasElement;
+    const createSpy = vi.spyOn(document, "createElement").mockReturnValue(canvasMock);
+    try {
+      const bitmap = renderShapeToBitmap(rectParams) as unknown as { close?: () => void; width: number };
+      expect(bitmap.width).toBe(112);
+      expect(typeof bitmap.close).toBe("function");
+      expect(() => bitmap.close?.()).not.toThrow();
+    } finally {
+      createSpy.mockRestore();
+    }
+  });
 });

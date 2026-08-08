@@ -1,6 +1,6 @@
 import type { LayerDragPayload, DropTarget } from "./dragTypes";
 import { showToast } from "./Toast";
-import type { BlendMode, DocumentModel, LayerNode, Transform2D } from "@/engine/types";
+import type { BlendMode, DocumentModel, LayerNode, ShapeParams, Transform2D } from "@/engine/types";
 import { MAX_LAYERS, getEffectiveMaxDim } from "@/engine/types";
 import { decodeImageBytes, UnsupportedImageError, ImageTooLargeError } from "@/engine/imageDecode";
 import { readFileBytes } from "@/tauri/native";
@@ -19,6 +19,8 @@ export interface EngineFacade {
   getLayer(id: string): LayerNode | undefined;
   getLayers(): readonly LayerNode[];
   addLayer(name: string, width?: number, height?: number): LayerNode;
+  /** Shape layers stay parametric across documents (re-rasterized on the target). */
+  addShapeLayer(name: string, params: ShapeParams): LayerNode;
   moveLayer(id: string, x: number, y: number): void;
   transformLayer(id: string, transform: Partial<Transform2D>): void;
   setLayerOpacity(id: string, opacity: number): void;
@@ -168,15 +170,21 @@ export function addLayerFromCrossDoc(
   const targetHistory = ws.getHistory(targetDocId);
   if (targetHistory) targetHistory.commit(targetEngine.snapshot(), "Drag Layer");
 
-  const added = targetEngine.addLayer(sourceLayer.name, sourceLayer.width, sourceLayer.height);
-  const newId = added.id;
-  if (newId) {
-    targetEngine.transformLayer(newId, { ...sourceLayer.transform, x: targetPos.x, y: targetPos.y });
-    targetEngine.setLayerOpacity(newId, sourceLayer.opacity);
-    targetEngine.setLayerBlendMode(newId, sourceLayer.blendMode);
-    targetEngine.setLayerVisibility(newId, sourceLayer.visible);
-    targetEngine.setLayerLocked(newId, sourceLayer.locked);
-    if (sourceLayer.imageBitmap) {
+  // Shape layers keep their params across documents (parity with in-document
+    // duplicateLayerNode); the target re-rasterizes from params instead of
+    // cloning the bitmap. Plain layers keep the bitmap-clone path below.
+    const shapeParams = sourceLayer.type === "shape" ? sourceLayer.shapeParams : undefined;
+    const added = shapeParams
+      ? targetEngine.addShapeLayer(sourceLayer.name, { ...shapeParams })
+      : targetEngine.addLayer(sourceLayer.name, sourceLayer.width, sourceLayer.height);
+    const newId = added.id;
+    if (newId) {
+      targetEngine.transformLayer(newId, { ...sourceLayer.transform, x: targetPos.x, y: targetPos.y });
+      targetEngine.setLayerOpacity(newId, sourceLayer.opacity);
+      targetEngine.setLayerBlendMode(newId, sourceLayer.blendMode);
+      targetEngine.setLayerVisibility(newId, sourceLayer.visible);
+      targetEngine.setLayerLocked(newId, sourceLayer.locked);
+      if (!shapeParams && sourceLayer.imageBitmap) {
       // Clone the bitmap so source and target don't share a reference.
       // Without this, deleteLayer on the source (move) or a subsequent
       // adjustment (copy) would close the bitmap the target now holds.

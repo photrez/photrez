@@ -144,4 +144,20 @@ describe("shape tool pointer wiring", () => {
     disposeTools();
     dispose();
   });
+
+  it("vertical line keeps width 0 (no 1px tilt)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).updateShapeParams = vi.fn();
+    signals.setShapeKind("line");
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 50, clientY: 150 }));
+    const lastCall = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
+    expect(lastCall.width).toBe(0);
+    expect(lastCall.height).toBe(100);
+    disposeTools();
+    dispose();
+  });
 });

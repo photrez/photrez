@@ -31,7 +31,12 @@ function toBitmap(canvas: OffscreenCanvas | HTMLCanvasElement): ImageBitmap {
   if (typeof OffscreenCanvas !== "undefined" && canvas instanceof OffscreenCanvas) {
     return canvas.transferToImageBitmap();
   }
-  return canvas as unknown as ImageBitmap;
+  // OffscreenCanvas absent (macOS < 13.3 WebKit, old WebKitGTK).
+  // HTMLCanvasElement is accepted by WebGL as a texture source, but consumers
+  // call bitmap.close() (saveWorker, history); give it a no-op so saves don't throw.
+  const html = canvas as HTMLCanvasElement & { close?: () => void };
+  html.close = () => {};
+  return html as unknown as ImageBitmap;
 }
 
 export function renderShapeToBitmap(params: ShapeParams): ImageBitmap {
@@ -51,8 +56,10 @@ export function renderShapeToBitmap(params: ShapeParams): ImageBitmap {
   const margin = params.kind === "line" && params.arrowHead
     ? Math.max(strokeWidth, len)
     : strokeWidth;
-  const w = params.width + margin * 2;
-  const h = params.height + margin * 2;
+  // A line may have a 0 axis (vertical/horizontal, stroke-less too); keep the
+  // bitmap at least 1px each side so the canvas stays allocatable.
+  const w = Math.max(1, params.width + margin * 2);
+  const h = Math.max(1, params.height + margin * 2);
   const { canvas, ctx } = makeCanvas(w, h);
 
   ctx.translate(margin, margin);

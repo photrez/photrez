@@ -1,8 +1,9 @@
 // apps/desktop/src/components/editor/__tests__/shapePixelGuard.test.tsx
 //
 // Wiring contract for the pixel-tool guard (Task 8, shape-tool plan): a
-// brush/eraser stroke on a shape layer must NOT start — it shows a confirm
-// dialog instead. "Confirm → convert → proceed"; reject → no-op. A stroke on
+// brush/eraser/paintBucket/gradient stroke on a shape layer must NOT act
+// directly on the bitmap — it shows a confirm dialog instead.
+// "Confirm → convert → proceed"; reject → no-op. A stroke on
 // a non-shape layer proceeds normally without the dialog.
 
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
@@ -109,6 +110,60 @@ describe("pixel-tool guard on shape layers", () => {
     expect(mockEngine.shapeLayerToRaster).not.toHaveBeenCalled();
     expect(history.commit).not.toHaveBeenCalled();
     expect(handlePointerDownSpy).toHaveBeenCalled();
+
+    dispose();
+  });
+
+  it("paintBucket on a shape layer shows the dialog and converts on confirm (no silent fill)", async () => {
+    const { signals, mockEngine } = createMockEditorParams("paintBucket");
+    mockEngine.isShapeLayer = vi.fn(() => true);
+    mockEngine.shapeLayerToRaster = vi.fn();
+    confirmSpy.mockResolvedValue(true);
+
+    const history = (signals.workspace as any).getActiveHistory();
+    const { tools, dispose } = createTool(signals);
+
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+    await flush();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mockEngine.shapeLayerToRaster).toHaveBeenCalledWith("layer-1");
+    expect(history.commit).toHaveBeenCalled();
+    expect(mockEngine.setLayerImageBitmap).not.toHaveBeenCalled();
+
+    dispose();
+  });
+
+  it("gradient on a shape layer shows the dialog and is a no-op on reject", async () => {
+    const { signals, mockEngine } = createMockEditorParams("gradient");
+    mockEngine.isShapeLayer = vi.fn(() => true);
+    mockEngine.shapeLayerToRaster = vi.fn();
+    confirmSpy.mockResolvedValue(false);
+
+    const history = (signals.workspace as any).getActiveHistory();
+    const { tools, dispose } = createTool(signals);
+
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+    await flush();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mockEngine.shapeLayerToRaster).not.toHaveBeenCalled();
+    expect(history.commit).not.toHaveBeenCalled();
+
+    dispose();
+  });
+
+  it("paintBucket on a NON-shape layer bypasses the dialog and proceeds to fill", () => {
+    const { signals, mockEngine } = createMockEditorParams("paintBucket");
+    mockEngine.isShapeLayer = vi.fn(() => false);
+    const readBitmapSpy = vi.spyOn(mockEngine, "getLayerImageBitmap");
+
+    const { tools, dispose } = createTool(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // applyPaintBucketFill ran and read the layer bitmap (guard did not swallow it)
+    expect(readBitmapSpy).toHaveBeenCalled();
 
     dispose();
   });

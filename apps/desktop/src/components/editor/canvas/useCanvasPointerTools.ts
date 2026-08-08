@@ -449,8 +449,10 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       }
     }
 
-    // Guard: prevent blocked brush/eraser strokes from starting an overlay command.
-    if (activeTool() === "brush" || activeTool() === "eraser") {
+    // Guard: prevent blocked paint strokes from starting an overlay command.
+    // paintBucket/gradient also read+rewrite the active layer bitmap, so they
+    // must hit the same shape-layer conversion guard as brush/eraser.
+    if (activeTool() === "brush" || activeTool() === "eraser" || activeTool() === "paintBucket" || activeTool() === "gradient") {
       const layerId = engine.getActiveLayerId();
       let activePaintLayer: ReturnType<DocumentEngine["getLayer"]> | null = null;
       if (layerId) {
@@ -480,10 +482,14 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
         });
         return; // stroke waits for the decision
       }
-      const blockReason = getPaintToolBlockReason(activePaintLayer, activeTool() === "eraser");
-      if (blockReason) {
-        showToast(blockReason, "warn");
-        return;
+      // Locked/hidden/lockTransparency toasts stay a brush/eraser concern;
+      // paintBucket/gradient enforce their own guards downstream.
+      if (activeTool() === "brush" || activeTool() === "eraser") {
+        const blockReason = getPaintToolBlockReason(activePaintLayer, activeTool() === "eraser");
+        if (blockReason) {
+          showToast(blockReason, "warn");
+          return;
+        }
       }
     }
 
