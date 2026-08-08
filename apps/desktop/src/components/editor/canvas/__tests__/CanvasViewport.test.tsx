@@ -4,6 +4,7 @@ import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { CanvasViewport } from "../CanvasViewport";
 import { WorkspaceManager } from "@/engine/workspace";
 import { ViewportCamera } from "@/viewport/viewportCamera";
+import { OptionBar } from "../../shell/OptionBar";
 import * as Toast from "../../Toast";
 
 // Mock useViewportRenderer
@@ -2488,5 +2489,323 @@ describe("Move auto-select: drag target matches panel selection (alpha-aware)", 
     expect(bottomAfter.transform.y).not.toBe(bottomStartY);
 
     alphaSpy.mockRestore();
+  });
+});
+
+describe("Shape tool Phase 3 contract", () => {
+  let ws: WorkspaceManager;
+  let renderer: any;
+  let scheduler: any;
+  let container: HTMLDivElement;
+  let dispose: () => void;
+  let editorRef: { current: any };
+
+  const tick = (ms = 50) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  // Capture the real editor so undo/redo goes through navigateHistory — the
+  // same path the app's Ctrl+Z / toolbar buttons use.
+  const ShapeConsumer = () => {
+    editorRef.current = useEditor();
+    return null;
+  };
+
+  beforeEach(async () => {
+    ws = new WorkspaceManager();
+    renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+    scheduler = { requestRender: vi.fn() };
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    editorRef = { current: null };
+
+    mockOnViewportPointerDown.mockClear();
+    mockOnViewportPointerUp.mockClear();
+    mockOnViewportPointerCancel.mockClear();
+    mockOnViewportLostPointerCapture.mockClear();
+    mockCommitBrushStroke.mockClear();
+    mockSpacePressed = false;
+    mockPanningActive = false;
+
+    // jsdom has no OffscreenCanvas and its <canvas>.getContext('2d') returns
+    // null, so the shape rasterizer's jsdom fallback would throw E_CANVAS.
+    // Stub OffscreenCanvas exactly like shapeLayer.test.ts so the engine does
+    // the mock-canvas rasterization path instead.
+    const MockOffscreenCanvas = function (this: any, w: number, h: number) {
+      this.width = w;
+      this.height = h;
+      const ctx = {
+        translate: () => undefined,
+        fillStyle: undefined,
+        strokeStyle: undefined,
+        lineWidth: undefined,
+        lineCap: undefined,
+        beginPath: () => undefined,
+        rect: () => undefined,
+        roundRect: () => undefined,
+        ellipse: () => undefined,
+        moveTo: () => undefined,
+        lineTo: () => undefined,
+        closePath: () => undefined,
+        fill: () => undefined,
+        stroke: () => undefined,
+        drawImage: () => undefined,
+      };
+      this.getContext = () => ctx;
+      this.transferToImageBitmap = () => ({ width: w, height: h });
+    } as any;
+    vi.stubGlobal("OffscreenCanvas", MockOffscreenCanvas);
+
+    const session = WorkspaceManager.createBlankDocument("shape-p3", "Shape P3", 800, 600);
+    ws.addDocument(session);
+
+    dispose = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={renderer} scheduler={scheduler}>
+          <TestConsumer />
+          <ShapeConsumer />
+          <OptionBar />
+          <CanvasViewport />
+        </EditorProvider>
+      ),
+      container,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  afterEach(() => {
+    if (dispose) dispose();
+    if (container.parentNode) container.parentNode.removeChild(container);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function getCanvas(): HTMLCanvasElement {
+    const c = container.querySelector("canvas") as HTMLCanvasElement;
+    if (!c) throw new Error("Canvas not found");
+    return c;
+  }
+
+  function shapeLayers(): any[] {
+    return (ws.getActiveEngine()?.getLayers() ?? []).filter((l) => l.type === "shape");
+  }
+
+  // jsdom's PointerEvent init drops MouseEvent modifiers; force-set them
+  // (mirrors the file's legacy firePointerDown helper).
+  function firePointer(
+    canvas: HTMLCanvasElement,
+    type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+    mods: { shiftKey?: boolean; altKey?: boolean } = {},
+  ) {
+    const ev = new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId,
+      clientX,
+      clientY,
+    });
+    Object.defineProperty(ev, "shiftKey", { value: !!mods.shiftKey, configurable: true });
+    Object.defineProperty(ev, "altKey", { value: !!mods.altKey, configurable: true });
+    canvas.dispatchEvent(ev);
+  }
+
+  // Full drag chain at default zoom: pointerdown (100,100) -> move (200,150) -> up.
+  function drawRect(canvas: HTMLCanvasElement, pointerId = 10, mods: { shiftKey?: boolean; altKey?: boolean } = {}) {
+    firePointer(canvas, "pointerdown", pointerId, 100, 100, mods);
+    firePointer(canvas, "pointermove", pointerId, 200, 150, mods);
+    firePointer(canvas, "pointerup", pointerId, 200, 150, mods);
+  }
+
+  it("idle -> shape drag -> committed layer -> switch round-trip leaves no orphan state", async () => {
+    setTool("shape");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+    expect(engine.getLayers().length).toBe(1); // background only
+
+    drawRect(getCanvas());
+    await tick();
+
+    // Committed: exactly ONE shape layer with the drag math under zoom=1.
+    expect(shapeLayers().length).toBe(1);
+    expect(engine.getLayers().length).toBe(2);
+    expect(history.getUndoCount()).toBe(baseline + 1);
+
+    const s = shapeLayers()[0];
+    expect(s.width).toBe(100);
+    expect(s.height).toBe(50);
+    expect(s.transform.x).toBe(100);
+    expect(s.transform.y).toBe(100);
+    expect(s.shapeParams).toMatchObject({ kind: "rect", width: 100, height: 50 });
+    expect(engine.getActiveLayerId()).toBe(s.id);
+
+    // Tool switch round-trip: shape -> brush -> shape -> move.
+    setTool("brush");
+    await tick();
+    setTool("shape");
+    await tick();
+    setTool("move");
+    await tick();
+
+    // No orphan state: tool normalized, same layer count, no temp leftover.
+    expect(editorRef.current.activeTool()).toBe("move");
+    expect(engine.getLayers().length).toBe(2);
+    expect(shapeLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline + 1);
+
+    // A fresh drag after the round-trip still commits cleanly.
+    setTool("shape");
+    await tick();
+    firePointer(getCanvas(), "pointerdown", 11, 300, 300);
+    firePointer(getCanvas(), "pointermove", 11, 400, 360);
+    firePointer(getCanvas(), "pointerup", 11, 400, 360);
+    await tick();
+
+    expect(shapeLayers().length).toBe(2);
+    expect(history.getUndoCount()).toBe(baseline + 2);
+  });
+
+  it("undo removes exactly the added shape; redo restores it with params intact", async () => {
+    setTool("shape");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    drawRect(getCanvas());
+    await tick();
+    expect(shapeLayers().length).toBe(1);
+
+    // Undo/redo through the same primitives the app's Ctrl+Z handler uses
+    // (useEditorCommands.restoreHistorySnapshot: history.undo/redo ->
+    // engine.restore). navigateHistory is NOT used: it's an absolute index
+    // into the history dock whose signal is refreshed on engine onChange,
+    // and the shape commit (temp-mutation-then-commit ordering) lands after
+    // the last engine mutation — so the index lags one entry.
+    const undone = history.undo(engine.snapshot());
+    expect(undone).not.toBeNull();
+    engine.restore(undone!);
+    await tick();
+    expect(shapeLayers().length).toBe(0);
+    expect(engine.getLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline);
+    expect(history.getRedoCount()).toBe(1);
+
+    // Redo: exactly one layer returns, same params, no temp leftovers.
+    const redone = history.redo(engine.snapshot());
+    expect(redone).not.toBeNull();
+    engine.restore(redone!);
+    await tick();
+    expect(shapeLayers().length).toBe(1);
+    expect(shapeLayers()[0].shapeParams).toMatchObject({ kind: "rect", width: 100, height: 50 });
+    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getRedoCount()).toBe(0);
+  });
+
+  it("pointercancel mid-drag removes the temp layer without committing", async () => {
+    setTool("shape");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    const canvas = getCanvas();
+    firePointer(canvas, "pointerdown", 10, 100, 100);
+    firePointer(canvas, "pointermove", 10, 200, 200);
+    firePointer(canvas, "pointercancel", 10, 200, 200);
+    await tick();
+
+    expect(shapeLayers().length).toBe(0);
+    expect(engine.getLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline);
+
+    // Drag state was fully released: a fresh drag still commits.
+    drawRect(canvas, 11);
+    await tick();
+    expect(shapeLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline + 1);
+  });
+
+  it("sub-3px click creates no layer and no history entry", async () => {
+    setTool("shape");
+    await tick();
+
+    const engine = ws.getActiveEngine()!;
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    const canvas = getCanvas();
+    firePointer(canvas, "pointerdown", 10, 100, 100);
+    firePointer(canvas, "pointerup", 10, 101, 100);
+    await tick();
+
+    expect(shapeLayers().length).toBe(0);
+    expect(engine.getLayers().length).toBe(1);
+    expect(history.getUndoCount()).toBe(baseline);
+  });
+
+  it("Shift drag locks the shape to a square", async () => {
+    setTool("shape");
+    await tick();
+
+    drawRect(getCanvas(), 10, { shiftKey: true });
+    await tick();
+
+    const s = shapeLayers()[0];
+    expect(s.shapeParams.width).toBe(100);
+    expect(s.shapeParams.height).toBe(100);
+  });
+
+  it("Alt drag centers the shape on the drag start point", async () => {
+    setTool("shape");
+    await tick();
+
+    drawRect(getCanvas(), 10, { altKey: true });
+    await tick();
+
+    // Drag delta 100x50 is the half-extent: doubled to 200x100, top-left one
+    // extent back from the center at (100,100).
+    const s = shapeLayers()[0];
+    expect(s.shapeParams.width).toBe(200);
+    expect(s.shapeParams.height).toBe(100);
+    expect(s.transform.x).toBe(0);
+    expect(s.transform.y).toBe(50);
+  });
+
+  it("option bar: shape kind controls are visible while the shape tool is active", async () => {
+    // Move tool default: no shape option bar mounted (draw-mode branch).
+    expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
+
+    setTool("shape");
+    await tick();
+    expect(container.querySelector("[data-shape-option-bar]")).not.toBeNull();
+
+    // Draw-mode bar unmounts when the tool leaves shape and nothing is selected.
+    setTool("brush");
+    await tick();
+    expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
+
+    // Back into the shape tool: the committed layer keeps the bar visible.
+    setTool("shape");
+    await tick();
+    drawRect(getCanvas());
+    await tick();
+    expect(container.querySelector("[data-shape-option-bar]")).not.toBeNull();
+    expect(shapeLayers().length).toBe(1);
+
+    // Edit-mode persistence after commit: the committed shape is selected, so
+    // switching tools keeps the bar until the selection is cleared (Task 7).
+    setTool("brush");
+    await tick();
+    expect(container.querySelector("[data-shape-option-bar]")).not.toBeNull();
+    setSelectedLayerIdState(null);
+    await tick();
+    expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
   });
 });
