@@ -208,6 +208,14 @@ describe('resolveCursor', () => {
     expect(resolveCursor(ctx)).toBe('default');
   });
 
+  it('returns text (I-beam) cursor for the text tool', () => {
+    const ctx: CursorContext = {
+      ...base,
+      activeTool: 'text',
+    };
+    expect(resolveCursor(ctx)).toBe('text');
+  });
+
   describe('rotate handle cursor', () => {
     it('returns SVG rotate cursor for rotate handle with hoverPos', () => {
       const ctx: CursorContext = {

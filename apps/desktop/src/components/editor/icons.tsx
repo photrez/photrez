@@ -1,8 +1,11 @@
 import type { LucideIcon, LucideProps } from "lucide-solid";
 import { Dynamic } from "solid-js/web";
 import {
+  AlignCenter,
   AlignCenterHorizontal,
   AlignCenterVertical,
+  AlignLeft,
+  AlignRight,
   AlignStartHorizontal,
   AlignEndHorizontal,
   AlignStartVertical,
@@ -89,6 +92,9 @@ export type IconName =
   | "align-h"
   | "align-left"
   | "align-right"
+  | "align-text-left"
+  | "align-text-center"
+  | "align-text-right"
   | "align-top"
   | "align-bottom"
   | "stretch-h"
@@ -166,6 +172,9 @@ const ICONS: Record<IconName, LucideIcon> = {
   "align-h": AlignCenterHorizontal,
   "align-left": AlignStartVertical,
   "align-right": AlignEndVertical,
+  "align-text-left": AlignLeft,
+  "align-text-center": AlignCenter,
+  "align-text-right": AlignRight,
   "align-top": AlignStartHorizontal,
   "align-bottom": AlignEndHorizontal,
   "stretch-h": StretchHorizontal,

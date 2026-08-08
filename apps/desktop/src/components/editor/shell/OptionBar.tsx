@@ -9,6 +9,7 @@ import { EyedropperOptionBar } from "../EyedropperOptionBar";
 import { PaintBucketOptionBar } from "../PaintBucketOptionBar";
 import { GradientOptionBar } from "../GradientOptionBar";
 import { ShapeOptionBar } from "../ShapeOptionBar";
+import { TextOptionBar } from "../TextOptionBar";
 
 function FadeIn(props: { children: JSX.Element }) {
   return <div class="animate-fade-in flex items-center gap-1.5">{props.children}</div>;
@@ -26,6 +27,15 @@ export function OptionBar() {
     if (!engine) return false;
     const layer = engine.getLayer(id);
     return !!layer && layer.type === "shape";
+  });
+
+  const isTextLayerSelected = createMemo(() => {
+    const id = selectedLayerId();
+    if (!id) return false;
+    const engine = workspace.getActiveEngine();
+    if (!engine) return false;
+    const layer = engine.getLayer(id);
+    return !!layer && layer.type === "text";
   });
 
   return (
@@ -64,6 +74,10 @@ export function OptionBar() {
 
             <Show when={activeTool() === "shape" || isShapeLayerSelected()}>
               <FadeIn><ShapeOptionBar /></FadeIn>
+            </Show>
+
+            <Show when={activeTool() === "text" || isTextLayerSelected()}>
+              <FadeIn><TextOptionBar /></FadeIn>
             </Show>
           </>
         }

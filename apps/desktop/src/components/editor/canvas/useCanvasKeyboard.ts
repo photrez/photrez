@@ -50,6 +50,7 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
     registerShortcut("M", "useCanvasKeyboard");
     registerShortcut("C", "useCanvasKeyboard");
     registerShortcut("I", "useCanvasKeyboard");
+    registerShortcut("T", "useCanvasKeyboard");
     registerShortcut("Space", "useCanvasKeyboard");
     registerShortcut("Alt", "useCanvasKeyboard");
     registerShortcut("[", "useCanvasKeyboard");

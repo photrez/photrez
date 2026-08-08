@@ -17,6 +17,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   paintBucket: "Click to flood fill matching pixels with foreground color.",
   gradient: "Click and drag to apply linear or radial gradient. Hold Shift for 45° angle lock.",
   shape: "Shape Tool",
+  text: "Click to type, drag for a text box. Ctrl+Enter to commit.",
 };
 
 export function BottomStatusBar() {
@@ -69,6 +70,7 @@ export function BottomStatusBar() {
       case "paintBucket": return "Paint Bucket Tool";
       case "gradient": return "Gradient Tool";
       case "shape": return "Shape Tool";
+      case "text": return "Text Tool";
       default: return "Select Tool";
     }
   };

@@ -18,6 +18,7 @@ const TOOL_SHORTCUTS: Record<ToolId, string> = {
   paintBucket: "G",
   gradient: "Shift+G",
   shape: "U",
+  text: "T",
 };
 
 export function LeftToolRail(props: { disabled?: boolean }) {

@@ -73,4 +73,34 @@ describe("Tool Keyboard Shortcuts", () => {
     dispose();
     container.remove();
   });
+
+  it("should switch to shape on u and text on t", () => {
+    let capturedEditor!: ReturnType<typeof useEditor>;
+    const ws = new WorkspaceManager();
+    const doc = WorkspaceManager.createBlankDocument("test-doc2", "Test Doc", 800, 600);
+    ws.addDocument(doc);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    const dispose = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={{ uploadImage: vi.fn(), destroyTexture: vi.fn() } as any} scheduler={{ requestRender: vi.fn() } as any}>
+          <KeyboardHarness captureEditor={(e) => { capturedEditor = e; }} />
+        </EditorProvider>
+      ),
+      container
+    );
+
+    // Press u to switch to shape
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "u" }));
+    expect(capturedEditor.activeTool()).toBe("shape");
+
+    // Press t to switch to text
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "t" }));
+    expect(capturedEditor.activeTool()).toBe("text");
+
+    dispose();
+    container.remove();
+  });
 });

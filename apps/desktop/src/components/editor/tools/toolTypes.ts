@@ -1,2 +1,2 @@
-export type ToolId = "move" | "selection" | "crop" | "eyedropper" | "brush" | "eraser" | "paintBucket" | "gradient" | "shape";
+export type ToolId = "move" | "selection" | "crop" | "eyedropper" | "brush" | "eraser" | "paintBucket" | "gradient" | "shape" | "text";
 

@@ -29,6 +29,7 @@ export const TOOL_CLEANUP_HANDLERS = {
   paintBucket: [clearSharedTransientState],
   gradient: [clearSharedTransientState],
   shape: [clearSharedTransientState],
+  text: [clearSharedTransientState],
 } satisfies Record<ToolId, readonly ToolCleanupHandler[]>;
 
 export function runToolSwitchCleanup(

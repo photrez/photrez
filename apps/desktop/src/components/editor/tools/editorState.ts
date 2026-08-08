@@ -84,6 +84,14 @@ export function createEditorState() {
   const [shapeRadius, setShapeRadius] = createSignal(0);
   const [shapeArrowHead, setShapeArrowHead] = createSignal(false);
 
+  // Text tool: deterministic session defaults per plan §4/§5 (color = editor
+  // foreground at create time, read from fgColor — no separate color signal).
+  const [textFontFamily, setTextFontFamily] = createSignal("Arial");
+  const [textFontSize, setTextFontSize] = createSignal(48);
+  const [textFontWeight, setTextFontWeight] = createSignal(400);
+  const [textFontItalic, setTextFontItalic] = createSignal(false);
+  const [textAlign, setTextAlign] = createSignal<"left" | "center" | "right">("left");
+
   const [selectedLayerId, setSelectedLayerId] = createSignal<string | null>(null);
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   const [selectionEditMode, setSelectionEditMode] = createSignal(false);
@@ -208,6 +216,11 @@ export function createEditorState() {
     shapeStrokeWidth, setShapeStrokeWidth,
     shapeRadius, setShapeRadius,
     shapeArrowHead, setShapeArrowHead,
+    textFontFamily, setTextFontFamily,
+    textFontSize, setTextFontSize,
+    textFontWeight, setTextFontWeight,
+    textFontItalic, setTextFontItalic,
+    textAlign, setTextAlign,
     showResizeDialog, setShowResizeDialog,
     showExportDialog, setShowExportDialog,
     showPrintDialog, setShowPrintDialog,

@@ -154,6 +154,18 @@ export interface ToolSettingsValue {
   shapeArrowHead: Accessor<boolean>;
   setShapeArrowHead: Setter<boolean>;
 
+  // Text tool settings
+  textFontFamily: Accessor<string>;
+  setTextFontFamily: Setter<string>;
+  textFontSize: Accessor<number>;
+  setTextFontSize: Setter<number>;
+  textFontWeight: Accessor<number>;
+  setTextFontWeight: Setter<number>;
+  textFontItalic: Accessor<boolean>;
+  setTextFontItalic: Setter<boolean>;
+  textAlign: Accessor<"left" | "center" | "right">;
+  setTextAlign: Setter<"left" | "center" | "right">;
+
   // Transform mini undo/redo
   commitTransformState: (transform: Transform2D) => void;
   canTransformUndo: () => boolean;
