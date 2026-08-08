@@ -520,6 +520,20 @@
 | ✅ DONE | Shape undo/redo — `createSnapshot/restoreSnapshot` carry `shapeParams` (previously dropped → undo of "Add Shape" would restore a raster without params); engine + CanvasViewport integration tests cover undo removes / redo restores with params intact |
 | ✅ DONE | CanvasViewport integration tests (7) — tool switch round-trip (no orphan state), temp-layer lifecycle (exactly one shape layer, one "Add Shape" history entry), pointercancel cleanup, sub-3px click no-op, Shift square, Alt center, option-bar visibility in draw + edit modes |
 
+## ✍️ Text Tool
+
+| Status  | Fitur |
+| ------- | ----- |
+| ✅ DONE | Text Tool (T) — click to type (point text) or drag for an area text box; parametric text layers (TextData: content/font/size/weight/style/color/align/line-height/letter-spacing/box) keep a 2×-rasterized bitmap in sync on create/edit; no placeholder text is ever auto-filled |
+| ✅ DONE | In-canvas text editing — `TextEditOverlay` textarea over the canvas at doc→screen coords (zoom/pan synced), value synced from the layer on session start with select-all for quick re-edit, live debounced (50ms) re-rasterize while typing, IME-safe (CJK composition never pushed mid-compose), Ctrl/Cmd+Enter commits, Esc cancels |
+| ✅ DONE | Text option bar — font family search + WYSIWYG preview (queryLocalFonts with WEB_SAFE fallback), size presets/input, bold/italic, alignment, color (shared foreground swatch); draws via text-tool signals, edits a selected text layer live with commit-before-mutation + no-op guard |
+| ✅ DONE | Pointer wiring — click creates a temp text layer + opens the edit session; click on an existing text layer re-edits it (no new layer); drag beyond 3px switches to area box with live boxWidth; double-click with the move tool re-opens the edit session (R3); empty commit deletes the temp layer with no history entry; pointercancel mid-session cleans up |
+| ✅ DONE | Session-based undo — one history entry spans the whole edit ("Add Text" / "Edit Text"); snapshots carry `textData` so undo/redo restore the full text layer; pending debounced content is flushed on external commit (click-away / tool switch) so typed text is never lost to empty-commit cleanup |
+| ✅ DONE | Pixel-tool guard — brush/eraser/paintBucket/gradient stroke on a text layer shows a "Convert text to pixels?" confirm dialog; on confirm, rasterizes the layer (`textLayerToRaster`) with snapshot/commit/render; on cancel, no-op. Non-text layers paint normally (merged DRY guard with the shape branch) |
+| ✅ DONE | `.ptz` v3 additive persistence — serializer writes version 3, loader guard accepts ≤3; `textData` rides the `{...l}` spread; real-engine roundtrip (save → load → `isTextLayer` + textData + bitmap) covered incl. v2-fixture regression + lenient `textData:null` fallback. v1/v2 files load unchanged |
+| ✅ DONE | Text layers stay parametric across documents: cross-doc drag re-creates the layer via `addTextLayer` (full textData preserved, bitmap re-rasterized on the target, never shared with the source); in-document duplicate already re-rasterizes from textData (parity) |
+| ✅ DONE | CanvasViewport integration tests (7) — real pointer chain: idle→click→typed session→Ctrl+Enter commit→tool-switch round-trip (no orphan state), tool-switch auto-commit with pending-flush, empty-click cleanup, undo/redo roundtrip with full textData, area-box drag (boxMode/boxWidth persist), pointercancel cleanup, move-tool double-click re-edit (R3) |
+
 ## 🪟 Desktop / Window
 
 | Status  | Fitur |
