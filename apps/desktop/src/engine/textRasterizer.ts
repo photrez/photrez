@@ -131,10 +131,13 @@ function wrapCJK(paragraph: string, measure: TextMeasurer, maxWidth: number): st
 /**
  * Paragraph-aware word wrap. "\n" separates paragraphs; empty paragraphs are
  * preserved as empty lines; a word longer than maxWidth is character-breaked.
- * Never returns [] (empty input yields [""]).
+ * Whitespace within paragraphs is normalized during word wrapping
+ * (consecutive spaces collapse); multi-space runs may render collapsed.
+ * Never returns [] (empty input yields [""]) and never throws for a
+ * non-finite maxWidth.
  */
 export function wrapText(measure: TextMeasurer, text: string, maxWidth: number): string[] {
-  const width = Math.max(1, maxWidth);
+  const width = Number.isFinite(maxWidth) && maxWidth > 0 ? maxWidth : 1;
   const lines: string[] = [];
   for (const paragraph of text.split("\n")) {
     if (paragraph === "") {
@@ -163,6 +166,8 @@ export interface RasterizeResult {
 /**
  * Rasterizes text data at RASTER_SCALE (2x) for crisp rendering. Invalid
  * input is normalized (never throws); bitmap dims are clamped to 8192.
+ * The returned ImageBitmap is owned by the caller: call `imageBitmap.close()`
+ * when it is replaced or disposed.
  */
 export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   const normalized = normalizeTextData(data);
@@ -176,7 +181,7 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
 
   const lines =
     normalized.boxMode === "area"
-      ? wrapText(ctx, normalized.content, normalized.boxWidth)
+      ? wrapText(ctx, normalized.content, normalized.boxWidth * effScale)
       : normalized.content.split("\n");
 
   const lineWidths: number[] = [];

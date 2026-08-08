@@ -13,6 +13,12 @@ function charMeasure(size: number): TextMeasurer {
   return { measureText: (s: string) => ({ width: s.length * size }) };
 }
 
+/** Reads the scaled font size out of a CSS font string (e.g. "96px \"Arial\""). */
+function fontPxFrom(font: string): number {
+  const m = /(\d+(?:\.\d+)?)px/.exec(font);
+  return m ? Number(m[1]) : 0;
+}
+
 interface PaintCall {
   text: string;
   x: number;
@@ -34,8 +40,10 @@ interface RasterRecord {
 /**
  * Mirrors shapeRaster.test.ts: stubs the global OffscreenCanvas so
  * rasterizeText runs its real makeCanvas/toBitmap seam against a scripted
- * context. Metric contract: width = chars * 24, ascent 80, descent 24
- * (both above the 0.8/0.2 fontSize fallback so provided metrics win).
+ * context. Metric contract mirrors REAL canvas behavior: measured width
+ * scales with the font size assigned to the context (device px), so wrap
+ * decisions track the scaled font. Ascent/descent are fixed values (80/24,
+ * above the 0.8/0.2 fontSize fallback so provided metrics win).
  */
 function setupOffscreenCanvasMock() {
   const instances: RasterRecord[] = [];
@@ -54,7 +62,8 @@ function setupOffscreenCanvasMock() {
       textBaseline: "alphabetic",
       letterSpacing: undefined as string | undefined,
       measureText: (s: string) => ({
-        width: s.length * 24,
+        // real canvas: wider font -> wider text (fontPx is device px here)
+        width: s.length * (fontPxFrom(ctx.font) * 0.5),
         fontBoundingBoxAscent: 80,
         fontBoundingBoxDescent: 24,
       }),
@@ -136,6 +145,17 @@ describe("wrapText", () => {
     expect(wrapText(charMeasure(10), "hello world", 200)).toEqual(["hello world"]);
   });
 
+  it("normalizes consecutive spaces during wrapping (a  b -> a b)", () => {
+    expect(wrapText(charMeasure(10), "a  b", 100)).toEqual(["a b"]);
+  });
+
+  it("character-breaks surrogate pairs as whole code points (emoji)", () => {
+    // each emoji is 2 UTF-16 units; width 4 per emoji at charMeasure(2)
+    const lines = wrapText(charMeasure(2), "🏀🏀🏀🏀", 10);
+    expect(lines).toEqual(["🏀🏀", "🏀🏀"]);
+    expect(lines.join("")).toBe("🏀🏀🏀🏀"); // no content loss, no lone surrogates
+  });
+
   it("does not throw or loop forever on maxWidth <= 0", () => {
     const lines = wrapText(charMeasure(10), "abc", 0);
     expect(lines.length).toBeGreaterThan(0);
@@ -157,14 +177,14 @@ describe("rasterizeText", () => {
 
   it("point multi-line: unscaled doc dims from 2x canvas (width >= text width)", () => {
     const result = rasterizeText(pointMultiLine);
-    // canvas: width max line 48 + 4 padding = 52; height 2*1.4*96 + 80+24 + 4 = 377
+    // canvas: width max line 2*96*0.5 + 4 padding = 100; height 2*1.4*96 + 80+24 + 4 = 377
     const bitmap = result.imageBitmap as unknown as { width: number; height: number };
-    expect(bitmap.width).toBe(52);
+    expect(bitmap.width).toBe(100);
     expect(bitmap.height).toBe(377);
-    expect(result.width).toBe(26);
+    expect(result.width).toBe(50);
     expect(result.height).toBe(188.5);
-    // doc width covers the longest line (24 doc px) plus padding
-    expect(result.width).toBeGreaterThanOrEqual(24);
+    // doc width covers the longest line (48 doc px) plus padding
+    expect(result.width).toBeGreaterThanOrEqual(48);
     expect(result.height).toBeGreaterThanOrEqual(2 * 1.4 * 48);
   });
 
@@ -197,9 +217,9 @@ describe("rasterizeText", () => {
     expect(record.ctx.font).toBe('italic 700 96px "Arial"');
     expect(record.ctx.fillStyle).toBe("#123456");
     expect(record.ctx.textBaseline).toBe("top");
-    // total width = "CDE" (72) -> right offset: x = 2 + 72 - lineWidth
+    // total width = "CDE" (3*96*0.5 = 144); "AB" (2*96*0.5 = 96) right x = 2 + 144 - 96 = 50
     expect(record.paints).toEqual([
-      { text: "AB", x: 26, y: 2 },
+      { text: "AB", x: 50, y: 2 },
       { text: "CDE", x: 2, y: 2 + 1.4 * 96 },
     ]);
   });
@@ -215,17 +235,18 @@ describe("rasterizeText", () => {
       const self = this as { width: number; height: number; getContext: () => unknown; transferToImageBitmap: () => unknown };
       self.width = w;
       self.height = h;
-      self.getContext = () => ({
+      const ctx = {
         font: "",
         fillStyle: "",
         textBaseline: "alphabetic",
         measureText: (s: string) => ({
-          width: s.length * 24,
-          fontBoundingBoxAscent: 60,
-          fontBoundingBoxDescent: 20,
+          width: s.length * (fontPxFrom(ctx.font) * 0.5),
+          fontBoundingBoxAscent: 80,
+          fontBoundingBoxDescent: 24,
         }),
         fillText: () => {},
-      });
+      };
+      self.getContext = () => ctx;
       self.transferToImageBitmap = () => ({ width: self.width, height: self.height });
     } as unknown as typeof OffscreenCanvas;
     vi.stubGlobal("OffscreenCanvas", noLetterSpacing);
@@ -239,13 +260,14 @@ describe("rasterizeText", () => {
       const self = this as { width: number; height: number; getContext: () => unknown; transferToImageBitmap: () => unknown };
       self.width = w;
       self.height = h;
-      self.getContext = () => ({
+      const ctx = {
         font: "",
         fillStyle: "",
         textBaseline: "alphabetic",
-        measureText: (s: string) => ({ width: s.length * 24 }),
+        measureText: (s: string) => ({ width: s.length * (fontPxFrom(ctx.font) * 0.5) }),
         fillText: () => {},
-      });
+      };
+      self.getContext = () => ctx;
       self.transferToImageBitmap = () => ({ width: self.width, height: self.height });
     } as unknown as typeof OffscreenCanvas;
     vi.stubGlobal("OffscreenCanvas", noMetrics);
@@ -291,6 +313,32 @@ describe("rasterizeText", () => {
     expect(sHuge.imageBitmap as unknown as { width: number }).toMatchObject({
       width: 6404,
     });
+  });
+
+  it("area text wraps against the SCALED box width (device px, matches measureText)", () => {
+    // "AA" at fontSize 48: measured width = 2*fontPx*0.5 = 24*scale*2 (48 at
+    // scale 1, 96 at scale 2). boxWidth 60 doc: scaled box is 60 (scale 1)
+    // and 120 (scale 2) -> one line at BOTH scales. Passing the unscaled 60
+    // doc width would wrap "AA" into 2 lines at scale 2 (96 > 60).
+    const data = { ...DEFAULT_TEXT_DATA, content: "AA", boxMode: "area" as const, boxWidth: 60 };
+    const r1 = rasterizeText(data, 1);
+    const r2 = rasterizeText(data, 2);
+    expect(instances[0].paints.length).toBe(1);
+    expect(instances[1].paints.length).toBe(1);
+    // single line at scale 2: height = 1.4*96 + 80 + 24 + 4 = 242.4 -> 243
+    expect((r2.imageBitmap as unknown as { height: number }).height).toBe(243);
+    expect((r2.imageBitmap as unknown as { width: number }).width).toBe(124); // 60*2 + 4
+  });
+
+  it("clamps the scale floor (1/128 -> 1/64) to a small but valid canvas", () => {
+    const base = { ...DEFAULT_TEXT_DATA, content: "AB", boxMode: "area" as const, boxWidth: 100 };
+    const result = rasterizeText(base, 1 / 128);
+    const bitmap = result.imageBitmap as unknown as { width: number; height: number };
+    expect(bitmap.width).toBe(6); // ceil(100*(1/64) + 4)
+    expect(bitmap.width).toBeGreaterThan(0);
+    expect(bitmap.height).toBeGreaterThan(0);
+    expect(result.width).toBeGreaterThan(0);
+    expect(result.height).toBeGreaterThan(0);
   });
 
   it("clamps the canvas to 8192 in both dimensions (huge font + many lines)", () => {
