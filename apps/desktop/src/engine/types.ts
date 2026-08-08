@@ -1,4 +1,5 @@
 import type { BasicAdjustment } from "./layerAdjustments";
+import type { TextData } from "./textTypes";
 
 // ─── Identifiers ───
 export type DocumentId = string;
@@ -61,7 +62,7 @@ export interface ShapeParams {
 export interface LayerNode {
   id: LayerId;
   name: string;
-  type: "raster" | "adjustment" | "group" | "shape";
+  type: "raster" | "adjustment" | "group" | "shape" | "text";
   visible: boolean;
   opacity: number;   // 0.0 - 1.0
   locked: boolean;
@@ -81,6 +82,8 @@ export interface LayerNode {
   imageBitmap: ImageBitmap | null;
   /** Shape layer only: parametric source of truth. Absent for other types. */
   shapeParams?: ShapeParams;
+  /** Text layer only: parametric source of truth. Absent for other types. */
+  textData?: TextData;
 }
 
 // ─── Selection ───
