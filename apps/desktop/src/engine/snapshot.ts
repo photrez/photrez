@@ -28,7 +28,8 @@ export function createSnapshot(model: DocumentModel): DocumentModel {
       transform: { ...l.transform },
       width: l.width,
       height: l.height,
-      imageBitmap: l.imageBitmap // Reuse reference to immutable ImageBitmap
+      imageBitmap: l.imageBitmap, // Reuse reference to immutable ImageBitmap
+      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined
     }))
   };
 }
@@ -61,7 +62,8 @@ export function restoreSnapshot(snapshot: DocumentModel): DocumentModel {
       transform: { ...l.transform },
       width: l.width,
       height: l.height,
-      imageBitmap: l.imageBitmap
+      imageBitmap: l.imageBitmap,
+      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined
     }))
   };
 }

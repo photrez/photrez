@@ -116,4 +116,35 @@ describe("engine shape layer ops", () => {
     expect(dup.shapeParams).toEqual(params);
     expect(dup.type).toBe("shape");
   });
+
+  it("snapshot/restore roundtrip preserves shapeParams", () => {
+    const s = makeSession();
+    const layer = s.engine.addShapeLayer("Shape 1", params);
+    s.engine.restore(s.engine.snapshot());
+    const after = s.engine.getLayer(layer.id)!;
+    expect(after.type).toBe("shape");
+    expect(after.shapeParams).toEqual(params);
+  });
+
+  it("undo of addShapeLayer removes the shape; redo restores it with params intact", () => {
+    const s = makeSession();
+    const preAdd = s.engine.snapshot();
+
+    const layer = s.engine.addShapeLayer("Shape 1", params);
+    s.history.commit(preAdd, "Add Shape");
+    expect(s.engine.isShapeLayer(layer.id)).toBe(true);
+
+    // Undo → layer gone.
+    const prev = s.history.undo(s.engine.snapshot());
+    s.engine.restore(prev!);
+    expect(s.engine.getLayer(layer.id)).toBeUndefined();
+
+    // Redo → layer back with shapeParams (snapshot must carry them).
+    const next = s.history.redo(s.engine.snapshot());
+    s.engine.restore(next!);
+    const restored = s.engine.getLayer(layer.id)!;
+    expect(restored.type).toBe("shape");
+    expect(restored.shapeParams).toEqual(params);
+    expect(restored.imageBitmap).not.toBeNull();
+  });
 });
