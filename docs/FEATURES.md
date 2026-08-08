@@ -516,6 +516,9 @@
 | ✅ DONE | Parametric Shape Tool (U) — rect / ellipse / line + arrow, non-destructive shape layers (rasterized bitmap kept in sync on create/edit) |
 | ✅ DONE | Shape option bar — kind segmented control (Rect/Ellipse/Line/Arrow), Fill + Stroke toggles, stroke color swatch + width, corner Radius (rect only), Arrow-head (line only); draws via shape-tool signals, edits a selected shape layer live with commit-before-mutation; mounts on shape tool active OR shape-layer selected |
 | ✅ DONE | Pixel-tool guard — brush/eraser stroke on a shape layer shows a "Convert shape to pixels?" confirm dialog; on confirm, rasterizes the layer (`shapeLayerToRaster`) with snapshot/commit/render and waits for re-draw; on cancel, no-op. Non-shape layers paint normally with no dialog. |
+| ✅ DONE | `.ptz` v2 additive persistence — serializer bumps `version` to 2, loader guard accepts ≤2; shape `shapeParams` rides the `{...l}` spread, real-engine roundtrip (save → load → `isShapeLayer` + params + bitmap) covered incl. v1-fixture regression + malformed `shapeParams:null` lenient fallback. v1 files load unchanged. |
+| ✅ DONE | Shape undo/redo — `createSnapshot/restoreSnapshot` carry `shapeParams` (previously dropped → undo of "Add Shape" would restore a raster without params); engine + CanvasViewport integration tests cover undo removes / redo restores with params intact |
+| ✅ DONE | CanvasViewport integration tests (7) — tool switch round-trip (no orphan state), temp-layer lifecycle (exactly one shape layer, one "Add Shape" history entry), pointercancel cleanup, sub-3px click no-op, Shift square, Alt center, option-bar visibility in draw + edit modes |
 
 ## 🪟 Desktop / Window
 
