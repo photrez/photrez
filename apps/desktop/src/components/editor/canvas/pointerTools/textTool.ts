@@ -35,6 +35,29 @@ export type TextSessionEditor = Pick<
   "workspace" | "textEditSession" | "setTextEditSession" | "scheduler"
 >;
 
+// ── Pending-content flush registry ──────────────────────────────────────────
+// The edit overlay debounces live re-raster (R4) but commits can also come
+// from OUTSIDE the overlay (click-away pointerdown, tool-switch auto-commit).
+// Those paths must see the user's latest keystrokes — otherwise a new temp
+// layer with typed-but-not-yet-pushed content hits the empty-commit cleanup
+// and gets deleted. The overlay registers a flush callback; every external
+// commit/cancel flushes it first.
+let pendingTextFlush: (() => void) | null = null;
+
+/** The overlay registers its pending-content flush while a session is open. */
+export function setPendingTextFlush(fn: (() => void) | null): void {
+  pendingTextFlush = fn;
+}
+
+/** Flush any pending overlay content so commits see the latest text. */
+export function flushPendingText(): void {
+  if (pendingTextFlush) {
+    const fn = pendingTextFlush;
+    pendingTextFlush = null;
+    fn();
+  }
+}
+
 function buildSessionTextData(editor: EditorAccessors): TextData {
   return {
     content: "",
@@ -217,6 +240,9 @@ export function applyTextPointer(
  * that changed nothing are closed WITHOUT a commit (no ghost undo entry).
  */
 export function commitTextSession(editor: TextSessionEditor): void {
+  // External commits (click-away, tool switch) must see the latest typed
+  // content, not the debounced-stale layer state.
+  flushPendingText();
   const session = editor.textEditSession();
   if (!session) return;
   const engine = editor.workspace.getActiveEngine();
@@ -262,6 +288,7 @@ export function cancelTextSession(editor: TextSessionEditor): void {
   // Defensive: the cancel handlers run for every tool; mocks/tests that lack
   // the text session accessor must not crash (no-op when absent).
   if (typeof editor.textEditSession !== "function") return;
+  flushPendingText();
   const session = editor.textEditSession();
   if (!session) return;
   const engine = editor.workspace.getActiveEngine();

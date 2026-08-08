@@ -19,6 +19,7 @@ import { SelectionTransformOverlay } from "../SelectionTransformOverlay";
 import { HoverHighlight } from "./HoverHighlight";
 import { SmartGuides } from "./SmartGuides";
 import { BrushCursorOverlay } from "../BrushCursorOverlay";
+import { TextEditOverlay } from "../TextEditOverlay";
 import { CropOverlay } from "../CropOverlay";
 import { ModernCropOverlay } from "../ModernCropOverlay";
 import { TransformHud } from "../TransformHud";
@@ -959,6 +960,9 @@ export function CanvasViewport() {
 
         <BrushContextMenu />
         <CanvasContextMenu />
+
+        {/* Text edit session overlay — mounts while textEditSession is open */}
+        <TextEditOverlay />
       </div>
   );
 }
