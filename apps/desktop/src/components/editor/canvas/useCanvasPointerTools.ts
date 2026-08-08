@@ -486,15 +486,19 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       if (layerId) {
         activePaintLayer = engine.getLayer(layerId);
       }
-      // Shape-layer pixel guard: painting on a shape layer would desync the
-      // bitmap from its shapeParams (a later param edit would silently wipe
-      // the painted pixels). Convert explicitly after the user confirms —
-      // never silently. Lazy "confirm → convert → user re-draws".
-      if (activePaintLayer && engine.isShapeLayer(activePaintLayer.id)) {
-        const paintLayerId = activePaintLayer.id;
+      // Parametric-layer pixel guard (shape + text): painting on a parametric
+      // layer would desync the bitmap from its params (a later param edit would
+      // silently wipe the painted pixels). Convert explicitly after the user
+      // confirms — never silently. Lazy "confirm → convert → user re-draws".
+      const paintLayerId = activePaintLayer ? activePaintLayer.id : null;
+      if (paintLayerId && (engine.isShapeLayer(paintLayerId) || engine.isTextLayer(paintLayerId))) {
+        const isText = engine.isTextLayer(paintLayerId);
+        const kindLabel = isText ? "text" : "shape";
         void dialogs.confirm({
-          title: "Convert shape to pixels?",
-          message: "Painting on this shape layer will convert it to a plain pixel layer. Shape editing (fill, stroke, radius) will no longer be available.",
+          title: `Convert ${kindLabel} to pixels?`,
+          message: isText
+            ? "Painting on this text layer will convert it to a plain pixel layer. Text editing (font, size, content) will no longer be available."
+            : "Painting on this shape layer will convert it to a plain pixel layer. Shape editing (fill, stroke, radius) will no longer be available.",
           confirmLabel: "Convert",
           tone: "default",
         }).then((ok) => {
@@ -504,8 +508,9 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
           const liveHistory = workspace.getActiveHistory();
           if (!liveEngine || !liveHistory) return;
           const pre = liveEngine.snapshot();
-          liveEngine.shapeLayerToRaster(paintLayerId);
-          liveHistory.commit(pre, "Convert Shape to Pixels");
+          if (isText) liveEngine.textLayerToRaster(paintLayerId);
+          else liveEngine.shapeLayerToRaster(paintLayerId);
+          liveHistory.commit(pre, isText ? "Convert Text to Pixels" : "Convert Shape to Pixels");
           scheduler.requestRender();
         });
         return; // stroke waits for the decision

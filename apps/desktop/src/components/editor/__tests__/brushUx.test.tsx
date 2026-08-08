@@ -20,6 +20,7 @@ function createMockEditor(overrides: Record<string, unknown> = {}) {
     getHeight: () => 100,
     getLayers: () => [],
     isShapeLayer: () => false,
+    isTextLayer: () => false,
     shapeLayerToRaster: vi.fn(),
   };
 
@@ -427,6 +428,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
           getHeight: () => 100,
           getLayers: () => [],
           isShapeLayer: () => false,
+          isTextLayer: () => false,
           shapeLayerToRaster: vi.fn(),
         }),
         getActiveHistory: () => mockHistory,
