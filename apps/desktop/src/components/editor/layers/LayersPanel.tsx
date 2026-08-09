@@ -11,6 +11,7 @@ import { BLEND_MODE_OPTIONS, isBlendMode } from "@/engine/blendModes";
 import { Navigator } from "../Navigator";
 import { HistoryPanel } from "../HistoryPanel";
 import { LayerItem } from "./LayerItem";
+import { openTextEditSession } from "../canvas/pointerTools/textTool";
 import { useLayerActions } from "./useLayerActions";
 import { cancelLayerTransformSession } from "../transformSession";
 import { ContextMenu, type ContextMenuEntry } from "../ContextMenu";
@@ -37,6 +38,10 @@ export function LayersPanel() {
     setRenamingLayerId: setEditingLayerId,
     renameLayerName: editName,
     setRenameLayerName: setEditName,
+    setActiveTool,
+    textEditSession,
+    setTextEditSession,
+    setSelectedLayerId,
   } = useEditor();
 
   const dragController = useDragController();
@@ -84,6 +89,23 @@ export function LayersPanel() {
       layerId: layer.id,
       focusTarget: event.currentTarget instanceof HTMLElement ? event.currentTarget : null,
     });
+  };
+
+  // Plan §7.3: double-clicking a text layer in the panel re-opens the text
+  // edit session (switches to the text tool + selects the layer) instead of
+  // entering rename mode.
+  const handleEditText = (layerId: string) => {
+    openTextEditSession(
+      {
+        workspace,
+        setActiveTool,
+        textEditSession,
+        setTextEditSession,
+        setSelectedLayerId,
+        scheduler,
+      },
+      layerId,
+    );
   };
 
   const layerContextItems = (): ContextMenuEntry[] => {
@@ -476,6 +498,7 @@ export function LayersPanel() {
                   setEditingLayerId={setEditingLayerId}
                   setEditName={setEditName}
                   onSelect={handleSelectLayer}
+                  onEditText={handleEditText}
                   onContextMenu={openLayerContextMenu}
                   onToggleVisibility={handleToggleVisibility}
                   onToggleLock={handleToggleLock}

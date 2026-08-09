@@ -13,7 +13,7 @@
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi } from "vitest";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
-import { commitTextSession, cancelTextSession, type TextSessionEditor } from "../canvas/pointerTools/textTool";
+import { commitTextSession, cancelTextSession, openTextEditSession, type TextSessionEditor, type TextSessionOpener } from "../canvas/pointerTools/textTool";
 import type { TextData } from "@/engine/textTypes";
 
 vi.mock("../dialogs/DialogProvider", () => ({
@@ -248,6 +248,69 @@ describe("text tool pointer wiring", () => {
     expect(mockEngine.deleteLayer).toHaveBeenCalledWith("text-1");
     expect(signals.textEditSession()).toBeNull();
     disposeTools();
+    dispose();
+  });
+});
+
+describe("openTextEditSession (layer panel §7.3 re-edit path)", () => {
+  it("opens a re-edit session on an existing text layer by id, switching to the text tool", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("move");
+    const layer = textLayer("text-1", { boxMode: "area", boxWidth: 120 });
+    (mockEngine as any).getLayer = vi.fn((id: string) => textLayer(id, { boxMode: "area", boxWidth: 120 }));
+    (mockEngine as any).snapshot = vi.fn(() => ({ layers: [layer] }));
+    // createMockEditorParams exposes the explicit `setSelectedLayerId: vi.fn()`
+    // default as a bare accessor signal — swap in a spy (same pattern as the
+    // double-click test above) so we can assert the selection call.
+    const setSelectedLayerIdSpy = vi.fn();
+    signals.setSelectedLayerId = setSelectedLayerIdSpy;
+
+    const ok = openTextEditSession(signals as unknown as TextSessionOpener, "text-1");
+
+    expect(ok).toBe(true);
+    expect(signals.activeTool()).toBe("text");
+    const session = signals.textEditSession();
+    expect(session).not.toBeNull();
+    expect(session!.layerId).toBe("text-1");
+    expect(session!.isNewLayer).toBe(false);
+    // Session anchors at the layer's doc position with its box geometry.
+    expect(session!.boxMode).toBe("area");
+    expect(session!.boxWidth).toBe(120);
+    expect(setSelectedLayerIdSpy).toHaveBeenCalledWith("text-1");
+    expect(signals.scheduler.requestRender).toHaveBeenCalled();
+    dispose();
+  });
+
+  it("returns false for non-text layers so the panel keeps rename behavior", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("move");
+    (mockEngine as any).getLayer = vi.fn(() => ({ id: "raster-1", type: "raster" }));
+
+    const ok = openTextEditSession(signals as unknown as TextSessionOpener, "raster-1");
+
+    expect(ok).toBe(false);
+    expect(signals.textEditSession()).toBeNull();
+    dispose();
+  });
+
+  it("commits any pending session first (click-away pattern), then opens the new one", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    const history = signals.workspace.getActiveHistory();
+    // A pending session on another layer is open.
+    signals.setTextEditSession({
+      layerId: "pending-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+      isNewLayer: false, preSnapshot: {},
+    });
+    (mockEngine as any).getLayer = vi.fn((id: string) => {
+      if (id === "pending-1") return textLayer("pending-1", { content: "Old" });
+      return textLayer(id);
+    });
+    // Snapshot for the pre-session commit carries DIFFERENT content → real commit.
+    (mockEngine as any).snapshot = vi.fn(() => ({ layers: [textLayer("pending-1", { content: "Old" })] }));
+
+    const ok = openTextEditSession(signals as unknown as TextSessionOpener, "text-2");
+
+    expect(ok).toBe(true);
+    expect(history.commit).toHaveBeenCalled(); // pending session persisted as one step
+    expect(signals.textEditSession()!.layerId).toBe("text-2");
     dispose();
   });
 });

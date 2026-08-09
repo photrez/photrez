@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
-import { EditorProvider } from "../../shell/EditorContext";
+import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { LayersPanel } from "../LayersPanel";
 import { RightDock } from "../../shell/RightDock";
 import { WorkspaceManager } from "@/engine/workspace";
+import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
+import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
 
 function installCanvasMocks(bitmap: ImageBitmap) {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext")
@@ -405,6 +407,60 @@ function renderRightDock(session = WorkspaceManager.createBlankDocument("layers-
     expect(container.querySelector("[data-layers-panel-content]")).toBeNull();
     expect(container.querySelector("[data-navigator-panel]")).not.toBeNull();
     expect(container.textContent).toContain("Open");
+
+    dispose();
+  });
+
+  it("shows a T glyph on text layers and double-click opens the edit session (plan §7.3)", async () => {
+    const bitmap = { width: 800, height: 600, close: vi.fn() } as unknown as ImageBitmap;
+    installCanvasMocks(bitmap);
+    stubTextOffscreenCanvas(); // text-capable OffscreenCanvas for addTextLayer rasterization
+
+    const session = WorkspaceManager.createBlankDocument("text-panel", "Text Panel", 800, 600);
+    session.engine.addLayer("Raster");
+    const textLayerNode = session.engine.addTextLayer("Text", { ...DEFAULT_TEXT_DATA, content: "Hello" });
+
+    const { container, dispose } = renderLayersPanel(session);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const editor = (window as unknown as { __photrezEditor?: ReturnType<typeof useEditor> }).__photrezEditor;
+    expect(editor).toBeTruthy();
+
+    // Only the text layer row shows the T glyph.
+    const glyphs = container.querySelectorAll("[data-text-layer-glyph]");
+    expect(glyphs.length).toBe(1);
+    const glyph = glyphs[0] as HTMLElement;
+
+    // Double-click the text layer name → edit session opens (no rename input).
+    const names = Array.from(container.querySelectorAll<HTMLElement>("span.flex-1"));
+    const textName = names.find((n) => n.textContent === "Text");
+    if (!textName) throw new Error("Text layer name was not rendered");
+    textName.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(editor!.activeTool()).toBe("text");
+    const sessionState = editor!.textEditSession();
+    expect(sessionState).not.toBeNull();
+    expect(sessionState!.layerId).toBe(textLayerNode.id);
+    expect(sessionState!.isNewLayer).toBe(false);
+    // No rename input appeared for the text layer.
+    expect(container.querySelector("input[type='text']")).toBeNull();
+
+    // Double-click the T glyph (thumbnail wrapper) opens the edit session too.
+    // The unchanged re-edit commit is a no-op, so this reopens cleanly on the
+    // same layer with no ghost history entry.
+    glyph.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const sessionState2 = editor!.textEditSession();
+    expect(sessionState2).not.toBeNull();
+    expect(sessionState2!.layerId).toBe(textLayerNode.id);
+
+    // Double-click a raster layer still opens rename (not the text session).
+    const rasterName = names.find((n) => n.textContent === "Raster");
+    if (!rasterName) throw new Error("Raster layer name was not rendered");
+    rasterName.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector("input[type='text']")).not.toBeNull();
 
     dispose();
   });

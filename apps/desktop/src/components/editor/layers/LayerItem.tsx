@@ -34,6 +34,8 @@ interface LayerItemProps {
   setEditingLayerId: (id: string | null) => void;
   setEditName: (name: string) => void;
   onSelect: (id: string) => void;
+  /** Text layers: double-click opens the text edit session (plan §7.3). */
+  onEditText?: (layerId: string) => void;
   onContextMenu?: (event: MouseEvent, layer: LayerNode, idx: number) => void;
   onToggleVisibility: (e: MouseEvent, id: string) => void;
   onToggleLock: (e: MouseEvent, id: string) => void;
@@ -164,7 +166,28 @@ export function LayerItem(props: LayerItemProps) {
       <Show
         when={props.layer.type === "adjustment"}
         fallback={
-          <LayerThumb layer={props.layer} isActive={props.isActive} />
+          <div
+            class="relative shrink-0"
+            onDblClick={(e: MouseEvent) => {
+              // Text layers: double-click the thumbnail opens the edit session.
+              if (props.layer.type !== "text") return;
+              if (props.layer.locked && !props.layer.isBackground) return;
+              e.stopPropagation();
+              props.onEditText?.(props.layer.id);
+            }}
+          >
+            <LayerThumb layer={props.layer} isActive={props.isActive} />
+            {/* Text layer glyph: "T" badge (plan §7.3) */}
+            <Show when={props.layer.type === "text"}>
+              <span
+                data-text-layer-glyph
+                aria-label="Text layer — double-click to edit"
+                class="absolute -bottom-[3px] -right-[3px] size-[14px] rounded-[3px] bg-editor-accent text-white text-[9px] font-bold leading-none flex items-center justify-center border border-black/40 shadow-sm pointer-events-none select-none"
+              >
+                T
+              </span>
+            </Show>
+          </div>
         }
       >
         {/* Adjustment Layer: Standard Black-and-White circular icon */}
@@ -193,6 +216,13 @@ export function LayerItem(props: LayerItemProps) {
             onDblClick={(e: MouseEvent) => {
               if (props.layer.locked && !props.layer.isBackground) return;
               e.stopPropagation();
+              // Text layers: double-click opens the edit session instead of
+              // rename. When no edit handler is wired (decoupled direct
+              // renders), fall through to rename so the affordance survives.
+              if (props.layer.type === "text" && props.onEditText) {
+                props.onEditText(props.layer.id);
+                return;
+              }
               props.setEditingLayerId(props.layer.id);
               props.setEditName(props.layer.name);
             }}

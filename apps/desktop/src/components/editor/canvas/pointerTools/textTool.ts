@@ -35,6 +35,13 @@ export type TextSessionEditor = Pick<
   "workspace" | "textEditSession" | "setTextEditSession" | "scheduler"
 >;
 
+/**
+ * Minimal editor surface for opening a session on an existing layer by id
+ * (layer-panel double-click re-edit, plan §7.3).
+ */
+export type TextSessionOpener = TextSessionEditor &
+  Pick<EditorAccessors, "setActiveTool" | "setSelectedLayerId">;
+
 // ── Pending-content flush registry ──────────────────────────────────────────
 // The edit overlay debounces live re-raster (R4) but commits can also come
 // from OUTSIDE the overlay (click-away pointerdown, tool-switch auto-commit).
@@ -94,13 +101,55 @@ function layerTextData(layer: LayerNode | null | undefined): TextData | null {
   return layer && layer.type === "text" && layer.textData ? layer.textData : null;
 }
 
+type SessionOpener = Pick<EditorAccessors, "setTextEditSession" | "setSelectedLayerId">;
+
 function openSession(
-  editor: EditorAccessors,
+  editor: SessionOpener,
   session: TextEditSession,
   selectId?: string,
 ): void {
   editor.setTextEditSession(session);
   if (selectId) editor.setSelectedLayerId(selectId);
+}
+
+/**
+ * Open a re-edit session on an existing text layer by id — the layer-panel
+ * double-click path (plan §7.3). Mirrors the hit-test re-edit branch of
+ * startTextPointer but is driven by the layer id instead of a canvas pointer
+ * event: switches to the text tool, selects the layer, and opens a session
+ * anchored at the layer's current doc position. Any pending session is
+ * committed first (click-away pattern). Returns false when the layer isn't
+ * editable text (caller falls back to default row behavior, e.g. rename).
+ */
+export function openTextEditSession(
+  editor: TextSessionOpener,
+  layerId: string,
+): boolean {
+  const engine = editor.workspace.getActiveEngine();
+  if (!engine) return false;
+  const layer = engine.getLayer(layerId);
+  const data = layerTextData(layer);
+  if (!layer || !data) return false;
+
+  // Persist any pending session before starting a new interaction (click-away
+  // commit). Empty new layers are removed by commitTextSession's cleanup.
+  if (editor.textEditSession()) {
+    commitTextSession(editor);
+  }
+
+  const pre = engine.snapshot();
+  editor.setActiveTool("text");
+  openSession(editor, {
+    layerId: layer.id,
+    docX: layer.transform.x,
+    docY: layer.transform.y,
+    boxMode: data.boxMode,
+    boxWidth: data.boxWidth,
+    isNewLayer: false,
+    preSnapshot: pre,
+  }, layer.id);
+  editor.scheduler.requestRender();
+  return true;
 }
 
 /**
