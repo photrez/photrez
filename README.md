@@ -22,7 +22,7 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square">
 </p>
 
-![Photrez Editor](docs/screenshots/hero.png)
+![Photrez Editor](docs/screenshots/layers.png)
 
 Photrez is an open-source desktop image editor with a compact, familiar workflow: layers, selection, transform, crop, brush, eraser, history, print settings, and a WebGL2 canvas. It is built with Tauri, SolidJS, TypeScript, and Rust (for core compute).
 
