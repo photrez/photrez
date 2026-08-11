@@ -135,7 +135,7 @@ export function AppTitleBar(props: AppTitleBarProps) {
             <defs>
               <linearGradient id="brandGradientTitle" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stop-color="#FFB31A" />
-                <stop offset="100%" stop-color="#E15A17" />
+                <stop offset="100%" stop-color="var(--color-editor-accent)" />
               </linearGradient>
               <linearGradient id="bgDarkTitle" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stop-color="#2C2C2E" />

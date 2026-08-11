@@ -54,7 +54,7 @@ export function GradientOverlay() {
               cy={screenStart().y}
               r={radiusPx()}
               fill="none"
-              stroke="#E15A17"
+              stroke="var(--color-editor-accent, #E15A17)"
               stroke-width="1.5"
               stroke-dasharray="4 4"
               opacity="0.9"
@@ -79,7 +79,7 @@ export function GradientOverlay() {
             y1={screenStart().y}
             x2={screenEnd().x}
             y2={screenEnd().y}
-            stroke="#E15A17"
+            stroke="var(--color-editor-accent, #E15A17)"
             stroke-width="2"
             stroke-linecap="round"
             stroke-dasharray="6 3"
@@ -90,7 +90,7 @@ export function GradientOverlay() {
             cx={screenStart().x}
             cy={screenStart().y}
             r="6"
-            fill="#E15A17"
+            fill="var(--color-editor-accent, #E15A17)"
             stroke="#FFFFFF"
             stroke-width="2"
           />
@@ -101,7 +101,7 @@ export function GradientOverlay() {
             cy={screenEnd().y}
             r="5"
             fill="#FFFFFF"
-            stroke="#E15A17"
+            stroke="var(--color-editor-accent, #E15A17)"
             stroke-width="2.5"
           />
         </svg>

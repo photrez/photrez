@@ -5,7 +5,7 @@ import { addLayerFromCrossDoc } from "../crossDocLayerOps";
 import type { LayerNode } from "@/engine/types";
 import { computeSnapAdjustment, type SnapRect, type SnapLine } from "@/viewport/smartGuides";
 import { getLayerAabb } from "@/viewport/transformGeometry";
-import { ALPHA_HIT_THRESHOLD } from "@/viewport/layerHitTest";
+import { ALPHA_HIT_THRESHOLD, isBoxHittable } from "@/viewport/layerHitTest";
 import type { HudMode } from "../TransformHud";
 
 interface CanvasLayerDrag {
@@ -92,8 +92,10 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         // matching the canvas click-select path (handleMoveAutoSelect). Two
         // hit-tests with different rules made the drag target diverge from
         // the panel selection (@bug 2026-08-03: "drag layer 2 but panel
-        // selects layer background").
-        if (engine.sampleLayerAlpha(layer.id, docX, docY) < ALPHA_HIT_THRESHOLD) {
+        // selects layer background"). Parametric (text/shape) layers are
+        // excluded from the alpha check so their box is the drag target —
+        // same contract as isBoxHittable in layerHitTest.
+        if (!isBoxHittable(layer) && engine.sampleLayerAlpha(layer.id, docX, docY) < ALPHA_HIT_THRESHOLD) {
           continue;
         }
         return layer;

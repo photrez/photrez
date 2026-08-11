@@ -826,7 +826,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                 <input
                   type="checkbox"
                   ref={centerCheckboxEl}
-                  class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
+                  class="size-3.5 rounded border-editor-field-border accent-[var(--color-editor-accent)] text-editor-accent focus:ring-0 cursor-pointer"
                   checked={o().centerImage}
                   onChange={(e) => {
                     const isChecked = e.currentTarget.checked;
@@ -880,7 +880,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                 <label class="flex items-center gap-1.5 text-[11px] text-editor-text cursor-pointer font-medium">
                   <input
                     type="checkbox"
-                    class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
+                    class="size-3.5 rounded border-editor-field-border accent-[var(--color-editor-accent)] text-editor-accent focus:ring-0 cursor-pointer"
                     ref={scaleCheckboxEl}
                     onChange={(e) => handleScaleToFitToggle(e.currentTarget.checked)}
                   />
@@ -893,7 +893,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                 <span class="w-[42px] shrink-0 text-[11px] text-editor-text-dim font-medium">Scale:</span>
                 <input
                   type="range" min="10" max="400" step="1"
-                  class="flex-1 accent-[#E15A17] h-1.5 bg-editor-divider rounded-lg cursor-pointer"
+                  class="flex-1 accent-[var(--color-editor-accent)] h-1.5 bg-editor-divider rounded-lg cursor-pointer"
                   ref={scaleSliderEl}
                   onInput={async (e) => {
                     const scale = parseFloat(e.currentTarget.value) || 100;

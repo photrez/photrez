@@ -201,7 +201,7 @@ export function SelectionRenderer(props: SelectionRendererProps) {
                 y1={screenY() - ROTATION_CONNECTOR_GAP}
                 x2={rotationHandlePos().cx}
                 y2={rotationHandlePos().cy + ROTATION_RADIUS}
-                stroke="#E15A17"
+                stroke="var(--color-editor-accent, #E15A17)"
                 stroke-width={1}
                 stroke-dasharray="2 2"
                 vector-effect="non-scaling-stroke"
@@ -221,7 +221,7 @@ export function SelectionRenderer(props: SelectionRendererProps) {
                       width={CORNER_SIZE}
                       height={CORNER_SIZE}
                       fill="white"
-                      stroke="#E15A17"
+                      stroke="var(--color-editor-accent, #E15A17)"
                       stroke-width={1.5}
                       vector-effect="non-scaling-stroke"
                       data-handle-id={id}
@@ -247,7 +247,7 @@ export function SelectionRenderer(props: SelectionRendererProps) {
                       width={EDGE_SIZE}
                       height={EDGE_SIZE}
                       fill="white"
-                      stroke="#E15A17"
+                      stroke="var(--color-editor-accent, #E15A17)"
                       stroke-width={1.5}
                       vector-effect="non-scaling-stroke"
                       data-handle-id={id}
@@ -267,7 +267,7 @@ export function SelectionRenderer(props: SelectionRendererProps) {
                 cy={rotationHandlePos().cy}
                 r={ROTATION_RADIUS}
                 fill="white"
-                stroke="#E15A17"
+                stroke="var(--color-editor-accent, #E15A17)"
                 stroke-width={1.5}
                 vector-effect="non-scaling-stroke"
                 data-rotation-handle

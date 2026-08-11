@@ -35,6 +35,7 @@ import { saveProgress } from "../saveState";
 import { DragGlobalGuard } from "../DragController";
 import { destroySaveWorkerPool } from "../saveWorkerPool";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
+import { prewarmFonts } from "@/lib/fontEnumeration";
 import { useTauriCloseHandler } from "@/lib/desktop/useTauriCloseHandler";
 import { useDialog } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession } from "../transformSession";
@@ -107,6 +108,10 @@ export function EditorShell() {
 
   useDesktopGuards();
   prefetchDialogChunks();
+  // Native font enumeration is prompt-free in the desktop app — warm the font
+  // cache at startup so the text-tool dropdown is already populated when first
+  // opened (web runtime: no-op, Local Font Access needs a user gesture).
+  prewarmFonts();
 
   // ─── Singletons Initialization ───
   const workspace = new WorkspaceManager();

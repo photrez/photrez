@@ -22,7 +22,15 @@ export function drawLayerToContext(ctx: OffscreenCanvasRenderingContext2D, layer
   const flipX = layer.transform.flipH ? -1 : 1;
   const flipY = layer.transform.flipV ? -1 : 1;
   ctx.scale(sx * flipX, sy * flipY);
-  ctx.drawImage(layer.imageBitmap, -lw / 2, -lh / 2);
+  // Draw the bitmap SCALED to the layer's doc-space width/height. layer.width
+  // and layer.height are DOCUMENT-space; parametric layers (text) rasterize at
+  // RASTER_SCALE (2x) so their bitmap is larger than the doc box. Drawing at
+  // the bitmap's native size made text render 2x too big in every CPU
+  // composite (navigator, export/save, merge, flatten, stamp) — the GPU
+  // renderer already maps the texture onto the doc-size quad (@bug WYSIWYG
+  // 2026-08-09: "save/navigator text size ≠ canvas"). Raster/shape bitmaps
+  // are 1x (native == doc) so the destination size is a no-op for them.
+  ctx.drawImage(layer.imageBitmap, -lw / 2, -lh / 2, lw, lh);
   ctx.restore();
 }
 

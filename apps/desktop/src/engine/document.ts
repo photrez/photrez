@@ -80,6 +80,14 @@ export class DocumentEngine {
   private savedModel: DocumentModel | null = null;
   private onChangeCallback: (() => void) | null = null;
   private onVisualChangeCallback: (() => void) | null = null;
+  // Layer that must not be composited while a text edit session is open over
+  // it (the edit overlay renders the live text — seeing BOTH the canvas
+  // raster and the textarea produced the double/stacked text).
+  private renderHiddenLayerId: LayerId | null = null;
+  // Bitmaps captured by snapshot() are referenced by the undo/redo stacks (and
+  // saved baselines) — they must survive bitmap replacement. WeakSet so stale
+  // entries never pin an ImageBitmap object after its snapshot is evicted.
+  private snapshotRetainedBitmaps = new WeakSet<ImageBitmap>();
 
   constructor(id: DocumentId, name: string, width: number, height: number) {
     this.model = {
@@ -221,7 +229,7 @@ export class DocumentEngine {
     layer.width = bitmap.width;
     layer.height = bitmap.height;
     layer.shapeParams = params;
-    layer.imageBitmap = bitmap;
+    this.replaceLayerBitmap(layer, bitmap);
     this.markLayerDirty(id);
     this.notifyChange();
   }
@@ -255,7 +263,7 @@ export class DocumentEngine {
     layer.width = width;
     layer.height = height;
     layer.textData = normalized;
-    layer.imageBitmap = imageBitmap;
+    this.replaceLayerBitmap(layer, imageBitmap);
     this.markLayerDirty(id);
     this.notifyChange();
   }
@@ -475,6 +483,27 @@ export class DocumentEngine {
     return layer ? layer.imageBitmap : null;
   }
 
+  /**
+   * Replace a layer's bitmap, closing the superseded one when NO committed
+   * snapshot still references it. Snapshots share bitmap references (see
+   * deleteLayer's note), so a bitmap captured by snapshot() must survive —
+   * closing it would detach the undo/redo image. Bitmaps never snapshotted
+   * (e.g. the intermediate rasters produced by rapid live typing during a
+   * text session) are safe to close immediately, reclaiming the GPU memory
+   * that previously accumulated until GC (@bug 2026-08-09 B5).
+   */
+  private replaceLayerBitmap(layer: LayerNode, bitmap: ImageBitmap): void {
+    const prev = layer.imageBitmap;
+    layer.imageBitmap = bitmap;
+    // Close the superseded raster only when NO committed snapshot references
+    // it (snapshot() registers live bitmaps). Snapshotted bitmaps survive for
+    // undo/redo; unregistered ones (live-typing intermediates) close now,
+    // reclaiming the VRAM that previously accumulated until GC (@bug B5).
+    if (prev && prev !== bitmap && !this.snapshotRetainedBitmaps.has(prev)) {
+      try { prev.close(); } catch { /* already closed */ }
+    }
+  }
+
   setLayerImageBitmap(id: LayerId, bitmap: ImageBitmap): void {
     const layer = this.getLayer(id);
     if (layer) {
@@ -611,13 +640,22 @@ export class DocumentEngine {
   }
 
   // ─── Render State ───
+  /**
+   * While a text edit overlay owns the visual for a layer, hide it from the
+   * compositor so the raster and the overlay textarea never double-draw.
+   * Caller clears with null when the edit session closes.
+   */
+  setRenderHiddenLayerId(layerId: LayerId | null): void {
+    this.renderHiddenLayerId = layerId;
+  }
+
   getRenderState(): RenderState {
     const renderLayers: RenderLayer[] = this.model.layers.map(l => {
       const handle = this.textureHandles.get(l.id) || { id: `tex-${l.id}` };
       return {
         id: l.id,
         textureHandle: handle,
-        visible: l.visible,
+        visible: l.visible && l.id !== this.renderHiddenLayerId,
         opacity: l.opacity,
         blendMode: l.blendMode,
         transform: l.transform,
@@ -660,6 +698,11 @@ export class DocumentEngine {
     // Use the caller-supplied pre-save snapshot as the saved baseline when
     // available; otherwise use the current model (for new / reopened docs).
     this.savedModel = baseline ? createSnapshot(baseline) : createSnapshot(this.model);
+    // Register the baseline bitmaps too: a later replaceLayerBitmap would
+    // otherwise close a bitmap the saved baseline still references. Dirty
+    // detection only reference-compares today, but the "snapshotted bitmaps
+    // survive replacement" invariant must hold for any future baseline use.
+    this.retainBitmaps(this.savedModel);
     // If the current model differs from the baseline, edits happened during
     // the async save — keep the dirty flag so they aren't silently dropped.
     this.model.dirty = !DocumentEngine.modelsEqual(this.savedModel, this.model as DocumentModel);
@@ -694,7 +737,23 @@ export class DocumentEngine {
   }
 
   // ─── Snapshot & Restore (Undo/Redo Support) ───
+  /**
+   * Register every bitmap in a model/snapshot so replaceLayerBitmap never
+   * closes one that a committed history entry or saved baseline still
+   * references (@bug 2026-08-09 B5). WeakSet: stale entries are weak, so they
+   * never pin an ImageBitmap after its entry is evicted.
+   */
+  private retainBitmaps(snap: DocumentModel): void {
+    for (const layer of snap.layers) {
+      if (layer.imageBitmap) this.snapshotRetainedBitmaps.add(layer.imageBitmap);
+      if (layer.baseImageBitmap) this.snapshotRetainedBitmaps.add(layer.baseImageBitmap);
+    }
+  }
+
   snapshot(): DocumentModel {
+    // Register every live bitmap so replaceLayerBitmap never closes one a
+    // committed snapshot still references.
+    this.retainBitmaps(this.model);
     return createSnapshot(this.model);
   }
 

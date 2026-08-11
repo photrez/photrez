@@ -5,13 +5,16 @@ import type { LayerInfo } from "../layerHitTest";
 function makeLayerInfo(over: Partial<LayerInfo> = {}): LayerInfo {
   return {
     id: "l1",
+    // Required field — no cast so the compiler verifies every LayerInfo here
+    // carries its hit-test class (box-hittable wiring can't be dropped).
+    type: "raster",
     transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
     width: 100,
     height: 100,
     visible: true,
     locked: false,
     ...over,
-  } as LayerInfo;
+  };
 }
 
 function makeLayerNode(over: Partial<LayerNode> = {}): LayerNode {

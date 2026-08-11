@@ -1,6 +1,15 @@
 import { createEffect, createSignal, Show, onMount, onCleanup } from "solid-js";
 import { useEditor } from "./shell/EditorContext";
 import { Icon } from "./icons";
+import { drawLayerToContext } from "@/engine/layerComposite";
+
+// Canvas 2D cannot use CSS var(); read the accent token once (the palette is
+// static dark per design lock, so a module-level read stays accurate).
+const editorAccent =
+  (typeof document !== "undefined" &&
+    getComputedStyle(document.documentElement).getPropertyValue("--color-editor-accent").trim()) ||
+  "#E15A17";
+const editorAccentSoft = `color-mix(in srgb, ${editorAccent} 8%, transparent)`;
 
 interface NavigatorPoint {
   x: number;
@@ -87,26 +96,15 @@ export function Navigator() {
       if (!layer.visible || !layer.imageBitmap) continue;
 
       ctx.save();
+      ctx.translate(ox, oy);
+      ctx.scale(s, s);
       try {
-        ctx.translate(ox, oy);
-        ctx.scale(s, s);
-        ctx.globalAlpha = layer.opacity;
-
-        const lw = layer.width;
-        const lh = layer.height;
-        const sx = layer.transform.scaleX;
-        const sy = layer.transform.scaleY;
-        const cx = layer.transform.x + (lw * Math.abs(sx)) / 2;
-        const cy = layer.transform.y + (lh * Math.abs(sy)) / 2;
-
-        ctx.translate(cx, cy);
-        if (layer.transform.rotation) {
-          ctx.rotate((layer.transform.rotation * Math.PI) / 180);
-        }
-        const flipX = layer.transform.flipH ? -1 : 1;
-        const flipY = layer.transform.flipV ? -1 : 1;
-        ctx.scale(sx * flipX, sy * flipY);
-        ctx.drawImage(layer.imageBitmap, -lw / 2, -lh / 2);
+        // Same doc-space compositing as the canvas/export paths — the shared
+        // helper draws text bitmaps (RASTER_SCALE 2x) at their DOC width/height;
+        // the old inline copy drew at native bitmap size, making text 2x too
+        // big in the mini-map (@bug WYSIWYG 2026-08-09). Also brings blend-mode
+        // parity to the navigator.
+        drawLayerToContext(ctx as unknown as OffscreenCanvasRenderingContext2D, layer);
       } catch {
         // bitmap may be closed/detached (snapshot reference)
       }
@@ -123,10 +121,10 @@ export function Navigator() {
       offsetTop: oy,
     });
 
-    ctx.strokeStyle = "#E15A17"; // matches --color-editor-accent, keep literal for canvas 2D compatibility
+    ctx.strokeStyle = editorAccent;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(frame.left, frame.top, frame.width, frame.height);
-    ctx.fillStyle = "rgba(225, 90, 23, 0.08)";
+    ctx.fillStyle = editorAccentSoft;
     ctx.fillRect(frame.left, frame.top, frame.width, frame.height);
   };
 

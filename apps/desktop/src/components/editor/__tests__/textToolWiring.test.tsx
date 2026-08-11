@@ -13,7 +13,7 @@
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi } from "vitest";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
-import { commitTextSession, cancelTextSession, openTextEditSession, type TextSessionEditor, type TextSessionOpener } from "../canvas/pointerTools/textTool";
+import { commitTextSession, cancelTextSession, openTextEditSession, setPendingTextFlush, syncTextSessionBase, type TextSessionEditor, type TextSessionOpener } from "../canvas/pointerTools/textTool";
 import type { TextData } from "@/engine/textTypes";
 
 vi.mock("../dialogs/DialogProvider", () => ({
@@ -32,6 +32,7 @@ const TEXT_DATA: TextData = {
   letterSpacing: 0,
   boxMode: "point",
   boxWidth: 0,
+  stroke: { width: 0, color: "#000000" },
 };
 
 function makePointerTools(signals: Record<string, any>) {
@@ -108,6 +109,29 @@ describe("text tool pointer wiring", () => {
     expect(session!.layerId).toBe("text-1");
     expect(session!.isNewLayer).toBe(false);
     expect(session!.boxWidth).toBe(0);
+    disposeTools();
+    dispose();
+  });
+
+  it("re-edit session anchors at the LAYER origin, not the click point (B1 regression)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    const layer = textLayer("text-1", { content: "Hello" });
+    layer.transform = { x: 40, y: 30, scaleX: 1, scaleY: 1, rotation: 0 };
+    (mockEngine as any).getLayers = vi.fn(() => [layer]);
+    (mockEngine as any).getLayer = vi.fn((id: string) => layer);
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    // Click lands inside the layer's box (x 40..140, y 30..80) but far from
+    // its origin — the overlay must cover the ACTUAL text, so docX/docY are
+    // the layer transform, never the click point.
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 60, clientY: 40 }));
+
+    const session = signals.textEditSession();
+    expect(session).not.toBeNull();
+    expect(session!.layerId).toBe("text-1");
+    expect(session!.isNewLayer).toBe(false);
+    expect(session!.docX).toBe(40);
+    expect(session!.docY).toBe(30);
     disposeTools();
     dispose();
   });
@@ -208,6 +232,7 @@ describe("text tool pointer wiring", () => {
     cancelTextSession(signals as unknown as TextSessionEditor);
 
     expect(mockEngine.deleteLayer).toHaveBeenCalledWith("text-1");
+    expect(mockEngine.restore).not.toHaveBeenCalled();
     expect(history.commit).not.toHaveBeenCalled();
     expect(signals.textEditSession()).toBeNull();
     disposeTools();
@@ -233,6 +258,9 @@ describe("text tool pointer wiring", () => {
     expect(session).not.toBeNull();
     expect(session!.layerId).toBe("text-1");
     expect(session!.isNewLayer).toBe(false);
+    // Overlay anchor = layer origin (0,0), not the double-click point (10,10).
+    expect(session!.docX).toBe(0);
+    expect(session!.docY).toBe(0);
     disposeTools();
     dispose();
   });
@@ -248,6 +276,129 @@ describe("text tool pointer wiring", () => {
     expect(mockEngine.deleteLayer).toHaveBeenCalledWith("text-1");
     expect(signals.textEditSession()).toBeNull();
     disposeTools();
+    dispose();
+  });
+
+  it("cancel on a RE-EDIT restores the pre-session snapshot (no ghost mutation)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    const pre = { layers: [textLayer("text-1", { content: "Hello" })] };
+    // Typing already live-mutated the layer through the debounced push.
+    (mockEngine as any).getLayer = vi.fn(() => textLayer("text-1", { content: "Hello world" }));
+    (mockEngine as any).restore = vi.fn();
+    signals.setTextEditSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: pre });
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    cancelTextSession(signals as unknown as TextSessionEditor);
+
+    // Cancel must roll the ENGINE back (viewport untouched) — not leave the
+    // mutated text behind with no undo entry.
+    expect((mockEngine as any).restore).toHaveBeenCalledWith(pre, { restoreViewport: false });
+    expect(signals.textEditSession()).toBeNull();
+    disposeTools();
+    dispose();
+  });
+
+  it("cancel on a RE-EDIT whose layer was deleted externally closes WITHOUT restoring (B6)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    setPendingTextFlush(null);
+    const pre = { layers: [textLayer("text-1", { content: "Hello" })] };
+    // Layer deleted externally (e.g. layer-panel Delete) while the session was
+    // open — restoring the pre-snapshot here would RESURRECT the deleted layer.
+    (mockEngine as any).getLayer = vi.fn(() => undefined);
+    (mockEngine as any).restore = vi.fn();
+    signals.setTextEditSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: pre });
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    cancelTextSession(signals as unknown as TextSessionEditor);
+
+    expect((mockEngine as any).restore).not.toHaveBeenCalled();
+    expect(signals.textEditSession()).toBeNull();
+    disposeTools();
+    dispose();
+  });
+
+  it("commit on a layer deleted externally closes with NO ghost 'Edit Text' entry (B6)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    setPendingTextFlush(null);
+    const history = signals.workspace.getActiveHistory();
+    (mockEngine as any).getLayer = vi.fn(() => undefined);
+    signals.setTextEditSession({
+      layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+      isNewLayer: false, preSnapshot: { layers: [textLayer("text-1", { content: "Hello" })] },
+    });
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    commitTextSession(signals as unknown as TextSessionEditor);
+
+    // No ghost commit: the deletion already recorded its own undo step, and
+    // committing the stale preSnapshot would re-add the layer on undo.
+    expect(history.commit).not.toHaveBeenCalled();
+    expect(signals.textEditSession()).toBeNull();
+    disposeTools();
+    dispose();
+  });
+
+  it("drag to the LEFT puts the area box at the left edge (box follows the drag)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    (mockEngine as any).addTextLayer = vi.fn(() => ({ id: "text-1", type: "text" }));
+    (mockEngine as any).getLayer = vi.fn((id: string) => textLayer(id, { boxMode: "point", boxWidth: 0 }));
+    (mockEngine as any).getLayerImageBitmap = vi.fn(() => document.createElement("canvas"));
+    (mockEngine as any).updateTextData = vi.fn();
+    (mockEngine as any).transformLayer = vi.fn();
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 110, clientY: 10 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 10, clientY: 10 }));
+
+    expect((mockEngine as any).transformLayer).toHaveBeenLastCalledWith("text-1", { x: 10, y: 10 });
+    const s = signals.textEditSession();
+    expect(s!.boxMode).toBe("area");
+    expect(s!.boxWidth).toBe(100);
+    expect(s!.docX).toBe(10);
+    disposeTools();
+    dispose();
+  });
+
+  it("doc-switch commit flushes into the SESSION engine and unhides the layer there (B2)", () => {
+    const { signals, dispose } = createMockEditorParams("text");
+    const history = signals.workspace.getActiveHistory();
+    // The SOURCE engine (doc A) the session belongs to. The doc-switch path
+    // passes a workspace wrapper whose getActiveEngine returns THIS engine,
+    // while the overlay's own workspace would read the newly active one.
+    const sourceEngine = {
+      getLayer: vi.fn((id: string) => textLayer(id, { content: "Hello" })),
+      deleteLayer: vi.fn(),
+      restore: vi.fn(),
+      getLayerImageBitmap: vi.fn(() => null),
+      snapshot: vi.fn(() => ({})),
+      setRenderHiddenLayerId: vi.fn(),
+    };
+    // The overlay registers its pending-content flush; capture the engine it
+    // receives (in the real overlay this pushes the typed content there).
+    let flushEngine: unknown;
+    setPendingTextFlush((engine) => { flushEngine = engine; });
+
+    signals.setTextEditSession({
+      layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+      isNewLayer: true, preSnapshot: { layers: [] },
+    });
+
+    commitTextSession({
+      ...signals,
+      workspace: {
+        ...signals.workspace,
+        getActiveEngine: () => sourceEngine,
+        getActiveHistory: () => history,
+      },
+    } as unknown as TextSessionEditor);
+
+    // The flush targets the SESSION engine (never the active mockEngine), and
+    // the hidden id is cleared there — the layer stays visible on return to
+    // the source document (no invisible-text bug on doc switch).
+    expect(flushEngine).toBe(sourceEngine);
+    expect(sourceEngine.setRenderHiddenLayerId).toHaveBeenCalledWith(null);
+    expect(history.commit).toHaveBeenCalledWith(expect.anything(), "Add Text");
+    expect(signals.textEditSession()).toBeNull();
     dispose();
   });
 });
@@ -311,6 +462,60 @@ describe("openTextEditSession (layer panel §7.3 re-edit path)", () => {
     expect(ok).toBe(true);
     expect(history.commit).toHaveBeenCalled(); // pending session persisted as one step
     expect(signals.textEditSession()!.layerId).toBe("text-2");
+    dispose();
+  });
+});
+
+describe("syncTextSessionBase (undo/redo re-anchoring)", () => {
+  function editorFor(signals: Record<string, any>) {
+    return {
+      workspace: signals.workspace,
+      textEditSession: signals.textEditSession,
+      setTextEditSession: signals.setTextEditSession,
+      scheduler: signals.scheduler,
+    } as unknown as TextSessionEditor;
+  }
+
+  it("re-anchors a still-open session's preSnapshot to the restored engine state", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    const layer = textLayer("text-1", { content: "Before" });
+    (mockEngine as any).getLayer = vi.fn((id: string) => (id === "text-1" ? layer : undefined));
+    (mockEngine as any).snapshot = vi.fn(() => ({ layers: [{ ...layer, textData: { ...layer.textData, content: "Older" } }] }));
+    signals.setTextEditSession({
+      layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+      isNewLayer: false, preSnapshot: { layers: [] },
+    });
+
+    syncTextSessionBase(editorFor(signals));
+
+    // The next commit diffs against what the user NOW sees, not the stale
+    // session-open state — otherwise the undo step would be jumped back over.
+    expect((signals.textEditSession()!.preSnapshot as any).layers[0].textData.content).toBe("Older");
+    dispose();
+  });
+
+  it("leaves the session untouched when undo deleted its layer", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    (mockEngine as any).getLayer = vi.fn(() => undefined);
+    const old = { layers: [] };
+    signals.setTextEditSession({
+      layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+      isNewLayer: false, preSnapshot: old,
+    });
+
+    syncTextSessionBase(editorFor(signals));
+
+    expect(signals.textEditSession()!.preSnapshot).toBe(old);
+    dispose();
+  });
+
+  it("is a no-op when no session is open", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    (mockEngine as any).getLayer = vi.fn(() => undefined);
+
+    syncTextSessionBase(editorFor(signals));
+
+    expect(signals.textEditSession()).toBeNull();
     dispose();
   });
 });

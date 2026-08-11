@@ -96,6 +96,7 @@ let setBgColorState: (color: string) => void = () => {};
   let setZoomState: (z: number) => void = () => {};
   let setPanState: (p: { x: number; y: number }) => void = () => {};
   let setSelectedLayerIdState: (id: string | null) => void = () => {};
+  let getSelectedLayerIdState: () => string | null = () => null;
 let setCropFillEnabledState: (enabled: boolean) => void = () => {};
 let setCropFillSourceState: (source: "background" | "custom") => void = () => {};
 let setCropFillCustomColorState: (color: string) => void = () => {};
@@ -141,6 +142,7 @@ const TestConsumer = () => {
   setZoomState = editor.setZoom;
   setPanState = editor.setPan;
   setSelectedLayerIdState = editor.setSelectedLayerId;
+  getSelectedLayerIdState = editor.selectedLayerId;
 
   getSelectionState = editor.selection;
   setSelectionState = editor.setSelection;
@@ -332,7 +334,16 @@ describe("Space+pan global override across all tools", () => {
     });
     afterEach(() => {
       rectStub?.mockRestore();
-      if (offscreenPrev !== undefined) (globalThis as any).OffscreenCanvas = offscreenPrev;
+      // Restore even when the prior global was undefined (jsdom has no native
+      // OffscreenCanvas): skipping the restore leaks this minimal stub class
+      // (its ctx has no measureText) into later describes — e.g. the
+      // click-select tests, whose addTextLayer would crash rasterizeText with
+      // "ctx.measureText is not a function" in full-suite runs.
+      if (offscreenPrev !== undefined) {
+        (globalThis as any).OffscreenCanvas = offscreenPrev;
+      } else {
+        delete (globalThis as any).OffscreenCanvas;
+      }
     });
 
     function setup() {
@@ -396,6 +407,104 @@ describe("Space+pan global override across all tools", () => {
 
       expect(session.engine.getLayers().length).toBe(before);
       expect(session.engine.getActiveLayerId()).toBe(originalId);
+    });
+  });
+
+  // --- Move-tool click MUST select the hit layer (regression: the pasteboard
+  // "clear-active-layer" policy ran UNCONDITIONALLY on every move-tool
+  // pointerdown, wiping the selection the canvas handler had just set — the
+  // panel kept showing the Background layer as "active" even when clicking a
+  // text/shape layer) ---
+  describe("Move tool click-select on a layer", () => {
+    let rectStub: ReturnType<typeof vi.spyOn> | undefined;
+
+    beforeEach(() => {
+      rectStub = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+        left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+    });
+    afterEach(() => rectStub?.mockRestore());
+
+    it("click on a text layer selects it instead of staying on Background", async () => {
+      const { session } = renderViewport();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setZoomState(1);
+      setPanState({ x: 0, y: 0 });
+      setTool("move");
+
+      const text = session.engine.addTextLayer("Text 1", { ...DEFAULT_TEXT_DATA, content: "Hello" });
+      session.engine.transformLayer(text.id, { x: 20, y: 20 });
+      session.engine.setActiveLayer(null);
+      setSelectedLayerIdState(null);
+
+      // Click the CENTER of the text layer's box, derived from its live dims
+      // (real canvas metrics in this env). After the rasterizer tightening the
+      // box is ~glyph-sized, so a hardcoded point like (100,100) can fall
+      // below the box (y was ~124px tall, now ~69px) and miss entirely.
+      const l = session.engine.getLayer(text.id)!;
+      const clickX = l.transform.x + l.width / 2;
+      const clickY = l.transform.y + l.height / 2;
+      firePointerDown(getCanvas(), 30, clickX, clickY);
+      firePointerUp(document.body, 30, clickX, clickY);
+
+      expect(getSelectedLayerIdState()).toBe(text.id);
+      expect(session.engine.getActiveLayerId()).toBe(text.id);
+    });
+
+    it("click on a text layer's TRANSPARENT padding still selects the text (box-hittable beats alpha fall-through)", async () => {
+      // Wiring-level regression for @bug 2026-08-09: the move-tool auto-select
+      // path samples layer alpha to let transparent pixels fall through to the
+      // layer underneath. Real text bitmaps are transparent across most of
+      // their box (line-height padding), so WITHOUT the box-hittable rule a
+      // click in the padding would fall through to the opaque Background — the
+      // exact reported symptom. This drives the FULL pointer chain (canvas
+      // pointerdown → hitTestLayers with the real sampler) with the text layer
+      // reporting alpha 0 at the click point and asserts the text still wins.
+      const { session } = renderViewport();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setZoomState(1);
+      setPanState({ x: 0, y: 0 });
+      setTool("move");
+
+      const text = session.engine.addTextLayer("Text 1", { ...DEFAULT_TEXT_DATA, content: "Hello" });
+      session.engine.transformLayer(text.id, { x: 20, y: 20 });
+      // Alpha is 0 exactly on this layer at the click point, opaque elsewhere.
+      const alphaSpy = vi.spyOn(session.engine, "sampleLayerAlpha").mockImplementation(
+        (id: string) => (id === text.id ? 0 : 1),
+      );
+      session.engine.setActiveLayer(null);
+      setSelectedLayerIdState(null);
+
+      // Click the CENTER of the text layer's tight box (dims derived live).
+      const l = session.engine.getLayer(text.id)!;
+      const clickX = l.transform.x + l.width / 2;
+      const clickY = l.transform.y + l.height / 2;
+      firePointerDown(getCanvas(), 32, clickX, clickY);
+      firePointerUp(document.body, 32, clickX, clickY);
+
+      expect(getSelectedLayerIdState()).toBe(text.id);
+      expect(session.engine.getActiveLayerId()).toBe(text.id);
+      alphaSpy.mockRestore();
+    });
+
+    it("click on empty canvas STILL clears the selection", async () => {
+      const { session } = renderViewport();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setZoomState(1);
+      setPanState({ x: 0, y: 0 });
+      setTool("move");
+
+      const text = session.engine.addTextLayer("Text 1", { ...DEFAULT_TEXT_DATA, content: "Hello" });
+      session.engine.transformLayer(text.id, { x: 20, y: 20 });
+      session.engine.setActiveLayer(text.id);
+      setSelectedLayerIdState(text.id);
+
+      // (700,500) is in the doc but far from the text layer; bg is bitmap-less.
+      firePointerDown(getCanvas(), 31, 700, 500);
+      firePointerUp(document.body, 31, 700, 500);
+
+      expect(getSelectedLayerIdState()).toBeNull();
     });
   });
 
@@ -3041,6 +3150,83 @@ describe("Text tool Phase 3 contract", () => {
     expect(editorRef.current.textEditSession()).toBeNull();
   });
 
+  it("lostpointercapture after a placement click does NOT cancel the session (regression: text vanished right after creating)", async () => {
+    setTool("text");
+    await tick();
+
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    // Placement: pointerdown → pointerup. In a real browser the deliberate
+    // capture release in applyTextPointer fires lostpointercapture on the
+    // canvas right after the click — jsdom never emits it, so we fire the
+    // event the browser would have produced.
+    const canvas = getCanvas();
+    firePointer(canvas, "pointerdown", 10, 100, 100);
+    firePointer(canvas, "pointerup", 10, 100, 100);
+    canvas.dispatchEvent(new PointerEvent("lostpointercapture", { bubbles: false, pointerId: 10 }));
+    await tick();
+
+    // The temp layer + typing session must survive the lost-capture event.
+    expect(textLayers().length).toBe(1);
+    expect(editorRef.current.textEditSession()).not.toBeNull();
+    getOverlay();
+
+    typeText("Not lost");
+    commitWithCtrlEnter();
+    await tick();
+
+    expect(textLayers().length).toBe(1);
+    expect(textLayers()[0].textData.content).toBe("Not lost");
+    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(editorRef.current.textEditSession()).toBeNull();
+  });
+
+  it("pointercancel while typing does NOT close an open text session", async () => {
+    setTool("text");
+    await tick();
+
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    clickText(getCanvas(), 100, 100);
+    await tick();
+    typeText("Persist");
+
+    // A stray pointercancel (OS can emit it while the textarea is focused)
+    // must leave the temp layer and open session untouched.
+    getCanvas().dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 10 }));
+    await tick();
+
+    expect(textLayers().length).toBe(1);
+    expect(editorRef.current.textEditSession()).not.toBeNull();
+    expect(getOverlay().value).toBe("Persist");
+
+    commitWithCtrlEnter();
+    await tick();
+    expect(textLayers().length).toBe(1);
+    expect(textLayers()[0].textData.content).toBe("Persist");
+    expect(history.getUndoCount()).toBe(baseline + 1);
+  });
+
+  it("pointercancel DURING the placement drag cancels: temp layer removed, no session", async () => {
+    setTool("text");
+    await tick();
+
+    const history = ws.getActiveHistory()!;
+    const baseline = history.getUndoCount();
+
+    const canvas = getCanvas();
+    firePointer(canvas, "pointerdown", 10, 100, 100);
+    // Interrupted BEFORE the releasing pointerup that ends placement.
+    firePointer(canvas, "pointercancel", 10, 100, 100);
+    await tick();
+
+    expect(textLayers().length).toBe(0);
+    expect(editorRef.current.textEditSession()).toBeNull();
+    expect(history.getUndoCount()).toBe(baseline);
+  });
+
   it("undo removes exactly the added text; redo restores it with textData intact", async () => {
     setTool("text");
     await tick();
@@ -3125,7 +3311,7 @@ describe("Text tool Phase 3 contract", () => {
     const baseline = history.getUndoCount();
 
     // Create + commit a text layer at (100,100). "Hello" rasterizes to
-    // ~27x122 doc px (10px/char + 2px padding, ceil'd line box), so a
+    // ~27x70 doc px (10px/char + 2px padding, tight ink box), so a
     // double-click at (110,110) hits it.
     clickText(getCanvas(), 100, 100);
     await tick();
@@ -3139,7 +3325,7 @@ describe("Text tool Phase 3 contract", () => {
     // tool + dblclick → switch to text tool + edit session, no new layer).
     // NOTE: the hit resolves via layer BOUNDS — the OffscreenCanvas stub's
     // fillText paints no ink, so the alpha-aware sample can't read real
-    // pixels in jsdom. (110,110) is safely inside the ~27x122px layer box,
+    // pixels in jsdom. (110,110) is safely inside the ~27x70px layer box,
     // which is what this test verifies: the R3 re-edit wiring, not
     // pixel-accurate hit testing.
     setTool("move");
@@ -3154,6 +3340,14 @@ describe("Text tool Phase 3 contract", () => {
     expect(s).not.toBeNull();
     expect(s.layerId).toBe(textId);
     expect(s.isNewLayer).toBe(false);
+    // B1 regression: the overlay anchors at the LAYER's box origin (100,100)
+    // — never the double-click point (110,110) — so the edit box covers the
+    // real text instead of rendering displaced from it (and snapping back on
+    // commit). Default zoom 1 / pan (0,0) → overlay left/top == docX/docY.
+    expect(s.docX).toBe(100);
+    expect(s.docY).toBe(100);
+    expect(getOverlay().style.left).toBe("100px");
+    expect(getOverlay().style.top).toBe("100px");
     // Overlay re-selects the existing content for editing.
     expect(getOverlay().value).toBe("Hello");
 

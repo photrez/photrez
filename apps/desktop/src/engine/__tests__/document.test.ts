@@ -436,6 +436,31 @@ describe('DocumentEngine', () => {
       }
       expect(state.backgroundColor[3]).toBe(1); // alpha always opaque
     });
+
+    it('hides exactly the render-hidden layer while others stay visible', () => {
+      const engine = new DocumentEngine('doc-hidden', 'Hidden', 800, 600);
+      const a = engine.addLayer('A');
+      const b = engine.addLayer('B');
+
+      engine.setRenderHiddenLayerId(a.id);
+      const state = engine.getRenderState();
+      expect(state.layers.find((l) => l.id === a.id)!.visible).toBe(false);
+      expect(state.layers.find((l) => l.id === b.id)!.visible).toBe(true);
+
+      // Clearing the hidden id restores visibility (session close).
+      engine.setRenderHiddenLayerId(null);
+      const after = engine.getRenderState();
+      expect(after.layers.find((l) => l.id === a.id)!.visible).toBe(true);
+    });
+
+    it('a hidden layer that is already invisible stays invisible', () => {
+      const engine = new DocumentEngine('doc-hidden-2', 'Hidden 2', 800, 600);
+      const a = engine.addLayer('A');
+      a.visible = false;
+      engine.setRenderHiddenLayerId(a.id);
+      const state = engine.getRenderState();
+      expect(state.layers.find((l) => l.id === a.id)!.visible).toBe(false);
+    });
   });
 
   describe('applyCrop', () => {

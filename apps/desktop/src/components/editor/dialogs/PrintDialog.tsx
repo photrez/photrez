@@ -195,7 +195,7 @@ export function PrintDialog() {
             <label class="flex items-center gap-2 text-[11px] font-medium text-editor-text cursor-pointer">
               <input
                 type="checkbox"
-                class="size-3.5 rounded border-editor-field-border accent-[#E15A17] text-editor-accent focus:ring-0 cursor-pointer"
+                class="size-3.5 rounded border-editor-field-border accent-[var(--color-editor-accent)] text-editor-accent focus:ring-0 cursor-pointer"
                 checked={options().showPaperWhite}
                 onChange={(e) => {
                   setShowPaperWhite(e.currentTarget.checked);

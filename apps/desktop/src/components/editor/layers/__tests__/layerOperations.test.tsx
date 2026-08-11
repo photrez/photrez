@@ -381,6 +381,8 @@ import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { useLayerActions } from "../useLayerActions";
 import { WorkspaceManager } from "@/engine/workspace";
 import { DialogProvider } from "../../dialogs/DialogProvider";
+import type { TextData } from "@/engine/textTypes";
+import type { TextEditSession } from "../../tools/editorState";
 
 describe("useLayerActions wiring", () => {
   function createWrapper() {
@@ -500,5 +502,185 @@ describe("useLayerActions wiring", () => {
     result.handleFlattenAllLayers();
 
     expect(toastSpy).toHaveBeenCalledWith("Could not flatten layers", "warn");
+  });
+
+  // ── Text session lifecycle (B6/B9) ───────────────────────────────────────
+
+  function createTextProbe() {
+    const ctx = createWrapper();
+    const { result } = renderHook(() => {
+      const editor = useEditor();
+      const actions = useLayerActions();
+      return {
+        ...actions,
+        openSession: (s: TextEditSession) => editor.setTextEditSession(s),
+        session: () => editor.textEditSession(),
+      };
+    }, { wrapper: ctx.wrapper });
+    return { ...ctx, result };
+  }
+
+  const textData = (content: string): TextData => ({
+    content, fontFamily: "Arial", fontSize: 48, fontWeight: 400, fontStyle: "normal",
+    color: "#000000", align: "left", lineHeight: 1.4, letterSpacing: 0,
+    boxMode: "point", boxWidth: 0, stroke: { width: 0, color: "#000000" },
+  });
+
+  // Build a text layer WITHOUT the rasterizer — this file's OffscreenCanvas
+  // polyfill lacks measureText/fillText, and the wiring test only cares about
+  // the session lifecycle, not glyph rasterization.
+  const makeTextLayer = (engine: DocumentEngine, name: string) => {
+    const layer = engine.addLayer(name, 100, 100);
+    (layer as unknown as { type: string }).type = "text";
+    (layer as unknown as { textData: TextData }).textData = textData("Hello");
+    return layer;
+  };
+
+  it("delete while a re-edit session is open closes the session — one 'Delete Layer' step, no resurrection (B6)", () => {
+    const { engine, history, result } = createTextProbe();
+    const layer = engine.addLayer("Text 1", 100, 100);
+    engine.setActiveLayer(layer.id);
+    result.openSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+
+    result.handleDeleteActiveLayer();
+
+    expect(result.session()).toBeNull();
+    expect(engine.getLayer(layer.id)).toBeUndefined();
+    expect(history.getUndoCount()).toBe(1); // exactly "Delete Layer" — no ghost "Edit Text"
+  });
+
+  it("delete while a TEMP text session is open just cancels it — no history entry (B6)", () => {
+    const { engine, history, result } = createTextProbe();
+    const temp = engine.addLayer("Text", 100, 100);
+    engine.setActiveLayer(temp.id);
+    result.openSession({ layerId: temp.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: engine.snapshot() });
+
+    result.handleDeleteActiveLayer();
+
+    expect(result.session()).toBeNull();
+    expect(engine.getLayer(temp.id)).toBeUndefined();
+    expect(history.getUndoCount()).toBe(0); // no ghost "Delete Layer"
+  });
+
+  it("selecting a DIFFERENT layer commits the open session (click-away pattern) (B9)", () => {
+    const { engine, history, result } = createTextProbe();
+    const text = makeTextLayer(engine, "Text");
+    const other = engine.addLayer("Other", 100, 100);
+    engine.setActiveLayer(text.id);
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    // Simulate typing: the live textData now differs from the session snapshot.
+    engine.getLayer(text.id)!.textData!.content = "Hello world";
+
+    result.handleSelectLayer(other.id);
+
+    expect(history.getUndoCount()).toBe(1); // "Edit Text"
+    expect(result.session()).toBeNull();
+    expect(engine.getActiveLayerId()).toBe(other.id);
+  });
+
+  it("selecting the session's OWN layer keeps the session open (re-edit flow) (B9)", () => {
+    const { engine, history, result } = createTextProbe();
+    const text = makeTextLayer(engine, "Text");
+    engine.setActiveLayer(text.id);
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+
+    result.handleSelectLayer(text.id);
+
+    expect(history.getUndoCount()).toBe(0);
+    expect(result.session()).not.toBeNull();
+  });
+
+  // ── Merge / flatten vs. an open text session (B6-adjacent) ───────────────
+
+  it("handleMergeActiveLayerDown commits an open session on the active layer first (typed text survives) (B6-adjacent)", () => {
+    const { engine, history, result } = createTextProbe();
+    const below = engine.addLayer("Below", 100, 100);
+    const text = makeTextLayer(engine, "Text"); // inserted above Below
+    engine.setActiveLayer(text.id);
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    engine.getLayer(text.id)!.textData!.content = "Hello world"; // simulate typing
+
+    result.handleMergeActiveLayerDown();
+
+    // Session closed, the layer was merged away (mergeDown consumes BOTH the
+    // top and the bottom into a NEW merged id), and both the edit and the
+    // merge are undoable — the typed text is not silently dropped.
+    expect(result.session()).toBeNull();
+    expect(engine.getLayer(text.id)).toBeUndefined();
+    expect(engine.getLayer(below.id)).toBeUndefined();
+    expect(engine.getLayers()).toHaveLength(2); // [merged, bg]
+    expect(history.getUndoCount()).toBe(2); // "Edit Text" + "Merge Down"
+  });
+
+  it("handleMergeActiveLayerDown with an empty TEMP session bails — no unintended merge (B6-adjacent)", () => {
+    const { engine, history, result } = createTextProbe();
+    const below = engine.addLayer("Below", 100, 100);
+    const temp = engine.addLayer("Temp", 100, 100);
+    (temp as unknown as { type: string }).type = "text";
+    (temp as unknown as { textData: TextData }).textData = textData(""); // empty temp
+    engine.setActiveLayer(temp.id);
+    result.openSession({ layerId: temp.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: engine.snapshot() });
+
+    result.handleMergeActiveLayerDown();
+
+    // The empty temp is removed by the session commit's empty-commit cleanup;
+    // the merge is moot and must NOT merge the layer that moved up into the
+    // active slot.
+    expect(result.session()).toBeNull();
+    expect(engine.getLayer(temp.id)).toBeUndefined();
+    expect(engine.getLayer(below.id)).toBeDefined();
+    expect(history.getUndoCount()).toBe(0);
+  });
+
+  it("handleFlattenAllLayers commits an open text session first (typed text survives flatten) (B6-adjacent)", () => {
+    const { engine, history, result } = createTextProbe();
+    const text = makeTextLayer(engine, "Text"); // [Text, bg]
+    engine.setActiveLayer(text.id);
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    engine.getLayer(text.id)!.textData!.content = "Hello world"; // simulate typing
+
+    result.handleFlattenAllLayers();
+
+    expect(result.session()).toBeNull();
+    expect(engine.getLayers()).toHaveLength(1);
+    expect(history.getUndoCount()).toBe(2); // "Edit Text" + "Flatten Image"
+  });
+
+  it("handleMergeActiveLayerDown commits a session on the merge TARGET (the layer below the active) too (B6-adjacent)", () => {
+    const { engine, history, result } = createTextProbe();
+    const target = makeTextLayer(engine, "Target"); // [Target, bg]
+    const active = engine.addLayer("Active", 100, 100); // [Active, Target, bg]
+    engine.setActiveLayer(active.id);
+    result.openSession({ layerId: target.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    engine.getLayer(target.id)!.textData!.content = "Hello world"; // simulate typing
+
+    result.handleMergeActiveLayerDown();
+
+    // mergeDown consumes BOTH Active and Target — the session on Target must
+    // be committed, not left dangling over a consumed layer.
+    expect(result.session()).toBeNull();
+    expect(engine.getLayer(target.id)).toBeUndefined();
+    expect(engine.getLayer(active.id)).toBeUndefined();
+    expect(engine.getLayers()).toHaveLength(2); // [merged, bg]
+    expect(history.getUndoCount()).toBe(2); // "Edit Text" + "Merge Down"
+  });
+
+  it("handleMergeActiveLayerDown leaves a session on an UNRELATED layer open (guard no-op) (B6-adjacent)", () => {
+    const { engine, history, result } = createTextProbe();
+    const below = engine.addLayer("Below", 100, 100);
+    const target = engine.addLayer("Target", 100, 100);
+    const active = engine.addLayer("Active", 100, 100);
+    const text = makeTextLayer(engine, "Text"); // [Text, Active, Target, Below, bg]
+    engine.setActiveLayer(active.id);
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    engine.getLayer(text.id)!.textData!.content = "Hello world";
+
+    result.handleMergeActiveLayerDown();
+
+    // The session layer is neither the active layer nor the merge target —
+    // the merge proceeds and the session stays open untouched.
+    expect(result.session()).not.toBeNull();
+    expect(engine.getLayer(text.id)).toBeDefined();
+    expect(history.getUndoCount()).toBe(1); // only "Merge Down"
   });
 });

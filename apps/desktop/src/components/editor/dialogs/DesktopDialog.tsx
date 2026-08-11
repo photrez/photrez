@@ -100,7 +100,7 @@ export function DesktopDialog(props: DesktopDialogProps) {
               <defs>
                 <linearGradient id="brandGradientDialog" x1="0%" y1="0%" x2="0%" y2="100%">
                   <stop offset="0%" stop-color="#FFB31A" />
-                  <stop offset="100%" stop-color="#E15A17" />
+                  <stop offset="100%" stop-color="var(--color-editor-accent)" />
                 </linearGradient>
                 <linearGradient id="bgDarkDialog" x1="0%" y1="0%" x2="0%" y2="100%">
                   <stop offset="0%" stop-color="#2C2C2E" />

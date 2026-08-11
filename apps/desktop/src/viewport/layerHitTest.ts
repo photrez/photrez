@@ -1,5 +1,5 @@
 import { getLayerCorners } from "./transformGeometry";
-import type { Transform2D } from "../engine/types";
+import type { LayerNode, Transform2D } from "../engine/types";
 
 export interface LayerHit {
   id: string;
@@ -25,6 +25,26 @@ export interface LayerInfo {
   height: number;
   visible: boolean;
   locked: boolean;
+  /**
+   * LayerNode.type — REQUIRED so a call site can never silently drop the
+   * box-hittable wiring: omitting it would quietly fall back to raster-style
+   * alpha fall-through for text/shape layers (isBoxHittable reads this field
+   * to treat parametric layers as whole-box targets).
+   */
+  type: LayerNode["type"];
+}
+
+/**
+ * Parametric layers (text, shape) are OBJECTS, not photographs: their raster
+ * boxes contain large transparent areas (text line-height padding, hollow
+ * shape interiors) that users still expect to be "the layer". Alpha-aware
+ * fall-through stays for raster layers (transparent corners of photos select
+ * what's underneath) but must NOT fall through for text/shape boxes —
+ * otherwise clicking the padding of a text layer selects the Background layer
+ * beneath it (@bug 2026-08-09: "clicking text/shape selects Background").
+ */
+export function isBoxHittable(layer: Pick<LayerInfo, "type">): boolean {
+  return layer.type === "text" || layer.type === "shape";
 }
 
 /**
@@ -46,7 +66,10 @@ export function hitTestLayer(
   if (!layer.visible) return false;
   const corners = getLayerCorners(layer.transform, layer.width, layer.height);
   if (!pointInPolygon(point.x, point.y, corners)) return false;
-  if (alphaAt) {
+  // Parametric layers are selected by their whole box — no alpha fall-through
+  // (see isBoxHittable). Raster layers keep the alpha-aware behavior so
+  // transparent corners/clipped photos still reveal the layer underneath.
+  if (alphaAt && !isBoxHittable(layer)) {
     const a = alphaAt(layer.id, point.x, point.y);
     if (a !== null && a < ALPHA_HIT_THRESHOLD) return false;
   }

@@ -65,6 +65,46 @@ describe("Navigator preview rendering", () => {
     container.parentNode?.removeChild(container);
   });
 
+  it("draws a 2x text bitmap at its DOC size in the mini-map (WYSIWYG parity)", async () => {
+    const ctx = makeCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation(((type: string) => (type === "2d" ? ctx : null)) as any);
+
+    const ws = new WorkspaceManager();
+    const session = WorkspaceManager.createBlankDocument("nav-text-test", "Navigator Text Test", 800, 600);
+    // Text layer: doc box 100x50, bitmap rasterized at RASTER_SCALE 2x (200x100).
+    const textLayer = session.engine.addLayer("Text", 100, 50);
+    const bmp = { width: 200, height: 100 } as ImageBitmap;
+    textLayer.imageBitmap = bmp;
+
+    const renderer = {} as any;
+    const scheduler = { requestRender: vi.fn() } as any;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    const dispose = render(
+      () => (
+        <EditorProvider workspace={ws} renderer={renderer} scheduler={scheduler}>
+          <Navigator />
+        </EditorProvider>
+      ),
+      container,
+    );
+
+    ws.addDocument(session);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const drawCalls = (ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls;
+    const textCall = drawCalls.find((c) => c[0] === bmp);
+    expect(textCall).toBeDefined();
+    // Destination size must be the DOC box (100x50), not the native 2x bitmap.
+    expect(textCall![3]).toBe(100);
+    expect(textCall![4]).toBe(50);
+
+    dispose();
+    container.parentNode?.removeChild(container);
+  });
+
   it("drags the visible viewport frame as relative pan instead of recentering on pointerdown", async () => {
     const ctx = makeCanvasContext();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext")

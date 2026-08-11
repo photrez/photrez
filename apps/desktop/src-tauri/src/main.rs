@@ -3,6 +3,7 @@
 
 mod cursor;
 mod file_io;
+mod fonts;
 mod menu;
 mod print_core;
 mod print_geometry;
@@ -168,6 +169,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             file_io::ping,
+            fonts::list_system_fonts,
             file_io::get_contract_info,
             file_io::get_pending_open_path,
             file_io::set_trusted_paths,

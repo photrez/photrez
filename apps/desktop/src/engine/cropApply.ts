@@ -87,7 +87,10 @@ export function performApplyCrop(
           const flipX = layer.transform.flipH ? -1 : 1;
           const flipY = layer.transform.flipV ? -1 : 1;
           ctx.scale(finalScaleX * flipX, finalScaleY * flipY);
-          ctx.drawImage(layer.imageBitmap, -lw / 2, -lh / 2);
+          // Destination size = doc-space lw/lh: text bitmaps are 2x (RASTER
+          // SCALE) and drawing at native size rendered text double-size in the
+          // cropped result (same class as the navigator/export fix).
+          ctx.drawImage(layer.imageBitmap, -lw / 2, -lh / 2, lw, lh);
           ctx.restore();
 
           const newBitmap = offscreen.transferToImageBitmap();

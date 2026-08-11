@@ -893,11 +893,15 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Cancel shape drag: remove temp layer, no history entry ──
     if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
     shapeDragState.reset();
-    // ── Cancel text session: remove temp layer, no history entry ──
-    if (activeTool() === "text") {
+    // ── Cancel text: ONLY an interrupted drag (pointercancel while the
+    // placement gesture is still in progress) removes the temp layer. A
+    // pointercancel after the click completed must NOT close the open typing
+    // session — the cancel path we take here also re-releases capture, which
+    // would otherwise cascade through the lost-capture handler. ──
+    if (activeTool() === "text" && textPointerState.isDragging) {
       cancelTextSession(editor);
-      textPointerState.reset();
     }
+    textPointerState.reset();
   };
 
   const onCanvasLostPointerCapture = (e: PointerEvent) => {
@@ -937,9 +941,11 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Cancel shape drag: remove temp layer, no history entry ──
     if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
     shapeDragState.reset();
-    // ── Cancel text session: remove temp layer, no history entry ──
+    // ── Cancel text: a lost pointer capture must NOT close the open typing
+    // session or delete the temp layer — applyTextPointer deliberately
+    // releases capture on pointerup, which fires lostpointercapture right
+    // after the placement click. Only the stale drag state is reset. ──
     if (activeTool() === "text") {
-      cancelTextSession(editor);
       textPointerState.reset();
     }
   };

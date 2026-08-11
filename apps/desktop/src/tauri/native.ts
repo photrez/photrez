@@ -214,6 +214,18 @@ export async function deleteAutosaveFile(path: string): Promise<void> {
   await invokeApi("delete_autosave_file", { path });
 }
 
+// ─── System Fonts ───
+export interface SystemFontFamily {
+  family: string;
+  styles: string[];
+}
+
+/** Native system font enumeration — no browser permission prompt. */
+export async function listSystemFonts(): Promise<SystemFontFamily[]> {
+  const result = await invokeApi<{ fonts: SystemFontFamily[] }>("list_system_fonts");
+  return result.data.fonts;
+}
+
 // ─── Ping ───
 export async function ping(): Promise<boolean> {
   try {

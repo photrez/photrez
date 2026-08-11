@@ -34,16 +34,38 @@ export function performPixelSampling(
     const layer = layers[i];
     if (!layer.visible || !layer.imageBitmap) continue;
 
-    // Map document coordinates to layer relative coordinates
-    const rx = Math.floor(x - layer.transform.x);
-    const ry = Math.floor(y - layer.transform.y);
+    // Map document coordinates to layer-relative coordinates, then to BITMAP
+    // pixel space. Parametric layers (text) rasterize at RASTER_SCALE (2x), so
+    // the bitmap is larger than layer.width/height — sampling at raw doc
+    // coords read the wrong pixels (eyedropper picked wrong colors on text;
+    // @bug WYSIWYG 2026-08-09).
+    const bmp = layer.imageBitmap;
+    // Fake/decoy bitmaps in tests may lack real dims — fall back to 1x.
+    const bmpW = typeof bmp.width === "number" ? bmp.width : layer.width;
+    const bmpH = typeof bmp.height === "number" ? bmp.height : layer.height;
+    const bmpScaleX = layer.width > 0 && bmpW > 0 ? bmpW / layer.width : 1;
+    const bmpScaleY = layer.height > 0 && bmpH > 0 ? bmpH / layer.height : 1;
+    // layer.width is the UNSCALED doc box; the visible extent is width*|scaleX|,
+    // so divide by the layer scale (axis-aligned only — rotation still assumes
+    // an unrotated frame, matching the pre-existing behavior).
+    const absSx = Math.abs(layer.transform.scaleX ?? 1) || 1;
+    const absSy = Math.abs(layer.transform.scaleY ?? 1) || 1;
+    const rx = Math.floor(((x - layer.transform.x) / absSx) * bmpScaleX);
+    const ry = Math.floor(((y - layer.transform.y) / absSy) * bmpScaleY);
 
-     if (rx >= 0 && rx < layer.width && ry >= 0 && ry < layer.height) {
+     if (rx >= 0 && rx < bmpW && ry >= 0 && ry < bmpH) {
        try {
         const ctx = getSampleCtx();
         if (ctx) {
           ctx.clearRect(0, 0, 1, 1);
-          ctx.drawImage(layer.imageBitmap, rx, ry, 1, 1, 0, 0, 1, 1);
+          // Downsample the bitmap-space source rect (2x2 for text, 1x1 for
+          // raster) into the 1x1 scratch so the sample averages the
+          // supersampled pixels.
+          const srcW = Math.max(1, Math.ceil(bmpScaleX));
+          const srcH = Math.max(1, Math.ceil(bmpScaleY));
+          const srcX = Math.max(0, Math.min(rx, bmpW - srcW));
+          const srcY = Math.max(0, Math.min(ry, bmpH - srcH));
+          ctx.drawImage(bmp, srcX, srcY, srcW, srcH, 0, 0, 1, 1);
           const imgData = ctx.getImageData(0, 0, 1, 1);
           const r = imgData.data[0];
           const g = imgData.data[1];
@@ -88,15 +110,30 @@ export function sampleSingleLayerAlpha(
   const layer = layers.find((l) => l.id === layerId);
   if (!layer || !layer.visible || !layer.imageBitmap) return 0;
 
-  const rx = Math.floor(x - layer.transform.x);
-  const ry = Math.floor(y - layer.transform.y);
-  if (rx < 0 || rx >= layer.width || ry < 0 || ry >= layer.height) return 0;
+  // Scale-aware mapping (same rationale as performPixelSampling): text
+  // bitmaps are 2x the doc box, so sample in bitmap pixel space. Divided by
+  // the layer scale because layer.width is the UNSCALED doc box (rotation is
+  // still approximated as an axis-aligned frame, pre-existing limitation).
+  const bmp = layer.imageBitmap;
+  const bmpW = typeof bmp.width === "number" ? bmp.width : layer.width;
+  const bmpH = typeof bmp.height === "number" ? bmp.height : layer.height;
+  const bmpScaleX = layer.width > 0 && bmpW > 0 ? bmpW / layer.width : 1;
+  const bmpScaleY = layer.height > 0 && bmpH > 0 ? bmpH / layer.height : 1;
+  const absSx = Math.abs(layer.transform.scaleX ?? 1) || 1;
+  const absSy = Math.abs(layer.transform.scaleY ?? 1) || 1;
+  const rx = Math.floor(((x - layer.transform.x) / absSx) * bmpScaleX);
+  const ry = Math.floor(((y - layer.transform.y) / absSy) * bmpScaleY);
+  if (rx < 0 || rx >= bmpW || ry < 0 || ry >= bmpH) return 0;
 
   try {
     const ctx = getSampleCtx();
     if (!ctx) return 1; // jsdom: assume opaque so hit-test still selects
     ctx.clearRect(0, 0, 1, 1);
-    ctx.drawImage(layer.imageBitmap, rx, ry, 1, 1, 0, 0, 1, 1);
+    const srcW = Math.max(1, Math.ceil(bmpScaleX));
+    const srcH = Math.max(1, Math.ceil(bmpScaleY));
+    const srcX = Math.max(0, Math.min(rx, bmpW - srcW));
+    const srcY = Math.max(0, Math.min(ry, bmpH - srcH));
+    ctx.drawImage(bmp, srcX, srcY, srcW, srcH, 0, 0, 1, 1);
     const imgData = ctx.getImageData(0, 0, 1, 1);
     return (imgData.data[3] / 255) * layer.opacity;
   } catch {

@@ -127,7 +127,7 @@ export function Slider(props: {
       case "brush-hardness":
         return {
           "background-image":
-            "linear-gradient(to right, rgba(225, 90, 23, 0.15), var(--color-editor-accent, #E15A17))",
+            "linear-gradient(to right, color-mix(in srgb, var(--color-editor-accent) 15%, transparent), var(--color-editor-accent, #E15A17))",
         };
       case "brush-size":
         return {
@@ -212,6 +212,9 @@ export function EditableNumField(props: {
   class?: string;
   labelClass?: string;
   disabled?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
   onSubmit: (val: number) => void;
 }) {
   let inputRef: HTMLInputElement | undefined;
@@ -235,8 +238,10 @@ export function EditableNumField(props: {
     setEditing(false);
     inputRef?.blur();
 
-    const parsed = parseFloat(val);
+    let parsed = parseFloat(val);
     if (!isNaN(parsed)) {
+      if (props.min !== undefined) parsed = Math.max(props.min, parsed);
+      if (props.max !== undefined) parsed = Math.min(props.max, parsed);
       if (Math.abs(parsed - props.value) > 0.0001) {
         props.onSubmit(parsed);
       }
@@ -298,9 +303,11 @@ export function EditableNumField(props: {
             e.preventDefault();
             const parsed = parseFloat(text());
             if (!isNaN(parsed)) {
-              const step = e.shiftKey ? 10 : 1;
-              const nextVal =
-                e.key === "ArrowUp" ? parsed + step : parsed - step;
+              const baseStep = props.step ?? 1;
+              const step = e.shiftKey ? baseStep * 10 : baseStep;
+              let nextVal = e.key === "ArrowUp" ? parsed + step : parsed - step;
+              if (props.min !== undefined) nextVal = Math.max(props.min, nextVal);
+              if (props.max !== undefined) nextVal = Math.min(props.max, nextVal);
               const formatted = `${Math.round(nextVal * 100) / 100}`;
               setText(formatted);
               props.onSubmit(nextVal);

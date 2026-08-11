@@ -10,6 +10,7 @@ import {
   saveProjectStreamingCancel,
   loadProject,
   ping,
+  listSystemFonts,
 } from "@/tauri/native";
 
 // Mock Tauri core invoke (needed by native.ts)
@@ -150,6 +151,28 @@ describe("native.ts response-envelope handling", () => {
       const { invoke } = await import("@tauri-apps/api/core");
       vi.mocked(invoke).mockRejectedValue(new Error("IPC down"));
       await expect(ping()).resolves.toBe(false);
+    });
+  });
+
+  describe("listSystemFonts", () => {
+    it("returns the font list from the native command", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValue({
+        ...OK,
+        data: { fonts: [{ family: "Arial", styles: ["Regular"] }] },
+      });
+
+      const fonts = await listSystemFonts();
+
+      expect(fonts).toEqual([{ family: "Arial", styles: ["Regular"] }]);
+      expect(invoke).toHaveBeenCalledWith("list_system_fonts", undefined);
+    });
+
+    it("rejects when the native command errors", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockRejectedValue(errorEnvelope("E_FONT_ENUM", "No system fonts found"));
+
+      await expect(listSystemFonts()).rejects.toThrow("E_FONT_ENUM: No system fonts found");
     });
   });
 });

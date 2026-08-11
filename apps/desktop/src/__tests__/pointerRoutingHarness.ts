@@ -34,6 +34,7 @@ export function createMockEditorParams(toolId: string) {
     updateTextData: vi.fn(),
     sampleLayerAlpha: vi.fn(() => 1),
     deleteLayer: vi.fn(),
+    restore: vi.fn(),
   } as unknown as DocumentEngine;
 
   let currentLastPaintCoords: any = null;

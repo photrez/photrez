@@ -4,6 +4,9 @@ import { hitTestLayers, hitTestLayer, type LayerInfo } from "../viewport/layerHi
 function makeLayer(overrides: Partial<LayerInfo> = {}): LayerInfo {
   return {
     id: "layer-1",
+    // Default to raster (alpha-aware fall-through) — LayerInfo.type is required
+    // so every layer carries its hit-test class explicitly.
+    type: "raster",
     visible: true,
     locked: false,
     transform: { x: 100, y: 100, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
@@ -37,6 +40,26 @@ describe("hitTestLayer", () => {
     const inside = hitTestLayer({ x: 260, y: 50 }, layer);
     expect(inside).toBe(false);
   });
+
+  // Parametric layers (text/shape) are selected by their WHOLE box — clicks in
+  // the transparent padding of a text box or the hollow interior of an outline
+  // shape must select that layer, not fall through to the Background beneath
+  // it (@bug 2026-08-09: "clicking text/shape selects Background").
+  it("text layer is hit even where its bitmap alpha is 0 (box-hittable)", () => {
+    const text = makeLayer({ type: "text" });
+    // Sampler reports fully transparent at the point, yet the text box owns it.
+    expect(hitTestLayer({ x: 150, y: 150 }, text, () => 0)).toBe(true);
+  });
+
+  it("shape layer is hit even where its bitmap alpha is 0 (box-hittable)", () => {
+    const shape = makeLayer({ type: "shape" });
+    expect(hitTestLayer({ x: 150, y: 150 }, shape, () => 0)).toBe(true);
+  });
+
+  it("raster layer with alpha 0 still falls through (alpha-aware preserved)", () => {
+    const raster = makeLayer({ type: "raster" });
+    expect(hitTestLayer({ x: 150, y: 150 }, raster, () => 0)).toBe(false);
+  });
 });
 
 describe("hitTestLayers", () => {
@@ -57,5 +80,24 @@ describe("hitTestLayers", () => {
 
   it("returns null when no layer is hit", () => {
     expect(hitTestLayers({ x: 999, y: 999 }, [makeLayer()])).toBeNull();
+  });
+
+  it("regression: text layer transparent padding wins over an opaque Background", () => {
+    // Mirrors the user bug: an opened image (opaque Background) + a text layer
+    // whose box has transparent padding. A click inside the text box but off
+    // the glyphs must select the TEXT, never the Background.
+    const bg = makeLayer({
+      id: "bg",
+      type: "raster",
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+      width: 1000,
+      height: 1000,
+    });
+    const text = makeLayer({ id: "text", type: "text" });
+    const layers = [text, bg];
+    // At the click point the text alpha is 0 (transparent padding) and the
+    // Background is fully opaque — before the fix this selected the Background.
+    const alphaAt = (id: string) => (id === "text" ? 0 : 1);
+    expect(hitTestLayers({ x: 150, y: 150 }, layers, alphaAt)?.id).toBe("text");
   });
 });

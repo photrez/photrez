@@ -953,6 +953,80 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
   });
 
   // ════════════════════════════════════════════════════════════════════════════
+  // Implementation Contract: parametric (text/shape) layers are box-hittable
+  // in the drag path — same rule as the click-select path (isBoxHittable).
+  // @bug 2026-08-09: "clicking text/shape selects Background" — alpha-aware
+  // fall-through must NOT apply to text/shape boxes, or dragging the
+  // transparent padding of a text layer would grab the opaque Background
+  // beneath it.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  it("drag path: text layer is box-hittable — transparent box padding still drags the text layer", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      const textLayer = engine.addLayer("Hello") as LayerNode;
+      textLayer.type = "text";
+      textLayer.transform.x = 100;
+      textLayer.transform.y = 100;
+      textLayer.width = 200;
+      textLayer.height = 200;
+      // Real text bitmaps are transparent across most of their box (line-height
+      // padding around the glyphs). Simulate that: alpha is 0 exactly on this
+      // layer, 1 elsewhere (opaque Background, opaque other layers).
+      vi.spyOn(engine, "sampleLayerAlpha").mockImplementation((id) => (id === textLayer.id ? 0 : 1));
+
+      ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, button: 0, clientX: 150, clientY: 150,
+      }));
+      expect(ctx.testApi.dragApi.isDragging()).toBe(true);
+
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, button: 0, clientX: 200, clientY: 150,
+      }));
+
+      // Delta (50,0) applied to the TEXT layer → (150,100). Without the
+      // box-hittable rule the click would fall through to the Background.
+      expect(textLayer.transform.x).toBe(150);
+      expect(textLayer.transform.y).toBe(100);
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("drag path: raster layer keeps alpha-aware fall-through — transparent pixel picks the layer beneath", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      const rasterLayer = engine.addLayer("Photo") as LayerNode;
+      rasterLayer.type = "raster";
+      rasterLayer.transform.x = 100;
+      rasterLayer.transform.y = 100;
+      rasterLayer.width = 200;
+      rasterLayer.height = 200;
+      // Transparent exactly on the raster layer; opaque elsewhere.
+      vi.spyOn(engine, "sampleLayerAlpha").mockImplementation((id) => (id === rasterLayer.id ? 0 : 1));
+
+      ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, button: 0, clientX: 150, clientY: 150,
+      }));
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, button: 0, clientX: 200, clientY: 150,
+      }));
+
+      // The raster layer is skipped (alpha 0) → the "Draggable" layer beneath
+      // becomes the drag target instead.
+      expect(rasterLayer.transform.x).toBe(100);
+      expect(rasterLayer.transform.y).toBe(100);
+      const draggable = engine.getLayers().find((l) => l.name === "Draggable")!;
+      expect(draggable.transform.x).toBe(150);
+      expect(draggable.transform.y).toBe(100);
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════
   // Implementation Contract: position-locked / Background layers cannot be moved
   // (regression: ghost snap guides appeared because transformLayer silently
   // discarded the position change while the drag still emitted snap lines)

@@ -949,7 +949,7 @@ export function CanvasViewport() {
                 top: `${box().y}px`,
                 width: `${box().w}px`,
                 height: `${box().h}px`,
-                outline: "1.5px dashed #E15A17",
+                outline: "1.5px dashed var(--color-editor-accent, #E15A17)",
                 "pointer-events": "none",
                 "z-index": 45,
               }}

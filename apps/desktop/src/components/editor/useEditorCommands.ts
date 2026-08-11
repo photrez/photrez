@@ -10,6 +10,7 @@ import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import { useEditor } from "./shell/EditorContext";
 import { useLayerActions } from "./layers/useLayerActions";
 import { cancelLayerTransformSession } from "./transformSession";
+import { syncTextSessionBase } from "./canvas/pointerTools/textTool";
 import { useDialog } from "./dialogs/DialogProvider";
 import { showToast } from "./Toast";
 import { showSaveDialog, writeFileBytes, showSaveDialogAllFormats, setTrustedPaths, ipcErrorMessage } from "@/tauri/native";
@@ -256,6 +257,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
 
 
       engine.restore(snapshot);
+
+      // An open text session must re-anchor its preSnapshot: the user now
+      // sees an OLDER state, so the session's next commit diffs against it.
+      syncTextSessionBase({
+        workspace: editor.workspace,
+        textEditSession: editor.textEditSession,
+        setTextEditSession: editor.setTextEditSession,
+        scheduler: editor.scheduler,
+      });
 
       const restoredLayer = engine.getLayers()[0];
 
