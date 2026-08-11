@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { LayerNode, DocumentTabSummary, Transform2D, DocumentModel, SelectionState } from "@/engine/types";
+import type { TextStrokeAlign } from "@/engine/textTypes";
 import type { ToolId } from "./toolTypes";
 
 export interface TextEditSession {
@@ -106,6 +107,9 @@ export function createEditorState() {
   const [textFontWeight, setTextFontWeight] = createSignal(400);
   const [textFontItalic, setTextFontItalic] = createSignal(false);
   const [textAlign, setTextAlign] = createSignal<"left" | "center" | "right">("left");
+  const [textStrokeWidth, setTextStrokeWidth] = createSignal(0);
+  const [textStrokeColor, setTextStrokeColor] = createSignal("#000000");
+  const [textStrokeAlign, setTextStrokeAlign] = createSignal<TextStrokeAlign>("outside");
   // Active text edit session (new layer temp or re-edit of an existing layer).
   // Non-null while the edit overlay is open; cleared on commit/cancel.
   const [textEditSession, setTextEditSession] = createSignal<TextEditSession | null>(null);
@@ -239,6 +243,9 @@ export function createEditorState() {
     textFontWeight, setTextFontWeight,
     textFontItalic, setTextFontItalic,
     textAlign, setTextAlign,
+    textStrokeWidth, setTextStrokeWidth,
+    textStrokeColor, setTextStrokeColor,
+    textStrokeAlign, setTextStrokeAlign,
     textEditSession, setTextEditSession,
     showResizeDialog, setShowResizeDialog,
     showExportDialog, setShowExportDialog,

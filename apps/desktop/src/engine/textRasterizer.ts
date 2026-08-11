@@ -45,6 +45,21 @@ function toBitmap(canvas: OffscreenCanvas | HTMLCanvasElement): ImageBitmap {
   return html as unknown as ImageBitmap;
 }
 
+/**
+ * Set device-space letterSpacing when the context supports it (no-op
+ * otherwise — ancient engines silently ignore the property). Shared by the
+ * probe (measurement) and the post-resize re-apply so the two can never
+ * diverge.
+ */
+function applyLetterSpacing(
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
+  devicePx: number,
+): void {
+  if ("letterSpacing" in ctx) {
+    ctx.letterSpacing = `${devicePx}px`;
+  }
+}
+
 /** CSS font shorthand: style/weight prefixes only when non-default, always px + quoted family. */
 export function buildCSSFont(data: TextData, scaledFontSize: number): string {
   const style = data.fontStyle === "italic" ? "italic " : "";
@@ -57,15 +72,11 @@ export interface TextMeasurer {
   measureText(s: string): { width: number };
 }
 
-function containsCJK(text: string): boolean {
-  for (const ch of text) {
-    const c = ch.codePointAt(0);
-    if (c === undefined) continue;
-    if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3040 && c <= 0x30ff) || (c >= 0xac00 && c <= 0xd7af)) {
-      return true;
-    }
-  }
-  return false;
+/** True when the character is CJK (per-char wrap allowed — CSS breaks CJK anywhere). */
+function isCJKChar(ch: string): boolean {
+  const c = ch.codePointAt(0);
+  if (c === undefined) return false;
+  return (c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3040 && c <= 0x30ff) || (c >= 0xac00 && c <= 0xd7af);
 }
 
 /** Greedy per-character chunks of a word that cannot fit on one line. */
@@ -85,43 +96,75 @@ function splitWord(word: string, measure: TextMeasurer, maxWidth: number): strin
   return chunks;
 }
 
-function wrapWords(paragraph: string, measure: TextMeasurer, maxWidth: number): string[] {
+/**
+ * Hybrid paragraph wrap: keeps Latin runs whole (a word only splits when it
+ * alone exceeds maxWidth), breaks CJK per character, and preserves the
+ * literal space runs (consecutive/leading spaces match the pre-wrap textarea,
+ * WYSIWYG). A space run that would overflow is skipped — CSS pre-wrap removes
+ * the white space at the wrap point. "\n" is handled by the caller; empty
+ * paragraphs are preserved by wrapText. Never returns [] and never throws
+ * for a non-finite maxWidth.
+ */
+function wrapParagraph(paragraph: string, measure: TextMeasurer, maxWidth: number): string[] {
   const lines: string[] = [];
   let current = "";
-  for (const word of paragraph.split(" ")) {
-    if (word === "") continue;
-    const candidate = current === "" ? word : `${current} ${word}`;
-    if (measure.measureText(candidate).width <= maxWidth) {
-      current = candidate;
+  // Split into words + literal whitespace runs (`\s+` runs stay intact so
+  // "a  b" renders as "a  b", not "a b").
+  const tokens = paragraph.match(/\S+|\s+/g) ?? [];
+  for (const tok of tokens) {
+    if (tok.trim() === "") {
+      // Space run: glue when it fits; skip when it overflows (wrap point).
+      const candidate = current + tok;
+      if (measure.measureText(candidate).width <= maxWidth) {
+        current = candidate;
+      }
       continue;
     }
-    if (current !== "") {
-      lines.push(current);
-      current = "";
+    // Split the word token into CJK chars (per-char break) and Latin runs.
+    const chunks: string[] = [];
+    let latin = "";
+    for (const ch of tok) {
+      if (isCJKChar(ch)) {
+        if (latin !== "") {
+          chunks.push(latin);
+          latin = "";
+        }
+        chunks.push(ch);
+      } else {
+        latin += ch;
+      }
     }
-    if (measure.measureText(word).width > maxWidth) {
-      const chunks = splitWord(word, measure, maxWidth);
-      for (let i = 0; i < chunks.length - 1; i++) lines.push(chunks[i]);
-      current = chunks[chunks.length - 1];
-    } else {
-      current = word;
-    }
-  }
-  if (current !== "") lines.push(current);
-  return lines.length > 0 ? lines : [""];
-}
+    if (latin !== "") chunks.push(latin);
 
-/** CJK paragraphs wrap per character (rules favor char-level breaks for CJK text). */
-function wrapCJK(paragraph: string, measure: TextMeasurer, maxWidth: number): string[] {
-  const lines: string[] = [];
-  let current = "";
-  for (const ch of paragraph) {
-    const candidate = current + ch;
-    if (current !== "" && measure.measureText(candidate).width > maxWidth) {
-      lines.push(current);
-      current = ch;
-    } else {
-      current = candidate;
+    for (const chunk of chunks) {
+      if (isCJKChar(chunk)) {
+        // Single CJK char — appends or starts a new line.
+        const candidate = current + chunk;
+        if (current === "" || measure.measureText(candidate).width <= maxWidth) {
+          current = candidate;
+        } else {
+          lines.push(current);
+          current = chunk;
+        }
+        continue;
+      }
+      // Latin run — keep whole unless it alone overflows.
+      const candidate = current === "" ? chunk : current + chunk;
+      if (measure.measureText(candidate).width <= maxWidth) {
+        current = candidate;
+        continue;
+      }
+      if (current !== "") {
+        lines.push(current);
+        current = "";
+      }
+      if (measure.measureText(chunk).width > maxWidth) {
+        const sub = splitWord(chunk, measure, maxWidth);
+        for (let i = 0; i < sub.length - 1; i++) lines.push(sub[i]);
+        current = sub[sub.length - 1];
+      } else {
+        current = chunk;
+      }
     }
   }
   if (current !== "") lines.push(current);
@@ -129,12 +172,11 @@ function wrapCJK(paragraph: string, measure: TextMeasurer, maxWidth: number): st
 }
 
 /**
- * Paragraph-aware word wrap. "\n" separates paragraphs; empty paragraphs are
- * preserved as empty lines; a word longer than maxWidth is character-breaked.
- * Whitespace within paragraphs is normalized during word wrapping
- * (consecutive spaces collapse); multi-space runs may render collapsed.
- * Never returns [] (empty input yields [""]) and never throws for a
- * non-finite maxWidth.
+ * Paragraph-aware wrap. "\n" separates paragraphs; empty paragraphs are
+ * preserved as empty lines; a word longer than maxWidth is character-breaked;
+ * space runs are preserved (WYSIWYG with the pre-wrap edit overlay). Never
+ * returns [] (empty input yields [""]) and never throws for a non-finite
+ * maxWidth.
  */
 export function wrapText(measure: TextMeasurer, text: string, maxWidth: number): string[] {
   const width = Number.isFinite(maxWidth) && maxWidth > 0 ? maxWidth : 1;
@@ -142,10 +184,8 @@ export function wrapText(measure: TextMeasurer, text: string, maxWidth: number):
   for (const paragraph of text.split("\n")) {
     if (paragraph === "") {
       lines.push("");
-    } else if (containsCJK(paragraph)) {
-      lines.push(...wrapCJK(paragraph, measure, width));
     } else {
-      lines.push(...wrapWords(paragraph, measure, width));
+      lines.push(...wrapParagraph(paragraph, measure, width));
     }
   }
   return lines.length > 0 ? lines : [""];
@@ -178,6 +218,14 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   // (single allocation; ctx state is re-applied after the resize).
   const { canvas, ctx } = makeCanvas(1, 1);
   ctx.font = buildCSSFont(normalized, fontPx);
+  // Apply BEFORE any measurement (wrap + line widths): letterSpacing is
+  // document-space but the canvas runs at RASTER_SCALE, and real canvas
+  // measureText INCLUDES the spacing — so it must be set here, scaled by
+  // effScale, for the measured widths (and thus the box size, wrapping and
+  // center/right alignment) to match the drawn text. Without this the box
+  // came out smaller than the text and glyphs clipped at the right edge
+  // (@bug 2026-08-09 B3).
+  applyLetterSpacing(ctx, normalized.letterSpacing * effScale);
 
   const lines =
     normalized.boxMode === "area"
@@ -186,25 +234,67 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
 
   const lineWidths: number[] = [];
   let ascent = fontPx * 0.8;
-  let descent = fontPx * 0.2;
+  let descent = fontPx * 0.25;
   for (const line of lines) {
     const m = ctx.measureText(line);
     lineWidths.push(m.width);
-    if (typeof m.fontBoundingBoxAscent === "number" && m.fontBoundingBoxAscent > ascent) {
-      ascent = m.fontBoundingBoxAscent;
-    }
-    if (typeof m.fontBoundingBoxDescent === "number" && m.fontBoundingBoxDescent > descent) {
-      descent = m.fontBoundingBoxDescent;
-    }
+    // Prefer actual ink bounding box metrics for a tight box fit.
+    const lineAscent =
+      typeof m.actualBoundingBoxAscent === "number" && m.actualBoundingBoxAscent > 0
+        ? m.actualBoundingBoxAscent
+        : typeof m.fontBoundingBoxAscent === "number"
+          ? m.fontBoundingBoxAscent
+          : fontPx * 0.8;
+    const lineDescent =
+      typeof m.actualBoundingBoxDescent === "number" && m.actualBoundingBoxDescent > 0
+        ? m.actualBoundingBoxDescent
+        : typeof m.fontBoundingBoxDescent === "number"
+          ? m.fontBoundingBoxDescent
+          : fontPx * 0.25;
+
+    if (lineAscent > ascent) ascent = lineAscent;
+    if (lineDescent > descent) descent = lineDescent;
+  }
+  // Tight cap guard: cap single-line ink height to max 1.25 * fontPx so box never bloats unnecessarily
+  const maxInkHeight = fontPx * 1.25;
+  if (ascent + descent > maxInkHeight) {
+    const ratio = maxInkHeight / (ascent + descent);
+    ascent *= ratio;
+    descent *= ratio;
   }
   const maxLineWidth = Math.max(0, ...lineWidths);
+  // Outline bleed: strokeText centers its ink on the glyph outline, so each
+  // side needs (deviceStrokeWidth) margin total strokePad*2 per axis. Multiplied
+  // by effScale because stroke.width is document-space.
+  const strokeWidth = normalized.stroke?.width ?? 0;
+  const strokePad = strokeWidth * effScale;
 
   const totalWidth =
     normalized.boxMode === "area" ? normalized.boxWidth * effScale : maxLineWidth;
-  const canvasW = Math.min(MAX_CANVAS_DIM, Math.max(1, Math.ceil(totalWidth + PADDING * 2)));
+  const canvasW = Math.min(MAX_CANVAS_DIM, Math.max(1, Math.ceil(totalWidth + strokePad * 2 + PADDING * 2)));
+  // Vertical layout model: with textBaseline "top" each line's em box occupies
+  // `lineHeight * fontPx`, and that line's glyph ink (ascent + descent) sits
+  // inside it. The bitmap is exactly n-1 line spacings plus ONE ink height for
+  // the last line. The old formula added `ascent + descent` on top of ALL n
+  // line boxes, double-counting the ink — a 48px single-line label came out
+  // ~123px tall instead of ~69px, leaving a huge dead band of transparent
+  // padding that oversized the layer box (@bug 2026-08-09, follow-up to the
+  // box-hittable fix). `inkPerLine` also guards tight line-heights
+  // (< ~1.08em) where the spacing is smaller than the ink, so glyphs never
+  // clip even though the box stays tight.
+  //
+  // Assumption: standard font geometry where each line's ink fits within its
+  // own line box (fontBoundingBox metrics >= the true ascent, true for common
+  // fonts). Fonts with unusual internal leading at line-heights below ~1.0em
+  // could overhang the box bottom by a few px — accepted trade-off for the
+  // tight box (the old formula never clipped but wasted a full line-height).
+  const inkPerLine = Math.max(normalized.lineHeight * fontPx, ascent + descent);
   const canvasH = Math.min(
     MAX_CANVAS_DIM,
-    Math.max(1, Math.ceil(lines.length * normalized.lineHeight * fontPx + ascent + descent + PADDING * 2)),
+    Math.max(
+      1,
+      Math.ceil((lines.length - 1) * normalized.lineHeight * fontPx + inkPerLine + strokePad * 2 + PADDING * 2),
+    ),
   );
   canvas.width = canvasW;
   canvas.height = canvasH;
@@ -214,19 +304,89 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   ctx.fillStyle = normalized.color;
   ctx.textBaseline = "top";
   const drawCtx = ctx as OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-  if ("letterSpacing" in drawCtx) {
-    drawCtx.letterSpacing = `${normalized.letterSpacing}px`;
+  // Canvas resize reset the state, so re-apply the same device-space value
+  // the measurements were taken with.
+  applyLetterSpacing(drawCtx, normalized.letterSpacing * effScale);
+  const strokeEnabled = strokeWidth > 0;
+  const strokeAlign = normalized.stroke?.align ?? "outside";
+
+  if (strokeEnabled) {
+    ctx.strokeStyle = normalized.stroke!.color;
+    // half the ink is hidden under the fill for outside, so double the line width.
+    ctx.lineWidth = strokePad * 2;
+    ctx.lineJoin = "round";
+    ctx.miterLimit = 2;
   }
 
-  for (let i = 0; i < lines.length; i++) {
-    const lw = lineWidths[i];
-    const x =
-      normalized.align === "left"
-        ? PADDING
-        : normalized.align === "center"
-          ? PADDING + (totalWidth - lw) / 2
-          : PADDING + (totalWidth - lw);
-    ctx.fillText(lines[i], x, PADDING + i * (normalized.lineHeight * fontPx));
+  const baseX = PADDING + strokePad;
+
+  if (strokeEnabled && strokeAlign === "outside") {
+    // Outside (default): strokeText first, then fillText over it
+    for (let i = 0; i < lines.length; i++) {
+      const lw = lineWidths[i];
+      const x =
+        normalized.align === "left"
+          ? baseX
+          : normalized.align === "center"
+            ? baseX + (totalWidth - lw) / 2
+            : baseX + (totalWidth - lw);
+      const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
+      ctx.strokeText(lines[i], x, y);
+      ctx.fillText(lines[i], x, y);
+    }
+  } else if (strokeEnabled && strokeAlign === "center") {
+    // Center: fillText first, then strokeText centered on top
+    for (let i = 0; i < lines.length; i++) {
+      const lw = lineWidths[i];
+      const x =
+        normalized.align === "left"
+          ? baseX
+          : normalized.align === "center"
+            ? baseX + (totalWidth - lw) / 2
+            : baseX + (totalWidth - lw);
+      const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
+      ctx.fillText(lines[i], x, y);
+      ctx.strokeText(lines[i], x, y);
+    }
+  } else if (strokeEnabled && strokeAlign === "inside") {
+    // Inside: fillText first, then strokeText clipped strictly inside the fill via source-in
+    for (let i = 0; i < lines.length; i++) {
+      const lw = lineWidths[i];
+      const x =
+        normalized.align === "left"
+          ? baseX
+          : normalized.align === "center"
+            ? baseX + (totalWidth - lw) / 2
+            : baseX + (totalWidth - lw);
+      const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
+      ctx.fillText(lines[i], x, y);
+    }
+    ctx.globalCompositeOperation = "source-in";
+    for (let i = 0; i < lines.length; i++) {
+      const lw = lineWidths[i];
+      const x =
+        normalized.align === "left"
+          ? baseX
+          : normalized.align === "center"
+            ? baseX + (totalWidth - lw) / 2
+            : baseX + (totalWidth - lw);
+      const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
+      ctx.strokeText(lines[i], x, y);
+    }
+    ctx.globalCompositeOperation = "source-over";
+  } else {
+    // No stroke: fillText only
+    for (let i = 0; i < lines.length; i++) {
+      const lw = lineWidths[i];
+      const x =
+        normalized.align === "left"
+          ? baseX
+          : normalized.align === "center"
+            ? baseX + (totalWidth - lw) / 2
+            : baseX + (totalWidth - lw);
+      const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
+      ctx.fillText(lines[i], x, y);
+    }
   }
 
   return { imageBitmap: toBitmap(canvas), width: canvasW / effScale, height: canvasH / effScale };

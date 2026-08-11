@@ -2,6 +2,14 @@
 // Zero imports by design (extraction-first): this module must be liftable into
 // a standalone library without dragging in engine/UI/Tauri dependencies.
 
+export type TextStrokeAlign = "outside" | "center" | "inside";
+
+export interface TextStroke {
+  width: number; // 0 = off; 1..100 doc px outline
+  color: string; // "#RRGGBB"
+  align?: TextStrokeAlign;
+}
+
 export interface TextData {
   content: string; // may be "" (valid pre-commit state)
   fontFamily: string; // user-selected, may be "Arial" default
@@ -14,6 +22,7 @@ export interface TextData {
   letterSpacing: number; // -100..500
   boxMode: "point" | "area";
   boxWidth: number; // >0 only when boxMode === "area"; 0 sentinel for "point"
+  stroke: TextStroke; // outline; width 0 = none
 }
 
 export const DEFAULT_TEXT_DATA: TextData = {
@@ -24,10 +33,11 @@ export const DEFAULT_TEXT_DATA: TextData = {
   fontStyle: "normal",
   color: "#000000",
   align: "left",
-  lineHeight: 1.4,
+  lineHeight: 1.2,
   letterSpacing: 0,
   boxMode: "point",
   boxWidth: 0,
+  stroke: { width: 0, color: "#000000", align: "outside" },
 };
 
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
@@ -58,6 +68,10 @@ export function normalizeTextData(raw: unknown): TextData {
   const letterSpacing = clamp(finiteNumber(src.letterSpacing, DEFAULT_TEXT_DATA.letterSpacing), -100, 500);
   const color =
     typeof src.color === "string" && HEX_COLOR_RE.test(src.color) ? src.color : DEFAULT_TEXT_DATA.color;
+  const strokeSrc = isRecord(src.stroke) ? src.stroke : {};
+  const strokeWidth = clamp(finiteNumber(strokeSrc.width, DEFAULT_TEXT_DATA.stroke.width), 0, 100);
+  const strokeAlign: TextStrokeAlign =
+    strokeSrc.align === "center" || strokeSrc.align === "inside" ? strokeSrc.align : "outside";
   return {
     content: typeof src.content === "string" ? src.content : "",
     fontFamily: typeof src.fontFamily === "string" ? src.fontFamily : DEFAULT_TEXT_DATA.fontFamily,
@@ -70,5 +84,13 @@ export function normalizeTextData(raw: unknown): TextData {
     letterSpacing,
     boxMode,
     boxWidth: boxMode === "area" ? Math.max(1, finiteNumber(src.boxWidth, 1)) : 0,
+    stroke: {
+      width: strokeWidth,
+      color:
+        typeof strokeSrc.color === "string" && HEX_COLOR_RE.test(strokeSrc.color)
+          ? strokeSrc.color
+          : DEFAULT_TEXT_DATA.stroke.color,
+      align: strokeAlign,
+    },
   };
 }

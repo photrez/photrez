@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { OptionBar } from "../shell/OptionBar";
 import { TextOptionBar } from "../TextOptionBar";
@@ -19,6 +20,7 @@ const baseData: TextData = {
   letterSpacing: 0,
   boxMode: "point",
   boxWidth: 0,
+  stroke: { width: 0, color: "#000000" },
 };
 
 function makeTextLayer(overrides: Partial<LayerNode> = {}): LayerNode {
@@ -62,6 +64,8 @@ type Setters = {
   setTextFontWeight: ReturnType<typeof vi.fn>;
   setTextFontItalic: ReturnType<typeof vi.fn>;
   setTextAlign: ReturnType<typeof vi.fn>;
+  setTextStrokeWidth: ReturnType<typeof vi.fn>;
+  setTextStrokeColor: ReturnType<typeof vi.fn>;
   setFgColor: ReturnType<typeof vi.fn>;
 };
 
@@ -72,8 +76,15 @@ function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
     setTextFontWeight: vi.fn(),
     setTextFontItalic: vi.fn(),
     setTextAlign: vi.fn(),
+    setTextStrokeWidth: vi.fn(),
+    setTextStrokeColor: vi.fn(),
     setFgColor: vi.fn(),
   };
+  // Live draw-mode stroke state (Solid signals so `Show when={strokeWidth()>0}`
+  // re-renders after the toggle — a static getter would keep the Stroke
+  // controls hidden after enabling).
+  const [strokeWidth, setStrokeWidthLive] = createSignal(0);
+  const [strokeColor, setStrokeColorLive] = createSignal("#000000");
   const updateTextData = vi.fn();
   const commit = vi.fn();
   const snapshot = vi.fn(() => ({}));
@@ -98,6 +109,17 @@ function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
     setTextFontItalic: setters.setTextFontItalic,
     textAlign: () => (layer ? layer.textData!.align : "left"),
     setTextAlign: setters.setTextAlign,
+    textEditSession: () => null,
+    textStrokeWidth: () => (layer ? layer.textData!.stroke?.width ?? 0 : strokeWidth()),
+    setTextStrokeWidth: (v: number) => {
+      setStrokeWidthLive(v);
+      (setters.setTextStrokeWidth as (v: number) => void)(v);
+    },
+    textStrokeColor: () => (layer ? layer.textData!.stroke?.color ?? "#000000" : strokeColor()),
+    setTextStrokeColor: (v: string) => {
+      setStrokeColorLive(v);
+      (setters.setTextStrokeColor as (v: string) => void)(v);
+    },
     ...overrides,
   };
   mockUseEditor(editor as any);
@@ -165,6 +187,11 @@ function optionBarEditor(overrides: Record<string, unknown> = {}, layer?: LayerN
     setTextFontItalic: vi.fn(),
     textAlign: () => "left",
     setTextAlign: vi.fn(),
+    textEditSession: () => null,
+    textStrokeWidth: () => 0,
+    setTextStrokeWidth: vi.fn(),
+    textStrokeColor: () => "#000000",
+    setTextStrokeColor: vi.fn(),
     ...overrides,
   };
 }
@@ -178,12 +205,115 @@ afterEach(() => {
 });
 
 describe("TextOptionBar", () => {
+  it("font dropdown lists fonts immediately (WEB_SAFE placeholder, never empty while loading)", async () => {
+    buildMock();
+    const { container, cleanup } = mountTextBar();
+
+    qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
+
+    // The dropdown must never be empty while the async enumeration is in
+    // flight — the instant WEB_SAFE placeholder is rendered synchronously.
+    const items = container.querySelectorAll("[data-font-picker] button");
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].textContent).toContain("Arial");
+
+    cleanup();
+  });
+
+  it("font picker: ArrowDown + Enter selects the next family (keyboard nav)", async () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const trigger = qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!;
+    trigger.click();
+    const picker = qs(container, "[data-font-picker]")!;
+    picker.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(setters.setTextFontFamily).toHaveBeenCalledWith("Arial Black");
+    cleanup();
+  });
+
+  it("font picker: Escape closes the dropdown", async () => {
+    buildMock();
+    const { container, cleanup } = mountTextBar();
+    const trigger = qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!;
+    trigger.click();
+    expect(qs(container, "[data-font-picker]")).not.toBeNull();
+
+    qs(container, "[data-font-picker]")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(qs(container, "[data-font-picker]")).toBeNull();
+    cleanup();
+  });
+
+  it("font picker: search input is auto-focused on open", async () => {
+    buildMock();
+    const { container, cleanup } = mountTextBar();
+    qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const search = qs<HTMLInputElement>(container, 'input[aria-label="Search fonts"]')!;
+    expect(document.activeElement).toBe(search);
+    cleanup();
+  });
+
+  it("font picker: search filters the list and highlights the matching substring", async () => {
+    buildMock();
+    const { container, cleanup } = mountTextBar();
+    await new Promise((r) => setTimeout(r, 0));
+    qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
+
+    const search = qs<HTMLInputElement>(container, 'input[aria-label="Search fonts"]')!;
+    search.value = "ar";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const picker = qs(container, "[data-font-picker]")!;
+    const items = picker.querySelectorAll("[role=option]");
+    // Only Arial and Arial Black contain "ar".
+    expect(items.length).toBe(2);
+    const mark = picker.querySelector("mark")!;
+    // Highlight shows the original-case substring from the family name.
+    expect(mark.textContent!.toLowerCase()).toBe("ar");
+    cleanup();
+  });
+
+  it("font picker: no match shows a 'No fonts match' empty state", async () => {
+    buildMock();
+    const { container, cleanup } = mountTextBar();
+    qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
+
+    const search = qs<HTMLInputElement>(container, 'input[aria-label="Search fonts"]')!;
+    search.value = "zzzz";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(qs(container, "[data-font-picker]")!.textContent).toContain("No fonts match");
+    expect(container.querySelectorAll("[data-font-picker] [role=option]").length).toBe(0);
+    cleanup();
+  });
+
+  it("font picker: the selected font is marked with aria-selected and a checkmark", async () => {
+    buildMock();
+    const { container, cleanup } = mountTextBar();
+    await new Promise((r) => setTimeout(r, 0));
+    qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
+
+    const picker = qs(container, "[data-font-picker]")!;
+    const selected = Array.from(picker.querySelectorAll<HTMLElement>("[role=option]")).find(
+      (o) => o.getAttribute("aria-selected") === "true",
+    );
+    expect(selected).toBeDefined();
+    expect(selected!.textContent).toContain("Arial"); // current family
+    expect(selected!.querySelector("svg")).not.toBeNull(); // check icon
+    cleanup();
+  });
+
   it("draw mode: renders font/size/style/align/color controls when no text layer is selected", () => {
     buildMock();
     const { container, cleanup } = mountTextBar();
     expect(qs(container, "[data-font-picker-trigger]")).not.toBeNull();
     expect(qs<HTMLInputElement>(container, 'input[aria-label="Font size"]')).not.toBeNull();
-    expect(qs<HTMLButtonElement>(container, 'button[aria-label="Bold"]')).not.toBeNull();
+    expect(qs<HTMLButtonElement>(container, 'button[aria-label="Font weight"]')).not.toBeNull();
     expect(qs<HTMLButtonElement>(container, 'button[aria-label="Italic"]')).not.toBeNull();
     expect(qs<HTMLButtonElement>(container, 'button[aria-label="Align left"]')).not.toBeNull();
     expect(qs<HTMLButtonElement>(container, 'button[aria-label="Align center"]')).not.toBeNull();
@@ -192,11 +322,44 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: Bold click updates the textFontWeight signal", () => {
+  it("draw mode: Font weight popover updates the textFontWeight signal", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
-    qs<HTMLButtonElement>(container, 'button[aria-label="Bold"]')!.click();
+    const btn = qs<HTMLButtonElement>(container, 'button[aria-label="Font weight"]')!;
+    btn.click();
+    
+    // Find Bold option (700)
+    const options = Array.from(container.querySelectorAll("button"));
+    const boldBtn = options.find((b) => b.textContent?.trim().startsWith("Bold"));
+    expect(boldBtn).toBeDefined();
+    boldBtn!.click();
     expect(setters.setTextFontWeight).toHaveBeenCalledWith(700);
+    cleanup();
+  });
+
+  it("font weight: options show named labels (Regular/Bold/Black) mapped to numeric values", () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+    const btn = qs<HTMLButtonElement>(container, 'button[aria-label="Font weight"]')!;
+    btn.click();
+
+    const options = Array.from(container.querySelectorAll("button")).map((b) => b.textContent?.trim());
+    expect(options).toContain("Regular");
+    expect(options).toContain("Semibold");
+    expect(options).toContain("Bold");
+    expect(options).toContain("Black");
+
+    const blackBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.trim().startsWith("Black"));
+    blackBtn!.click();
+    expect(setters.setTextFontWeight).toHaveBeenCalledWith(900);
+    cleanup();
+  });
+
+  it("font weight: a custom (non-preset) weight displays its formatted label on the trigger button", () => {
+    buildMock({ textFontWeight: () => 650 });
+    const { container, cleanup } = mountTextBar();
+    const btn = qs<HTMLButtonElement>(container, 'button[aria-label="Font weight"]')!;
+    expect(btn.textContent).toContain("650");
     cleanup();
   });
 
@@ -316,6 +479,184 @@ describe("TextOptionBar", () => {
     expect(engine.updateTextData).toHaveBeenLastCalledWith(
       "t3",
       expect.objectContaining({ color: "#0000ff" }),
+    );
+    cleanup();
+  });
+
+  it("draw mode: stroke toggle enables at 4px then disables at 0", () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+
+    expect(qs(container, 'input[aria-label="Stroke width"]')).toBeNull();
+    const toggle = qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    toggle.click();
+    expect(setters.setTextStrokeWidth).toHaveBeenCalledWith(4);
+    cleanup();
+  });
+
+  it("stroke width: clearing the input does NOT disable the stroke (empty draft reverts on blur)", async () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // on → 4
+    const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
+    width.value = "";
+    width.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Empty input must NOT commit Number("")=0 — the stroke stays on at 4.
+    expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(4);
+
+    width.dispatchEvent(new Event("blur"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(width.value).toBe("4"); // draft reverted, no ghost 0
+    cleanup();
+  });
+
+  it("stroke width: stepper clamps at 1 and never disables via minus", () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // on → 4
+    const minus = qs<HTMLButtonElement>(container, 'button[aria-label="Decrease stroke width"]')!;
+    minus.click(); // 3
+    minus.click(); // 2
+    minus.click(); // 1
+    minus.click(); // clamped at 1
+
+    expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(1);
+    expect(setters.setTextStrokeWidth.mock.calls.filter((c) => c[0] === 0)).toHaveLength(0);
+
+    qs<HTMLButtonElement>(container, 'button[aria-label="Increase stroke width"]')!.click();
+    expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(2);
+    cleanup();
+  });
+
+  it("font size: clearing the input reverts instead of snapping to the clamp", async () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+    const size = qs<HTMLInputElement>(container, 'input[aria-label="Font size"]')!;
+
+    size.value = "";
+    size.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(setters.setTextFontSize).not.toHaveBeenCalled();
+
+    size.dispatchEvent(new Event("blur"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(size.value).toBe("48"); // reverts to the current value
+    cleanup();
+  });
+
+  it("stroke width: clear-then-retype commits the new value (draft → 8, no ghost 0)", () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // on → 4
+    const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
+    width.value = "";
+    width.dispatchEvent(new Event("input", { bubbles: true }));
+    width.value = "8";
+    width.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // The exact retype flow from the complaint: empty draft transitions into
+    // a committed 8 — never a clamp snap or a ghost 0 (stroke stays on).
+    expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(8);
+    expect(setters.setTextStrokeWidth.mock.calls.filter((c) => c[0] === 0)).toHaveLength(0);
+    cleanup();
+  });
+
+  it("draw mode: stroke width input and stroke color route to session signals", () => {
+    const { setters } = buildMock();
+    const { container, cleanup } = mountTextBar();
+
+    // Enable stroke first (toggle → width 4 → stroke controls appear).
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click();
+
+    const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
+    width.value = "8";
+    width.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(8);
+
+    const strokeColor = qs<HTMLInputElement>(container, 'input[aria-label="Stroke color"]')!;
+    strokeColor.value = "#ff0000";
+    strokeColor.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(setters.setTextStrokeColor).toHaveBeenLastCalledWith("#ff0000");
+    cleanup();
+  });
+
+  it("edit mode: stroke patch routes through updateTextData on the layer", () => {
+    const layer = makeTextLayer({ id: "t4" });
+    const { engine } = buildMock({}, layer);
+    const { container, cleanup } = mountTextBar();
+
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click();
+    // applyEdit merges stroke with the existing stroke (width 4, color kept).
+    expect(engine.updateTextData).toHaveBeenLastCalledWith(
+      "t4",
+      expect.objectContaining({ stroke: { width: 4, color: "#000000" } }),
+    );
+    cleanup();
+  });
+
+  it("edit mode: no-op stroke press on an already-stroked layer commits nothing", () => {
+    const layer = makeTextLayer({ id: "t5", textData: { ...baseData, stroke: { width: 4, color: "#ff0000" } } });
+    const { engine, commit } = buildMock({}, layer);
+    const { container, cleanup } = mountTextBar();
+
+    const toggle = qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!;
+    // Stroke is ON (4px) and controls visible; toggling OFF → 0.
+    toggle.click();
+    expect(engine.updateTextData).toHaveBeenCalledWith(
+      "t5",
+      expect.objectContaining({ stroke: { width: 0, color: "#ff0000" } }),
+    );
+    expect(commit).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it("edit mode with an OPEN session on the same layer skips the history commit (B4)", () => {
+    const layer = makeTextLayer({ id: "t6" });
+    const { engine, commit } = buildMock(
+      {
+        textEditSession: () => ({
+          layerId: "t6", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+          isNewLayer: false, preSnapshot: {},
+        }),
+      },
+      layer,
+    );
+    const { container, cleanup } = mountTextBar();
+
+    qs<HTMLButtonElement>(container, 'button[aria-label="Align right"]')!.click();
+    // Live-mutated with NO history entry — the session's own commit at close
+    // produces the single "Edit Text" undo step (one per session contract).
+    expect(engine.updateTextData).toHaveBeenCalledWith(
+      "t6",
+      expect.objectContaining({ align: "right" }),
+    );
+    expect(commit).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("edit mode with a session open on a DIFFERENT layer still commits (per-layer guard)", () => {
+    const layer = makeTextLayer({ id: "t7" });
+    const { engine, commit } = buildMock(
+      {
+        textEditSession: () => ({
+          layerId: "other-layer", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+          isNewLayer: false, preSnapshot: {},
+        }),
+      },
+      layer,
+    );
+    const { container, cleanup } = mountTextBar();
+
+    qs<HTMLButtonElement>(container, 'button[aria-label="Align right"]')!.click();
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(engine.updateTextData).toHaveBeenCalledWith(
+      "t7",
+      expect.objectContaining({ align: "right" }),
     );
     cleanup();
   });

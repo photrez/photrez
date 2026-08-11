@@ -17,6 +17,7 @@ describe("TextData contract", () => {
       letterSpacing: 2,
       boxMode: "area",
       boxWidth: 320,
+      stroke: { width: 8, color: "#00Aa00" },
     };
     const round = JSON.parse(JSON.stringify(data)) as TextData;
     expect(round).toEqual(data);
@@ -93,6 +94,35 @@ describe("normalizeTextData", () => {
     expect(normalizeTextData({ fontSize: "48", fontWeight: 400.5, content: 42 })).toEqual({
       ...DEFAULT_TEXT_DATA,
       content: "",
+    });
+  });
+
+  describe("stroke", () => {
+    it("defaults to width 0 (off) with a valid color", () => {
+      expect(DEFAULT_TEXT_DATA.stroke).toEqual({ width: 0, color: "#000000", align: "outside" });
+      expect(normalizeTextData({}).stroke).toEqual(DEFAULT_TEXT_DATA.stroke);
+    });
+
+    it("keeps valid stroke width/color", () => {
+      expect(normalizeTextData({ stroke: { width: 12, color: "#00ff00" } }).stroke).toEqual({
+        width: 12,
+        color: "#00ff00",
+        align: "outside",
+      });
+    });
+
+    it("clamps width to 0..100 and rejects bad colors", () => {
+      expect(normalizeTextData({ stroke: { width: -5 } }).stroke.width).toBe(0);
+      expect(normalizeTextData({ stroke: { width: 999 } }).stroke.width).toBe(100);
+      expect(normalizeTextData({ stroke: { width: NaN } }).stroke.width).toBe(0);
+      expect(normalizeTextData({ stroke: { color: "red" } }).stroke.color).toBe("#000000");
+      expect(normalizeTextData({ stroke: "junk" }).stroke).toEqual(DEFAULT_TEXT_DATA.stroke);
+    });
+
+    it("old textData without stroke normalizes to stroke off (lenient migration)", () => {
+      const legacy = { ...DEFAULT_TEXT_DATA } as Record<string, unknown>;
+      delete legacy.stroke;
+      expect(normalizeTextData(legacy).stroke).toEqual({ width: 0, color: "#000000", align: "outside" });
     });
   });
 });

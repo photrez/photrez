@@ -18,7 +18,7 @@ import { showToast as showToastImpl } from "../Toast";
 import { runToolSwitchCleanup } from "../tools/toolLifecycle";
 import { DialogProvider } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession, commitLayerTransformSession } from "../transformSession";
-import { commitTextSession } from "../canvas/pointerTools/textTool";
+import { commitTextSession, syncTextSessionBase } from "../canvas/pointerTools/textTool";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import {
@@ -171,6 +171,12 @@ export function EditorProvider(props: {
     for (const layer of engine.getLayers()) {
       if (layer.imageBitmap) props.renderer.uploadImage(layer.id, layer.imageBitmap);
     }
+    syncTextSessionBase({
+      workspace: props.workspace,
+      textEditSession: editorState.textEditSession,
+      setTextEditSession: editorState.setTextEditSession,
+      scheduler: props.scheduler,
+    });
     props.scheduler.requestRender();
     props.workspace.notifyVisualChange();
   };
@@ -357,6 +363,31 @@ export function EditorProvider(props: {
     prevActiveTool = tool;
   });
 
+  // Auto-commit an active text edit session when the ACTIVE DOCUMENT changes
+  // (tab click, drag-to-switch tab, open/close). The session belongs to the
+  // PREVIOUS document — the commit must run against THAT document's engine
+  // and history, otherwise the pending text sticks to the wrong document or
+  // leaves a ghost mutation.
+  let prevDocId: string | null = null;
+  createEffect(() => {
+    const id = props.workspace.getActiveDocumentId();
+    const prev = prevDocId;
+    if (prev !== null && id !== prev && editorState.textEditSession()) {
+      const ws = props.workspace;
+      commitTextSession({
+        workspace: {
+          ...ws,
+          getActiveEngine: () => ws.getEngine(prev),
+          getActiveHistory: () => ws.getHistory(prev),
+        } as typeof ws,
+        textEditSession: editorState.textEditSession,
+        setTextEditSession: editorState.setTextEditSession,
+        scheduler: props.scheduler,
+      });
+    }
+    prevDocId = id;
+  });
+
   // Clear transient hover state when transform controls are hidden.
   // Prevents stale handle cursor from persisting in the browser after
   // the overlay SVG is unmounted (cursor ghosting bug).
@@ -460,6 +491,12 @@ export function EditorProvider(props: {
     setTextFontItalic: editorState.setTextFontItalic,
     textAlign: editorState.textAlign,
     setTextAlign: editorState.setTextAlign,
+    textStrokeWidth: editorState.textStrokeWidth,
+    setTextStrokeWidth: editorState.setTextStrokeWidth,
+    textStrokeColor: editorState.textStrokeColor,
+    setTextStrokeColor: editorState.setTextStrokeColor,
+    textStrokeAlign: editorState.textStrokeAlign,
+    setTextStrokeAlign: editorState.setTextStrokeAlign,
     textEditSession: editorState.textEditSession,
     setTextEditSession: editorState.setTextEditSession,
     commitTransformState: editorState.commitTransformState,
