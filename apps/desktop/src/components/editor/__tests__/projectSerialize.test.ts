@@ -940,7 +940,7 @@ describe("projectSerialize — full roundtrip", () => {
       letterSpacing: 2,
       boxMode: "point",
       boxWidth: 0,
-      stroke: { width: 6, color: "#00aa00" },
+      stroke: { width: 6, color: "#00aa00", align: "outside" },
     };
 
     const engine = new DocumentEngine("doc-text-v3", "Text V3", 200, 150);
