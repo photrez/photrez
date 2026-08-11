@@ -223,7 +223,12 @@ export function TextOptionBar() {
   const color = () => (isEditMode() ? text().textData.color : fgColor());
   const strokeWidth = () => (isEditMode() ? text().textData.stroke?.width ?? 0 : textStrokeWidth());
   const strokeColor = () => (isEditMode() ? text().textData.stroke?.color ?? "#000000" : textStrokeColor());
-  const strokeAlign = () => (isEditMode() ? text().textData.stroke?.align ?? "outside" : textStrokeAlign());
+  const strokeAlign = () =>
+    isEditMode()
+      ? (text().textData.stroke?.align ?? "outside")
+      : typeof textStrokeAlign === "function"
+        ? textStrokeAlign()
+        : "outside";
 
   const applyEdit = (patch: Partial<TextData>) => {
     const engine = workspace.getActiveEngine();

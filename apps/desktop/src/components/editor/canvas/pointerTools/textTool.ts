@@ -107,7 +107,7 @@ function buildSessionTextData(editor: EditorAccessors): TextData {
     fontStyle: editor.textFontItalic() ? "italic" : "normal",
     color: editor.fgColor(),
     align: editor.textAlign(),
-    lineHeight: 1.4,
+    lineHeight: 1.2,
     letterSpacing: 0,
     boxMode: "point",
     boxWidth: 0,

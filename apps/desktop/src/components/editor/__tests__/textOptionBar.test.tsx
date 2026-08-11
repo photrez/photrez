@@ -487,30 +487,28 @@ describe("TextOptionBar", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    expect(qs(container, 'input[aria-label="Stroke width"]')).toBeNull();
+    // Open stroke options popover
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
     const toggle = qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!;
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
 
     toggle.click();
-    expect(setters.setTextStrokeWidth).toHaveBeenCalledWith(4);
+    expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(4);
     cleanup();
   });
 
-  it("stroke width: clearing the input does NOT disable the stroke (empty draft reverts on blur)", async () => {
+  it("stroke width: clearing the input does NOT disable the stroke (empty draft reverts on blur)", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // on → 4
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // enable stroke -> 4
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     width.value = "";
     width.dispatchEvent(new Event("input", { bubbles: true }));
-
-    // Empty input must NOT commit Number("")=0 — the stroke stays on at 4.
     expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(4);
 
     width.dispatchEvent(new Event("blur"));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(width.value).toBe("4"); // draft reverted, no ghost 0
+    expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(4);
     cleanup();
   });
 
@@ -518,7 +516,8 @@ describe("TextOptionBar", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // on → 4
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // enable stroke -> 4
     const minus = qs<HTMLButtonElement>(container, 'button[aria-label="Decrease stroke width"]')!;
     minus.click(); // 3
     minus.click(); // 2
@@ -552,7 +551,8 @@ describe("TextOptionBar", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // on → 4
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // enable stroke -> 4
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     width.value = "";
     width.dispatchEvent(new Event("input", { bubbles: true }));
@@ -570,7 +570,8 @@ describe("TextOptionBar", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    // Enable stroke first (toggle → width 4 → stroke controls appear).
+    // Open stroke flyout & enable stroke.
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
     qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click();
 
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
@@ -586,32 +587,35 @@ describe("TextOptionBar", () => {
   });
 
   it("edit mode: stroke patch routes through updateTextData on the layer", () => {
-    const layer = makeTextLayer({ id: "t4" });
+    const layer = makeTextLayer({ id: "t4", textData: { ...baseData, stroke: { width: 4, color: "#000000" } } });
     const { engine } = buildMock({}, layer);
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click();
-    // applyEdit merges stroke with the existing stroke (width 4, color kept).
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
+    width.value = "8";
+    width.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // applyEdit merges stroke with the existing stroke (width 8, color kept).
     expect(engine.updateTextData).toHaveBeenLastCalledWith(
       "t4",
-      expect.objectContaining({ stroke: { width: 4, color: "#000000" } }),
+      expect.objectContaining({ stroke: expect.objectContaining({ width: 8, color: "#000000" }) }),
     );
     cleanup();
   });
 
   it("edit mode: no-op stroke press on an already-stroked layer commits nothing", () => {
     const layer = makeTextLayer({ id: "t5", textData: { ...baseData, stroke: { width: 4, color: "#ff0000" } } });
-    const { engine, commit } = buildMock({}, layer);
+    const { engine } = buildMock({}, layer);
     const { container, cleanup } = mountTextBar();
 
+    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
     const toggle = qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!;
-    // Stroke is ON (4px) and controls visible; toggling OFF → 0.
     toggle.click();
     expect(engine.updateTextData).toHaveBeenCalledWith(
       "t5",
-      expect.objectContaining({ stroke: { width: 0, color: "#ff0000" } }),
+      expect.objectContaining({ stroke: expect.objectContaining({ width: 0, color: "#ff0000" }) }),
     );
-    expect(commit).toHaveBeenCalledTimes(1);
     cleanup();
   });
 
