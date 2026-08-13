@@ -118,6 +118,9 @@ export function TextOptionBar() {
     textStrokeWidth, setTextStrokeWidth,
     textStrokeColor, setTextStrokeColor,
     textStrokeAlign, setTextStrokeAlign,
+    textUnderline, setTextUnderline,
+    textStrikethrough, setTextStrikethrough,
+    textUppercase, setTextUppercase,
     colorPickerOpen, setColorPickerOpen,
     colorPickerTarget, setColorPickerTarget,
   } = useEditor();
@@ -333,30 +336,24 @@ export function TextOptionBar() {
     else setTextFontItalic(next);
   };
 
-  const fontUnderline = () => {
-    const layer = selectedText();
-    return layer ? !!layer.textData.underline : false;
-  };
-  const fontStrikethrough = () => {
-    const layer = selectedText();
-    return layer ? !!layer.textData.strikethrough : false;
-  };
-  const fontUppercase = () => {
-    const layer = selectedText();
-    return layer ? !!layer.textData.uppercase : false;
-  };
+  const fontUnderline = () => (isEditMode() ? !!text().textData.underline : typeof textUnderline === "function" ? textUnderline() : false);
+  const fontStrikethrough = () => (isEditMode() ? !!text().textData.strikethrough : typeof textStrikethrough === "function" ? textStrikethrough() : false);
+  const fontUppercase = () => (isEditMode() ? !!text().textData.uppercase : typeof textUppercase === "function" ? textUppercase() : false);
 
   const toggleUnderline = () => {
     const next = !fontUnderline();
     if (isEditMode()) applyEdit({ underline: next });
+    else if (typeof setTextUnderline === "function") setTextUnderline(next);
   };
   const toggleStrikethrough = () => {
     const next = !fontStrikethrough();
     if (isEditMode()) applyEdit({ strikethrough: next });
+    else if (typeof setTextStrikethrough === "function") setTextStrikethrough(next);
   };
   const toggleUppercase = () => {
     const next = !fontUppercase();
     if (isEditMode()) applyEdit({ uppercase: next });
+    else if (typeof setTextUppercase === "function") setTextUppercase(next);
   };
 
   const setAlign = (a: "left" | "center" | "right") => {

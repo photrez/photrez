@@ -172,6 +172,12 @@ export interface ToolSettingsValue {
   setTextStrokeColor: Setter<string>;
   textStrokeAlign: Accessor<TextStrokeAlign>;
   setTextStrokeAlign: Setter<TextStrokeAlign>;
+  textUnderline: Accessor<boolean>;
+  setTextUnderline: Setter<boolean>;
+  textStrikethrough: Accessor<boolean>;
+  setTextStrikethrough: Setter<boolean>;
+  textUppercase: Accessor<boolean>;
+  setTextUppercase: Setter<boolean>;
   /** Active text edit session (new temp layer or re-edit); null when closed. */
   textEditSession: Accessor<TextEditSession | null>;
   setTextEditSession: Setter<TextEditSession | null>;

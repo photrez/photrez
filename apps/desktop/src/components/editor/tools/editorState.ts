@@ -114,6 +114,9 @@ export function createEditorState() {
   const [textStrokeWidth, setTextStrokeWidth] = createSignal(0);
   const [textStrokeColor, setTextStrokeColor] = createSignal("#000000");
   const [textStrokeAlign, setTextStrokeAlign] = createSignal<TextStrokeAlign>("outside");
+  const [textUnderline, setTextUnderline] = createSignal(false);
+  const [textStrikethrough, setTextStrikethrough] = createSignal(false);
+  const [textUppercase, setTextUppercase] = createSignal(false);
   // Active text edit session (new layer temp or re-edit of an existing layer).
   // Non-null while the edit overlay is open; cleared on commit/cancel.
   const [textEditSession, setTextEditSession] = createSignal<TextEditSession | null>(null);
@@ -250,6 +253,9 @@ export function createEditorState() {
     textStrokeWidth, setTextStrokeWidth,
     textStrokeColor, setTextStrokeColor,
     textStrokeAlign, setTextStrokeAlign,
+    textUnderline, setTextUnderline,
+    textStrikethrough, setTextStrikethrough,
+    textUppercase, setTextUppercase,
     textEditSession, setTextEditSession,
     showResizeDialog, setShowResizeDialog,
     showExportDialog, setShowExportDialog,

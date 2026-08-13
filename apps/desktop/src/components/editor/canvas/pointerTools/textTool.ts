@@ -118,6 +118,9 @@ function buildSessionTextData(editor: EditorAccessors): TextData {
       width: typeof editor.textStrokeWidth === "function" ? editor.textStrokeWidth() : 0,
       color: typeof editor.textStrokeColor === "function" ? editor.textStrokeColor() : "#000000",
     },
+    underline: typeof editor.textUnderline === "function" ? editor.textUnderline() : false,
+    strikethrough: typeof editor.textStrikethrough === "function" ? editor.textStrikethrough() : false,
+    uppercase: typeof editor.textUppercase === "function" ? editor.textUppercase() : false,
   };
 }
 
@@ -137,6 +140,9 @@ function textDataEquals(a: TextData, b: TextData): boolean {
     && (a.boxHeight ?? 0) === (b.boxHeight ?? 0)
     && (a.stroke?.width ?? 0) === (b.stroke?.width ?? 0)
     && (a.stroke?.color ?? "#000000") === (b.stroke?.color ?? "#000000")
+    && !!a.underline === !!b.underline
+    && !!a.strikethrough === !!b.strikethrough
+    && !!a.uppercase === !!b.uppercase
   );
 }
 
