@@ -103,6 +103,8 @@ function shallowEqualTextData(cur: TextData, patch: Partial<TextData>): boolean 
 export function TextOptionBar() {
   const {
     workspace,
+    renderer,
+    scheduler,
     layers,
     selectedLayerId,
     fgColor, setFgColor,
@@ -284,6 +286,11 @@ export function TextOptionBar() {
     const session = textEditSession();
     if (session && session.layerId === layer.id) {
       engine.updateTextData(layer.id, next);
+      if (typeof engine.getLayerImageBitmap === "function") {
+        const bitmap = engine.getLayerImageBitmap(layer.id);
+        if (bitmap) renderer?.uploadImage(layer.id, bitmap);
+      }
+      scheduler?.requestRender();
       return;
     }
     // commit BEFORE mutation (AGENTS.md wiring rule)
