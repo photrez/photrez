@@ -6,6 +6,12 @@ import type { ShapeParams } from "./types";
 
 const MIN_STROKE_WIDTH = 1;
 
+// Hard cap on the allocated shape canvas. A shape dragged across a heavily
+// zoomed-out document could otherwise request a multi-100k px OffscreenCanvas
+// and OOM the renderer/WebGL. 16384 is the common max texture size; we clamp
+// both the raster allocation and the logical layer dims (see shapeTool.ts).
+export const MAX_SHAPE_DIM = 16384;
+
 function makeCanvas(w: number, h: number): {
   canvas: OffscreenCanvas | HTMLCanvasElement;
   ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
@@ -39,17 +45,18 @@ function toBitmap(canvas: OffscreenCanvas | HTMLCanvasElement): ImageBitmap {
   return html as unknown as ImageBitmap;
 }
 
-/** Margin (px) baked around a line-with-arrow bitmap so the arrow head and
- *  round caps are not clipped. 0 for every other shape. The shape tool
- *  subtracts this from the layer placement so the arrow stays aligned with
- *  the user's drag box. */
+/** Margin (px) baked around a shape bitmap so the centered stroke (and the
+ *  line/arrow round caps + arrow head) is not clipped by the bitmap edge.
+ *  0 when the stroke is disabled; otherwise `strokeWidth` for every shape
+ *  kind except line/arrow, which reserve extra for caps + arrow head barb.
+ *  The shape tool offsets layer placement by this margin and the selection
+ *  overlay/hit-test subtract it, so the visible shape keeps its exact size
+ *  (no floating gap) while the stroke stays fully painted. */
 export function shapeRenderMargin(params: ShapeParams): number {
-  if (params.kind !== "line") return 0;
-  const strokeWidth = Math.max(
-    MIN_STROKE_WIDTH,
-    params.stroke.width || (params.kind === "line" ? 2 : MIN_STROKE_WIDTH),
-  );
-  // Always reserve room for the round line caps at both endpoints (otherwise
+  if (!params.stroke.enabled) return 0;
+  const strokeWidth = Math.max(MIN_STROKE_WIDTH, params.stroke.width || MIN_STROKE_WIDTH);
+  if (params.kind !== "line") return strokeWidth;
+  // Lines/arrows reserve room for the round caps at both endpoints (otherwise
   // the half-cap past the drag point is clipped at the canvas edge). Arrow
   // lines reserve extra so the arrow head barb sweep isn't clipped.
   const cap = strokeWidth;
@@ -75,8 +82,8 @@ export function renderShapeToBitmap(params: ShapeParams): ImageBitmap {
 
   const margin = shapeRenderMargin(params);
 
-  const w = Math.max(1, Math.round(params.width + margin * 2));
-  const h = Math.max(1, Math.round(params.height + margin * 2));
+  const w = Math.max(1, Math.round(Math.min(params.width + margin * 2, MAX_SHAPE_DIM)));
+  const h = Math.max(1, Math.round(Math.min(params.height + margin * 2, MAX_SHAPE_DIM)));
   const { canvas, ctx } = makeCanvas(w, h);
 
   if (margin > 0) {

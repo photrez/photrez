@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderShapeToBitmap } from "../shapeRaster";
+import { renderShapeToBitmap, MAX_SHAPE_DIM } from "../shapeRaster";
 import type { ShapeParams } from "../types";
 
 function setupOffscreenCanvasMock() {
@@ -136,5 +136,16 @@ describe("renderShapeToBitmap", () => {
     } finally {
       createSpy.mockRestore();
     }
+  });
+
+  it("clamps absurd dimensions before canvas allocation (OOM guard)", () => {
+    // A drag across a heavily zoomed-out canvas could produce a huge box. The
+    // rasterizer must clamp the backing canvas so we never allocate a
+    // MAX_SAFE_INTEGER-sized canvas.
+    const huge = { ...rectParams, width: 9_999_999, height: 9_999_999 };
+    expect(() => renderShapeToBitmap(huge)).not.toThrow();
+    const i = instances[0];
+    expect(i.width).toBeLessThanOrEqual(MAX_SHAPE_DIM + rectParams.stroke.width * 2);
+    expect(i.height).toBeLessThanOrEqual(MAX_SHAPE_DIM + rectParams.stroke.width * 2);
   });
 });

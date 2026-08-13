@@ -15,6 +15,7 @@ import { createRoot, createSignal } from "solid-js";
 import * as TransformGeometryModule from "@/viewport/transformGeometry";
 import * as CursorRotateModule from "@/viewport/cursorRotate";
 import { useSelectionTransformDrag } from "../useSelectionTransformDrag";
+import { shapeRenderMargin } from "@/engine/shapeRaster";
 import type { Transform2D, DocumentModel } from "@/engine/types";
 
 // ── Hoisted mock for useEditor ──────────────────────────────────────────
@@ -530,6 +531,73 @@ describe("useSelectionTransformDrag", () => {
       // constrainRatio false + no Shift -> breakAspect true (free resize)
       expect(args[6]).toBe(true);
       resizeSpy.mockRestore();
+      dispose();
+    });
+
+    it("resize keeps the selection box glued to a stroked shape (no margin drift)", () => {
+      const { result, engine, editorSignals, dispose } = setupHook();
+      // Inject a stroked RECT shape so shapeRenderMargin > 0 (margin = strokeWidth).
+      // Full bitmap is path + 2*margin; the visible shape sits inside the margin.
+      const pathW = 100;
+      const pathH = 50;
+      const strokeWidth = 4;
+      const margin = shapeRenderMargin({
+        kind: "rect",
+        width: pathW,
+        height: pathH,
+        radius: 0,
+        fill: { kind: "solid", color: "#000000" },
+        stroke: { enabled: true, color: "#000000", width: strokeWidth },
+        arrowHead: false,
+      } as any);
+      const shapeLayer = {
+        id: "layer-1",
+        name: "Shape",
+        type: "shape" as const,
+        transform: { x: 96, y: 96, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+        locked: false,
+        visible: true,
+        opacity: 1,
+        blendMode: "normal" as const,
+        width: pathW + 2 * margin,
+        height: pathH + 2 * margin,
+        imageBitmap: null,
+        isBackground: false,
+        lockPosition: false,
+        lockRotation: false,
+        shapeParams: {
+          kind: "rect" as const,
+          width: pathW,
+          height: pathH,
+          radius: 0,
+          fill: { kind: "solid" as const, color: "#000000" },
+          stroke: { enabled: true, color: "#000000", width: strokeWidth },
+          arrowHead: false,
+        },
+      };
+      editorSignals.setLayers([shapeLayer]);
+
+      // SE handle sits at the visible-box corner: (96+margin + pathW, 96+margin + pathH)
+      // = (200, 150) in doc space (zoom 1, pan 0).
+      result.handlePointerDown(makePointerEvent({ clientX: 200, clientY: 150 }), "se");
+      engine.transformLayer.mockClear();
+
+      // Drag +50px x, +25px y -> pointer at (250, 175); aspect-locked -> ~1.5x.
+      result.handlePointerMove(makePointerEvent({ clientX: 250, clientY: 175, pointerId: 1 }));
+      expect(engine.transformLayer).toHaveBeenCalled();
+      const t = engine.transformLayer.mock.calls[0][1] as Transform2D;
+      expect(t.scaleX).toBeCloseTo(1.5, 5);
+      expect(t.scaleY).toBeCloseTo(1.5, 5);
+      // Full-layer origin must be shifted back by margin*scale (the fix). Without it
+      // the shape drifts by margin*scaleX and the selection box detaches from the
+      // pointer — the bug this test guards against.
+      expect(t.x).toBeCloseTo(96 + margin - margin * 1.5, 5);
+      expect(t.y).toBeCloseTo(96 + margin - margin * 1.5, 5);
+      // Resulting visible-box east/south edge must land exactly on the pointer.
+      const visEast = t.x + margin * t.scaleX + pathW * t.scaleX;
+      const visSouth = t.y + margin * t.scaleY + pathH * t.scaleY;
+      expect(visEast).toBeCloseTo(250, 5);
+      expect(visSouth).toBeCloseTo(175, 5);
       dispose();
     });
   });

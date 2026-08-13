@@ -13,6 +13,7 @@ import {
   detectHandle,
   getNearestRotateCorner,
 } from "@/viewport/transformGeometry";
+import { shapeRenderMargin } from "@/engine/shapeRaster";
 import { getRotateCursorByPos } from "@/viewport/cursorRotate";
 
 interface UseSelectionTransformDragParams {
@@ -73,16 +74,61 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     return layer;
   };
 
-  const center = createMemo(() => {
+  // Shape layers rasterize with a stroke margin (see shapeRenderMargin), so
+  // layer.width/height include 2x that margin while the visible shape occupies
+  // the inner region. Derive the visible box once and feed it to all geometry so
+  // the selection overlay/handles hug the actual shape (no floating gap) and the
+  // resize/rotate math stays correct. The margin is in layer-local pixels; the
+  // x/y offset must be scaled by the layer's scale so it lands correctly when
+  // the layer is already scaled.
+  const visBoxOf = (
+    layer: NonNullable<ReturnType<typeof getLayer>>,
+    transform: Transform2D,
+    w: number,
+    h: number
+  ) => {
+    const m = layer.type === "shape" && layer.shapeParams ? shapeRenderMargin(layer.shapeParams) : 0;
+    const sx = Math.abs(transform.scaleX) || 1;
+    const sy = Math.abs(transform.scaleY) || 1;
+    return {
+      transform: { ...transform, x: transform.x + m * sx, y: transform.y + m * sy },
+      w: w - 2 * m,
+      h: h - 2 * m,
+    };
+  };
+
+  const visBox = createMemo<{ transform: Transform2D; w: number; h: number } | null>(() => {
     const layer = getLayer();
-    if (!layer) return { x: 0, y: 0 };
-    return getLayerCenter(layer.transform, layer.width, layer.height);
+    if (!layer) return null;
+    return visBoxOf(layer, layer.transform, layer.width, layer.height);
+  });
+
+  // Convert a transform expressed in the VISIBLE (shape-path) box frame back to
+  // the FULL layer frame the engine stores. The engine's transformLayer /
+  // applyResizeHandle operate on the full layer (which includes the 2*margin
+  // bitmap padding), so any geometry computed against visBox must be shifted
+  // back by `m * scale` before being committed — otherwise the shape drifts by
+  // `margin * scaleX` on every resize. See regression test "resize keeps the
+  // selection box glued to a stroked shape".
+  const fullTransformFromVisible = (layer: NonNullable<ReturnType<typeof getLayer>>, vbTransform: Transform2D): Transform2D => {
+    const m = layer.type === "shape" && layer.shapeParams ? shapeRenderMargin(layer.shapeParams) : 0;
+    return {
+      ...vbTransform,
+      x: vbTransform.x - m * vbTransform.scaleX,
+      y: vbTransform.y - m * vbTransform.scaleY,
+    };
+  };
+
+  const center = createMemo(() => {
+    const vb = visBox();
+    if (!vb) return { x: 0, y: 0 };
+    return getLayerCenter(vb.transform, vb.w, vb.h);
   });
 
   const aabb = createMemo(() => {
-    const layer = getLayer();
-    if (!layer) return null;
-    return getLayerAabb(layer.transform, layer.width, layer.height);
+    const vb = visBox();
+    if (!vb) return null;
+    return getLayerAabb(vb.transform, vb.w, vb.h);
   });
 
   const rotation = createMemo(() => {
@@ -101,23 +147,23 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
   });
 
   const layerX = createMemo(() => {
-    const layer = getLayer();
-    return layer ? layer.transform.x : 0;
+    const vb = visBox();
+    return vb ? vb.transform.x : 0;
   });
 
   const layerY = createMemo(() => {
-    const layer = getLayer();
-    return layer ? layer.transform.y : 0;
+    const vb = visBox();
+    return vb ? vb.transform.y : 0;
   });
 
   const effW = createMemo(() => {
-    const layer = getLayer();
-    return layer ? layer.width * Math.abs(scaleX()) : 0;
+    const vb = visBox();
+    return vb ? vb.w * Math.abs(scaleX()) : 0;
   });
 
   const effH = createMemo(() => {
-    const layer = getLayer();
-    return layer ? layer.height * Math.abs(scaleY()) : 0;
+    const vb = visBox();
+    return vb ? vb.h * Math.abs(scaleY()) : 0;
   });
 
   const rotateCursor = createMemo(() => {
@@ -160,15 +206,15 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
 
   const handlePointerMoveUpdateHover = (e: PointerEvent) => {
     if (dragState()) return;
-    const layer = getLayer();
-    if (!layer) return;
+    const vb = visBox();
+    if (!vb) return;
     const toDoc = props.onScreenToDoc ?? ((cx: number, cy: number) => ({ x: (cx - pan().x) / zoom(), y: (cy - pan().y) / zoom() }));
     const docPos = toDoc(e.clientX, e.clientY);
-    const hit = detectHandle(docPos, layer.transform, layer.width, layer.height, zoom());
+    const hit = detectHandle(docPos, vb.transform, vb.w, vb.h, zoom());
     if (hit) {
       setHoverHandle(hit);
       if (hit === "rotate") {
-        const corner = getNearestRotateCorner(docPos, layer.transform, layer.width, layer.height);
+        const corner = getNearestRotateCorner(docPos, vb.transform, vb.w, vb.h);
         setHoverHandle(`rotate-${corner}`);
       }
       setHoverPos({ x: e.clientX, y: e.clientY });
@@ -258,7 +304,10 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     const dx = (e.clientX - drag.startX) / z;
     const dy = (e.clientY - drag.startY) / z;
 
-    const cent = getLayerCenter(drag.startTransform, layer.width, layer.height);
+    // Visible box for the drag-start transform, so move-snap and rotate pivots
+    // align with the actual shape (not the margin padding).
+    const startVb = visBoxOf(layer, drag.startTransform, layer.width, layer.height);
+    const cent = getLayerCenter(startVb.transform, startVb.w, startVb.h);
 
     if (drag.type === "move") {
       let nextX = drag.startTransform.x + dx;
@@ -266,7 +315,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       let snapActive = false;
       const snapEnabled = props.moveSnapEnabled ?? moveSnapEnabled();
       if (!e.altKey && snapEnabled && props.onComputeSnap) {
-        const aabb = getLayerAabb(drag.startTransform, layer.width, layer.height);
+        const aabb = getLayerAabb(startVb.transform, startVb.w, startVb.h);
         const baseX = aabb.x;
         const baseY = aabb.y;
         const snap = props.onComputeSnap({
@@ -318,19 +367,25 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       // This is the single source of truth shared with PropertiesPanel's
       // "Constrain proportions" toggle and TransformOptionBar's "Ratio" toggle.
       const breakAspect = constrainRatio() ? e.shiftKey : !e.shiftKey;
-      const newTransform = applyResizeHandle(
-        drag.startTransform,
-        layer.width,
-        layer.height,
-        drag.type,
-        dx,
-        dy,
-        breakAspect,
-        e.altKey
+      // Resize against the VISIBLE box so the handle grabbed at the shape edge
+      // keeps tracking the pointer (no margin gap). The result is in the visible
+      // frame, so convert it back to the full-layer frame before committing.
+      const newTransform = fullTransformFromVisible(
+        layer,
+        applyResizeHandle(
+          startVb.transform,
+          startVb.w,
+          startVb.h,
+          drag.type,
+          dx,
+          dy,
+          breakAspect,
+          e.altKey
+        )
       );
       engine.transformLayer(layer.id, newTransform);
-      const effW = layer.width * Math.abs(newTransform.scaleX);
-      const effH = layer.height * Math.abs(newTransform.scaleY);
+      const effW = startVb.w * Math.abs(newTransform.scaleX);
+      const effH = startVb.h * Math.abs(newTransform.scaleY);
       props.onHudUpdate?.({
         mode: "resize",
         clientX: e.clientX,
