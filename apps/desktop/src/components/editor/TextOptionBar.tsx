@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Show, For, createSignal, createEffect, onMount } from "solid-js";
+import { Show, For, createSignal, createEffect, createMemo, onMount } from "solid-js";
 import { clsx } from "clsx";
 import { useEditor } from "./shell/EditorContext";
+import { useDialog } from "./dialogs/DialogProvider";
 import { ToolPill, Divider } from "./shell/OptionBarShared";
 import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
@@ -82,7 +83,8 @@ function shallowEqualTextData(cur: TextData, patch: Partial<TextData>): boolean 
   if (
     patch.stroke !== undefined &&
     ((patch.stroke.width ?? 0) !== (cur.stroke?.width ?? 0) ||
-      (patch.stroke.color ?? "#000000") !== (cur.stroke?.color ?? "#000000"))
+      (patch.stroke.color ?? "#000000") !== (cur.stroke?.color ?? "#000000") ||
+      (patch.stroke.align ?? "outside") !== (cur.stroke?.align ?? "outside"))
   )
     return false;
   return true;
@@ -110,10 +112,44 @@ export function TextOptionBar() {
     textFontItalic, setTextFontItalic,
     textAlign, setTextAlign,
     textEditSession,
+    setTextEditSession,
     textStrokeWidth, setTextStrokeWidth,
     textStrokeColor, setTextStrokeColor,
     textStrokeAlign, setTextStrokeAlign,
+    colorPickerOpen, setColorPickerOpen,
+    colorPickerTarget, setColorPickerTarget,
   } = useEditor();
+  const dialogs = useDialog();
+
+  const handleOpenTextColorPicker = async () => {
+    setColorPickerOpen(true);
+    setColorPickerTarget("foreground");
+    const chosen = await dialogs.colorPicker({
+      title: "Text Color",
+      initialColor: color(),
+      target: "foreground",
+      onChange: (c) => setColor(c),
+    });
+    if (chosen) {
+      setColor(chosen);
+    }
+    setColorPickerOpen(false);
+  };
+
+  const handleOpenStrokeColorPicker = async () => {
+    setColorPickerOpen(true);
+    setColorPickerTarget("foreground");
+    const chosen = await dialogs.colorPicker({
+      title: "Text Stroke Color",
+      initialColor: strokeColor(),
+      target: "foreground",
+      onChange: (c) => setStrokeColor(c),
+    });
+    if (chosen) {
+      setStrokeColor(chosen);
+    }
+    setColorPickerOpen(false);
+  };
 
   // Start from the instant WEB_SAFE placeholder so the dropdown is NEVER empty
   // while the (native) enumeration is in flight — the old empty-until-loaded
@@ -130,6 +166,7 @@ export function TextOptionBar() {
   const [strokePopoverOpen, setStrokePopoverOpen] = createSignal(false);
   const [weightPickerOpen, setWeightPickerOpen] = createSignal(false);
   const [sizePickerOpen, setSizePickerOpen] = createSignal(false);
+  const [boxModePickerOpen, setBoxModePickerOpen] = createSignal(false);
   const [strokeDraft, setStrokeDraft] = createSignal<string | null>(null);
   const [sizeDraft, setSizeDraft] = createSignal<string | null>(null);
   let searchRef: HTMLInputElement | undefined;
@@ -294,6 +331,26 @@ export function TextOptionBar() {
     else setTextAlign(a);
   };
 
+  const boxMode = () => (isEditMode() ? text().textData.boxMode : textEditSession()?.boxMode ?? "point");
+
+  const setBoxMode = (mode: "point" | "area") => {
+    const layer = selectedText();
+    const session = textEditSession();
+    if (mode === "point") {
+      if (layer) applyEdit({ boxMode: "point", boxWidth: 0, boxHeight: 0 });
+      if (session) {
+        setTextEditSession({ ...session, boxMode: "point", boxWidth: 0, boxHeight: 0 });
+      }
+    } else {
+      const curW = layer ? layer.textData.boxWidth : (session?.boxWidth ?? 0);
+      const initW = curW > 0 ? curW : 200;
+      if (layer) applyEdit({ boxMode: "area", boxWidth: initW });
+      if (session) {
+        setTextEditSession({ ...session, boxMode: "area", boxWidth: initW });
+      }
+    }
+  };
+
   const setColor = (c: string) => {
     if (isEditMode()) applyEdit({ color: c });
     else setFgColor(c);
@@ -354,16 +411,21 @@ export function TextOptionBar() {
     return fonts().filter((f) => f.family.toLowerCase().includes(q));
   };
 
+  const displayedFonts = createMemo(() => {
+    const list = filteredFonts();
+    return fontSearch().trim() ? list : list.slice(0, 100);
+  });
+
   const btnClass = clsx(
-    "flex h-[24px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 select-none text-[11px] font-medium text-editor-text transition-colors hover:border-editor-text-dim/50",
+    "group flex h-[24px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 select-none text-[11px] font-medium text-editor-text transition-colors hover:border-[#4B515D] hover:bg-editor-field/80 hover:text-white",
   );
 
   const iconBtnClass = (active: boolean) =>
     clsx(
-      "flex h-[24px] w-[24px] shrink-0 cursor-pointer items-center justify-center rounded-[4px] border text-[11px] font-medium transition-all duration-75",
+      "flex h-[24px] w-[24px] shrink-0 cursor-pointer items-center justify-center rounded-[4px] border text-[11px] font-medium transition-all duration-75 select-none",
       active
-        ? "border-editor-accent bg-editor-accent/20 text-white shadow-xs"
-        : "border-transparent text-editor-text-dim hover:border-editor-field-border hover:bg-editor-field/60 hover:text-editor-text",
+        ? "border-editor-accent bg-editor-accent/20 text-white shadow-xs font-bold"
+        : "border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white",
     );
 
   return (
@@ -395,17 +457,17 @@ export function TextOptionBar() {
               Aa
             </span>
             <span
-              class="max-w-[100px] truncate text-editor-text font-medium"
+              class="max-w-[110px] truncate text-white font-medium"
               style={{ "font-family": `"${fontFamily()}", sans-serif` }}
             >
               {fontFamily()}
             </span>
-            <Icon name="chevron-down" class="size-3 shrink-0 text-editor-text-dim ml-1" />
+            <Icon name="chevron-down" class="size-3 shrink-0 text-[#A1A1AA] group-hover:text-white ml-1 transition-colors" />
           </button>
         </Tooltip>
         <Show when={fontPickerOpen()}>
           <div
-            class="absolute left-0 top-full z-50 mt-1.5 w-64 overflow-hidden rounded-[6px] border border-editor-field-border bg-[#1D2026] shadow-2xl"
+            class="absolute left-0 top-full z-50 mt-1.5 w-64 overflow-hidden rounded-[6px] border border-[#363B44] bg-[#1B1D22] shadow-2xl"
             data-font-picker
             onKeyDown={handleFontPickerKeyDown}
           >
@@ -419,7 +481,7 @@ export function TextOptionBar() {
                 setFontSearch(e.currentTarget.value);
                 setHighlightIndex(0);
               }}
-              class="w-full border-b border-editor-divider bg-transparent px-2.5 py-1.5 text-[11px] text-editor-text outline-none placeholder:text-editor-text-dim/60"
+              class="w-full border-b border-[#2D323C] bg-transparent px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-[#71717A] focus:border-editor-accent"
             />
             <div
               ref={listRef}
@@ -434,12 +496,12 @@ export function TextOptionBar() {
               <Show
                 when={filteredFonts().length > 0}
                 fallback={
-                  <div class="px-2.5 py-2 text-[11px] text-editor-text-dim/70">
+                  <div class="px-2.5 py-2 text-[11px] text-[#A1A1AA]">
                     No fonts match “{fontSearch()}”
                   </div>
                 }
               >
-                <For each={filteredFonts()}>
+                <For each={displayedFonts()}>
                   {(f, i) => (
                     <button
                       type="button"
@@ -449,12 +511,12 @@ export function TextOptionBar() {
                       onClick={() => setFamily(f.family)}
                       onMouseEnter={() => setHighlightIndex(i())}
                       class={clsx(
-                        "flex w-full items-center gap-2 px-2.5 py-1 text-left text-[11px]",
+                        "flex w-full items-center gap-2 px-2.5 py-1 text-left text-[11px] transition-colors",
                         i() === highlightIndex()
-                          ? "bg-editor-accent/20 text-white"
+                          ? "border-l-2 border-editor-accent bg-editor-accent/20 text-white font-semibold"
                           : fontFamily() === f.family
-                            ? "bg-white/10 text-white font-medium"
-                            : "text-editor-text-dim hover:bg-white/5 hover:text-editor-text",
+                            ? "bg-white/10 text-white font-semibold"
+                            : "text-[#A1A1AA] hover:bg-white/5 hover:text-white",
                       )}
                     >
                       <span class="w-8 shrink-0 text-sm" style={{ "font-family": `"${f.family}", sans-serif` }}>
@@ -472,7 +534,7 @@ export function TextOptionBar() {
             <Show when={fontsLoading()}>
               <div
                 data-font-picker-loading
-                class="border-t border-editor-divider px-2.5 py-1.5 text-[10px] text-editor-text-dim/70 animate-pulse"
+                class="border-t border-[#2D323C] px-2.5 py-1.5 text-[10px] text-[#A1A1AA] animate-pulse"
               >
                 Loading system fonts…
               </div>
@@ -488,7 +550,7 @@ export function TextOptionBar() {
       {/* Font size — free number input + custom dark preset popover */}
       <div class="relative">
         <Tooltip content="Font size" placement="top">
-          <div class="flex h-[24px] shrink-0 items-center rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70">
+          <div class="group flex h-[24px] shrink-0 items-center rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70 hover:border-[#4B515D]">
             <input
               type="number"
               aria-label="Font size"
@@ -500,15 +562,15 @@ export function TextOptionBar() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
               }}
-              class="w-8 bg-transparent text-center font-mono text-[11px] font-semibold text-editor-text outline-none"
+              class="w-[38px] bg-transparent text-center font-mono text-[11px] font-semibold text-white outline-none"
             />
-            <span class="text-[10px] font-medium text-editor-text-dim">px</span>
+            <span class="text-[10px] font-medium text-[#A1A1AA] select-none">px</span>
             <button
               type="button"
               aria-label="Font size presets"
               aria-expanded={sizePickerOpen()}
               onClick={() => setSizePickerOpen(!sizePickerOpen())}
-              class="ml-1 flex items-center p-0.5 text-editor-text-dim hover:text-editor-text transition-colors"
+              class="ml-1 flex items-center p-0.5 text-[#A1A1AA] hover:text-white transition-colors cursor-pointer"
             >
               <Icon name="chevron-down" class="size-3" strokeWidth={1.75} />
             </button>
@@ -516,8 +578,21 @@ export function TextOptionBar() {
         </Tooltip>
         <Show when={sizePickerOpen()}>
           <div
-            class="absolute left-0 top-full z-50 mt-1.5 w-24 max-h-56 overflow-y-auto rounded-[6px] border border-editor-field-border bg-[#1D2026] py-1 shadow-2xl"
+            class="absolute left-0 top-full z-50 mt-1.5 w-24 max-h-56 overflow-y-auto rounded-[6px] border border-[#363B44] bg-[#1B1D22] py-1 shadow-2xl"
           >
+            <Show when={!FONT_SIZE_PRESETS.includes(fontSize())}>
+              <button
+                type="button"
+                onClick={() => {
+                  setSize(fontSize());
+                  setSizePickerOpen(false);
+                }}
+                class="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] font-mono bg-editor-accent/20 text-white font-semibold"
+              >
+                <span>{fontSize()} px</span>
+                <Icon name="check" class="size-3 text-editor-accent shrink-0" strokeWidth={3} />
+              </button>
+            </Show>
             <For each={FONT_SIZE_PRESETS}>
               {(p) => (
                 <button
@@ -530,7 +605,7 @@ export function TextOptionBar() {
                     "flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] font-mono transition-colors",
                     fontSize() === p
                       ? "bg-editor-accent/20 text-white font-semibold"
-                      : "text-editor-text-dim hover:bg-white/5 hover:text-editor-text",
+                      : "text-[#A1A1AA] hover:bg-white/10 hover:text-white",
                   )}
                 >
                   <span>{p} px</span>
@@ -553,15 +628,15 @@ export function TextOptionBar() {
             aria-label="Font weight"
             aria-expanded={weightPickerOpen()}
             onClick={() => setWeightPickerOpen(!weightPickerOpen())}
-            class="flex h-[24px] shrink-0 items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-medium text-editor-text transition-colors hover:border-editor-text-dim/50 select-none cursor-pointer"
+            class="group flex h-[24px] shrink-0 items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-medium text-white transition-colors hover:border-[#4B515D] hover:bg-editor-field/80 select-none cursor-pointer"
           >
-            <span class="min-w-[56px] text-left">{weightLabel(fontWeight())}</span>
-            <Icon name="chevron-down" class="size-3 text-editor-text-dim ml-1 shrink-0" strokeWidth={1.75} />
+            <span class="min-w-[64px] text-left font-semibold">{weightLabel(fontWeight())}</span>
+            <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white ml-1 shrink-0 transition-colors" strokeWidth={1.75} />
           </button>
         </Tooltip>
         <Show when={weightPickerOpen()}>
           <div
-            class="absolute left-0 top-full z-50 mt-1.5 w-36 overflow-hidden rounded-[6px] border border-editor-field-border bg-[#1D2026] py-1 shadow-2xl"
+            class="absolute left-0 top-full z-50 mt-1.5 w-36 overflow-hidden rounded-[6px] border border-[#363B44] bg-[#1B1D22] py-1 shadow-2xl"
           >
             <For each={FONT_WEIGHT_PRESETS}>
               {(p) => (
@@ -575,7 +650,7 @@ export function TextOptionBar() {
                     "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[11px] transition-colors",
                     fontWeight() === p.value
                       ? "bg-editor-accent/20 text-white font-semibold"
-                      : "text-editor-text-dim hover:bg-white/5 hover:text-editor-text",
+                      : "text-[#A1A1AA] hover:bg-white/10 hover:text-white",
                   )}
                 >
                   <span>{p.label}</span>
@@ -616,14 +691,71 @@ export function TextOptionBar() {
 
       <Divider />
 
+      {/* Text Mode Dropdown (Auto Width / Fixed Box) */}
+      <div class="relative select-none">
+        <Tooltip content="Text box mode (Auto width vs Fixed box)" placement="top">
+          <button
+            type="button"
+            aria-label="Text box mode"
+            aria-expanded={boxModePickerOpen()}
+            onClick={() => setBoxModePickerOpen(!boxModePickerOpen())}
+            class="group flex h-[24px] shrink-0 items-center justify-between gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-medium text-white transition-colors duration-75 select-none cursor-pointer hover:border-[#4B515D]"
+          >
+            <span>{boxMode() === "point" ? "Auto Width" : "Fixed Box"}</span>
+            <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white" strokeWidth={1.75} />
+          </button>
+        </Tooltip>
+        <Show when={boxModePickerOpen()}>
+          <div class="absolute left-0 top-full z-50 mt-1.5 w-28 rounded-[6px] border border-[#363B44] bg-[#1D2026] py-1 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => {
+                setBoxMode("point");
+                setBoxModePickerOpen(false);
+              }}
+              class={clsx(
+                "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[11px] transition-colors cursor-pointer",
+                boxMode() === "point"
+                  ? "bg-editor-accent/20 text-white font-semibold"
+                  : "text-[#A1A1AA] hover:bg-white/5 hover:text-white"
+              )}
+            >
+              <span>Auto Width</span>
+              <Show when={boxMode() === "point"}>
+                <Icon name="check" class="size-3 text-editor-accent shrink-0" strokeWidth={3} />
+              </Show>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBoxMode("area");
+                setBoxModePickerOpen(false);
+              }}
+              class={clsx(
+                "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[11px] transition-colors cursor-pointer",
+                boxMode() === "area"
+                  ? "bg-editor-accent/20 text-white font-semibold"
+                  : "text-[#A1A1AA] hover:bg-white/5 hover:text-white"
+              )}
+            >
+              <span>Fixed Box</span>
+              <Show when={boxMode() === "area"}>
+                <Icon name="check" class="size-3 text-editor-accent shrink-0" strokeWidth={3} />
+              </Show>
+            </button>
+          </div>
+          <div class="fixed inset-0 z-40" onClick={() => setBoxModePickerOpen(false)} />
+        </Show>
+      </div>
+
       {/* Color — reads/shared with the editor foreground in draw mode (R2) */}
       <Tooltip content="Text color" placement="top">
-        <input
-          type="color"
+        <button
+          type="button"
           aria-label="Text color"
-          value={color()}
-          onInput={(e) => setColor(e.currentTarget.value)}
-          class="size-[24px] shrink-0 cursor-pointer rounded-[4px] border border-editor-field-border bg-transparent p-0 transition-transform hover:scale-105"
+          onClick={handleOpenTextColorPicker}
+          class="size-[24px] shrink-0 cursor-pointer rounded-[4px] border border-editor-field-border p-0 transition-transform hover:scale-105 ring-1 ring-white/20"
+          style={{ "background-color": color() }}
         />
       </Tooltip>
 
@@ -638,165 +770,188 @@ export function TextOptionBar() {
             aria-expanded={strokePopoverOpen()}
             onClick={() => setStrokePopoverOpen(!strokePopoverOpen())}
             class={clsx(
-              "flex h-[24px] items-center gap-1.5 rounded-[4px] border px-2 text-[11px] font-medium transition-all duration-75 select-none",
+              "group flex h-[24px] w-[116px] shrink-0 items-center justify-between gap-1.5 rounded-[4px] border px-2 text-[11px] font-medium transition-colors duration-75 select-none cursor-pointer",
               strokeWidth() > 0
                 ? "border-editor-accent bg-editor-accent/20 text-white shadow-xs font-semibold"
-                : "border-editor-field-border bg-editor-field text-editor-text-dim hover:border-editor-text-dim/50 hover:text-editor-text",
+                : "border-editor-field-border bg-editor-field text-[#A1A1AA] hover:border-[#4B515D] hover:bg-editor-field/80 hover:text-white",
             )}
           >
             <Show
               when={strokeWidth() > 0}
               fallback={
-                <>
-                  <Icon name="square-pen" class="size-3.5 text-editor-text-dim" strokeWidth={1.75} />
-                  <span class="text-editor-text-dim font-medium">Stroke</span>
-                </>
+                <div class="flex items-center gap-1.5">
+                  <span class="size-2.5 shrink-0 rounded-full border border-[#363B44] bg-[#2A2E37]" />
+                  <span class="text-[#A1A1AA] group-hover:text-white font-medium transition-colors">Stroke:</span>
+                  <span class="inline-block min-w-[34px] font-mono text-[#A1A1AA] font-medium text-left">Off</span>
+                </div>
               }
             >
-              <span
-                class="size-2.5 shrink-0 rounded-full border border-black/50 shadow-2xs"
-                style={{ background: strokeColor() }}
-              />
-              <span class="text-editor-text-dim font-medium">Stroke:</span>
-              <span class="font-mono text-white font-bold">{strokeWidth()}px</span>
+              <div class="flex items-center gap-1.5">
+                <span
+                  class="size-2.5 shrink-0 rounded-full border border-black/50 ring-1 ring-white/30 shadow-2xs"
+                  style={{ background: strokeColor() }}
+                />
+                <span class="text-[#A1A1AA] font-medium">Stroke:</span>
+                <span class="inline-block min-w-[34px] font-mono text-white font-bold text-left">{strokeWidth()}px</span>
+              </div>
             </Show>
-            <Icon name="chevron-down" class="size-3 text-editor-text-dim ml-0.5 shrink-0" strokeWidth={1.75} />
+            <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white shrink-0 transition-colors" strokeWidth={1.75} />
           </button>
         </Tooltip>
 
         {/* Stroke Popover Panel */}
         <Show when={strokePopoverOpen()}>
           <div
-            class="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-[6px] border border-editor-field-border bg-[#1D2026] p-3 shadow-2xl"
+            class="absolute right-0 top-full mt-1.5 z-50 w-60 rounded-[6px] border border-[#363B44] bg-[#1D2026] p-3 shadow-2xl select-none"
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {/* Header & Main Toggle */}
-            <div class="flex items-center justify-between border-b border-editor-field-border/60 pb-2 mb-2.5">
-              <span class="text-[11px] font-semibold text-editor-text">Stroke Outline</span>
+            {/* Header & Main Toggle Switch */}
+            <div class="flex items-center justify-between border-b border-[#2D323C] pb-2 mb-2.5">
+              <span class="text-[11px] font-bold text-white tracking-tight">Stroke Outline</span>
               <button
                 type="button"
+                role="switch"
+                aria-checked={strokeWidth() > 0}
                 aria-label="Toggle stroke"
                 onClick={toggleStroke}
                 class={clsx(
-                  "rounded-[3px] px-2 py-0.5 text-[10px] font-bold transition-all",
-                  strokeWidth() > 0
-                    ? "bg-editor-accent text-white shadow-xs"
-                    : "bg-editor-field text-editor-text-dim hover:text-editor-text border border-editor-field-border",
+                  "relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-150 ease-in-out focus:outline-none select-none",
+                  strokeWidth() > 0 ? "bg-editor-accent" : "bg-[#2D323C] hover:bg-[#363B44]",
                 )}
               >
-                {strokeWidth() > 0 ? "ENABLED" : "OFF"}
+                <span
+                  class={clsx(
+                    "pointer-events-none inline-block size-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-150 ease-in-out",
+                    strokeWidth() > 0 ? "translate-x-3" : "translate-x-0",
+                  )}
+                />
               </button>
             </div>
 
-            <Show when={strokeWidth() > 0}>
-              {/* Width Slider & Stepper */}
-              <div class="mb-3 space-y-1.5">
-                <div class="flex items-center justify-between text-[10px]">
-                  <span class="text-editor-text-dim font-medium">Width</span>
-                  <div class="flex items-center gap-1">
-                    <button
-                      type="button"
-                      aria-label="Decrease stroke width"
-                      onClick={() => stepStroke(-1)}
-                      class="flex size-4.5 items-center justify-center rounded-[2px] border border-editor-field-border bg-editor-field text-editor-text hover:bg-editor-field/80"
-                    >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      aria-label="Stroke width"
-                      min={1}
-                      max={100}
-                      value={strokeDraft() ?? String(strokeWidth())}
-                      onInput={(e) => onStrokeInput(e.currentTarget.value)}
-                      onBlur={() => setStrokeDraft(null)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-                      }}
-                      class="w-8 rounded-[2px] border border-editor-field-border bg-editor-field text-center font-mono text-[10px] text-editor-text outline-none focus:border-editor-accent"
+            {/* Controls Section (Dimmed & Click-to-Enable when OFF) */}
+            <div
+              class="relative"
+              onClick={() => {
+                if (strokeWidth() === 0) toggleStroke();
+              }}
+            >
+              <div
+                class={clsx(
+                  "transition-all duration-150",
+                  strokeWidth() === 0 && "opacity-40 filter grayscale pointer-events-none",
+                )}
+              >
+                {/* Width Slider & Stepper */}
+                <div class="mb-3 space-y-1.5">
+                  <div class="flex items-center justify-between text-[10px]">
+                    <span class="text-[#A1A1AA] font-medium">Width</span>
+                    <div class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label="Decrease stroke width"
+                        onClick={() => stepStroke(-1)}
+                        class="flex size-5 items-center justify-center rounded-[3px] border border-editor-field-border bg-editor-field text-white hover:bg-white/10 hover:border-[#4B515D] active:scale-95 transition-all cursor-pointer font-bold select-none"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        aria-label="Stroke width"
+                        min={1}
+                        max={100}
+                        value={strokeDraft() ?? String(strokeWidth() || 4)}
+                        onInput={(e) => onStrokeInput(e.currentTarget.value)}
+                        onBlur={() => setStrokeDraft(null)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+                        }}
+                        class="h-5 w-10 rounded-[3px] border border-editor-field-border bg-editor-field text-center font-mono text-[11px] font-bold text-white outline-none focus:border-editor-accent hover:border-[#4B515D] transition-colors"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Increase stroke width"
+                        onClick={() => stepStroke(1)}
+                        class="flex size-5 items-center justify-center rounded-[3px] border border-editor-field-border bg-editor-field text-white hover:bg-white/10 hover:border-[#4B515D] active:scale-95 transition-all cursor-pointer font-bold select-none"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    aria-label="Stroke width slider"
+                    min={1}
+                    max={100}
+                    value={strokeWidth() || 4}
+                    onInput={(e) => setStrokeWidth(Number(e.currentTarget.value))}
+                    class="w-full h-1.5 cursor-pointer appearance-none rounded-full bg-[#2D323C] accent-editor-accent"
+                  />
+                </div>
+
+                {/* Color Swatch Field Pill */}
+                <div class="mb-3 flex items-center justify-between text-[10px]">
+                  <span class="text-[#A1A1AA] font-medium">Color</span>
+                  <button
+                    type="button"
+                    aria-label="Stroke color"
+                    onClick={handleOpenStrokeColorPicker}
+                    class="relative flex h-[24px] items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 transition-colors hover:border-[#4B515D] cursor-pointer"
+                  >
+                    <span class="font-mono text-[11px] font-semibold text-white uppercase">{strokeColor()}</span>
+                    <div
+                      class="size-3.5 shrink-0 rounded-[3px] border border-black/50 ring-1 ring-white/20 shadow-2xs"
+                      style={{ "background-color": strokeColor() }}
                     />
+                  </button>
+                </div>
+
+                {/* Position Segmented Buttons */}
+                <div>
+                  <span class="block mb-1 text-[10px] font-medium text-[#A1A1AA]">Position</span>
+                  <div class="flex rounded-[4px] border border-[#363B44] bg-[#17191E] p-0.5 shadow-inner">
                     <button
                       type="button"
-                      aria-label="Increase stroke width"
-                      onClick={() => stepStroke(1)}
-                      class="flex size-4.5 items-center justify-center rounded-[2px] border border-editor-field-border bg-editor-field text-editor-text hover:bg-editor-field/80"
+                      aria-label="Stroke position outside"
+                      onClick={() => setStrokeAlign("outside")}
+                      class={clsx(
+                        "flex-1 rounded-[3px] py-1 text-[10px] font-semibold transition-all cursor-pointer select-none",
+                        strokeAlign() === "outside"
+                          ? "bg-editor-accent text-white shadow-xs font-bold"
+                          : "text-[#A1A1AA] hover:text-white hover:bg-white/5",
+                      )}
                     >
-                      +
+                      Outside
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Stroke position center"
+                      onClick={() => setStrokeAlign("center")}
+                      class={clsx(
+                        "flex-1 rounded-[3px] py-1 text-[10px] font-semibold transition-all cursor-pointer select-none",
+                        strokeAlign() === "center"
+                          ? "bg-editor-accent text-white shadow-xs font-bold"
+                          : "text-[#A1A1AA] hover:text-white hover:bg-white/5",
+                      )}
+                    >
+                      Center
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Stroke position inside"
+                      onClick={() => setStrokeAlign("inside")}
+                      class={clsx(
+                        "flex-1 rounded-[3px] py-1 text-[10px] font-semibold transition-all cursor-pointer select-none",
+                        strokeAlign() === "inside"
+                          ? "bg-editor-accent text-white shadow-xs font-bold"
+                          : "text-[#A1A1AA] hover:text-white hover:bg-white/5",
+                      )}
+                    >
+                      Inside
                     </button>
                   </div>
                 </div>
-                <input
-                  type="range"
-                  aria-label="Stroke width slider"
-                  min={1}
-                  max={100}
-                  value={strokeWidth()}
-                  onInput={(e) => setStrokeWidth(Number(e.currentTarget.value))}
-                  class="w-full h-1.5 cursor-pointer appearance-none rounded-full bg-editor-field accent-editor-accent"
-                />
               </div>
-
-              {/* Color Swatch */}
-              <div class="mb-3 flex items-center justify-between text-[10px]">
-                <span class="text-editor-text-dim font-medium">Color</span>
-                <div class="flex items-center gap-1.5">
-                  <span class="font-mono text-[10px] text-editor-text">{strokeColor()}</span>
-                  <input
-                    type="color"
-                    aria-label="Stroke color"
-                    value={strokeColor()}
-                    onInput={(e) => setStrokeColor(e.currentTarget.value)}
-                    class="size-5 shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border bg-transparent p-0"
-                  />
-                </div>
-              </div>
-
-              {/* Position Segmented Buttons */}
-              <div>
-                <span class="block mb-1 text-[10px] font-medium text-editor-text-dim">Position</span>
-                <div class="flex rounded-[4px] border border-editor-field-border bg-editor-field p-0.5">
-                  <button
-                    type="button"
-                    aria-label="Stroke position outside"
-                    onClick={() => setStrokeAlign("outside")}
-                    class={clsx(
-                      "flex-1 rounded-[2px] py-1 text-[10px] font-semibold transition-all",
-                      strokeAlign() === "outside"
-                        ? "bg-editor-accent text-white shadow-xs"
-                        : "text-editor-text-dim hover:text-editor-text",
-                    )}
-                  >
-                    Outside
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Stroke position center"
-                    onClick={() => setStrokeAlign("center")}
-                    class={clsx(
-                      "flex-1 rounded-[2px] py-1 text-[10px] font-semibold transition-all",
-                      strokeAlign() === "center"
-                        ? "bg-editor-accent text-white shadow-xs"
-                        : "text-editor-text-dim hover:text-editor-text",
-                    )}
-                  >
-                    Center
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Stroke position inside"
-                    onClick={() => setStrokeAlign("inside")}
-                    class={clsx(
-                      "flex-1 rounded-[2px] py-1 text-[10px] font-semibold transition-all",
-                      strokeAlign() === "inside"
-                        ? "bg-editor-accent text-white shadow-xs"
-                        : "text-editor-text-dim hover:text-editor-text",
-                    )}
-                  >
-                    Inside
-                  </button>
-                </div>
-              </div>
-            </Show>
+            </div>
           </div>
           {/* Click-away backdrop for stroke popover */}
           <div class="fixed inset-0 z-40" onClick={() => setStrokePopoverOpen(false)} />

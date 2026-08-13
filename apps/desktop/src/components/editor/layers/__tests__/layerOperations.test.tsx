@@ -523,7 +523,7 @@ describe("useLayerActions wiring", () => {
   const textData = (content: string): TextData => ({
     content, fontFamily: "Arial", fontSize: 48, fontWeight: 400, fontStyle: "normal",
     color: "#000000", align: "left", lineHeight: 1.4, letterSpacing: 0,
-    boxMode: "point", boxWidth: 0, stroke: { width: 0, color: "#000000" },
+    boxMode: "point", boxWidth: 0, boxHeight: 0, stroke: { width: 0, color: "#000000" },
   });
 
   // Build a text layer WITHOUT the rasterizer — this file's OffscreenCanvas
@@ -540,7 +540,7 @@ describe("useLayerActions wiring", () => {
     const { engine, history, result } = createTextProbe();
     const layer = engine.addLayer("Text 1", 100, 100);
     engine.setActiveLayer(layer.id);
-    result.openSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
 
     result.handleDeleteActiveLayer();
 
@@ -553,7 +553,7 @@ describe("useLayerActions wiring", () => {
     const { engine, history, result } = createTextProbe();
     const temp = engine.addLayer("Text", 100, 100);
     engine.setActiveLayer(temp.id);
-    result.openSession({ layerId: temp.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: temp.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: engine.snapshot() });
 
     result.handleDeleteActiveLayer();
 
@@ -567,7 +567,7 @@ describe("useLayerActions wiring", () => {
     const text = makeTextLayer(engine, "Text");
     const other = engine.addLayer("Other", 100, 100);
     engine.setActiveLayer(text.id);
-    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     // Simulate typing: the live textData now differs from the session snapshot.
     engine.getLayer(text.id)!.textData!.content = "Hello world";
 
@@ -582,7 +582,7 @@ describe("useLayerActions wiring", () => {
     const { engine, history, result } = createTextProbe();
     const text = makeTextLayer(engine, "Text");
     engine.setActiveLayer(text.id);
-    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
 
     result.handleSelectLayer(text.id);
 
@@ -597,7 +597,7 @@ describe("useLayerActions wiring", () => {
     const below = engine.addLayer("Below", 100, 100);
     const text = makeTextLayer(engine, "Text"); // inserted above Below
     engine.setActiveLayer(text.id);
-    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(text.id)!.textData!.content = "Hello world"; // simulate typing
 
     result.handleMergeActiveLayerDown();
@@ -619,7 +619,7 @@ describe("useLayerActions wiring", () => {
     (temp as unknown as { type: string }).type = "text";
     (temp as unknown as { textData: TextData }).textData = textData(""); // empty temp
     engine.setActiveLayer(temp.id);
-    result.openSession({ layerId: temp.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: temp.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: engine.snapshot() });
 
     result.handleMergeActiveLayerDown();
 
@@ -636,7 +636,7 @@ describe("useLayerActions wiring", () => {
     const { engine, history, result } = createTextProbe();
     const text = makeTextLayer(engine, "Text"); // [Text, bg]
     engine.setActiveLayer(text.id);
-    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(text.id)!.textData!.content = "Hello world"; // simulate typing
 
     result.handleFlattenAllLayers();
@@ -651,7 +651,7 @@ describe("useLayerActions wiring", () => {
     const target = makeTextLayer(engine, "Target"); // [Target, bg]
     const active = engine.addLayer("Active", 100, 100); // [Active, Target, bg]
     engine.setActiveLayer(active.id);
-    result.openSession({ layerId: target.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: target.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(target.id)!.textData!.content = "Hello world"; // simulate typing
 
     result.handleMergeActiveLayerDown();
@@ -672,7 +672,7 @@ describe("useLayerActions wiring", () => {
     const active = engine.addLayer("Active", 100, 100);
     const text = makeTextLayer(engine, "Text"); // [Text, Active, Target, Below, bg]
     engine.setActiveLayer(active.id);
-    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
+    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(text.id)!.textData!.content = "Hello world";
 
     result.handleMergeActiveLayerDown();

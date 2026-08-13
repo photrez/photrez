@@ -93,7 +93,7 @@ export function createMockEditorParams(toolId: string) {
     setViewportState: vi.fn(),
     renderer: { uploadImage: vi.fn() },
     scheduler: { requestRender: vi.fn() },
-    shapeKind: "rect",
+    shapeKind: () => "rect",
     shapeFillEnabled: true,
     shapeStrokeEnabled: false,
     shapeStrokeColor: "#000000",

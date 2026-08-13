@@ -111,6 +111,7 @@ function buildSessionTextData(editor: EditorAccessors): TextData {
     letterSpacing: 0,
     boxMode: "point",
     boxWidth: 0,
+    boxHeight: 0,
     stroke: {
       // Guarded: optional editor accessors keep this tool usable from harnesses
       // (and older call sites) that predate the stroke feature.
@@ -133,6 +134,7 @@ function textDataEquals(a: TextData, b: TextData): boolean {
     && a.letterSpacing === b.letterSpacing
     && a.boxMode === b.boxMode
     && a.boxWidth === b.boxWidth
+    && (a.boxHeight ?? 0) === (b.boxHeight ?? 0)
     && (a.stroke?.width ?? 0) === (b.stroke?.width ?? 0)
     && (a.stroke?.color ?? "#000000") === (b.stroke?.color ?? "#000000")
   );
@@ -186,6 +188,7 @@ export function openTextEditSession(
     docY: layer.transform.y,
     boxMode: data.boxMode,
     boxWidth: data.boxWidth,
+    boxHeight: data.boxHeight ?? 0,
     isNewLayer: false,
     preSnapshot: pre,
   }, layer.id);
@@ -212,16 +215,22 @@ export function startTextPointer(
   state.start = { x: coords.x, y: coords.y };
   state.isDragging = true;
 
-  // Persist any pending session before starting a new interaction (click-away
-  // commit). Empty new layers are removed by commitTextSession's cleanup.
-  if (editor.textEditSession()) {
-    commitTextSession(ctx.editor);
-  }
-
   // Hit test (alpha-aware, same sampler as move tool) — existing text layer
   // starts a re-edit session instead of creating a duplicate on top.
   const allLayers = [...engine.getLayers()];
   const hit = hitTestLayers(coords, allLayers as LayerInfo[], (id, x, y) => engine.sampleLayerAlpha(id, x, y));
+
+  const activeSession = editor.textEditSession();
+  if (activeSession) {
+    // Clicking on the SAME text layer that is already in edit session: keep session active!
+    if (hit && hit.id === activeSession.layerId) {
+      trySetPointerCapture(ctx.getCanvasRef(), e.pointerId);
+      return true;
+    }
+    // Clicking away: commit any pending session before starting a new interaction.
+    // Empty new layers are removed by commitTextSession's cleanup.
+    commitTextSession(ctx.editor);
+  }
   if (hit) {
     const hitLayer = engine.getLayer(hit.id);
     const hitData = layerTextData(hitLayer);
@@ -240,6 +249,7 @@ export function startTextPointer(
         docY: hitLayer.transform.y,
         boxMode: hitData.boxMode,
         boxWidth: hitData.boxWidth,
+        boxHeight: hitData.boxHeight ?? 0,
         isNewLayer: false,
         preSnapshot: pre,
       }, hitLayer.id);
@@ -262,7 +272,9 @@ export function startTextPointer(
       docY: coords.y,
       boxMode: "point",
       boxWidth: 0,
+      boxHeight: 0,
       isNewLayer: true,
+      isDragging: true,
       preSnapshot: pre,
     }, layer.id);
   } catch (err) {
@@ -277,7 +289,7 @@ export function startTextPointer(
 
 /**
  * pointermove: drag beyond MIN_AREA_PX turns the temp layer into an area box
- * (boxMode "area", boxWidth = |dx|), re-rasterizing live. Point text stays put.
+ * (boxMode "area", boxWidth = |dx|, boxHeight = |dy|), re-rasterizing live. Point text stays put.
  */
 export function trackTextPointer(
   ctx: PointerToolContext,
@@ -292,20 +304,21 @@ export function trackTextPointer(
   if (!engine || !session || !session.isNewLayer) return true;
 
   const coords = ctx.getDocCoords(e);
-  // The box spans from the MIN(left, right) drag edge — dragging LEFT must
-  // grow the box leftwards from the click point, not rightwards.
+  // The box spans from the MIN(left, right) and MIN(top, bottom) drag edges.
   const left = Math.min(state.start.x, coords.x);
+  const top = Math.min(state.start.y, coords.y);
   const width = Math.max(1, Math.abs(coords.x - state.start.x));
-  const isArea = width >= MIN_AREA_PX;
-  if (!isArea || width === session.boxWidth) return true;
+  const height = Math.max(1, Math.abs(coords.y - state.start.y));
+  const isArea = width >= MIN_AREA_PX || height >= MIN_AREA_PX;
+  if (!isArea || (width === session.boxWidth && height === session.boxHeight)) return true;
 
   const layer = engine.getLayer(session.layerId);
   const textData = layerTextData(layer);
   if (!textData) return true;
 
-  engine.transformLayer(session.layerId, { x: left, y: state.start.y });
-  engine.updateTextData(session.layerId, { ...textData, boxMode: "area", boxWidth: width });
-  editor.setTextEditSession({ ...session, docX: left, boxMode: "area", boxWidth: width });
+  engine.transformLayer(session.layerId, { x: left, y: top });
+  engine.updateTextData(session.layerId, { ...textData, boxMode: "area", boxWidth: width, boxHeight: height });
+  editor.setTextEditSession({ ...session, docX: left, docY: top, boxMode: "area", boxWidth: width, boxHeight: height, isDragging: true });
   const bitmap = engine.getLayerImageBitmap(session.layerId);
   if (bitmap) editor.renderer?.uploadImage(session.layerId, bitmap);
   editor.scheduler.requestRender();
@@ -324,10 +337,12 @@ export function applyTextPointer(
 ): boolean {
   const { editor } = ctx;
   if (editor.activeTool() !== "text" || !state.isDragging) return false;
-  if (!editor.textEditSession()) {
+  const currentSession = editor.textEditSession();
+  if (!currentSession) {
     state.reset();
     return true;
   }
+  editor.setTextEditSession({ ...currentSession, isDragging: false });
   tryReleasePointerCapture(ctx.getCanvasRef(), e.pointerId);
   state.isDragging = false;
   editor.scheduler.requestRender();

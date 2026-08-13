@@ -269,55 +269,55 @@ export function MoveOptionBar() {
         </Show>
 
         {/* Main Bar Controls (hidden on narrow container) */}
-        <div class="hidden @min-[880px]:flex items-center gap-1.5 shrink-0">
+        <div class="hidden @min-[880px]:flex items-center gap-1.5 shrink-0 select-none">
           <Divider />
 
-          <div class={clsx("flex shrink-0 items-center gap-1 text-editor-icon", isLocked() && "opacity-30 pointer-events-none")}>
-            <span class="text-[11px] text-editor-text-dim @max-[900px]:hidden">Align</span>
+          <div class={clsx("flex shrink-0 items-center gap-0.5 text-editor-icon", isLocked() && "opacity-30 pointer-events-none")}>
+            <span class="text-[10px] font-medium text-[#A1A1AA] mr-1 @max-[900px]:hidden select-none">Align</span>
             <Tooltip content="Align Left">
-              <button onClick={() => handleAlign("left")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align left">
-                <Icon name="align-left" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleAlign("left")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align left">
+                <Icon name="align-left" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
             <Tooltip content="Align Horizontal Center">
-              <button onClick={() => handleAlign("center-h")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align center horizontal">
-                <Icon name="align-h" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleAlign("center-h")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align center horizontal">
+                <Icon name="align-h" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
             <Tooltip content="Align Right">
-              <button onClick={() => handleAlign("right")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align right">
-                <Icon name="align-right" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleAlign("right")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align right">
+                <Icon name="align-right" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
             <Tooltip content="Align Top">
-              <button onClick={() => handleAlign("top")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align top">
-                <Icon name="align-top" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleAlign("top")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align top">
+                <Icon name="align-top" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
             <Tooltip content="Align Vertical Center">
-              <button onClick={() => handleAlign("center-v")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align center vertical">
-                <Icon name="align-v" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleAlign("center-v")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align center vertical">
+                <Icon name="align-v" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
             <Tooltip content="Align Bottom">
-              <button onClick={() => handleAlign("bottom")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align bottom">
-                <Icon name="align-bottom" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleAlign("bottom")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align bottom">
+                <Icon name="align-bottom" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
           </div>
 
           <Divider />
 
-          <div class={clsx("flex shrink-0 items-center gap-1 text-editor-icon", isLocked() && "opacity-30 pointer-events-none")}>
-            <span class="text-[11px] text-editor-text-dim @max-[900px]:hidden">Flip</span>
+          <div class={clsx("flex shrink-0 items-center gap-0.5 text-editor-icon", isLocked() && "opacity-30 pointer-events-none")}>
+            <span class="text-[10px] font-medium text-[#A1A1AA] mr-1 @max-[900px]:hidden select-none">Flip</span>
             <Tooltip content="Flip Horizontal">
-              <button onClick={() => handleFlip("h")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Flip horizontal">
-                <Icon name="flip-h" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleFlip("h")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Flip horizontal">
+                <Icon name="flip-h" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
             <Tooltip content="Flip Vertical">
-              <button onClick={() => handleFlip("v")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Flip vertical">
-                <Icon name="flip-v" class="size-4" strokeWidth={1.5} />
+              <button onClick={() => handleFlip("v")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Flip vertical">
+                <Icon name="flip-v" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
           </div>
@@ -326,10 +326,10 @@ export function MoveOptionBar() {
 
           <Tooltip content="Reset Transform">
             <button onClick={handleResetTransform} disabled={isLocked()} class={clsx(
-              "flex h-[24px] shrink-0 items-center rounded-[3px] border border-transparent px-2 text-[11px]",
+              "flex h-[24px] shrink-0 items-center rounded-[4px] border px-2 text-[11px] font-semibold transition-all cursor-pointer select-none",
               isLocked()
-                ? "text-editor-text-dim/30 cursor-default"
-                : "text-editor-text-dim hover:border-editor-field-border hover:text-editor-text",
+                ? "border-transparent text-[#A1A1AA]/30 cursor-default"
+                : "border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white",
             )}>
               Reset
             </button>

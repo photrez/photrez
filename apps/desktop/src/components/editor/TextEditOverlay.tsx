@@ -83,12 +83,13 @@ export function TextEditOverlay() {
       return;
     }
     if (!td) return;
-    // Hide the layer from the compositor while this overlay owns its visual —
-    // otherwise the live canvas raster + the textarea draw on the same spot
-    // and the text looks doubled/stacked.
+    // Live Canvas Text Architecture:
+    // Keep the layer 2D Canvas bitmap VISIBLE in the compositor. The textarea
+    // text is styled `color: transparent`, so the user sees the real 2D Canvas
+    // text underneath while typing with zero visual drift or commit jump.
     if (engine && typeof engine.getLayer === "function" && engine.getLayer(s.layerId)) {
       if (typeof engine.setRenderHiddenLayerId === "function") {
-        engine.setRenderHiddenLayerId(s.layerId);
+        engine.setRenderHiddenLayerId(null);
       }
     }
     // Adopt the engine content when it differs from the textarea. Reading
@@ -105,6 +106,12 @@ export function TextEditOverlay() {
         textareaRef.focus();
         textareaRef.select();
       }
+      queueMicrotask(() => {
+        if (textareaRef) {
+          textareaRef.focus();
+          textareaRef.select();
+        }
+      });
     }
     // Register the pending-content flush so external commits (click-away,
     // tool switch) see the latest typed text before empty-commit cleanup runs.
@@ -173,11 +180,15 @@ export function TextEditOverlay() {
         (probeCtx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing =
           `${td.letterSpacing * z}px`;
       }
-      // When empty, measure "Type text..." placeholder so the box is wide enough
-      // to display the placeholder without clipping.
-      const textToMeasure = value().length > 0 ? value() : "Type text...";
-      const w = probeCtx.measureText(textToMeasure).width;
-      return Math.max(1, Math.ceil(w) + 8); // +4px per side = 1px padding + 1px border + 2px safety
+      // Measure each line individually so newlines (\n) take max line width,
+      // not total concatenated length.
+      const lines = (value().length > 0 ? value() : "Type text...").split("\n");
+      let maxW = 0;
+      for (const line of lines) {
+        const lw = probeCtx.measureText(line || " ").width;
+        if (lw > maxW) maxW = lw;
+      }
+      return Math.max(1, Math.ceil(maxW) + 8); // +4px per side = 1px padding + 1px border + 2px safety
     } catch {
       return null;
     }
@@ -210,41 +221,52 @@ export function TextEditOverlay() {
         : measured !== null
           ? `${measured + 2 * strokePx}px`
           : "auto";
+    // W3C Baseline Parity Equation:
+    // Outer top is locked at docY so the orange border frame matches SelectionTransformOverlay 100%.
+    // Inside <textarea>, CSS line-height adds topLeading = (lineHeight - 1.0) * 0.5 * fontPx above line 0.
+    // Setting margin-top: -topLeading pulls the text content UP so line 0 alphabetic baseline matches
+    // 2D Canvas (textRasterizer.ts) with 0.000000px shift:
+    //   textarea_baseline = docY + 1px(border) + strokePx(padding) - topLeading(margin) + topLeading(leading) + fontAscent
+    //                     = docY + 1px + strokePx + fontAscent (EXACT 100% MATCH WITH 2D CANVAS!)
+    const fontPx = td.fontSize * z;
+    const topLeading = (td.lineHeight - 1.0) * 0.5 * fontPx;
+    const lineTotalH = Math.max(32, rows() * fontPx * td.lineHeight + 2 * strokePx + 4);
+    const areaH = s.boxMode === "area" && s.boxHeight > 0 ? s.boxHeight * z + 2 * strokePx : 0;
+    const heightPx = `${Math.max(areaH, lineTotalH)}px`;
+
     return {
       position: "absolute",
       left: `${p.x + s.docX * z}px`,
       top: `${p.y + s.docY * z}px`,
-      // border-box: the width (statusB) INCLUDES the border + padding, so the
-      // visual box is exactly `measured` wide — not measured+padding+border
-      // (which overshot the raster frame by ~6px and made the box look wider
-      // than the text). Text area = measured − 2×1px pad − 2×1px border =
-      // measured − 4 = the measured glyph width, so the caret never clips.
+      "margin-top": `-${topLeading}px`,
+      // border-box: width includes border + padding.
       boxSizing: "border-box",
       width: widthPx,
       minWidth: OVERLAY_MIN_WIDTH,
+      height: heightPx,
+      minHeight: heightPx,
       "font-family": `"${td.fontFamily}", sans-serif`,
-      "font-size": `${td.fontSize * z}px`,
+      "font-size": `${fontPx}px`,
       "font-weight": td.fontWeight,
       "font-style": td.fontStyle,
-      color: td.color,
+      color: "transparent",
+      "-webkit-text-fill-color": "transparent",
       "text-align": td.align,
       "line-height": td.lineHeight,
       "letter-spacing": `${td.letterSpacing * z}px`,
       "-webkit-text-stroke": td.stroke && td.stroke.width > 0 ? `${2 * strokePx}px ${td.stroke.color}` : "0px",
+      "paint-order": td.stroke && td.stroke.align === "outside" ? "stroke fill" : "fill stroke",
       background: "transparent",
       resize: "none",
       overflow: "hidden",
       border: "1px solid var(--color-editor-accent, #E15A17)",
-      // Contrast ring: a dark hairline outside the accent border keeps the box
-      // visible over light canvas areas (a yellow accent on white disappears).
-      // box-shadow does not affect layout, so the fit math above stays valid.
       boxShadow: "0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 0 3px rgba(255, 255, 255, 0.4)",
       outline: "none",
-      padding: sizePad,
+      padding: `${strokePx}px ${strokePx}px ${1 + strokePx}px ${strokePx}px`,
       "caret-color": "var(--color-editor-accent, #E15A17)",
       "white-space": "pre-wrap",
       "word-break": "break-word",
-      "pointer-events": "auto",
+      "pointer-events": s.isDragging ? "none" : "auto",
       opacity: layerNode?.opacity ?? 1,
       // Mirror the layer's rotation/scale/flip so the edit box matches the
       // rendered frame. The engine composites around the layer center, so the
@@ -273,7 +295,7 @@ export function TextEditOverlay() {
     for (const line of value().split("\n")) n += Math.max(1, Math.ceil(line.length / perLine));
     // No cap: the overlay IS the only visible rendering while editing (the
     // layer is hidden), so capping rows would clip long content out of sight.
-    return Math.max(2, n);
+    return Math.max(1, n);
   });
 
   // Floating shortcut badge position (centered below the editing box)
@@ -291,12 +313,14 @@ export function TextEditOverlay() {
     const boxW = s.boxMode === "area" && s.boxWidth > 0
       ? s.boxWidth * z + 2 * strokePx
       : (measured ?? 160) + 2 * strokePx;
-    // Position below the top-left origin + estimated height offset
-    const estimatedHeight = Math.max(32, rows() * td.fontSize * z * td.lineHeight);
+    // Position below the top-left origin + actual box height
+    const boxH = s.boxMode === "area" && s.boxHeight > 0
+      ? s.boxHeight * z + 2 * strokePx
+      : Math.max(32, rows() * td.fontSize * z * td.lineHeight);
     return {
       position: "absolute",
       left: `${p.x + s.docX * z + boxW / 2}px`,
-      top: `${p.y + s.docY * z + estimatedHeight + 10}px`,
+      top: `${p.y + s.docY * z + boxH + 12}px`,
       transform: mirrored ? `rotate(${tf.rotation}deg) translateX(-50%)` : "translateX(-50%)",
       "transform-origin": "center",
       "z-index": 61,
@@ -323,6 +347,95 @@ export function TextEditOverlay() {
     };
   });
 
+  // Interactive resize handle start handler for Area mode
+  const handleResizeStart = (
+    e: PointerEvent,
+    corner: "tl" | "tr" | "bl" | "br"
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const s = session();
+    const td = textData();
+    const engine = workspace.getActiveEngine();
+    if (!s || !td || !engine) return;
+
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+    const startDocX = s.docX;
+    const startDocY = s.docY;
+    const startW = s.boxWidth;
+    const startH = s.boxHeight > 0 ? s.boxHeight : Math.round(rows() * td.fontSize * td.lineHeight);
+
+    const targetEl = e.currentTarget as HTMLElement;
+    try {
+      targetEl.setPointerCapture(e.pointerId);
+    } catch {}
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      moveEv.stopPropagation();
+      const z = zoom();
+      if (z <= 0) return;
+      const dx = (moveEv.clientX - startClientX) / z;
+      const dy = (moveEv.clientY - startClientY) / z;
+
+      let newW = startW;
+      let newH = startH;
+      let newX = startDocX;
+      let newY = startDocY;
+
+      if (corner === "br" || corner === "tr") {
+        newW = Math.max(20, startW + dx);
+      }
+      if (corner === "bl" || corner === "tl") {
+        newW = Math.max(20, startW - dx);
+        newX = startDocX + (startW - newW);
+      }
+      if (corner === "br" || corner === "bl") {
+        newH = Math.max(20, startH + dy);
+      }
+      if (corner === "tr" || corner === "tl") {
+        newH = Math.max(20, startH - dy);
+        newY = startDocY + (startH - newH);
+      }
+
+      newW = Math.round(newW);
+      newH = Math.round(newH);
+      newX = Math.round(newX);
+      newY = Math.round(newY);
+
+      engine.transformLayer(s.layerId, { x: newX, y: newY });
+      engine.updateTextData(s.layerId, {
+        ...td,
+        boxMode: "area",
+        boxWidth: newW,
+        boxHeight: newH,
+      });
+      setTextEditSession({
+        ...s,
+        docX: newX,
+        docY: newY,
+        boxMode: "area",
+        boxWidth: newW,
+        boxHeight: newH,
+      });
+      const bitmap = engine.getLayerImageBitmap(s.layerId);
+      if (bitmap) renderer?.uploadImage(s.layerId, bitmap);
+      scheduler.requestRender();
+    };
+
+    const onPointerUp = (upEv: PointerEvent) => {
+      upEv.stopPropagation();
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      try {
+        targetEl.releasePointerCapture(upEv.pointerId);
+      } catch {}
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
+
   // Corner handle position generator for Area mode
   const cornerHandleStyle = (corner: "tl" | "tr" | "bl" | "br"): JSX.CSSProperties => {
     const s = session();
@@ -332,19 +445,29 @@ export function TextEditOverlay() {
     const p = pan();
     const strokePx = td.stroke && td.stroke.width > 0 ? td.stroke.width * z : 0;
     const boxW = s.boxWidth * z + 2 * strokePx;
-    const estimatedHeight = Math.max(32, rows() * td.fontSize * z * td.lineHeight);
+    const estimatedHeight = s.boxHeight > 0
+      ? s.boxHeight * z + 2 * strokePx
+      : Math.max(32, rows() * td.fontSize * z * td.lineHeight);
 
     const isRight = corner === "tr" || corner === "br";
     const isBottom = corner === "bl" || corner === "br";
 
+    const cursorMap = {
+      tl: "nwse-resize",
+      tr: "nesw-resize",
+      bl: "nesw-resize",
+      br: "nwse-resize",
+    };
+
     return {
       position: "absolute",
-      left: `${p.x + s.docX * z + (isRight ? boxW : 0) - 3}px`,
-      top: `${p.y + s.docY * z + (isBottom ? estimatedHeight : 0) - 3}px`,
-      width: "7px",
-      height: "7px",
+      left: `${p.x + s.docX * z + (isRight ? boxW : 0) - 4}px`,
+      top: `${p.y + s.docY * z + (isBottom ? estimatedHeight : 0) - 4}px`,
+      width: "8px",
+      height: "8px",
       "z-index": 61,
-      "pointer-events": "none",
+      "pointer-events": "auto",
+      cursor: cursorMap[corner],
     };
   };
 
@@ -370,15 +493,22 @@ export function TextEditOverlay() {
           setValue(v);
           schedulePush(v);
         }}
+        onScroll={(e) => { e.currentTarget.scrollTop = 0; }}
+        onKeyUp={(e) => { e.currentTarget.scrollTop = 0; }}
         onInput={(e) => {
+          e.currentTarget.scrollTop = 0;
           const v = e.currentTarget.value;
           setValue(v);
-          // During an IME composition the intermediate text is the browser's
-          // candidate preview — push only the settled value at compositionend.
           if (!composing) schedulePush(v);
         }}
         onKeyDown={(e) => {
           if (e.key === "Escape" && !composing) {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelTextSession(editorForSession());
+            return;
+          }
+          if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !e.shiftKey && !composing) {
             e.preventDefault();
             e.stopPropagation();
             cancelTextSession(editorForSession());
@@ -403,10 +533,30 @@ export function TextEditOverlay() {
 
       {/* 4 Corner handles for Area Text Mode */}
       <Show when={session()?.boxMode === "area" && (session()?.boxWidth ?? 0) > 0}>
-        <div style={cornerHandleStyle("tl")} class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none" />
-        <div style={cornerHandleStyle("tr")} class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none" />
-        <div style={cornerHandleStyle("bl")} class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none" />
-        <div style={cornerHandleStyle("br")} class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none" />
+        <div
+          data-text-handle="tl"
+          style={cornerHandleStyle("tl")}
+          onPointerDown={(e) => handleResizeStart(e, "tl")}
+          class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none"
+        />
+        <div
+          data-text-handle="tr"
+          style={cornerHandleStyle("tr")}
+          onPointerDown={(e) => handleResizeStart(e, "tr")}
+          class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none"
+        />
+        <div
+          data-text-handle="bl"
+          style={cornerHandleStyle("bl")}
+          onPointerDown={(e) => handleResizeStart(e, "bl")}
+          class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none"
+        />
+        <div
+          data-text-handle="br"
+          style={cornerHandleStyle("br")}
+          onPointerDown={(e) => handleResizeStart(e, "br")}
+          class="rounded-[1px] border border-black/90 bg-editor-accent shadow-xs select-none"
+        />
       </Show>
 
       {/* Floating shortcut badge below the active edit box */}

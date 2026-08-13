@@ -256,10 +256,10 @@ export function LayersPanel() {
               scheduler.requestRender();
             }
           }}
-          class="h-[26px] w-[120px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[12px] text-editor-text focus:outline-none focus-visible:border-editor-accent"
+          class="h-[26px] w-[120px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-semibold text-editor-text focus:outline-none focus-visible:border-editor-accent cursor-pointer hover:border-[#4B515D] transition-colors"
         >
           <For each={BLEND_MODE_OPTIONS}>
-            {(option) => <option value={option.value}>{option.label}</option>}
+            {(option) => <option value={option.value} class="bg-[#1B1D22] text-white font-medium">{option.label}</option>}
           </For>
         </select>
 

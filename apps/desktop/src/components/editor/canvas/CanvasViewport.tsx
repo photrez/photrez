@@ -769,7 +769,7 @@ export function CanvasViewport() {
           <GradientOverlay />
 
           {/* SelectionTransformOverlay →screen-space coordinates */}
-          <Show when={activeTool() === "move" && showTransformControls()}>
+          <Show when={(activeTool() === "move" || activeTool() === "shape") && showTransformControls()}>
             <SelectionTransformOverlay
               isNavigationMode={isSpacePressed() || isPanning()}
               onHudUpdate={setHudInfo}

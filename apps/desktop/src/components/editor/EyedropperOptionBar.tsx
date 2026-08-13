@@ -46,7 +46,7 @@ export function EyedropperOptionBar() {
       <div class="flex items-center gap-2">
         {/* Visual Color Swatch */}
         <div
-          class="size-4 rounded-[3px] border border-editor-divider shadow-sm shrink-0"
+          class="size-4 rounded-[3px] border border-editor-divider ring-1 ring-white/20 shadow-sm shrink-0"
           style={{ "background-color": fgColor() }}
         />
         
@@ -55,10 +55,10 @@ export function EyedropperOptionBar() {
           <button
             type="button"
             onClick={copyHexToClipboard}
-            class="flex h-[24px] items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[10px] font-sans font-semibold text-editor-text transition-colors hover:border-editor-accent"
+            class="group flex h-[24px] items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[10px] font-sans font-semibold text-white transition-colors hover:border-[#4B515D] cursor-pointer select-none"
           >
-            <span class="font-sans text-[11px] tracking-wide">{copied() ? "Copied!" : fgColor()}</span>
-            <Show when={copied()} fallback={<Icon name="copy" class="size-3 text-editor-text-dim" />}>
+            <span class="font-mono text-[11px] font-semibold tracking-wide text-white">{copied() ? "Copied!" : fgColor()}</span>
+            <Show when={copied()} fallback={<Icon name="copy" class="size-3 text-[#A1A1AA] group-hover:text-white transition-colors" />}>
               <Icon name="check" class="size-3 text-editor-accent" strokeWidth={2.5} />
             </Show>
           </button>

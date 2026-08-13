@@ -1,5 +1,5 @@
 import { useEditor } from "./shell/EditorContext";
-import { ToolPill, Divider } from "./shell/OptionBarShared";
+import { ToolPill, Divider, SelectDropdown } from "./shell/OptionBarShared";
 
 export function GradientOptionBar() {
   const {
@@ -30,32 +30,28 @@ export function GradientOptionBar() {
       <Divider />
 
       {/* Type Dropdown */}
-      <div class="flex items-center gap-1.5 text-editor-text-dim">
-        <span>Type:</span>
-        <select
-          value={gradientType()}
-          onChange={(e) => setGradientType(e.currentTarget.value as "linear" | "radial")}
-          class="h-5.5 rounded border border-editor-field-border bg-editor-field px-2 py-0 text-[11px] text-editor-text outline-none focus:border-editor-accent"
-        >
-          <option value="linear">Linear</option>
-          <option value="radial">Radial</option>
-        </select>
-      </div>
+      <SelectDropdown
+        labelPrefix="Type"
+        value={gradientType()}
+        options={[
+          { value: "linear", label: "Linear" },
+          { value: "radial", label: "Radial" },
+        ]}
+        onChange={(v) => setGradientType(v as "linear" | "radial")}
+      />
 
       <Divider />
 
       {/* Preset Selector */}
-      <div class="flex items-center gap-1.5 text-editor-text-dim">
-        <span>Preset:</span>
-        <select
-          value={gradientPreset()}
-          onChange={(e) => setGradientPreset(e.currentTarget.value as "fg-bg" | "fg-transparent")}
-          class="h-5.5 rounded border border-editor-field-border bg-editor-field px-2 py-0 text-[11px] text-editor-text outline-none focus:border-editor-accent"
-        >
-          <option value="fg-bg">Foreground → Background</option>
-          <option value="fg-transparent">Foreground → Transparent</option>
-        </select>
-      </div>
+      <SelectDropdown
+        labelPrefix="Preset"
+        value={gradientPreset()}
+        options={[
+          { value: "fg-bg", label: "Foreground → Background" },
+          { value: "fg-transparent", label: "Foreground → Transparent" },
+        ]}
+        onChange={(v) => setGradientPreset(v as "fg-bg" | "fg-transparent")}
+      />
 
       <Divider />
 
@@ -63,14 +59,14 @@ export function GradientOptionBar() {
       <div class="flex items-center gap-1.5">
         {/* Start Color Swatch */}
         <div
-          class="size-3.5 rounded-full border border-editor-field-border shadow-sm"
+          class="size-3.5 rounded-full border border-editor-field-border ring-1 ring-white/20 shadow-sm"
           style={{ "background-color": fgColor() }}
           title={`Start Color (Foreground): ${fgColor()}`}
         />
 
         {/* Gradient Strip */}
         <div
-          class="relative h-5 w-24 rounded border border-editor-field-border overflow-hidden shadow-inner"
+          class="relative h-5 w-24 rounded border border-[#363B44] overflow-hidden shadow-inner ring-1 ring-white/10"
           style={{
             "background-image":
               "linear-gradient(45deg, #2a2a2a 25%, transparent 25%), linear-gradient(-45deg, #2a2a2a 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2a2a2a 75%), linear-gradient(-45deg, transparent 75%, #2a2a2a 75%)",
@@ -88,7 +84,7 @@ export function GradientOptionBar() {
 
         {/* End Color Swatch */}
         <div
-          class="size-3.5 rounded-full border border-editor-field-border shadow-sm"
+          class="size-3.5 rounded-full border border-editor-field-border ring-1 ring-white/20 shadow-sm"
           style={{ "background-color": gradientPreset() === "fg-transparent" ? "transparent" : bgColor() }}
           title={gradientPreset() === "fg-transparent" ? "End Color: Transparent" : `End Color (Background): ${bgColor()}`}
         />
@@ -96,9 +92,10 @@ export function GradientOptionBar() {
 
       {/* Reverse Button (1-Click FG ↔ BG Swap) */}
       <button
+        type="button"
         onClick={handleReverse}
         title="Reverse gradient colors (Swap Foreground ↔ Background)"
-        class="flex items-center gap-1.5 h-5.5 rounded border border-editor-field-border bg-editor-field/50 px-2 text-[11px] text-editor-text-dim transition-colors hover:bg-editor-field hover:text-editor-text active:scale-95"
+        class="flex h-6 items-center gap-1.5 rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 px-2 text-[11px] font-semibold text-[#A1A1AA] transition-colors hover:border-editor-field-border hover:bg-editor-field hover:text-white cursor-pointer select-none"
       >
         <span class="text-[12px]">⇄</span>
         <span>Reverse</span>

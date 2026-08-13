@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import { Icon } from "../icons";
 import { useEditor } from "./EditorContext";
 import { useDragController, dragDropEffect } from "../DragController";
@@ -8,6 +8,13 @@ import { showToast } from "../Toast";
 import { useDialog } from "../dialogs/DialogProvider";
 import { openImageFilesAsDocuments } from "../editorOpenImage";
 import { createNewDocFromLayerDrag } from "../crossDocLayerOps";
+
+const PRESETS = [
+  { label: "Instagram Post", width: 1080, height: 1080, tag: "1080 × 1080 px", icon: "square" },
+  { label: "Story / Reels", width: 1080, height: 1920, tag: "1080 × 1920 px", icon: "smartphone" },
+  { label: "Full HD Canvas", width: 1920, height: 1080, tag: "1920 × 1080 px", icon: "image" },
+  { label: "A4 Print (300 DPI)", width: 2480, height: 3508, tag: "2480 × 3508 px", icon: "file-text" },
+] as const;
 
 export function EmptyWorkspace() {
   const { openImage, workspace, scheduler, renderer } = useEditor();
@@ -28,6 +35,17 @@ export function EmptyWorkspace() {
       workspace.addDocument(session);
       scheduler.requestRender();
     }
+  };
+
+  const handleCreatePreset = (preset: typeof PRESETS[number]) => {
+    if (workspace.isFull()) {
+      showToast(`Workspace full: close a document first (max ${MAX_OPEN_DOCUMENTS})`, "error");
+      return;
+    }
+    const id = `doc-${crypto.randomUUID()}`;
+    const session = WorkspaceManager.createBlankDocument(id, preset.label, preset.width, preset.height, { backgroundColor: "white" });
+    workspace.addDocument(session);
+    scheduler.requestRender();
   };
 
   const onDragOver = (e: DragEvent) => {
@@ -120,7 +138,7 @@ export function EmptyWorkspace() {
         </div>
 
         <div
-          class="grid gap-3 px-5 py-5 transition-opacity duration-150"
+          class="grid gap-3 px-5 py-4 transition-opacity duration-150"
           classList={{ "opacity-50": armed() }}
         >
           <button
@@ -139,6 +157,39 @@ export function EmptyWorkspace() {
             <Icon name="plus" class="size-4" strokeWidth={1.75} />
             New Document
           </button>
+        </div>
+
+        <div class="border-t border-editor-divider px-5 py-3.5">
+          <div class="mb-2.5 flex items-center justify-between text-[11px] font-medium text-editor-text-dim">
+            <span class="font-semibold text-editor-text">Quick Presets</span>
+            <span class="inline-flex items-center gap-1 rounded-full border border-editor-accent/30 bg-editor-accent/15 px-2 py-0.5 text-[10px] font-semibold text-editor-accent">
+              <Icon name="sparkles" class="size-3" strokeWidth={1.75} />
+              1-Click Create
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <For each={PRESETS}>
+              {(preset) => (
+                <button
+                  type="button"
+                  onClick={() => handleCreatePreset(preset)}
+                  class="flex items-center gap-2.5 rounded-[4px] border border-editor-field-border bg-editor-field p-2 text-left transition-all hover:border-editor-accent/50 hover:bg-editor-accent/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-editor-accent group"
+                >
+                  <div class="flex size-7 shrink-0 items-center justify-center rounded-[3px] bg-editor-panel text-editor-text-dim group-hover:text-editor-accent transition-colors">
+                    <Icon name={preset.icon as any} class="size-3.5" strokeWidth={1.75} />
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-[12px] font-medium text-editor-text truncate group-hover:text-white transition-colors">
+                      {preset.label}
+                    </div>
+                    <div class="text-[10px] text-editor-text-dim truncate">
+                      {preset.tag}
+                    </div>
+                  </div>
+                </button>
+              )}
+            </For>
+          </div>
         </div>
 
         <div class="flex items-center justify-between border-t border-editor-divider px-5 py-3 text-[11px] text-editor-text-dim">

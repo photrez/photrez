@@ -5,6 +5,16 @@ import { OptionBar } from "../shell/OptionBar";
 import { ShapeOptionBar } from "../ShapeOptionBar";
 import type { LayerNode, ShapeParams } from "@/engine/types";
 
+const mockColorPicker = vi.fn().mockResolvedValue("#ff0000");
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({
+    colorPicker: (opts: any) => {
+      opts?.onChange?.("#ff0000");
+      return mockColorPicker(opts);
+    },
+  }),
+}));
+
 const baseParams: ShapeParams = {
   kind: "rect",
   width: 100,
@@ -97,6 +107,10 @@ function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
     setShapeRadius: setters.setShapeRadius,
     shapeArrowHead: () => (layer ? layer.shapeParams!.arrowHead : false),
     setShapeArrowHead: setters.setShapeArrowHead,
+    colorPickerOpen: () => false,
+    setColorPickerOpen: vi.fn(),
+    colorPickerTarget: () => "foreground",
+    setColorPickerTarget: vi.fn(),
     ...overrides,
   };
   mockUseEditor(editor as any);
@@ -176,26 +190,26 @@ afterEach(() => {
 });
 
 describe("ShapeOptionBar", () => {
-  it("draw mode: renders kind buttons when no shape layer is selected", () => {
+  it("draw mode: renders shape dropdown trigger when no shape layer is selected", () => {
     buildMock();
     const { container, cleanup } = mountShapeBar();
-    for (const label of ["Rectangle", "Ellipse", "Line", "Arrow"]) {
-      expect(container.querySelector(`button[aria-label="${label}"]`)).not.toBeNull();
-    }
+    expect(qs<HTMLButtonElement>(container, 'button[aria-label="Select shape"]')).not.toBeNull();
     cleanup();
   });
 
-  it("clicking a kind button updates the shapeKind signal", () => {
+  it("clicking a dropdown option updates the shapeKind signal", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Select shape"]')!.click();
     qs<HTMLButtonElement>(container, 'button[aria-label="Ellipse"]')!.click();
     expect(setters.setShapeKind).toHaveBeenCalledWith("ellipse");
     cleanup();
   });
 
-  it("Arrow kind button sets kind=line and enables arrow head", () => {
+  it("Arrow kind dropdown option sets kind=line and enables arrow head", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Select shape"]')!.click();
     qs<HTMLButtonElement>(container, 'button[aria-label="Arrow"]')!.click();
     expect(setters.setShapeKind).toHaveBeenCalledWith("line");
     expect(setters.setShapeArrowHead).toHaveBeenCalledWith(true);
@@ -205,18 +219,20 @@ describe("ShapeOptionBar", () => {
   it("clicking the Stroke/fill toggles flips their signals", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountShapeBar();
-    const stroke = qs<HTMLInputElement>(container, 'input[aria-label="Stroke"]')!;
-    stroke.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Stroke options"]')!.click();
+    const strokeToggle = qs<HTMLInputElement>(container, 'input[aria-label="Stroke"]')!;
+    strokeToggle.click();
     expect(setters.setShapeStrokeEnabled).toHaveBeenCalledWith(true);
-    const fill = qs<HTMLInputElement>(container, 'input[aria-label="Fill"]')!;
+    const fill = qs<HTMLButtonElement>(container, 'button[aria-label="Fill"]')!;
     fill.click();
     expect(setters.setShapeFillEnabled).toHaveBeenCalledWith(false);
     cleanup();
   });
 
-  it("changing stroke width range updates shapeStrokeWidth", () => {
+  it("changing stroke width input updates shapeStrokeWidth", () => {
     const { setters } = buildMock({ shapeStrokeEnabled: () => true });
     const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Stroke options"]')!.click();
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     expect(width).not.toBeNull();
     width.value = "12";
@@ -228,29 +244,30 @@ describe("ShapeOptionBar", () => {
   it("stroke color swatch is hidden when stroke is disabled", () => {
     buildMock();
     const { container, cleanup } = mountShapeBar();
-    expect(qs<HTMLInputElement>(container, 'input[aria-label="Stroke color"]')).toBeNull();
+    // Swatch is inside popover panel which is unmounted until clicked, or dimmed when disabled
+    expect(qs<HTMLButtonElement>(container, 'button[aria-label="Stroke color"]')).toBeNull();
     cleanup();
   });
 
   it("stroke color swatch appears and updates shapeStrokeColor when stroke enabled", () => {
     const { setters } = buildMock({ shapeStrokeEnabled: () => true });
     const { container, cleanup } = mountShapeBar();
-    const color = qs<HTMLInputElement>(container, 'input[aria-label="Stroke color"]')!;
+    qs<HTMLButtonElement>(container, 'button[aria-label="Stroke options"]')!.click();
+    const color = qs<HTMLButtonElement>(container, 'button[aria-label="Stroke color"]')!;
     expect(color).not.toBeNull();
-    color.value = "#123456";
-    color.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(setters.setShapeStrokeColor).toHaveBeenCalledWith("#123456");
+    color.click();
+    expect(setters.setShapeStrokeColor).toHaveBeenCalledWith("#ff0000");
     cleanup();
   });
 
-  it("radius range visible for rect, hidden for line", () => {
+  it("radius input visible for rect, hidden for line", () => {
     buildMock();
     const { container, cleanup } = mountShapeBar();
     expect(qs<HTMLInputElement>(container, 'input[aria-label="Corner radius"]')).not.toBeNull();
     cleanup();
   });
 
-  it("radius range hidden for line kind", () => {
+  it("radius input hidden for line kind", () => {
     buildMock({ shapeKind: () => "line" });
     const { container, cleanup } = mountShapeBar();
     expect(qs<HTMLInputElement>(container, 'input[aria-label="Corner radius"]')).toBeNull();
@@ -270,14 +287,14 @@ describe("ShapeOptionBar", () => {
   it("arrow-head toggle visible for line kind, hidden for rect", () => {
     buildMock({ shapeKind: () => "line" });
     const { container, cleanup } = mountShapeBar();
-    expect(qs<HTMLInputElement>(container, 'input[aria-label="Arrow head"]')).not.toBeNull();
+    expect(qs<HTMLButtonElement>(container, 'button[aria-label="Arrow head"]')).not.toBeNull();
     cleanup();
   });
 
   it("arrow-head toggle hidden for rect kind", () => {
     buildMock();
     const { container, cleanup } = mountShapeBar();
-    expect(qs<HTMLInputElement>(container, 'input[aria-label="Arrow head"]')).toBeNull();
+    expect(qs<HTMLButtonElement>(container, 'button[aria-label="Arrow head"]')).toBeNull();
     cleanup();
   });
 
@@ -291,9 +308,9 @@ describe("ShapeOptionBar", () => {
 
     // radius hidden because the selected shape is an ellipse
     expect(qs<HTMLInputElement>(container, 'input[aria-label="Corner radius"]')).toBeNull();
-    const ellipse = qs<HTMLButtonElement>(container, 'button[aria-label="Ellipse"]')!;
-    expect(ellipse.getAttribute("aria-pressed")).toBe("true");
 
+    // open stroke popover
+    qs<HTMLButtonElement>(container, 'button[aria-label="Stroke options"]')!.click();
     // commit happened BEFORE updateShapeParams (wiring rule)
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     width.value = "14";
@@ -315,7 +332,7 @@ describe("ShapeOptionBar", () => {
     const { engine, commit } = buildMock({}, layer);
     const { container, cleanup } = mountShapeBar();
 
-    // Ellipse is the active kind — clicking it again is a no-op, must not commit.
+    qs<HTMLButtonElement>(container, 'button[aria-label="Select shape"]')!.click();
     const ellipse = qs<HTMLButtonElement>(container, 'button[aria-label="Ellipse"]')!;
     ellipse.click();
     expect(commit).not.toHaveBeenCalled();
@@ -326,6 +343,7 @@ describe("ShapeOptionBar", () => {
   it("stroke width 0 is clamped to >= 1", () => {
     const { setters } = buildMock({ shapeStrokeEnabled: () => true });
     const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Stroke options"]')!.click();
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     width.value = "0";
     width.dispatchEvent(new Event("input", { bubbles: true }));
@@ -336,18 +354,19 @@ describe("ShapeOptionBar", () => {
   it("Arrow → Line → Arrow round-trip toggles arrow head without leaking to other kinds", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountShapeBar();
-    const arrow = qs<HTMLButtonElement>(container, 'button[aria-label="Arrow"]')!;
-    const line = qs<HTMLButtonElement>(container, 'button[aria-label="Line"]')!;
 
-    arrow.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Select shape"]')!.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Arrow"]')!.click();
     expect(setters.setShapeKind).toHaveBeenLastCalledWith("line");
     expect(setters.setShapeArrowHead).toHaveBeenLastCalledWith(true);
 
-    line.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Select shape"]')!.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Line"]')!.click();
     expect(setters.setShapeKind).toHaveBeenCalled();
     expect(setters.setShapeArrowHead).toHaveBeenLastCalledWith(false);
 
-    arrow.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Select shape"]')!.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Arrow"]')!.click();
     expect(setters.setShapeArrowHead).toHaveBeenLastCalledWith(true);
     cleanup();
   });
@@ -361,11 +380,11 @@ describe("OptionBar shape mount gating", () => {
     cleanup();
   });
 
-  it("shows ShapeOptionBar when a shape layer is selected (tool may be move)", () => {
+  it("hides ShapeOptionBar when move tool is active even if shape layer is selected", () => {
     const layer = makeShapeLayer();
     mockUseEditor(optionBarEditor({ activeTool: () => "move" }, layer) as any);
     const { container, cleanup } = mountOptionBar();
-    expect(container.querySelector("[data-shape-option-bar]")).not.toBeNull();
+    expect(container.querySelector("[data-shape-option-bar]")).toBeNull();
     cleanup();
   });
 

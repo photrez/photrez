@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import type { LayerNode, DocumentTabSummary, Transform2D, DocumentModel, SelectionState } from "@/engine/types";
+import type { LayerNode, DocumentTabSummary, Transform2D, DocumentModel, SelectionState, ShapeKind } from "@/engine/types";
 import type { TextStrokeAlign } from "@/engine/textTypes";
 import type { ToolId } from "./toolTypes";
 
@@ -12,8 +12,12 @@ export interface TextEditSession {
   boxMode: "point" | "area";
   /** Area box width (0 when point mode). */
   boxWidth: number;
+  /** Area box height (0 when point mode). */
+  boxHeight: number;
   /** True when the layer was created by this pointer gesture (temp layer). */
   isNewLayer: boolean;
+  /** True while active drag gesture is in progress (pointer-events: none on overlay). */
+  isDragging?: boolean;
   /** Snapshot taken BEFORE the gesture — committed on session close. */
   preSnapshot: DocumentModel;
 }
@@ -92,7 +96,7 @@ export function createEditorState() {
 
   // Shape tool: deterministic defaults per session (fill = fgColor, stroke = none).
   // No cross-session "last-used" persistence (research pain point).
-  const [shapeKind, setShapeKind] = createSignal<"rect" | "ellipse" | "line">("rect");
+  const [shapeKind, setShapeKind] = createSignal<ShapeKind>("rect");
   const [shapeFillEnabled, setShapeFillEnabled] = createSignal(true);
   const [shapeStrokeEnabled, setShapeStrokeEnabled] = createSignal(false);
   const [shapeStrokeColor, setShapeStrokeColor] = createSignal("#000000");

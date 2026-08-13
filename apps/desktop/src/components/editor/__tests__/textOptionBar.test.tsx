@@ -8,6 +8,16 @@ import { resetFontCache } from "@/lib/fontEnumeration";
 import type { LayerNode } from "@/engine/types";
 import type { TextData } from "@/engine/textTypes";
 
+const mockColorPicker = vi.fn().mockResolvedValue("#ff0000");
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({
+    colorPicker: (opts: any) => {
+      opts?.onChange?.("#ff0000");
+      return mockColorPicker(opts);
+    },
+  }),
+}));
+
 const baseData: TextData = {
   content: "Hello",
   fontFamily: "Arial",
@@ -20,6 +30,7 @@ const baseData: TextData = {
   letterSpacing: 0,
   boxMode: "point",
   boxWidth: 0,
+  boxHeight: 0,
   stroke: { width: 0, color: "#000000" },
 };
 
@@ -120,6 +131,10 @@ function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
       setStrokeColorLive(v);
       (setters.setTextStrokeColor as (v: string) => void)(v);
     },
+    colorPickerOpen: () => false,
+    setColorPickerOpen: vi.fn(),
+    colorPickerTarget: () => "foreground",
+    setColorPickerTarget: vi.fn(),
     ...overrides,
   };
   mockUseEditor(editor as any);
@@ -318,7 +333,7 @@ describe("TextOptionBar", () => {
     expect(qs<HTMLButtonElement>(container, 'button[aria-label="Align left"]')).not.toBeNull();
     expect(qs<HTMLButtonElement>(container, 'button[aria-label="Align center"]')).not.toBeNull();
     expect(qs<HTMLButtonElement>(container, 'button[aria-label="Align right"]')).not.toBeNull();
-    expect(qs<HTMLInputElement>(container, 'input[aria-label="Text color"]')).not.toBeNull();
+    expect(qs<HTMLButtonElement>(container, 'button[aria-label="Text color"]')).not.toBeNull();
     cleanup();
   });
 
@@ -398,10 +413,9 @@ describe("TextOptionBar", () => {
   it("draw mode: color swatch writes the shared editor foreground color", () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
-    const color = qs<HTMLInputElement>(container, 'input[aria-label="Text color"]')!;
-    color.value = "#123456";
-    color.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(setters.setFgColor).toHaveBeenCalledWith("#123456");
+    const color = qs<HTMLButtonElement>(container, 'button[aria-label="Text color"]')!;
+    color.click();
+    expect(setters.setFgColor).toHaveBeenCalledWith("#ff0000");
     cleanup();
   });
 
@@ -473,12 +487,11 @@ describe("TextOptionBar", () => {
       expect.objectContaining({ fontSize: 96 }),
     );
 
-    const color = qs<HTMLInputElement>(container, 'input[aria-label="Text color"]')!;
-    color.value = "#0000ff";
-    color.dispatchEvent(new Event("input", { bubbles: true }));
+    const color = qs<HTMLButtonElement>(container, 'button[aria-label="Text color"]')!;
+    color.click();
     expect(engine.updateTextData).toHaveBeenLastCalledWith(
       "t3",
-      expect.objectContaining({ color: "#0000ff" }),
+      expect.objectContaining({ color: "#ff0000" }),
     );
     cleanup();
   });
@@ -579,9 +592,8 @@ describe("TextOptionBar", () => {
     width.dispatchEvent(new Event("input", { bubbles: true }));
     expect(setters.setTextStrokeWidth).toHaveBeenLastCalledWith(8);
 
-    const strokeColor = qs<HTMLInputElement>(container, 'input[aria-label="Stroke color"]')!;
-    strokeColor.value = "#ff0000";
-    strokeColor.dispatchEvent(new Event("input", { bubbles: true }));
+    const strokeColor = qs<HTMLButtonElement>(container, 'button[aria-label="Stroke color"]')!;
+    strokeColor.click();
     expect(setters.setTextStrokeColor).toHaveBeenLastCalledWith("#ff0000");
     cleanup();
   });
@@ -674,11 +686,11 @@ describe("OptionBar text mount gating", () => {
     cleanup();
   });
 
-  it("shows TextOptionBar when a text layer is selected (tool may be move)", () => {
+  it("hides TextOptionBar when move tool is active even if a text layer is selected", () => {
     const layer = makeTextLayer();
     mockUseEditor(optionBarEditor({ activeTool: () => "move" }, layer) as any);
     const { container, cleanup } = mountOptionBar();
-    expect(container.querySelector("[data-text-option-bar]")).not.toBeNull();
+    expect(container.querySelector("[data-text-option-bar]")).toBeNull();
     cleanup();
   });
 

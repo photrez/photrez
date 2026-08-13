@@ -18,7 +18,7 @@ import { showToast as showToastImpl } from "../Toast";
 import { runToolSwitchCleanup } from "../tools/toolLifecycle";
 import { DialogProvider } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession, commitLayerTransformSession } from "../transformSession";
-import { commitTextSession, syncTextSessionBase } from "../canvas/pointerTools/textTool";
+import { cancelTextSession, commitTextSession, syncTextSessionBase } from "../canvas/pointerTools/textTool";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import {
@@ -132,6 +132,8 @@ export function EditorProvider(props: {
   const rightDockOpen = props.rightDockOpen || localRightDockOpen;
   const setRightDockOpen = props.setRightDockOpen || setLocalRightDockOpen;
 
+  let ignoreNextUndoUntil = 0;
+
   const navigateHistory = (index: number) => {
     const engine = props.workspace.getActiveEngine();
     const history = props.workspace.getActiveHistory();
@@ -143,6 +145,24 @@ export function EditorProvider(props: {
     const diff = index - activeIndex;
 
     if (diff === 0) return;
+
+    if (diff < 0 && Date.now() < ignoreNextUndoUntil) {
+      ignoreNextUndoUntil = 0;
+      return;
+    }
+
+    if (diff < 0 && editorState.textEditSession()) {
+      ignoreNextUndoUntil = Date.now() + 300;
+      cancelTextSession({
+        workspace: props.workspace,
+        textEditSession: editorState.textEditSession,
+        setTextEditSession: editorState.setTextEditSession,
+        scheduler: props.scheduler,
+        renderer: props.renderer,
+      });
+      props.scheduler.requestRender();
+      return;
+    }
 
     if (
       editorState.layerTransformSession()

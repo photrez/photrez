@@ -52,16 +52,17 @@ describe("fontEnumeration tiering", () => {
     ]);
   });
 
-  it("falls back to the web tier (queryLocalFonts) when the native command fails", async () => {
+  it("falls back to WEB_SAFE (and never calls queryLocalFonts) when the native command fails in desktop mode", async () => {
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     vi.mocked(listSystemFonts).mockRejectedValue(new Error("E_FONT_ENUM"));
-    (window as unknown as { queryLocalFonts: unknown }).queryLocalFonts = vi
-      .fn()
-      .mockResolvedValue([{ family: "Segoe UI", style: "Regular" }]);
+    const querySpy = vi.fn().mockResolvedValue([{ family: "Segoe UI", style: "Regular" }]);
+    (window as unknown as { queryLocalFonts: unknown }).queryLocalFonts = querySpy;
 
     const fonts = await getAvailableFonts();
 
-    expect(fonts).toEqual([{ family: "Segoe UI", styles: ["Regular"] }]);
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(fonts).toHaveLength(WEB_SAFE_FONTS.length);
+    expect(fonts[0].family).toBe("Arial");
   });
 
   it("falls back to WEB_SAFE when both tiers fail", async () => {

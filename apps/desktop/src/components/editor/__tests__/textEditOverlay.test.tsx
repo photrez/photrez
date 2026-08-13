@@ -30,6 +30,7 @@ const baseData: TextData = {
   letterSpacing: 0,
   boxMode: "point",
   boxWidth: 0,
+  boxHeight: 0,
   stroke: { width: 0, color: "#000000" },
 };
 
@@ -135,7 +136,7 @@ describe("TextEditOverlay", () => {
     const { container, cleanup } = mountOverlay();
     expect(qs(container, "[data-text-edit-overlay]")).toBeNull();
 
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
     expect(qs(container, "[data-text-edit-overlay]")).not.toBeNull();
     cleanup();
   });
@@ -143,7 +144,7 @@ describe("TextEditOverlay", () => {
   it("unmounts when the session closes (commit/cancel clears the signal)", () => {
     const { setSession, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
     expect(qs(container, "[data-text-edit-overlay]")).not.toBeNull();
 
     setSession(null);
@@ -151,14 +152,14 @@ describe("TextEditOverlay", () => {
     cleanup();
   });
 
-  it("hides the edited layer from the compositor while the session is open (no doubled text)", () => {
+  it("keeps the edited layer visible in compositor for live 2D Canvas rendering", () => {
     const { setSession, layer, engine } = buildMock();
     const { container, cleanup } = mountOverlay();
-    // Initial mount effect clears any stale hidden id (session closed).
     expect(engine.setRenderHiddenLayerId).toHaveBeenCalledWith(null);
 
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
-    expect(engine.setRenderHiddenLayerId).toHaveBeenLastCalledWith(layer.id);
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    // Layer remains visible (null hidden layer id) so the user sees the real 2D Canvas text
+    expect(engine.setRenderHiddenLayerId).toHaveBeenLastCalledWith(null);
 
     setSession(null);
     expect(engine.setRenderHiddenLayerId).toHaveBeenLastCalledWith(null);
@@ -169,7 +170,7 @@ describe("TextEditOverlay", () => {
     const { setSession, layer } = buildMock();
     layer.textData = { ...layer.textData!, stroke: { width: 3, color: "#00ff00" } };
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "area", boxWidth: 100, isNewLayer: false, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "area", boxWidth: 100, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     // The raster draws the stroke at lineWidth = strokePad*2 (fill covers the
@@ -179,7 +180,8 @@ describe("TextEditOverlay", () => {
     // Glyph ink starts at raster PADDING + strokePad → overlay padding and box
     // width grow by the same stroke extent (zoom 1: +3px pad, +6px box). Base
     // pad is 1px (border-box: 1px pad + 1px border keeps the box tight).
-    expect(ta.style.padding).toBe("4px");
+    expect(ta.style.paddingLeft).toBe("3px");
+    expect(ta.style.paddingBottom).toBe("4px");
     expect(ta.style.width).toBe("106px");
     cleanup();
   });
@@ -188,7 +190,7 @@ describe("TextEditOverlay", () => {
     const { setSession, layer } = buildMock();
     // layer already has stroke width 0 (baseData default)
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     expect(ta.style.webkitTextStroke).toBe("0px");
@@ -199,7 +201,7 @@ describe("TextEditOverlay", () => {
     const { setSession, layer } = buildMock();
     layer.transform = { x: 0, y: 0, scaleX: 1.5, scaleY: 1, rotation: 45, flipH: true, flipV: false };
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     expect(ta.style.opacity).toBe("1"); // untransformed opacity still mirrored
@@ -212,7 +214,7 @@ describe("TextEditOverlay", () => {
     const { setSession, layer } = buildMock();
     layer.opacity = 0.5;
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     expect(ta.style.opacity).toBe("0.5");
@@ -223,7 +225,7 @@ describe("TextEditOverlay", () => {
   it("keeps a small min-width so short text boxes are still easy to click", () => {
     const { setSession, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     // jsdom's cssstyle drops relative units for min-width, so the constant is
@@ -236,7 +238,7 @@ describe("TextEditOverlay", () => {
   it("value syncs to the layer content when the session opens", () => {
     const { setSession, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     expect(ta.value).toBe("Hello");
@@ -247,7 +249,7 @@ describe("TextEditOverlay", () => {
     vi.useFakeTimers();
     const { setSession, engine, uploadImage } = buildMock("");
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     ta.value = "Hello world";
@@ -268,11 +270,12 @@ describe("TextEditOverlay", () => {
   it("positioning follows doc→screen math (pan + doc*zoom)", () => {
     const { setSession, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 100, docY: 50, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 100, docY: 50, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     expect(ta.style.left).toBe("110px"); // pan.x(10) + 100*1
-    expect(ta.style.top).toBe("70px");   // pan.y(20) + 50*1
+    expect(ta.style.top).toBe("70px");   // pan.y(20) + 50*1 (locked to docY)
+    expect(parseFloat(ta.style.marginTop)).toBeCloseTo(-9.6, 1);
     cleanup();
   });
 
@@ -280,7 +283,7 @@ describe("TextEditOverlay", () => {
     vi.useFakeTimers();
     const { setSession, engine } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     ta.dispatchEvent(new CompositionEvent("compositionstart"));
@@ -305,7 +308,7 @@ describe("TextEditOverlay", () => {
   it("Ctrl+Enter commits the session; Escape cancels and deletes the temp layer", () => {
     const { setSession, engine, commit, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
@@ -316,7 +319,7 @@ describe("TextEditOverlay", () => {
     expect(qs(container, "[data-text-edit-overlay]")).toBeNull();
 
     // Reopen and Escape → cancel path deletes the temp layer.
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
     const ta2 = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     ta2.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(engine.deleteLayer).toHaveBeenCalledWith(layer.id);
@@ -326,7 +329,7 @@ describe("TextEditOverlay", () => {
   it("Escape during IME composition cancels the composition, not the whole session (B7)", () => {
     const { setSession, engine, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     ta.dispatchEvent(new CompositionEvent("compositionstart"));
@@ -353,7 +356,7 @@ describe("TextEditOverlay", () => {
     try {
       const { setSession, layer } = buildMock("Hello World");
       const { container, cleanup } = mountOverlay();
-      setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
+      setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
       const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
       // "Hello World" = 11 chars × 10 + 8px box = 118px.
@@ -372,7 +375,7 @@ describe("TextEditOverlay", () => {
     try {
       const { setSession, layer } = buildMock("Hello World");
       const { container, cleanup } = mountOverlay();
-      setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "area", boxWidth: 200, isNewLayer: false, preSnapshot: { layers: [] } as any });
+      setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "area", boxWidth: 200, boxHeight: 0, isNewLayer: false, preSnapshot: { layers: [] } as any });
 
       const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
       expect(ta.style.width).toBe("200px");
@@ -385,7 +388,7 @@ describe("TextEditOverlay", () => {
   it("has subtle placeholder text 'Type text...' for initial creation affordance", () => {
     const { setSession, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     expect(ta.getAttribute("placeholder")).toBe("Type text...");
@@ -396,7 +399,7 @@ describe("TextEditOverlay", () => {
     vi.useFakeTimers();
     const { setSession, engine, commit, editor } = buildMock("");
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     ta.value = "Hello world";
@@ -421,7 +424,7 @@ describe("TextEditOverlay", () => {
     vi.useFakeTimers();
     const { setSession, engine, layer } = buildMock("");
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     ta.value = "Hello world";
@@ -452,7 +455,7 @@ describe("TextEditOverlay", () => {
     const { setSession, layer } = buildMock();
     const { container, cleanup } = mountOverlay();
     const open = (isNewLayer: boolean) => setSession({
-      layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+      layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0,
       isNewLayer, preSnapshot: { layers: [] } as any,
     });
 
@@ -478,20 +481,20 @@ describe("TextEditOverlay", () => {
     // would clip every line beyond the second (invisible typing bug).
     const { setSession, layer } = buildMock("L1\nL2\nL3\nL4");
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
     expect(ta.rows).toBeGreaterThanOrEqual(4);
     cleanup();
   });
 
-  it("single-line content stays at the minimum 2 rows", () => {
+  it("single-line content stays at 1 row", () => {
     const { setSession, layer } = buildMock("Hello");
     const { container, cleanup } = mountOverlay();
-    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
 
     const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
-    expect(ta.rows).toBe(2);
+    expect(ta.rows).toBe(1);
     cleanup();
   });
 });

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Show } from "solid-js";
+import { Show, For, createSignal, createMemo } from "solid-js";
 import { clsx } from "clsx";
 import { useEditor } from "./shell/EditorContext";
+import { useDialog } from "./dialogs/DialogProvider";
 import { ToolPill, Divider } from "./shell/OptionBarShared";
 import { Tooltip } from "./Tooltip";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 import type { LayerNode, ShapeParams, ShapeKind } from "@/engine/types";
 
 type ShapeLayer = LayerNode & { type: "shape"; shapeParams: ShapeParams };
@@ -28,11 +29,18 @@ function shallowEqualParams(cur: ShapeParams, next: Partial<ShapeParams>): boole
   return true;
 }
 
-const KIND_BTNS: { kind: ShapeKind; arrow: boolean; icon: "rectangle" | "circle" | "line" | "arrowUpRight"; label: string; short: string; content: string }[] = [
-  { kind: "rect", arrow: false, icon: "rectangle", label: "Rectangle", short: "Rect", content: "Solid/filled rectangle" },
-  { kind: "ellipse", arrow: false, icon: "circle", label: "Ellipse", short: "Ellipse", content: "Solid/filled ellipse" },
-  { kind: "line", arrow: false, icon: "line", label: "Line", short: "Line", content: "Straight line" },
-  { kind: "line", arrow: true, icon: "arrowUpRight", label: "Arrow", short: "Arrow", content: "Line with arrow head" },
+const SHAPE_PRESETS: { kind: ShapeKind; arrow: boolean; icon: IconName; label: string; content: string }[] = [
+  { kind: "rect", arrow: false, icon: "rectangle", label: "Rectangle", content: "Solid/filled rectangle" },
+  { kind: "ellipse", arrow: false, icon: "circle", label: "Ellipse", content: "Solid/filled circle or ellipse" },
+  { kind: "triangle", arrow: false, icon: "triangle", label: "Triangle", content: "Solid/filled triangle" },
+  { kind: "star", arrow: false, icon: "star", label: "Star (5-Point)", content: "Solid/filled 5-point star" },
+  { kind: "block-arrow", arrow: false, icon: "block-arrow", label: "Block Arrow", content: "Filled 2D block arrow" },
+  { kind: "heart", arrow: false, icon: "heart", label: "Heart", content: "Solid/filled heart shape" },
+  { kind: "diamond", arrow: false, icon: "diamond", label: "Diamond", content: "Solid/filled diamond shape" },
+  { kind: "speech-bubble", arrow: false, icon: "speech-bubble", label: "Speech Bubble", content: "Solid/filled speech bubble" },
+  { kind: "hexagon", arrow: false, icon: "hexagon", label: "Hexagon", content: "Solid/filled 6-sided hexagon" },
+  { kind: "line", arrow: false, icon: "line", label: "Line", content: "Straight line" },
+  { kind: "line", arrow: true, icon: "arrowUpRight", label: "Arrow", content: "Line with arrow head" },
 ];
 
 /**
@@ -47,8 +55,11 @@ const KIND_BTNS: { kind: ShapeKind; arrow: boolean; icon: "rectangle" | "circle"
 export function ShapeOptionBar() {
   const {
     workspace,
+    scheduler,
+    renderer,
     layers,
     selectedLayerId,
+    fgColor, setFgColor,
     shapeKind, setShapeKind,
     shapeFillEnabled, setShapeFillEnabled,
     shapeStrokeEnabled, setShapeStrokeEnabled,
@@ -56,7 +67,10 @@ export function ShapeOptionBar() {
     shapeStrokeWidth, setShapeStrokeWidth,
     shapeRadius, setShapeRadius,
     shapeArrowHead, setShapeArrowHead,
+    colorPickerOpen, setColorPickerOpen,
+    colorPickerTarget, setColorPickerTarget,
   } = useEditor();
+  const dialogs = useDialog();
 
   // Read through the reactive `layers()` signal: setupWorkspaceSync re-publishes
   // the layer array on every engine change (updateShapeParams → notifyChange),
@@ -74,6 +88,7 @@ export function ShapeOptionBar() {
 
   const kind = () => (isEditMode() ? shape().shapeParams.kind : shapeKind());
   const fillEnabled = () => (isEditMode() ? shape().shapeParams.fill.kind === "solid" : shapeFillEnabled());
+  const fillColor = () => (isEditMode() ? shape().shapeParams.fill.color : fgColor());
   const strokeEnabled = () => (isEditMode() ? shape().shapeParams.stroke.enabled : shapeStrokeEnabled());
   const strokeColor = () => (isEditMode() ? shape().shapeParams.stroke.color : shapeStrokeColor());
   const strokeWidthValue = () => (isEditMode() ? shape().shapeParams.stroke.width : shapeStrokeWidth());
@@ -93,57 +108,94 @@ export function ShapeOptionBar() {
     // commit BEFORE mutation (AGENTS.md wiring rule)
     history.commit(engine.snapshot(), "Edit Shape");
     engine.updateShapeParams(layer.id, next);
+    const bitmap = typeof engine.getLayerImageBitmap === "function" ? engine.getLayerImageBitmap(layer.id) : null;
+    if (bitmap) renderer?.uploadImage(layer.id, bitmap);
+    scheduler?.requestRender();
   };
 
   const selectKind = (next: ShapeKind, arrow: boolean) => {
+    setShapeKind(next);
+    if (next === "line") setShapeArrowHead(arrow);
     if (isEditMode()) {
       applyEdit({ kind: next, arrowHead: next === "line" ? arrow : false });
-    } else {
-      setShapeKind(next);
-      if (next === "line") setShapeArrowHead(arrow);
     }
   };
 
   const setFill = (on: boolean) => {
+    setShapeFillEnabled(on);
     if (isEditMode()) applyEdit({ fill: { ...shape().shapeParams.fill, kind: on ? "solid" : "none" } });
-    else setShapeFillEnabled(on);
+  };
+
+  const setFillColor = (c: string) => {
+    setFgColor(c);
+    if (isEditMode()) applyEdit({ fill: { ...shape().shapeParams.fill, color: c, kind: "solid" } });
+  };
+
+  const handleOpenFillColorPicker = async () => {
+    setColorPickerOpen(true);
+    setColorPickerTarget("foreground");
+    const chosen = await dialogs.colorPicker({
+      title: "Shape Fill Color",
+      initialColor: fillColor(),
+      target: "foreground",
+      onChange: (c) => setFillColor(c),
+    });
+    if (chosen) {
+      setFillColor(chosen);
+    }
+    setColorPickerOpen(false);
   };
 
   const setStroke = (on: boolean) => {
+    setShapeStrokeEnabled(on);
     if (isEditMode()) applyEdit({ stroke: { ...shape().shapeParams.stroke, enabled: on } });
-    else setShapeStrokeEnabled(on);
   };
 
   const setColor = (color: string) => {
+    setShapeStrokeColor(color);
     if (isEditMode()) applyEdit({ stroke: { ...shape().shapeParams.stroke, color, enabled: true } });
-    else setShapeStrokeColor(color);
+  };
+
+  const handleOpenStrokeColorPicker = async () => {
+    setColorPickerOpen(true);
+    setColorPickerTarget("foreground");
+    const chosen = await dialogs.colorPicker({
+      title: "Shape Stroke Color",
+      initialColor: strokeColor(),
+      target: "foreground",
+      onChange: (c) => setColor(c),
+    });
+    if (chosen) {
+      setColor(chosen);
+    }
+    setColorPickerOpen(false);
   };
 
   const setWidth = (width: number) => {
     const v = Math.max(1, width);
+    setShapeStrokeWidth(v);
     if (isEditMode()) applyEdit({ stroke: { ...shape().shapeParams.stroke, width: v } });
-    else setShapeStrokeWidth(v);
   };
 
   const setRadius = (value: number) => {
     const v = Math.max(0, Math.min(100, value));
+    setShapeRadius(v);
     if (isEditMode()) applyEdit({ radius: v });
-    else setShapeRadius(v);
   };
 
   const setArrow = (on: boolean) => {
+    setShapeArrowHead(on);
     if (isEditMode()) applyEdit({ arrowHead: on });
-    else setShapeArrowHead(on);
   };
 
-  const isKindActive = (btn: (typeof KIND_BTNS)[number]) =>
-    btn.kind === "line"
-      ? kind() === "line" && arrowHead() === btn.arrow
-      : kind() === btn.kind;
+  const [strokePopoverOpen, setStrokePopoverOpen] = createSignal(false);
+  const [shapePickerOpen, setShapePickerOpen] = createSignal(false);
 
-  const toggleBtnClass = clsx(
-    "flex h-[24px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5 select-none",
-  );
+  const activePreset = createMemo(() => {
+    const k = kind();
+    const ah = arrowHead();
+    return SHAPE_PRESETS.find((p) => p.kind === k && (p.kind !== "line" || p.arrow === ah)) ?? SHAPE_PRESETS[0];
+  });
 
   return (
     <div data-shape-option-bar class="flex items-center gap-1.5 text-[11px] select-none">
@@ -151,92 +203,224 @@ export function ShapeOptionBar() {
 
       <Divider />
 
-      {/* Kind segmented control */}
-      <div class="flex shrink-0 items-center gap-0.5">
-        {KIND_BTNS.map((btn) => {
-          const active = isKindActive(btn);
-          return (
-            <Tooltip content={btn.content} placement="top">
-              <button
-                type="button"
-                aria-label={btn.label}
-                aria-pressed={active}
-                onClick={() => selectKind(btn.kind, btn.arrow)}
-                class={clsx(
-                  "flex h-[24px] shrink-0 items-center gap-1 rounded-[3px] border px-1.5 text-[11px] font-medium transition-colors",
-                  active
-                    ? "border-editor-accent/80 bg-editor-accent/15 text-editor-text shadow-sm"
-                    : "border-transparent text-editor-text-dim hover:border-editor-field-border hover:bg-editor-field/40 hover:text-editor-text",
-                )}
-              >
-                <Icon name={btn.icon} class="size-3" strokeWidth={1.5} />
-                <span class="@max-[900px]:hidden">{btn.short}</span>
-              </button>
-            </Tooltip>
-          );
-        })}
+      {/* Shape Selector Dropdown */}
+      <div class="relative shrink-0 select-none">
+        <button
+          type="button"
+          aria-label="Select shape"
+          aria-expanded={shapePickerOpen()}
+          onClick={() => setShapePickerOpen(!shapePickerOpen())}
+          class="flex h-[24px] cursor-pointer items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-medium text-white transition-colors hover:border-[#4B515D]"
+        >
+          <Icon name={activePreset().icon} class="size-3.5 text-editor-accent" strokeWidth={1.6} />
+          <span class="font-semibold">{activePreset().label}</span>
+          <Icon name="chevron-down" class="size-3 text-[#A1A1AA]" strokeWidth={1.6} />
+        </button>
+
+        <Show when={shapePickerOpen()}>
+          <div
+            class="fixed inset-0 z-50"
+            onClick={() => setShapePickerOpen(false)}
+          />
+          <div class="absolute left-0 top-full z-51 mt-1 w-[160px] max-h-[260px] overflow-y-auto rounded-[6px] border border-editor-field-border bg-editor-bg p-1 shadow-xl">
+            <For each={SHAPE_PRESETS}>
+              {(preset) => (
+                <button
+                  type="button"
+                  aria-label={preset.label}
+                  onClick={() => {
+                    selectKind(preset.kind, preset.arrow);
+                    setShapePickerOpen(false);
+                  }}
+                  class={clsx(
+                    "flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-[11px] font-medium transition-colors select-none",
+                    activePreset().label === preset.label
+                      ? "bg-editor-accent/20 text-white font-semibold"
+                      : "text-[#A1A1AA] hover:bg-editor-field hover:text-white"
+                  )}
+                >
+                  <Icon name={preset.icon} class={clsx("size-3.5", activePreset().label === preset.label ? "text-editor-accent" : "text-[#A1A1AA]")} strokeWidth={1.6} />
+                  <span>{preset.label}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
 
       <Divider />
 
-      <label class={clsx(toggleBtnClass, "justify-center")}>
-        <input type="checkbox" aria-label="Fill" checked={fillEnabled()} onChange={(e) => setFill(e.currentTarget.checked)} class="accent-editor-accent" />
-        <span class={fillEnabled() ? "text-editor-text" : "text-editor-text-dim"}>Fill</span>
-      </label>
+      {/* Fill Controls */}
+      <div class="flex items-center gap-1 select-none">
+        <button
+          type="button"
+          aria-label="Fill"
+          aria-pressed={fillEnabled()}
+          onClick={() => setFill(!fillEnabled())}
+          class={clsx(
+            "flex h-[24px] items-center gap-1 rounded-[4px] border px-2 text-[11px] font-medium transition-colors cursor-pointer",
+            fillEnabled()
+              ? "border-editor-accent bg-editor-accent/20 text-white font-semibold shadow-xs"
+              : "border-editor-field-border bg-editor-field text-[#A1A1AA] hover:border-[#4B515D] hover:text-white"
+          )}
+        >
+          <span>Fill</span>
+        </button>
+        <Show when={fillEnabled()}>
+          <Tooltip content="Fill color" placement="top">
+            <button
+              type="button"
+              aria-label="Fill color"
+              onClick={handleOpenFillColorPicker}
+              class="size-[22px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 transition-transform hover:scale-105 ring-1 ring-white/20"
+              style={{ "background-color": fillColor() }}
+            />
+          </Tooltip>
+        </Show>
+      </div>
 
-      <label class={clsx(toggleBtnClass, "justify-center")}>
-        <input type="checkbox" aria-label="Stroke" checked={strokeEnabled()} onChange={(e) => setStroke(e.currentTarget.checked)} class="accent-editor-accent" />
-        <span class={strokeEnabled() ? "text-editor-text" : "text-editor-text-dim"}>Stroke</span>
-      </label>
+      <Divider />
 
-      <Show when={strokeEnabled()}>
-        <Divider />
+      {/* Stroke Pill & Popover (Matching TextOptionBar) */}
+      <div class="relative flex items-center select-none" data-shape-stroke>
+        <Tooltip content="Stroke outline options" placement="top">
+          <button
+            type="button"
+            aria-label="Stroke options"
+            aria-expanded={strokePopoverOpen()}
+            onClick={() => setStrokePopoverOpen(!strokePopoverOpen())}
+            class={clsx(
+              "group flex h-[24px] w-[116px] shrink-0 items-center justify-between gap-1.5 rounded-[4px] border px-2 text-[11px] font-medium transition-colors duration-75 select-none cursor-pointer",
+              strokeEnabled() && strokeWidthValue() > 0
+                ? "border-editor-accent bg-editor-accent/20 text-white shadow-xs font-semibold"
+                : "border-editor-field-border bg-editor-field text-[#A1A1AA] hover:border-[#4B515D] hover:bg-editor-field/80 hover:text-white",
+            )}
+          >
+            <Show
+              when={strokeEnabled() && strokeWidthValue() > 0}
+              fallback={
+                <div class="flex items-center gap-1.5">
+                  <span class="size-2.5 shrink-0 rounded-full border border-[#363B44] bg-[#2A2E37]" />
+                  <span class="text-[#A1A1AA] group-hover:text-white font-medium transition-colors">Stroke:</span>
+                  <span class="inline-block min-w-[34px] font-mono text-[#A1A1AA] font-medium text-left">Off</span>
+                </div>
+              }
+            >
+              <div class="flex items-center gap-1.5">
+                <span
+                  class="size-2.5 shrink-0 rounded-full border border-black/50 ring-1 ring-white/30 shadow-2xs"
+                  style={{ background: strokeColor() }}
+                />
+                <span class="text-[#A1A1AA] font-medium">Stroke:</span>
+                <span class="inline-block min-w-[34px] font-mono text-white font-bold text-left">{strokeWidthValue()}px</span>
+              </div>
+            </Show>
+            <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white shrink-0 transition-colors" strokeWidth={1.75} />
+          </button>
+        </Tooltip>
 
-        <input
-          type="color"
-          aria-label="Stroke color"
-          value={strokeColor()}
-          onInput={(e) => setColor(e.currentTarget.value)}
-          class="size-[22px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border bg-transparent p-0"
-        />
+        <Show when={strokePopoverOpen()}>
+          <div
+            class="absolute left-0 top-full mt-1.5 z-50 w-56 rounded-[6px] border border-[#363B44] bg-[#1D2026] p-3 shadow-2xl select-none"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div class="flex items-center justify-between pb-2 mb-2 border-b border-[#2D323C]">
+              <span class="text-[11px] font-semibold text-white">Stroke Outline</span>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  aria-label="Stroke"
+                  checked={strokeEnabled()}
+                  onChange={(e) => setStroke(e.currentTarget.checked)}
+                  class="accent-editor-accent cursor-pointer"
+                />
+                <span class="text-[11px] font-medium text-white">{strokeEnabled() ? "On" : "Off"}</span>
+              </label>
+            </div>
 
-        <label class={toggleBtnClass}>
-          <input
-            type="range"
-            aria-label="Stroke width"
-            min={1}
-            max={40}
-            value={strokeWidthValue()}
-            onInput={(e) => setWidth(Number(e.currentTarget.value))}
-            class="w-6 accent-editor-accent"
-          />
-          <span class="w-6 text-right text-[10px] tabular-nums text-editor-text-dim">{strokeWidthValue()}px</span>
-        </label>
-      </Show>
+            <div
+              class="relative cursor-pointer"
+              onClick={() => {
+                if (!strokeEnabled()) setStroke(true);
+              }}
+            >
+              <div
+                class={clsx(
+                  "flex flex-col gap-2.5 transition-all duration-150",
+                  !strokeEnabled() && "opacity-40 filter grayscale pointer-events-none"
+                )}
+              >
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] text-[#A1A1AA] font-medium">Color</span>
+                  <button
+                    type="button"
+                    aria-label="Stroke color"
+                    onClick={handleOpenStrokeColorPicker}
+                    class="flex items-center gap-2 rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 transition-colors hover:border-[#4B515D] cursor-pointer"
+                  >
+                    <span
+                      class="size-3 rounded-full border border-black/50 ring-1 ring-white/30"
+                      style={{ background: strokeColor() }}
+                    />
+                    <span class="font-mono text-[10px] text-white font-medium">{strokeColor().toUpperCase()}</span>
+                  </button>
+                </div>
+
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] text-[#A1A1AA] font-medium">Width</span>
+                  <div class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70 hover:border-[#4B515D]">
+                    <input
+                      type="number"
+                      aria-label="Stroke width"
+                      min={1}
+                      max={200}
+                      value={strokeWidthValue()}
+                      onInput={(e) => setWidth(Number(e.currentTarget.value))}
+                      class="w-[36px] bg-transparent text-center font-mono text-[11px] font-semibold text-white outline-none"
+                    />
+                    <span class="text-[10px] font-medium text-[#A1A1AA] select-none">px</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="fixed inset-0 z-40" onClick={() => setStrokePopoverOpen(false)} />
+        </Show>
+      </div>
 
       <Show when={kind() === "rect"}>
         <Divider />
-        <label class={toggleBtnClass}>
-          <span class="text-[10px] font-medium text-editor-text-dim">Radius</span>
+        <div class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70 hover:border-[#4B515D]">
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Radius</span>
           <input
-            type="range"
+            type="number"
             aria-label="Corner radius"
             min={0}
-            max={100}
+            max={500}
             value={radius()}
             onInput={(e) => setRadius(Number(e.currentTarget.value))}
-            class="w-6 accent-editor-accent"
+            class="w-[34px] bg-transparent text-center font-mono text-[11px] font-semibold text-white outline-none"
           />
-          <span class="w-6 text-right text-[10px] tabular-nums text-editor-text-dim">{radius()}px</span>
-        </label>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">px</span>
+        </div>
       </Show>
 
       <Show when={kind() === "line"}>
         <Divider />
-        <label class={clsx(toggleBtnClass, "justify-center")}>
-          <input type="checkbox" aria-label="Arrow head" checked={arrowHead()} onChange={(e) => setArrow(e.currentTarget.checked)} class="accent-editor-accent" />
-          <span class={arrowHead() ? "text-editor-text" : "text-editor-text-dim"}>Arrow</span>
-        </label>
+        <button
+          type="button"
+          aria-label="Arrow head"
+          aria-pressed={arrowHead()}
+          onClick={() => setArrow(!arrowHead())}
+          class={clsx(
+            "flex h-[24px] items-center gap-1 rounded-[4px] border px-2 text-[11px] font-medium transition-colors cursor-pointer",
+            arrowHead()
+              ? "border-editor-accent bg-editor-accent/20 text-white font-semibold shadow-xs"
+              : "border-editor-field-border bg-editor-field text-[#A1A1AA] hover:border-[#4B515D] hover:text-white"
+          )}
+        >
+          <span>Arrow</span>
+        </button>
       </Show>
     </div>
   );

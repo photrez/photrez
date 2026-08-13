@@ -1,9 +1,11 @@
-import { Show, For, createSignal, createMemo } from "solid-js";
+import { Show, For, createSignal, createMemo, onMount } from "solid-js";
 import { clsx } from "clsx";
 import { Icon } from "./icons";
 import { EditableNumField, NumField, PropRow, Slider } from "./primitives";
+import { SelectDropdown } from "./shell/OptionBarShared";
 import { Tooltip } from "./Tooltip";
 import { useEditor } from "./shell/EditorContext";
+import { useDialog } from "./dialogs/DialogProvider";
 import { SectionHeader } from "./layers/SectionHeader";
 import { CanvasProperties } from "./canvas/CanvasProperties";
 import { LayerThumb } from "./layers/LayerThumb";
@@ -25,7 +27,8 @@ const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
 ];
 
 export function PropertiesPanel() {
-  const { workspace, layers, selectedLayerId, scheduler, activeDocumentId, docWidth, docHeight, constrainRatio, setConstrainRatio, textEditSession } = useEditor();
+  const { workspace, layers, selectedLayerId, scheduler, activeDocumentId, docWidth, docHeight, constrainRatio, setConstrainRatio, textEditSession, setColorPickerOpen, setColorPickerTarget } = useEditor();
+  const dialogs = useDialog();
   const [opacityEditLayerId, setOpacityEditLayerId] = createSignal<string | null>(null);
   const [fontPickerOpen, setFontPickerOpen] = createSignal(false);
   const [fontSearch, setFontSearch] = createSignal("");
@@ -35,11 +38,20 @@ export function PropertiesPanel() {
     void getAvailableFonts().then((f) => setFonts(f));
   };
 
+  onMount(() => {
+    loadFonts();
+  });
+
   const filteredFonts = () => {
     const q = fontSearch().toLowerCase().trim();
     if (!q) return fonts();
     return fonts().filter((f) => f.family.toLowerCase().includes(q));
   };
+
+  const displayedFonts = createMemo(() => {
+    const list = filteredFonts();
+    return fontSearch().trim() ? list : list.slice(0, 100);
+  });
 
   const activeLayer = () => {
     const id = selectedLayerId();
@@ -79,6 +91,36 @@ export function PropertiesPanel() {
     engine.updateTextData(layer.id, next);
     scheduler.requestRender();
     workspace.notifyVisualChange();
+  };
+
+  const handlePickTextColor = async (currentColor: string) => {
+    setColorPickerOpen(true);
+    setColorPickerTarget("foreground");
+    const chosen = await dialogs.colorPicker({
+      title: "Text Color",
+      initialColor: currentColor,
+      target: "foreground",
+      onChange: (c) => commitTextDataEdit({ color: c }, "Change Text Color"),
+    });
+    if (chosen) {
+      commitTextDataEdit({ color: chosen }, "Change Text Color");
+    }
+    setColorPickerOpen(false);
+  };
+
+  const handlePickTextStrokeColor = async (currentColor: string, strokeObj: any) => {
+    setColorPickerOpen(true);
+    setColorPickerTarget("foreground");
+    const chosen = await dialogs.colorPicker({
+      title: "Text Stroke Color",
+      initialColor: currentColor,
+      target: "foreground",
+      onChange: (c) => commitTextDataEdit({ stroke: { ...strokeObj, color: c } }, "Change Stroke Color"),
+    });
+    if (chosen) {
+      commitTextDataEdit({ stroke: { ...strokeObj, color: chosen } }, "Change Stroke Color");
+    }
+    setColorPickerOpen(false);
   };
 
   const handleOpacityChange = (val: number) => {
@@ -293,34 +335,42 @@ export function PropertiesPanel() {
                               <Icon name="chevron-down" class="size-3 shrink-0 text-editor-text-dim" />
                             </button>
                             <Show when={fontPickerOpen()}>
-                              <div class="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-md border border-editor-field-border bg-editor-panel shadow-lg">
+                              <div class="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-[6px] border border-[#363B44] bg-[#1B1D22] shadow-2xl">
                                 <input
                                   type="search"
                                   placeholder="Search fonts..."
                                   aria-label="Search fonts in inspector"
                                   value={fontSearch()}
                                   onInput={(e) => setFontSearch(e.currentTarget.value)}
-                                  class="w-full border-b border-editor-divider bg-transparent px-2.5 py-1.5 text-[11px] text-editor-text outline-none placeholder:text-editor-text-dim/50"
+                                  class="w-full border-b border-[#2D323C] bg-transparent px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-[#A1A1AA]/60"
                                 />
-                                <div class="max-h-48 overflow-y-auto py-0.5" role="listbox">
-                                  <For each={filteredFonts()}>
-                                    {(f) => (
-                                      <button
-                                        type="button"
-                                        role="option"
-                                        aria-selected={textLayer().textData.fontFamily === f.family}
-                                        onClick={() => {
-                                          setFontPickerOpen(false);
-                                          commitTextDataEdit({ fontFamily: f.family }, "Change Font Family");
-                                        }}
-                                        class="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] text-editor-text-dim hover:bg-white/5 hover:text-editor-text"
-                                      >
-                                        <span style={{ "font-family": `"${f.family}", sans-serif` }}>{f.family}</span>
-                                        <Show when={textLayer().textData.fontFamily === f.family}>
-                                          <Icon name="check" class="size-3 text-editor-accent" strokeWidth={2.5} />
-                                        </Show>
-                                      </button>
-                                    )}
+                                <div class="max-h-56 overflow-y-auto py-1" role="listbox">
+                                  <For each={displayedFonts()}>
+                                    {(f) => {
+                                      const isSelected = () => textLayer().textData.fontFamily === f.family;
+                                      return (
+                                        <button
+                                          type="button"
+                                          role="option"
+                                          aria-selected={isSelected()}
+                                          onClick={() => {
+                                            setFontPickerOpen(false);
+                                            commitTextDataEdit({ fontFamily: f.family }, "Change Font Family");
+                                          }}
+                                          class={clsx(
+                                            "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors select-none",
+                                            isSelected()
+                                              ? "bg-editor-accent/20 text-white font-semibold"
+                                              : "text-[#D1D5DB] hover:bg-white/10 hover:text-white"
+                                          )}
+                                        >
+                                          <span style={{ "font-family": `"${f.family}", sans-serif` }}>{f.family}</span>
+                                          <Show when={isSelected()}>
+                                            <Icon name="check" class="size-3 text-editor-accent shrink-0" strokeWidth={2.5} />
+                                          </Show>
+                                        </button>
+                                      );
+                                    }}
                                   </For>
                                 </div>
                               </div>
@@ -331,47 +381,27 @@ export function PropertiesPanel() {
 
                         {/* Size & Weight */}
                         <PropRow label="Size & Weight">
-                          <div class="flex flex-1 items-center gap-1">
+                          <div class="flex flex-1 items-center gap-1 min-w-0">
                             <EditableNumField
-                              label="Size"
                               value={textLayer().textData.fontSize}
                               suffix="px"
                               min={1}
                               max={2000}
                               onSubmit={(v) => commitTextDataEdit({ fontSize: Math.max(1, Math.min(2000, Math.round(v))) }, "Change Font Size")}
                               disabled={safeLayer()!.locked}
-                              class="flex-1"
+                              class="w-20 shrink-0"
                             />
-                            <label class="flex h-[24px] w-[36px] shrink-0 items-center justify-center rounded-[3px] border border-editor-field-border bg-editor-field px-0.5 select-none">
-                              <select
-                                aria-label="Font size preset"
-                                value={textLayer().textData.fontSize}
-                                onChange={(e) => commitTextDataEdit({ fontSize: Number(e.currentTarget.value) }, "Change Font Size")}
-                                disabled={safeLayer()!.locked}
-                                class="w-full cursor-pointer appearance-none bg-transparent text-center text-[10px] text-editor-text-dim outline-none disabled:opacity-40"
-                              >
-                                <For each={[6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 80, 96, 120, 144, 192, 256]}>
-                                  {(sz) => <option value={sz}>{sz}</option>}
-                                </For>
-                              </select>
-                            </label>
-                          </div>
-                          <label class="flex h-[24px] flex-1 items-center rounded-[3px] border border-editor-field-border bg-editor-field px-1 select-none">
-                            <select
-                              aria-label="Font weight"
-                              value={textLayer().textData.fontWeight}
-                              onChange={(e) => commitTextDataEdit({ fontWeight: Number(e.currentTarget.value) }, "Change Font Weight")}
+                            <SelectDropdown
+                              value={String(textLayer().textData.fontWeight)}
+                              options={FONT_WEIGHT_PRESETS.map((p) => ({ value: String(p.value), label: p.label }))}
+                              onChange={(v) => commitTextDataEdit({ fontWeight: Number(v) }, "Change Font Weight")}
                               disabled={safeLayer()!.locked}
-                              class="w-full cursor-pointer appearance-none bg-transparent text-center text-[11px] text-editor-text outline-none disabled:opacity-40"
-                            >
-                              <For each={FONT_WEIGHT_PRESETS}>
-                                {(p) => <option value={p.value}>{p.label}</option>}
-                              </For>
-                            </select>
-                          </label>
+                              class="flex-1 min-w-0"
+                            />
+                          </div>
                         </PropRow>
 
-                        {/* Style & Alignment */}
+                        {/* Style & Align */}
                         <PropRow label="Style & Align">
                           <button
                             type="button"
@@ -389,7 +419,7 @@ export function PropertiesPanel() {
                             <span class="italic font-serif">I</span>
                           </button>
 
-                          <div class="flex flex-1 items-center gap-0.5">
+                          <div class="flex flex-1 items-center gap-0.5 min-w-0">
                             {(["left", "center", "right"] as const).map((a) => (
                               <button
                                 type="button"
@@ -410,40 +440,77 @@ export function PropertiesPanel() {
                           </div>
                         </PropRow>
 
+                        {/* Box Mode */}
+                        <PropRow label="Box Mode">
+                          <div class="flex flex-1 items-center gap-1 min-w-0">
+                            <SelectDropdown
+                              value={textLayer().textData.boxMode}
+                              options={[
+                                { value: "point", label: "Auto Width (Point)" },
+                                { value: "area", label: "Fixed Box (Area)" },
+                              ]}
+                              onChange={(v) => {
+                                const m = v as "point" | "area";
+                                if (m === "point") commitTextDataEdit({ boxMode: "point", boxWidth: 0, boxHeight: 0 }, "Point Text Mode");
+                                else {
+                                  const curW = textLayer().textData.boxWidth;
+                                  commitTextDataEdit({ boxMode: "area", boxWidth: curW > 0 ? curW : 200 }, "Area Text Mode");
+                                }
+                              }}
+                              disabled={safeLayer()!.locked}
+                              class="flex-1 min-w-0"
+                            />
+                            <Show when={textLayer().textData.boxMode === "area"}>
+                              <EditableNumField
+                                label="W"
+                                value={textLayer().textData.boxWidth}
+                                suffix="px"
+                                min={1}
+                                max={10000}
+                                onSubmit={(w) => commitTextDataEdit({ boxWidth: Math.max(1, Math.round(w)) }, "Change Box Width")}
+                                disabled={safeLayer()!.locked}
+                                class="w-20 shrink-0"
+                              />
+                            </Show>
+                          </div>
+                        </PropRow>
+
                         {/* Spacing & Line Height */}
                         <PropRow label="Spacing">
-                          <EditableNumField
-                            label="Line H"
-                            value={Math.round(textLayer().textData.lineHeight * 10) / 10}
-                            step={0.1}
-                            min={0.5}
-                            max={5.0}
-                            onSubmit={(v) => commitTextDataEdit({ lineHeight: Math.max(0.5, Math.min(5.0, v)) }, "Change Line Height")}
-                            disabled={safeLayer()!.locked}
-                            class="flex-1"
-                          />
-                          <EditableNumField
-                            label="Letter"
-                            value={textLayer().textData.letterSpacing}
-                            suffix="px"
-                            min={-100}
-                            max={500}
-                            onSubmit={(v) => commitTextDataEdit({ letterSpacing: Math.max(-100, Math.min(500, Math.round(v))) }, "Change Letter Spacing")}
-                            disabled={safeLayer()!.locked}
-                            class="flex-1"
-                          />
+                          <div class="flex flex-1 items-center gap-1 min-w-0">
+                            <EditableNumField
+                              label="Line H"
+                              value={Math.round(textLayer().textData.lineHeight * 10) / 10}
+                              step={0.1}
+                              min={0.5}
+                              max={5.0}
+                              onSubmit={(v) => commitTextDataEdit({ lineHeight: Math.max(0.5, Math.min(5.0, v)) }, "Change Line Height")}
+                              disabled={safeLayer()!.locked}
+                              class="flex-1 min-w-0"
+                            />
+                            <EditableNumField
+                              label="Letter"
+                              value={textLayer().textData.letterSpacing}
+                              suffix="px"
+                              min={-100}
+                              max={500}
+                              onSubmit={(v) => commitTextDataEdit({ letterSpacing: Math.max(-100, Math.min(500, Math.round(v))) }, "Change Letter Spacing")}
+                              disabled={safeLayer()!.locked}
+                              class="flex-1 min-w-0"
+                            />
+                          </div>
                         </PropRow>
 
                         {/* Color & Stroke */}
                         <PropRow label="Color & Stroke">
                           <div class="flex flex-1 items-center gap-1.5">
-                            <input
-                              type="color"
+                            <button
+                              type="button"
                               aria-label="Text color"
-                              value={textLayer().textData.color}
                               disabled={safeLayer()!.locked}
-                              onInput={(e) => commitTextDataEdit({ color: e.currentTarget.value }, "Change Text Color")}
-                              class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border bg-transparent p-0 disabled:opacity-40"
+                              onClick={() => handlePickTextColor(textLayer().textData.color)}
+                              class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 disabled:opacity-40"
+                              style={{ "background-color": textLayer().textData.color }}
                             />
                             <button
                               type="button"
@@ -471,13 +538,13 @@ export function PropertiesPanel() {
                                 disabled={safeLayer()!.locked}
                                 class="w-16"
                               />
-                              <input
-                                type="color"
+                              <button
+                                type="button"
                                 aria-label="Stroke color"
-                                value={textLayer().textData.stroke.color}
                                 disabled={safeLayer()!.locked}
-                                onInput={(e) => commitTextDataEdit({ stroke: { ...textLayer().textData.stroke, color: e.currentTarget.value } }, "Change Stroke Color")}
-                                class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border bg-transparent p-0 disabled:opacity-40"
+                                onClick={() => handlePickTextStrokeColor(textLayer().textData.stroke.color, textLayer().textData.stroke)}
+                                class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 disabled:opacity-40"
+                                style={{ "background-color": textLayer().textData.stroke.color }}
                               />
                             </Show>
                           </div>
@@ -532,54 +599,6 @@ export function PropertiesPanel() {
                             </div>
                           </PropRow>
                         </Show>
-
-                        {/* Box Mode (Point vs Area) */}
-                        <PropRow label="Box Mode">
-                          <div class="flex flex-1 items-center gap-1">
-                            <button
-                              type="button"
-                              aria-label="Point Text mode"
-                              aria-pressed={textLayer().textData.boxMode === "point"}
-                              disabled={safeLayer()!.locked}
-                              onClick={() => commitTextDataEdit({ boxMode: "point", boxWidth: 0 }, "Set Point Text Mode")}
-                              class={clsx(
-                                "flex h-[24px] flex-1 items-center justify-center rounded-[3px] border text-[10.5px] font-medium transition-colors disabled:opacity-40",
-                                textLayer().textData.boxMode === "point"
-                                  ? "border-editor-accent/80 bg-editor-accent/15 text-editor-text"
-                                  : "border-editor-field-border bg-editor-field text-editor-text-dim hover:text-editor-text",
-                              )}
-                            >
-                              Point
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Area Text mode"
-                              aria-pressed={textLayer().textData.boxMode === "area"}
-                              disabled={safeLayer()!.locked}
-                              onClick={() => commitTextDataEdit({ boxMode: "area", boxWidth: textLayer().textData.boxWidth || 300 }, "Set Area Text Mode")}
-                              class={clsx(
-                                "flex h-[24px] flex-1 items-center justify-center rounded-[3px] border text-[10.5px] font-medium transition-colors disabled:opacity-40",
-                                textLayer().textData.boxMode === "area"
-                                  ? "border-editor-accent/80 bg-editor-accent/15 text-editor-text"
-                                  : "border-editor-field-border bg-editor-field text-editor-text-dim hover:text-editor-text",
-                              )}
-                            >
-                              Area
-                            </button>
-                          </div>
-                          <Show when={textLayer().textData.boxMode === "area"}>
-                            <EditableNumField
-                              label="W"
-                              value={textLayer().textData.boxWidth}
-                              suffix="px"
-                              min={1}
-                              max={10000}
-                              onSubmit={(w) => commitTextDataEdit({ boxWidth: Math.max(1, Math.round(w)) }, "Change Box Width")}
-                              disabled={safeLayer()!.locked}
-                              class="w-20"
-                            />
-                          </Show>
-                        </PropRow>
                       </div>
                     </div>
                   )}

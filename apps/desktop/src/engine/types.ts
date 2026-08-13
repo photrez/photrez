@@ -35,7 +35,17 @@ export interface Transform2D {
 }
 
 // ─── Shape layers (spec #2, 2026-08-07) ───
-export type ShapeKind = "rect" | "ellipse" | "line";
+export type ShapeKind =
+  | "rect"
+  | "ellipse"
+  | "line"
+  | "triangle"
+  | "star"
+  | "block-arrow"
+  | "heart"
+  | "diamond"
+  | "speech-bubble"
+  | "hexagon";
 
 export interface ShapeStroke {
   enabled: boolean;

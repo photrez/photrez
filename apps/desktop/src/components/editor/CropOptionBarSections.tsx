@@ -6,9 +6,11 @@
 
 import { For, Show } from "solid-js";
 import { EditableNumField, Slider } from "./primitives";
-import { OptionCheckbox, Divider, MoreDropdown } from "./shell/OptionBarShared";
+import { OptionCheckbox, Divider, MoreDropdown, SelectDropdown } from "./shell/OptionBarShared";
 import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
+import { useDialog } from "./dialogs/DialogProvider";
+import { useEditor } from "./shell/EditorContext";
 import { CROP_PRESETS } from "@/viewport/cropPresets";
 
 // ─── Type guards (moved from CropOptionBar) ───
@@ -176,70 +178,46 @@ export function CropGuideSelect(props: {
     { value: "diagonal", label: "Diagonal" },
     { value: "golden", label: "Golden" },
   ];
-  const select = (
-    <select
-      value={props.guideMode()}
-      onChange={(e) => {
-        const v = e.currentTarget.value;
-        if (isCropGuideMode(v)) props.onGuideModeChange(v);
-      }}
-      class="absolute inset-0 h-full w-full opacity-0 cursor-pointer text-[11px]"
-    >
-      <For each={options}>
-        {(opt) => (
-          <option value={opt.value} class="bg-editor-panel text-editor-text">
-            {opt.label}
-          </option>
-        )}
-      </For>
-    </select>
-  );
+
   if (props.layout === "menu") {
     return (
       <div class="flex flex-col gap-1.5 mt-1.5">
         <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">
           Guide
         </span>
-        <div class="relative flex h-[24px] w-full items-center rounded-[3px] border border-editor-field-border bg-editor-field px-2 hover:border-editor-field-border/80 transition-all cursor-pointer focus-ring-within">
-          <span class="text-[11px] text-editor-text mr-4 select-none">
-            {props.label()}
-          </span>
-          <div class="ml-auto pointer-events-none text-editor-text-dim">
-            <Icon name="chevron-down" class="size-3" strokeWidth={1.5} />
-          </div>
-          {select}
-        </div>
+        <SelectDropdown
+          value={props.guideMode()}
+          options={options}
+          onChange={(v: string) => {
+            if (isCropGuideMode(v)) props.onGuideModeChange(v);
+          }}
+          class="w-full"
+        />
       </div>
     );
   }
   return (
-    <div class="relative flex h-[24px] shrink-0 items-center rounded-[3px] border border-editor-field-border bg-editor-field px-2 hover:border-editor-field-border/80 transition-all cursor-pointer focus-ring-within">
-      <span class="text-[11px] text-editor-text mr-4 select-none">
-        {props.label()}
-      </span>
-      <div class="ml-auto pointer-events-none text-editor-text-dim">
-        <Icon name="chevron-down" class="size-3" strokeWidth={1.5} />
-      </div>
-      {select}
-    </div>
+    <SelectDropdown
+      labelPrefix="Guide"
+      value={props.guideMode()}
+      options={options}
+      onChange={(v: string) => {
+        if (isCropGuideMode(v)) props.onGuideModeChange(v);
+      }}
+    />
   );
 }
 
 export function CropClassicToggle(props: {
-  checked: boolean;
+  checked: () => boolean;
   onChange: (v: boolean) => void;
   layout: "inline" | "menu";
 }) {
   const checkbox = (
     <OptionCheckbox
-      checked={props.checked}
+      checked={props.checked()}
       onChange={props.onChange}
-      label="Classic"
-      class={
-        props.layout === "menu"
-          ? "w-full bg-editor-field/50 border-editor-field-border"
-          : undefined
-      }
+      label="Classic Crop"
     />
   );
   if (props.layout === "menu") {
@@ -278,14 +256,16 @@ export function CropRatioPicker(props: {
       <button
         type="button"
         onClick={() => props.setOpen(!props.open())}
-        class="flex h-[24px] shrink-0 items-center gap-1.5 rounded-[3px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text hover:border-editor-accent transition-colors cursor-pointer whitespace-nowrap"
+        class="group flex h-[24px] shrink-0 items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-semibold text-white hover:border-[#4B515D] transition-colors cursor-pointer select-none whitespace-nowrap"
       >
-        <span>Ratio: {props.ratioLabel()}</span>
-        <Icon name="chevron-down" class="size-3 text-editor-text-dim shrink-0" />
+        <span class="font-medium text-[#A1A1AA]">
+          Ratio: <span class="font-semibold text-white">{props.ratioLabel()}</span>
+        </span>
+        <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white transition-colors shrink-0" />
       </button>
 
       <Show when={props.open()}>
-        <div class="absolute top-full left-0 z-50 mt-1 flex flex-col rounded-[4px] border border-editor-field-border bg-editor-panel py-1 shadow-lg max-h-[300px] overflow-y-auto min-w-[150px]">
+        <div class="absolute top-full left-0 z-50 mt-1.5 flex flex-col rounded-[6px] border border-[#363B44] bg-[#1B1D22] py-1 shadow-2xl max-h-[300px] overflow-y-auto min-w-[160px]">
           <div
             class="fixed inset-0 z-[-1]"
             onClick={() => props.setOpen(false)}
@@ -295,7 +275,7 @@ export function CropRatioPicker(props: {
           <button
             type="button"
             disabled={props.cropMode() !== "free"}
-            class={`flex items-center gap-2 px-3 py-1.5 text-[11px] text-left hover:bg-editor-field/60 disabled:opacity-40 disabled:pointer-events-none text-editor-text`}
+            class={`flex items-center gap-2 px-3 py-1.5 text-[11px] text-left hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none text-[#A1A1AA] hover:text-white transition-colors cursor-pointer`}
             onClick={() => {
               props.onLockShape();
               props.setOpen(false);
@@ -305,18 +285,18 @@ export function CropRatioPicker(props: {
             <span>Lock Current Shape</span>
           </button>
 
-          <div class="h-px bg-editor-divider my-1" />
+          <div class="h-px bg-[#2D323C] my-1" />
 
           {/* Recents list if available */}
           <Show when={props.recents().length > 0}>
-            <div class="px-3 py-0.5 text-[9px] font-bold text-editor-text-dim uppercase tracking-wider">
+            <div class="px-3 py-0.5 text-[9px] font-bold text-[#A1A1AA] uppercase tracking-wider">
               Recents
             </div>
             <For each={props.recents()}>
               {(r) => (
                 <button
                   type="button"
-                  class="flex items-center justify-between px-3 py-1 text-[11px] text-editor-text hover:bg-editor-field/60 text-left w-full"
+                  class="flex items-center justify-between px-3 py-1 text-[11px] text-[#A1A1AA] hover:bg-white/10 hover:text-white transition-colors text-left w-full cursor-pointer"
                   onClick={() => {
                     props.onRecent(r);
                     props.setOpen(false);
@@ -328,13 +308,13 @@ export function CropRatioPicker(props: {
                 </button>
               )}
             </For>
-            <div class="h-px bg-editor-divider my-1" />
+            <div class="h-px bg-[#2D323C] my-1" />
           </Show>
 
           {/* Standard Options */}
           <button
             type="button"
-            class={`flex items-center px-3 py-1.5 text-[11px] hover:bg-editor-field/60 text-left w-full ${props.cropMode() === "free" ? "text-editor-accent font-medium" : "text-editor-text"}`}
+            class={`flex items-center px-3 py-1.5 text-[11px] hover:bg-white/10 text-left w-full cursor-pointer transition-colors ${props.cropMode() === "free" ? "border-l-2 border-editor-accent bg-editor-accent/20 text-white font-semibold" : "text-[#A1A1AA] hover:text-white"}`}
             onClick={() => {
               props.onFree();
               props.setOpen(false);
@@ -344,7 +324,7 @@ export function CropRatioPicker(props: {
           </button>
           <button
             type="button"
-            class={`flex items-center px-3 py-1.5 text-[11px] hover:bg-editor-field/60 text-left w-full ${props.isCustomActive() ? "text-editor-accent font-medium" : "text-editor-text"}`}
+            class={`flex items-center px-3 py-1.5 text-[11px] hover:bg-white/10 text-left w-full cursor-pointer transition-colors ${props.isCustomActive() ? "border-l-2 border-editor-accent bg-editor-accent/20 text-white font-semibold" : "text-[#A1A1AA] hover:text-white"}`}
             onClick={() => {
               props.onCustom();
               props.setOpen(false);
@@ -354,7 +334,7 @@ export function CropRatioPicker(props: {
           </button>
           <button
             type="button"
-            class={`flex items-center px-3 py-1.5 text-[11px] hover:bg-editor-field/60 text-left w-full ${props.cropMode() === "size" ? "text-editor-accent font-medium" : "text-editor-text"}`}
+            class={`flex items-center px-3 py-1.5 text-[11px] hover:bg-white/10 text-left w-full cursor-pointer transition-colors ${props.cropMode() === "size" ? "border-l-2 border-editor-accent bg-editor-accent/20 text-white font-semibold" : "text-[#A1A1AA] hover:text-white"}`}
             onClick={() => {
               props.onSize();
               props.setOpen(false);
@@ -444,35 +424,18 @@ export function CropSizeInputs(props: {
       />
 
       {/* Unit Selector */}
-      <div class="relative flex h-[24px] shrink-0 items-center rounded-[3px] border border-editor-field-border bg-editor-field px-2 hover:border-editor-field-border/80 transition-all cursor-pointer focus-ring-within">
-        <span class="text-[11px] text-editor-text mr-4 select-none">
-          {props.unit()}
-        </span>
-        <div class="ml-auto pointer-events-none text-editor-text-dim">
-          <Icon name="chevron-down" class="size-3" strokeWidth={1.5} />
-        </div>
-        <select
-          value={props.unit()}
-          onChange={(e) => {
-            const v = e.currentTarget.value;
-            if (isCropSizeUnit(v)) props.onUnitChange(v);
-          }}
-          class="absolute inset-0 h-full w-full opacity-0 cursor-pointer text-[11px]"
-        >
-          <option value="px" class="bg-editor-panel text-editor-text">
-            px
-          </option>
-          <option value="cm" class="bg-editor-panel text-editor-text">
-            cm
-          </option>
-          <option value="mm" class="bg-editor-panel text-editor-text">
-            mm
-          </option>
-          <option value="in" class="bg-editor-panel text-editor-text">
-            in
-          </option>
-        </select>
-      </div>
+      <SelectDropdown
+        value={props.unit()}
+        options={[
+          { value: "px", label: "px" },
+          { value: "cm", label: "cm" },
+          { value: "mm", label: "mm" },
+          { value: "in", label: "in" },
+        ]}
+        onChange={(v: string) => {
+          if (isCropSizeUnit(v)) props.onUnitChange(v);
+        }}
+      />
     </div>
   );
 }
@@ -504,6 +467,24 @@ export function CropFillControls(props: {
   onPickColor: (v: string) => void;
   onUseBackground: () => void;
 }) {
+  const dialogs = useDialog();
+  const { setColorPickerOpen, setColorPickerTarget } = useEditor();
+
+  const handleOpenColorPicker = async () => {
+    setColorPickerOpen(true);
+    setColorPickerTarget("foreground");
+    const chosen = await dialogs.colorPicker({
+      title: "Crop Fill Color",
+      initialColor: props.fillColor(),
+      target: "foreground",
+      onChange: (c) => props.onPickColor(c),
+    });
+    if (chosen) {
+      props.onPickColor(chosen);
+    }
+    setColorPickerOpen(false);
+  };
+
   return (
     <>
       {/* Delete pixels toggle (always visible, checkbox) */}
@@ -542,12 +523,12 @@ export function CropFillControls(props: {
           data-crop-fill-source={props.fillSource()}
         >
           <Tooltip content="Crop fill color">
-            <input
+            <button
               data-crop-fill-color
-              type="color"
-              value={props.fillColor()}
-              onInput={(e) => props.onPickColor(e.currentTarget.value)}
-              class="h-[18px] w-[22px] cursor-pointer rounded-[2px] border border-editor-field-border bg-transparent p-0"
+              type="button"
+              onClick={handleOpenColorPicker}
+              class="h-[18px] w-[22px] cursor-pointer rounded-[2px] border border-editor-field-border p-0"
+              style={{ "background-color": props.fillColor() }}
             />
           </Tooltip>
           <Tooltip content="Use Background Color">

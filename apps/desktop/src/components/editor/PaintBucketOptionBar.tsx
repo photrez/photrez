@@ -17,7 +17,7 @@ export function PaintBucketOptionBar() {
 
       {/* Tolerance Slider & Input */}
       <div class="flex items-center gap-2">
-        <span class="text-editor-text-dim">Tolerance:</span>
+        <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Tolerance:</span>
         <div class="relative flex items-center w-24">
           <input
             type="range"
@@ -38,7 +38,7 @@ export function PaintBucketOptionBar() {
             const val = parseInt(e.currentTarget.value, 10);
             if (!isNaN(val)) setFillTolerance(Math.max(0, Math.min(255, val)));
           }}
-          class="h-5 w-10 rounded border border-editor-field-border bg-editor-field px-1 text-right text-[11px] font-medium text-editor-text outline-none focus:border-editor-accent"
+          class="h-6 w-11 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 text-right font-mono text-[11px] font-semibold text-white outline-none focus:border-editor-accent hover:border-[#4B515D] transition-colors"
         />
       </div>
 
@@ -47,11 +47,12 @@ export function PaintBucketOptionBar() {
         <For each={TOLERANCE_PRESETS}>
           {(preset) => (
             <button
+              type="button"
               onClick={() => setFillTolerance(preset)}
-              class={`h-5 rounded px-1.5 text-[10px] font-medium transition-colors ${
+              class={`h-6 rounded-[4px] px-1.5 font-mono text-[10px] font-medium transition-all cursor-pointer select-none ${
                 fillTolerance() === preset
-                  ? "bg-editor-accent/20 border border-editor-accent/40 font-semibold text-editor-accent"
-                  : "bg-editor-field/60 border border-editor-field-border text-editor-text-dim hover:text-editor-text hover:bg-editor-field"
+                  ? "bg-editor-accent/20 border border-editor-accent text-white font-bold shadow-xs"
+                  : "bg-editor-field/40 border border-editor-field-border/60 text-[#A1A1AA] hover:text-white hover:bg-editor-field hover:border-editor-field-border"
               }`}
             >
               {preset}

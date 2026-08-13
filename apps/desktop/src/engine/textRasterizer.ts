@@ -289,11 +289,17 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   // could overhang the box bottom by a few px — accepted trade-off for the
   // tight box (the old formula never clipped but wasted a full line-height).
   const inkPerLine = Math.max(normalized.lineHeight * fontPx, ascent + descent);
+  const minBoxHeight = normalized.boxMode === "area" && normalized.boxHeight > 0 ? normalized.boxHeight * effScale : 0;
   const canvasH = Math.min(
     MAX_CANVAS_DIM,
     Math.max(
       1,
-      Math.ceil((lines.length - 1) * normalized.lineHeight * fontPx + inkPerLine + strokePad * 2 + PADDING * 2),
+      Math.ceil(
+        Math.max(
+          minBoxHeight,
+          (lines.length - 1) * normalized.lineHeight * fontPx + inkPerLine + strokePad * 2 + PADDING * 2,
+        ),
+      ),
     ),
   );
   canvas.width = canvasW;
@@ -312,8 +318,9 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
 
   if (strokeEnabled) {
     ctx.strokeStyle = normalized.stroke!.color;
-    // half the ink is hidden under the fill for outside, so double the line width.
-    ctx.lineWidth = strokePad * 2;
+    // For outside & inside alignment, half the stroke line is clipped/hidden by fill, so double the line width.
+    // For center alignment, the stroke centers on the glyph outline (half in, half out), so use 1x strokePad.
+    ctx.lineWidth = strokeAlign === "center" ? strokePad : strokePad * 2;
     ctx.lineJoin = "round";
     ctx.miterLimit = 2;
   }
@@ -321,7 +328,7 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   const baseX = PADDING + strokePad;
 
   if (strokeEnabled && strokeAlign === "outside") {
-    // Outside (default): strokeText first, then fillText over it
+    // Outside (default): strokeText first (2x width), then fillText over it
     for (let i = 0; i < lines.length; i++) {
       const lw = lineWidths[i];
       const x =
@@ -335,7 +342,7 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
       ctx.fillText(lines[i], x, y);
     }
   } else if (strokeEnabled && strokeAlign === "center") {
-    // Center: fillText first, then strokeText centered on top
+    // Center: fillText first, then strokeText centered on top (1x width: half in, half out)
     for (let i = 0; i < lines.length; i++) {
       const lw = lineWidths[i];
       const x =
@@ -349,7 +356,7 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
       ctx.strokeText(lines[i], x, y);
     }
   } else if (strokeEnabled && strokeAlign === "inside") {
-    // Inside: fillText first, then strokeText clipped strictly inside the fill via source-in
+    // Inside: fillText first, then strokeText (2x width) clipped inside the fill via source-atop
     for (let i = 0; i < lines.length; i++) {
       const lw = lineWidths[i];
       const x =
@@ -361,7 +368,7 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
       const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
       ctx.fillText(lines[i], x, y);
     }
-    ctx.globalCompositeOperation = "source-in";
+    ctx.globalCompositeOperation = "source-atop";
     for (let i = 0; i < lines.length; i++) {
       const lw = lineWidths[i];
       const x =

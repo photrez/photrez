@@ -353,10 +353,10 @@ export function RightDock(props: RightDockProps) {
   return (
     <aside
       class={clsx(
-        "flex shrink-0 overflow-hidden border-l border-editor-divider bg-editor-panel",
+        "relative z-30 flex shrink-0 overflow-hidden border-l border-editor-divider bg-editor-panel",
         rightDockLayout() === "side-by-side"
-          ? "flex flex-col lg:flex-row w-[272px] lg:w-auto lg:static lg:z-auto lg:shadow-none"
-          : "flex flex-col w-[272px] lg:w-[272px] 2xl:w-[300px] h-full lg:static lg:z-auto lg:shadow-none",
+          ? "flex flex-col lg:flex-row w-[272px] lg:w-auto lg:shadow-none"
+          : "flex flex-col w-[272px] lg:w-[272px] 2xl:w-[300px] h-full lg:shadow-none",
         props.open ? "flex" : "hidden",
       )}
     >

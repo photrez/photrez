@@ -124,8 +124,8 @@ export function BrushOptionBar() {
       <Divider />
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
-          <span class="text-[10px] font-medium text-editor-text-dim">Size</span>
+        <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Size</span>
           <input
             data-paint-size
             type="number"
@@ -133,9 +133,9 @@ export function BrushOptionBar() {
             max="2000"
             value={size()}
             onInput={(e) => setSize(Number(e.currentTarget.value))}
-            class="w-12 bg-transparent text-[11px] text-editor-text outline-none"
+            class="w-12 bg-transparent font-mono text-[11px] font-semibold text-white outline-none"
           />
-          <span class="text-[10px] text-editor-text-dim">px</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">px</span>
         </label>
 
         <div class="relative w-[72px] flex items-center h-[14px] @max-[900px]:hidden">
@@ -158,8 +158,8 @@ export function BrushOptionBar() {
       {/* Core brush params — always visible on the bar */}
       <Divider />
       <div class="flex items-center gap-1.5 shrink-0">
-        <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
-          <span class="text-[10px] font-medium text-editor-text-dim">Hard</span>
+        <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Hard</span>
           <input
             data-paint-hardness
             type="number"
@@ -167,13 +167,13 @@ export function BrushOptionBar() {
             max="100"
             value={formatPercent(hardness())}
             onInput={(e) => setHardness(Number(e.currentTarget.value))}
-            class="w-11 bg-transparent text-[11px] text-editor-text outline-none"
+            class="w-11 bg-transparent font-mono text-[11px] font-semibold text-white outline-none"
           />
-          <span class="text-[10px] text-editor-text-dim">%</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">%</span>
         </label>
 
-        <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
-          <span class="text-[10px] font-medium text-editor-text-dim">Strength</span>
+        <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Strength</span>
           <input
             data-paint-opacity
             type="number"
@@ -181,9 +181,9 @@ export function BrushOptionBar() {
             max="100"
             value={formatPercent(opacity())}
             onInput={(e) => setOpacity(Number(e.currentTarget.value))}
-            class="w-11 bg-transparent text-[11px] text-editor-text outline-none"
+            class="w-11 bg-transparent font-mono text-[11px] font-semibold text-white outline-none"
           />
-          <span class="text-[10px] text-editor-text-dim">%</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">%</span>
         </label>
       </div>
 
@@ -191,8 +191,8 @@ export function BrushOptionBar() {
       <div class="hidden @min-[880px]:flex items-center gap-1.5 shrink-0">
         <Divider />
 
-        <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
-          <span class="text-[10px] font-medium text-editor-text-dim">Flow</span>
+        <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Flow</span>
           <input
             data-paint-flow
             type="number"
@@ -200,13 +200,13 @@ export function BrushOptionBar() {
             max="100"
             value={formatPercent(flow())}
             onInput={(e) => setFlowValue(Number(e.currentTarget.value))}
-            class="w-11 bg-transparent text-[11px] text-editor-text outline-none"
+            class="w-11 bg-transparent font-mono text-[11px] font-semibold text-white outline-none"
           />
-          <span class="text-[10px] text-editor-text-dim">%</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">%</span>
         </label>
 
-        <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
-          <span class="text-[10px] font-medium text-editor-text-dim">Smooth</span>
+        <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Smooth</span>
           <input
             data-paint-smoothing
             type="number"
@@ -214,9 +214,9 @@ export function BrushOptionBar() {
             max="100"
             value={smoothing()}
             onInput={(event) => setSmoothingValue(Number(event.currentTarget.value))}
-            class="w-11 bg-transparent text-[11px] text-editor-text outline-none"
+            class="w-11 bg-transparent font-mono text-[11px] font-semibold text-white outline-none"
           />
-          <span class="text-[10px] text-editor-text-dim">%</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">%</span>
         </label>
 
         <div class="relative">
@@ -225,19 +225,20 @@ export function BrushOptionBar() {
               type="button"
               data-paint-preset
               onClick={() => setShowPresets(!showPresets())}
-              class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text hover:border-editor-accent"
+              class="group flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-semibold text-white transition-colors hover:border-[#4B515D] cursor-pointer select-none"
             >
-              {currentPresetName()}
+              <span>{currentPresetName()}</span>
+              <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white transition-colors" />
             </button>
           </Tooltip>
           <Show when={showPresets()}>
-            <div class="absolute top-full left-0 z-50 mt-1 flex flex-col rounded-[4px] border border-editor-field-border bg-editor-panel py-1 shadow-lg">
+            <div class="absolute top-full left-0 z-50 mt-1.5 flex flex-col rounded-[6px] border border-[#363B44] bg-[#1D2026] py-1 shadow-2xl min-w-[140px]">
               <div class="fixed inset-0 z-[-1]" onClick={() => setShowPresets(false)} />
               <For each={BRUSH_PRESETS.filter(p => p.tool === "both" || p.tool === (isEraser() ? "eraser" : "brush"))}>
                 {(preset) => (
                   <button
                     type="button"
-                    class={`flex items-center gap-2 px-3 py-1.5 text-[11px] whitespace-nowrap hover:bg-editor-field/60 ${preset.id === presetId() ? "text-editor-accent font-medium" : "text-editor-text"}`}
+                    class={`flex items-center gap-2 px-3 py-1.5 text-[11px] whitespace-nowrap hover:bg-white/10 transition-colors cursor-pointer text-left w-full ${preset.id === presetId() ? "border-l-2 border-editor-accent bg-editor-accent/20 text-white font-semibold" : "text-[#A1A1AA] hover:text-white"}`}
                     onClick={() => { applyPreset(preset); setShowPresets(false); }}
                   >
                     {preset.name}
@@ -252,7 +253,7 @@ export function BrushOptionBar() {
           <Tooltip content="Set eraser to full hard strength">
             <button
               type="button"
-              class="h-[24px] rounded-[3px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text hover:border-editor-accent"
+              class="h-[24px] rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 px-2 text-[11px] font-semibold text-[#A1A1AA] transition-colors hover:border-editor-field-border hover:bg-editor-field hover:text-white cursor-pointer select-none"
               aria-label="Set eraser to full hard strength"
               onClick={() => {
                 setEraserHardness(1);

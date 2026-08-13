@@ -385,7 +385,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
   }
 
   function handlePointerDown(e: PointerEvent) {
-    if (activeTool() !== "move") return;
+    if (activeTool() !== "move" && activeTool() !== "shape") return;
     if (e.button !== 0) return;
 
     // Navigation mode (Space held or active pan): skip drag entirely.
@@ -408,6 +408,10 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     const docPos = camera.screenToDocument(screenX, screenY);
     let layer = findLayerAt(docPos.x, docPos.y);
     if (!layer) return;
+
+    if (activeTool() === "shape" && layer.type !== "shape" && layer.id !== selectedLayerId()) {
+      return;
+    }
 
     const src = activeDocumentId();
     if (!src) return;

@@ -1,62 +1,45 @@
 # Contributing to Photrez
 
-Thanks for helping improve Photrez. This project is still pre-release, so the best contributions are focused, well-tested, and easy to review.
+Thanks for helping improve Photrez! We welcome contributions that help make Photrez a faster, more reliable desktop image editor for creators.
 
 ## Ground Rules
 
-- Keep changes aligned with the locked product scope in `docs/spec/product-scope.md`.
-- Preserve the existing desktop editor layout unless a change explicitly requires UI structure work.
-- Follow the runtime architecture in `docs/ARCHITECTURE.md`.
-- Avoid broad rewrites when a narrow fix solves the problem.
-- Do not introduce new dependencies without explaining why the existing stack is insufficient.
+- **Scope:** Keep changes aligned with product goals in `docs/spec/product-scope.md`.
+- **Layout Stability:** Preserve existing desktop UI structures unless a change explicitly requires UI redesign.
+- **Architecture:** Respect runtime ownership boundaries described in `docs/ARCHITECTURE.md`.
+- **Focused Changes:** Prefer small, well-tested pull requests over large, unannounced refactors.
+- **Dependencies:** Avoid adding external dependencies unless strictly necessary.
 
 ## Development Setup
 
-This project uses **Bun** as its package manager and runtime. Install it from [bun.com](https://bun.com).
-
-Install dependencies and start the desktop app:
+This project uses **Bun** (`v1.3.14`) as its primary package manager and runtime.
 
 ```bash
-bun install
-bun run dev          # Start development server
-bun run tauri dev    # Launch the desktop app
+bun install          # Install dependencies
+bun run tauri dev    # Launch desktop app in dev mode
+bun run verify       # Run full verification gate (tests + build)
 ```
 
-Run the main verification gate:
+### Focused Test Commands
 
 ```bash
-bun run verify
+bun run --filter photrez-desktop test --run   # Frontend unit/component tests
+bun run build                                 # Frontend build verification
+cargo test -p photrez-core                    # Rust core unit tests
+cargo test --workspace                       # All Rust crate tests
 ```
 
-Focused checks:
+## Pull Request Guidelines
 
-```bash
-bun run --filter photrez-desktop test --run
-bun run build
-cargo test -p photrez-core
-cargo test --workspace
-```
+- Describe the change clearly in your PR description.
+- Include unit and wiring tests for new features or bug fixes.
+- Update documentation if user-facing behavior, shortcuts, or setup requirements change.
+- Verify performance when modifying paint, export, rendering, or document history logic.
 
-## Pull Request Requirements
+## Code Standards
 
-- Explain what changed and why.
-- Include tests for behavior changes.
-- Include wiring tests for UI event paths, not only pure function tests.
-- Update relevant docs when behavior, shortcuts, architecture, or user-facing scope changes.
-- Note performance impact for rendering, paint, export, import, and history changes.
-- Keep unrelated refactors out of feature and bug-fix PRs.
+- **Frontend:** SolidJS with strict TypeScript (TSX). Avoid `any`.
+- **History Safety:** Always commit document state to history before executing destructive mutations.
+- **Design Token System:** Follow `@theme` design tokens in `docs/DESIGN.md`.
 
-## Code Style
-
-- Frontend code uses SolidJS, not React.
-- TypeScript is strict. Avoid `any`; prefer explicit types and narrowing.
-- Keep document state changes history-safe: commit undo history before mutation.
-- Use existing editor commands, layer actions, and selection operations instead of adding parallel mutation paths.
-- Keep UI compact and consistent with `docs/DESIGN.md`.
-
-## Review Process
-
-- Maintainers review for scope, correctness, tests, accessibility, and architecture fit.
-- High-risk changes may require extra review or a focused design note.
-- Breaking changes should be documented in `docs/decisions/`.
-- Native runtime behavior should be verified in Tauri when the change touches shell, dialogs, file I/O, drag and drop, or window behavior.
+Thank you for contributing to Photrez!

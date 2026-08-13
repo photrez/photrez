@@ -1,9 +1,9 @@
-# Known Issues — Photrez v0.1.0
+# Known Issues & Limitations — Photrez v0.1.0
 
-This document lists known limitations and bugs in the current release.
-For bug reports, please open an issue at https://github.com/photrez/photrez/issues.
+This document tracks known limitations, performance notes, and planned features for the current release.
+To report a bug, please open an issue at https://github.com/photrez/photrez/issues.
 
-## 🚨 Critical Limitations
+## 🖥️ Platform & Performance Notes
 
 ### 1. Startup Time
 - **Symptom (resolved in alpha.2):** Earlier estimate cited ~3.7s cold launch. On the installed Windows build the app launches near-instantly; frontend mount measures ~37ms (Solid + WebGL2 init). The previous 3.7s was a stale dev-first-run estimate, not representative of release builds.

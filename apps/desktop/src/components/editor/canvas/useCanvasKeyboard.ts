@@ -72,10 +72,11 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
     const handleKeyDown = async (e: KeyboardEvent) => {
       const active = document.activeElement;
       if (
-        active &&
-        (active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          (active as HTMLElement).isContentEditable)
+        (active &&
+          (active.tagName === "INPUT" ||
+            active.tagName === "TEXTAREA" ||
+            (active as HTMLElement).isContentEditable)) ||
+        editor.textEditSession()
       ) {
         return;
       }

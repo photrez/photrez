@@ -39,7 +39,7 @@ export function OptionBar() {
   });
 
   return (
-    <div class="@container flex h-[44px] shrink-0 items-center gap-1.5 border-b border-editor-divider bg-editor-toolbar px-3">
+    <div class="@container relative z-[100] flex h-[44px] shrink-0 items-center gap-1.5 border-b border-editor-divider bg-editor-toolbar px-3">
       <Show
         when={layerTransformSession()}
         fallback={
@@ -72,11 +72,11 @@ export function OptionBar() {
               <FadeIn><GradientOptionBar /></FadeIn>
             </Show>
 
-            <Show when={activeTool() === "shape" || isShapeLayerSelected()}>
+            <Show when={activeTool() === "shape" || (isShapeLayerSelected() && activeTool() !== "move" && activeTool() !== "crop" && activeTool() !== "selection")}>
               <FadeIn><ShapeOptionBar /></FadeIn>
             </Show>
 
-            <Show when={activeTool() === "text" || isTextLayerSelected()}>
+            <Show when={activeTool() === "text" || (isTextLayerSelected() && activeTool() !== "move" && activeTool() !== "crop" && activeTool() !== "selection")}>
               <FadeIn><TextOptionBar /></FadeIn>
             </Show>
           </>

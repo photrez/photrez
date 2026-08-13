@@ -206,13 +206,14 @@ export function TransformOptionBar() {
 
                 <Tooltip content="Reset preview transform values">
                   <button
+                    type="button"
                     onClick={resetPreview}
                     disabled={isLocked()}
                     class={clsx(
-                      "flex h-[24px] shrink-0 items-center rounded-[3px] border border-transparent px-2 text-[11px]",
+                      "flex h-[24px] shrink-0 items-center rounded-[4px] border px-2 text-[11px] font-semibold transition-all cursor-pointer select-none",
                       isLocked()
-                        ? "text-editor-text-dim/30 cursor-default"
-                        : "text-editor-text-dim hover:border-editor-field-border hover:text-editor-text",
+                        ? "border-transparent text-[#A1A1AA]/30 cursor-default"
+                        : "border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white",
                     )}
                   >
                     Reset Preview
@@ -229,7 +230,7 @@ export function TransformOptionBar() {
         {(s) => (
           <MoreDropdown>
             <div class="flex flex-col gap-1.5">
-              <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Options</span>
+              <span class="text-[10px] font-bold text-[#A1A1AA] uppercase tracking-wider">Options</span>
               <div class="flex items-center gap-2 bg-editor-field/30 p-1.5 rounded-[4px] border border-editor-field-border">
                 <Tooltip content="Lock Aspect Ratio">
                   <ToggleBtn
@@ -241,13 +242,14 @@ export function TransformOptionBar() {
                 </Tooltip>
                 <Tooltip content="Reset preview transform values">
                   <button
+                    type="button"
                     onClick={resetPreview}
                     disabled={isLocked()}
                     class={clsx(
-                      "flex h-[24px] items-center rounded-[3px] border border-transparent px-2 text-[11px]",
+                      "flex h-[24px] items-center rounded-[4px] border px-2 text-[11px] font-semibold transition-all cursor-pointer select-none",
                       isLocked()
-                        ? "text-editor-text-dim/30 cursor-default"
-                        : "text-editor-text-dim hover:border-editor-field-border hover:text-editor-text",
+                        ? "border-transparent text-[#A1A1AA]/30 cursor-default"
+                        : "border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white",
                     )}
                   >
                     Reset
@@ -264,7 +266,7 @@ export function TransformOptionBar() {
       <Tooltip content="Apply transform" shortcut="Enter">
         <button
           type="button"
-          class="h-6 px-2.5 rounded-[4px] border border-editor-accent/50 bg-editor-accent/15 text-editor-text text-[11px] font-semibold"
+          class="h-6 px-2.5 rounded-[4px] border border-editor-accent bg-editor-accent text-white text-[11px] font-bold shadow-xs hover:bg-editor-accent/90 cursor-pointer select-none transition-colors"
           onClick={apply}
         >
           Apply
@@ -273,7 +275,7 @@ export function TransformOptionBar() {
       <Tooltip content="Cancel transform" shortcut="Esc">
         <button
           type="button"
-          class="h-6 px-2.5 rounded-[4px] border border-editor-border bg-editor-surface-2 text-editor-text-dim text-[11px] font-semibold hover:text-editor-text"
+          class="h-6 px-2.5 rounded-[4px] border border-[#363B44] bg-editor-field text-[#A1A1AA] text-[11px] font-semibold hover:border-[#4B515D] hover:text-white cursor-pointer select-none transition-colors"
           onClick={cancel}
         >
           Cancel

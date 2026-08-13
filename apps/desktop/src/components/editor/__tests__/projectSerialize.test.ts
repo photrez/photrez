@@ -940,6 +940,7 @@ describe("projectSerialize — full roundtrip", () => {
       letterSpacing: 2,
       boxMode: "point",
       boxWidth: 0,
+      boxHeight: 0,
       stroke: { width: 6, color: "#00aa00", align: "outside" },
     };
 

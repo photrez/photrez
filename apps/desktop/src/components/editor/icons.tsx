@@ -11,6 +11,7 @@ import {
   AlignStartVertical,
   AlignEndVertical,
   ArrowLeftRight,
+  ArrowRight,
   ArrowUpRight,
   Aperture,
   Box,
@@ -18,10 +19,15 @@ import {
   Camera,
   ChartSpline,
   Check,
+  Diamond,
+  Heart,
+  Hexagon,
+  MessageSquare,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Circle,
+  CircleDashed,
   Columns2,
   Contrast,
   Copy,
@@ -69,10 +75,15 @@ import {
   Sun,
   SwatchBook,
   Trash2,
+  Triangle,
+  Star,
   Type,
   Undo2,
   Unlock,
   X,
+  Smartphone,
+  FileText,
+  Printer,
 } from "lucide-solid";
 
 export type IconName =
@@ -137,6 +148,7 @@ export type IconName =
   | "folder-plus"
   | "copy"
   | "square-dashed"
+  | "circle-dashed"
   | "trash"
   | "maximize"
   | "paint-bucket"
@@ -148,7 +160,17 @@ export type IconName =
   | "panel-right-close"
   | "image"
   | "image-plus"
-  | "sliders";
+  | "sliders"
+  | "triangle"
+  | "star"
+  | "block-arrow"
+  | "heart"
+  | "diamond"
+  | "speech-bubble"
+  | "hexagon"
+  | "smartphone"
+  | "file-text"
+  | "printer";
 
 type IconProps = Omit<LucideProps, "children"> & {
   name: IconName;
@@ -159,6 +181,9 @@ const ICONS: Record<IconName, LucideIcon> = {
   undo: Undo2,
   redo: Redo2,
   minus: Minus,
+  smartphone: Smartphone,
+  "file-text": FileText,
+  printer: Printer,
   square: Square,
   x: X,
   check: Check,
@@ -216,6 +241,7 @@ const ICONS: Record<IconName, LucideIcon> = {
   "folder-plus": FolderPlus,
   copy: Copy,
   "square-dashed": SquareDashed,
+  "circle-dashed": CircleDashed,
   trash: Trash2,
   maximize: Maximize2,
   "paint-bucket": PaintBucket,
@@ -229,6 +255,13 @@ const ICONS: Record<IconName, LucideIcon> = {
   image: ImageIcon,
   "image-plus": ImagePlus,
   sliders: Sliders,
+  triangle: Triangle,
+  star: Star,
+  "block-arrow": ArrowRight,
+  heart: Heart,
+  diamond: Diamond,
+  "speech-bubble": MessageSquare,
+  hexagon: Hexagon,
 };
 
 export function Icon(props: IconProps) {

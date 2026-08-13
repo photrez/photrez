@@ -28,10 +28,10 @@ export const DOCUMENT_TABS: readonly DocumentTab[] = [
 
 export const TOOL_ITEMS: readonly ToolItem[] = [
   { id: "move", icon: "cursor", label: "Move Tool", active: true },
-  { id: "selection", icon: "rectangle", label: "Rectangle Select",
+  { id: "selection", icon: "square-dashed", label: "Rectangle Select",
     variants: [
-      { id: "rect", icon: "rectangle", label: "Rectangle Select" },
-      { id: "ellipse", icon: "circle", label: "Elliptical Select" },
+      { id: "rect", icon: "square-dashed", label: "Rectangle Select" },
+      { id: "ellipse", icon: "circle-dashed", label: "Elliptical Select" },
     ] },
   { id: "crop", icon: "crop", label: "Crop Tool" },
   { id: "eyedropper", icon: "pipette", label: "Eyedropper Tool" },

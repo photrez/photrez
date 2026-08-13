@@ -17,6 +17,7 @@ describe("TextData contract", () => {
       letterSpacing: 2,
       boxMode: "area",
       boxWidth: 320,
+      boxHeight: 180,
       stroke: { width: 8, color: "#00Aa00" },
     };
     const round = JSON.parse(JSON.stringify(data)) as TextData;

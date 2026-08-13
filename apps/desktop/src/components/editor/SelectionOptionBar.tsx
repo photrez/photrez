@@ -1,7 +1,7 @@
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import { useEditor } from "./shell/EditorContext";
 import { EditableNumField } from "./primitives";
-import { ToolPill, MoreDropdown, Divider, ToggleBtn } from "./shell/OptionBarShared";
+import { ToolPill, MoreDropdown, Divider, ToggleBtn, SelectDropdown } from "./shell/OptionBarShared";
 import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
@@ -143,54 +143,33 @@ export function SelectionOptionBar() {
 
   return (
     <>
-      <ToolPill icon="rectangle" label="Selection" />
+      <ToolPill icon={selectionShape() === "ellipse" ? "circle-dashed" : "square-dashed"} label="Selection" />
 
       <Divider />
 
-      {/* Marquee shape toggle */}
-      <div class="flex shrink-0 items-center gap-0.5">
-        <Tooltip content="Rectangular Marquee" shortcut="M">
-          <ToggleBtn
-            active={selectionShape() === "rect"}
-            onChange={() => setSelectionShape("rect")}
-            icon="rectangle"
-            label="Rect"
-            labelClass="@max-[900px]:hidden"
-          />
-        </Tooltip>
-        <Tooltip content="Elliptical Marquee" shortcut="Shift+M">
-          <ToggleBtn
-            active={selectionShape() === "ellipse"}
-            onChange={() => setSelectionShape("ellipse")}
-            icon="circle"
-            label="Ellipse"
-            labelClass="@max-[900px]:hidden"
-          />
-        </Tooltip>
-      </div>
+      {/* Marquee shape dropdown selector */}
+      <SelectDropdown
+        value={selectionShape()}
+        options={[
+          { value: "rect", label: "Rectangular", icon: "square-dashed" },
+          { value: "ellipse", label: "Elliptical", icon: "circle-dashed" },
+        ]}
+        onChange={(v) => setSelectionShape(v as "rect" | "ellipse")}
+      />
 
       <Divider />
 
       {/* Style/Constraint Selector */}
-      <div class="relative flex h-[24px] shrink-0 items-center rounded-[3px] border border-editor-field-border bg-editor-field px-2 hover:border-editor-field-border/80 transition-all cursor-pointer focus-ring-within text-[11px] text-editor-text">
-        <span class="mr-4 select-none whitespace-nowrap">
-          Style: {selectionConstraintMode() === "normal" ? "Normal" : selectionConstraintMode() === "ratio" ? "Fixed Ratio" : "Fixed Size"}
-        </span>
-        <div class="ml-auto pointer-events-none text-editor-text-dim">
-          <Icon name="chevron-down" class="size-3" strokeWidth={1.5} />
-        </div>
-        <select
-          value={selectionConstraintMode()}
-          onChange={(e) => {
-            setSelectionConstraintMode(e.currentTarget.value as "normal" | "ratio" | "size");
-          }}
-          class="absolute inset-0 h-full w-full opacity-0 cursor-pointer text-[11px]"
-        >
-          <option value="normal" class="bg-editor-panel text-editor-text">Normal</option>
-          <option value="ratio" class="bg-editor-panel text-editor-text">Fixed Ratio</option>
-          <option value="size" class="bg-editor-panel text-editor-text">Fixed Size</option>
-        </select>
-      </div>
+      <SelectDropdown
+        labelPrefix="Style"
+        value={selectionConstraintMode()}
+        options={[
+          { value: "normal", label: "Normal" },
+          { value: "ratio", label: "Fixed Ratio" },
+          { value: "size", label: "Fixed Size" },
+        ]}
+        onChange={(v) => setSelectionConstraintMode(v as "normal" | "ratio" | "size")}
+      />
 
       {/* Show constraint W/H inputs when style is Fixed Ratio or Fixed Size */}
       <Show when={selectionConstraintMode() !== "normal"}>

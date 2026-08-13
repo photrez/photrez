@@ -3,7 +3,7 @@ import type { Accessor, Setter } from "solid-js";
 import type { ToolId } from "../../tools/toolTypes";
 import type { TextStrokeAlign } from "@/engine/textTypes";
 import type { LayerTransformSession, TextEditSession } from "../../tools/editorState";
-import type { Transform2D } from "@/engine/types";
+import type { Transform2D, ShapeKind } from "@/engine/types";
 import type { CropPreview, CropFillSource } from "../../cropState";
 import type {
   ModernCropFrame,
@@ -140,8 +140,8 @@ export interface ToolSettingsValue {
   } | null>;
 
   // Shape tool settings
-  shapeKind: Accessor<"rect" | "ellipse" | "line">;
-  setShapeKind: Setter<"rect" | "ellipse" | "line">;
+  shapeKind: Accessor<ShapeKind>;
+  setShapeKind: Setter<ShapeKind>;
   shapeFillEnabled: Accessor<boolean>;
   setShapeFillEnabled: Setter<boolean>;
   shapeStrokeEnabled: Accessor<boolean>;

@@ -66,6 +66,7 @@ fn main() {
         .manage(save_stream::StreamingSaveState::default())
         .manage(print_core::PrintRateLimiter::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(
             // Structured logging: stdout in dev, file in app log dir in prod.
             // Level Info hides debug!() noise from release builds; set

@@ -586,8 +586,8 @@ export function CropOptionBar() {
 
         {/* Classic crop toggle (checkbox) */}
         <CropClassicToggle
-          checked={cropInteractionMode() === "classic"}
-          onChange={(v) => setCropInteractionMode(v ? "classic" : "modern")}
+          checked={() => cropInteractionMode() === "classic"}
+          onChange={(v: boolean) => setCropInteractionMode(v ? "classic" : "modern")}
           layout="inline"
         />
       </div>
@@ -629,8 +629,8 @@ export function CropOptionBar() {
 
         {/* Classic crop toggle (checkbox) */}
         <CropClassicToggle
-          checked={cropInteractionMode() === "classic"}
-          onChange={(v) => setCropInteractionMode(v ? "classic" : "modern")}
+          checked={() => cropInteractionMode() === "classic"}
+          onChange={(v: boolean) => setCropInteractionMode(v ? "classic" : "modern")}
           layout="menu"
         />
       </MoreDropdown>

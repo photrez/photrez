@@ -22,6 +22,7 @@ export interface TextData {
   letterSpacing: number; // -100..500
   boxMode: "point" | "area";
   boxWidth: number; // >0 only when boxMode === "area"; 0 sentinel for "point"
+  boxHeight: number; // >0 only when boxMode === "area"; 0 sentinel for "point"
   stroke: TextStroke; // outline; width 0 = none
 }
 
@@ -37,6 +38,7 @@ export const DEFAULT_TEXT_DATA: TextData = {
   letterSpacing: 0,
   boxMode: "point",
   boxWidth: 0,
+  boxHeight: 0,
   stroke: { width: 0, color: "#000000", align: "outside" },
 };
 
@@ -84,6 +86,7 @@ export function normalizeTextData(raw: unknown): TextData {
     letterSpacing,
     boxMode,
     boxWidth: boxMode === "area" ? Math.max(1, finiteNumber(src.boxWidth, 1)) : 0,
+    boxHeight: boxMode === "area" ? Math.max(0, finiteNumber(src.boxHeight, 0)) : 0,
     stroke: {
       width: strokeWidth,
       color:

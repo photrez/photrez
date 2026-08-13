@@ -13,23 +13,23 @@ export function NumField(props: {
   return (
     <div
       class={clsx(
-        "flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5",
+        "flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 select-none",
         props.class,
       )}
     >
       <Show when={props.label}>
         <span
           class={clsx(
-            "text-[10px] font-medium text-editor-text-dim",
+            "text-[10px] font-medium text-[#A1A1AA] select-none",
             props.labelClass,
           )}
         >
           {props.label}
         </span>
       </Show>
-      <span class="text-[11px] text-editor-text">{props.value}</span>
+      <span class="text-[11px] font-semibold font-mono text-white">{props.value}</span>
       <Show when={props.suffix}>
-        <span class="text-[10px] text-editor-text-dim">{props.suffix}</span>
+        <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{props.suffix}</span>
       </Show>
     </div>
   );
@@ -39,14 +39,14 @@ export function SelectField(props: { value: string; class?: string }) {
   return (
     <div
       class={clsx(
-        "flex h-[26px] items-center justify-between rounded-[4px] border border-editor-field-border bg-editor-field px-2.5",
+        "flex h-[24px] items-center justify-between rounded-[4px] border border-editor-field-border bg-editor-field px-2 select-none hover:border-[#4B515D] transition-colors cursor-pointer",
         props.class,
       )}
     >
-      <span class="text-[12px] text-editor-text">{props.value}</span>
+      <span class="text-[11px] font-semibold text-white">{props.value}</span>
       <Icon
         name="chevron-down"
-        class="size-3.5 text-editor-text-dim"
+        class="size-3 text-[#A1A1AA] group-hover:text-white"
         strokeWidth={1.75}
       />
     </div>
@@ -56,7 +56,7 @@ export function SelectField(props: { value: string; class?: string }) {
 export function PropRow(props: { label: string; children: JSX.Element }) {
   return (
     <div class="flex items-center gap-2">
-      <span class="w-[50px] shrink-0 text-[11px] text-editor-text-dim">
+      <span class="w-[50px] shrink-0 text-[11px] font-medium text-[#A1A1AA] select-none">
         {props.label}
       </span>
       <div class="flex flex-1 items-center gap-1.5">{props.children}</div>
@@ -259,8 +259,8 @@ export function EditableNumField(props: {
   return (
     <div
       class={clsx(
-        "flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5 transition-colors",
-        "focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70",
+        "flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors select-none",
+        "focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70 hover:border-[#4B515D]",
         props.disabled && "opacity-40 pointer-events-none",
         props.class,
       )}
@@ -268,7 +268,7 @@ export function EditableNumField(props: {
       <Show when={props.label}>
         <span
           class={clsx(
-            "text-[10px] font-medium text-editor-text-dim",
+            "text-[10px] font-medium text-[#A1A1AA] select-none",
             props.labelClass,
           )}
         >
@@ -315,10 +315,10 @@ export function EditableNumField(props: {
           }
         }}
         onBlur={commit}
-        class="w-full min-w-0 bg-transparent text-[11px] text-editor-text outline-none"
+        class="w-full min-w-0 bg-transparent font-mono text-[11px] font-semibold text-white outline-none"
       />
       <Show when={props.suffix}>
-        <span class="text-[10px] text-editor-text-dim">{props.suffix}</span>
+        <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{props.suffix}</span>
       </Show>
     </div>
   );

@@ -133,8 +133,11 @@ async function enumerateTiered(): Promise<FontFamily[]> {
         }));
       }
     } catch {
-      // Native command unavailable/failed — fall through to the web tier.
+      // Native command unavailable/failed — do NOT fall through to queryLocalFonts in desktop mode,
+      // because queryLocalFonts triggers Chromium's web permission prompt inside the native app window.
+      return [];
     }
+    return [];
   }
 
   // Tier 2 — Local Font Access (web runtime; browser permission prompt).

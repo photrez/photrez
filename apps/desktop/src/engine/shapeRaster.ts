@@ -46,60 +46,148 @@ export function renderShapeToBitmap(params: ShapeParams): ImageBitmap {
   if (isLine ? invalidLine : invalidRect) {
     throw new Error(`E_SHAPE_DIM: shape width/height must be > 0 (got ${params.width}x${params.height})`);
   }
-  const strokeWidth = params.stroke.enabled
-    ? Math.max(MIN_STROKE_WIDTH, params.stroke.width)
+  const strokeEnabled = isLine ? true : params.stroke.enabled;
+  const strokeWidth = strokeEnabled
+    ? Math.max(MIN_STROKE_WIDTH, params.stroke.width || (isLine ? 2 : MIN_STROKE_WIDTH))
     : 0;
+  const strokeColor = isLine && !params.stroke.enabled && params.fill.kind === "solid"
+    ? params.fill.color
+    : params.stroke.color;
+
   const len = Math.max(8, strokeWidth * 3);
-  // margin covers the stroke overhang (half the line width outside the shape
-  // box). For line+arrowHead the wings extend len from the tip, so the uniform
-  // margin must also fit the head.
   const margin = params.kind === "line" && params.arrowHead
     ? Math.max(strokeWidth, len)
-    : strokeWidth;
-  // A line may have a 0 axis (vertical/horizontal, stroke-less too); keep the
-  // bitmap at least 1px each side so the canvas stays allocatable.
+    : 0;
+
   const w = Math.max(1, params.width + margin * 2);
   const h = Math.max(1, params.height + margin * 2);
   const { canvas, ctx } = makeCanvas(w, h);
 
-  ctx.translate(margin, margin);
-  ctx.fillStyle = params.fill.kind === "solid" ? params.fill.color : "transparent";
-  ctx.strokeStyle = params.stroke.color;
+  if (margin > 0) {
+    ctx.translate(margin, margin);
+  }
+
+  const renderW = params.width;
+  const renderH = params.height;
+
+  ctx.fillStyle = params.fill.kind === "solid" ? params.fill.color : (isLine ? strokeColor : "transparent");
+  ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
-  ctx.lineCap = "butt";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
   ctx.beginPath();
   if (params.kind === "rect") {
-    const radius = Math.max(0, Math.min(params.radius, Math.min(params.width, params.height) / 2));
+    const radius = Math.max(0, Math.min(params.radius, Math.min(renderW, renderH) / 2));
     if (typeof (ctx as any).roundRect === "function") {
-      (ctx as any).roundRect(0, 0, params.width, params.height, radius);
+      (ctx as any).roundRect(0, 0, renderW, renderH, radius);
     } else {
-      ctx.rect(0, 0, params.width, params.height);
+      ctx.rect(0, 0, renderW, renderH);
     }
   } else if (params.kind === "ellipse") {
-    ctx.ellipse(params.width / 2, params.height / 2, params.width / 2, params.height / 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(renderW / 2, renderH / 2, renderW / 2, renderH / 2, 0, 0, Math.PI * 2);
+  } else if (params.kind === "triangle") {
+    ctx.moveTo(renderW / 2, 0);
+    ctx.lineTo(renderW, renderH);
+    ctx.lineTo(0, renderH);
+    ctx.closePath();
+  } else if (params.kind === "star") {
+    const rx = renderW * 0.525731;
+    const ry = renderH * 0.552786;
+    const cx = renderW / 2;
+    const cy = ry;
+    const innerRatio = 0.382;
+    const points = 5;
+    for (let i = 0; i < points * 2; i++) {
+      const rScale = i % 2 === 0 ? 1 : innerRatio;
+      const angle = (i * Math.PI) / points - Math.PI / 2;
+      const x = cx + rx * rScale * Math.cos(angle);
+      const y = cy + ry * rScale * Math.sin(angle);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  } else if (params.kind === "block-arrow") {
+    const headW = renderW * 0.4;
+    const stemY1 = renderH * 0.25;
+    const stemY2 = renderH * 0.75;
+    ctx.moveTo(0, stemY1);
+    ctx.lineTo(renderW - headW, stemY1);
+    ctx.lineTo(renderW - headW, 0);
+    ctx.lineTo(renderW, renderH / 2);
+    ctx.lineTo(renderW - headW, renderH);
+    ctx.lineTo(renderW - headW, stemY2);
+    ctx.lineTo(0, stemY2);
+    ctx.closePath();
+  } else if (params.kind === "heart") {
+    const w = renderW;
+    const h = renderH;
+    ctx.moveTo(w / 2, h * 0.28);
+    ctx.bezierCurveTo(w * 0.32, h * 0.02, 0, h * 0.12, 0, h * 0.4);
+    ctx.bezierCurveTo(0, h * 0.65, w * 0.28, h * 0.82, w / 2, h);
+    ctx.bezierCurveTo(w * 0.72, h * 0.82, w, h * 0.65, w, h * 0.4);
+    ctx.bezierCurveTo(w, h * 0.12, w * 0.68, h * 0.02, w / 2, h * 0.28);
+    ctx.closePath();
+  } else if (params.kind === "diamond") {
+    ctx.moveTo(renderW / 2, 0);
+    ctx.lineTo(renderW, renderH / 2);
+    ctx.lineTo(renderW / 2, renderH);
+    ctx.lineTo(0, renderH / 2);
+    ctx.closePath();
+  } else if (params.kind === "speech-bubble") {
+    const w = renderW;
+    const h = renderH;
+    const bodyH = h * 0.8;
+    const r = Math.min(12, bodyH / 4);
+    ctx.moveTo(r, 0);
+    ctx.lineTo(w - r, 0);
+    ctx.quadraticCurveTo(w, 0, w, r);
+    ctx.lineTo(w, bodyH - r);
+    ctx.quadraticCurveTo(w, bodyH, w - r, bodyH);
+    ctx.lineTo(w * 0.35, bodyH);
+    ctx.lineTo(w * 0.1, h);
+    ctx.lineTo(w * 0.2, bodyH);
+    ctx.lineTo(r, bodyH);
+    ctx.quadraticCurveTo(0, bodyH, 0, bodyH - r);
+    ctx.lineTo(0, r);
+    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.closePath();
+  } else if (params.kind === "hexagon") {
+    ctx.moveTo(renderW * 0.25, 0);
+    ctx.lineTo(renderW * 0.75, 0);
+    ctx.lineTo(renderW, renderH / 2);
+    ctx.lineTo(renderW * 0.75, renderH);
+    ctx.lineTo(renderW * 0.25, renderH);
+    ctx.lineTo(0, renderH / 2);
+    ctx.closePath();
   } else {
-    // line: (0,0) -> (width, height); arrowHead triangle at the end
+    // line: (0,0) -> (renderW, renderH); arrowHead at the end
     ctx.moveTo(0, 0);
-    ctx.lineTo(params.width, params.height);
+    ctx.lineTo(renderW, renderH);
     if (params.arrowHead) {
-      const angle = Math.atan2(params.height, params.width);
+      const angle = Math.atan2(renderH, renderW);
       const p = Math.PI / 6; // 30° spread
-      ctx.moveTo(params.width, params.height);
+      const headLen = Math.max(12, strokeWidth * 4);
+      ctx.moveTo(renderW, renderH);
       ctx.lineTo(
-        params.width - len * Math.cos(angle - p),
-        params.height - len * Math.sin(angle - p)
+        renderW - headLen * Math.cos(angle - p),
+        renderH - headLen * Math.sin(angle - p)
       );
-      ctx.moveTo(params.width, params.height);
       ctx.lineTo(
-        params.width - len * Math.cos(angle + p),
-        params.height - len * Math.sin(angle + p)
+        renderW - headLen * Math.cos(angle + p),
+        renderH - headLen * Math.sin(angle + p)
       );
+      ctx.closePath();
     }
   }
 
-  if (params.fill.kind === "solid") ctx.fill();
-  if (strokeWidth > 0) ctx.stroke();
+  if (params.fill.kind === "solid" && !isLine) ctx.fill();
+  if (strokeWidth > 0) {
+    if (isLine && params.arrowHead) {
+      ctx.fill();
+    }
+    ctx.stroke();
+  }
 
   return toBitmap(canvas);
 }

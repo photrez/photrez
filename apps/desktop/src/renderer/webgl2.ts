@@ -217,6 +217,7 @@ export class WebGL2Backend implements RenderBackend {
         gl.bindTexture(gl.TEXTURE_2D, existing.texture);
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+        gl.generateMipmap(gl.TEXTURE_2D);
         return existing;
       }
       // ctx unavailable (e.g. test env) → fall through to full upload below.
@@ -234,12 +235,13 @@ export class WebGL2Backend implements RenderBackend {
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
 
-    // Filtering: LINEAR by default; render() switches MAG to NEAREST above
-    // 200% zoom for crisp pixel-level editing (see magFilterNearest).
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    // Filtering: LINEAR_MIPMAP_LINEAR for butter-smooth trilinear antialiased sampling at all zoom levels;
+    // render() switches MAG to NEAREST above 200% zoom for crisp pixel-level editing (see magFilterNearest).
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.magFilterNearest ? gl.NEAREST : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.generateMipmap(gl.TEXTURE_2D);
 
     const ref: TextureRef = {
       id: `tex-${layerId}`,

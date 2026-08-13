@@ -148,9 +148,6 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
             width: "100%",
             height: "100%",
             overflow: "visible",
-            // Root stays click-through; interactive handles/ring set their own
-            // pointer-events:"all" below. This lets clicks on empty pasteboard
-            // fall through to the canvas so Move-tool deselect still works.
             "pointer-events": "none",
             "z-index": 40,
             cursor: activeDragCursor() ?? "default",
@@ -158,34 +155,23 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
         >
           {/* Rotated group for handles and interactions in screen-space */}
           <g transform={`rotate(${rotation()} ${screenCenter().x} ${screenCenter().y})`}>
-            {/* Rotated bounding box / ellipse outline */}
-            {selection()?.shape === "ellipse" ? (
-              <ellipse
-                data-transform-box
-                cx={screenTL().x + screenW() / 2}
-                cy={screenTL().y + screenH() / 2}
-                rx={screenW() / 2}
-                ry={screenH() / 2}
-                fill="none"
-                stroke={layerTransformSession()?.layerId === getLayer()?.id ? "var(--color-editor-accent)" : "rgba(255,255,255,0.72)"}
-                stroke-width={1}
-                vector-effect="non-scaling-stroke"
-                style={{ "pointer-events": "none" }}
-              />
-            ) : (
-              <rect
-                data-transform-box
-                x={screenTL().x}
-                y={screenTL().y}
-                width={screenW()}
-                height={screenH()}
-                fill="none"
-                stroke={layerTransformSession()?.layerId === getLayer()?.id ? "var(--color-editor-accent)" : "rgba(255,255,255,0.72)"}
-                stroke-width={1}
-                vector-effect="non-scaling-stroke"
-                style={{ "pointer-events": "none" }}
-              />
-            )}
+            {/* Rotated bounding box outline with high contrast accent stroke */}
+            <rect
+              data-transform-box
+              x={screenTL().x}
+              y={screenTL().y}
+              width={screenW()}
+              height={screenH()}
+              fill="none"
+              stroke="var(--color-editor-accent)"
+              stroke-width={1.25}
+              vector-effect="non-scaling-stroke"
+              style={{
+                "pointer-events": "none",
+                filter: "drop-shadow(0px 0px 1px rgba(0, 0, 0, 0.6))",
+              }}
+            />
+
             {/* Center pivot dot */}
             <circle
               cx={screenCenter().x}
@@ -272,14 +258,14 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
                       onPointerLeave={() => setHoverHandle(null)}
                     />
 
-                    {/* Visual handle square */}
+                    {/* Visible square handle */}
                     <rect
                       x={hx() - hs() / 2}
                       y={hy() - hs() / 2}
                       width={hs()}
                       height={hs()}
-                      fill="white"
-                      stroke="var(--color-editor-accent)"
+                      fill="var(--color-editor-accent)"
+                      stroke="#FFFFFF"
                       stroke-width={1}
                       vector-effect="non-scaling-stroke"
                       style={{ "pointer-events": "none" }}

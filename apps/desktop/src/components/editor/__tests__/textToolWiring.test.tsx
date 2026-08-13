@@ -32,6 +32,7 @@ const TEXT_DATA: TextData = {
   letterSpacing: 0,
   boxMode: "point",
   boxWidth: 0,
+  boxHeight: 0,
   stroke: { width: 0, color: "#000000" },
 };
 
@@ -154,6 +155,28 @@ describe("text tool pointer wiring", () => {
     expect(data.boxWidth).toBe(100);
     expect(signals.textEditSession()!.boxMode).toBe("area");
     expect(signals.textEditSession()!.boxWidth).toBe(100);
+    disposeTools();
+    dispose();
+  });
+
+  it("drag beyond MIN_AREA_PX diagonally sets both boxWidth and boxHeight in 2D", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    (mockEngine as any).addTextLayer = vi.fn(() => ({ id: "text-1", type: "text" }));
+    (mockEngine as any).getLayer = vi.fn((id: string) => textLayer(id));
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 210, clientY: 160 }));
+
+    expect(mockEngine.updateTextData).toHaveBeenCalled();
+    const [id, data] = (mockEngine as any).updateTextData.mock.calls.at(-1)!;
+    expect(id).toBe("text-1");
+    expect(data.boxMode).toBe("area");
+    expect(data.boxWidth).toBe(200);
+    expect(data.boxHeight).toBe(150);
+    expect(signals.textEditSession()!.boxMode).toBe("area");
+    expect(signals.textEditSession()!.boxWidth).toBe(200);
+    expect(signals.textEditSession()!.boxHeight).toBe(150);
     disposeTools();
     dispose();
   });

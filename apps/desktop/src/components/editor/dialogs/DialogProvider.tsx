@@ -330,6 +330,11 @@ export function DialogProvider(props: ParentProps) {
     const rgb = createMemo(() => hsvToRgb(h(), s(), v()));
     const currentHex = createMemo(() => rgbToHex(rgb().r, rgb().g, rgb().b));
 
+    createEffect(() => {
+      const hex = currentHex();
+      props.request.options.onChange?.(hex);
+    });
+
     const updateRgb = (newR: number, newG: number, newB: number) => {
       const hsv = rgbToHsv(newR, newG, newB);
       setH(hsv.h);

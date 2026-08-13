@@ -15,9 +15,14 @@ function buildParams(
 ): { params: ShapeParams; docX: number; docY: number } {
   const { editor } = ctx;
   const kind = editor.shapeKind();
-  const strokeEnabled = editor.shapeStrokeEnabled();
+  let strokeEnabled = editor.shapeStrokeEnabled();
   const strokeWidth = Math.max(1, editor.shapeStrokeWidth());
-  const fillEnabled = editor.shapeFillEnabled();
+  let fillEnabled = editor.shapeFillEnabled();
+  // Visibility guard: if both fill and stroke are disabled, enable stroke
+  // so newly created shapes are never rendered as invisible 0-alpha bitmaps.
+  if (!strokeEnabled && !fillEnabled) {
+    strokeEnabled = true;
+  }
   const fg = editor.fgColor();
 
   let w = Math.abs(end.x - start.x);
@@ -74,6 +79,30 @@ export function startShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
   if (!engine) return true;
 
   const coords = ctx.getDocCoords(e);
+  const layers = engine.getLayers();
+  const selectedId = editor.selectedLayerId();
+
+  // If clicking inside an existing shape layer or selected shape layer, don't create a new shape layer;
+  // select it and let layer drag move it instead.
+  for (let i = 0; i < layers.length; i++) {
+    const l = layers[i];
+    if (l.locked || !l.visible) continue;
+    const w = l.width * Math.abs(l.transform.scaleX);
+    const h = l.height * Math.abs(l.transform.scaleY);
+    if (
+      coords.x >= l.transform.x &&
+      coords.x <= l.transform.x + w &&
+      coords.y >= l.transform.y &&
+      coords.y <= l.transform.y + h
+    ) {
+      if (l.type === "shape") {
+        engine.setActiveLayer(l.id);
+        editor.setSelectedLayerId(l.id);
+        return false;
+      }
+    }
+  }
+
   state.start = { x: coords.x, y: coords.y };
   state.isDragging = true;
   // Snapshot BEFORE the temp layer exists so undo of "Add Shape" removes it.

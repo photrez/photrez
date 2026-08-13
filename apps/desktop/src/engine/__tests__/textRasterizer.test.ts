@@ -39,6 +39,7 @@ interface RasterRecord {
     lineWidth: number;
     lineJoin: string;
     miterLimit: number;
+    globalCompositeOperation?: string;
   };
 }
 
@@ -70,6 +71,7 @@ function setupOffscreenCanvasMock() {
       lineWidth: 0,
       lineJoin: "miter" as string,
       miterLimit: 10,
+      globalCompositeOperation: "source-over" as string,
       measureText: (s: string) => ({
         // real canvas: wider font -> wider text (fontPx is device px here)
         width: s.length * (fontPxFrom(ctx.font) * 0.5),
@@ -557,5 +559,25 @@ describe("rasterizeText", () => {
     expect(record.strokes.length).toBe(1);
     expect(record.strokes[0].text).toBe("🚀");
     expect(record.paints[0].text).toBe("🚀");
+  });
+
+  it("stroke position alignments: sets correct lineWidth and globalCompositeOperation", () => {
+    const instances = setupOffscreenCanvasMock();
+
+    // Center alignment: 1x strokePad (strokePad = 4 * 2 = 8, lineWidth = 8)
+    rasterizeText({ ...DEFAULT_TEXT_DATA, stroke: { width: 4, color: "#ff0000", align: "center" } });
+    const centerRec = instances[instances.length - 1];
+    expect(centerRec.ctx.lineWidth).toBe(8);
+
+    // Inside alignment: 2x strokePad with source-atop composite operation
+    rasterizeText({ ...DEFAULT_TEXT_DATA, stroke: { width: 4, color: "#ff0000", align: "inside" } });
+    const insideRec = instances[instances.length - 1];
+    expect(insideRec.ctx.lineWidth).toBe(16);
+    expect(insideRec.ctx.globalCompositeOperation).toBe("source-over"); // reset back after render
+
+    // Outside alignment: 2x strokePad
+    rasterizeText({ ...DEFAULT_TEXT_DATA, stroke: { width: 4, color: "#ff0000", align: "outside" } });
+    const outsideRec = instances[instances.length - 1];
+    expect(outsideRec.ctx.lineWidth).toBe(16);
   });
 });
