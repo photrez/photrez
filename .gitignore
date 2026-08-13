@@ -56,6 +56,7 @@ test-results/
 # Images / binaries (screenshots excluded)
 *.png
 !docs/screenshots/*.png
+!apps/landing/public/screenshots/*.png
 *.jpg
 *.jpeg
 !apps/desktop/src/assets/**/*
