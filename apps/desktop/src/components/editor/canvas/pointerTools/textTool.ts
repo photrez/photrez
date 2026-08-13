@@ -222,8 +222,18 @@ export function startTextPointer(
 
   const activeSession = editor.textEditSession();
   if (activeSession) {
-    // Clicking on the SAME text layer that is already in edit session: keep session active!
-    if (hit && hit.id === activeSession.layerId) {
+    const activeLayer = engine.getLayer(activeSession.layerId);
+    const boxW = activeSession.boxWidth > 0 ? activeSession.boxWidth : Math.max(160, activeLayer?.width ?? 160);
+    const boxH = activeSession.boxHeight > 0 ? activeSession.boxHeight : Math.max(40, activeLayer?.height ?? 40);
+    const isInsideActiveBox = activeLayer && (
+      coords.x >= activeSession.docX - 15 &&
+      coords.x <= activeSession.docX + boxW + 15 &&
+      coords.y >= activeSession.docY - 15 &&
+      coords.y <= activeSession.docY + boxH + 15
+    );
+
+    // Clicking on the SAME text layer or inside its bounding box: keep session active!
+    if ((hit && hit.id === activeSession.layerId) || isInsideActiveBox) {
       trySetPointerCapture(ctx.getCanvasRef(), e.pointerId);
       return true;
     }
@@ -346,6 +356,16 @@ export function applyTextPointer(
   tryReleasePointerCapture(ctx.getCanvasRef(), e.pointerId);
   state.isDragging = false;
   editor.scheduler.requestRender();
+
+  // Post-pointerup focus guarantee: focus the textarea AFTER pointer capture is released
+  setTimeout(() => {
+    const ta = document.querySelector<HTMLTextAreaElement>("[data-text-edit-overlay]");
+    if (ta) {
+      ta.focus();
+      ta.select();
+    }
+  }, 10);
+
   return true;
 }
 
