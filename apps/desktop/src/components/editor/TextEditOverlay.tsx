@@ -181,8 +181,10 @@ export function TextEditOverlay() {
           `${td.letterSpacing * z}px`;
       }
       // Measure each line individually so newlines (\n) take max line width,
-      // not total concatenated length.
-      const lines = (value().length > 0 ? value() : "Type text...").split("\n");
+      // not total concatenated length. Apply uppercase transform if set.
+      const rawContent = value().length > 0 ? value() : "Type text...";
+      const textToMeasure = td.uppercase ? rawContent.toUpperCase() : rawContent;
+      const lines = textToMeasure.split("\n");
       let maxW = 0;
       for (const line of lines) {
         const lw = probeCtx.measureText(line || " ").width;
