@@ -315,10 +315,13 @@ describe("shape tool pointer wiring", () => {
     }];
 
     const { tools, dispose: disposeTools } = makePointerTools(signals);
+    // harness exposes setSelectedLayerId as a vi.fn(); spy on it to prove selection
+    const setSelectedLayerIdSpy = vi.fn();
+    signals.setSelectedLayerId = setSelectedLayerIdSpy;
     tools.onCanvasPointerDown(makePointerEvent({ clientX: 105, clientY: 45 }));
 
     expect(mockEngine.setActiveLayer).toHaveBeenCalledWith("existing-shape");
-    expect(signals.setSelectedLayerId).toHaveBeenCalledWith("existing-shape");
+    expect(setSelectedLayerIdSpy).toHaveBeenCalledWith("existing-shape");
     // crucially, no new shape is created over the existing one
     expect(mockEngine.addShapeLayer).not.toHaveBeenCalled();
     disposeTools();
