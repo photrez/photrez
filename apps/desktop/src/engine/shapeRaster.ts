@@ -39,6 +39,25 @@ function toBitmap(canvas: OffscreenCanvas | HTMLCanvasElement): ImageBitmap {
   return html as unknown as ImageBitmap;
 }
 
+/** Margin (px) baked around a line-with-arrow bitmap so the arrow head and
+ *  round caps are not clipped. 0 for every other shape. The shape tool
+ *  subtracts this from the layer placement so the arrow stays aligned with
+ *  the user's drag box. */
+export function shapeRenderMargin(params: ShapeParams): number {
+  if (params.kind !== "line") return 0;
+  const strokeWidth = Math.max(
+    MIN_STROKE_WIDTH,
+    params.stroke.width || (params.kind === "line" ? 2 : MIN_STROKE_WIDTH),
+  );
+  // Always reserve room for the round line caps at both endpoints (otherwise
+  // the half-cap past the drag point is clipped at the canvas edge). Arrow
+  // lines reserve extra so the arrow head barb sweep isn't clipped.
+  const cap = strokeWidth;
+  if (!params.arrowHead) return cap;
+  const len = Math.max(8, strokeWidth * 3);
+  return Math.max(cap, len);
+}
+
 export function renderShapeToBitmap(params: ShapeParams): ImageBitmap {
   const isLine = params.kind === "line";
   const invalidRect = !(params.width > 0) || !(params.height > 0);
@@ -54,13 +73,10 @@ export function renderShapeToBitmap(params: ShapeParams): ImageBitmap {
     ? params.fill.color
     : params.stroke.color;
 
-  const len = Math.max(8, strokeWidth * 3);
-  const margin = params.kind === "line" && params.arrowHead
-    ? Math.max(strokeWidth, len)
-    : 0;
+  const margin = shapeRenderMargin(params);
 
-  const w = Math.max(1, params.width + margin * 2);
-  const h = Math.max(1, params.height + margin * 2);
+  const w = Math.max(1, Math.round(params.width + margin * 2));
+  const h = Math.max(1, Math.round(params.height + margin * 2));
   const { canvas, ctx } = makeCanvas(w, h);
 
   if (margin > 0) {

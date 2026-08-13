@@ -1,30 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { trySetPointerCapture } from "../../tools/pointerCapture";
 import { showToast } from "../../Toast";
+import { hitTestLayer } from "@/viewport/layerHitTest";
+import { shapeRenderMargin } from "@/engine/shapeRaster";
 import type { ShapeDragState, PointerToolContext } from "./pointerToolContext";
-import type { ShapeParams } from "@/engine/types";
+import type { ShapeParams, ShapeKind } from "@/engine/types";
 
 const MIN_DRAG_PX = 3;
 
-function buildParams(
-  ctx: PointerToolContext,
+export interface ShapeBox {
+  width: number;
+  height: number;
+  docX: number;
+  docY: number;
+  flipH: boolean;
+  flipV: boolean;
+}
+
+/** Pure geometry for a shape drag. Returns the box plus the flips needed so a
+ *  line/arrow runs from the press point to the release point (arrow head at
+ *  release). Kept pure so it can be unit-tested without a pointer context. */
+export function computeShapeBox(
+  kind: ShapeKind,
   start: { x: number; y: number },
   end: { x: number; y: number },
   shiftKey: boolean,
   altKey: boolean,
-): { params: ShapeParams; docX: number; docY: number } {
-  const { editor } = ctx;
-  const kind = editor.shapeKind();
-  let strokeEnabled = editor.shapeStrokeEnabled();
-  const strokeWidth = Math.max(1, editor.shapeStrokeWidth());
-  let fillEnabled = editor.shapeFillEnabled();
-  // Visibility guard: if both fill and stroke are disabled, enable stroke
-  // so newly created shapes are never rendered as invisible 0-alpha bitmaps.
-  if (!strokeEnabled && !fillEnabled) {
-    strokeEnabled = true;
-  }
-  const fg = editor.fgColor();
-
+): ShapeBox {
   let w = Math.abs(end.x - start.x);
   let h = Math.abs(end.y - start.y);
   if (shiftKey && kind !== "line") {
@@ -32,7 +34,6 @@ function buildParams(
     w = side;
     h = side;
   }
-  // Shift+alt: square pre-doubling, then double → square box centered on start.
   if (kind !== "line") {
     w = Math.max(1, w);
     h = Math.max(1, h);
@@ -57,17 +58,44 @@ function buildParams(
     docX = start.x - extentX;
     docY = start.y - extentY;
   }
+  // Flip the local (0,0)->(w,h) diagonal so the line runs press→release and
+  // the arrow head lands at the release point for any drag direction.
+  const flipH = end.x < start.x;
+  const flipV = end.y < start.y;
+  return { width: w, height: h, docX, docY, flipH, flipV };
+}
+
+function buildParams(
+  ctx: PointerToolContext,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  shiftKey: boolean,
+  altKey: boolean,
+): { params: ShapeParams; docX: number; docY: number; flipH: boolean; flipV: boolean } {
+  const { editor } = ctx;
+  const kind = editor.shapeKind();
+  let strokeEnabled = editor.shapeStrokeEnabled();
+  const strokeWidth = Math.max(1, editor.shapeStrokeWidth());
+  let fillEnabled = editor.shapeFillEnabled();
+  // Visibility guard: if both fill and stroke are disabled, enable stroke
+  // so newly created shapes are never rendered as invisible 0-alpha bitmaps.
+  if (!strokeEnabled && !fillEnabled) {
+    strokeEnabled = true;
+  }
+  const fg = editor.fgColor();
+
+  const box = computeShapeBox(kind, start, end, shiftKey, altKey);
 
   const params: ShapeParams = {
     kind,
-    width: w,
-    height: h,
+    width: box.width,
+    height: box.height,
     radius: kind === "rect" ? Math.max(0, editor.shapeRadius()) : 0,
     fill: { kind: fillEnabled ? "solid" : "none", color: fg },
     stroke: { enabled: strokeEnabled, color: editor.shapeStrokeColor(), width: strokeWidth },
     arrowHead: kind === "line" && editor.shapeArrowHead(),
   };
-  return { params, docX, docY };
+  return { params, docX: box.docX, docY: box.docY, flipH: box.flipH, flipV: box.flipV };
 }
 
 export function startShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: ShapeDragState): boolean {
@@ -80,26 +108,19 @@ export function startShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
 
   const coords = ctx.getDocCoords(e);
   const layers = engine.getLayers();
-  const selectedId = editor.selectedLayerId();
 
-  // If clicking inside an existing shape layer or selected shape layer, don't create a new shape layer;
-  // select it and let layer drag move it instead.
+  // If the press lands inside an existing SHAPE layer, select it (rotation/
+  // scale/flip-aware via the shared hit test) instead of starting a new shape.
+  // Non-shape hits are skipped so a new shape can still be drawn on top of
+  // raster layers.
   for (let i = 0; i < layers.length; i++) {
     const l = layers[i];
     if (l.locked || !l.visible) continue;
-    const w = l.width * Math.abs(l.transform.scaleX);
-    const h = l.height * Math.abs(l.transform.scaleY);
-    if (
-      coords.x >= l.transform.x &&
-      coords.x <= l.transform.x + w &&
-      coords.y >= l.transform.y &&
-      coords.y <= l.transform.y + h
-    ) {
-      if (l.type === "shape") {
-        engine.setActiveLayer(l.id);
-        editor.setSelectedLayerId(l.id);
-        return false;
-      }
+    if (!hitTestLayer(coords, l)) continue;
+    if (l.type === "shape") {
+      engine.setActiveLayer(l.id);
+      editor.setSelectedLayerId(l.id);
+      return false;
     }
   }
 
@@ -130,10 +151,11 @@ export function trackShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
   if (!engine) return true;
 
   const coords = ctx.getDocCoords(e);
-  const { params, docX, docY } = buildParams(ctx, state.start, coords, e.shiftKey, e.altKey);
+  const { params, docX, docY, flipH, flipV } = buildParams(ctx, state.start, coords, e.shiftKey, e.altKey);
+  const margin = shapeRenderMargin(params);
   try {
     engine.updateShapeParams(state.tempLayerId, params);
-    engine.transformLayer(state.tempLayerId, { x: docX, y: docY });
+    engine.transformLayer(state.tempLayerId, { x: docX - margin, y: docY - margin, flipH, flipV });
     const bitmap = engine.getLayerImageBitmap(state.tempLayerId);
     if (bitmap) renderer?.uploadImage(state.tempLayerId, bitmap);
     scheduler.requestRender();
@@ -154,7 +176,8 @@ export function applyShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
 
   const tempId = state.tempLayerId;
   const coords = ctx.getDocCoords(e);
-  const { params, docX, docY } = buildParams(ctx, state.start, coords, e.shiftKey, e.altKey);
+  const { params, docX, docY, flipH, flipV } = buildParams(ctx, state.start, coords, e.shiftKey, e.altKey);
+  const margin = shapeRenderMargin(params);
 
   // Accidental click guard. For lines, height 0 is legal (rasterizer allows
   // horizontal lines), so measure the drag length via hypot instead of the
@@ -176,7 +199,7 @@ export function applyShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
   }
   try {
     engine.updateShapeParams(tempId, params);
-    engine.transformLayer(tempId, { x: docX, y: docY });
+    engine.transformLayer(tempId, { x: docX - margin, y: docY - margin, flipH, flipV });
     const bitmap = engine.getLayerImageBitmap(tempId);
     if (bitmap) editor.renderer?.uploadImage(tempId, bitmap);
   } catch (err) {

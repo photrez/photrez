@@ -665,21 +665,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         void runTauriWindowAction("close");
         break;
       case "help.about":
-        void getVersion()
-          .then((version) =>
-            dialog.alert({
-              title: "About Photrez",
-              message: `Photrez ${version}\nA lightweight image editor for Windows.`,
-              confirmLabel: "Close",
-            }),
-          )
-          .catch(() =>
-            dialog.alert({
-              title: "About Photrez",
-              message: "Photrez\nA lightweight image editor for Windows.",
-              confirmLabel: "Close",
-            }),
-          );
+        void dialog.about();
         break;
     }
   };

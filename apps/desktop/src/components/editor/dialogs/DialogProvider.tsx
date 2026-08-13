@@ -14,6 +14,7 @@ import { DesktopDialog, DesktopDialogButton, desktopDialogFieldClass } from "./D
 import { Slider } from "../primitives";
 import { useEditor } from "../shell/EditorContext";
 import { NewDocumentDialogContent } from "./NewDocumentDialog";
+import { AboutDialog } from "./AboutDialog";
 
 export interface ConfirmDialogOptions {
   title: string;
@@ -87,6 +88,7 @@ export interface DialogContextValue {
   confirmSave: (options: ConfirmSaveOptions) => Promise<ConfirmSaveResult>;
   colorPicker: (options: ColorPickerDialogOptions) => Promise<string | null>;
   newDocument: (options?: NewDocumentDialogOptions) => Promise<NewDocumentResult | null>;
+  about: () => Promise<void>;
 }
 
 export type DialogRequest =
@@ -96,7 +98,8 @@ export type DialogRequest =
   | { kind: "confirm-checkbox"; options: ConfirmWithCheckboxOptions; resolve: (result: ConfirmWithCheckboxResult) => void }
   | { kind: "confirm-save"; options: ConfirmSaveOptions; resolve: (result: ConfirmSaveResult) => void }
   | { kind: "color-picker"; options: ColorPickerDialogOptions; resolve: (result: string | null) => void }
-  | { kind: "new-document"; options: NewDocumentDialogOptions; resolve: (result: NewDocumentResult | null) => void };
+  | { kind: "new-document"; options: NewDocumentDialogOptions; resolve: (result: NewDocumentResult | null) => void }
+  | { kind: "about"; resolve: () => void };
 
 const isDangerRequest = (request: DialogRequest) => (
   request.kind === "confirm" && request.options.tone === "danger"
@@ -160,6 +163,11 @@ export function DialogProvider(props: ParentProps) {
 
   const newDocument = (options?: NewDocumentDialogOptions) => new Promise<NewDocumentResult | null>((resolve) => {
     queue.push({ kind: "new-document", options: options ?? {}, resolve });
+    showNext();
+  });
+
+  const about = () => new Promise<void>((resolve) => {
+    queue.push({ kind: "about", resolve });
     showNext();
   });
 
@@ -820,7 +828,7 @@ export function DialogProvider(props: ParentProps) {
     );
   }
 
-  const value: DialogContextValue = { confirm, alert, quality, confirmWithCheckbox, confirmSave, colorPicker, newDocument };
+  const value: DialogContextValue = { confirm, alert, quality, confirmWithCheckbox, confirmSave, colorPicker, newDocument, about };
 
   return (
     <DialogContext.Provider value={value}>
@@ -899,6 +907,19 @@ export function DialogProvider(props: ParentProps) {
                   }}
                   dialogRef={(element) => { dialogRef = element; }}
                   onKeyDown={handleKeyDown}
+                />
+              )}
+              {r.kind === "about" && (
+                <AboutDialog
+                  onDismiss={() => {
+                    r.resolve();
+                    setCurrent(null);
+                    queueMicrotask(() => {
+                      restoreFocusTo?.focus();
+                      restoreFocusTo = null;
+                      showNext();
+                    });
+                  }}
                 />
               )}
             </Portal>

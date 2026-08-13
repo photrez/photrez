@@ -10,6 +10,8 @@
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi } from "vitest";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
+import { computeShapeBox } from "../canvas/pointerTools/shapeTool";
+import { shapeRenderMargin } from "@/engine/shapeRaster";
 
 vi.mock("../dialogs/DialogProvider", () => ({
   useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
@@ -103,7 +105,7 @@ describe("shape tool pointer wiring", () => {
     // top-left = center - delta = (100-50, 100-20) = (50, 80)
     expect(mockEngine.transformLayer).toHaveBeenCalledWith(
       "shape-1",
-      { x: 50, y: 80 },
+      { x: 50, y: 80, flipH: false, flipV: false },
     );
     disposeTools();
     dispose();
@@ -157,6 +159,192 @@ describe("shape tool pointer wiring", () => {
     const lastCall = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
     expect(lastCall.width).toBe(0);
     expect(lastCall.height).toBe(100);
+    disposeTools();
+    dispose();
+  });
+
+  // --- Arrow alignment + line orientation (fixes #1 and #2) ---
+
+  it("arrow line down-right: placed at docX - margin, no flip", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).updateShapeParams = vi.fn();
+    signals.setShapeKind("line");
+    signals.setShapeArrowHead(true);
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 150, clientY: 50 }));
+    tools.onCanvasPointerUp(makePointerEvent({ clientX: 150, clientY: 50 }));
+
+    const lastParams = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
+    const margin = shapeRenderMargin(lastParams);
+    expect(mockEngine.transformLayer).toHaveBeenCalledWith("shape-1", {
+      x: 50 - margin,
+      y: 50 - margin,
+      flipH: false,
+      flipV: false,
+    });
+    disposeTools();
+    dispose();
+  });
+
+  it("arrow line dragged up-right flips vertically so the arrow points at release", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).updateShapeParams = vi.fn();
+    signals.setShapeKind("line");
+    signals.setShapeArrowHead(true);
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    // press bottom-left (50,150), release top-right (150,50) → "/" line
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 150 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 150, clientY: 50 }));
+    tools.onCanvasPointerUp(makePointerEvent({ clientX: 150, clientY: 50 }));
+
+    const lastParams = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
+    const margin = shapeRenderMargin(lastParams);
+    expect(mockEngine.transformLayer).toHaveBeenCalledWith("shape-1", {
+      x: 50 - margin,
+      y: 50 - margin,
+      flipH: false,
+      flipV: true,
+    });
+    disposeTools();
+    dispose();
+  });
+
+  it("arrow line dragged down-left flips horizontally so the arrow points at release", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).updateShapeParams = vi.fn();
+    signals.setShapeKind("line");
+    signals.setShapeArrowHead(true);
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    // press top-right (150,50), release bottom-left (50,150) → "\" flipped
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 150, clientY: 50 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 50, clientY: 150 }));
+    tools.onCanvasPointerUp(makePointerEvent({ clientX: 50, clientY: 150 }));
+
+    const lastParams = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
+    const margin = shapeRenderMargin(lastParams);
+    expect(mockEngine.transformLayer).toHaveBeenCalledWith("shape-1", {
+      x: 50 - margin,
+      y: 50 - margin,
+      flipH: true,
+      flipV: false,
+    });
+    disposeTools();
+    dispose();
+  });
+
+  it("computeShapeBox flips for all four drag quadrants and centers on Alt", () => {
+    expect(computeShapeBox("line", { x: 0, y: 0 }, { x: 10, y: 10 }, false, false))
+      .toMatchObject({ flipH: false, flipV: false, docX: 0, docY: 0 });
+    expect(computeShapeBox("line", { x: 10, y: 0 }, { x: 0, y: 10 }, false, false))
+      .toMatchObject({ flipH: true, flipV: false });
+    expect(computeShapeBox("line", { x: 0, y: 10 }, { x: 10, y: 0 }, false, false))
+      .toMatchObject({ flipH: false, flipV: true });
+    expect(computeShapeBox("line", { x: 10, y: 10 }, { x: 0, y: 0 }, false, false))
+      .toMatchObject({ flipH: true, flipV: true });
+    // Alt: box centered on press point, dims doubled.
+    expect(computeShapeBox("rect", { x: 100, y: 100 }, { x: 150, y: 120 }, false, true))
+      .toMatchObject({ width: 100, height: 40, docX: 50, docY: 80 });
+  });
+
+  it("shapeRenderMargin is 0 for non-arrow shapes and >0 for arrow lines", () => {
+    expect(shapeRenderMargin({
+      kind: "rect", width: 10, height: 10, radius: 0,
+      fill: { kind: "none", color: "#000" }, stroke: { enabled: true, color: "#000", width: 4 }, arrowHead: false,
+    })).toBe(0);
+    expect(shapeRenderMargin({
+      kind: "line", width: 10, height: 0, radius: 0,
+      fill: { kind: "none", color: "#000" }, stroke: { enabled: true, color: "#000", width: 4 }, arrowHead: true,
+    })).toBeGreaterThan(0);
+  });
+
+  it("non-arrow line reserves cap margin and places layer at docX - margin (no clip)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).updateShapeParams = vi.fn();
+    signals.setShapeKind("line");
+    // arrowHead stays false (default)
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+    tools.onCanvasPointerMove(makePointerEvent({ clientX: 150, clientY: 50 }));
+    tools.onCanvasPointerUp(makePointerEvent({ clientX: 150, clientY: 50 }));
+
+    const lastParams = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
+    const margin = shapeRenderMargin(lastParams);
+    // shapeStrokeWidth default is 4 -> cap margin = 4 (prevents half-cap clip)
+    expect(margin).toBe(4);
+    expect(mockEngine.transformLayer).toHaveBeenCalledWith("shape-1", {
+      x: 50 - margin,
+      y: 50 - margin,
+      flipH: false,
+      flipV: false,
+    });
+    disposeTools();
+    dispose();
+  });
+
+  it("shapeRenderMargin returns the stroke width for a plain line, not 0", () => {
+    expect(shapeRenderMargin({
+      kind: "line", width: 100, height: 0, radius: 0,
+      fill: { kind: "none", color: "#000" }, stroke: { enabled: true, color: "#000", width: 4 }, arrowHead: false,
+    })).toBe(4);
+  });
+
+  it("clicking inside a rotated shape selects it (rotation-aware hit test)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).setActiveLayer = vi.fn();
+    // 100x100 box rotated 45deg about its centre (50,50) -> diamond whose
+    // right vertex is (120.7, 50). A press at (105,45) lies inside the rotated
+    // diamond but OUTSIDE the naive axis-aligned box [0,100]x[0,100].
+    (mockEngine as any).getLayers = () => [{
+      id: "existing-shape",
+      type: "shape",
+      width: 100,
+      height: 100,
+      visible: true,
+      locked: false,
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 45, flipH: false, flipV: false },
+    }];
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 105, clientY: 45 }));
+
+    expect(mockEngine.setActiveLayer).toHaveBeenCalledWith("existing-shape");
+    expect(signals.setSelectedLayerId).toHaveBeenCalledWith("existing-shape");
+    // crucially, no new shape is created over the existing one
+    expect(mockEngine.addShapeLayer).not.toHaveBeenCalled();
+    disposeTools();
+    dispose();
+  });
+
+  it("clicking outside a rotated shape still starts a new shape", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
+    (mockEngine as any).setActiveLayer = vi.fn();
+    (mockEngine as any).getLayers = () => [{
+      id: "existing-shape",
+      type: "shape",
+      width: 100,
+      height: 100,
+      visible: true,
+      locked: false,
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 45, flipH: false, flipV: false },
+    }];
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    // far outside the rotated diamond -> should NOT select existing shape
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 300, clientY: 300 }));
+
+    expect(mockEngine.setActiveLayer).not.toHaveBeenCalledWith("existing-shape");
+    expect(mockEngine.addShapeLayer).toHaveBeenCalled();
     disposeTools();
     dispose();
   });
