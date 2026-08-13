@@ -51,7 +51,13 @@ function toBitmap(canvas: OffscreenCanvas | HTMLCanvasElement): ImageBitmap {
  *  kind except line/arrow, which reserve extra for caps + arrow head barb.
  *  The shape tool offsets layer placement by this margin and the selection
  *  overlay/hit-test subtract it, so the visible shape keeps its exact size
- *  (no floating gap) while the stroke stays fully painted. */
+ *  (no floating gap) while the stroke stays fully painted.
+ *
+ *  ASSUMPTION: the stroke is always drawn centered (Canvas2D default). This
+ *  margin equals the full stroke width, leaving `strokeWidth/2` of padding
+ *  beyond the outer stroke edge. If a future stroke-alignment option
+ *  (inside/outside) is added, this margin must change (0 for inside,
+ *  full width for outside) or the stroke will clip. */
 export function shapeRenderMargin(params: ShapeParams): number {
   if (!params.stroke.enabled) return 0;
   const strokeWidth = Math.max(MIN_STROKE_WIDTH, params.stroke.width || MIN_STROKE_WIDTH);

@@ -1,11 +1,12 @@
 import type { DocumentModel, ShapeParams } from "./types";
 
-// ShapeParams has nested objects (fill, stroke). A shallow spread would share
-// those nested references between the live model and the snapshot, so a later
-// in-place mutation (e.g. `params.fill.color = ...`) would corrupt undo/redo
-// history. Deep-copy the nested structures explicitly.
+// ShapeParams has nested objects (fill, stroke, and possibly deeper structures
+// in future shape kinds). A shallow spread would share those nested references
+// between the live model and the snapshot, so a later in-place mutation (e.g.
+// `params.fill.color = ...`) would corrupt undo/redo history. structuredClone
+// deep-copies the whole tree, so newly added nested fields stay isolated too.
 function cloneShapeParams(p: ShapeParams): ShapeParams {
-  return { ...p, fill: { ...p.fill }, stroke: { ...p.stroke } };
+  return structuredClone(p);
 }
 
 export function createSnapshot(model: DocumentModel): DocumentModel {
