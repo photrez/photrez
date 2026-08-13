@@ -1,4 +1,12 @@
-import type { DocumentModel } from "./types";
+import type { DocumentModel, ShapeParams } from "./types";
+
+// ShapeParams has nested objects (fill, stroke). A shallow spread would share
+// those nested references between the live model and the snapshot, so a later
+// in-place mutation (e.g. `params.fill.color = ...`) would corrupt undo/redo
+// history. Deep-copy the nested structures explicitly.
+function cloneShapeParams(p: ShapeParams): ShapeParams {
+  return { ...p, fill: { ...p.fill }, stroke: { ...p.stroke } };
+}
 
 export function createSnapshot(model: DocumentModel): DocumentModel {
   return {
@@ -29,7 +37,7 @@ export function createSnapshot(model: DocumentModel): DocumentModel {
       width: l.width,
       height: l.height,
       imageBitmap: l.imageBitmap, // Reuse reference to immutable ImageBitmap
-      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined,
+      shapeParams: l.shapeParams ? cloneShapeParams(l.shapeParams) : undefined,
       // TextData is a flat object; spread is a full deep copy. Undo/redo of
       // any text op MUST restore the params or the layer loads as plain text
       // without content (shape-tool bug class d1b1403).
@@ -67,7 +75,7 @@ export function restoreSnapshot(snapshot: DocumentModel): DocumentModel {
       width: l.width,
       height: l.height,
       imageBitmap: l.imageBitmap,
-      shapeParams: l.shapeParams ? { ...l.shapeParams } : undefined,
+      shapeParams: l.shapeParams ? cloneShapeParams(l.shapeParams) : undefined,
       // TextData is a flat object; spread is a full deep copy. Undo/redo of
       // any text op MUST restore the params or the layer loads as plain text
       // without content (shape-tool bug class d1b1403).

@@ -23,7 +23,7 @@ import { startSelectionRotation as startSelectionRotationFn } from "./selectionR
 import { prepareToolContext as prepareToolContextImpl } from "./pointerTools/prepareToolContext";
 import { applyPaintBucketFill } from "./pointerTools/paintBucket";
 import { startGradientDrag, trackGradientDrag, applyGradientFill } from "./pointerTools/gradientTool";
-import { startShapeDrag, trackShapeDrag, applyShapeDrag } from "./pointerTools/shapeTool";
+import { startShapeDrag, trackShapeDrag, applyShapeDrag, cancelShapeDrag } from "./pointerTools/shapeTool";
 import { startTextPointer, trackTextPointer, applyTextPointer, cancelTextSession } from "./pointerTools/textTool";
 import { startCropDrag, trackModernCropDrag, handleCropPointerUp } from "./pointerTools/modernCrop";
 import type { PointerToolContext, ModernDragState, GradientDragState, ShapeDragState } from "./pointerTools/pointerToolContext";
@@ -135,6 +135,12 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     },
   };
 
+  // Abort an in-progress shape drag (delete temp layer, no history entry).
+  // Shared by pointercancel, lost-pointer-capture, and the Escape key handler.
+  const cancelActiveShapeDrag = () => {
+    cancelShapeDrag(shapeDragState, workspace.getActiveEngine(), scheduler);
+  };
+
   // ── Text pointer state (session lives in editorState.textEditSession) ──
   const textPointerState: TextPointerState = {
     start: null,
@@ -222,9 +228,16 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
   // an active drag the pointer is captured, so it won't fire.)
   const onWindowBlur = () => stopEdgeRaf();
   const onVisibilityChange = () => { if (document.hidden) stopEdgeRaf(); };
+  // Escape aborts an in-progress shape drag (layer is removed, no history entry).
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && shapeDragState.isDragging) {
+      cancelActiveShapeDrag();
+    }
+  };
   if (typeof window !== "undefined") {
     window.addEventListener("blur", onWindowBlur);
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("keydown", onKeyDown);
   }
 
   onCleanup(() => {
@@ -232,6 +245,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     if (typeof window !== "undefined") {
       window.removeEventListener("blur", onWindowBlur);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("keydown", onKeyDown);
     }
   });
 
@@ -891,8 +905,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Reset gradient drag state ──
     gradientDragState.reset();
     // ── Cancel shape drag: remove temp layer, no history entry ──
-    if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
-    shapeDragState.reset();
+    cancelActiveShapeDrag();
     // ── Cancel text: ONLY an interrupted drag (pointercancel while the
     // placement gesture is still in progress) removes the temp layer. A
     // pointercancel after the click completed must NOT close the open typing
@@ -939,8 +952,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     // ── Reset gradient drag state ──
     gradientDragState.reset();
     // ── Cancel shape drag: remove temp layer, no history entry ──
-    if (shapeDragState.tempLayerId) engine.deleteLayer(shapeDragState.tempLayerId);
-    shapeDragState.reset();
+    cancelActiveShapeDrag();
     // ── Cancel text: a lost pointer capture must NOT close the open typing
     // session or delete the temp layer — applyTextPointer deliberately
     // releases capture on pointerup, which fires lostpointercapture right

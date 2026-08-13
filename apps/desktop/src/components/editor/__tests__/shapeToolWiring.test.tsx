@@ -10,8 +10,9 @@
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi } from "vitest";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
-import { computeShapeBox } from "../canvas/pointerTools/shapeTool";
-import { shapeRenderMargin } from "@/engine/shapeRaster";
+import { computeShapeBox, cancelShapeDrag } from "../canvas/pointerTools/shapeTool";
+import type { ShapeDragState } from "../canvas/pointerTools/pointerToolContext";
+import { shapeRenderMargin, MAX_SHAPE_DIM } from "@/engine/shapeRaster";
 
 vi.mock("../dialogs/DialogProvider", () => ({
   useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
@@ -350,5 +351,71 @@ describe("shape tool pointer wiring", () => {
     expect(mockEngine.addShapeLayer).toHaveBeenCalled();
     disposeTools();
     dispose();
+  });
+
+  it("line drag with Shift snaps the endpoint to the nearest 45deg angle", () => {
+    // Drag from (0,0). A 30deg-ish endpoint (100, 50) should snap to 45deg
+    // (equal x/y) preserving length, so |x| ≈ |y|.
+    const box = computeShapeBox("line", { x: 0, y: 0 }, { x: 100, y: 50 }, true, false);
+    const len = Math.hypot(100, 50);
+    expect(Math.abs(box.width - box.height)).toBeLessThan(0.001);
+    expect(Math.abs(Math.hypot(box.width, box.height) - len)).toBeLessThan(0.001);
+    // Snapped to 45deg in the first quadrant: positive, equal.
+    expect(box.width).toBeCloseTo(len / Math.SQRT2, 3);
+    expect(box.height).toBeCloseTo(len / Math.SQRT2, 3);
+  });
+
+  it("line drag without Shift keeps the raw endpoint", () => {
+    const box = computeShapeBox("line", { x: 0, y: 0 }, { x: 100, y: 50 }, false, false);
+    expect(box.width).toBe(100);
+    expect(box.height).toBe(50);
+  });
+
+  it("oversized shape dims are clamped to MAX_SHAPE_DIM to avoid OOM raster", () => {
+    const box = computeShapeBox("rect", { x: 0, y: 0 }, { x: 9_999_999, y: 9_999_999 }, false, false);
+    expect(box.width).toBeLessThanOrEqual(MAX_SHAPE_DIM);
+    expect(box.height).toBeLessThanOrEqual(MAX_SHAPE_DIM);
+  });
+
+  it("cancelShapeDrag removes the temp layer and resets state (no history entry)", () => {
+    const deleteLayer = vi.fn();
+    const requestRender = vi.fn();
+    const state: ShapeDragState = {
+      start: { x: 10, y: 10 },
+      tempLayerId: "temp-shape",
+      preSnapshot: { layers: [] } as any,
+      isDragging: true,
+      reset: () => {
+        state.start = null;
+        state.tempLayerId = null;
+        state.preSnapshot = null;
+        state.isDragging = false;
+      },
+    };
+    const engine = { deleteLayer } as any;
+    cancelShapeDrag(state, engine, { requestRender });
+    expect(deleteLayer).toHaveBeenCalledWith("temp-shape");
+    expect(requestRender).toHaveBeenCalled();
+    expect(state.tempLayerId).toBeNull();
+    expect(state.isDragging).toBe(false);
+  });
+
+  it("cancelShapeDrag is a no-op for the engine when there is no temp layer", () => {
+    const deleteLayer = vi.fn();
+    const state: ShapeDragState = {
+      start: { x: 0, y: 0 },
+      tempLayerId: null,
+      preSnapshot: null,
+      isDragging: true,
+      reset: () => {
+        state.start = null;
+        state.tempLayerId = null;
+        state.preSnapshot = null;
+        state.isDragging = false;
+      },
+    };
+    cancelShapeDrag(state, { deleteLayer } as any, undefined);
+    expect(deleteLayer).not.toHaveBeenCalled();
+    expect(state.isDragging).toBe(false);
   });
 });

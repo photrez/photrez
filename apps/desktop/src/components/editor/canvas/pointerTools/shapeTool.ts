@@ -2,7 +2,8 @@
 import { trySetPointerCapture } from "../../tools/pointerCapture";
 import { showToast } from "../../Toast";
 import { hitTestLayer } from "@/viewport/layerHitTest";
-import { shapeRenderMargin } from "@/engine/shapeRaster";
+import { shapeRenderMargin, MAX_SHAPE_DIM } from "@/engine/shapeRaster";
+import type { DocumentEngine } from "@/engine/document";
 import type { ShapeDragState, PointerToolContext } from "./pointerToolContext";
 import type { ShapeParams, ShapeKind } from "@/engine/types";
 
@@ -27,8 +28,20 @@ export function computeShapeBox(
   shiftKey: boolean,
   altKey: boolean,
 ): ShapeBox {
-  let w = Math.abs(end.x - start.x);
-  let h = Math.abs(end.y - start.y);
+  let cur = end;
+  // Shift on a line snaps the drag vector to the nearest 45° increment
+  // (0/45/90/135/...) so the user can draw perfectly straight/diagonal lines.
+  if (shiftKey && kind === "line") {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const ang = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+      cur = { x: start.x + len * Math.cos(ang), y: start.y + len * Math.sin(ang) };
+    }
+  }
+  let w = Math.abs(cur.x - start.x);
+  let h = Math.abs(cur.y - start.y);
   if (shiftKey && kind !== "line") {
     const side = Math.max(w, h);
     w = side;
@@ -44,8 +57,12 @@ export function computeShapeBox(
     h = Math.max(0, h);
     if (w === 0 && h === 0) w = 1;
   }
-  let docX = Math.min(start.x, end.x);
-  let docY = Math.min(start.y, end.y);
+  // Guard against an absurdly large shape (e.g. dragging across a heavily
+  // zoomed-out canvas) which would blow the rasterizer's canvas allocation.
+  w = Math.min(w, MAX_SHAPE_DIM);
+  h = Math.min(h, MAX_SHAPE_DIM);
+  let docX = Math.min(start.x, cur.x);
+  let docY = Math.min(start.y, cur.y);
   if (altKey) {
     // Alt: the drag start is the CENTER of the shape. The box spans
     // start ± delta (cursor at the far corner), so width/height are double
@@ -60,9 +77,24 @@ export function computeShapeBox(
   }
   // Flip the local (0,0)->(w,h) diagonal so the line runs press→release and
   // the arrow head lands at the release point for any drag direction.
-  const flipH = end.x < start.x;
-  const flipV = end.y < start.y;
+  const flipH = cur.x < start.x;
+  const flipV = cur.y < start.y;
   return { width: w, height: h, docX, docY, flipH, flipV };
+}
+
+/** Abort an in-progress shape drag: delete the temp layer (if any) and reset
+ *  state. No history entry is written. Shared by pointercancel, lost-capture,
+ *  and the Escape-key cancel path. */
+export function cancelShapeDrag(
+  state: ShapeDragState,
+  engine: DocumentEngine | null,
+  scheduler?: { requestRender: () => void },
+): void {
+  if (state.tempLayerId && engine) {
+    engine.deleteLayer(state.tempLayerId);
+  }
+  state.reset();
+  scheduler?.requestRender();
 }
 
 function buildParams(
