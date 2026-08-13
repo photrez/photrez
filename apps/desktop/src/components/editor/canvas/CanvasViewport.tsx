@@ -43,6 +43,7 @@ import {
 } from "../cropToolActions";
 
 export function CanvasViewport() {
+  const editor = useEditor();
   const {
     workspace,
     renderer,

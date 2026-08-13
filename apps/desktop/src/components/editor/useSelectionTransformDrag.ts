@@ -1,6 +1,7 @@
 import { createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { useEditor } from "./shell/EditorContext";
 import type { DocumentModel, Transform2D } from "@/engine/types";
+import type { TextData } from "@/engine/textTypes";
 import type { HudMode } from "./TransformHud";
 import type { SnapRect, SnapResult } from "@/viewport/smartGuides";
 import {
@@ -38,7 +39,7 @@ interface UseSelectionTransformDragParams {
 }
 
 export function useSelectionTransformDrag(props: UseSelectionTransformDragParams) {
-  const { workspace, selectedLayerId, layers, zoom, pan, scheduler, activeTool, hoverHandle, setHoverHandle, moveSnapEnabled, setHoverPos, hoverPos, layerTransformSession, setLayerTransformSession, commitTransformState, constrainRatio } = useEditor();
+  const { workspace, renderer, selectedLayerId, layers, zoom, pan, scheduler, activeTool, hoverHandle, setHoverHandle, moveSnapEnabled, setHoverPos, hoverPos, layerTransformSession, setLayerTransformSession, commitTransformState, constrainRatio } = useEditor();
 
   const activeLayer = createMemo(() => {
     const id = selectedLayerId();
@@ -363,6 +364,34 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
           layer.transform.y !== drag.startTransform.y;
         if (moved) {
           history.commit(drag.pendingMoveSnapshot, "Move Layer");
+        }
+      }
+    }
+
+    // Bake scale transform into fontSize for text layers on resize end:
+    const isResize = ["nw", "ne", "se", "sw", "n", "s", "e", "w"].includes(drag.type);
+    if (isResize) {
+      const engine = workspace.getActiveEngine();
+      const layer = engine?.getLayer(drag.layerId);
+      if (engine && layer && layer.type === "text" && layer.textData) {
+        const scaleFactor = Math.abs(layer.transform.scaleX);
+        if (scaleFactor > 0 && Math.abs(scaleFactor - 1.0) > 0.001) {
+          const curTd = layer.textData;
+          const newFontSize = Math.max(4, Math.min(1000, Math.round(curTd.fontSize * scaleFactor)));
+          const patch: Partial<TextData> = { fontSize: newFontSize };
+          if (curTd.stroke && curTd.stroke.width > 0) {
+            patch.stroke = {
+              ...curTd.stroke,
+              width: Math.max(1, Math.min(100, Math.round(curTd.stroke.width * scaleFactor))),
+            };
+          }
+          if (curTd.boxMode === "area" && curTd.boxWidth > 0) {
+            patch.boxWidth = Math.round(curTd.boxWidth * scaleFactor);
+          }
+          engine.updateTextData(layer.id, { ...curTd, ...patch });
+          engine.transformLayer(layer.id, { scaleX: 1.0, scaleY: 1.0 });
+          const bitmap = typeof engine.getLayerImageBitmap === "function" ? engine.getLayerImageBitmap(layer.id) : null;
+          if (bitmap && renderer) renderer.uploadImage(layer.id, bitmap);
         }
       }
     }

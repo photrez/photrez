@@ -254,6 +254,8 @@ export function TextEditOverlay() {
       "text-align": td.align,
       "line-height": td.lineHeight,
       "letter-spacing": `${td.letterSpacing * z}px`,
+      "text-decoration": [td.underline ? "underline" : "", td.strikethrough ? "line-through" : ""].filter(Boolean).join(" ") || "none",
+      "text-transform": td.uppercase ? "uppercase" : "none",
       "-webkit-text-stroke": td.stroke && td.stroke.width > 0 ? `${2 * strokePx}px ${td.stroke.color}` : "0px",
       "paint-order": td.stroke && td.stroke.align === "outside" ? "stroke fill" : "fill stroke",
       background: "transparent",

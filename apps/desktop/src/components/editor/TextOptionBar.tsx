@@ -326,6 +326,32 @@ export function TextOptionBar() {
     else setTextFontItalic(next);
   };
 
+  const fontUnderline = () => {
+    const layer = selectedText();
+    return layer ? !!layer.textData.underline : false;
+  };
+  const fontStrikethrough = () => {
+    const layer = selectedText();
+    return layer ? !!layer.textData.strikethrough : false;
+  };
+  const fontUppercase = () => {
+    const layer = selectedText();
+    return layer ? !!layer.textData.uppercase : false;
+  };
+
+  const toggleUnderline = () => {
+    const next = !fontUnderline();
+    if (isEditMode()) applyEdit({ underline: next });
+  };
+  const toggleStrikethrough = () => {
+    const next = !fontStrikethrough();
+    if (isEditMode()) applyEdit({ strikethrough: next });
+  };
+  const toggleUppercase = () => {
+    const next = !fontUppercase();
+    if (isEditMode()) applyEdit({ uppercase: next });
+  };
+
   const setAlign = (a: "left" | "center" | "right") => {
     if (isEditMode()) applyEdit({ align: a });
     else setTextAlign(a);
@@ -667,6 +693,21 @@ export function TextOptionBar() {
       <Tooltip content="Italic" placement="top">
         <button type="button" aria-label="Italic" aria-pressed={fontItalic()} onClick={toggleItalic} class={iconBtnClass(fontItalic())}>
           <span class="italic font-serif font-bold text-xs">I</span>
+        </button>
+      </Tooltip>
+      <Tooltip content="Underline" placement="top">
+        <button type="button" aria-label="Underline" aria-pressed={fontUnderline()} onClick={toggleUnderline} class={iconBtnClass(fontUnderline())}>
+          <span class="underline font-bold text-xs">U</span>
+        </button>
+      </Tooltip>
+      <Tooltip content="Strikethrough" placement="top">
+        <button type="button" aria-label="Strikethrough" aria-pressed={fontStrikethrough()} onClick={toggleStrikethrough} class={iconBtnClass(fontStrikethrough())}>
+          <span class="line-through font-bold text-xs">S</span>
+        </button>
+      </Tooltip>
+      <Tooltip content="Uppercase (ALL CAPS)" placement="top">
+        <button type="button" aria-label="Uppercase" aria-pressed={fontUppercase()} onClick={toggleUppercase} class={iconBtnClass(fontUppercase())}>
+          <span class="font-bold text-[10px] tracking-tighter">TT</span>
         </button>
       </Tooltip>
 

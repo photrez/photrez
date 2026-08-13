@@ -1207,4 +1207,47 @@ describe("useSelectionTransformDrag", () => {
       dispose();
     });
   });
+
+  describe("text layer scale bake on resize pointerup", () => {
+    it("bakes scaleX into fontSize and resets transform scale to 1.0 when resize ends", () => {
+      const { result, engine, editorSignals, dispose } = setupHook();
+      const textLayer = {
+        ...DEFAULT_LAYER,
+        id: "text-1",
+        type: "text" as const,
+        textData: {
+          content: "Hello",
+          family: "Inter",
+          fontSize: 48,
+          color: "#000000",
+          align: "left" as const,
+          boxMode: "point" as const,
+          boxWidth: 0,
+        },
+        transform: { x: 0, y: 0, scaleX: 2.0, scaleY: 2.0, rotation: 0, flipH: false, flipV: false },
+      };
+      editorSignals.setLayers([textLayer as any]);
+      editorSignals.setSelectedLayerId("text-1");
+      engine.getLayer.mockReturnValue(textLayer as any);
+      (engine as any).updateTextData = vi.fn();
+
+      result.handlePointerDown(
+        makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
+        "se"
+      );
+      result.handlePointerUp(
+        makePointerEvent({ clientX: 200, clientY: 200, pointerId: 1 })
+      );
+
+      expect((engine as any).updateTextData).toHaveBeenCalledWith(
+        "text-1",
+        expect.objectContaining({ fontSize: 96 })
+      );
+      expect(engine.transformLayer).toHaveBeenCalledWith("text-1", {
+        scaleX: 1.0,
+        scaleY: 1.0,
+      });
+      dispose();
+    });
+  });
 });

@@ -227,10 +227,11 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   // (@bug 2026-08-09 B3).
   applyLetterSpacing(ctx, normalized.letterSpacing * effScale);
 
+  const textContent = normalized.uppercase ? normalized.content.toUpperCase() : normalized.content;
   const lines =
     normalized.boxMode === "area"
-      ? wrapText(ctx, normalized.content, normalized.boxWidth * effScale)
-      : normalized.content.split("\n");
+      ? wrapText(ctx, textContent, normalized.boxWidth * effScale)
+      : textContent.split("\n");
 
   const lineWidths: number[] = [];
   let ascent = fontPx * 0.8;
@@ -393,6 +394,38 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
             : baseX + (totalWidth - lw);
       const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
       ctx.fillText(lines[i], x, y);
+    }
+  }
+
+  // Draw underline and strikethrough decorations:
+  if (normalized.underline || normalized.strikethrough) {
+    ctx.strokeStyle = normalized.color;
+    ctx.lineWidth = Math.max(1, fontPx * 0.07);
+    for (let i = 0; i < lines.length; i++) {
+      const lw = lineWidths[i];
+      const x =
+        normalized.align === "left"
+          ? baseX
+          : normalized.align === "center"
+            ? baseX + (totalWidth - lw) / 2
+            : baseX + (totalWidth - lw);
+      const y = PADDING + strokePad + i * (normalized.lineHeight * fontPx);
+
+      if (normalized.underline) {
+        const lineY = y + fontPx * 0.95;
+        ctx.beginPath();
+        ctx.moveTo(x, lineY);
+        ctx.lineTo(x + lw, lineY);
+        ctx.stroke();
+      }
+
+      if (normalized.strikethrough) {
+        const lineY = y + fontPx * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(x, lineY);
+        ctx.lineTo(x + lw, lineY);
+        ctx.stroke();
+      }
     }
   }
 

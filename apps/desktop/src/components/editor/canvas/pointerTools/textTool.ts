@@ -407,6 +407,12 @@ export function commitTextSession(editor: TextSessionEditor): void {
       editor.scheduler.requestRender();
       return;
     }
+    // Auto-sync text layer name to typed content if it still has default name
+    const trimmed = textData.content.trim();
+    if (layer && trimmed.length > 0 && (!layer.name || layer.name === "Text" || layer.name.startsWith("Text "))) {
+      const autoName = trimmed.length > 24 ? `${trimmed.slice(0, 24)}...` : trimmed;
+      layer.name = autoName;
+    }
     history.commit(session.preSnapshot, "Add Text");
     editor.setTextEditSession(null);
     editor.scheduler.requestRender();

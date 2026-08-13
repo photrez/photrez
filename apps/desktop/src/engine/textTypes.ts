@@ -24,6 +24,9 @@ export interface TextData {
   boxWidth: number; // >0 only when boxMode === "area"; 0 sentinel for "point"
   boxHeight: number; // >0 only when boxMode === "area"; 0 sentinel for "point"
   stroke: TextStroke; // outline; width 0 = none
+  underline?: boolean;
+  strikethrough?: boolean;
+  uppercase?: boolean;
 }
 
 export const DEFAULT_TEXT_DATA: TextData = {
@@ -40,6 +43,9 @@ export const DEFAULT_TEXT_DATA: TextData = {
   boxWidth: 0,
   boxHeight: 0,
   stroke: { width: 0, color: "#000000", align: "outside" },
+  underline: false,
+  strikethrough: false,
+  uppercase: false,
 };
 
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
@@ -95,5 +101,8 @@ export function normalizeTextData(raw: unknown): TextData {
           : DEFAULT_TEXT_DATA.stroke.color,
       align: strokeAlign,
     },
+    underline: typeof src.underline === "boolean" ? src.underline : false,
+    strikethrough: typeof src.strikethrough === "boolean" ? src.strikethrough : false,
+    uppercase: typeof src.uppercase === "boolean" ? src.uppercase : false,
   };
 }
