@@ -87,6 +87,9 @@ function shallowEqualTextData(cur: TextData, patch: Partial<TextData>): boolean 
       (patch.stroke.align ?? "outside") !== (cur.stroke?.align ?? "outside"))
   )
     return false;
+  if (patch.underline !== undefined && !!patch.underline !== !!cur.underline) return false;
+  if (patch.strikethrough !== undefined && !!patch.strikethrough !== !!cur.strikethrough) return false;
+  if (patch.uppercase !== undefined && !!patch.uppercase !== !!cur.uppercase) return false;
   return true;
 }
 
