@@ -9,6 +9,11 @@ import type { ShapeParams, ShapeKind } from "@/engine/types";
 
 const MIN_DRAG_PX = 3;
 
+/** Type guard: an editor signal accessor is present only when it is callable. */
+function isFn(v: unknown): v is () => unknown {
+  return typeof v === "function";
+}
+
 export interface ShapeBox {
   width: number;
   height: number;
@@ -105,16 +110,19 @@ function buildParams(
   altKey: boolean,
 ): { params: ShapeParams; docX: number; docY: number; flipH: boolean; flipV: boolean } {
   const { editor } = ctx;
-  const kind = editor.shapeKind();
-  let strokeEnabled = editor.shapeStrokeEnabled();
-  const strokeWidth = Math.max(1, editor.shapeStrokeWidth());
-  let fillEnabled = editor.shapeFillEnabled();
+  // Uniform accessor contract: every editor signal is treated as optionally
+  // present (test harnesses may pass a partial editor), so all reads use the
+  // same `isFn` guard with a sensible default. Mirrors textTool.buildSessionTextData.
+  const kind = isFn(editor.shapeKind) ? editor.shapeKind() : "rect";
+  let strokeEnabled = isFn(editor.shapeStrokeEnabled) ? editor.shapeStrokeEnabled() : true;
+  const strokeWidth = Math.max(1, isFn(editor.shapeStrokeWidth) ? editor.shapeStrokeWidth() : 1);
+  let fillEnabled = isFn(editor.shapeFillEnabled) ? editor.shapeFillEnabled() : true;
   // Visibility guard: if both fill and stroke are disabled, enable stroke
   // so newly created shapes are never rendered as invisible 0-alpha bitmaps.
   if (!strokeEnabled && !fillEnabled) {
     strokeEnabled = true;
   }
-  const fg = editor.fgColor();
+  const fg = isFn(editor.fgColor) ? editor.fgColor() : "#000000";
 
   const box = computeShapeBox(kind, start, end, shiftKey, altKey);
 
@@ -122,10 +130,14 @@ function buildParams(
     kind,
     width: box.width,
     height: box.height,
-    radius: kind === "rect" ? Math.max(0, editor.shapeRadius()) : 0,
+    radius: kind === "rect" ? Math.max(0, isFn(editor.shapeRadius) ? editor.shapeRadius() : 0) : 0,
     fill: { kind: fillEnabled ? "solid" : "none", color: fg },
-    stroke: { enabled: strokeEnabled, color: editor.shapeStrokeColor(), width: strokeWidth },
-    arrowHead: kind === "line" && editor.shapeArrowHead(),
+    stroke: {
+      enabled: strokeEnabled,
+      color: isFn(editor.shapeStrokeColor) ? editor.shapeStrokeColor() : "#000000",
+      width: strokeWidth,
+    },
+    arrowHead: kind === "line" && (isFn(editor.shapeArrowHead) ? editor.shapeArrowHead() : false),
   };
   return { params, docX: box.docX, docY: box.docY, flipH: box.flipH, flipV: box.flipV };
 }
@@ -191,8 +203,10 @@ export function trackShapeDrag(ctx: PointerToolContext, e: PointerEvent, state: 
     const bitmap = engine.getLayerImageBitmap(state.tempLayerId);
     if (bitmap) renderer?.uploadImage(state.tempLayerId, bitmap);
     scheduler.requestRender();
-  } catch {
-    // ignore transient render errors; final apply will surface real failures
+  } catch (err) {
+    // Transient render error during drag-move; the final apply() surfaces
+    // real failures. Log in dev instead of swallowing silently.
+    if (import.meta.env.DEV) console.warn("[shape-tool] transient track render error (ignored):", err);
   }
   return true;
 }
