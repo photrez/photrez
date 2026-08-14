@@ -13,7 +13,7 @@
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { describe, it, expect, vi } from "vitest";
 import { createMockEditorParams, createPointerTools, makePointerEvent } from "../../../__tests__/pointerRoutingHarness";
-import { commitTextSession, cancelTextSession, openTextEditSession, setPendingTextFlush, syncTextSessionBase, type TextSessionEditor, type TextSessionOpener } from "../canvas/pointerTools/textTool";
+import { commitTextSession, cancelTextSession, openTextEditSession, setPendingTextFlush, flushPendingText, syncTextSessionBase, type TextSessionEditor, type TextSessionOpener } from "../canvas/pointerTools/textTool";
 import type { TextData } from "@/engine/textTypes";
 
 vi.mock("../dialogs/DialogProvider", () => ({
@@ -323,7 +323,7 @@ describe("text tool pointer wiring", () => {
 
   it("cancel on a RE-EDIT whose layer was deleted externally closes WITHOUT restoring (B6)", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("text");
-    setPendingTextFlush(null);
+    setPendingTextFlush("text-1", null);
     const pre = { layers: [textLayer("text-1", { content: "Hello" })] };
     // Layer deleted externally (e.g. layer-panel Delete) while the session was
     // open — restoring the pre-snapshot here would RESURRECT the deleted layer.
@@ -342,7 +342,7 @@ describe("text tool pointer wiring", () => {
 
   it("commit on a layer deleted externally closes with NO ghost 'Edit Text' entry (B6)", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("text");
-    setPendingTextFlush(null);
+    setPendingTextFlush("text-1", null);
     const history = signals.workspace.getActiveHistory();
     (mockEngine as any).getLayer = vi.fn(() => undefined);
     signals.setTextEditSession({
@@ -399,7 +399,7 @@ describe("text tool pointer wiring", () => {
     // The overlay registers its pending-content flush; capture the engine it
     // receives (in the real overlay this pushes the typed content there).
     let flushEngine: unknown;
-    setPendingTextFlush((engine) => { flushEngine = engine; });
+    setPendingTextFlush("text-1", (engine) => { flushEngine = engine; });
 
     signals.setTextEditSession({
       layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
@@ -423,6 +423,25 @@ describe("text tool pointer wiring", () => {
     expect(history.commit).toHaveBeenCalledWith(expect.anything(), "Add Text");
     expect(signals.textEditSession()).toBeNull();
     dispose();
+  });
+
+  it("pending flush registry is keyed per layer (no cross-session clobber)", () => {
+    // Best-practice fix #1: the flush must be scoped per session layerId, not a
+    // single process-wide singleton — otherwise a second open session could
+    // overwrite the first's pending-content flush.
+    let a = 0;
+    let b = 0;
+    setPendingTextFlush("layer-a", () => { a++; });
+    setPendingTextFlush("layer-b", () => { b++; });
+    flushPendingText("layer-a", null);
+    expect(a).toBe(1);
+    expect(b).toBe(0);
+    // Consumed: flushing again is a no-op (no double-commit).
+    flushPendingText("layer-a", null);
+    expect(a).toBe(1);
+    // Clearing an unrelated layer leaves the other intact.
+    setPendingTextFlush("layer-b", null);
+    expect(b).toBe(0);
   });
 });
 

@@ -439,7 +439,7 @@ describe("TextEditOverlay", () => {
       updateTextData: vi.fn(),
       getLayerImageBitmap: vi.fn(() => document.createElement("canvas")),
     };
-    flushPendingText(sourceEngine as any);
+    flushPendingText(layer.id, sourceEngine as any);
 
     expect(sourceEngine.updateTextData).toHaveBeenCalledWith(
       "text-1",

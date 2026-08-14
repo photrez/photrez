@@ -75,7 +75,7 @@ export function TextEditOverlay() {
       // layer in a later session still gets focus+select-all. Also unhide the
       // layer in the compositor (it was hidden so the canvas raster did not
       // double-draw under the textarea).
-      setPendingTextFlush(null);
+      setPendingTextFlush(prevSessionKey, null);
       if (engine && typeof engine.setRenderHiddenLayerId === "function") {
         engine.setRenderHiddenLayerId(null);
       }
@@ -118,7 +118,7 @@ export function TextEditOverlay() {
     // The callback receives the SESSION's engine when commit/cancel resolved
     // it first (doc-switch path): the active engine may already be a DIFFERENT
     // document, and pushing there would drop the last keystrokes (@bug B2b).
-    setPendingTextFlush((engineOverride) => {
+    setPendingTextFlush(s.layerId, (engineOverride) => {
       if (pushTimer) {
         clearTimeout(pushTimer);
         pushTimer = undefined;

@@ -17,11 +17,14 @@ import type { PointerToolContext } from "./pointerToolContext";
 import type { EditorAccessors } from "./pointerToolContext";
 import type { LayerNode } from "@/engine/types";
 import type { DocumentEngine } from "@/engine/document";
-import type { TextData } from "@/engine/textTypes";
+import { type TextData, DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import type { TextEditSession } from "../../tools/editorState";
 
 /** Drag beyond this many doc px switches point text into area-box mode. */
 const MIN_AREA_PX = 3;
+
+/** Default name for a freshly created text layer (auto-replaced by typed content). */
+const DEFAULT_TEXT_LAYER_NAME = "Text";
 
 /** Mutable drag state (plain object, like shapeTool). */
 export interface TextPointerState {
@@ -58,25 +61,31 @@ export type TextSessionOpener = TextSessionEditor &
  */
 type PendingTextFlush = (engine?: DocumentEngine | null) => void;
 
-let pendingTextFlush: PendingTextFlush | null = null;
+// Per-layer flush registry (keyed by session layerId, NOT a single process-wide
+// singleton). Best practice: scope the pending-content flush to the session it
+// belongs to so concurrent/switched documents can't clobber each other's flush
+// (the old single `let` could be overwritten if two overlays ever registered).
+const pendingTextFlushByLayer = new Map<string, PendingTextFlush>();
 
-/** The overlay registers its pending-content flush while a session is open. */
-export function setPendingTextFlush(fn: PendingTextFlush | null): void {
-  pendingTextFlush = fn;
+/** The overlay registers its pending-content flush for the open session's layer. */
+export function setPendingTextFlush(layerId: string | null, fn: PendingTextFlush | null): void {
+  if (layerId == null) return;
+  if (fn) pendingTextFlushByLayer.set(layerId, fn);
+  else pendingTextFlushByLayer.delete(layerId);
 }
 
 /**
- * Flush any pending overlay content so commits see the latest text. When
- * `engine` is provided (the session's engine, resolved by the caller) the
- * overlay pushes into THAT engine — required on a doc switch, where the
- * overlay's own workspace would read the wrong (newly active) engine and
- * silently drop the last debounce-window characters (@bug 2026-08-09 B2b).
- * `null` means "no override available" and falls back to the active engine.
+ * Flush any pending overlay content so commits see the latest text. Keyed by
+ * `layerId` (stable for the whole session), so the doc-switch commit — which
+ * uses a wrapper whose getActiveEngine returns the SOURCE engine — still finds
+ * the flush registered by the overlay on that layer (@bug 2026-08-09 B2b).
+ * When `engine` is provided the overlay pushes into THAT engine.
  */
-export function flushPendingText(engine?: DocumentEngine | null): void {
-  if (pendingTextFlush) {
-    const fn = pendingTextFlush;
-    pendingTextFlush = null;
+export function flushPendingText(layerId: string | null, engine?: DocumentEngine | null): void {
+  if (layerId == null) return;
+  const fn = pendingTextFlushByLayer.get(layerId);
+  if (fn) {
+    pendingTextFlushByLayer.delete(layerId);
     fn(engine);
   }
 }
@@ -98,29 +107,35 @@ export function syncTextSessionBase(editor: TextSessionEditor): void {
   editor.setTextEditSession({ ...session, preSnapshot: engine.snapshot() });
 }
 
+// Uniform accessor contract: every editor signal is treated as optionally
+// present (harness/test mocks may not implement the full EditorAccessors), so
+// all reads use the same `isFn` guard with a sensible default. This removes the
+// previous inconsistency where some fields were guarded and others assumed
+// present.
 function buildSessionTextData(editor: EditorAccessors): TextData {
+  const isFn = (v: unknown): v is () => unknown => typeof v === "function";
   return {
     content: "",
-    fontFamily: editor.textFontFamily(),
-    fontSize: editor.textFontSize(),
-    fontWeight: editor.textFontWeight(),
-    fontStyle: editor.textFontItalic() ? "italic" : "normal",
-    color: editor.fgColor(),
-    align: editor.textAlign(),
-    lineHeight: 1.2,
-    letterSpacing: 0,
+    fontFamily: isFn(editor.textFontFamily) ? editor.textFontFamily() : "Arial",
+    fontSize: isFn(editor.textFontSize) ? editor.textFontSize() : 48,
+    fontWeight: isFn(editor.textFontWeight) ? editor.textFontWeight() : 400,
+    fontStyle: isFn(editor.textFontItalic) && editor.textFontItalic() ? "italic" : "normal",
+    color: isFn(editor.fgColor) ? editor.fgColor() : "#000000",
+    align: isFn(editor.textAlign) ? editor.textAlign() : "left",
+    // New text inherits the canonical defaults (single source of truth in
+    // textTypes.ts) instead of hardcoding 1.2 / 0 here.
+    lineHeight: DEFAULT_TEXT_DATA.lineHeight,
+    letterSpacing: DEFAULT_TEXT_DATA.letterSpacing,
     boxMode: "point",
     boxWidth: 0,
     boxHeight: 0,
     stroke: {
-      // Guarded: optional editor accessors keep this tool usable from harnesses
-      // (and older call sites) that predate the stroke feature.
-      width: typeof editor.textStrokeWidth === "function" ? editor.textStrokeWidth() : 0,
-      color: typeof editor.textStrokeColor === "function" ? editor.textStrokeColor() : "#000000",
+      width: isFn(editor.textStrokeWidth) ? editor.textStrokeWidth() : 0,
+      color: isFn(editor.textStrokeColor) ? editor.textStrokeColor() : "#000000",
     },
-    underline: typeof editor.textUnderline === "function" ? editor.textUnderline() : false,
-    strikethrough: typeof editor.textStrikethrough === "function" ? editor.textStrikethrough() : false,
-    uppercase: typeof editor.textUppercase === "function" ? editor.textUppercase() : false,
+    underline: isFn(editor.textUnderline) ? editor.textUnderline() : false,
+    strikethrough: isFn(editor.textStrikethrough) ? editor.textStrikethrough() : false,
+    uppercase: isFn(editor.textUppercase) ? editor.textUppercase() : false,
   };
 }
 
@@ -278,7 +293,7 @@ export function startTextPointer(
   // Create temp text layer.
   const pre = engine.snapshot();
   try {
-    const layer = engine.addTextLayer("Text", buildSessionTextData(editor));
+    const layer = engine.addTextLayer(DEFAULT_TEXT_LAYER_NAME, buildSessionTextData(editor));
     engine.transformLayer(layer.id, { x: coords.x, y: coords.y });
     const bitmap = engine.getLayerImageBitmap(layer.id);
     if (bitmap) editor.renderer?.uploadImage(layer.id, bitmap);
@@ -363,14 +378,11 @@ export function applyTextPointer(
   state.isDragging = false;
   editor.scheduler.requestRender();
 
-  // Post-pointerup focus guarantee: focus the textarea AFTER pointer capture is released
-  setTimeout(() => {
-    const ta = document.querySelector<HTMLTextAreaElement>("[data-text-edit-overlay]");
-    if (ta) {
-      ta.focus();
-      ta.select();
-    }
-  }, 10);
+  // Focus is owned by TextEditOverlay: it focuses the textarea via its own ref
+  // on session start (prevSessionKey change), so no global DOM query is needed
+  // here. The previous `document.querySelector("[data-text-edit-overlay]")` +
+  // `setTimeout(10)` was removed — refs are the best-practice way to reach the
+  // overlay's textarea.
 
   return true;
 }
@@ -392,7 +404,7 @@ export function commitTextSession(editor: TextSessionEditor): void {
   // commit sees the latest keystrokes. The doc-switch path passes a workspace
   // wrapper whose getActiveEngine returns the SOURCE engine — the overlay's
   // own workspace would read the now-active engine (@bug 2026-08-09 B2b).
-  flushPendingText(engine);
+  flushPendingText(session.layerId, engine);
   // Unhide the edited layer in the session's engine. The overlay's cleanup
   // clears the CURRENT engine's hidden id — on a doc switch that leaves the
   // layer invisible in the source document until some later session touches
@@ -415,7 +427,7 @@ export function commitTextSession(editor: TextSessionEditor): void {
     }
     // Auto-sync text layer name to typed content if it still has default name
     const trimmed = textData.content.trim();
-    if (layer && trimmed.length > 0 && (!layer.name || layer.name === "Text" || layer.name.startsWith("Text "))) {
+    if (layer && trimmed.length > 0 && (!layer.name || layer.name === DEFAULT_TEXT_LAYER_NAME || layer.name.startsWith(`${DEFAULT_TEXT_LAYER_NAME} `))) {
       const autoName = trimmed.length > 24 ? `${trimmed.slice(0, 24)}...` : trimmed;
       layer.name = autoName;
     }
@@ -460,7 +472,7 @@ export function cancelTextSession(editor: TextSessionEditor): void {
   const engine = editor.workspace.getActiveEngine();
   // Flush with the session's engine (same rationale as commitTextSession: on
   // a doc switch the wrapper provides the source engine).
-  flushPendingText(engine);
+  flushPendingText(session.layerId, engine);
   if (session.isNewLayer && engine) {
     engine.deleteLayer(session.layerId);
   } else if (engine && session.preSnapshot && engine.getLayer(session.layerId)) {
