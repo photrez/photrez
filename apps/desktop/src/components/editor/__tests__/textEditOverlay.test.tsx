@@ -152,6 +152,42 @@ describe("TextEditOverlay", () => {
     cleanup();
   });
 
+  it("focuses the textarea when a new text session opens (ready to type immediately)", async () => {
+    const { setSession, layer } = buildMock("");
+    const { container, cleanup } = mountOverlay();
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    const ta = qs<HTMLTextAreaElement>(container, "textarea")!;
+    // createEffect + queueMicrotask re-focus run on the task queue (not sync).
+    await new Promise((r) => setTimeout(r, 0));
+    // A freshly created text drops straight into edit mode.
+    expect(document.activeElement).toBe(ta);
+    // Session start also selects-all so the user can overtype immediately.
+    expect(ta.selectionStart).toBe(0);
+    expect(ta.selectionEnd).toBe(ta.value.length);
+    cleanup();
+  });
+
+  it("re-focuses the textarea when a session is reopened after close (click-away then new text)", async () => {
+    const { setSession, layer } = buildMock("");
+    const { container, cleanup } = mountOverlay();
+    const open = () =>
+      setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: true, preSnapshot: { layers: [] } as any });
+    open();
+    let ta = qs<HTMLTextAreaElement>(container, "textarea")!;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).toBe(ta);
+
+    // Close (e.g. click-away) then create a NEW text — must re-focus, not stay on <body>.
+    setSession(null);
+    expect(qs(container, "[data-text-edit-overlay]")).toBeNull();
+    open();
+    ta = qs<HTMLTextAreaElement>(container, "textarea")!;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).toBe(ta);
+    cleanup();
+  });
+
+
   it("keeps the edited layer visible in compositor for live 2D Canvas rendering", () => {
     const { setSession, layer, engine } = buildMock();
     const { container, cleanup } = mountOverlay();

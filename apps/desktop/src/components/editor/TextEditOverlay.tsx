@@ -476,7 +476,7 @@ export function TextEditOverlay() {
   };
 
   return (
-    <Show when={session()}>
+    <Show when={session() && textData()}>
       <textarea
         ref={textareaRef}
         data-text-edit-overlay
@@ -512,12 +512,11 @@ export function TextEditOverlay() {
             cancelTextSession(editorForSession());
             return;
           }
-          if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !e.shiftKey && !composing) {
-            e.preventDefault();
-            e.stopPropagation();
-            cancelTextSession(editorForSession());
-            return;
-          }
+          // NOTE: Ctrl/Cmd+Z is intentionally NOT intercepted here — it falls
+          // through to the textarea's native in-field undo. Both global key
+          // handlers (useCanvasKeyboard capture + useEditorCommands bubble)
+          // already early-return while a text-edit session is active or focus
+          // is in a TEXTAREA, so the event never reaches document-level undo.
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !composing) {
             e.preventDefault();
             e.stopPropagation();

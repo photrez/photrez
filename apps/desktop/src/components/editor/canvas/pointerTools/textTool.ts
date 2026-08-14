@@ -103,8 +103,24 @@ export function syncTextSessionBase(editor: TextSessionEditor): void {
   if (!session || !session.preSnapshot) return;
   const engine = editor.workspace.getActiveEngine();
   if (!engine) return;
-  if (!engine.getLayer(session.layerId)) return;
-  editor.setTextEditSession({ ...session, preSnapshot: engine.snapshot() });
+  const layer = engine.getLayer(session.layerId);
+  // The layer this session points at was removed by undo/redo (or another
+  // command). Drop the orphan session instead of leaving a dangling overlay
+  // pointed at a deleted layer — otherwise the edit box renders at (0,0)
+  // (@bug 2026-08-14, sibling of the click-away stray-session bug).
+  if (!layer) {
+    editor.setTextEditSession(null);
+    return;
+  }
+  // Re-anchor both the pre-snapshot (next commit diffs against what the user
+  // now sees) and the overlay position (docX/docY) to the restored layer
+  // transform, so the edit box stays glued to the text after undo/redo.
+  editor.setTextEditSession({
+    ...session,
+    preSnapshot: engine.snapshot(),
+    docX: layer.transform.x,
+    docY: layer.transform.y,
+  });
 }
 
 // Uniform accessor contract: every editor signal is treated as optionally
@@ -258,10 +274,21 @@ export function startTextPointer(
       trySetPointerCapture(ctx.getCanvasRef(), e.pointerId);
       return true;
     }
-    // Clicking away: commit any pending session before starting a new interaction.
-    // Empty new layers are removed by commitTextSession's cleanup.
+    // Clicking away: commit the pending session and FINISH the edit (exit text
+    // mode). Do not fall through to start a new empty session — that left a
+    // stray empty text box on the canvas and turned "click = done" into
+    // "click = start another text". A second click starts a fresh text.
     commitTextSession(ctx.editor);
+    return true;
   }
+  // Opening a NEW or re-edit text session from a canvas pointerdown. Prevent
+  // the browser's default mousedown focus shift (to <body>/canvas) from
+  // stealing focus from the overlay <textarea> — without this, the user must
+  // click the text field a second time before they can type (@ux 2026-08-14).
+  // `?.` because some callers (e.g. the double-click handler) pass a MouseEvent
+  // mock without preventDefault; real pointer/mouse events always have it.
+  e.preventDefault?.();
+
   if (hit) {
     const hitLayer = engine.getLayer(hit.id);
     const hitData = layerTextData(hitLayer);

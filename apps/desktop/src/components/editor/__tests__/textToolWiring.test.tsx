@@ -95,6 +95,56 @@ describe("text tool pointer wiring", () => {
     dispose();
   });
 
+  it("click-away on empty canvas commits the open session and EXITS (no stray empty session)", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    (mockEngine as any).addTextLayer = vi.fn(() => ({ id: "text-1", type: "text" }));
+
+    const { tools, dispose: disposeTools } = makePointerTools(signals);
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 10, clientY: 10 })); // opens session "text-1"
+    expect(signals.textEditSession()).not.toBeNull();
+
+    // Click far from the active text box on empty canvas while editing.
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 500, clientY: 500 }));
+
+    // FIX: the edit finished — session closed, and the click-away did NOT spawn
+    // a second (empty) text layer (regression guard for the stray-empty-box bug).
+    expect(signals.textEditSession()).toBeNull();
+    expect(mockEngine.addTextLayer).toHaveBeenCalledTimes(1);
+    disposeTools();
+    dispose();
+  });
+
+  it("canvas pointerdown that opens a text session preventDefaults the mousedown (keeps the textarea focused)", () => {
+    // NEW text: opening from an empty-canvas click must preventDefault so the
+    // browser doesn't shift focus to <body>/canvas and steal it from the
+    // overlay <textarea> (user would otherwise need a 2nd click to type).
+    {
+      const { signals, mockEngine, dispose } = createMockEditorParams("text");
+      (mockEngine as any).addTextLayer = vi.fn(() => ({ id: "t1", type: "text" }));
+      const { tools, dispose: disposeTools } = makePointerTools(signals);
+      const evt = makePointerEvent({ clientX: 10, clientY: 10 });
+      tools.onCanvasPointerDown(evt);
+      expect(signals.textEditSession()).not.toBeNull();
+      expect(evt.preventDefault).toHaveBeenCalled();
+      disposeTools();
+      dispose();
+    }
+    // Re-edit existing text: same rule applies.
+    {
+      const { signals, mockEngine, dispose } = createMockEditorParams("text");
+      (mockEngine as any).getLayers = vi.fn(() => [textLayer("t2")]);
+      (mockEngine as any).getLayer = vi.fn((id: string) => textLayer(id));
+      (mockEngine as any).addTextLayer = vi.fn();
+      const { tools, dispose: disposeTools } = makePointerTools(signals);
+      const evt = makePointerEvent({ clientX: 10, clientY: 10 });
+      tools.onCanvasPointerDown(evt);
+      expect(signals.textEditSession()!.isNewLayer).toBe(false);
+      expect(evt.preventDefault).toHaveBeenCalled();
+      disposeTools();
+      dispose();
+    }
+  });
+
   it("pointerdown on an existing text layer starts a re-edit session (no new layer)", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("text");
     (mockEngine as any).getLayers = vi.fn(() => [textLayer("text-1")]);
@@ -536,18 +586,40 @@ describe("syncTextSessionBase (undo/redo re-anchoring)", () => {
     dispose();
   });
 
-  it("leaves the session untouched when undo deleted its layer", () => {
+  it("closes the session when undo deleted its layer (no orphan (0,0) overlay)", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("text");
     (mockEngine as any).getLayer = vi.fn(() => undefined);
-    const old = { layers: [] };
     signals.setTextEditSession({
       layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
-      isNewLayer: false, preSnapshot: old,
+      isNewLayer: false, preSnapshot: { layers: [] },
     });
 
     syncTextSessionBase(editorFor(signals));
 
-    expect(signals.textEditSession()!.preSnapshot).toBe(old);
+    // Orphan session must be dropped, not left dangling on a deleted layer.
+    expect(signals.textEditSession()).toBeNull();
+    dispose();
+  });
+
+  it("re-anchors docX/docY to the restored layer transform after undo", () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("text");
+    const layer = textLayer("text-1", { content: "Before" });
+    layer.transform = { x: 40, y: 30, scaleX: 1, scaleY: 1, rotation: 0 };
+    (mockEngine as any).getLayer = vi.fn((id: string) => (id === "text-1" ? layer : undefined));
+    (mockEngine as any).snapshot = vi.fn(() => ({ layers: [{ ...layer, textData: { ...layer.textData, content: "Older" } }] }));
+    signals.setTextEditSession({
+      layerId: "text-1", docX: 0, docY: 0, boxMode: "point", boxWidth: 0,
+      isNewLayer: false, preSnapshot: { layers: [] },
+    });
+
+    syncTextSessionBase(editorFor(signals));
+
+    const s = signals.textEditSession();
+    expect(s).not.toBeNull();
+    // Overlay position tracks the restored layer, not the stale session origin.
+    expect(s!.docX).toBe(40);
+    expect(s!.docY).toBe(30);
+    expect((s!.preSnapshot as any).layers[0].textData.content).toBe("Older");
     dispose();
   });
 
