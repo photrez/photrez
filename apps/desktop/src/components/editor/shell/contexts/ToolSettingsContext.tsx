@@ -25,11 +25,14 @@ export interface ToolSettingsValue {
   bgColor: Accessor<string>;
   setBgColor: Setter<string>;
 
-  // Move Tool options
   moveAutoSelect: Accessor<boolean>;
   setMoveAutoSelect: Setter<boolean>;
   moveSnapEnabled: Accessor<boolean>;
   setMoveSnapEnabled: Setter<boolean>;
+  snapToLayersEnabled: Accessor<boolean>;
+  setSnapToLayersEnabled: Setter<boolean>;
+  snapToCanvasEnabled: Accessor<boolean>;
+  setSnapToCanvasEnabled: Setter<boolean>;
   showTransformControls: Accessor<boolean>;
   setShowTransformControls: Setter<boolean>;
 

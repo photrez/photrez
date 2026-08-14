@@ -4,6 +4,7 @@ import { useDragController } from "../DragController";
 import { addLayerFromCrossDoc } from "../crossDocLayerOps";
 import type { LayerNode } from "@/engine/types";
 import { computeSnapAdjustment, type SnapRect, type SnapLine } from "@/viewport/smartGuides";
+import { buildTransformSnapTargets } from "@/viewport/transformSnapTargets";
 import { getLayerAabb } from "@/viewport/transformGeometry";
 import { ALPHA_HIT_THRESHOLD, isBoxHittable } from "@/viewport/layerHitTest";
 import type { HudMode } from "../TransformHud";
@@ -64,7 +65,7 @@ export interface CanvasLayerDragOptions {
  * for simplicity (matches the existing layer-helpers).
  */
 export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLayerDragApi {
-  const { workspace, renderer, camera, activeDocumentId, activeTool, scheduler, moveSnapEnabled, moveAutoSelect, selectedLayerId, setSelectedLayerId, zoom } = useEditor();
+  const { workspace, renderer, camera, activeDocumentId, activeTool, scheduler, moveSnapEnabled, snapToLayersEnabled, snapToCanvasEnabled, moveAutoSelect, selectedLayerId, setSelectedLayerId, zoom } = useEditor();
   const dragController = useDragController();
 
   const [drag, setDrag] = createSignal<CanvasLayerDrag | null>(null);
@@ -169,12 +170,11 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     let newX = d.startTransformX + dx;
     let newY = d.startTransformY + dy;
 
-    const altHeld = e.altKey;
+    const bypassSnap = e.ctrlKey || e.metaKey;
     let snapActive = false;
-    if (!altHeld && moveSnapEnabled()) {
+    if (!bypassSnap && moveSnapEnabled()) {
       const docW = engine.getWidth();
       const docH = engine.getHeight();
-      const movingId = layer.id;
       const aabb = getLayerAabb(layer.transform, layer.width, layer.height);
       const baseX = aabb.x;
       const baseY = aabb.y;
@@ -185,21 +185,16 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         y: baseY + targetAabbY,
         w: aabb.width,
         h: aabb.height,
+        kind: "layer",
       };
-      const otherLayers: SnapRect[] = engine
-        .getLayers()
-        .filter((l) => l.visible && l.id !== movingId && l.name !== "Background")
-        .map((l) => {
-          const laabb = getLayerAabb(l.transform, l.width, l.height);
-          return { x: laabb.x, y: laabb.y, w: laabb.width, h: laabb.height };
-        });
-      const snapTargets: SnapRect[] = [
-        { x: 0, y: 0, w: docW, h: docH, snapThreshold: 12, snapPriority: 3 },
-        { x: docW / 2, y: -Infinity, w: 0, h: Infinity, snapThreshold: 6, snapPriority: 2 },
-        { x: -Infinity, y: docH / 2, w: Infinity, h: 0, snapThreshold: 6, snapPriority: 2 },
-        ...otherLayers,
-      ];
-      const result = computeSnapAdjustment(rect, snapTargets, 5, zoom());
+      const snapToLayers = typeof snapToLayersEnabled === "function" ? snapToLayersEnabled() : true;
+      const snapToCanvas = typeof snapToCanvasEnabled === "function" ? snapToCanvasEnabled() : true;
+      const snapTargets = buildTransformSnapTargets(engine, docW, docH, {
+        excludeLayerId: layer.id,
+        snapToLayers,
+        snapToCanvas,
+      });
+      const result = computeSnapAdjustment(rect, snapTargets, 8, zoom());
       newX += result.dx;
       newY += result.dy;
       snapActive = result.lines.length > 0;

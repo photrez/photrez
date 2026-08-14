@@ -1172,4 +1172,96 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
       teardown(ctx);
     }
   });
+
+  it("layer drag: dragging layer near another layer triggers layer snap lines (multi-tone)", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      // Add a static target layer
+      const targetLayer = engine.addLayer("Target") as LayerNode;
+      targetLayer.transform.x = 300;
+      targetLayer.transform.y = 100;
+      targetLayer.width = 100;
+      targetLayer.height = 100;
+
+      ctx.testApi.setMoveSnapEnabled(true);
+
+      // Drag "Draggable" (originally at x=100, w=100 -> right edge 200) towards x=198 (right edge ~298 -> close to 300)
+      ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, button: 0, clientX: 150, clientY: 150,
+      }));
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, button: 0, clientX: 248, clientY: 150,
+      }));
+
+      expect(ctx.testApi.onSnapLinesChange).toHaveBeenCalled();
+      const lastSnapCall = ctx.testApi.onSnapLinesChange.mock.calls.find((c) => c[0] && c[0].length > 0);
+      expect(lastSnapCall).toBeDefined();
+
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("layer drag: Alt+drag clones layer and the clone STILL snaps to other layers", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      const targetLayer = engine.addLayer("Target") as LayerNode;
+      targetLayer.transform.x = 300;
+      targetLayer.transform.y = 100;
+      targetLayer.width = 100;
+      targetLayer.height = 100;
+
+      ctx.testApi.setMoveSnapEnabled(true);
+
+      // Alt+pointerdown clones the layer and starts dragging the clone
+      ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, button: 0, clientX: 150, clientY: 150, altKey: true,
+      }));
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, button: 0, clientX: 248, clientY: 150, altKey: true,
+      }));
+
+      // Snapping should be active on the clone
+      expect(ctx.testApi.onSnapLinesChange).toHaveBeenCalled();
+      const snapCallsWithLines = ctx.testApi.onSnapLinesChange.mock.calls.filter((c) => c[0] && c[0].length > 0);
+      expect(snapCallsWithLines.length).toBeGreaterThan(0);
+
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("layer drag: Ctrl+drag bypasses snapping (onSnapLinesChange receives [])", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      const targetLayer = engine.addLayer("Target") as LayerNode;
+      targetLayer.transform.x = 300;
+      targetLayer.transform.y = 100;
+      targetLayer.width = 100;
+      targetLayer.height = 100;
+
+      ctx.testApi.setMoveSnapEnabled(true);
+
+      // Ctrl+drag
+      ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, button: 0, clientX: 150, clientY: 150, ctrlKey: true,
+      }));
+      ctx.testApi.onSnapLinesChange.mockClear();
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, button: 0, clientX: 248, clientY: 150, ctrlKey: true,
+      }));
+
+      expect(ctx.testApi.onSnapLinesChange).toHaveBeenCalledWith([]);
+
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    } finally {
+      teardown(ctx);
+    }
+  });
 });
+

@@ -57,6 +57,8 @@ export function createEditorState() {
 
   const [moveAutoSelect, setMoveAutoSelect] = createSignal(true);
   const [moveSnapEnabled, setMoveSnapEnabled] = createSignal(true);
+  const [snapToLayersEnabled, setSnapToLayersEnabled] = createSignal(true);
+  const [snapToCanvasEnabled, setSnapToCanvasEnabled] = createSignal(true);
   const [showTransformControls, setShowTransformControls] = createSignal(true);
   const [cropInteractionMode, setCropInteractionMode] = createSignal<"modern" | "classic">("modern");
   const [hoverPos, setHoverPos] = createSignal<{ x: number; y: number } | null>(null);
@@ -216,6 +218,8 @@ export function createEditorState() {
     viewportHeight, setViewportHeight,
     moveAutoSelect, setMoveAutoSelect,
     moveSnapEnabled, setMoveSnapEnabled,
+    snapToLayersEnabled, setSnapToLayersEnabled,
+    snapToCanvasEnabled, setSnapToCanvasEnabled,
     showTransformControls, setShowTransformControls,
     cropInteractionMode, setCropInteractionMode,
     hoverPos, setHoverPos,

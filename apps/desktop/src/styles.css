@@ -231,10 +231,13 @@ img {
   border-color: var(--color-editor-field-border);
 }
 
-/* ─── Smart guide colors (center vs edge distinction) ─── */
+/* ─── Smart guide colors (multi-tone layer, canvas, gap distinction) ─── */
 :root {
   --guide-center: oklch(0.84 0 0);
   --guide-edge: oklch(0.62 0.2 36);
+  --guide-layer: #E03183;
+  --guide-canvas: #00C3FF;
+  --guide-gap: #F59E0B;
 }
 
 /* ─── Cross-document drag & drop indicators ─── */

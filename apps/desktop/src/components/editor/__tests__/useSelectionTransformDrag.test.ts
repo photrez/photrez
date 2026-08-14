@@ -138,6 +138,8 @@ function setupHook(
     addLayer?: boolean;
     navigationMode?: boolean;
     snapEnabled?: boolean;
+    onComputeSnap?: (rect: any) => any;
+    onSnapClear?: () => void;
   } = {}
 ) {
   const engine = createMockEngine();
@@ -208,8 +210,8 @@ function setupHook(
       getSvgRef: () => svgEl,
       onStopMomentum: vi.fn(),
       onHudUpdate: vi.fn(),
-      onSnapClear: vi.fn(),
-      onComputeSnap: vi.fn(() => ({ dx: 0, dy: 0, lines: [] })),
+      onSnapClear: opts.onSnapClear ?? vi.fn(),
+      onComputeSnap: opts.onComputeSnap ?? vi.fn(() => ({ dx: 0, dy: 0, lines: [] })),
       isNavigationMode: opts.navigationMode ?? false,
     });
   });
@@ -1315,6 +1317,34 @@ describe("useSelectionTransformDrag", () => {
         scaleX: 1.0,
         scaleY: 1.0,
       });
+      dispose();
+    });
+
+    it("resize handle 'se' invokes onComputeSnap and snaps dimensions when snap is enabled", () => {
+      const snapFn = vi.fn((rect: any) => ({
+        dx: 4,
+        dy: 4,
+        lines: [{ x1: 204, y1: 0, x2: 204, y2: 300, kind: "layer" }],
+      }));
+      const onSnapClear = vi.fn();
+      const { result, engine, dispose } = setupHook({
+        snapEnabled: true,
+        onComputeSnap: snapFn,
+        onSnapClear,
+      });
+
+      result.handlePointerDown(
+        makePointerEvent({ clientX: 200, clientY: 150, pointerId: 1 }),
+        "se"
+      );
+      engine.transformLayer.mockClear();
+
+      result.handlePointerMove(
+        makePointerEvent({ clientX: 250, clientY: 200, pointerId: 1 })
+      );
+
+      expect(snapFn).toHaveBeenCalled();
+      expect(engine.transformLayer).toHaveBeenCalled();
       dispose();
     });
   });

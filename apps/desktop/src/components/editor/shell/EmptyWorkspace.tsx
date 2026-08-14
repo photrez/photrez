@@ -138,7 +138,7 @@ export function EmptyWorkspace() {
         </div>
 
         <div
-          class="grid gap-3 px-5 py-4 transition-opacity duration-150"
+          class="grid grid-cols-2 gap-2.5 px-5 py-3.5 transition-opacity duration-150"
           classList={{ "opacity-50": armed() }}
         >
           <button
@@ -160,13 +160,7 @@ export function EmptyWorkspace() {
         </div>
 
         <div class="border-t border-editor-divider px-5 py-3.5">
-          <div class="mb-2.5 flex items-center justify-between text-[11px] font-medium text-editor-text-dim">
-            <span class="font-semibold text-editor-text">Quick Presets</span>
-            <span class="inline-flex items-center gap-1 rounded-full border border-editor-accent/30 bg-editor-accent/15 px-2 py-0.5 text-[10px] font-semibold text-editor-accent">
-              <Icon name="sparkles" class="size-3" strokeWidth={1.75} />
-              1-Click Create
-            </span>
-          </div>
+          <div class="mb-2.5 text-[11px] font-semibold text-editor-text">Quick Presets</div>
           <div class="grid grid-cols-2 gap-2">
             <For each={PRESETS}>
               {(preset) => (

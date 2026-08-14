@@ -314,7 +314,8 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       let nextY = drag.startTransform.y + dy;
       let snapActive = false;
       const snapEnabled = props.moveSnapEnabled ?? moveSnapEnabled();
-      if (!e.altKey && snapEnabled && props.onComputeSnap) {
+      const bypassSnap = e.ctrlKey || e.metaKey;
+      if (!bypassSnap && snapEnabled && props.onComputeSnap) {
         const aabb = getLayerAabb(startVb.transform, startVb.w, startVb.h);
         const baseX = aabb.x;
         const baseY = aabb.y;
@@ -367,6 +368,44 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       // This is the single source of truth shared with PropertiesPanel's
       // "Constrain proportions" toggle and TransformOptionBar's "Ratio" toggle.
       const breakAspect = constrainRatio() ? e.shiftKey : !e.shiftKey;
+      let effectiveDx = dx;
+      let effectiveDy = dy;
+      let snapActive = false;
+      const snapEnabled = props.moveSnapEnabled ?? moveSnapEnabled();
+      const bypassSnap = e.ctrlKey || e.metaKey;
+
+      if (!bypassSnap && snapEnabled && props.onComputeSnap) {
+        const candidateVbTransform = applyResizeHandle(
+          startVb.transform,
+          startVb.w,
+          startVb.h,
+          drag.type,
+          dx,
+          dy,
+          breakAspect,
+          e.altKey,
+        );
+        const candidateAabb = getLayerAabb(candidateVbTransform, startVb.w, startVb.h);
+        const snap = props.onComputeSnap({
+          x: candidateAabb.x,
+          y: candidateAabb.y,
+          w: candidateAabb.width,
+          h: candidateAabb.height,
+        });
+
+        if (snap.dx !== 0 || snap.dy !== 0) {
+          if (drag.type.includes("w") || drag.type.includes("e")) {
+            effectiveDx += snap.dx;
+          }
+          if (drag.type.includes("n") || drag.type.includes("s")) {
+            effectiveDy += snap.dy;
+          }
+          snapActive = snap.lines.length > 0;
+        }
+      } else {
+        props.onSnapClear?.();
+      }
+
       // Resize against the VISIBLE box so the handle grabbed at the shape edge
       // keeps tracking the pointer (no margin gap). The result is in the visible
       // frame, so convert it back to the full-layer frame before committing.
@@ -377,10 +416,10 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
           startVb.w,
           startVb.h,
           drag.type,
-          dx,
-          dy,
+          effectiveDx,
+          effectiveDy,
           breakAspect,
-          e.altKey
+          e.altKey,
         )
       );
       engine.transformLayer(layer.id, newTransform);
@@ -393,7 +432,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
         width: effW,
         height: effH,
         scalePercent: Math.abs(newTransform.scaleX) * 100,
-        deltaX: 0, deltaY: 0, angle: 0, snapActive: props.snapActive ?? false,
+        deltaX: 0, deltaY: 0, angle: 0, snapActive: snapActive || (props.snapActive ?? false),
       });
     }
     scheduler.requestRender();

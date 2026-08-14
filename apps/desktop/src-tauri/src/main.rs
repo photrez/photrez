@@ -14,12 +14,12 @@ mod print_windows;
 mod printers;
 mod response;
 mod save_stream;
-mod window_state;
 
 use print_settings::PrintSettings;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
+use tauri_plugin_window_state::StateFlags;
 
 struct CliState(Mutex<Option<String>>);
 
@@ -66,7 +66,16 @@ fn main() {
         .manage(save_stream::StreamingSaveState::default())
         .manage(print_core::PrintRateLimiter::default())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    StateFlags::SIZE
+                        | StateFlags::POSITION
+                        | StateFlags::MAXIMIZED
+                        | StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .plugin(
             // Structured logging: stdout in dev, file in app log dir in prod.
             // Level Info hides debug!() noise from release builds; set
@@ -132,33 +141,15 @@ fn main() {
                 }
             });
 
-            if let Some(window) = app.get_webview_window("main") {
-                let mut saved = window_state::load_window_state(&app.handle());
-                // First launch: saved state matches tauri.conf.json defaults,
-                // nothing to restore — just show the window.
-                let is_first_launch = saved.x.is_none() && saved.y.is_none() && !saved.maximized;
-                if !is_first_launch {
-                    // Guard: if saved position is off-screen (e.g., external monitor
-                    // disconnected), snap back to primary monitor center.
-                    window_state::snap_state_to_screen(&mut saved, app.handle());
-                    let _ = window.set_size(tauri::PhysicalSize::new(saved.width, saved.height));
-                    if let (Some(x), Some(y)) = (saved.x, saved.y) {
-                        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-                    }
-                    if saved.maximized {
-                        let _ = window.maximize();
-                    }
-                }
-                // Window starts hidden ("visible": false in tauri.conf.json).
-                // Show after state is fully applied — prevents resize flash.
-                let _ = window.show();
-            }
+            // Window size/position/maximized + show are owned by
+            // `tauri-plugin-window-state` (registered above) on window-ready.
+            // Config `visible: false` prevents a flash; the plugin shows the
+            // window when it restores state. No custom restore logic needed.
             Ok(())
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    window_state::save_window_state(window);
                     // Prevent the window from closing immediately. The frontend
                     // will show sequential save-confirm dialogs for each dirty
                     // document, then invoke("close_app") to exit the app via Rust's

@@ -54,6 +54,10 @@ const MENU_DEFINITIONS: Record<MenuItem, readonly MenuEntry[]> = {
     { kind: "item", label: "Fit Canvas", command: "view.fit-canvas", shortcut: "Ctrl+0" },
     { kind: "item", label: "Zoom to Selection", command: "view.zoom-to-selection", shortcut: "Ctrl+Alt+0" },
     { kind: "separator" },
+    { kind: "item", label: "Snap", command: "view.toggle-snap", shortcut: "Shift+Ctrl+;" },
+    { kind: "item", label: "Snap to Layers", command: "view.toggle-snap-layers" },
+    { kind: "item", label: "Snap to Canvas", command: "view.toggle-snap-canvas" },
+    { kind: "separator" },
     { kind: "item", label: "Toggle Side Panels", command: "view.toggle-side-panels", shortcut: "Ctrl+Shift+P" },
     { kind: "item", label: "Use Stacked Side Dock", command: "view.toggle-right-dock-layout" },
   ],
@@ -196,17 +200,32 @@ export function AppMenuBar(props: AppMenuBarProps) {
       return props.isRightDockOpen ? "Hide Side Panels" : "Show Side Panels";
     }
     if (entry.command === "view.toggle-right-dock-layout") {
-      // a hard-coded "Use Stacked Side Dock" label on failure. SolidJS
-      // useContext is conditional-safe (unlike React hooks), so calling
-      // it inside this per-item helper is fine. AppMenuBar is always
-      // mounted inside EditorProvider in production (EditorShell.tsx
-      // renders it under EditorProvider), so useEditor() cannot throw
-      // there. In tests it renders standalone, which is exactly the
-      // case the silent fallback was hiding — if those tests ever
-      // actually need editor.rightDockLayout(), they should wrap with
-      // EditorProvider like the other 70+ tests do.
       const editor = useEditor();
       return editor.rightDockLayout() === "side-by-side" ? "Use Stacked Side Dock" : "Use Side-by-Side Side Dock";
+    }
+    if (entry.command === "view.toggle-snap") {
+      try {
+        const editor = useEditor();
+        return editor.moveSnapEnabled() ? "✓ Snap" : "Snap";
+      } catch {
+        return entry.label;
+      }
+    }
+    if (entry.command === "view.toggle-snap-layers") {
+      try {
+        const editor = useEditor();
+        return editor.snapToLayersEnabled() ? "✓ Snap to Layers" : "Snap to Layers";
+      } catch {
+        return entry.label;
+      }
+    }
+    if (entry.command === "view.toggle-snap-canvas") {
+      try {
+        const editor = useEditor();
+        return editor.snapToCanvasEnabled() ? "✓ Snap to Canvas" : "Snap to Canvas";
+      } catch {
+        return entry.label;
+      }
     }
     return entry.label;
   };

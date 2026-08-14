@@ -53,6 +53,9 @@ export type EditorCommand =
   | "view.zoom-to-selection"
   | "view.toggle-side-panels"
   | "view.toggle-right-dock-layout"
+  | "view.toggle-snap"
+  | "view.toggle-snap-layers"
+  | "view.toggle-snap-canvas"
   | "window.minimize"
   | "window.toggle-maximize"
   | "window.close"
@@ -87,6 +90,9 @@ const EDITOR_COMMANDS: ReadonlySet<string> = new Set<EditorCommand>([
   "view.zoom-to-selection",
   "view.toggle-side-panels",
   "view.toggle-right-dock-layout",
+  "view.toggle-snap",
+  "view.toggle-snap-layers",
+  "view.toggle-snap-canvas",
   "window.minimize",
   "window.toggle-maximize",
   "window.close",
@@ -654,6 +660,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         break;
       case "view.toggle-right-dock-layout":
         editor.setRightDockLayout(editor.rightDockLayout() === "side-by-side" ? "stacked" : "side-by-side");
+        break;
+      case "view.toggle-snap":
+        editor.setMoveSnapEnabled((prev) => !prev);
+        break;
+      case "view.toggle-snap-layers":
+        editor.setSnapToLayersEnabled((prev) => !prev);
+        break;
+      case "view.toggle-snap-canvas":
+        editor.setSnapToCanvasEnabled((prev) => !prev);
         break;
       case "window.minimize":
         void runTauriWindowAction("minimize");

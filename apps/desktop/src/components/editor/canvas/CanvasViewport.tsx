@@ -93,6 +93,8 @@ export function CanvasViewport() {
     setSelectedLayerId,
     moveAutoSelect,
     selectedLayerId,
+    snapToLayersEnabled,
+    snapToCanvasEnabled,
     layerTransformSession,
     showTransformControls,
     selection,
@@ -777,10 +779,15 @@ export function CanvasViewport() {
               onComputeSnap={(rect) => {
                 const engine = workspace.getActiveEngine();
                 if (!engine) return { dx: 0, dy: 0, lines: [] };
+                const snapToLayers = typeof snapToLayersEnabled === "function" ? snapToLayersEnabled() : true;
+                const snapToCanvas = typeof snapToCanvasEnabled === "function" ? snapToCanvasEnabled() : true;
                 const result = computeSnapAdjustment(
                   rect,
-                  buildTransformSnapTargets(engine, engine.getWidth(), engine.getHeight()),
-                  5,
+                  buildTransformSnapTargets(engine, engine.getWidth(), engine.getHeight(), {
+                    snapToLayers,
+                    snapToCanvas,
+                  }),
+                  8,
                   zoom(),
                 );
                 setSnapLines(result.lines);

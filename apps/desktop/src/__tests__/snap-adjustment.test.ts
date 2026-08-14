@@ -189,4 +189,91 @@ describe("computeSnapAdjustment", () => {
     expect(result.dx).toBe(3);
     expect(result.lines.length).toBe(1);
   });
+
+  it("snaps moving layer left edge to target right edge (abutting / zero-gap docking)", () => {
+    // Target 1: x=0, w=100 -> right edge is 100
+    // Moving: x=102, w=50 -> distance 2 to 100 -> snaps dx=-2
+    // Both layers also align on Y (y=50, top-top align)
+    const moving = { x: 102, y: 50, w: 50, h: 50, kind: "layer" as const };
+    const targets: SnapRect[] = [
+      { x: 0, y: 50, w: 100, h: 50, kind: "layer" },
+    ];
+    const result = computeSnapAdjustment(moving, targets, 8);
+    expect(result.dx).toBe(-2);
+    expect(result.dy).toBe(0);
+    expect(result.lines.length).toBe(2); // 1 X docking line + 1 Y top-align line
+    expect(result.lines[0].kind).toBe("layer");
+    expect(result.lines[0].color).toBe("var(--guide-layer, #E03183)");
+  });
+
+  it("equal spacing (gap snapping): snaps moving layer when placed after two layers with matching gap", () => {
+    // Layer A: x=0, w=100 (right=100)
+    // Layer B: x=120, w=100 (left=120, right=220) -> gap is 20px
+    // Moving Layer M: w=100, placed near x=240+2 = 242 (ideal x is 220 + 20 = 240)
+    const moving = { x: 242, y: 50, w: 100, h: 50, kind: "layer" as const };
+    const targets: SnapRect[] = [
+      { x: 0, y: 50, w: 100, h: 50, kind: "layer" },
+      { x: 120, y: 50, w: 100, h: 50, kind: "layer" },
+    ];
+    const result = computeSnapAdjustment(moving, targets, 8);
+    expect(result.dx).toBe(-2); // 242 - 2 = 240
+    const gapLines = result.lines.filter((l) => l.kind === "gap");
+    expect(gapLines.length).toBe(2);
+    expect(gapLines[0].color).toBe("var(--guide-gap, #F59E0B)");
+    expect(gapLines[1].color).toBe("var(--guide-gap, #F59E0B)");
+  });
+
+  it("equal spacing (gap snapping): snaps vertical stack when placed below two layers with matching vertical gap", () => {
+    // Layer A: y=0, h=100 (bottom=100)
+    // Layer B: y=130, h=100 (top=130, bottom=230) -> gap is 30px
+    // Moving Layer M: h=100, placed near y=263 (ideal y is 230 + 30 = 260)
+    const moving = { x: 50, y: 263, w: 50, h: 100, kind: "layer" as const };
+    const targets: SnapRect[] = [
+      { x: 50, y: 0, w: 50, h: 100, kind: "layer" },
+      { x: 50, y: 130, w: 50, h: 100, kind: "layer" },
+    ];
+    const result = computeSnapAdjustment(moving, targets, 8);
+    expect(result.dy).toBe(-3); // 263 - 3 = 260
+    const gapLines = result.lines.filter((l) => l.kind === "gap");
+    expect(gapLines.length).toBe(2);
+    expect(gapLines[0].color).toBe("var(--guide-gap, #F59E0B)");
+  });
+
+  it("closest-target priority: closest layer target (2px away) wins over faraway canvas edge (8px away)", () => {
+    // Canvas: x=0, w=1000, snapPriority: 3, snapThreshold: 12
+    // Layer Target: x=200, w=100 (right edge 300), snapPriority: 1, snapThreshold: 8
+    // Moving: x=302, w=50 -> distance to Layer is 2px (left edge 302 -> 300), distance to Canvas is 302px (not candidate), or if Moving.x is near canvas edge:
+    // Moving at x=8 (distance 8px to Canvas left edge 0, but distance 2px to a Layer at x=10)
+    const moving = { x: 8, y: 100, w: 50, h: 50, kind: "layer" as const };
+    const targets: SnapRect[] = [
+      { x: 0, y: 0, w: 1000, h: 800, snapThreshold: 12, snapPriority: 3, kind: "canvas" },
+      { x: 10, y: 100, w: 50, h: 50, snapThreshold: 8, snapPriority: 1, kind: "layer" },
+    ];
+    const result = computeSnapAdjustment(moving, targets, 8);
+    // Distance to Layer Target left edge (10) is 2px (dx = +2). Distance to Canvas left edge (0) is 8px (dx = -8).
+    // Physically closest (Layer, 2px) wins!
+    expect(result.dx).toBe(2);
+    expect(result.lines[0].kind).toBe("layer");
+  });
+
+  it("equal spacing (middle placement): snaps moving layer centered between two layers with equidistant gaps", () => {
+    // Layer A: x=0, w=100 (right=100)
+    // Layer B: x=240, w=100 (left=240)
+    // Total gap = 140px. Moving layer M has w=60.
+    // Remaining space = 140 - 60 = 80px -> equidistant gap is 40px each side.
+    // Ideal M.x = 100 + 40 = 140px.
+    // Moving placed at x=142 (2px off).
+    const moving = { x: 142, y: 50, w: 60, h: 50, kind: "layer" as const };
+    const targets: SnapRect[] = [
+      { x: 0, y: 50, w: 100, h: 50, kind: "layer" },
+      { x: 240, y: 50, w: 100, h: 50, kind: "layer" },
+    ];
+    const result = computeSnapAdjustment(moving, targets, 8);
+    expect(result.dx).toBe(-2); // 142 - 2 = 140
+    const gapLines = result.lines.filter((l) => l.kind === "gap");
+    expect(gapLines.length).toBe(2);
+    expect(gapLines[0].label).toBe("40px");
+    expect(gapLines[1].label).toBe("40px");
+  });
 });
+
