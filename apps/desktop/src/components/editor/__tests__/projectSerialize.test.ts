@@ -86,6 +86,7 @@ function createCanvasMock(pngBytes: Uint8Array) {
     }));
     ctx.fillText = vi.fn();
     ctx.strokeText = vi.fn();
+    ctx.closePath = vi.fn();
     return ctx;
   };
   return {
@@ -941,6 +942,9 @@ describe("projectSerialize — full roundtrip", () => {
       boxMode: "point",
       boxWidth: 0,
       boxHeight: 0,
+      strikethrough: false,
+      underline: false,
+      uppercase: false,
       stroke: { width: 6, color: "#00aa00", align: "outside" },
     };
 

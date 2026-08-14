@@ -4,6 +4,26 @@ import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 import { CropOptionBar } from "../CropOptionBar";
 
+// CropOptionBar (via CropOptionBarSections) calls useDialog(); the test renders
+// it under a mocked EditorContext (no real DialogProvider in the tree), so stub
+// the dialog hooks. Mirrors the pattern in colorPickerCanvas/eyedropper tests.
+// `colorPicker` is a hoisted spy so individual tests can drive its resolution.
+const dialogMocks = vi.hoisted(() => ({
+  colorPicker: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("../dialogs/DialogProvider", () => ({
+  useDialog: () => ({
+    confirm: vi.fn().mockResolvedValue(false),
+    alert: vi.fn().mockResolvedValue(undefined),
+    quality: vi.fn().mockResolvedValue(null),
+    confirmWithCheckbox: vi.fn().mockResolvedValue({ ok: false, checked: false }),
+    confirmSave: vi.fn().mockResolvedValue(null),
+    colorPicker: dialogMocks.colorPicker,
+    newDocument: vi.fn().mockResolvedValue(null),
+    about: vi.fn(),
+  }),
+}));
+
 function clickPill(container: HTMLElement, label: string) {
   let searchLabel = label;
   if (label === "+") searchLabel = "Custom...";
@@ -97,9 +117,10 @@ describe("CropOptionBar", () => {
           cropFillCustomColor: () => "#ff00ff",
         }, container);
 
-        const colorInput = container.querySelector("[data-crop-fill-color]") as HTMLInputElement | null;
-        expect(colorInput).not.toBeNull();
-        expect(colorInput!.value).toBe("#224466");
+        const colorBtn = container.querySelector("[data-crop-fill-color]") as HTMLButtonElement | null;
+        expect(colorBtn).not.toBeNull();
+        // The swatch is a styled button (background-color), not an <input>.
+        expect(colorBtn!.style.backgroundColor).toBe("rgb(34, 68, 102)");
         expect(container.querySelector("[data-crop-fill-source='background']")).not.toBeNull();
         done();
       });
@@ -115,19 +136,25 @@ describe("CropOptionBar", () => {
           cropFillSource: () => "background",
         }, container);
 
-        const colorInput = container.querySelector("[data-crop-fill-color]") as HTMLInputElement | null;
-        expect(colorInput!.value).toBe("#111111");
+        const colorBtn = container.querySelector("[data-crop-fill-color]") as HTMLButtonElement | null;
+        expect(colorBtn!.style.backgroundColor).toBe("rgb(17, 17, 17)");
         setBgColor("#445566");
-        expect(colorInput!.value).toBe("#445566");
+        expect(colorBtn!.style.backgroundColor).toBe("rgb(68, 85, 102)");
         done();
       });
     });
 
-    it("custom crop fill overrides background color without mutating the global swatch", () => {
-      runWithContainer((container, done) => {
-        const setCropFillSource = vi.fn();
-        const setCropFillCustomColor = vi.fn();
-        const setBgColor = vi.fn();
+    it("custom crop fill opens the picker and applies the chosen color without mutating the global swatch", async () => {
+      const setCropFillSource = vi.fn();
+      const setCropFillCustomColor = vi.fn();
+      const setBgColor = vi.fn();
+      const setColorPickerOpen = vi.fn();
+      const setColorPickerTarget = vi.fn();
+      dialogMocks.colorPicker.mockResolvedValueOnce("#778899");
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      try {
         renderOptionBar({
           ...modernContextBase,
           bgColor: () => "#111111",
@@ -136,17 +163,24 @@ describe("CropOptionBar", () => {
           cropFillSource: () => "background",
           setCropFillSource,
           setCropFillCustomColor,
+          setColorPickerOpen,
+          setColorPickerTarget,
         }, container);
 
-        const colorInput = container.querySelector("[data-crop-fill-color]") as HTMLInputElement;
-        colorInput.value = "#778899";
-        colorInput.dispatchEvent(new Event("input", { bubbles: true }));
+        const colorBtn = container.querySelector("[data-crop-fill-color]") as HTMLButtonElement | null;
+        expect(colorBtn).not.toBeNull();
+        colorBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        // allow the async colorPicker handler to resolve
+        await new Promise((r) => setTimeout(r, 0));
 
+        expect(dialogMocks.colorPicker).toHaveBeenCalled();
+        expect(setColorPickerOpen).toHaveBeenCalledWith(true);
         expect(setCropFillSource).toHaveBeenCalledWith("custom");
         expect(setCropFillCustomColor).toHaveBeenCalledWith("#778899");
         expect(setBgColor).not.toHaveBeenCalled();
-        done();
-      });
+      } finally {
+        container.parentNode?.removeChild(container);
+      }
     });
 
     it("can return a custom fill to Use Background Color", () => {
@@ -1728,7 +1762,7 @@ describe("CropOptionBar", () => {
       runWithContainer((container, done) => {
         renderOptionBar({ ...modernContextBase, setCropInteractionMode }, container);
         const classicLabel = Array.from(container.querySelectorAll("label")).find(
-          (l) => l.textContent?.trim() === "Classic"
+          (l) => l.textContent?.trim() === "Classic Crop"
         );
         expect(classicLabel).not.toBeUndefined();
         const input = classicLabel!.querySelector("input[type='checkbox']") as HTMLInputElement;
@@ -1747,7 +1781,7 @@ describe("CropOptionBar", () => {
         moreTrigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         const moreContainer = container.querySelector(".relative.hidden")!;
         const classicLabel = Array.from(moreContainer.querySelectorAll("label")).find(
-          (l) => l.textContent?.trim() === "Classic"
+          (l) => l.textContent?.trim() === "Classic Crop"
         );
         expect(classicLabel).not.toBeUndefined();
         const input = classicLabel!.querySelector("input[type='checkbox']") as HTMLInputElement;

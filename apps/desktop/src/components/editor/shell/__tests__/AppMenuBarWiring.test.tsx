@@ -196,10 +196,14 @@ describe("custom application menu wiring", () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog).toHaveTextContent("Photrez 0.1.0");
-    expect(dialog).toHaveTextContent("lightweight image editor");
-    expect(document.activeElement).toBe(document.querySelector("[data-dialog-confirm]"));
-    document.querySelector<HTMLButtonElement>("[data-dialog-confirm]")!.click();
+    expect(dialog).toHaveTextContent("Photrez");
+    expect(dialog).toHaveTextContent("v0.1.0");
+    expect(dialog).toHaveTextContent("Native desktop image studio");
+    // The About dialog (informational) closes via its primary "Close" button;
+    // focus returns to the menu trigger that opened it.
+    const closeBtn = button(host.container, "Close");
+    expect(closeBtn).not.toBeNull();
+    closeBtn!.click();
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(document.activeElement).toBe(button(host.container, "Help"));
     host.dispose();

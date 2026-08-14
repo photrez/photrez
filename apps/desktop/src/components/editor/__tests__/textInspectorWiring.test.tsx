@@ -108,7 +108,7 @@ describe("PropertiesPanel Typography Section", () => {
     dispose();
   });
 
-  it("Box mode buttons toggle between point and area text", () => {
+  it("Box mode dropdown toggles between point and area text", () => {
     const workspace = new WorkspaceManager();
     const doc = WorkspaceManager.createBlankDocument("doc-1", "Doc 1", 100, 100);
     workspace.addDocument(doc);
@@ -116,10 +116,19 @@ describe("PropertiesPanel Typography Section", () => {
 
     const { container, dispose } = renderWithSelectedLayer(workspace, textLayer.id);
 
-    const areaBtn = container.querySelector<HTMLButtonElement>("button[aria-label='Area Text mode']");
-    expect(areaBtn).not.toBeNull();
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.includes("Auto Width (Point)") || b.textContent?.includes("Fixed Box (Area)")
+    );
+    expect(trigger).not.toBeUndefined();
 
-    areaBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const areaOption = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Fixed Box (Area)"
+    );
+    expect(areaOption).not.toBeUndefined();
+
+    areaOption!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     const updated = doc.engine.getLayer(textLayer.id);
     expect(updated?.textData?.boxMode).toBe("area");

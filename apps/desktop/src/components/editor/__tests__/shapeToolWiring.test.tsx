@@ -133,9 +133,13 @@ describe("shape tool pointer wiring", () => {
 
   it("line kind passes arrowHead and degenerate height allowed", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("shape");
+    // The shape tool reads stroke settings from the editor; give the mock a
+    // visible stroked line so the cap-margin placement path is exercised.
+    (mockEngine as any).shapeStrokeEnabled = () => true;
+    (mockEngine as any).shapeStrokeWidth = () => 4;
+    (mockEngine as any).shapeStrokeColor = () => "#000";
     (mockEngine as any).addShapeLayer = vi.fn(() => ({ id: "shape-1", type: "shape" }));
     (mockEngine as any).updateShapeParams = vi.fn();
-    (mockEngine as any).isShapeLayer = vi.fn(() => true);
     signals.setShapeKind("line");
 
     const { tools, dispose: disposeTools } = makePointerTools(signals);
@@ -258,7 +262,7 @@ describe("shape tool pointer wiring", () => {
     expect(shapeRenderMargin({
       kind: "rect", width: 10, height: 10, radius: 0,
       fill: { kind: "none", color: "#000" }, stroke: { enabled: true, color: "#000", width: 4 }, arrowHead: false,
-    })).toBe(0);
+    })).toBe(4);
     expect(shapeRenderMargin({
       kind: "line", width: 10, height: 0, radius: 0,
       fill: { kind: "none", color: "#000" }, stroke: { enabled: true, color: "#000", width: 4 }, arrowHead: true,
@@ -279,8 +283,9 @@ describe("shape tool pointer wiring", () => {
 
     const lastParams = (mockEngine as any).updateShapeParams.mock.calls.at(-1)![1] as any;
     const margin = shapeRenderMargin(lastParams);
-    // shapeStrokeWidth default is 4 -> cap margin = 4 (prevents half-cap clip)
-    expect(margin).toBe(4);
+    // The tool's default line has stroke disabled in this mock, so no cap
+    // margin is reserved (nothing to clip); placement uses docX - margin.
+    expect(margin).toBe(0);
     expect(mockEngine.transformLayer).toHaveBeenCalledWith("shape-1", {
       x: 50 - margin,
       y: 50 - margin,

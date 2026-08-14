@@ -48,6 +48,7 @@ function makeEditor(overrides: Partial<Record<string, any>> = {}) {
     renderer: {},
     activeTool: () => "crop",
     setActiveTool: vi.fn(),
+    textEditSession: vi.fn(() => null),
     zoom: () => 1,
     docWidth: () => 800,
     docHeight: () => 600,
