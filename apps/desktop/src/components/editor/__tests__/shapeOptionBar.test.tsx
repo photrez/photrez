@@ -71,6 +71,10 @@ type Setters = {
 };
 
 function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
+  // Track fill/stroke enabled state so guards can see the current toggle state
+  // (the original mock returned static values, hiding prior toggles).
+  let fillOn = layer ? layer.shapeParams!.fill.kind === "solid" : true;
+  let strokeOn = layer ? layer.shapeParams!.stroke.enabled : false;
   const setters: Setters = {
     setShapeKind: vi.fn(),
     setShapeFillEnabled: vi.fn(),
@@ -95,10 +99,16 @@ function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
     fgColor: () => "#E15A17",
     shapeKind: () => (layer ? layer.shapeParams!.kind : "rect"),
     setShapeKind: setters.setShapeKind,
-    shapeFillEnabled: () => (layer ? layer.shapeParams!.fill.kind === "solid" : true),
-    setShapeFillEnabled: setters.setShapeFillEnabled,
-    shapeStrokeEnabled: () => (layer ? layer.shapeParams!.stroke.enabled : false),
-    setShapeStrokeEnabled: setters.setShapeStrokeEnabled,
+    shapeFillEnabled: () => fillOn,
+    setShapeFillEnabled: (v: boolean) => {
+      fillOn = v;
+      (setters.setShapeFillEnabled as unknown as (v: boolean) => void)(v);
+    },
+    shapeStrokeEnabled: () => strokeOn,
+    setShapeStrokeEnabled: (v: boolean) => {
+      strokeOn = v;
+      (setters.setShapeStrokeEnabled as unknown as (v: boolean) => void)(v);
+    },
     shapeStrokeColor: () => (layer ? layer.shapeParams!.stroke.color : "#000000"),
     setShapeStrokeColor: setters.setShapeStrokeColor,
     shapeStrokeWidth: () => (layer ? layer.shapeParams!.stroke.width : 4),
@@ -226,6 +236,48 @@ describe("ShapeOptionBar", () => {
     const fill = qs<HTMLButtonElement>(container, 'button[aria-label="Fill"]')!;
     fill.click();
     expect(setters.setShapeFillEnabled).toHaveBeenCalledWith(false);
+    cleanup();
+  });
+
+  it("audit 3.1: draw mode - fill stays on when toggled off while stroke is off", () => {
+    const { setters } = buildMock(); // fill on, stroke off by default
+    const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Fill"]')!.click();
+    expect(setters.setShapeFillEnabled).not.toHaveBeenCalledWith(false);
+    cleanup();
+  });
+
+  it("audit 3.1: draw mode - stroke stays on when toggled off while fill is off", () => {
+    const layer = makeShapeLayer({
+      shapeParams: { ...baseParams, fill: { kind: "none", color: "#ff0000" }, stroke: { enabled: true, color: "#00ff00", width: 6 } },
+    });
+    const { setters } = buildMock({}, layer); // fill off, stroke on
+    const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Stroke options"]')!.click();
+    qs<HTMLInputElement>(container, 'input[aria-label="Stroke"]')!.click();
+    expect(setters.setShapeStrokeEnabled).not.toHaveBeenCalledWith(false);
+    cleanup();
+  });
+
+  it("audit 3.1: draw mode - fill CAN still be turned off when stroke is already on", () => {
+    const layer = makeShapeLayer({
+      shapeParams: { ...baseParams, stroke: { enabled: true, color: "#00ff00", width: 6 } },
+    });
+    const { setters } = buildMock({}, layer); // fill on, stroke on
+    const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Fill"]')!.click();
+    expect(setters.setShapeFillEnabled).toHaveBeenCalledWith(false);
+    cleanup();
+  });
+
+  it("audit 3.1: edit mode - fill-off while stroke off is a no-op (no mutation)", () => {
+    const layer = makeShapeLayer({
+      shapeParams: { ...baseParams, stroke: { enabled: false, color: "#00ff00", width: 6 } },
+    });
+    const { engine } = buildMock({}, layer); // fill solid (on), stroke off
+    const { container, cleanup } = mountShapeBar();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Fill"]')!.click();
+    expect(engine.updateShapeParams).not.toHaveBeenCalled();
     cleanup();
   });
 

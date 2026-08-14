@@ -122,6 +122,10 @@ export function ShapeOptionBar() {
   };
 
   const setFill = (on: boolean) => {
+    // Audit 3.1: never allow both fill and stroke disabled — that yields an
+    // invisible shape (still hittable, confuses the layer list). Block turning
+    // fill off while stroke is already off; the last paint stays on.
+    if (!on && !strokeEnabled()) return;
     setShapeFillEnabled(on);
     if (isEditMode()) applyEdit({ fill: { ...shape().shapeParams.fill, kind: on ? "solid" : "none" } });
   };
@@ -147,6 +151,8 @@ export function ShapeOptionBar() {
   };
 
   const setStroke = (on: boolean) => {
+    // Audit 3.1: never allow both fill and stroke disabled — see setFill guard.
+    if (!on && !fillEnabled()) return;
     setShapeStrokeEnabled(on);
     if (isEditMode()) applyEdit({ stroke: { ...shape().shapeParams.stroke, enabled: on } });
   };
