@@ -18,7 +18,12 @@ export interface DocumentStateValue {
   layers: Accessor<LayerNode[]>;
   activeLayerId: Accessor<string | null>;
   selectedLayerId: Accessor<string | null>;
-  setSelectedLayerId: Setter<string | null>;
+  setSelectedLayerId: (id: string | null | ((prev: string | null) => string | null)) => void;
+  selectedLayerIds: Accessor<string[]>;
+  setSelectedLayerIds: Setter<string[]>;
+  isLayerSelected: (id: string) => boolean;
+  toggleLayerSelection: (id: string, makeActive?: boolean) => void;
+  rangeSelectLayers: (fromId: string, toId: string, allLayers: { id: string }[]) => void;
   selection: Accessor<SelectionState | null>;
   setSelection: Setter<SelectionState | null>;
   selectionEditMode: Accessor<boolean>;

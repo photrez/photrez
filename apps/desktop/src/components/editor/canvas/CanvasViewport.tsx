@@ -1,7 +1,10 @@
-import { createMemo, createSignal, createEffect, Show } from "solid-js";
+import { createMemo, createSignal, createEffect, Show, For } from "solid-js";
 import { screenToDocument } from "@/viewport/coords";
 import { computeSnapAdjustment } from "@/viewport/smartGuides";
 import { buildTransformSnapTargets } from "@/viewport/transformSnapTargets";
+import { getLayerAabb, getCursorForHandle } from "@/viewport/transformGeometry";
+import { useCanvasMarqueeSelect } from "./useCanvasMarqueeSelect";
+import { useMultiSelectionGroupTransform } from "./useMultiSelectionGroupTransform";
 import { useEditor } from "../shell/EditorContext";
 import { useCanvasKeyboard } from "./useCanvasKeyboard";
 import { useBrushOverlay } from "../useBrushOverlay";
@@ -36,6 +39,7 @@ import {
   modernFrameToCropRect,
   screenFrameToDocFrame,
 } from "@/viewport/modernCropGeometry";
+import { getAdaptiveRotateBandPx } from "@/viewport/rotateBand";
 import { fitCropRectToAspect } from "@/viewport/cropAutoFit";
 import {
   clearCropPreview,
@@ -102,6 +106,8 @@ export function CanvasViewport() {
     setSelectionEditMode,
     scheduler,
     useGPUCameraForModernCrop,
+    selectedLayerIds,
+    toggleLayerSelection,
   } = useEditor();
 
   const {
@@ -304,6 +310,11 @@ export function CanvasViewport() {
     getOverlayCanvasRef: () => getOverlayCanvasRef() || undefined,
   });
 
+  const canvasMarquee = useCanvasMarqueeSelect({
+    isSpacePressed,
+    isPanning,
+  });
+
   const {
     cropDragPreview,
     snapLines,
@@ -331,6 +342,7 @@ export function CanvasViewport() {
     onPaintStroke,
     cropSnapTargets: () => cropSnapTargets(),
     moveSnapEnabled: () => moveSnapEnabled(),
+    onStartMarquee: (e) => canvasMarquee.handlePointerDown(e, canvasContainerRef),
   });
 
   const {
@@ -355,10 +367,12 @@ export function CanvasViewport() {
     layerTransformSession,
     selectionBox,
     selectedLayerId,
+    selectedLayerIds,
     getEngine: () => workspace.getActiveEngine(),
     screenToDocumentPoint,
     onCanvasPointerDown,
     setSelectedLayerId,
+    toggleLayerSelection,
     setSelectionBoxSignal,
     setHoverHandle,
     setSnapLines,
@@ -396,12 +410,48 @@ export function CanvasViewport() {
     isPanning,
   });
 
+  const multiGroupTransform = useMultiSelectionGroupTransform({
+    isNavigationMode: isSpacePressed() || isPanning(),
+    onHudUpdate: setHudInfo,
+    onScreenToDoc: (cx, cy) => ({ x: (cx - pan().x) / zoom(), y: (cy - pan().y) / zoom() }),
+  });
+
+  const HANDLE_TYPES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
+
   const { cropSnapTargets } = useCanvasDerivedState({
     getCanvasContainerRef: () => canvasContainerRef,
     getCanvasRef: () => canvasRef,
     isSpacePressed,
     isPanning,
     isAltPressed,
+  });
+
+  const multiSelectionGroupAabb = createMemo(() => {
+    const ids = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+    if (ids.length <= 1) return null;
+    const all = typeof layers === "function" ? layers() : [];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let count = 0;
+    for (const id of ids) {
+      const l = all.find((item) => item.id === id);
+      if (!l || !l.visible) continue;
+      const aabb = getLayerAabb(l.transform, l.width, l.height);
+      if (aabb.x < minX) minX = aabb.x;
+      if (aabb.y < minY) minY = aabb.y;
+      if (aabb.x + aabb.width > maxX) maxX = aabb.x + aabb.width;
+      if (aabb.y + aabb.height > maxY) maxY = aabb.y + aabb.height;
+      count++;
+    }
+    if (count <= 1 || minX === Infinity) return null;
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
   });
 
   // Reset Classic crop state when switching documents to prevent stale
@@ -564,6 +614,9 @@ export function CanvasViewport() {
           handlePasteboardPointerDown(e);
           if (!e.defaultPrevented) {
             handleMoveAutoSelect(e);
+            if (!canvasLayerDrag.isDragging() && activeTool() === "move") {
+              canvasMarquee.handlePointerDown(e, canvasContainerRef);
+            }
             onViewportPointerDown(e);
           }
         }
@@ -571,6 +624,10 @@ export function CanvasViewport() {
       onPointerMove={(e) => {
         if (isPanning()) {
           onViewportPointerMove(e);
+          return;
+        }
+        if (multiGroupTransform.isTransforming()) {
+          multiGroupTransform.handlePointerMove(e);
           return;
         }
         handlePasteboardPointerMove(e);
@@ -581,10 +638,17 @@ export function CanvasViewport() {
           onViewportPointerUp(e);
           return;
         }
+        if (multiGroupTransform.isTransforming()) {
+          multiGroupTransform.handlePointerUp(e);
+          return;
+        }
         handlePasteboardPointerUp(e);
         if (!e.defaultPrevented) onViewportPointerUp(e);
       }}
       onPointerCancel={(e) => {
+        if (multiGroupTransform.isTransforming()) {
+          multiGroupTransform.handlePointerCancel(e);
+        }
         handlePasteboardPointerCancel(e);
         onViewportPointerCancel(e);
       }}
@@ -743,6 +807,250 @@ export function CanvasViewport() {
             </Show>
             <HoverHighlight />
             <SmartGuides lines={snapLines()} />
+
+            {/* Canvas Rubberband Marquee Box */}
+            <Show when={canvasMarquee.marqueeRect()}>
+              {(rect) => {
+                const z = zoom();
+                const p = pan();
+                return (
+                  <rect
+                    data-canvas-marquee
+                    x={rect().x * z + p.x}
+                    y={rect().y * z + p.y}
+                    width={rect().width * z}
+                    height={rect().height * z}
+                    fill="var(--color-editor-accent)"
+                    fill-opacity="0.15"
+                    stroke="var(--color-editor-accent)"
+                    stroke-width="1.25"
+                    stroke-dasharray="3 3"
+                    vector-effect="non-scaling-stroke"
+                    style={{ "pointer-events": "none" }}
+                  />
+                );
+              }}
+            </Show>
+
+            {/* Multi-Selection Group Bounding Box & Interactive Handles */}
+            <Show when={activeTool() === "move" && !canvasMarquee.isMarqueeActive() ? multiSelectionGroupAabb() : null}>
+              {(group) => {
+                const gx = () => group().x * zoom() + pan().x;
+                const gy = () => group().y * zoom() + pan().y;
+                const gw = () => group().width * zoom();
+                const gh = () => group().height * zoom();
+                const hs = 8;
+                const ht = 28;
+                const ringWidth = () => getAdaptiveRotateBandPx(gw(), gh());
+
+                return (
+                  <g data-multi-selection-group>
+                    {/* Unified Group Boundary Box */}
+                    <rect
+                      data-multi-group-boundary
+                      x={gx()}
+                      y={gy()}
+                      width={gw()}
+                      height={gh()}
+                      fill="var(--color-editor-accent)"
+                      fill-opacity={showTransformControls() ? "0.02" : "0.04"}
+                      stroke="var(--color-editor-accent)"
+                      stroke-width={showTransformControls() ? "1.5" : "1.25"}
+                      stroke-dasharray={showTransformControls() ? undefined : "6 4"}
+                      vector-effect="non-scaling-stroke"
+                      style={{
+                        "pointer-events": "none",
+                        filter: "drop-shadow(0px 0px 2px rgba(0, 0, 0, 0.8))",
+                      }}
+                    />
+
+                    {/* Mode A: Clean corner brackets when showTransformControls is OFF */}
+                    <Show when={!showTransformControls()}>
+                      <g data-multi-corner-brackets style={{ "pointer-events": "none" }}>
+                        <rect x={gx() - 3} y={gy() - 3} width={6} height={6} fill="var(--color-editor-accent)" stroke="#111" stroke-width="1" />
+                        <rect x={gx() + gw() - 3} y={gy() - 3} width={6} height={6} fill="var(--color-editor-accent)" stroke="#111" stroke-width="1" />
+                        <rect x={gx() - 3} y={gy() + gh() - 3} width={6} height={6} fill="var(--color-editor-accent)" stroke="#111" stroke-width="1" />
+                        <rect x={gx() + gw() - 3} y={gy() + gh() - 3} width={6} height={6} fill="var(--color-editor-accent)" stroke="#111" stroke-width="1" />
+                      </g>
+                    </Show>
+
+                    {/* Mode B: Interactive Handles, Rotate Donut & Top Rotate Pin when showTransformControls is ON */}
+                    <Show when={showTransformControls()}>
+                      {/* Perimeter Adaptive Donut Rotate Ring */}
+                      {(() => {
+                        const rw = ringWidth();
+                        const g = Math.max(0, Math.min(3, Math.min(gw(), gh()) / 2 - 1));
+                        return (
+                          <path
+                            d={`
+                              M ${gx() - rw} ${gy() - rw}
+                              L ${gx() + gw() + rw} ${gy() - rw}
+                              L ${gx() + gw() + rw} ${gy() + gh() + rw}
+                              L ${gx() - rw} ${gy() + gh() + rw}
+                              Z
+                              M ${gx() + g} ${gy() + g}
+                              L ${gx() + g} ${gy() + gh() - g}
+                              L ${gx() + gw() - g} ${gy() + gh() - g}
+                              L ${gx() + gw() - g} ${gy() + g}
+                              Z
+                            `}
+                            fill="transparent"
+                            fill-rule="evenodd"
+                            style={{
+                              "pointer-events": isSpacePressed() || isPanning() ? "none" : "all",
+                              cursor: "crosshair",
+                            }}
+                            onPointerDown={(e) => multiGroupTransform.handlePointerDown(e, "rotate")}
+                          />
+                        );
+                      })()}
+
+                      {/* Top Rotate Antenna / Pin Handle */}
+                      {(() => {
+                        const topMidX = () => gx() + gw() / 2;
+                        const topMidY = () => gy();
+                        const pinY = () => gy() - 20;
+                        const pinR = 4.5;
+                        return (
+                          <g data-multi-rotate-pin>
+                            {/* Stalk connecting line */}
+                            <line
+                              x1={topMidX()}
+                              y1={topMidY()}
+                              x2={topMidX()}
+                              y2={pinY()}
+                              stroke="var(--color-editor-accent)"
+                              stroke-width={1.25}
+                              vector-effect="non-scaling-stroke"
+                              style={{ "pointer-events": "none" }}
+                            />
+                            {/* Transparent hit area */}
+                            <circle
+                              cx={topMidX()}
+                              cy={pinY()}
+                              r={14}
+                              fill="transparent"
+                              style={{
+                                "pointer-events": isSpacePressed() || isPanning() ? "none" : "all",
+                                cursor: "crosshair",
+                              }}
+                              onPointerDown={(e) => multiGroupTransform.handlePointerDown(e, "rotate")}
+                            />
+                            {/* Visible pin handle */}
+                            <circle
+                              cx={topMidX()}
+                              cy={pinY()}
+                              r={pinR}
+                              fill="#FFFFFF"
+                              stroke="var(--color-editor-accent)"
+                              stroke-width={1.5}
+                              vector-effect="non-scaling-stroke"
+                              style={{
+                                "pointer-events": "none",
+                                filter: "drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.6))",
+                              }}
+                            />
+                          </g>
+                        );
+                      })()}
+
+                      {/* 8 Interactive Transform Handles */}
+                      <For each={HANDLE_TYPES}>
+                        {(type) => {
+                          const hx = () =>
+                            type === "nw" || type === "sw" || type === "w"
+                              ? gx()
+                              : type === "ne" || type === "se" || type === "e"
+                              ? gx() + gw()
+                              : gx() + gw() / 2;
+                          const hy = () =>
+                            type === "nw" || type === "n" || type === "ne"
+                              ? gy()
+                              : type === "sw" || type === "s" || type === "se"
+                              ? gy() + gh()
+                              : gy() + gh() / 2;
+                          const cursor = () => getCursorForHandle(type, 0, 1, 1);
+                          return (
+                            <g data-multi-handle={type}>
+                              {/* Hit area for drag resize */}
+                              <rect
+                                x={hx() - ht / 2}
+                                y={hy() - ht / 2}
+                                width={ht}
+                                height={ht}
+                                fill="transparent"
+                                style={{
+                                  "pointer-events": isSpacePressed() || isPanning() ? "none" : "all",
+                                  cursor: cursor(),
+                                }}
+                                onPointerDown={(e) => multiGroupTransform.handlePointerDown(e, type)}
+                              />
+                              {/* Visible crisp white square handle with accent stroke */}
+                              <rect
+                                x={hx() - hs / 2}
+                                y={hy() - hs / 2}
+                                width={hs}
+                                height={hs}
+                                fill="#FFFFFF"
+                                stroke="var(--color-editor-accent)"
+                                stroke-width={1.3}
+                                vector-effect="non-scaling-stroke"
+                                style={{
+                                  "pointer-events": "none",
+                                  filter: "drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.5))",
+                                }}
+                              />
+                            </g>
+                          );
+                        }}
+                      </For>
+                    </Show>
+                  </g>
+                );
+              }}
+            </Show>
+
+            {/* Multi-Selected Layer Outlines */}
+            <Show when={typeof selectedLayerIds === "function" && selectedLayerIds().length > 1 && activeTool() === "move" && !canvasMarquee.isMarqueeActive()}>
+              <For each={typeof selectedLayerIds === "function" ? selectedLayerIds() : []}>
+                {(id) => {
+                  const currentLayer = createMemo(() => {
+                    const all = typeof layers === "function" ? layers() : [];
+                    return all.find((item) => item.id === id);
+                  });
+                  const currentAabb = createMemo(() => {
+                    const l = currentLayer();
+                    return l && l.visible ? getLayerAabb(l.transform, l.width, l.height) : null;
+                  });
+                  const ox = () => (currentAabb() ? currentAabb()!.x * zoom() + pan().x : 0);
+                  const oy = () => (currentAabb() ? currentAabb()!.y * zoom() + pan().y : 0);
+                  const ow = () => (currentAabb() ? currentAabb()!.width * zoom() : 0);
+                  const oh = () => (currentAabb() ? currentAabb()!.height * zoom() : 0);
+
+                  return (
+                    <Show when={currentAabb()}>
+                      <rect
+                        data-multi-select-outline={id}
+                        x={ox()}
+                        y={oy()}
+                        width={ow()}
+                        height={oh()}
+                        fill="none"
+                        stroke="var(--color-editor-accent)"
+                        stroke-opacity="0.95"
+                        stroke-width="1.5"
+                        vector-effect="non-scaling-stroke"
+                        style={{
+                          "pointer-events": "none",
+                          filter: "drop-shadow(0px 0px 2px rgba(0, 0, 0, 0.9))",
+                        }}
+                      />
+                    </Show>
+                  );
+                }}
+              </For>
+            </Show>
+
             <BrushCursorOverlay
               isAltPressed={isAltPressed()}
               isPanning={isSpacePressed() || isPanning()}

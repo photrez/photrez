@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
+import type { LayerNode } from "@/engine/types";
 import { PAINT_SIZE_STEP_HARDNESS, paintSizeStep, adjustPaintSize, adjustPaintHardness } from "../../brushToolState";
 import type { KeyboardShortcutContext } from "./context";
 
@@ -22,6 +22,7 @@ export function handleToolNavKey(
     scheduler,
     activeTool,
     setActiveTool,
+    selectedLayerIds,
     selectionShape,
     setSelectionShape,
     brushSize,
@@ -180,8 +181,8 @@ export function handleToolNavKey(
     return true;
   }
 
-  // Escape deselects layer in Move tool
-  if (activeTool() === "move" && e.key === "Escape" && selectedLayerId()) {
+  // Escape deselects layer(s) in Move tool
+  if (activeTool() === "move" && e.key === "Escape" && (selectedLayerId() || (selectedLayerIds && selectedLayerIds().length > 0))) {
     e.preventDefault();
     engine.setActiveLayer(null);
     setSelectedLayerId(null);
@@ -192,12 +193,18 @@ export function handleToolNavKey(
   // Keyboard nudge for Move Tool: Arrow = 1px, Shift+Arrow = 10px.
   // Works whether or not the layer transform overlay (handles/rotate ring)
   // is active, matching standard raster editors — arrow nudges the selected
-  // layer 1px (10px with Shift) even while the transform session is live.
+  // layer(s) 1px (10px with Shift) even while the transform session is live.
   if (activeTool() === "move" && e.key.startsWith("Arrow")) {
+    const multiIds = selectedLayerIds ? selectedLayerIds() : [];
     const activeId = engine.getActiveLayerId();
-    if (!activeId) return true;
-    const layer = engine.getLayer(activeId);
-    if (!layer || layer.locked) return true;
+    if (!activeId && multiIds.length === 0) return true;
+
+    const targetIds = multiIds.length > 0 ? multiIds : (activeId ? [activeId] : []);
+    const layersToNudge = targetIds
+      .map((id) => engine.getLayer(id))
+      .filter((l): l is LayerNode => Boolean(l) && !l!.locked && !l!.lockPosition);
+
+    if (layersToNudge.length === 0) return true;
 
     e.preventDefault();
     const step = e.shiftKey ? 10 : 1;
@@ -208,9 +215,11 @@ export function handleToolNavKey(
     else if (e.key === "ArrowRight") dx = step;
 
     if (!e.repeat) {
-      history.commit(engine.snapshot(), "Move Layer");
+      history.commit(engine.snapshot(), layersToNudge.length > 1 ? "Move Layers" : "Move Layer");
     }
-    engine.moveLayer(activeId, layer.transform.x + dx, layer.transform.y + dy);
+    for (const l of layersToNudge) {
+      engine.moveLayer(l.id, l.transform.x + dx, l.transform.y + dy);
+    }
     scheduler.requestRender();
     return true;
   }

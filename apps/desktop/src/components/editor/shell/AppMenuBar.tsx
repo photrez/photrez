@@ -41,6 +41,7 @@ const MENU_DEFINITIONS: Record<MenuItem, readonly MenuEntry[]> = {
     { kind: "item", label: "New Layer", command: "layer.new", shortcut: "Ctrl+Shift+N" },
     { kind: "item", label: "Duplicate Layer", command: "layer.duplicate", shortcut: "Ctrl+J" },
     { kind: "item", label: "Delete Layer", command: "layer.delete" },
+    { kind: "item", label: "Select All Layers", command: "layer.select-all", shortcut: "Ctrl+Alt+A" },
     { kind: "separator" },
     { kind: "item", label: "Merge Down", command: "layer.merge-down", shortcut: "Ctrl+E" },
     { kind: "item", label: "Stamp Visible", command: "layer.stamp-visible", shortcut: "Ctrl+Shift+Alt+E" },

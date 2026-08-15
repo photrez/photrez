@@ -26,6 +26,7 @@ import {
   addShapeLayer as applyAddShapeLayer,
   duplicateLayer as applyDuplicateLayer,
   mergeDown as applyMergeDown,
+  mergeSelectedLayers as applyMergeSelectedLayers,
   flattenLayers as applyFlattenLayers,
   deleteLayer as applyDeleteLayer,
   reorderLayer as applyReorderLayer,
@@ -172,6 +173,19 @@ export class DocumentEngine {
 
   mergeDown(id: LayerId): void {
     const result = applyMergeDown(this.model, id);
+    if (!result) return;
+
+    // Clean up WebGL textures for merged layers
+    for (const removedId of result.removedIds) {
+      this.dirtyLayerIds.delete(removedId);
+      this.textureHandles.delete(removedId);
+    }
+    this.markLayerDirty(result.merged.id);
+    this.notifyChange();
+  }
+
+  mergeSelectedLayers(ids: LayerId[]): void {
+    const result = applyMergeSelectedLayers(this.model, ids);
     if (!result) return;
 
     // Clean up WebGL textures for merged layers

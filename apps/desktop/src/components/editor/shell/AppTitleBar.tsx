@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { LanguageSwitcher } from "@/i18n/LanguageSwitcher";
 import { Portal } from "solid-js/web";
 import { Icon } from "../icons";
 import { isTauriRuntime, runTauriWindowAction } from "@/lib/desktop";
@@ -211,6 +212,7 @@ export function AppTitleBar(props: AppTitleBarProps) {
         </div>
 
         <div class="flex shrink-0 items-center pr-0 text-editor-icon">
+          <LanguageSwitcher />
           <button
             class="flex h-[46px] w-11 items-center justify-center hover:bg-white/[0.055] hover:text-editor-text"
             onClick={() => runTauriWindowAction("minimize")}

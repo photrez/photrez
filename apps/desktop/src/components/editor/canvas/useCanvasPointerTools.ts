@@ -48,6 +48,7 @@ interface UseCanvasPointerToolsParams {
   ) => void;
   cropSnapTargets?: () => import("@/viewport/cropSnap").CropSnapTargets | undefined;
   moveSnapEnabled?: () => boolean;
+  onStartMarquee?: (e: PointerEvent) => boolean;
 }
 
 type HudData = {
@@ -81,6 +82,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     setPan,
     selectedLayerId,
     setSelectedLayerId,
+    selectedLayerIds,
     moveAutoSelect,
     brushSize,
     setBrushSize,
@@ -92,6 +94,7 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     setEraserHardness,
     cropInteractionMode,
     selectionShape,
+    toggleLayerSelection,
   } = editor;
 
   // ── Modern crop drag state (shared with pointerTools/modernCrop.ts) ──
@@ -475,20 +478,42 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
     if (startCropDrag(pointerCtx, e, modernDragState)) return;
 
-    if (activeTool() === "move" && moveAutoSelect()) {
+    if (activeTool() === "move") {
       const coords = getDocCoords(e);
       const allLayers = [...engine.getLayers()];
-      // Alpha-aware hit-test — same sampler as handleMoveAutoSelect so the
-      // transient canvas-handler selection never diverges from the panel
-      // selection at transparent pixels (@bug 2026-08-03).
       const hit = hitTestLayers(coords, allLayers as LayerInfo[], (id, x, y) => engine.sampleLayerAlpha(id, x, y));
-      if (hit && hit.id !== engine.getActiveLayerId()) {
-        engine.setActiveLayer(hit.id);
-        setSelectedLayerId(hit.id);
-        scheduler.requestRender();
-      } else if (!hit) {
-        setSelectedLayerId(null);
+      const isModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+
+      const hitLayer = hit ? engine.getLayer(hit.id) : null;
+      if (!hit || hitLayer?.isBackground) {
+        // Clicking on empty canvas / background triggers Rubberband Marquee Select
+        if (params.onStartMarquee?.(e)) {
+          return;
+        }
       }
+
+      if (moveAutoSelect()) {
+        if (isModifier) {
+          if (hit) {
+            toggleLayerSelection?.(hit.id, true);
+            scheduler.requestRender();
+          }
+        } else {
+          const currentMulti = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+          const isAlreadySelected = hit && currentMulti.includes(hit.id);
+          if (hit && !isAlreadySelected) {
+            engine.setActiveLayer(hit.id);
+            setSelectedLayerId(hit.id);
+            scheduler.requestRender();
+          } else if (hit && isAlreadySelected) {
+            engine.setActiveLayer(hit.id);
+            scheduler.requestRender();
+          } else if (!hit) {
+            setSelectedLayerId(null);
+          }
+        }
+      }
+      return;
     }
 
     // Guard: prevent blocked paint strokes from starting an overlay command.

@@ -633,10 +633,7 @@ describe("Snap line cleanup", () => {
         clientY: 100,
       }),
     );
-    expect(capturedSession()).not.toBeNull();
-    expect(capturedSession().documentId).toBe("session-test");
-    expect(capturedSession().layerId).not.toBeNull();
-    expect(capturedSession().originalSnapshot).not.toBeNull();
+    expect(capturedSession()).toBeNull();
 
     dispose();
     container.parentNode?.removeChild(container);
@@ -679,7 +676,7 @@ describe("Snap line cleanup", () => {
 
     const handle = container.querySelector("[data-handle]") as SVGElement;
 
-    // Trigger down on resize handle to start session
+    // Trigger down on resize handle
     handle.dispatchEvent(
       new PointerEvent("pointerdown", {
         pointerId: 40,
@@ -689,7 +686,7 @@ describe("Snap line cleanup", () => {
         clientY: 100,
       }),
     );
-    expect(capturedSession()).not.toBeNull();
+    expect(capturedSession()).toBeNull();
 
     // Trigger escape keydown
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -982,7 +979,7 @@ describe("Donut rotate ring path", () => {
     }));
 
     const transformSession = editorRef.layerTransformSession();
-    expect(transformSession).not.toBeNull();
+    expect(transformSession).toBeNull();
 
     const seHandle = container.querySelector("[data-handle='se']") as SVGElement;
     expect(seHandle).not.toBeNull();

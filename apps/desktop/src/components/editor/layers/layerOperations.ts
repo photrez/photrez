@@ -34,6 +34,102 @@ export function mergeActiveLayerDown(
   return true;
 }
 
+export function mergeSelectedLayers(
+  engine: DocumentEngine,
+  history: CommandHistory,
+  renderer: WebGL2Backend,
+  layerIds: string[],
+): boolean {
+  if (!layerIds || layerIds.length < 2) {
+    return false;
+  }
+
+  history.commit(engine.snapshot(), "Merge Selected Layers");
+  engine.mergeSelectedLayers(layerIds);
+
+  for (const id of layerIds) {
+    renderer.destroyTexture(id);
+  }
+
+  const activeId = engine.getActiveLayerId();
+  const mergedLayer = activeId ? engine.getLayer(activeId) : null;
+  if (!mergedLayer?.imageBitmap) {
+    return false;
+  }
+  renderer.uploadImage(mergedLayer.id, mergedLayer.imageBitmap);
+
+  return true;
+}
+
+export function deleteMultipleLayers(
+  engine: DocumentEngine,
+  history: CommandHistory,
+  renderer: WebGL2Backend,
+  layerIds: string[],
+): boolean {
+  if (!layerIds || layerIds.length === 0) return false;
+  const currentLayers = engine.getLayers();
+
+  // Guard against deleting background or leaving zero layers
+  const validIdsToDelete = layerIds.filter((id) => {
+    const layer = currentLayers.find((l) => l.id === id);
+    return layer && !layer.isBackground;
+  });
+
+  if (validIdsToDelete.length === 0) return false;
+
+  // Cannot delete all layers — must preserve at least one
+  if (currentLayers.length - validIdsToDelete.length < 1) {
+    const canDeleteCount = currentLayers.length - 1;
+    if (canDeleteCount <= 0) return false;
+    validIdsToDelete.splice(canDeleteCount);
+  }
+
+  history.commit(
+    engine.snapshot(),
+    validIdsToDelete.length > 1 ? "Delete Layers" : "Delete Layer",
+  );
+
+  for (const id of validIdsToDelete) {
+    engine.deleteLayer(id);
+    renderer.destroyTexture(id);
+  }
+
+  return true;
+}
+
+export function duplicateMultipleLayers(
+  engine: DocumentEngine,
+  history: CommandHistory,
+  renderer: WebGL2Backend,
+  layerIds: string[],
+): string[] {
+  if (!layerIds || layerIds.length === 0) return [];
+  const currentLayers = engine.getLayers();
+  const validIds = layerIds.filter((id) => currentLayers.some((l) => l.id === id));
+  if (validIds.length === 0) return [];
+
+  history.commit(
+    engine.snapshot(),
+    validIds.length > 1 ? "Duplicate Layers" : "Duplicate Layer",
+  );
+
+  const newIds: string[] = [];
+  for (const id of validIds) {
+    try {
+      const dup = engine.duplicateLayer(id);
+      if (dup.imageBitmap) {
+        renderer.uploadImage(dup.id, dup.imageBitmap);
+      }
+      newIds.push(dup.id);
+    } catch {
+      // Continue if resource limit reached on some
+    }
+  }
+
+  return newIds;
+}
+
 export function flattenAllLayers(
   engine: DocumentEngine,
   history: CommandHistory,

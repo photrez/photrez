@@ -10,6 +10,8 @@ import {
   AlignEndHorizontal,
   AlignStartVertical,
   AlignEndVertical,
+  AlignHorizontalSpaceBetween,
+  AlignVerticalSpaceBetween,
   ArrowLeftRight,
   ArrowRight,
   ArrowUpRight,
@@ -108,6 +110,8 @@ export type IconName =
   | "align-text-right"
   | "align-top"
   | "align-bottom"
+  | "distribute-h"
+  | "distribute-v"
   | "stretch-h"
   | "flip-h"
   | "flip-v"
@@ -202,6 +206,8 @@ const ICONS: Record<IconName, LucideIcon> = {
   "align-text-right": AlignRight,
   "align-top": AlignStartHorizontal,
   "align-bottom": AlignEndHorizontal,
+  "distribute-h": AlignHorizontalSpaceBetween,
+  "distribute-v": AlignVerticalSpaceBetween,
   "stretch-h": StretchHorizontal,
   "flip-h": FlipHorizontal,
   "flip-v": FlipVertical,

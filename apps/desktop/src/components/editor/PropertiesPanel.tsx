@@ -9,9 +9,10 @@ import { useDialog } from "./dialogs/DialogProvider";
 import { SectionHeader } from "./layers/SectionHeader";
 import { CanvasProperties } from "./canvas/CanvasProperties";
 import { LayerThumb } from "./layers/LayerThumb";
-import { normalizeRotation } from "@/viewport/transformGeometry";
+import { normalizeRotation, getLayerAabb } from "@/viewport/transformGeometry";
 import { getAvailableFonts, getInstantFonts, type FontFamily } from "@/lib/fontEnumeration";
 import type { TextData, TextStrokeAlign } from "@/engine/textTypes";
+import { useLayerActions } from "./layers/useLayerActions";
 import type { LayerNode, Transform2D } from "@/engine/types";
 
 const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
@@ -27,12 +28,168 @@ const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
 ];
 
 export function PropertiesPanel() {
-  const { workspace, layers, selectedLayerId, scheduler, activeDocumentId, docWidth, docHeight, constrainRatio, setConstrainRatio, textEditSession, setColorPickerOpen, setColorPickerTarget } = useEditor();
+  const { workspace, layers, selectedLayerId, selectedLayerIds, scheduler, activeDocumentId, docWidth, docHeight, constrainRatio, setConstrainRatio, textEditSession, setColorPickerOpen, setColorPickerTarget } = useEditor();
   const dialogs = useDialog();
+  const layerActions = useLayerActions();
   const [opacityEditLayerId, setOpacityEditLayerId] = createSignal<string | null>(null);
   const [fontPickerOpen, setFontPickerOpen] = createSignal(false);
   const [fontSearch, setFontSearch] = createSignal("");
   const [fonts, setFonts] = createSignal<FontFamily[]>(getInstantFonts());
+
+  const multiSelectionGroupAabb = createMemo(() => {
+    const ids = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+    if (ids.length <= 1) return null;
+    const all = typeof layers === "function" ? layers() : [];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let count = 0;
+    for (const id of ids) {
+      const l = all.find((item) => item.id === id);
+      if (!l || !l.visible) continue;
+      const aabb = getLayerAabb(l.transform, l.width, l.height);
+      if (aabb.x < minX) minX = aabb.x;
+      if (aabb.y < minY) minY = aabb.y;
+      if (aabb.x + aabb.width > maxX) maxX = aabb.x + aabb.width;
+      if (aabb.y + aabb.height > maxY) maxY = aabb.y + aabb.height;
+      count++;
+    }
+    if (count <= 1 || minX === Infinity) return null;
+    return {
+      x: Math.round(minX * 100) / 100,
+      y: Math.round(minY * 100) / 100,
+      width: Math.round((maxX - minX) * 100) / 100,
+      height: Math.round((maxY - minY) * 100) / 100,
+    };
+  });
+
+  const handleAlign = (type: "left" | "center-h" | "right" | "top" | "center-v" | "bottom") => {
+    const engine = workspace.getActiveEngine();
+    const multiIds = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+    const targetIds = multiIds.length > 1 ? multiIds : (selectedLayerId() ? [selectedLayerId()!] : []);
+    if (!engine || targetIds.length === 0) return;
+
+    const layersToAlign = targetIds
+      .map((id) => ({ id, layer: engine.getLayer(id) }))
+      .filter((item): item is { id: string; layer: LayerNode } => Boolean(item.layer) && !item.layer!.locked && !item.layer!.lockPosition && !item.layer!.isBackground);
+
+    if (layersToAlign.length === 0) return;
+
+    const docW = docWidth();
+    const docH = docHeight();
+    const history = workspace.getActiveHistory();
+    const preSnapshot = engine.snapshot();
+    let anyChanged = false;
+
+    for (const { id: targetId, layer } of layersToAlign) {
+      const next = { ...layer.transform };
+      const layerW = Math.round(layer.width * layer.transform.scaleX);
+      const layerH = Math.round(layer.height * layer.transform.scaleY);
+
+      switch (type) {
+        case "left":
+          next.x = 0;
+          break;
+        case "center-h":
+          next.x = Math.round((docW - layerW) / 2);
+          break;
+        case "right":
+          next.x = docW - layerW;
+          break;
+        case "top":
+          next.y = 0;
+          break;
+        case "center-v":
+          next.y = Math.round((docH - layerH) / 2);
+          break;
+        case "bottom":
+          next.y = docH - layerH;
+          break;
+      }
+
+      if (next.x !== layer.transform.x || next.y !== layer.transform.y) {
+        anyChanged = true;
+        engine.transformLayer(targetId, next);
+      }
+    }
+
+    if (anyChanged && history) {
+      history.commit(preSnapshot, `Align ${type}`);
+      scheduler.requestRender();
+      workspace.notifyVisualChange();
+    }
+  };
+
+  const handleDistribute = (axis: "h" | "v") => {
+    const engine = workspace.getActiveEngine();
+    const multiIds = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+    if (!engine || multiIds.length < 3) return;
+
+    const layersToDistribute = multiIds
+      .map((id) => ({ id, layer: engine.getLayer(id) }))
+      .filter((item): item is { id: string; layer: LayerNode } => Boolean(item.layer) && !item.layer!.locked && !item.layer!.lockPosition && !item.layer!.isBackground)
+      .map((item) => {
+        const aabb = getLayerAabb(item.layer.transform, item.layer.width, item.layer.height);
+        return {
+          id: item.id,
+          layer: item.layer,
+          aabb,
+        };
+      });
+
+    if (layersToDistribute.length < 3) return;
+
+    const history = workspace.getActiveHistory();
+    const preSnapshot = engine.snapshot();
+
+    if (axis === "h") {
+      layersToDistribute.sort((a, b) => a.aabb.x - b.aabb.x);
+      const first = layersToDistribute[0];
+      const last = layersToDistribute[layersToDistribute.length - 1];
+      const totalSpan = (last.aabb.x + last.aabb.width) - first.aabb.x;
+      const totalLayersWidth = layersToDistribute.reduce((sum, item) => sum + item.aabb.width, 0);
+      const freeSpace = totalSpan - totalLayersWidth;
+      const gap = freeSpace / (layersToDistribute.length - 1);
+
+      let currentX = first.aabb.x;
+      for (const item of layersToDistribute) {
+        const dx = Math.round(currentX - item.aabb.x);
+        if (dx !== 0) {
+          engine.transformLayer(item.id, {
+            ...item.layer.transform,
+            x: item.layer.transform.x + dx,
+          });
+        }
+        currentX += item.aabb.width + gap;
+      }
+      history?.commit(preSnapshot, "Distribute Horizontally");
+    } else {
+      layersToDistribute.sort((a, b) => a.aabb.y - b.aabb.y);
+      const first = layersToDistribute[0];
+      const last = layersToDistribute[layersToDistribute.length - 1];
+      const totalSpan = (last.aabb.y + last.aabb.height) - first.aabb.y;
+      const totalLayersHeight = layersToDistribute.reduce((sum, item) => sum + item.aabb.height, 0);
+      const freeSpace = totalSpan - totalLayersHeight;
+      const gap = freeSpace / (layersToDistribute.length - 1);
+
+      let currentY = first.aabb.y;
+      for (const item of layersToDistribute) {
+        const dy = Math.round(currentY - item.aabb.y);
+        if (dy !== 0) {
+          engine.transformLayer(item.id, {
+            ...item.layer.transform,
+            y: item.layer.transform.y + dy,
+          });
+        }
+        currentY += item.aabb.height + gap;
+      }
+      history?.commit(preSnapshot, "Distribute Vertically");
+    }
+
+    scheduler.requestRender();
+    workspace.notifyVisualChange();
+  };
 
   const loadFonts = () => {
     void getAvailableFonts().then((f) => setFonts(f));
@@ -280,28 +437,31 @@ export function PropertiesPanel() {
           }
         >
           <Show
-            when={safeLayer()}
-            fallback={<CanvasProperties />}
-          >
-            <>
-                <div class="border-b border-editor-divider px-3 py-2.5">
-                  <SectionHeader
-                    icon="layers"
-                    iconClass="text-editor-text-dim"
-                    label="Selected Layer"
-                  />
-                  <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
-                    <LayerThumb layer={safeLayer()!} isActive={true} />
-                    <div class="min-w-0 flex-1">
-                      <p class="truncate text-[11.5px] font-medium text-editor-text leading-tight" title={safeLayer()!.name}>
-                        {safeLayer()!.name}
-                      </p>
-                      <p class="truncate text-[10.5px] text-editor-text-dim leading-snug mt-0.5">
-                        {safeLayer()!.type === "raster" ? "Image layer" : `${safeLayer()!.type.charAt(0).toUpperCase()}${safeLayer()!.type.slice(1)} layer`} · {safeLayer()!.width} × {safeLayer()!.height} px
-                      </p>
+            when={typeof selectedLayerIds === "function" && selectedLayerIds().length > 1}
+            fallback={
+              <Show
+                when={safeLayer()}
+                fallback={<CanvasProperties />}
+              >
+                <>
+                  <div class="border-b border-editor-divider px-3 py-2.5">
+                    <SectionHeader
+                      icon="layers"
+                      iconClass="text-editor-text-dim"
+                      label="Selected Layer"
+                    />
+                    <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
+                      <LayerThumb layer={safeLayer()!} isActive={true} />
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate text-[11.5px] font-medium text-editor-text leading-tight" title={safeLayer()!.name}>
+                          {safeLayer()!.name}
+                        </p>
+                        <p class="truncate text-[10.5px] text-editor-text-dim leading-snug mt-0.5">
+                          {safeLayer()!.type === "raster" ? "Image layer" : `${safeLayer()!.type.charAt(0).toUpperCase()}${safeLayer()!.type.slice(1)} layer`} · {safeLayer()!.width} × {safeLayer()!.height} px
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
                 {/* Typography Section for Text Layers */}
                 <Show when={safeText()}>
@@ -760,6 +920,191 @@ export function PropertiesPanel() {
                 </div>
               </>
             </Show>
+          }
+        >
+          {/* Multiple Layers Selected Inspector */}
+          <div class="flex flex-col">
+            {/* Header Card */}
+            <div class="border-b border-editor-divider px-3 py-2.5">
+              <SectionHeader
+                icon="layers"
+                iconClass="text-editor-text-dim"
+                label="Multiple Layers"
+              />
+              <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
+                <div class="flex size-8 shrink-0 items-center justify-center rounded-[3px] bg-editor-panel-bg text-editor-accent border border-editor-divider">
+                  <Icon name="layers" class="size-4" />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-[11.5px] font-medium text-editor-text leading-tight">
+                    {selectedLayerIds().length} Layers Selected
+                  </p>
+                  <p class="truncate text-[10.5px] text-editor-text-dim leading-snug mt-0.5">
+                    {selectedLayerIds().map(id => layers().find(l => l.id === id)?.name).filter(Boolean).join(", ")}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Combined Transform Stats */}
+            <Show when={multiSelectionGroupAabb()}>
+              {(group) => (
+                <div class="border-b border-editor-divider px-3 py-2.5">
+                  <SectionHeader
+                    icon="move"
+                    iconClass="text-editor-text-dim"
+                    label="Combined Bounds"
+                  />
+                  <div class="mt-2 flex flex-col gap-2">
+                    <PropRow label="Position">
+                      <div class="flex items-center gap-1.5">
+                        <NumField label="X" value={String(Math.round(group().x * 10) / 10)} suffix="px" />
+                        <NumField label="Y" value={String(Math.round(group().y * 10) / 10)} suffix="px" />
+                      </div>
+                    </PropRow>
+                    <PropRow label="Size">
+                      <div class="flex items-center gap-1.5">
+                        <NumField label="W" value={String(Math.round(group().width * 10) / 10)} suffix="px" />
+                        <NumField label="H" value={String(Math.round(group().height * 10) / 10)} suffix="px" />
+                      </div>
+                    </PropRow>
+                  </div>
+                </div>
+              )}
+            </Show>
+
+            {/* Align to Canvas */}
+            <div class="border-b border-editor-divider px-3 py-2.5">
+              <SectionHeader
+                icon="grid-3"
+                iconClass="text-editor-text-dim"
+                label="Align to Canvas"
+              />
+              <div class="mt-2 grid grid-cols-6 gap-1">
+                <Tooltip content="Align Left">
+                  <button
+                    type="button"
+                    onClick={() => handleAlign("left")}
+                    class="flex h-7 items-center justify-center rounded-[3px] border border-editor-divider bg-editor-field text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="align-left" class="size-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Align Horizontal Center">
+                  <button
+                    type="button"
+                    onClick={() => handleAlign("center-h")}
+                    class="flex h-7 items-center justify-center rounded-[3px] border border-editor-divider bg-editor-field text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="align-h" class="size-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Align Right">
+                  <button
+                    type="button"
+                    onClick={() => handleAlign("right")}
+                    class="flex h-7 items-center justify-center rounded-[3px] border border-editor-divider bg-editor-field text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="align-right" class="size-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Align Top">
+                  <button
+                    type="button"
+                    onClick={() => handleAlign("top")}
+                    class="flex h-7 items-center justify-center rounded-[3px] border border-editor-divider bg-editor-field text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="align-top" class="size-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Align Vertical Center">
+                  <button
+                    type="button"
+                    onClick={() => handleAlign("center-v")}
+                    class="flex h-7 items-center justify-center rounded-[3px] border border-editor-divider bg-editor-field text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="align-v" class="size-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Align Bottom">
+                  <button
+                    type="button"
+                    onClick={() => handleAlign("bottom")}
+                    class="flex h-7 items-center justify-center rounded-[3px] border border-editor-divider bg-editor-field text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="align-bottom" class="size-3.5" />
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+
+            {/* Distribute Spacing (when >= 3 layers selected) */}
+            <Show when={typeof selectedLayerIds === "function" && selectedLayerIds().length >= 3}>
+              <div class="border-b border-editor-divider px-3 py-2.5">
+                <SectionHeader
+                  icon="split-h"
+                  iconClass="text-editor-text-dim"
+                  label="Distribute Spacing"
+                />
+                <div class="mt-2 grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleDistribute("h")}
+                    class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="distribute-h" class="size-3.5" />
+                    <span>Horizontal</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDistribute("v")}
+                    class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
+                  >
+                    <Icon name="distribute-v" class="size-3.5" />
+                    <span>Vertical</span>
+                  </button>
+                </div>
+              </div>
+            </Show>
+
+            {/* Batch Actions */}
+            <div class="border-b border-editor-divider px-3 py-2.5">
+              <SectionHeader
+                icon="sliders"
+                iconClass="text-editor-text-dim"
+                label="Batch Actions"
+              />
+              <div class="mt-2 flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={layerActions.handleMergeActiveLayerDown}
+                  class="flex h-7 w-full items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text hover:bg-editor-hover transition-colors"
+                >
+                  <Icon name="layers" class="size-3.5 text-editor-text-dim" />
+                  <span>Merge Selected Layers</span>
+                </button>
+                <div class="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={layerActions.handleDuplicateActiveLayer}
+                    class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text hover:bg-editor-hover transition-colors"
+                  >
+                    <Icon name="copy" class="size-3.5 text-editor-text-dim" />
+                    <span>Duplicate</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={layerActions.handleDeleteActiveLayer}
+                    class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-red-500/20 bg-red-500/10 text-[11px] font-medium text-red-400 hover:bg-red-500/20 transition-colors"
+                  >
+                    <Icon name="trash" class="size-3.5 text-red-400" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
         </Show>
       </div>
     </section>

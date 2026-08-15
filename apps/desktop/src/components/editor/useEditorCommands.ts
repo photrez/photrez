@@ -43,6 +43,7 @@ export type EditorCommand =
   | "layer.new"
   | "layer.duplicate"
   | "layer.delete"
+  | "layer.select-all"
   | "layer.merge-down"
   | "layer.flatten"
   | "layer.stamp-visible"
@@ -80,6 +81,7 @@ const EDITOR_COMMANDS: ReadonlySet<string> = new Set<EditorCommand>([
   "layer.new",
   "layer.duplicate",
   "layer.delete",
+  "layer.select-all",
   "layer.merge-down",
   "layer.flatten",
   "layer.stamp-visible",
@@ -560,6 +562,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       case "edit.deselect":
         editor.workspace.getActiveEngine()?.clearSelection();
         editor.setSelectionEditMode(false);
+        if (editor.activeTool() === "move") {
+          editor.setSelectedLayerIds([]);
+          editor.setSelectedLayerId(null);
+          editor.workspace.getActiveEngine()?.setActiveLayer(null);
+        }
         editor.scheduler.requestRender();
         break;
       case "edit.invert-selection":
@@ -579,6 +586,19 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       case "layer.delete":
         layerActions.handleDeleteActiveLayer();
         break;
+      case "layer.select-all": {
+        const engine = editor.workspace.getActiveEngine();
+        if (engine) {
+          const nonBg = engine.getLayers().filter((l) => !l.isBackground).map((l) => l.id);
+          if (nonBg.length > 0) {
+            editor.setSelectedLayerIds(nonBg);
+            if (nonBg[0]) engine.setActiveLayer(nonBg[0]);
+            editor.scheduler.requestRender();
+            editor.workspace.notifyVisualChange();
+          }
+        }
+        break;
+      }
       case "layer.merge-down":
         layerActions.handleMergeActiveLayerDown();
         break;

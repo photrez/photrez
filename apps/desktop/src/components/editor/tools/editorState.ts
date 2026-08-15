@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createSignal, type Setter } from "solid-js";
 import type { LayerNode, DocumentTabSummary, Transform2D, DocumentModel, SelectionState, ShapeKind } from "@/engine/types";
 import type { TextStrokeAlign } from "@/engine/textTypes";
 import type { ToolId } from "./toolTypes";
@@ -123,7 +123,77 @@ export function createEditorState() {
   // Non-null while the edit overlay is open; cleared on commit/cancel.
   const [textEditSession, setTextEditSession] = createSignal<TextEditSession | null>(null);
 
-  const [selectedLayerId, setSelectedLayerId] = createSignal<string | null>(null);
+  const [selectedLayerId, rawSetSelectedLayerId] = createSignal<string | null>(null);
+  const [selectedLayerIds, rawSetSelectedLayerIds] = createSignal<string[]>([]);
+
+  const setSelectedLayerIds: Setter<string[]> = (valueOrUpdater: any) => {
+    let nextVal: string[];
+    if (typeof valueOrUpdater === "function") {
+      rawSetSelectedLayerIds((prev) => {
+        nextVal = valueOrUpdater(prev);
+        if (nextVal.length === 0) {
+          rawSetSelectedLayerId(null);
+        } else if (!nextVal.includes(selectedLayerId() ?? "")) {
+          rawSetSelectedLayerId(nextVal[nextVal.length - 1]);
+        }
+        return nextVal;
+      });
+    } else {
+      nextVal = valueOrUpdater;
+      rawSetSelectedLayerIds(nextVal);
+      if (nextVal.length === 0) {
+        rawSetSelectedLayerId(null);
+      } else if (!nextVal.includes(selectedLayerId() ?? "")) {
+        rawSetSelectedLayerId(nextVal[nextVal.length - 1]);
+      }
+    }
+    return nextVal!;
+  };
+
+  const setSelectedLayerId = (idOrUpdater: string | null | ((prev: string | null) => string | null)) => {
+    if (typeof idOrUpdater === "function") {
+      rawSetSelectedLayerId((prev) => {
+        const next = idOrUpdater(prev);
+        rawSetSelectedLayerIds(next ? [next] : []);
+        return next;
+      });
+    } else {
+      rawSetSelectedLayerId(idOrUpdater);
+      rawSetSelectedLayerIds(idOrUpdater ? [idOrUpdater] : []);
+    }
+  };
+
+  const isLayerSelected = (id: string) => selectedLayerIds().includes(id);
+
+  const toggleLayerSelection = (id: string, makeActive = true) => {
+    const prev = selectedLayerIds();
+    const exists = prev.includes(id);
+    const next = exists ? prev.filter((item) => item !== id) : [...prev, id];
+    setSelectedLayerIds(next);
+    if (next.length === 0) {
+      rawSetSelectedLayerId(null);
+    } else if (makeActive && !exists) {
+      rawSetSelectedLayerId(id);
+    } else if (!next.includes(selectedLayerId() ?? "")) {
+      rawSetSelectedLayerId(next[next.length - 1]);
+    }
+  };
+
+  const rangeSelectLayers = (fromId: string, toId: string, allLayers: { id: string }[]) => {
+    const ids = allLayers.map((l) => l.id);
+    const fromIdx = ids.indexOf(fromId);
+    const toIdx = ids.indexOf(toId);
+    if (fromIdx === -1 || toIdx === -1) {
+      setSelectedLayerId(toId);
+      return;
+    }
+    const start = Math.min(fromIdx, toIdx);
+    const end = Math.max(fromIdx, toIdx);
+    const rangeIds = ids.slice(start, end + 1);
+    setSelectedLayerIds(rangeIds);
+    rawSetSelectedLayerId(toId);
+  };
+
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   const [selectionEditMode, setSelectionEditMode] = createSignal(false);
   const [selectionShape, setSelectionShape] = createSignal<"rect" | "ellipse">("rect");
@@ -191,7 +261,9 @@ export function createEditorState() {
 
   return {
     activeTool, setActiveTool,
-    selectedLayerId, setSelectedLayerId,
+    selectedLayerId, setSelectedLayerId, rawSetSelectedLayerId,
+    selectedLayerIds, setSelectedLayerIds,
+    isLayerSelected, toggleLayerSelection, rangeSelectLayers,
     selection, setSelection,
     selectionEditMode, setSelectionEditMode,
     selectionConstraintMode, setSelectionConstraintMode,

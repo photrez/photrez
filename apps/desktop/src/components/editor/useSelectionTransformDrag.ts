@@ -15,6 +15,7 @@ import {
 } from "@/viewport/transformGeometry";
 import { shapeRenderMargin } from "@/engine/shapeRaster";
 import { getRotateCursorByPos } from "@/viewport/cursorRotate";
+import { commitLayerTransformSession } from "./transformSession";
 
 interface UseSelectionTransformDragParams {
   isNavigationMode?: boolean;
@@ -55,12 +56,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     startTransform: Transform2D;
     pointerId: number;
     layerId: string;
-    // Deferred-history pattern for the "move" handle drag: stash the pre-move
-    // snapshot here and only commit it on pointerUp IF the layer actually
-    // moved. Prevents ghost undo entries on click-without-drag. Other handle
-    // types (rotate / resize) bundle their commit into the parent transform
-    // session, not here. (@regression 2026-06-18 follow-up.)
-    pendingMoveSnapshot?: DocumentModel | null;
+    pendingSnapshot?: DocumentModel | null;
   } | null>(null);
 
   const getLayer = () => {
@@ -228,6 +224,9 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
 
   const handlePointerDown = (e: PointerEvent, type: string) => {
     if (props.isNavigationMode) return;
+    if (type === "rotate" && (e.ctrlKey || e.metaKey)) {
+      return;
+    }
     e.stopPropagation();
     e.preventDefault();
     props.onStopMomentum?.();
@@ -241,37 +240,6 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       try { svg.setPointerCapture(e.pointerId); } catch {}
     }
 
-    const existing = layerTransformSession();
-    if (existing && (existing.documentId !== engine.getId() || existing.layerId !== layer.id)) {
-      return;
-    }
-
-    if (isLayerTransformSessionType(type)) {
-      // Save current transform to mini undo stack BEFORE modifying it.
-      // Each pointerDown for resize/rotate creates an undo entry so
-      // Ctrl+Z during the active session can revert individual gestures.
-      commitTransformState({ ...layer.transform });
-
-      if (!layerTransformSession()) {
-        const originalSnapshot = engine.snapshot();
-        setLayerTransformSession({
-          documentId: engine.getId(),
-          layerId: layer.id,
-          originalSnapshot,
-          originalTransform: { ...layer.transform },
-          mode: type === "rotate" ? "rotate" : "resize",
-          lockRatio: constrainRatio(),
-          startedAt: Date.now(),
-        });
-      }
-    }
-
-    // Stash the pre-move snapshot for the "move" handle drag. We defer the
-    // commit to pointerUp so a click-without-drag does NOT produce a ghost
-    // undo entry. The other handle types (rotate/resize) are bundled into the
-    // surrounding transform session and committed via Enter / Apply.
-    const pendingMoveSnapshot = type === "move" ? engine.snapshot() : null;
-
     setDragState({
       type,
       startX: e.clientX,
@@ -279,7 +247,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       startTransform: { ...layer.transform },
       pointerId: e.pointerId,
       layerId: layer.id,
-      pendingMoveSnapshot,
+      pendingSnapshot: engine.snapshot(),
     });
   };
 
@@ -446,9 +414,9 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       try { svg.releasePointerCapture(e.pointerId); } catch {}
     }
 
-    // Commit the deferred "move" snapshot ONLY if the layer's position
-    // actually changed since pointerDown. Click-without-drag → no entry.
-    if (drag.type === "move" && drag.pendingMoveSnapshot) {
+    // Commit the gesture snapshot ONLY if the layer transform actually changed.
+    // Click-without-drag produces no history entry.
+    if (drag.pendingSnapshot) {
       const engine = workspace.getActiveEngine();
       const history = workspace.getActiveHistory();
       const layer = engine?.getLayer(drag.layerId);
@@ -456,8 +424,17 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
         const moved =
           layer.transform.x !== drag.startTransform.x ||
           layer.transform.y !== drag.startTransform.y;
-        if (moved) {
-          history.commit(drag.pendingMoveSnapshot, "Move Layer");
+        const scaled =
+          layer.transform.scaleX !== drag.startTransform.scaleX ||
+          layer.transform.scaleY !== drag.startTransform.scaleY;
+        const rotated =
+          layer.transform.rotation !== drag.startTransform.rotation;
+
+        if (moved || scaled || rotated) {
+          const label = drag.type === "move" ? "Move Layer" : drag.type === "rotate" ? "Rotate Layer" : "Transform Layer";
+          history.commit(drag.pendingSnapshot, label);
+          scheduler.requestRender();
+          workspace.notifyVisualChange();
         }
       }
     }
@@ -503,8 +480,12 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     if (svg) {
       try { svg.releasePointerCapture(e.pointerId); } catch {}
     }
-    // On cancel we drop the pending move snapshot WITHOUT committing —
-    // the gesture never completed so there's nothing to undo back to.
+    const engine = workspace.getActiveEngine();
+    const layer = getLayer();
+    if (engine && layer) {
+      engine.transformLayer(layer.id, drag.startTransform);
+      scheduler.requestRender();
+    }
     props.onSnapClear?.();
     props.onHudUpdate?.(null);
     if (drag.type === "rotate") setHoverPos(null);

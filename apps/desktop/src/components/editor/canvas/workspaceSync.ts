@@ -12,6 +12,8 @@ interface SyncStateParams {
   setActiveDocumentId: (id: string | null) => void;
   setLayers: (layers: LayerNode[]) => void;
   setActiveLayerId: (id: string | null) => void;
+  selectedLayerIds?: () => string[];
+  rawSetSelectedLayerId?: (id: string | null) => void;
   setSelectedLayerId: (id: string | null) => void;
   setSelection: (sel: SelectionState | null) => void;
   setSelectionEditMode: (edit: boolean) => void;
@@ -25,17 +27,27 @@ interface SyncStateParams {
 }
 
 export function setupWorkspaceSync(params: SyncStateParams) {
+  let lastDocId: string | null = null;
+
   const syncState = () => {
     batch(() => {
       params.setDocuments(params.workspace.getTabSummaries());
       const activeId = params.workspace.getActiveDocumentId();
+      const docChanged = activeId !== lastDocId;
+      lastDocId = activeId;
       params.setActiveDocumentId(activeId);
 
       const engine = params.workspace.getActiveEngine();
       if (engine) {
         params.setLayers(engine.getLayers().map(l => ({ ...l, transform: { ...l.transform } })));
-        params.setActiveLayerId(engine.getActiveLayerId());
-        params.setSelectedLayerId(engine.getActiveLayerId());
+        const activeLayerId = engine.getActiveLayerId();
+        params.setActiveLayerId(activeLayerId);
+        const currentMulti = params.selectedLayerIds ? params.selectedLayerIds() : [];
+        if (!docChanged && activeLayerId && currentMulti.includes(activeLayerId)) {
+          params.rawSetSelectedLayerId?.(activeLayerId);
+        } else {
+          params.setSelectedLayerId(activeLayerId);
+        }
         const newSel = engine.getSelection() ? { ...engine.getSelection()! } : null;
         params.setSelection(newSel);
         // Auto-disable edit mode when selection is cleared

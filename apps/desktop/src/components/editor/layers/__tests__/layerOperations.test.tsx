@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll, afterEach } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
-import { mergeActiveLayerDown, flattenAllLayers, fillActiveLayerWithColor } from "../layerOperations";
+import { mergeActiveLayerDown, flattenAllLayers, fillActiveLayerWithColor, mergeSelectedLayers, deleteMultipleLayers, duplicateMultipleLayers } from "../layerOperations";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import * as Toast from "../../Toast";
 
@@ -684,3 +684,131 @@ describe("useLayerActions wiring", () => {
     expect(history.getUndoCount()).toBe(1); // only "Merge Down"
   });
 });
+
+describe("mergeSelectedLayers", () => {
+  let engine: DocumentEngine;
+  let history: CommandHistory;
+  let renderer: WebGL2Backend;
+
+  beforeEach(() => {
+    engine = new DocumentEngine("doc-1", "Test", 200, 200);
+    history = new CommandHistory();
+    renderer = makeMockRenderer();
+  });
+
+  it("merges multiple non-background layers into one single layer and commits history", () => {
+    const l1 = engine.addLayer("Layer 1", 100, 100);
+    const l2 = engine.addLayer("Layer 2", 100, 100);
+    const l3 = engine.addLayer("Layer 3", 100, 100);
+    engine.setLayerImageBitmap(l1.id, makeBitmap());
+    engine.setLayerImageBitmap(l2.id, makeBitmap());
+    engine.setLayerImageBitmap(l3.id, makeBitmap());
+
+    const result = mergeSelectedLayers(engine, history, renderer, [l1.id, l2.id, l3.id]);
+
+    expect(result).toBe(true);
+    expect(engine.getLayers()).toHaveLength(1);
+    expect(history.getUndoCount()).toBe(1);
+    expect(renderer.destroyTexture).toHaveBeenCalledWith(l1.id);
+    expect(renderer.destroyTexture).toHaveBeenCalledWith(l2.id);
+    expect(renderer.destroyTexture).toHaveBeenCalledWith(l3.id);
+    expect(renderer.uploadImage).toHaveBeenCalled();
+  });
+
+  it("returns false if fewer than 2 layers are selected", () => {
+    const l1 = engine.addLayer("Layer 1", 100, 100);
+    const result = mergeSelectedLayers(engine, history, renderer, [l1.id]);
+    expect(result).toBe(false);
+    expect(history.getUndoCount()).toBe(0);
+  });
+
+  it("returns false if attempting to merge when only background is selected", () => {
+    const bg = engine.getLayers()[0];
+    if (bg) {
+      const result = mergeSelectedLayers(engine, history, renderer, [bg.id]);
+      expect(result).toBe(false);
+    }
+  });
+});
+
+describe("deleteMultipleLayers", () => {
+  let engine: DocumentEngine;
+  let history: CommandHistory;
+  let renderer: WebGL2Backend;
+
+  beforeEach(() => {
+    engine = new DocumentEngine("doc-1", "Test", 200, 200);
+    history = new CommandHistory();
+    renderer = makeMockRenderer();
+  });
+
+  it("deletes multiple selected layers, cleans up textures, and commits history once", () => {
+    const l1 = engine.addLayer("Layer 1", 100, 100);
+    const l2 = engine.addLayer("Layer 2", 100, 100);
+    const l3 = engine.addLayer("Layer 3", 100, 100);
+
+    const result = deleteMultipleLayers(engine, history, renderer, [l1.id, l2.id]);
+
+    expect(result).toBe(true);
+    expect(engine.getLayer(l1.id)).toBeUndefined();
+    expect(engine.getLayer(l2.id)).toBeUndefined();
+    expect(engine.getLayer(l3.id)).toBeDefined();
+    expect(history.getUndoCount()).toBe(1);
+    expect(renderer.destroyTexture).toHaveBeenCalledWith(l1.id);
+    expect(renderer.destroyTexture).toHaveBeenCalledWith(l2.id);
+  });
+
+  it("protects the Background layer and does not delete it", () => {
+    const bg = engine.addLayer("Background", 100, 100);
+    bg.isBackground = true;
+    const l1 = engine.addLayer("Layer 1", 100, 100);
+    const l2 = engine.addLayer("Layer 2", 100, 100);
+
+    const result = deleteMultipleLayers(engine, history, renderer, [bg.id, l1.id]);
+
+    expect(result).toBe(true);
+    expect(engine.getLayer(bg.id)).toBeDefined();
+    expect(engine.getLayer(l1.id)).toBeUndefined();
+    expect(engine.getLayer(l2.id)).toBeDefined();
+  });
+
+  it("aborts and returns false if deletion would remove all layers", () => {
+    const l1 = engine.addLayer("Layer 1", 100, 100);
+    const result = deleteMultipleLayers(engine, history, renderer, [l1.id]);
+    expect(result).toBe(false);
+    expect(history.getUndoCount()).toBe(0);
+  });
+});
+
+describe("duplicateMultipleLayers", () => {
+  let engine: DocumentEngine;
+  let history: CommandHistory;
+  let renderer: WebGL2Backend;
+
+  beforeEach(() => {
+    engine = new DocumentEngine("doc-1", "Test", 200, 200);
+    history = new CommandHistory();
+    renderer = makeMockRenderer();
+  });
+
+  it("duplicates all selected layers and uploads their bitmaps", () => {
+    const l1 = engine.addLayer("Layer 1", 100, 100);
+    const l2 = engine.addLayer("Layer 2", 100, 100);
+    engine.setLayerImageBitmap(l1.id, makeBitmap());
+    engine.setLayerImageBitmap(l2.id, makeBitmap());
+
+    const createdIds = duplicateMultipleLayers(engine, history, renderer, [l1.id, l2.id]);
+
+    expect(createdIds).toHaveLength(2);
+    expect(engine.getLayers().length).toBe(4); // [l1, l2] + 2 duplicates
+    expect(history.getUndoCount()).toBe(1);
+    expect(renderer.uploadImage).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns empty array if no layers provided", () => {
+    const createdIds = duplicateMultipleLayers(engine, history, renderer, []);
+    expect(createdIds).toHaveLength(0);
+    expect(history.getUndoCount()).toBe(0);
+  });
+});
+

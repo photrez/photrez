@@ -9,6 +9,13 @@ import { getLayerAabb } from "@/viewport/transformGeometry";
 import { ALPHA_HIT_THRESHOLD, isBoxHittable } from "@/viewport/layerHitTest";
 import type { HudMode } from "../TransformHud";
 
+export interface LayerTransformStart {
+  id: string;
+  startTransformX: number;
+  startTransformY: number;
+  lockPosition?: boolean;
+}
+
 interface CanvasLayerDrag {
   layerId: string;
   sourceDocId: string;
@@ -18,6 +25,7 @@ interface CanvasLayerDrag {
   startTransformY: number;
   rect: { left: number; top: number };
   preDragSnapshot: import("@/engine/types").DocumentModel;
+  selectedLayerStarts: LayerTransformStart[];
 }
 
 export interface CanvasLayerDragApi {
@@ -65,7 +73,7 @@ export interface CanvasLayerDragOptions {
  * for simplicity (matches the existing layer-helpers).
  */
 export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLayerDragApi {
-  const { workspace, renderer, camera, activeDocumentId, activeTool, scheduler, moveSnapEnabled, snapToLayersEnabled, snapToCanvasEnabled, moveAutoSelect, selectedLayerId, setSelectedLayerId, zoom } = useEditor();
+  const { workspace, renderer, camera, activeDocumentId, activeTool, scheduler, moveSnapEnabled, snapToLayersEnabled, snapToCanvasEnabled, moveAutoSelect, selectedLayerId, setSelectedLayerId, selectedLayerIds, toggleLayerSelection, zoom } = useEditor();
   const dragController = useDragController();
 
   const [drag, setDrag] = createSignal<CanvasLayerDrag | null>(null);
@@ -189,8 +197,10 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       };
       const snapToLayers = typeof snapToLayersEnabled === "function" ? snapToLayersEnabled() : true;
       const snapToCanvas = typeof snapToCanvasEnabled === "function" ? snapToCanvasEnabled() : true;
+      const excludeIds = d.selectedLayerStarts.map((s) => s.id);
       const snapTargets = buildTransformSnapTargets(engine, docW, docH, {
         excludeLayerId: layer.id,
+        excludeLayerIds: excludeIds,
         snapToLayers,
         snapToCanvas,
       });
@@ -203,11 +213,18 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       opts.onSnapLinesChange?.([]);
     }
 
-    engine.transformLayer(d.layerId, { x: newX, y: newY });
-    scheduler.requestRender();
-
     const actualDx = newX - d.startTransformX;
     const actualDy = newY - d.startTransformY;
+
+    for (const item of d.selectedLayerStarts) {
+      if (item.lockPosition) continue;
+      engine.transformLayer(item.id, {
+        x: item.startTransformX + actualDx,
+        y: item.startTransformY + actualDy,
+      });
+    }
+    scheduler.requestRender();
+
     opts.onHudUpdate?.({
       mode: "move",
       clientX: e.clientX,
@@ -319,10 +336,12 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       dragController.cancelTabHover();
       const sourceEngine = workspace.getEngine(src);
       if (sourceEngine) {
-        sourceEngine.transformLayer(d.layerId, {
-          x: d.startTransformX,
-          y: d.startTransformY,
-        });
+        for (const item of d.selectedLayerStarts) {
+          sourceEngine.transformLayer(item.id, {
+            x: item.startTransformX,
+            y: item.startTransformY,
+          });
+        }
         scheduler.requestRender();
       }
     }
@@ -339,7 +358,8 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       const sourceEngine = workspace.getEngine(src);
       const history = workspace.getHistory(src);
       if (sourceEngine && history) {
-        history.commit(d.preDragSnapshot, "Move Layer");
+        const label = d.selectedLayerStarts.length > 1 ? "Move Layers" : "Move Layer";
+        history.commit(d.preDragSnapshot, label);
         // Trigger sync so the History Panel updates immediately.
         // history.commit only pushes to the history stack — without a
         // notify call, the UI won't know the history changed until the
@@ -367,10 +387,12 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     if (src) {
       const sourceEngine = workspace.getEngine(src);
       if (sourceEngine) {
-        sourceEngine.transformLayer(d.layerId, {
-          x: d.startTransformX,
-          y: d.startTransformY,
-        });
+        for (const item of d.selectedLayerStarts) {
+          sourceEngine.transformLayer(item.id, {
+            x: item.startTransformX,
+            y: item.startTransformY,
+          });
+        }
         scheduler.requestRender();
       }
     }
@@ -482,6 +504,38 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     // layer. For the Alt case dragLayerId already holds the duplicate id.
     if (!e.altKey) dragLayerId = layer.id;
 
+    const isModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+    if (isModifier && typeof toggleLayerSelection === "function") {
+      toggleLayerSelection(layer.id, true);
+    }
+
+    // Check if clicked layer is part of an active multi-selection
+    const currentMultiIds = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+    const isTargetInMulti = currentMultiIds.includes(layer.id) && currentMultiIds.length > 1;
+
+    let selectedLayerStarts: LayerTransformStart[] = [];
+    if (isTargetInMulti && !e.altKey) {
+      for (const id of currentMultiIds) {
+        const l = sourceEngine.getLayer(id);
+        if (l && !l.locked && !l.isBackground) {
+          selectedLayerStarts.push({
+            id: l.id,
+            startTransformX: l.transform.x,
+            startTransformY: l.transform.y,
+            lockPosition: l.lockPosition,
+          });
+        }
+      }
+    } else {
+      const draggedNode = dragLayerId === layer.id ? layer : sourceEngine.getLayer(dragLayerId);
+      selectedLayerStarts = [{
+        id: dragLayerId,
+        startTransformX: layer.transform.x,
+        startTransformY: layer.transform.y,
+        lockPosition: draggedNode?.lockPosition,
+      }];
+    }
+
     setDrag({
       layerId: dragLayerId,
       sourceDocId: src,
@@ -491,6 +545,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       startTransformY: layer.transform.y,
       rect: { left: rect.left, top: rect.top },
       preDragSnapshot,
+      selectedLayerStarts,
     });
 
     // Notify the DragController so cross-cutting subscribers

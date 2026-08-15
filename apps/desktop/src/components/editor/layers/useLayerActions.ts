@@ -1,5 +1,12 @@
 import { useEditor } from "../shell/EditorContext";
-import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers } from "./layerOperations";
+import {
+  flattenAllLayers,
+  mergeActiveLayerDown,
+  mergeSelectedLayers,
+  deleteMultipleLayers,
+  duplicateMultipleLayers,
+  stampVisibleLayers,
+} from "./layerOperations";
 import { cancelLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession } from "../canvas/pointerTools/textTool";
 import { showToast } from "../Toast";
@@ -10,9 +17,14 @@ export function useLayerActions() {
     renderer,
     layers,
     activeLayerId,
+    selectedLayerIds,
+    setSelectedLayerIds,
+    toggleLayerSelection,
+    rangeSelectLayers,
     scheduler,
     layerTransformSession,
     setLayerTransformSession,
+    selectedLayerId,
     setSelectedLayerId,
     textEditSession,
     setTextEditSession,
@@ -33,6 +45,18 @@ export function useLayerActions() {
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
     const activeId = activeLayerId();
+    const multiIds = selectedLayerIds();
+
+    if (multiIds.length > 1 && engine && history) {
+      const newIds = duplicateMultipleLayers(engine, history, renderer, multiIds);
+      if (newIds.length > 0) {
+        setSelectedLayerIds(newIds);
+        if (newIds[0]) engine.setActiveLayer(newIds[0]);
+        scheduler.requestRender();
+      }
+      return;
+    }
+
     if (!activeId) {
       showToast("No layer selected", "warn");
       return;
@@ -56,6 +80,20 @@ export function useLayerActions() {
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
     const activeId = activeLayerId();
+    const multiIds = selectedLayerIds();
+
+    if (multiIds.length > 1 && engine && history) {
+      if (textEditSession()) {
+        commitTextSession(textSessionEditor());
+      }
+      if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
+        scheduler.requestRender();
+      } else {
+        showToast("Could not merge selected layers", "warn");
+      }
+      return;
+    }
+
     if (!activeId) {
       showToast("No layer selected", "warn");
       return;
@@ -149,7 +187,7 @@ export function useLayerActions() {
     }
   };
 
-  const handleSelectLayer = (id: string) => {
+  const handleSelectLayer = (id: string, e?: MouseEvent) => {
     // B9: clicking a DIFFERENT layer while a text session is open commits the
     // session first (click-away pattern). Otherwise the overlay keeps editing
     // the session layer while the panel highlights another, and the option bar
@@ -160,19 +198,37 @@ export function useLayerActions() {
       commitTextSession(textSessionEditor());
     }
     const engine = workspace.getActiveEngine();
-    engine?.setActiveLayer(id);
-    setSelectedLayerId(id);
+
+    if (e?.ctrlKey || e?.metaKey) {
+      toggleLayerSelection(id, true);
+      const active = selectedLayerId();
+      if (active) engine?.setActiveLayer(active);
+    } else if (e?.shiftKey) {
+      const fromId = activeLayerId() ?? id;
+      rangeSelectLayers(fromId, id, layers());
+      engine?.setActiveLayer(id);
+    } else {
+      setSelectedLayerId(id);
+      engine?.setActiveLayer(id);
+    }
   };
 
   const handleToggleVisibility = (e: MouseEvent, id: string) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
-    const layer = engine?.getLayer(id);
-    if (engine && layer) {
+    const multi = selectedLayerIds();
+    const isMulti = multi.length > 1 && multi.includes(id);
+    const targetIds = isMulti ? multi : [id];
+    if (engine && targetIds.length > 0) {
+      const clickedLayer = engine.getLayer(id);
+      if (!clickedLayer) return;
+      const nextVisible = !clickedLayer.visible;
       const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), "Toggle Visibility");
-      engine.setLayerVisibility(id, !layer.visible);
+      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Visibility (Multiple)" : "Toggle Visibility");
+      for (const tid of targetIds) {
+        engine.setLayerVisibility(tid, nextVisible);
+      }
       scheduler.requestRender();
     }
   };
@@ -181,11 +237,18 @@ export function useLayerActions() {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
-    const layer = engine?.getLayer(id);
-    if (engine && layer) {
+    const multi = selectedLayerIds();
+    const isMulti = multi.length > 1 && multi.includes(id);
+    const targetIds = isMulti ? multi : [id];
+    if (engine && targetIds.length > 0) {
+      const clickedLayer = engine.getLayer(id);
+      if (!clickedLayer) return;
+      const nextLocked = !clickedLayer.locked;
       const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), "Toggle Lock");
-      engine.setLayerLocked(id, !layer.locked);
+      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock (Multiple)" : "Toggle Lock");
+      for (const tid of targetIds) {
+        engine.setLayerLocked(tid, nextLocked);
+      }
       scheduler.requestRender();
     }
   };
@@ -194,11 +257,18 @@ export function useLayerActions() {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
-    const layer = engine?.getLayer(id);
-    if (engine && layer) {
+    const multi = selectedLayerIds();
+    const isMulti = multi.length > 1 && multi.includes(id);
+    const targetIds = isMulti ? multi : [id];
+    if (engine && targetIds.length > 0) {
+      const clickedLayer = engine.getLayer(id);
+      if (!clickedLayer) return;
+      const nextVal = !clickedLayer.lockTransparency;
       const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), "Toggle Lock");
-      engine.setLayerLockTransparency(id, !layer.lockTransparency);
+      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Transparency (Multiple)" : "Toggle Lock");
+      for (const tid of targetIds) {
+        engine.setLayerLockTransparency(tid, nextVal);
+      }
       scheduler.requestRender();
     }
   };
@@ -207,11 +277,18 @@ export function useLayerActions() {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
-    const layer = engine?.getLayer(id);
-    if (engine && layer) {
+    const multi = selectedLayerIds();
+    const isMulti = multi.length > 1 && multi.includes(id);
+    const targetIds = isMulti ? multi : [id];
+    if (engine && targetIds.length > 0) {
+      const clickedLayer = engine.getLayer(id);
+      if (!clickedLayer) return;
+      const nextVal = !clickedLayer.lockPosition;
       const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), "Toggle Lock");
-      engine.setLayerLockPosition(id, !layer.lockPosition);
+      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Position (Multiple)" : "Toggle Lock");
+      for (const tid of targetIds) {
+        engine.setLayerLockPosition(tid, nextVal);
+      }
       scheduler.requestRender();
     }
   };
@@ -220,11 +297,18 @@ export function useLayerActions() {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
-    const layer = engine?.getLayer(id);
-    if (engine && layer) {
+    const multi = selectedLayerIds();
+    const isMulti = multi.length > 1 && multi.includes(id);
+    const targetIds = isMulti ? multi : [id];
+    if (engine && targetIds.length > 0) {
+      const clickedLayer = engine.getLayer(id);
+      if (!clickedLayer) return;
+      const nextVal = !clickedLayer.lockRotation;
       const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), "Toggle Lock");
-      engine.setLayerLockRotation(id, !layer.lockRotation);
+      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Rotation (Multiple)" : "Toggle Lock");
+      for (const tid of targetIds) {
+        engine.setLayerLockRotation(tid, nextVal);
+      }
       scheduler.requestRender();
     }
   };
@@ -276,6 +360,21 @@ export function useLayerActions() {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
+    const multiIds = selectedLayerIds();
+
+    if (multiIds.length > 1 && engine && history) {
+      const session = textEditSession();
+      if (session && multiIds.includes(session.layerId)) {
+        cancelTextSession(textSessionEditor());
+      }
+      if (deleteMultipleLayers(engine, history, renderer, multiIds)) {
+        const nextActive = engine.getActiveLayerId();
+        setSelectedLayerId(nextActive);
+        scheduler.requestRender();
+      }
+      return;
+    }
+
     const activeId = activeLayerId();
     if (!activeId) {
       showToast("No layer selected", "warn");

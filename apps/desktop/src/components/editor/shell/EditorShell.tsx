@@ -9,6 +9,7 @@ import { RightDock } from "./RightDock";
 import { useDesktopGuards, useDesktopShortcuts } from "@/lib/desktop";
 import { EmptyWorkspace } from "./EmptyWorkspace";
 import { ErrorBoundary } from "../ErrorBoundary";
+import { I18nProvider } from "@/i18n/I18nProvider";
 
 const ResizeCanvasModal = lazy(() => import("../dialogs/ResizeCanvasModal").then(m => ({ default: m.ResizeCanvasModal })));
 const ExportDialog = lazy(() => import("../dialogs/ExportDialog").then(m => ({ default: m.ExportDialog })));
@@ -206,11 +207,13 @@ export function EditorShell() {
           </div>
         </div>
       )}>
-        <EditorLayout
-          rightDockOpen={rightDockOpen()}
-          toggleRightDock={toggleRightDock}
-          setRightDockOpen={setRightDockOpen}
-        />
+        <I18nProvider>
+          <EditorLayout
+            rightDockOpen={rightDockOpen()}
+            toggleRightDock={toggleRightDock}
+            setRightDockOpen={setRightDockOpen}
+          />
+        </I18nProvider>
       </ErrorBoundary>
     </EditorProvider>
   );

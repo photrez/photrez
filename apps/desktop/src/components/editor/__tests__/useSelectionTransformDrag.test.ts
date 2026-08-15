@@ -273,7 +273,7 @@ describe("useSelectionTransformDrag", () => {
       dispose();
     });
 
-    it("creates a dragState for move type with pendingMoveSnapshot", () => {
+    it("creates a dragState for move type with pendingSnapshot", () => {
       const { result, engine, editorSignals, dispose } = setupHook();
       const e = makePointerEvent({ clientX: 150, clientY: 80 });
       result.handlePointerDown(e, "move");
@@ -283,45 +283,35 @@ describe("useSelectionTransformDrag", () => {
       expect(ds!.layerId).toBe("layer-1");
       expect(ds!.startX).toBe(150);
       expect(ds!.startY).toBe(80);
-      expect(ds!.pendingMoveSnapshot).toBeDefined();
+      expect(ds!.pendingSnapshot).toBeDefined();
       expect(engine.snapshot).toHaveBeenCalled();
       dispose();
     });
 
-    it("creates a dragState for resize type WITHOUT pendingMoveSnapshot", () => {
-      const { result, editorSignals, dispose } = setupHook();
+    it("creates a dragState for resize type with pendingSnapshot", () => {
+      const { result, editorSignals, engine, dispose } = setupHook();
       const e = makePointerEvent();
       result.handlePointerDown(e, "se");
       const ds = result.dragState();
       expect(ds).not.toBeNull();
       expect(ds!.type).toBe("se");
-      expect(ds!.pendingMoveSnapshot).toBeNull();
+      expect(ds!.pendingSnapshot).toBeDefined();
       dispose();
     });
 
-    it("creates a layerTransformSession for resize type", () => {
+    it("does NOT trigger modal layerTransformSession during direct canvas handle drag", () => {
       const { result, editorSignals, dispose } = setupHook();
       const e = makePointerEvent();
       result.handlePointerDown(e, "se");
-      expect(editorSignals.setLayerTransformSession).toHaveBeenCalled();
-      const session =
-        editorSignals.setLayerTransformSession.mock.calls[0][0];
-      expect(session.documentId).toBe("doc-1");
-      expect(session.layerId).toBe("layer-1");
-      expect(session.mode).toBe("resize");
-      expect(session.originalSnapshot).toBeDefined();
-      expect(session.originalTransform).toBeDefined();
+      expect(editorSignals.setLayerTransformSession).not.toHaveBeenCalled();
       dispose();
     });
 
-    it("creates a layerTransformSession for rotate type", () => {
+    it("does NOT trigger modal layerTransformSession for rotate type", () => {
       const { result, editorSignals, dispose } = setupHook();
       const e = makePointerEvent();
       result.handlePointerDown(e, "rotate");
-      expect(editorSignals.setLayerTransformSession).toHaveBeenCalled();
-      const session =
-        editorSignals.setLayerTransformSession.mock.calls[0][0];
-      expect(session.mode).toBe("rotate");
+      expect(editorSignals.setLayerTransformSession).not.toHaveBeenCalled();
       dispose();
     });
 
@@ -335,33 +325,12 @@ describe("useSelectionTransformDrag", () => {
       dispose();
     });
 
-    it("rejects pointerDown when an existing session targets a different layer", () => {
-      const { result, editorSignals, engine, dispose } = setupHook();
-      // Manually set a session for a DIFFERENT layer via the signal setter
-      editorSignals.setLayerTransformSession({
-        documentId: "doc-1",
-        layerId: "other-layer",
-        originalSnapshot: { snap: 1 },
-        originalTransform: DEFAULT_TRANSFORM,
-        mode: "resize",
-        lockRatio: false,
-        startedAt: Date.now(),
-      });
-      editorSignals.setLayerTransformSession.mockClear();
-      const e = makePointerEvent();
-      result.handlePointerDown(e, "se");
-      // Should NOT create a new dragState — early return
-      expect(engine.transformLayer).not.toHaveBeenCalled();
-      dispose();
-    });
-
-    it("logs a snapshot for the move pendingMoveSnapshot (not a transform session)", () => {
+    it("logs a snapshot in dragState.pendingSnapshot for undo on pointerUp", () => {
       const { result, engine, dispose } = setupHook();
       const e = makePointerEvent();
       result.handlePointerDown(e, "move");
       expect(engine.snapshot).toHaveBeenCalledTimes(1);
-      // Verify snapshot is stashed in dragState, not in setLayerTransformSession
-      expect(result.dragState()!.pendingMoveSnapshot).toBeDefined();
+      expect(result.dragState()!.pendingSnapshot).toBeDefined();
       dispose();
     });
   });
@@ -923,21 +892,19 @@ describe("useSelectionTransformDrag", () => {
       dispose();
     });
 
-    it("restores original snapshot via layerTransformSession for resize type", () => {
-      const { result, engine, editorSignals, dispose } = setupHook();
+    it("restores original transform for resize type on Escape", () => {
+      const { result, engine, dispose } = setupHook();
       result.handlePointerDown(
         makePointerEvent({ pointerId: 1 }),
         "se"
       );
-      const sessionCall =
-        editorSignals.setLayerTransformSession.mock.calls[0];
-      const originalSnapshot = sessionCall[0].originalSnapshot;
-      editorSignals.setLayerTransformSession.mockClear();
-
       window.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
       );
-      expect(engine.restore).toHaveBeenCalledWith(originalSnapshot);
+      expect(engine.transformLayer).toHaveBeenCalledWith(
+        "layer-1",
+        DEFAULT_TRANSFORM
+      );
       dispose();
     });
 

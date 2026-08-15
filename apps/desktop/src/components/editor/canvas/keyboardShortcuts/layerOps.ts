@@ -1,7 +1,6 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
-import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers } from "../../layers/layerOperations";
+import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers, mergeSelectedLayers, duplicateMultipleLayers, deleteMultipleLayers } from "../../layers/layerOperations";
 import { showToast } from "../../Toast";
 import type { KeyboardShortcutContext } from "./context";
 
@@ -42,6 +41,30 @@ export function handleLayerOpsKey(
     }
   }
 
+  // Select All Layers: Ctrl+Alt+A
+  if (ctrl && e.altKey && (key === "a" || e.code === "KeyA")) {
+    e.preventDefault();
+    e.stopPropagation();
+    const nonBg = engine.getLayers().filter((l) => !l.isBackground).map((l) => l.id);
+    if (nonBg.length > 0) {
+      editor.setSelectedLayerIds(nonBg);
+      if (nonBg[0]) engine.setActiveLayer(nonBg[0]);
+      scheduler.requestRender();
+      editor.workspace.notifyVisualChange();
+    }
+    return true;
+  }
+
+  // Free Transform: Ctrl+T — switch to Move tool and enable transform handles
+  if (ctrl && !e.shiftKey && !e.altKey && (key === "t" || e.code === "KeyT")) {
+    e.preventDefault();
+    e.stopPropagation();
+    editor.setActiveTool("move");
+    editor.setShowTransformControls(true);
+    scheduler.requestRender();
+    return true;
+  }
+
   // Stamp Visible: Ctrl+Shift+Alt+E — composite all visible layers into a new top layer
   if (ctrl && e.shiftKey && e.altKey && key === "e") {
     e.preventDefault();
@@ -61,11 +84,21 @@ export function handleLayerOpsKey(
     e.stopPropagation();
 
     const activeId = engine.getActiveLayerId();
+    const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
+
     if (e.shiftKey) {
       if (flattenAllLayers(engine, history, renderer)) {
         scheduler.requestRender();
       } else {
         showToast("Could not flatten layers", "warn");
+      }
+    } else if (multiIds.length > 1) {
+      if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
+        const nextActive = engine.getActiveLayerId();
+        editor.setSelectedLayerId(nextActive);
+        scheduler.requestRender();
+      } else {
+        showToast("Could not merge layers", "warn");
       }
     } else if (activeId) {
       if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
@@ -84,6 +117,17 @@ export function handleLayerOpsKey(
     e.preventDefault();
     e.stopPropagation();
     const activeId = engine.getActiveLayerId();
+    const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
+
+    if (multiIds.length > 1) {
+      const created = duplicateMultipleLayers(engine, history, renderer, multiIds);
+      if (created.length > 0) {
+        editor.setSelectedLayerIds(created);
+        scheduler.requestRender();
+      }
+      return true;
+    }
+
     if (activeId) {
       history.commit(engine.snapshot(), "Duplicate Layer");
       try {
@@ -199,19 +243,36 @@ export function handleLayerOpsKey(
     return true;
   }
 
-  // Layer: Delete / Backspace - Delete active layer
+  // Layer: Delete / Backspace - Delete active layer(s)
   // (Selection tool handles this earlier when in selection mode.)
   if (e.key === "Delete" || e.key === "Backspace") {
     e.preventDefault();
     e.stopPropagation();
     const activeId = engine.getActiveLayerId();
+    const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
+
+    if (multiIds.length > 1) {
+      if (deleteMultipleLayers(engine, history, renderer, multiIds)) {
+        const nextActive = engine.getActiveLayerId();
+        editor.setSelectedLayerId(nextActive);
+        scheduler.requestRender();
+      }
+      return true;
+    }
+
     if (!activeId) {
       showToast("No layer selected", "warn");
       return true;
     }
     if (activeId && engine.getLayers().length > 1) {
+      const layer = engine.getLayer(activeId);
+      if (layer?.isBackground) {
+        showToast("Cannot delete the Background layer", "warn");
+        return true;
+      }
       history.commit(engine.snapshot(), "Delete Layer");
       engine.deleteLayer(activeId);
+      renderer.destroyTexture(activeId);
       scheduler.requestRender();
     }
     return true;

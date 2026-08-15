@@ -1,0 +1,32 @@
+{
+  "settings": {
+    "language": "Language"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "ok": "OK",
+    "apply": "Apply",
+    "confirm": "Confirm"
+  },
+  "menus": {
+    "file": "File",
+    "edit": "Edit",
+    "view": "View",
+    "help": "Help"
+  },
+  "tools": {
+    "select": "Select",
+    "brush": "Brush",
+    "eraser": "Eraser",
+    "text": "Text",
+    "fill": "Fill",
+    "crop": "Crop",
+    "move": "Move",
+    "zoom": "Zoom"
+  },
+  "status": {
+    "layers_one": "{{count}} layer",
+    "layers_other": "{{count}} layers",
+    "zoom": "Zoom"
+  }
+}

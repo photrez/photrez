@@ -29,11 +29,12 @@ interface LayerItemProps {
   layer: LayerNode;
   idx: number;
   isActive: boolean;
+  isSelected?: boolean;
   isEditing: boolean;
   editName: string;
   setEditingLayerId: (id: string | null) => void;
   setEditName: (name: string) => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, e: MouseEvent) => void;
   /** Text layers: double-click opens the text edit session (plan §7.3). */
   onEditText?: (layerId: string) => void;
   onContextMenu?: (event: MouseEvent, layer: LayerNode, idx: number) => void;
@@ -133,11 +134,15 @@ export function LayerItem(props: LayerItemProps) {
       draggable={!props.layer.locked}
       onDragStart={onLayerDragStart}
       onDragEnd={onLayerDragEnd}
-      onClick={() => props.onSelect(props.layer.id)}
+      onClick={(e) => props.onSelect(props.layer.id, e)}
       onContextMenu={(event) => props.onContextMenu?.(event, props.layer, props.idx)}
       class={clsx(
         "flex h-[50px] items-center gap-2.5 px-3.5 cursor-grab select-none group border-b border-editor-divider/10 relative transition-all duration-100 touch-auto active:cursor-grabbing",
-        props.isActive ? "bg-editor-row-active" : "hover:bg-white/[0.03]",
+        props.isActive
+          ? "bg-editor-row-active ring-1 ring-inset ring-editor-accent/40"
+          : props.isSelected
+            ? "bg-editor-row-active/70 ring-1 ring-inset ring-editor-accent/20"
+            : "hover:bg-white/[0.03]",
         // Source layer being dragged: dimmed + amber ring + subtle scale.
         isThisLayerBeingDragged() && "opacity-40 ring-2 ring-editor-accent/60 ring-inset scale-[0.98] border-dashed border-editor-accent/50 bg-editor-divider/20",
         // Drop insertion bar above this row.

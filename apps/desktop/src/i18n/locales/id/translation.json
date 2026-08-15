@@ -1,0 +1,32 @@
+{
+  "settings": {
+    "language": "Bahasa"
+  },
+  "common": {
+    "cancel": "Batal",
+    "ok": "OKE",
+    "apply": "Terapkan",
+    "confirm": "Konfirmasi"
+  },
+  "menus": {
+    "file": "Berkas",
+    "edit": "Sunting",
+    "view": "Tampilan",
+    "help": "Bantuan"
+  },
+  "tools": {
+    "select": "Pilih",
+    "brush": "Kuas",
+    "eraser": "Penghapus",
+    "text": "Teks",
+    "fill": "Isi",
+    "crop": "Pangkas",
+    "move": "Pindah",
+    "zoom": "Zum"
+  },
+  "status": {
+    "layers_one": "{{count}} lapisan",
+    "layers_other": "{{count}} lapisan",
+    "zoom": "Zum"
+  }
+}

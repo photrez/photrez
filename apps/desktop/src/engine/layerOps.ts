@@ -188,6 +188,59 @@ export function mergeDown(model: DocumentModel, id: LayerId): MergeDownResult | 
   return { merged: mergedLayer, removedIds: [top.id, bottom.id] };
 }
 
+export interface MergeSelectedResult {
+  merged: LayerNode;
+  removedIds: LayerId[];
+}
+
+/** Merge multiple arbitrary selected layers into a single raster layer at the highest stack position. */
+export function mergeSelectedLayers(model: DocumentModel, ids: LayerId[]): MergeSelectedResult | null {
+  if (ids.length < 2) return null;
+  const selected = model.layers.filter(l => ids.includes(l.id));
+  if (selected.length < 2) return null;
+
+  const mergedW = model.width;
+  const mergedH = model.height;
+  const mergedBitmap = compositeAllLayers(selected, mergedW, mergedH);
+  if (!mergedBitmap) return null;
+
+  const topIndex = model.layers.findIndex(l => ids.includes(l.id));
+  const isLocked = selected.some(l => l.locked);
+  const firstName = selected[0].name;
+  const mergedName = selected.length === 2
+    ? `${selected[0].name} + ${selected[1].name}`
+    : `${firstName} (+${selected.length - 1} merged)`;
+
+  const mergedLayer = createMergedLayerNode(
+    mergedName,
+    mergedW,
+    mergedH,
+    mergedBitmap,
+    isLocked,
+    "normal"
+  );
+
+  const updated: LayerNode[] = [];
+  let inserted = false;
+  for (let i = 0; i < model.layers.length; i++) {
+    const l = model.layers[i];
+    if (ids.includes(l.id)) {
+      if (!inserted) {
+        updated.push(mergedLayer);
+        inserted = true;
+      }
+    } else {
+      updated.push(l);
+    }
+  }
+
+  model.layers = updated;
+  model.activeLayerId = mergedLayer.id;
+  model.dirty = true;
+
+  return { merged: mergedLayer, removedIds: selected.map(l => l.id) };
+}
+
 /** Flatten all layers into a single Background layer. Returns removed ids. */
 export function flattenLayers(model: DocumentModel): LayerId[] {
   if (model.layers.length <= 1) return [];

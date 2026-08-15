@@ -32,6 +32,7 @@ interface TestApi {
   setMoveSnapEnabled: (v: boolean) => void;
   setMoveAutoSelect: (v: boolean) => void;
   setSelectedLayerId: (id: string | null) => void;
+  setSelectedLayerIds: (ids: string[]) => void;
   onSnapLinesChange: Mock<(lines: SnapLine[]) => void>;
   onHudUpdate: Mock<(hud: any) => void>;
 }
@@ -88,6 +89,7 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
       testApi.setMoveSnapEnabled = (v: boolean) => ed.setMoveSnapEnabled(v);
       testApi.setMoveAutoSelect = (v: boolean) => ed.setMoveAutoSelect(v);
       testApi.setSelectedLayerId = (id: string | null) => ed.setSelectedLayerId(id);
+      testApi.setSelectedLayerIds = (ids: string[]) => ed.setSelectedLayerIds(ids);
       return null;
     }
     const dispose = render(
@@ -1259,6 +1261,43 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
       expect(ctx.testApi.onSnapLinesChange).toHaveBeenCalledWith([]);
 
       document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("multi-layer drag: drags all selected layers together by the same offset and commits Move Layers history", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      const history = ctx.ws.getHistory("wiring-canvas")!;
+      const l1 = engine.getLayers().find((l) => l.name === "Draggable")!;
+      const l2 = engine.addLayer("Layer 2") as LayerNode;
+      l2.transform.x = 200;
+      l2.transform.y = 200;
+      l2.width = 100;
+      l2.height = 100;
+
+      // Select both layers
+      ctx.testApi.setSelectedLayerIds([l1.id, l2.id]);
+
+      // Drag l1 by dx=50, dy=50
+      ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+        bubbles: true, button: 0, clientX: 150, clientY: 150,
+      }));
+      document.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, button: 0, clientX: 200, clientY: 200,
+      }));
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+
+      // Both layers should have moved by +50 in X and +50 in Y
+      expect(l1.transform.x).toBe(150); // was 100
+      expect(l1.transform.y).toBe(150); // was 100
+      expect(l2.transform.x).toBe(250); // was 200
+      expect(l2.transform.y).toBe(250); // was 200
+
+      // History should record "Move Layers"
+      expect(history.getUndoCount()).toBe(1);
     } finally {
       teardown(ctx);
     }

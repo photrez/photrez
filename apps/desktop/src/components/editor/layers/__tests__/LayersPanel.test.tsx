@@ -67,9 +67,16 @@ function renderLayersPanel(session = WorkspaceManager.createBlankDocument("layer
   const container = document.createElement("div");
   document.body.appendChild(container);
 
+  let editorRef: ReturnType<typeof useEditor> | null = null;
+  function Probe() {
+    editorRef = useEditor();
+    return null;
+  }
+
   const dispose = render(
     () => (
       <EditorProvider workspace={ws} renderer={renderer as any} scheduler={scheduler as any}>
+        <Probe />
         <LayersPanel />
       </EditorProvider>
     ),
@@ -84,6 +91,7 @@ function renderLayersPanel(session = WorkspaceManager.createBlankDocument("layer
     renderer,
     scheduler,
     container,
+    getEditor: () => editorRef,
     dispose: () => {
       dispose();
       container.parentNode?.removeChild(container);
@@ -461,6 +469,45 @@ function renderRightDock(session = WorkspaceManager.createBlankDocument("layers-
     rasterName.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(container.querySelector("input[type='text']")).not.toBeNull();
+
+    dispose();
+  });
+
+  it("supports multi-selection with Ctrl+Click and Shift+Click", async () => {
+    const bitmap = { width: 800, height: 600, close: vi.fn() } as unknown as ImageBitmap;
+    installCanvasMocks(bitmap);
+
+    const session = WorkspaceManager.createBlankDocument("multi-panel", "Multi Panel", 800, 600);
+    const l1 = session.engine.addLayer("Layer 1");
+    const l2 = session.engine.addLayer("Layer 2");
+    const l3 = session.engine.addLayer("Layer 3");
+
+    const { container, getEditor, dispose } = renderLayersPanel(session);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const editor = getEditor();
+    expect(editor).toBeTruthy();
+
+    const getRow = (idx: number) => container.querySelector<HTMLElement>(`[data-layer-idx="${idx}"]`)!;
+    expect(container.querySelectorAll("[data-layer-idx]").length).toBe(4);
+
+    // Normal click selects single layer
+    getRow(0).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(editor!.selectedLayerIds()).toEqual([l3.id]);
+
+    // Ctrl+Click adds/toggles l2
+    getRow(1).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(editor!.selectedLayerIds()).toContain(l3.id);
+    expect(editor!.selectedLayerIds()).toContain(l2.id);
+    expect(editor!.selectedLayerIds().length).toBe(2);
+
+    // Shift+Click from l2 to l1 range selects
+    getRow(2).dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(editor!.selectedLayerIds()).toContain(l2.id);
+    expect(editor!.selectedLayerIds()).toContain(l1.id);
 
     dispose();
   });

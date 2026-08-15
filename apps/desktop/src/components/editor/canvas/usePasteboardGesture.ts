@@ -50,10 +50,12 @@ export interface UsePasteboardGestureParams {
   layerTransformSession: () => unknown;
   selectionBox: () => SelectionPreviewBox | null;
   selectedLayerId: () => string | null;
+  selectedLayerIds?: () => string[];
   getEngine: () => DocumentEngine | null;
   screenToDocumentPoint: (e: PointerEvent) => { x: number; y: number };
   onCanvasPointerDown: (e: PointerEvent) => void;
   setSelectedLayerId: (id: string | null) => void;
+  toggleLayerSelection?: (id: string, makeActive?: boolean) => void;
   setSelectionBoxSignal: (box: SelectionPreviewBox | null) => void;
   setHoverHandle: (h: string | null) => void;
   setSnapLines: (lines: SnapLine[]) => void;
@@ -134,12 +136,25 @@ export function usePasteboardGesture(params: UsePasteboardGestureParams) {
 
     const allLayers = [...engine.getLayers()];
     const hit = hitTestLayers(coords, allLayers as LayerInfo[], (id, x, y) => engine.sampleLayerAlpha(id, x, y));
-    if (hit && hit.id !== params.selectedLayerId()) {
-      engine.setActiveLayer(hit.id);
-      params.setSelectedLayerId(hit.id);
-      params.scheduler.requestRender();
-    } else if (!hit) {
-      params.setSelectedLayerId(null);
+    const isModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+    if (isModifier) {
+      if (hit) {
+        params.toggleLayerSelection?.(hit.id, true);
+        params.scheduler.requestRender();
+      }
+    } else {
+      const currentMulti = typeof params.selectedLayerIds === "function" ? params.selectedLayerIds() : [];
+      const isAlreadySelected = hit && currentMulti.includes(hit.id);
+      if (hit && !isAlreadySelected) {
+        engine.setActiveLayer(hit.id);
+        params.setSelectedLayerId(hit.id);
+        params.scheduler.requestRender();
+      } else if (hit && isAlreadySelected) {
+        engine.setActiveLayer(hit.id);
+        params.scheduler.requestRender();
+      } else if (!hit) {
+        params.setSelectedLayerId(null);
+      }
     }
   };
 
@@ -184,17 +199,17 @@ export function usePasteboardGesture(params: UsePasteboardGestureParams) {
 
     if (action === "noop") return;
 
-    e.preventDefault();
-    e.stopPropagation();
-
     if (action === "clear-active-layer" && engine) {
-      params.setSelectedLayerId(null);
       params.setHoverHandle(null);
       params.setSnapLines([]);
       params.setHudInfo(null);
       params.scheduler.requestRender();
+      // Allow pointerdown to bubble to marquee selection handler
       return;
     }
+
+    e.preventDefault();
+    e.stopPropagation();
 
     if (action === "clear-selection-preview") {
       params.setSelectionBoxSignal(null);

@@ -30,6 +30,7 @@ export function BottomStatusBar() {
     layers,
     activeLayerId,
     selectedLayerId,
+    selectedLayerIds,
     activeDocumentId,
     layerTransformSession,
     rightDockPanel,
@@ -115,7 +116,12 @@ export function BottomStatusBar() {
             <span class="text-editor-text/60">{statusText()}</span>
           </span>
           <span class="border-l border-editor-divider pl-3">
-            Selected Layer: <strong class="text-editor-text">{activeLayerName()}</strong>
+            <Show
+              when={typeof selectedLayerIds === "function" && selectedLayerIds().length > 1}
+              fallback={<>Selected Layer: <strong class="text-editor-text">{activeLayerName()}</strong></>}
+            >
+              Selected: <strong class="text-editor-text">{selectedLayerIds().length} Layers</strong>
+            </Show>
           </span>
           {/* Dev-mode render timing — production builds keep the bar clean */}
           <Show when={devFrameStats() && devFrameStats()!.frames > 0}>

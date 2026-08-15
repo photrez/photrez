@@ -1,4 +1,5 @@
 import { Show, createMemo } from "solid-js";
+import type { LayerNode } from "@/engine/types";
 import { Icon } from "./icons";
 import { NumField, EditableNumField } from "./primitives";
 import { clsx } from "clsx";
@@ -12,6 +13,7 @@ export function MoveOptionBar() {
     activeTool,
     layers,
     selectedLayerId,
+    selectedLayerIds,
     scheduler,
     moveAutoSelect,
     setMoveAutoSelect,
@@ -131,16 +133,26 @@ export function MoveOptionBar() {
 
   const handleAlign = (type: "left" | "center-h" | "right" | "top" | "center-v" | "bottom") => {
     const engine = workspace.getActiveEngine();
-    const id = selectedLayerId();
-    if (engine && id) {
-      const layer = engine.getLayer(id);
-      if (!layer || layer.locked) return;
+    const multiIds = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+    const targetIds = multiIds.length > 1 ? multiIds : (selectedLayerId() ? [selectedLayerId()!] : []);
+    if (!engine || targetIds.length === 0) return;
+
+    const layersToAlign = targetIds
+      .map((id) => ({ id, layer: engine.getLayer(id) }))
+      .filter((item): item is { id: string; layer: LayerNode } => Boolean(item.layer) && !item.layer!.locked && !item.layer!.lockPosition && !item.layer!.isBackground);
+
+    if (layersToAlign.length === 0) return;
+
+    const docW = docWidth();
+    const docH = docHeight();
+    const history = workspace.getActiveHistory();
+    const preSnapshot = engine.snapshot();
+    let anyChanged = false;
+
+    for (const { id: targetId, layer } of layersToAlign) {
       const next = { ...layer.transform };
-      
       const layerW = Math.round(layer.width * layer.transform.scaleX);
       const layerH = Math.round(layer.height * layer.transform.scaleY);
-      const docW = docWidth();
-      const docH = docHeight();
 
       switch (type) {
         case "left":
@@ -162,11 +174,14 @@ export function MoveOptionBar() {
           next.y = docH - layerH;
           break;
       }
-      // Skip if alignment is a no-op (layer already at the requested edge).
-      if (next.x === layer.transform.x && next.y === layer.transform.y) return;
-      const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), "Align Layer");
-      engine.transformLayer(id, next);
+      if (next.x !== layer.transform.x || next.y !== layer.transform.y) {
+        anyChanged = true;
+        engine.transformLayer(targetId, next);
+      }
+    }
+
+    if (anyChanged) {
+      history?.commit(preSnapshot, layersToAlign.length > 1 ? "Align Layers" : "Align Layer");
       scheduler.requestRender();
     }
   };

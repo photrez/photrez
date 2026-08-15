@@ -42,6 +42,7 @@ export function LayersPanel() {
     textEditSession,
     setTextEditSession,
     setSelectedLayerId,
+    selectedLayerIds,
   } = useEditor();
 
   const dragController = useDragController();
@@ -82,7 +83,9 @@ export function LayersPanel() {
   const openLayerContextMenu = (event: MouseEvent, layer: LayerNode) => {
     event.preventDefault();
     event.stopPropagation();
-    handleSelectLayer(layer.id);
+    if (!selectedLayerIds().includes(layer.id)) {
+      handleSelectLayer(layer.id);
+    }
     setLayerContextMenu({
       x: event.clientX,
       y: event.clientY,
@@ -113,49 +116,72 @@ export function LayersPanel() {
     const layer = state ? layers().find((candidate) => candidate.id === state.layerId) : null;
     const index = layer ? layers().findIndex((candidate) => candidate.id === layer.id) : -1;
     if (!layer) return [];
+
+    const isMulti = selectedLayerIds().length > 1;
+
     return [
       { kind: "item", label: "New Layer", shortcut: "Ctrl+Shift+N", onSelect: handleAddLayer },
-      { kind: "item", label: "Duplicate Layer", shortcut: "Ctrl+J", onSelect: handleDuplicateActiveLayer },
       {
         kind: "item",
-        label: "Rename Layer",
-        disabled: layer.locked,
-        onSelect: () => {
-          setEditingLayerId(layer.id);
-          setEditName(layer.name);
-        },
+        label: isMulti ? `Duplicate ${selectedLayerIds().length} Layers` : "Duplicate Layer",
+        shortcut: "Ctrl+J",
+        onSelect: handleDuplicateActiveLayer,
       },
+      ...(!isMulti
+        ? [
+            {
+              kind: "item" as const,
+              label: "Rename Layer",
+              disabled: layer.locked,
+              onSelect: () => {
+                setEditingLayerId(layer.id);
+                setEditName(layer.name);
+              },
+            },
+          ]
+        : []),
       { kind: "separator" },
       {
         kind: "item",
         label: layer.visible ? "Hide Layer" : "Show Layer",
-        onSelect: (event) => handleToggleVisibility(event, layer.id),
+        onSelect: (event: MouseEvent) => handleToggleVisibility(event, layer.id),
       },
       {
         kind: "item",
         label: layer.locked ? "Unlock Layer" : "Lock Layer",
-        onSelect: (event) => handleToggleLock(event, layer.id),
+        onSelect: (event: MouseEvent) => handleToggleLock(event, layer.id),
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Move Layer Up",
-        disabled: index <= 0 || layer.isBackground,
-        onSelect: (event) => handleMoveUp(event, index),
-      },
-      {
-        kind: "item",
-        label: "Move Layer Down",
-        disabled: index < 0 || index >= layers().length - 1 || layers()[index + 1]?.isBackground,
-        onSelect: (event) => handleMoveDown(event, index),
-      },
-      {
-        kind: "item",
-        label: "Merge Down",
-        shortcut: "Ctrl+E",
-        disabled: index < 0 || index >= layers().length - 1,
-        onSelect: handleMergeActiveLayerDown,
-      },
+      ...(!isMulti
+        ? [
+            {
+              kind: "item" as const,
+              label: "Move Layer Up",
+              disabled: index <= 0 || layer.isBackground,
+              onSelect: (event: MouseEvent) => handleMoveUp(event, index),
+            },
+            {
+              kind: "item" as const,
+              label: "Move Layer Down",
+              disabled: index < 0 || index >= layers().length - 1 || layers()[index + 1]?.isBackground,
+              onSelect: (event: MouseEvent) => handleMoveDown(event, index),
+            },
+            {
+              kind: "item" as const,
+              label: "Merge Down",
+              shortcut: "Ctrl+E",
+              disabled: index < 0 || index >= layers().length - 1,
+              onSelect: handleMergeActiveLayerDown,
+            },
+          ]
+        : [
+            {
+              kind: "item" as const,
+              label: `Merge ${selectedLayerIds().length} Selected Layers`,
+              shortcut: "Ctrl+E",
+              onSelect: handleMergeActiveLayerDown,
+            },
+          ]),
       {
         kind: "item",
         label: "Flatten Image",
@@ -163,18 +189,23 @@ export function LayersPanel() {
         disabled: layers().length <= 1,
         onSelect: handleFlattenAllLayers,
       },
-      {
-        kind: "item",
-        label: "Apply Adjustment",
-        disabled: !layer.hasAdjustments,
-        onSelect: handleApplyAdjustment,
-      },
+      ...(!isMulti
+        ? [
+            {
+              kind: "item" as const,
+              label: "Apply Adjustment",
+              disabled: !layer.hasAdjustments,
+              onSelect: handleApplyAdjustment,
+            },
+          ]
+        : []),
       { kind: "separator" },
       {
         kind: "item",
-        label: "Delete Layer",
+        label: isMulti ? `Delete ${selectedLayerIds().length} Layers` : "Delete Layer",
+        shortcut: "Delete",
         danger: true,
-        disabled: layers().length <= 1,
+        disabled: isMulti ? false : (layer.isBackground || layers().length <= 1),
         onSelect: handleDeleteActiveLayer,
       },
     ];
@@ -244,15 +275,23 @@ export function LayersPanel() {
             const engine = workspace.getActiveEngine();
             const id = activeLayerId();
             const mode = e.currentTarget.value;
-            if (!isBlendMode(mode) || activeLayer()?.blendMode === mode) return;
+            if (!isBlendMode(mode)) return;
 
-            if (engine && id) {
+            const multi = selectedLayerIds();
+            const targetIds = multi.length > 1 ? multi : (id ? [id] : []);
+
+            if (engine && targetIds.length > 0) {
               if (layerTransformSession()) {
                 cancelActiveTransformSession();
               }
               const history = workspace.getActiveHistory();
-              history?.commit(engine.snapshot(), "Layer Blend Mode");
-              engine.setLayerBlendMode(id, mode);
+              history?.commit(engine.snapshot(), targetIds.length > 1 ? "Set Layer Blend Mode (Multiple)" : "Layer Blend Mode");
+              for (const tid of targetIds) {
+                const l = engine.getLayer(tid);
+                if (l && !l.locked) {
+                  engine.setLayerBlendMode(tid, mode);
+                }
+              }
               scheduler.requestRender();
             }
           }}
@@ -301,26 +340,35 @@ export function LayersPanel() {
                   onInput={(e) => {
                     const engine = workspace.getActiveEngine();
                     const id = activeLayerId();
-                    if (engine && id) {
+                    const multi = selectedLayerIds();
+                    const targetIds = multi.length > 1 ? multi : (id ? [id] : []);
+                    if (engine && targetIds.length > 0) {
                       if (layerTransformSession()) {
                         cancelActiveTransformSession();
                       }
                       if (!opacityHistorySnapshot()) {
                         setOpacityHistorySnapshot(engine.snapshot());
                       }
-                      engine.setLayerOpacity(id, parseInt(e.currentTarget.value) / 100);
+                      const val = parseInt(e.currentTarget.value) / 100;
+                      for (const tid of targetIds) {
+                        const l = engine.getLayer(tid);
+                        if (l && !l.locked) {
+                          engine.setLayerOpacity(tid, val);
+                        }
+                      }
                       scheduler.requestRender();
                     }
                   }}
                   onChange={() => {
                     const history = workspace.getActiveHistory();
                     const snapshot = opacityHistorySnapshot();
+                    const multi = selectedLayerIds();
                     if (history && snapshot) {
-                      history.commit(snapshot, "Layer Opacity");
+                      history.commit(snapshot, multi.length > 1 ? "Set Opacity (Multiple)" : "Layer Opacity");
                       setOpacityHistorySnapshot(null);
                     }
                   }}
-                  class="absolute inset-0 w-full h-[24px] opacity-0 cursor-pointer disabled:pointer-events-none"
+                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -493,6 +541,7 @@ export function LayersPanel() {
                   layer={layer}
                   idx={i}
                   isActive={selectedLayerId() === layer.id}
+                  isSelected={selectedLayerIds().includes(layer.id)}
                   isEditing={editingLayerId() === layer.id}
                   editName={editName()}
                   setEditingLayerId={setEditingLayerId}

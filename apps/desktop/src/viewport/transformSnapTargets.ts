@@ -9,6 +9,7 @@ export interface TransformSnapOptions {
   snapToLayers?: boolean;
   snapToCanvas?: boolean;
   excludeLayerId?: string;
+  excludeLayerIds?: string[];
 }
 
 /**
@@ -22,7 +23,9 @@ export function buildTransformSnapTargets(
   docH: number,
   opts: TransformSnapOptions = {},
 ): SnapRect[] {
-  const movingId = opts.excludeLayerId ?? engine.getActiveLayerId();
+  const excludeSet = new Set(
+    opts.excludeLayerIds ?? (opts.excludeLayerId ? [opts.excludeLayerId] : (engine.getActiveLayerId() ? [engine.getActiveLayerId()!] : []))
+  );
   const snapToLayers = opts.snapToLayers ?? true;
   const snapToCanvas = opts.snapToCanvas ?? true;
 
@@ -63,7 +66,7 @@ export function buildTransformSnapTargets(
   if (snapToLayers) {
     const layerTargets: SnapRect[] = engine
       .getLayers()
-      .filter((l) => l.visible && l.id !== movingId && l.name !== "Background")
+      .filter((l) => l.visible && !excludeSet.has(l.id) && l.name !== "Background")
       .map((l) => {
         const aabb = getLayerAabb(l.transform, l.width, l.height);
         return {

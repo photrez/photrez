@@ -12,9 +12,18 @@
 export const ROTATE_BAND_PX = 100;
 export const ROTATE_CORNER_EXTRA = 2;
 
+/**
+ * Calculates adaptive rotate band width (clamped between 32px and 60px)
+ * based on layer screen dimensions.
+ */
+export function getAdaptiveRotateBandPx(width: number, height: number): number {
+  const minDim = Math.min(Math.abs(width), Math.abs(height));
+  return Math.max(32, Math.min(60, Math.round(minDim * 0.15 + 20)));
+}
+
 /** Shared resize handle sizes — used by CropOverlay, ModernCropOverlay, and SelectionTransformOverlay */
 export const HANDLE_SIZE = 8;
-export const HANDLE_HIT = 32;
+export const HANDLE_HIT = 28;
 
 function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string {
   const rx = Math.min(r, w / 2);

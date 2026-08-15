@@ -252,6 +252,8 @@ export function EditorProvider(props: {
     setActiveDocumentId: editorState.setActiveDocumentId,
     setLayers: editorState.setLayers,
     setActiveLayerId: editorState.setActiveLayerId,
+    selectedLayerIds: editorState.selectedLayerIds,
+    rawSetSelectedLayerId: editorState.rawSetSelectedLayerId,
     setSelectedLayerId: editorState.setSelectedLayerId,
     setSelection: editorState.setSelection,
     setSelectionEditMode: editorState.setSelectionEditMode,
@@ -332,16 +334,6 @@ export function EditorProvider(props: {
         clearInterval(statusResetTimer);
       });
     }
-  });
-
-  let prevActiveLayerId: string | null = null;
-  createEffect(() => {
-    const id = editorState.activeLayerId();
-    const sel = editorState.selectedLayerId();
-    if (id && id !== prevActiveLayerId) {
-      editorState.setSelectedLayerId(id);
-    }
-    prevActiveLayerId = id;
   });
 
   // Tool switch cleanup is registered per ToolId in toolLifecycle.ts.
@@ -552,6 +544,11 @@ export function EditorProvider(props: {
     activeLayerId: editorState.activeLayerId,
     selectedLayerId: editorState.selectedLayerId,
     setSelectedLayerId: editorState.setSelectedLayerId,
+    selectedLayerIds: editorState.selectedLayerIds,
+    setSelectedLayerIds: editorState.setSelectedLayerIds,
+    isLayerSelected: editorState.isLayerSelected,
+    toggleLayerSelection: editorState.toggleLayerSelection,
+    rangeSelectLayers: editorState.rangeSelectLayers,
     selection: editorState.selection,
     setSelection: editorState.setSelection,
     selectionEditMode: editorState.selectionEditMode,

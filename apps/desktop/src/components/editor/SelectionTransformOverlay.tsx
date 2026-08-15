@@ -3,7 +3,7 @@ import { useEditor } from "./shell/EditorContext";
 import type { HudMode } from "./TransformHud";
 import type { SnapRect, SnapResult } from "@/viewport/smartGuides";
 import { getCursorForHandle, documentToLayerLocal } from "@/viewport/transformGeometry";
-import { HANDLE_SIZE, HANDLE_HIT, ROTATE_BAND_PX } from "@/viewport/rotateBand";
+import { HANDLE_SIZE, HANDLE_HIT, ROTATE_BAND_PX, getAdaptiveRotateBandPx } from "@/viewport/rotateBand";
 import { useSelectionTransformDrag } from "./useSelectionTransformDrag";
 import { commitLayerTransformSession } from "./transformSession";
 
@@ -48,7 +48,11 @@ export function getRotatePath(type: string, cx: number, cy: number, ro: number, 
 }
 
 export function SelectionTransformOverlay(props: SelectionTransformOverlayProps = {}) {
-  const { zoom, pan, activeTool, setHoverHandle, setHoverPos, layerTransformSession, setLayerTransformSession, workspace, scheduler, selection } = useEditor();
+  const { zoom, pan, activeTool, setHoverHandle, setHoverPos, layerTransformSession, setLayerTransformSession, workspace, scheduler, selection, selectedLayerIds } = useEditor();
+
+  const isMultiSelect = createMemo(() => {
+    return typeof selectedLayerIds === "function" && selectedLayerIds().length > 1;
+  });
 
   let overlaySvgRef: SVGSVGElement | undefined;
 
@@ -123,16 +127,15 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
   const screenH = createMemo(() => effH() * zoom());
 
   // Donut rotate-band width — mirrors the crop overlay's ROTATE_BAND_PX (100px
-  // screen-space) so the move-tool rotate zone matches other editors' feel.
-  // - Idle: fixed 100px band around the layer (was 20-60px, felt too small).
-  // - Active: Infinite (10000px) to allow viewport-wide rotation clicks.
+  // Donut rotate-band width — dynamically calculated based on layer screen size (clamped between 32px and 60px).
+  // When active drag session is ongoing, expands to infinite (10000px) to allow viewport-wide rotation.
   const ringWidth = () => {
     const isSessionActive = layerTransformSession() !== null;
-    return isSessionActive ? 10000 : ROTATE_BAND_PX;
+    return isSessionActive ? 10000 : getAdaptiveRotateBandPx(screenW(), screenH());
   };
 
   return (
-    <Show when={getLayer()}>
+    <Show when={!isMultiSelect() ? getLayer() : null}>
       {(layer) => (
         <svg
           ref={overlaySvgRef}
@@ -194,7 +197,7 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
               data-move
             />
 
-            {/* Full-perimeter donut rotate ring — replaces 4 corner arc paths */}
+            {/* Full-perimeter adaptive donut rotate ring — rotates from outside any corner/edge */}
             {(() => {
               const sw = screenW();
               const sh = screenH();
@@ -232,6 +235,64 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
               );
             })()}
 
+            {/* Top Rotate Antenna / Pin Handle — Visual affordance handle for intuitive rotation */}
+            {(() => {
+              const topMidX = () => screenTL().x + screenW() / 2;
+              const topMidY = () => screenTL().y;
+              const pinY = () => screenTL().y - 20;
+              const pinR = 4.5;
+              return (
+                <g data-rotate-pin>
+                  {/* Connecting stalk line */}
+                  <line
+                    x1={topMidX()}
+                    y1={topMidY()}
+                    x2={topMidX()}
+                    y2={pinY()}
+                    stroke="var(--color-editor-accent)"
+                    stroke-width={1.25}
+                    vector-effect="non-scaling-stroke"
+                    style={{ "pointer-events": "none" }}
+                  />
+                  {/* Transparent hit area */}
+                  <circle
+                    cx={topMidX()}
+                    cy={pinY()}
+                    r={14}
+                    fill="transparent"
+                    style={{
+                      "pointer-events": props.isNavigationMode ? "none" : "all",
+                      cursor: activeDragCursor() ?? rotateCursor(),
+                    }}
+                    onPointerDown={(e) => handlePointerDown(e, "rotate")}
+                    onPointerEnter={(e) => {
+                      setHoverHandle("rotate");
+                      setHoverPos({ x: e.clientX, y: e.clientY });
+                    }}
+                    onPointerMove={(e) => setHoverPos({ x: e.clientX, y: e.clientY })}
+                    onPointerLeave={() => {
+                      setHoverHandle(null);
+                      setHoverPos(null);
+                    }}
+                  />
+                  {/* Visible circular pin handle */}
+                  <circle
+                    cx={topMidX()}
+                    cy={pinY()}
+                    r={pinR}
+                    fill="#FFFFFF"
+                    stroke="var(--color-editor-accent)"
+                    stroke-width={1.5}
+                    vector-effect="non-scaling-stroke"
+                    style={{
+                      "pointer-events": "none",
+                      filter: "drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.6))",
+                    }}
+                  />
+                </g>
+              );
+            })()}
+
             {/* 8 handles at unrotated edges, in screen coords */}
             <For each={HANDLE_TYPES}>
               {(type) => {
@@ -243,7 +304,7 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
                           : screenTL().y + screenH() / 2;
                 const cursor = () => getCursorForHandle(type, rotation(), scaleX(), scaleY());
                 return (
-                  <g>
+                  <g data-single-handle={type}>
                     {/* Transparent hit zone for resize */}
                     <rect
                       x={hx() - ht() / 2}
@@ -258,17 +319,20 @@ export function SelectionTransformOverlay(props: SelectionTransformOverlayProps 
                       onPointerLeave={() => setHoverHandle(null)}
                     />
 
-                    {/* Visible square handle */}
+                    {/* Visible crisp white square handle with accent stroke */}
                     <rect
                       x={hx() - hs() / 2}
                       y={hy() - hs() / 2}
                       width={hs()}
                       height={hs()}
-                      fill="var(--color-editor-accent)"
-                      stroke="#FFFFFF"
-                      stroke-width={1}
+                      fill="#FFFFFF"
+                      stroke="var(--color-editor-accent)"
+                      stroke-width={1.3}
                       vector-effect="non-scaling-stroke"
-                      style={{ "pointer-events": "none" }}
+                      style={{
+                        "pointer-events": "none",
+                        filter: "drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.5))",
+                      }}
                     />
                   </g>
                 );
