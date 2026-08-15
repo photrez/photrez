@@ -6,12 +6,19 @@
     "cancel": "Batal",
     "ok": "OKE",
     "apply": "Terapkan",
-    "confirm": "Konfirmasi"
+    "confirm": "Konfirmasi",
+    "saving": "Menyimpan…",
+    "saved": "Tersimpan",
+    "saveFailed": "Gagal menyimpan",
+    "cancelled": "Dibatalkan"
   },
   "menus": {
     "file": "Berkas",
     "edit": "Sunting",
+    "image": "Gambar",
+    "layer": "Lapisan",
     "view": "Tampilan",
+    "window": "Jendela",
     "help": "Bantuan"
   },
   "tools": {
@@ -27,6 +34,13 @@
   "status": {
     "layers_one": "{{count}} lapisan",
     "layers_other": "{{count}} lapisan",
+    "canvas": "Kanvas",
+    "active": "Aktif",
+    "selectedLayer": "Lapisan Terpilih",
+    "selectedLayers": "Terpilih: {{count}} lapisan",
+    "history": "Riwayat",
+    "noActiveLayer": "Tidak ada lapisan aktif",
+    "ready": "Siap",
     "zoom": "Zum"
   }
 }

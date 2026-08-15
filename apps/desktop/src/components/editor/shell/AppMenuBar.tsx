@@ -4,11 +4,22 @@ import { MENU_ITEMS } from "../editorData";
 import type { MenuItem } from "../types";
 import type { EditorCommand } from "../useEditorCommands";
 import { useEditor } from "./EditorContext";
+import { useI18n } from "@/i18n/I18nProvider";
 import { getRecentFiles, clearRecentFiles, type RecentFile } from "@/lib/recentFiles";
 
 type MenuEntry =
   | { kind: "item"; label: string; command: EditorCommand; shortcut?: string }
   | { kind: "separator" };
+
+const MENU_LABEL_KEYS: Record<MenuItem, string> = {
+  File: "menus.file",
+  Edit: "menus.edit",
+  Image: "menus.image",
+  Layer: "menus.layer",
+  View: "menus.view",
+  Window: "menus.window",
+  Help: "menus.help",
+};
 
 const MENU_DEFINITIONS: Record<MenuItem, readonly MenuEntry[]> = {
   File: [
@@ -124,6 +135,7 @@ function RecentFilesMenu(props: {
 }
 
 export function AppMenuBar(props: AppMenuBarProps) {
+  const { t } = useI18n();
   const [openMenu, setOpenMenu] = createSignal<MenuItem | null>(null);
   const triggerRefs = new Map<MenuItem, HTMLButtonElement>();
   let navRef!: HTMLElement;
@@ -287,7 +299,7 @@ export function AppMenuBar(props: AppMenuBarProps) {
               }}
               onKeyDown={(event) => handleTriggerKeyDown(event, menu)}
             >
-              {menu}
+              {t(MENU_LABEL_KEYS[menu])}
             </button>
           </div>
         )}
@@ -301,7 +313,7 @@ export function AppMenuBar(props: AppMenuBarProps) {
               ref={popupRef}
               id={`app-menu-${m().toLowerCase()}`}
               role="menu"
-              aria-label={`${m()} menu`}
+              aria-label={`${t(MENU_LABEL_KEYS[m()])} menu`}
               class="fixed z-[100] min-w-56 rounded-[6px] border border-editor-divider bg-editor-panel py-1 text-[12px] text-editor-text shadow-xl"
               style={popupStyle()}
               onKeyDown={(event) => handlePopupKeyDown(event, m())}

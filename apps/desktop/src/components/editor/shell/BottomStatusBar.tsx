@@ -2,6 +2,7 @@ import { Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { clsx } from "clsx";
 import { Icon } from "../icons";
 import { useEditor } from "./EditorContext";
+import { useI18n } from "@/i18n/I18nProvider";
 import { getPaintToolBlockReason } from "../brushToolState";
 import { autosaveStatus, autosaveError, autosaveTimestamp } from "../autoSave";
 import { saveProgress } from "../saveState";
@@ -39,6 +40,7 @@ export function BottomStatusBar() {
     gradientDragLine,
     scheduler,
   } = useEditor();
+  const { t } = useI18n();
 
   // ── Dev-mode frame timing (avg render ms per 2s window) ──
   // Production builds skip this entirely (import.meta.env.DEV is false).
@@ -55,7 +57,7 @@ export function BottomStatusBar() {
 
   const activeLayerName = () => {
     const activeId = activeTool() === "move" ? selectedLayerId() : activeLayerId();
-    if (!activeId) return "No active layer";
+    if (!activeId) return t("status.noActiveLayer");
     return layers().find(l => l.id === activeId)?.name || "Layer";
   };
 
@@ -96,7 +98,7 @@ export function BottomStatusBar() {
     if (layerTransformSession()) {
       return "Transforming layer. Drag handles to scale/rotate. Hold Shift to constrain aspect ratio.";
     }
-    return TOOL_DESCRIPTIONS[activeTool()] || "Ready";
+    return TOOL_DESCRIPTIONS[activeTool()] || t("status.ready");
   };
 
   return (
@@ -104,13 +106,13 @@ export function BottomStatusBar() {
       <div class="flex items-center gap-3">
         <Show when={activeDocumentId()}>
           <span>
-            Canvas: <strong class="text-editor-text">{docWidth()} × {docHeight()} px</strong>
+            {t("status.canvas")}: <strong class="text-editor-text">{docWidth()} × {docHeight()} px</strong>
           </span>
           <span class="border-l border-editor-divider pl-3">
-            Zoom: <strong class="text-editor-text">{Math.round(zoom() * 100)}%</strong>
+            {t("status.zoom")}: <strong class="text-editor-text">{Math.round(zoom() * 100)}%</strong>
           </span>
           <span class="border-l border-editor-divider pl-3">
-            Active: <strong class="text-editor-text">{getToolDisplayName()}</strong>
+            {t("status.active")}: <strong class="text-editor-text">{getToolDisplayName()}</strong>
           </span>
           <span class="border-l border-editor-divider pl-3">
             <span class="text-editor-text/60">{statusText()}</span>
@@ -118,9 +120,9 @@ export function BottomStatusBar() {
           <span class="border-l border-editor-divider pl-3">
             <Show
               when={typeof selectedLayerIds === "function" && selectedLayerIds().length > 1}
-              fallback={<>Selected Layer: <strong class="text-editor-text">{activeLayerName()}</strong></>}
+              fallback={<>{t("status.selectedLayer")}: <strong class="text-editor-text">{activeLayerName()}</strong></>}
             >
-              Selected: <strong class="text-editor-text">{selectedLayerIds().length} Layers</strong>
+              {t("status.selectedLayers", { count: selectedLayerIds().length })}
             </Show>
           </span>
           {/* Dev-mode render timing — production builds keep the bar clean */}
@@ -135,15 +137,15 @@ export function BottomStatusBar() {
             <span class="border-l border-editor-divider pl-3 flex items-center gap-1">
               <Show when={autosaveStatus() === "saving"}>
                 <span class="inline-block size-2 rounded-full bg-yellow-400 animate-pulse" />
-                <span class="text-editor-text/60">Saving…</span>
+                <span class="text-editor-text/60">{t("common.saving")}</span>
               </Show>
               <Show when={autosaveStatus() === "saved"}>
                 <span class="inline-block size-2 rounded-full bg-green-400" />
-                <span class="text-editor-text/60">Saved</span>
+                <span class="text-editor-text/60">{t("common.saved")}</span>
               </Show>
               <Show when={autosaveStatus() === "error"}>
                 <span class="inline-block size-2 rounded-full bg-red-400" />
-                <span class="text-red-400" title={autosaveError() ?? ""}>Save failed</span>
+                <span class="text-red-400" title={autosaveError() ?? ""}>{t("common.saveFailed")}</span>
               </Show>
             </span>
           </Show>
@@ -167,11 +169,11 @@ export function BottomStatusBar() {
               </Show>
               <Show when={saveProgress().phase === "done"}>
                 <span class="inline-block size-2 rounded-full bg-green-400" />
-                <span class="text-editor-text/60">Saved</span>
+                <span class="text-editor-text/60">{t("common.saved")}</span>
               </Show>
               <Show when={saveProgress().phase === "error" || saveProgress().phase === "cancelled"}>
                 <span class="inline-block size-2 rounded-full bg-red-400" />
-                <span class="text-red-400">{saveProgress().phase === "cancelled" ? "Cancelled" : "Save failed"}</span>
+                <span class="text-red-400">{saveProgress().phase === "cancelled" ? t("common.cancelled") : t("common.saveFailed")}</span>
               </Show>
             </span>
           </Show>
@@ -194,7 +196,7 @@ export function BottomStatusBar() {
           )}
         >
           <Icon name="history" class="size-3.5" strokeWidth={1.75} />
-          <span>History</span>
+          <span>{t("status.history")}</span>
         </button>
       </div>
     </footer>

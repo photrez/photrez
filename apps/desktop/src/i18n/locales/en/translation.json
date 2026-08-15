@@ -6,12 +6,19 @@
     "cancel": "Cancel",
     "ok": "OK",
     "apply": "Apply",
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "cancelled": "Cancelled"
   },
   "menus": {
     "file": "File",
     "edit": "Edit",
+    "image": "Image",
+    "layer": "Layer",
     "view": "View",
+    "window": "Window",
     "help": "Help"
   },
   "tools": {
@@ -27,6 +34,13 @@
   "status": {
     "layers_one": "{{count}} layer",
     "layers_other": "{{count}} layers",
+    "canvas": "Canvas",
+    "active": "Active",
+    "selectedLayer": "Selected Layer",
+    "selectedLayers": "Selected: {{count}} layers",
+    "history": "History",
+    "noActiveLayer": "No active layer",
+    "ready": "Ready",
     "zoom": "Zoom"
   }
 }
