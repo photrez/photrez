@@ -44,4 +44,27 @@ describe("LanguageSwitcher wiring", () => {
     expect(await screen.findByText(/Bahasa/)).toBeTruthy();
     expect((await screen.findByTestId("probe")).textContent).toBe("Batal");
   });
+
+  it("renders the option popover in document.body, escaping the component subtree (no overflow clip)", async () => {
+    const host = document.createElement("div");
+    host.setAttribute("data-overflow-host", "");
+    document.body.appendChild(host);
+    render(
+      () => (
+        <I18nProvider>
+          <div data-overflow-host>
+            <LanguageSwitcher />
+          </div>
+        </I18nProvider>
+      ),
+      { container: host },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Language/i }));
+    const option = await screen.findByRole("button", { name: "Indonesia" });
+    // Popover must live on document.body, NOT inside the overflow-hidden host,
+    // otherwise the title-bar `overflow-hidden` would clip it.
+    expect(option.closest("[data-overflow-host]")).toBeNull();
+    host.remove();
+  });
 });

@@ -135,6 +135,12 @@ export function DocumentTabsBar() {
   const drag = useDragController();
   const dialog = useDialog();
   const [isHovered, setIsHovered] = createSignal(false);
+  const [reorderingTab, setReorderingTab] = createSignal<{
+    id: string;
+    sourceIndex: number;
+    targetIndex: number;
+    position: "left" | "right";
+  } | null>(null);
 
   const cancelActiveTransformSession = () => {
     const engine = workspace.getActiveEngine();
@@ -150,6 +156,91 @@ export function DocumentTabsBar() {
     }
     workspace.switchDocument(id);
     scheduler.requestRender();
+  };
+
+  const handleTabPointerDown = (e: PointerEvent, tabId: string, index: number) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    if (drag.state().dragKind !== null) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let hasDragged = false;
+    const targetEl = e.currentTarget as HTMLElement;
+    targetEl.setPointerCapture?.(e.pointerId);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (!hasDragged) {
+        if (Math.hypot(dx, dy) < 4) return;
+        hasDragged = true;
+      }
+
+      const tabListEl = targetEl.parentElement;
+      if (!tabListEl) return;
+      const tabElements = Array.from(tabListEl.querySelectorAll<HTMLElement>("[data-document-tab]"));
+      let targetIndex = index;
+      let position: "left" | "right" = "left";
+
+      for (let i = 0; i < tabElements.length; i++) {
+        const rect = tabElements[i].getBoundingClientRect();
+        if (moveEvent.clientX >= rect.left && moveEvent.clientX <= rect.right) {
+          targetIndex = i;
+          position = moveEvent.clientX < rect.left + rect.width / 2 ? "left" : "right";
+          break;
+        } else if (i === 0 && moveEvent.clientX < rect.left) {
+          targetIndex = 0;
+          position = "left";
+          break;
+        } else if (i === tabElements.length - 1 && moveEvent.clientX > rect.right) {
+          targetIndex = tabElements.length - 1;
+          position = "right";
+          break;
+        }
+      }
+
+      setReorderingTab({
+        id: tabId,
+        sourceIndex: index,
+        targetIndex,
+        position,
+      });
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      try {
+        targetEl.releasePointerCapture?.(upEvent.pointerId);
+      } catch {
+        // Safe fallback if already lost
+      }
+      targetEl.removeEventListener("pointermove", onPointerMove);
+      targetEl.removeEventListener("pointerup", onPointerUp);
+      targetEl.removeEventListener("pointercancel", onPointerUp);
+
+      const reorderState = reorderingTab();
+      setReorderingTab(null);
+
+      if (hasDragged && reorderState) {
+        let finalIndex = reorderState.targetIndex;
+        if (reorderState.sourceIndex < reorderState.targetIndex) {
+          finalIndex = reorderState.position === "left" ? reorderState.targetIndex - 1 : reorderState.targetIndex;
+        } else if (reorderState.sourceIndex > reorderState.targetIndex) {
+          finalIndex = reorderState.position === "right" ? reorderState.targetIndex + 1 : reorderState.targetIndex;
+        }
+        finalIndex = Math.max(0, Math.min(documents().length - 1, finalIndex));
+        if (finalIndex !== index) {
+          workspace.reorderDocument(index, finalIndex);
+          scheduler.requestRender();
+        }
+      } else if (!hasDragged) {
+        handleSwitchTab(tabId);
+      }
+    };
+
+    targetEl.addEventListener("pointermove", onPointerMove);
+    targetEl.addEventListener("pointerup", onPointerUp);
+    targetEl.addEventListener("pointercancel", onPointerUp);
   };
 
   const handleCloseTab = async (e: MouseEvent, id: string) => {
@@ -380,7 +471,7 @@ export function DocumentTabsBar() {
         onMouseLeave={() => setIsHovered(false)}
       >
         <For each={documents()}>
-          {(tab) => {
+          {(tab, idx) => {
             const isDragOver = () => {
               const dt = drag.state().dropTarget;
               return dt !== null && dt.type === "tab" && dt.docId === tab.id;
@@ -395,6 +486,17 @@ export function DocumentTabsBar() {
               if (isDragOver()) return false;
               return true;
             };
+
+            const isBeingReordered = () => reorderingTab()?.id === tab.id;
+            const isDropIndicatorLeft = () => {
+              const r = reorderingTab();
+              return r !== null && r.targetIndex === idx() && r.position === "left" && r.sourceIndex !== idx();
+            };
+            const isDropIndicatorRight = () => {
+              const r = reorderingTab();
+              return r !== null && r.targetIndex === idx() && r.position === "right" && r.sourceIndex !== idx();
+            };
+
             return (
               <div
                 role="tab"
@@ -404,16 +506,20 @@ export function DocumentTabsBar() {
                 data-drag-over={isDragOver() ? "tab" : null}
                 data-hover-tab-progress={isHovering() ? "1" : null}
                 onClick={() => handleSwitchTab(tab.id)}
+                onPointerDown={(e) => handleTabPointerDown(e, tab.id, idx())}
                 onPointerEnter={(e) => handleTabPointerEnter(e, tab.id)}
                 onPointerLeave={(e) => handleTabPointerLeave(e, tab.id)}
                 onDragOver={(e) => handleTabDragOver(e, tab.id)}
                 onDragLeave={(e) => handleTabDragLeave(e, tab.id)}
                 onDrop={(e) => handleTabDrop(e, tab.id)}
                 class={clsx(
-                  "group relative flex shrink-0 items-center gap-2 border-r border-editor-divider pl-3 pr-2.5 cursor-pointer",
+                  "group relative flex shrink-0 items-center gap-2 border-r border-editor-divider pl-3 pr-2.5 cursor-pointer select-none transition-all duration-75",
                   activeDocumentId() === tab.id ? "bg-editor-bg" : "bg-editor-topbar hover:bg-editor-topbar-hover",
                   isDragOver() && "outline outline-2 outline-editor-accent",
-                  isDimmed() && "opacity-30"
+                  isDimmed() && "opacity-30",
+                  isBeingReordered() && "opacity-60 scale-[0.98] ring-1 ring-editor-accent/60 bg-editor-divider/30",
+                  isDropIndicatorLeft() && "before:absolute before:left-[-1px] before:top-0 before:bottom-0 before:w-[2px] before:bg-editor-accent before:z-30 before:rounded-full",
+                  isDropIndicatorRight() && "after:absolute after:right-[-1px] after:top-0 after:bottom-0 after:w-[2px] after:bg-editor-accent after:z-30 after:rounded-full",
                 )}
               >
                 <span

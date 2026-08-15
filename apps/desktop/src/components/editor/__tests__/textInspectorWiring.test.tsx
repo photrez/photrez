@@ -108,7 +108,7 @@ describe("PropertiesPanel Typography Section", () => {
     dispose();
   });
 
-  it("Box mode dropdown toggles between point and area text", () => {
+  it("Box mode dropdown toggles between point and area text", async () => {
     const workspace = new WorkspaceManager();
     const doc = WorkspaceManager.createBlankDocument("doc-1", "Doc 1", 100, 100);
     workspace.addDocument(doc);
@@ -122,13 +122,17 @@ describe("PropertiesPanel Typography Section", () => {
     expect(trigger).not.toBeUndefined();
 
     trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const areaOption = Array.from(container.querySelectorAll("button")).find(
+    // The dropdown popover is portaled to document.body (SelectDropdown fix),
+    // so the option lives outside the component container.
+    const areaOption = Array.from(document.body.querySelectorAll("button")).find(
       (b) => b.textContent?.trim() === "Fixed Box (Area)"
     );
     expect(areaOption).not.toBeUndefined();
 
     areaOption!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const updated = doc.engine.getLayer(textLayer.id);
     expect(updated?.textData?.boxMode).toBe("area");

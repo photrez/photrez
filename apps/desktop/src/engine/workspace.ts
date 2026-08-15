@@ -96,6 +96,23 @@ export class WorkspaceManager {
     }
   }
 
+  reorderDocument(fromIndex: number, toIndex: number): void {
+    const entries = Array.from(this.sessions.entries());
+    if (
+      fromIndex < 0 ||
+      fromIndex >= entries.length ||
+      toIndex < 0 ||
+      toIndex >= entries.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+    const [moved] = entries.splice(fromIndex, 1);
+    entries.splice(toIndex, 0, moved);
+    this.sessions = new Map(entries);
+    this.notifyChange();
+  }
+
   // ─── Accessors ───
   getActiveSession(): DocumentSession | null {
     if (!this.activeDocumentId) return null;

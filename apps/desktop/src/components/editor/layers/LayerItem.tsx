@@ -42,6 +42,8 @@ interface LayerItemProps {
   onToggleLock: (e: MouseEvent, id: string) => void;
   onMoveUp: (e: MouseEvent, idx: number) => void;
   onMoveDown: (e: MouseEvent, idx: number) => void;
+  onPointerDragMove?: (e: PointerEvent, layer: LayerNode, idx: number) => void;
+  onPointerDragEnd?: (e: PointerEvent, layer: LayerNode, idx: number) => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
   layersLength: number;
@@ -51,15 +53,12 @@ interface LayerItemProps {
 }
 
 export function LayerItem(props: LayerItemProps) {
-    const dragController = useDragController();
+  const dragController = useDragController();
 
   // A layer can move up unless it's the top row or the (locked) Background;
   // it can move down unless the immediate layer below is the Background.
-  // Production passes the exact flags from the stack; fall back to the
-  // simple "not at the array edge" check when the caller omits them.
   const canMoveUp = props.canMoveUp ?? (props.idx > 0 && !props.layer.isBackground);
   const canMoveDown = props.canMoveDown ?? props.idx < props.layersLength - 1;
-
 
   const commitRename = () => {
     const nextName = props.editName.trim();
@@ -78,37 +77,6 @@ export function LayerItem(props: LayerItemProps) {
     props.setEditingLayerId(null);
   };
 
-  const onLayerDragStart = (e: DragEvent) => {
-    if (props.layer.locked) {
-      e.preventDefault();
-      return;
-    }
-    const dt = e.dataTransfer;
-    if (!dt) return;
-    const payload: LayerDragPayload = {
-      version: 1,
-      sourceDocId: props.activeDocumentId,
-      layerId: props.layer.id,
-      sourceName: props.layer.name,
-      isAltPressed: e.altKey,
-    };
-    dt.setData(LAYER_DRAG_MIME, JSON.stringify(payload));
-    // Allow copy + move so the drop target chooses the cursor via
-    // `dataTransfer.dropEffect` (cross-doc = copy, Alt = move, same-doc = move).
-    // Note: on Windows/WebView2 combined `effectAllowed` may be ignored; the
-    // canvas pointer-drag path uses a CSS cursor instead (see useCanvasDerivedState).
-    dt.effectAllowed = "copyMove";
-    dragController.beginLayerDrag(payload, null);
-  };
-
-  const onLayerDragEnd = () => {
-    dragController.endDrag();
-  };
-
-  // "drag ended" signal is unambiguous. `dragController.endDrag()` is
-  // the only path that clears `dragKind`, so the source layer's
-  // "being dragged" highlight disappears at the same instant the
-  // drop or cancel completes →no parallel signal system to drift.
   const isThisLayerBeingDragged = () => {
     const state = dragController.state();
     if (state.dragKind !== "layer") return false;
@@ -116,9 +84,6 @@ export function LayerItem(props: LayerItemProps) {
     return payload !== null && payload.layerId === props.layer.id;
   };
 
-  // state. The panel-level `dragover` handler keeps `dropTarget` in sync
-  // with the pointer position so this accessor stays reactive without
-  // any per-row subscription.
   const dropPositionForThisRow = () => {
     const state = dragController.state();
     if (state.dragKind !== "layer") return null;
@@ -128,27 +93,81 @@ export function LayerItem(props: LayerItemProps) {
     return target.insertPosition ?? "above";
   };
 
+  const handlePointerDown = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    if (props.layer.locked && !props.layer.isBackground) return;
+    // Don't start drag on interactive buttons / input fields
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input")) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let hasDragged = false;
+    const targetEl = e.currentTarget as HTMLElement;
+    targetEl.setPointerCapture?.(e.pointerId);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (!hasDragged) {
+        if (Math.hypot(dx, dy) < 4) return;
+        hasDragged = true;
+        const payload: LayerDragPayload = {
+          version: 1,
+          sourceDocId: props.activeDocumentId,
+          layerId: props.layer.id,
+          sourceName: props.layer.name,
+          isAltPressed: moveEvent.altKey,
+        };
+        dragController.beginLayerDrag(payload, null);
+      }
+
+      if (hasDragged) {
+        props.onPointerDragMove?.(moveEvent, props.layer, props.idx);
+      }
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      try {
+        targetEl.releasePointerCapture?.(upEvent.pointerId);
+      } catch {
+        // Safe fallback
+      }
+      targetEl.removeEventListener("pointermove", onPointerMove);
+      targetEl.removeEventListener("pointerup", onPointerUp);
+      targetEl.removeEventListener("pointercancel", onPointerUp);
+
+      if (hasDragged) {
+        props.onPointerDragEnd?.(upEvent, props.layer, props.idx);
+      } else {
+        props.onSelect(props.layer.id, upEvent);
+      }
+    };
+
+    targetEl.addEventListener("pointermove", onPointerMove);
+    targetEl.addEventListener("pointerup", onPointerUp);
+    targetEl.addEventListener("pointercancel", onPointerUp);
+  };
+
   return (
     <div
       data-layer-idx={props.idx}
-      draggable={!props.layer.locked}
-      onDragStart={onLayerDragStart}
-      onDragEnd={onLayerDragEnd}
+      onPointerDown={handlePointerDown}
       onClick={(e) => props.onSelect(props.layer.id, e)}
       onContextMenu={(event) => props.onContextMenu?.(event, props.layer, props.idx)}
       class={clsx(
-        "flex h-[50px] items-center gap-2.5 px-3.5 cursor-grab select-none group border-b border-editor-divider/10 relative transition-all duration-100 touch-auto active:cursor-grabbing",
+        "flex h-[50px] items-center gap-2.5 px-3.5 cursor-grab select-none group border-b border-editor-divider/10 relative transition-all duration-75 touch-auto active:cursor-grabbing",
         props.isActive
           ? "bg-editor-row-active ring-1 ring-inset ring-editor-accent/40"
           : props.isSelected
             ? "bg-editor-row-active/70 ring-1 ring-inset ring-editor-accent/20"
             : "hover:bg-white/[0.03]",
-        // Source layer being dragged: dimmed + amber ring + subtle scale.
-        isThisLayerBeingDragged() && "opacity-40 ring-2 ring-editor-accent/60 ring-inset scale-[0.98] border-dashed border-editor-accent/50 bg-editor-divider/20",
-        // Drop insertion bar above this row.
-        dropPositionForThisRow() === "above" && "before:absolute before:top-[-2px] before:left-0 before:right-0 before:h-[4px] before:bg-editor-accent before:shadow-[0_0_8px_rgba(225,90,23,0.6)] before:z-20 before:rounded-full",
-        // Drop insertion bar below this row.
-        dropPositionForThisRow() === "below" && "after:absolute after:bottom-[-2px] after:left-0 after:right-0 after:h-[4px] after:bg-editor-accent after:shadow-[0_0_8px_rgba(225,90,23,0.6)] after:z-20 after:rounded-full"
+        // Source layer being dragged: dimmed + amber ring + subtle scale
+        isThisLayerBeingDragged() && "opacity-35 ring-1 ring-editor-accent/60 ring-inset scale-[0.98] border-dashed border-editor-accent/50 bg-editor-divider/20",
+        // Drop insertion bar above this row (2px solid photon amber)
+        dropPositionForThisRow() === "above" && "before:absolute before:top-[-1.5px] before:left-1 before:right-1 before:h-[2.5px] before:bg-editor-accent before:z-30 before:rounded-full",
+        // Drop insertion bar below this row (2px solid photon amber)
+        dropPositionForThisRow() === "below" && "after:absolute after:bottom-[-1.5px] after:left-1 after:right-1 after:h-[2.5px] after:bg-editor-accent after:z-30 after:rounded-full"
       )}
     >
       {/* Eye toggle button */}

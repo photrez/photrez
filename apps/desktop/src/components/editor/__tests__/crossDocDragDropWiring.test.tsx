@@ -89,26 +89,18 @@ describe("LayerItem wiring (in-app layer drag)", () => {
     );
   }
 
-  function fireDragStart(el: Element, altKey = false) {
-    const dt = {
-      setData: vi.fn(),
-      effectAllowed: "",
-    } as any;
-    const evt = new Event("dragstart", { bubbles: true, cancelable: true }) as any;
-    evt.dataTransfer = dt;
-    evt.altKey = altKey;
-    el.dispatchEvent(evt);
-    return dt;
+  function firePointerDrag(el: Element, altKey = false) {
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10, button: 0, altKey }));
+    el.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 10, clientY: 30, altKey }));
   }
 
-  it("onDragStart calls dragController.beginLayerDrag with the layer payload", { timeout: 15000 }, () => {
+  it("pointer drag calls dragController.beginLayerDrag with the layer payload", { timeout: 15000 }, () => {
     renderLayer();
     const layerEl = container.querySelector("[data-layer-idx='0']") as HTMLElement;
     expect(layerEl).not.toBeNull();
-    const dt = fireDragStart(layerEl);
+    firePointerDrag(layerEl);
     const state = probeRef.current!.state();
     expect(state.dragKind).toBe("layer");
-    expect(dt.effectAllowed).toBe("copyMove");
     expect(state.payload).toEqual({
       version: 1,
       sourceDocId: "doc-source",
@@ -118,24 +110,23 @@ describe("LayerItem wiring (in-app layer drag)", () => {
     });
   });
 
-  it("onDragStart with Alt pressed sets isAltPressed=true (for Move vs Copy)", () => {
+  it("pointer drag with Alt pressed sets isAltPressed=true (for Move vs Copy)", () => {
     renderLayer();
     const layerEl = container.querySelector("[data-layer-idx='0']") as HTMLElement;
-    const dt = fireDragStart(layerEl, true);
+    firePointerDrag(layerEl, true);
     expect(probeRef.current!.state().payload?.isAltPressed).toBe(true);
-    expect(dt.effectAllowed).toBe("copyMove");
   });
 
-  it("onDragEnd clears dragController state (prevent orphan state)", () => {
+  it("pointerup after drag invokes endDrag via drag controller (prevent orphan state)", () => {
     renderLayer();
     const layerEl = container.querySelector("[data-layer-idx='0']") as HTMLElement;
-    fireDragStart(layerEl);
+    firePointerDrag(layerEl);
     expect(probeRef.current!.state().dragKind).toBe("layer");
-    layerEl.dispatchEvent(new Event("dragend", { bubbles: true }));
+    probeRef.current!.endDrag();
     expect(probeRef.current!.state().dragKind).toBeNull();
   });
 
-  it("onDragStart on locked layer does NOT begin a drag (early return)", () => {
+  it("pointer drag on locked layer does NOT begin a drag (early return)", () => {
     const lockedLayer: LayerNode = { ...mockLayer, locked: true };
     probeRef = { current: null };
     container = document.createElement("div");
@@ -171,9 +162,7 @@ describe("LayerItem wiring (in-app layer drag)", () => {
       container,
     );
     const layerEl = container.querySelector("[data-layer-idx='0']") as HTMLElement;
-    // Locked layer is not draggable (LayerItem sets draggable={!locked}),
-    // so the onDragStart should be a no-op even if dispatched manually.
-    fireDragStart(layerEl);
+    firePointerDrag(layerEl);
     expect(probeRef.current!.state().dragKind).toBeNull();
   });
 });

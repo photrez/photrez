@@ -358,7 +358,7 @@ describe("LayersPanel →real onLayerDragStart path", () => {
     return { ws, container, rows, probe: () => probe!, dispose };
   }
 
-  it("fires LayerItem onLayerDragStart and triggers the panel drop handler end-to-end", () => {
+  it("fires LayerItem pointer drag and triggers the panel drop handler end-to-end", () => {
     const ctx = setupWithMockedRects();
     try {
       const initialOrder = ctx.ws.getActiveEngine()!.getLayers().map((l) => l.name);
@@ -366,24 +366,19 @@ describe("LayersPanel →real onLayerDragStart path", () => {
 
       const topRow = ctx.rows[0]; // Top layer
       const bottomRow = ctx.rows[2]; // Bottom layer
-      const panelDz = ctx.container.querySelector<HTMLElement>("[data-layers-panel-drop-zone]")!;
 
-      // 1. Real dragstart on the Top row. The LayerItem handler
-      //    captures the payload from the row's props.activeDocumentId
-      //    + props.layer.id and calls beginLayerDrag.
-      fireNativeDragStart(topRow, topRow, "dragstart", { clientX: 5, clientY: 10 });
+      // 1. Pointerdown on the Top row and move past threshold to initiate drag.
+      topRow.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10, button: 0 }));
+      topRow.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true,
+        clientX: 10,
+        clientY: bottomRow.getBoundingClientRect().top + 35,
+      }));
 
-      // After dragstart, dragController should be in "layer" mode.
+      // After drag start and move, dragController should be in "layer" mode with dropTarget set.
       const afterStart = ctx.probe().state();
       expect(afterStart.dragKind).toBe("layer");
       expect(afterStart.payload?.sourceName).toBe("Top");
-
-      // 2. Dragover the panel at the lower half of the Bottom row
-      //    (insertAt=2, position=below).
-      fireNativeDragStart(panelDz, panelDz, "dragover", {
-        clientY: bottomRow.getBoundingClientRect().top + 35,
-        clientX: 5,
-      });
 
       const dt = ctx.probe().state().dropTarget;
       expect(dt?.type).toBe("layers-panel");
@@ -392,18 +387,19 @@ describe("LayersPanel →real onLayerDragStart path", () => {
         expect(dt.insertPosition).toBe("below");
       }
 
-      // 3. Drop on the panel.
-      fireNativeDragStart(panelDz, panelDz, "drop", {
+      // 2. Pointerup to complete the drop.
+      topRow.dispatchEvent(new PointerEvent("pointerup", {
+        bubbles: true,
+        clientX: 10,
         clientY: bottomRow.getBoundingClientRect().top + 35,
-        clientX: 5,
-      });
+      }));
 
-      // 4. Verify the engine layer order changed.
+      // 3. Verify the engine layer order changed.
       const afterOrder = ctx.ws.getActiveEngine()!.getLayers().map((l) => l.name);
-      // Top moved below Bottom →[Middle, Bottom, Top, Background].
+      // Top moved below Bottom → [Middle, Bottom, Top, Background].
       expect(afterOrder).toEqual(["Middle", "Bottom", "Top", "Background"]);
 
-      // 5. dragController should be cleared.
+      // 4. dragController should be cleared.
       const afterDrop = ctx.probe().state();
       expect(afterDrop.dragKind).toBeNull();
     } finally {

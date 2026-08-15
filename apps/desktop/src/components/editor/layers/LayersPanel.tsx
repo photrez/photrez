@@ -50,12 +50,101 @@ export function LayersPanel() {
   const [showOpacitySlider, setShowOpacitySlider] = createSignal(false);
   const [opacityHistorySnapshot, setOpacityHistorySnapshot] = createSignal<DocumentModel | null>(null);
   const [navigatorCollapsed, setNavigatorCollapsed] = createSignal(false);
+  const [dragGhost, setDragGhost] = createSignal<{ x: number; y: number; layer: LayerNode } | null>(null);
   const [layerContextMenu, setLayerContextMenu] = createSignal<{
     x: number;
     y: number;
     layerId: string;
     focusTarget: HTMLElement | null;
   } | null>(null);
+
+  let autoScrollRaf: number | null = null;
+  const stopAutoScroll = () => {
+    if (autoScrollRaf !== null) {
+      cancelAnimationFrame(autoScrollRaf);
+      autoScrollRaf = null;
+    }
+  };
+
+  const handleAutoScroll = (container: HTMLElement, clientY: number) => {
+    const rect = container.getBoundingClientRect();
+    const threshold = 32;
+    let speed = 0;
+    if (clientY < rect.top + threshold && clientY >= rect.top - 10) {
+      const proximity = Math.max(0, 1 - (clientY - rect.top) / threshold);
+      speed = -Math.max(2, Math.round(proximity * 12));
+    } else if (clientY > rect.bottom - threshold && clientY <= rect.bottom + 10) {
+      const proximity = Math.max(0, 1 - (rect.bottom - clientY) / threshold);
+      speed = Math.max(2, Math.round(proximity * 12));
+    }
+
+    if (speed !== 0) {
+      if (autoScrollRaf === null) {
+        const loop = () => {
+          container.scrollTop += speed;
+          autoScrollRaf = requestAnimationFrame(loop);
+        };
+        autoScrollRaf = requestAnimationFrame(loop);
+      }
+    } else {
+      stopAutoScroll();
+    }
+  };
+
+  const handleLayerPointerDragMove = (e: PointerEvent, layer: LayerNode) => {
+    setDragGhost({ x: e.clientX, y: e.clientY, layer });
+    const dropZone = document.querySelector<HTMLElement>("[data-layers-panel-drop-zone]");
+    if (dropZone) {
+      handleAutoScroll(dropZone, e.clientY);
+    }
+    const hint = computeInsertionHint(e.clientY);
+    if (hint) {
+      dragController.setDropTarget({ type: "layers-panel", ...hint });
+    } else {
+      dragController.setDropTarget({ type: "layers-panel" });
+    }
+    dragController.cancelTabHover();
+  };
+
+  const handleLayerPointerDragEnd = async (e: PointerEvent, _layer: LayerNode) => {
+    stopAutoScroll();
+    setDragGhost(null);
+
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const tabEl = el?.closest("[data-document-tab]") as HTMLElement | null;
+    const tabId = tabEl?.getAttribute("data-document-tab");
+
+    const state = dragController.state();
+    const payload = state.payload;
+
+    if (tabId && payload && tabId !== payload.sourceDocId) {
+      const engine = workspace.getEngine(tabId);
+      if (engine) {
+        const { newLayerId } = addLayerFromCrossDoc(
+          payload,
+          { type: "tab", docId: tabId },
+          { x: engine.getWidth() / 2, y: engine.getHeight() / 2 },
+          workspace
+        );
+        if (newLayerId && newLayerId !== payload.layerId) {
+          const newLayer = engine.getLayer(newLayerId);
+          if (newLayer?.imageBitmap) renderer.uploadImage(newLayerId, newLayer.imageBitmap);
+        }
+        scheduler.requestRender();
+      }
+    } else if (state.dropTarget?.type === "layers-panel" && payload) {
+      const target = state.dropTarget;
+      const { newLayerId } = addLayerFromCrossDoc(payload, target, { x: 0, y: 0 }, workspace);
+      if (newLayerId && newLayerId !== payload.layerId) {
+        const targetEngine = workspace.getActiveEngine();
+        const newLayer = targetEngine?.getLayer(newLayerId);
+        if (newLayer?.imageBitmap) renderer.uploadImage(newLayerId, newLayer.imageBitmap);
+      }
+      scheduler.requestRender();
+    }
+
+    dragController.endDrag();
+  };
 
   const activeLayer = () => {
     const id = activeLayerId();
@@ -553,6 +642,8 @@ export function LayersPanel() {
                   onToggleLock={handleToggleLock}
                   onMoveUp={handleMoveUp}
                   onMoveDown={handleMoveDown}
+                  onPointerDragMove={handleLayerPointerDragMove}
+                  onPointerDragEnd={handleLayerPointerDragEnd}
                   canMoveUp={canMoveUp}
                   canMoveDown={canMoveDown}
                   layersLength={stack.length}
@@ -565,6 +656,41 @@ export function LayersPanel() {
           </For>
         </Show>
       </div>
+
+      {/* Floating Drag Ghost Preview (Soft & Snappy / Pro Dark) */}
+      <Show when={dragGhost()}>
+        {(ghost) => (
+          <div
+            style={{
+              position: "fixed",
+              left: `${ghost().x + 12}px`,
+              top: `${ghost().y + 12}px`,
+              "pointer-events": "none",
+              "z-index": 9999,
+            }}
+            class="flex items-center gap-2 px-2.5 py-1.5 rounded-[6px] bg-[#1B1D22] border border-[#363B44] text-white shadow-xl select-none"
+          >
+            <Show
+              when={ghost().layer.type === "adjustment"}
+              fallback={
+                <div class="size-[20px] shrink-0 rounded-[2px] bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
+                  <Show when={ghost().layer.type === "text"}>
+                    <span class="text-[10px] font-bold text-editor-accent">T</span>
+                  </Show>
+                  <Show when={ghost().layer.type !== "text"}>
+                    <Icon name="layers" class="size-3 text-editor-text-dim" />
+                  </Show>
+                </div>
+              }
+            >
+              <div class="size-[20px] rounded-full border border-white/20 bg-gradient-to-tr from-black to-white/40" />
+            </Show>
+            <span class="text-[12px] font-medium max-w-[140px] truncate text-zinc-100">
+              {ghost().layer.name}
+            </span>
+          </div>
+        )}
+      </Show>
 
       <ContextMenu
         open={layerContextMenu() !== null}

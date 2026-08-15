@@ -178,4 +178,36 @@ describe('WorkspaceManager', () => {
       expect(doc.dirty).toBe(false);
     });
   });
+
+  it('reorders documents correctly and notifies listeners', () => {
+    const wm = new WorkspaceManager();
+    const doc1 = WorkspaceManager.createBlankDocument('doc-1', 'Doc 1', 100, 100);
+    const doc2 = WorkspaceManager.createBlankDocument('doc-2', 'Doc 2', 100, 100);
+    const doc3 = WorkspaceManager.createBlankDocument('doc-3', 'Doc 3', 100, 100);
+
+    wm.addDocument(doc1);
+    wm.addDocument(doc2);
+    wm.addDocument(doc3);
+
+    expect(wm.getTabSummaries().map((t) => t.id)).toEqual(['doc-1', 'doc-2', 'doc-3']);
+
+    let notified = 0;
+    wm.onChange(() => {
+      notified++;
+    });
+
+    wm.reorderDocument(0, 2);
+    expect(wm.getTabSummaries().map((t) => t.id)).toEqual(['doc-2', 'doc-3', 'doc-1']);
+    expect(notified).toBe(1);
+
+    wm.reorderDocument(2, 0);
+    expect(wm.getTabSummaries().map((t) => t.id)).toEqual(['doc-1', 'doc-2', 'doc-3']);
+    expect(notified).toBe(2);
+
+    // Out of bounds / no-op should not trigger change
+    wm.reorderDocument(-1, 2);
+    expect(notified).toBe(2);
+    wm.reorderDocument(0, 0);
+    expect(notified).toBe(2);
+  });
 });

@@ -142,4 +142,62 @@ describe("DocumentTabsBar", () => {
     expect(closeBtn!.querySelector("svg")).not.toBeNull();
     dispose();
   });
+
+  it("switches active tab on pointer click", async () => {
+    const { ws, container, dispose } = renderTabsBar();
+    ws.addDocument(WorkspaceManager.createBlankDocument("doc-1", "Tab 1", 800, 600));
+    ws.addDocument(WorkspaceManager.createBlankDocument("doc-2", "Tab 2", 800, 600));
+    await tick();
+
+    expect(ws.getActiveDocumentId()).toBe("doc-2");
+    const tab1 = container.querySelector('[data-document-tab="doc-1"]') as HTMLElement;
+    tab1.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 50, clientY: 10, button: 0 }));
+    tab1.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 50, clientY: 10, button: 0 }));
+    await tick();
+
+    expect(ws.getActiveDocumentId()).toBe("doc-1");
+    dispose();
+  });
+
+  it("reorders tabs when pointer drag moves past threshold", async () => {
+    const { ws, container, dispose } = renderTabsBar();
+    ws.addDocument(WorkspaceManager.createBlankDocument("doc-1", "Tab 1", 800, 600));
+    ws.addDocument(WorkspaceManager.createBlankDocument("doc-2", "Tab 2", 800, 600));
+    await tick();
+
+    const tab1 = container.querySelector('[data-document-tab="doc-1"]') as HTMLElement;
+    const tab2 = container.querySelector('[data-document-tab="doc-2"]') as HTMLElement;
+
+    // Mock bounding client rects
+    vi.spyOn(tab1, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      right: 100,
+      top: 0,
+      bottom: 38,
+      width: 100,
+      height: 38,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+    vi.spyOn(tab2, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      right: 200,
+      top: 0,
+      bottom: 38,
+      width: 100,
+      height: 38,
+      x: 100,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    tab1.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 20, clientY: 10, button: 0 }));
+    tab1.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 160, clientY: 10, button: 0 }));
+    tab1.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 160, clientY: 10, button: 0 }));
+    await tick();
+
+    expect(ws.getTabSummaries().map((t) => t.id)).toEqual(["doc-2", "doc-1"]);
+    dispose();
+  });
 });

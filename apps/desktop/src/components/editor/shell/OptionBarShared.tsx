@@ -2,6 +2,7 @@ import { Icon, IconName } from "../icons";
 import { clsx } from "clsx";
 import { Show, For, createSignal, JSX } from "solid-js";
 import { Tooltip } from "../Tooltip";
+import { Portal } from "solid-js/web";
 
 export function ToggleBtn(props: { active: boolean; onChange: (v: boolean) => void; icon: IconName; label: string; labelClass?: string; class?: string }) {
   return (
@@ -103,9 +104,14 @@ export function SelectDropdown<T extends string = string>(props: {
 }) {
   const [open, setOpen] = createSignal(false);
   const activeOpt = () => props.options.find((o) => o.value === props.value) ?? props.options[0];
+  let wrapperRef!: HTMLDivElement;
+  const menuStyle = () => {
+    const rect = wrapperRef.getBoundingClientRect();
+    return { position: "fixed" as const, top: `${rect.bottom + 4}px`, left: `${rect.left}px` };
+  };
 
   return (
-    <div class={clsx("relative shrink-0 select-none", props.class)}>
+    <div ref={wrapperRef} class={clsx("relative shrink-0 select-none", props.class)}>
       <button
         type="button"
         disabled={props.disabled}
@@ -128,12 +134,14 @@ export function SelectDropdown<T extends string = string>(props: {
 
       <Show when={open()}>
         <div class="fixed inset-0 z-50" onClick={() => setOpen(false)} />
-        <div
-          class={clsx(
-            "absolute left-0 top-full z-51 mt-1 rounded-[6px] border border-[#363B44] bg-[#1B1D22] p-1 shadow-2xl min-w-[140px] max-h-[280px] overflow-y-auto",
-            props.menuWidth
-          )}
-        >
+        <Portal>
+          <div
+            style={menuStyle()}
+            class={clsx(
+              "fixed z-[100] rounded-[6px] border border-[#363B44] bg-[#1B1D22] p-1 shadow-2xl min-w-[140px] max-h-[280px] overflow-y-auto",
+              props.menuWidth
+            )}
+          >
           <For each={props.options}>
             {(opt) => {
               const isSelected = () => opt.value === props.value;
@@ -168,7 +176,8 @@ export function SelectDropdown<T extends string = string>(props: {
               );
             }}
           </For>
-        </div>
+          </div>
+        </Portal>
       </Show>
     </div>
   );
