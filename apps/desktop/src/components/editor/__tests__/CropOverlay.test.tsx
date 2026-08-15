@@ -6,6 +6,7 @@ import { createSignal, type JSX } from "solid-js";
 import { CropOverlay } from "../CropOverlay";
 import { ModernCropOverlay } from "../ModernCropOverlay";
 import { ViewportCamera } from "../../../viewport/viewportCamera";
+import { HANDLE_HIT } from "@/viewport/rotateBand";
 import { WorkspaceManager } from "@/engine/workspace";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import type { RenderScheduler } from "@/renderer/scheduler";
@@ -445,7 +446,10 @@ describe("CropOverlay handle hit detection", () => {
 
     const seHandle = container.querySelector('[data-crop-handle="se"]');
     expect(seHandle).not.toBeNull();
-    expect(seHandle!.getAttribute("width")).toBe("32");
+    // The data-crop-handle hit-area rect uses HANDLE_HIT (not the visible
+    // HANDLE_SIZE) — keep this tied to the source constant so it can't silently
+    // drift if the hit area is resized again.
+    expect(seHandle!.getAttribute("width")).toBe(String(HANDLE_HIT));
 
     onCropRectChange.mockClear();
 

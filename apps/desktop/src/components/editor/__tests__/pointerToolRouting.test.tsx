@@ -44,7 +44,6 @@ afterEach(() => {
 });
 
 describe.each([
-  ["move", "move"],
   ["selection", "selection"],
   ["crop (classic)", "crop"],
   ["brush", "brush"],
@@ -80,6 +79,37 @@ describe.each([
       const callToolArg = handlePointerDownSpy.mock.calls[0][0];
       expect(callToolArg).toBe(toolId);
     }
+
+    disposeTools();
+    dispose();
+  });
+});
+
+// The move tool no longer routes through the generic input-handler
+// handlePointerDown — pointer-down for move is dispatched to canvasLayerDrag
+// (see CanvasViewport.onCanvasPointerDown -> canvasLayerDrag.handlePointerDown).
+// That path is covered by the dedicated useCanvasLayerDrag contract tests.
+describe("move tool routing", () => {
+  it("does NOT call input-handler handlePointerDown for move (routed to canvasLayerDrag)", () => {
+    const { signals, dispose } = createMockEditorParams("move");
+    mockUseEditor(signals);
+
+    const { tools, dispose: disposeTools } = createPointerTools({
+      getCanvasContainerRef: () => document.createElement("div"),
+      getCanvasRef: () => document.createElement("canvas"),
+      isSpacePressed: () => false,
+      isPanning: () => false,
+      isAltPressed: () => false,
+      stopMomentum: vi.fn(),
+      fitToScreenAndRender: vi.fn(),
+      commitBrushStroke: vi.fn(),
+    });
+
+    tools.onCanvasPointerDown(makePointerEvent());
+
+    // Move is intercepted before the shared input-handler (same pattern as
+    // shape/paintBucket/gradient) and handed to canvasLayerDrag instead.
+    expect(handlePointerDownSpy).not.toHaveBeenCalled();
 
     disposeTools();
     dispose();
@@ -242,19 +272,23 @@ describe("brush/eraser + Alt (eyedropper) intercepts before handlePointerDown", 
   });
 });
 
-describe("move auto-select calls setActiveLayer before handlePointerDown", () => {
-  it("calls setActiveLayer on hit when moveAutoSelect is on", () => {
+describe("move auto-select activates hit layer", () => {
+  it("calls setActiveLayer on hit when moveAutoSelect is on (routed to canvasLayerDrag, not input-handler)", () => {
     const { signals, mockEngine, dispose } = createMockEditorParams("move");
     // Enable auto-select
     const autoSelect = createSignal(true);
     signals.moveAutoSelect = autoSelect[0];
+    // No prior multi-selection so the hit layer is freshly activated
+    const selectedLayerIdsSig = createSignal<string[]>([]);
+    signals.selectedLayerIds = selectedLayerIdsSig[0];
     // Make sure layers returns something hittable
-    const hitLayer = { id: "target-layer", name: "Target", visible: true, locked: false, width: 100, height: 100, transform: { scaleX: 1, scaleY: 1 } } as any;
+    const hitLayer = { id: "target-layer", name: "Target", type: "image", visible: true, locked: false, width: 100, height: 100, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } } as any;
+    const setActiveLayerSpy = vi.fn();
     signals.workspace = {
       getActiveEngine: () => ({
         ...mockEngine,
         getLayers: () => [hitLayer],
-        setActiveLayer: vi.fn(),
+        setActiveLayer: setActiveLayerSpy,
         getViewport: () => ({ panX: 0, panY: 0, zoom: 1 }),
         getWidth: () => 100,
         getHeight: () => 100,
@@ -280,9 +314,10 @@ describe("move auto-select calls setActiveLayer before handlePointerDown", () =>
 
     tools.onCanvasPointerDown(makePointerEvent());
 
-    // handlePointerDown should be called with "move"
-    expect(handlePointerDownSpy).toHaveBeenCalled();
-    expect(handlePointerDownSpy.mock.calls[0][0]).toBe("move");
+    // Move auto-select hits the layer and activates it via the engine
+    expect(setActiveLayerSpy).toHaveBeenCalledWith("target-layer");
+    // Move no longer routes through the generic input-handler handlePointerDown
+    expect(handlePointerDownSpy).not.toHaveBeenCalled();
 
     disposeTools();
     dispose();
