@@ -2,22 +2,24 @@ import { For } from "solid-js";
 import { useEditor } from "./shell/EditorContext";
 import { Slider } from "./primitives";
 import { ToolPill, OptionCheckbox, Divider } from "./shell/OptionBarShared";
+import { useI18n } from "@/i18n/I18nProvider";
 
 const TOLERANCE_PRESETS = [0, 16, 32, 64, 128];
 
 export function PaintBucketOptionBar() {
+  const { t } = useI18n();
   const { fillTolerance, setFillTolerance, fillContiguous, setFillContiguous } = useEditor();
 
   return (
     <div class="flex items-center gap-2.5 px-2 text-[11px] select-none">
       {/* Tool Pill Badge */}
-      <ToolPill icon="paint-bucket" label="Paint Bucket" />
+      <ToolPill icon="paint-bucket" label={t("tools.paintBucket", "Paint Bucket")} />
 
       <Divider />
 
       {/* Tolerance Slider & Input */}
       <div class="flex items-center gap-2">
-        <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Tolerance:</span>
+        <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{t("tools.options.tolerance", "Tolerance")}:</span>
         <div class="relative flex items-center w-24">
           <input
             type="range"
@@ -67,7 +69,7 @@ export function PaintBucketOptionBar() {
       <OptionCheckbox
         checked={fillContiguous()}
         onChange={setFillContiguous}
-        label="Contiguous"
+        label={t("tools.options.contiguous", "Contiguous")}
       />
     </div>
   );

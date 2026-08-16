@@ -6,6 +6,7 @@ import { DesktopDialog, DesktopDialogButton } from "./DesktopDialog";
 import { Slider } from "../primitives";
 import { Icon } from "../icons";
 import { tick } from "@/lib/dom";
+import { useI18n } from "@/i18n/I18nProvider";
 
 type ExportFormat = "png" | "jpeg" | "webp";
 
@@ -16,6 +17,7 @@ const FORMATS: { id: ExportFormat; label: string; extensions: string[] }[] = [
 ];
 
 export function ExportDialog() {
+  const { t } = useI18n();
   const {
     showExportDialog,
     setShowExportDialog,
@@ -57,11 +59,11 @@ export function ExportDialog() {
   const formatDescription = () => {
     switch (format()) {
       case "png":
-        return "Lossless compression. Ideal for graphics, text, and transparent backgrounds.";
+        return t("dialogs.export.formats.pngDesc", "Lossless compression. Ideal for graphics, text, and transparent backgrounds.");
       case "jpeg":
-        return "Standard lossy compression. Best for photos and general web sharing.";
+        return t("dialogs.export.formats.jpegDesc", "Standard lossy compression. Best for photos and general web sharing.");
       case "webp":
-        return "Modern image format. Superior compression and quality with transparency support.";
+        return t("dialogs.export.formats.webpDesc", "Modern image format. Superior compression and quality with transparency support.");
       default:
         return "";
     }
@@ -69,9 +71,9 @@ export function ExportDialog() {
 
   const qualityDescription = () => {
     const q = quality();
-    if (q >= 90) return "Very High quality, larger file size.";
-    if (q >= 70) return "High quality, optimized size (recommended).";
-    return "Medium quality, smaller file size, visible artifacts.";
+    if (q >= 90) return t("dialogs.export.qualities.veryHigh", "Very High quality, larger file size.");
+    if (q >= 70) return t("dialogs.export.qualities.high", "High quality, optimized size (recommended).");
+    return t("dialogs.export.qualities.medium", "Medium quality, smaller file size, visible artifacts.");
   };
 
   const handleExport = async () => {
@@ -112,7 +114,7 @@ export function ExportDialog() {
     <Show when={showExportDialog()}>
       <Portal mount={document.body}>
         <DesktopDialog
-          title="Export Image"
+          title={t("dialogs.export.title", "Export Image")}
           kind="export"
           manageFocus
           dismissible={!exporting()}
@@ -120,21 +122,21 @@ export function ExportDialog() {
           onBackdropPointerDown={() => { if (!exporting()) handleClose(); }}
           actions={<>
             <DesktopDialogButton onClick={handleClose} disabled={exporting()}>
-              {donePath() ? "Close" : "Cancel"}
+              {donePath() ? t("common.close", "Close") : t("common.cancel", "Cancel")}
             </DesktopDialogButton>
             <Show when={!donePath()}>
               <DesktopDialogButton variant="primary" onClick={handleExport} disabled={exporting()}>
                 <Show when={exporting()}>
                   <span aria-hidden="true" style="animation: spin 1s linear infinite;" class="mr-1.5 inline-block size-3 rounded-full border-2 border-editor-bg/30 border-t-editor-bg" />
                 </Show>
-                {exporting() ? "Exporting..." : "Export"}
+                {exporting() ? t("dialogs.export.exporting", "Exporting...") : t("dialogs.export.exportBtn", "Export")}
               </DesktopDialogButton>
             </Show>
           </>}
         >
           <Show when={donePath()}>
             <div role="status" class="mb-3 rounded-[6px] border border-success/30 bg-success/10 px-2.5 py-2 text-[11px] text-success">
-              Saved: {donePath()?.split(/[/\\]/).pop()}
+              {t("dialogs.export.saved", { name: donePath()?.split(/[/\\]/).pop() ?? "" })}
             </div>
           </Show>
 
@@ -162,7 +164,7 @@ export function ExportDialog() {
 
             {/* Format Selector */}
             <div class="relative" ref={dropdownContainerRef}>
-              <label for="export-format-select" class="mb-1.5 block text-[11px] font-semibold text-editor-text-dim uppercase tracking-wider">Format</label>
+              <label for="export-format-select" class="mb-1.5 block text-[11px] font-semibold text-editor-text-dim uppercase tracking-wider">{t("dialogs.export.format", "Format")}</label>
               <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen())}
@@ -230,7 +232,7 @@ export function ExportDialog() {
             <Show when={hasQuality()}>
               <div class="border-t border-editor-divider pt-4">
                 <div class="mb-1.5 flex items-center justify-between text-[11px] text-editor-text-dim">
-                  <label for="export-quality" class="font-semibold uppercase tracking-wider">Quality</label>
+                  <label for="export-quality" class="font-semibold uppercase tracking-wider">{t("dialogs.export.quality", "Quality")}</label>
                   <span class="font-sans tabular-nums text-editor-text font-bold">{quality()}%</span>
                 </div>
                 <div class="relative flex items-center h-[14px]">

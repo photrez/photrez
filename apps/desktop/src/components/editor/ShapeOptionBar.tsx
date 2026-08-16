@@ -7,6 +7,7 @@ import { ToolPill, Divider } from "./shell/OptionBarShared";
 import { Tooltip } from "./Tooltip";
 import { Icon, type IconName } from "./icons";
 import type { LayerNode, ShapeParams, ShapeKind } from "@/engine/types";
+import { useI18n } from "@/i18n/I18nProvider";
 
 type ShapeLayer = LayerNode & { type: "shape"; shapeParams: ShapeParams };
 
@@ -29,18 +30,18 @@ function shallowEqualParams(cur: ShapeParams, next: Partial<ShapeParams>): boole
   return true;
 }
 
-const SHAPE_PRESETS: { kind: ShapeKind; arrow: boolean; icon: IconName; label: string; content: string }[] = [
-  { kind: "rect", arrow: false, icon: "rectangle", label: "Rectangle", content: "Solid/filled rectangle" },
-  { kind: "ellipse", arrow: false, icon: "circle", label: "Ellipse", content: "Solid/filled circle or ellipse" },
-  { kind: "triangle", arrow: false, icon: "triangle", label: "Triangle", content: "Solid/filled triangle" },
-  { kind: "star", arrow: false, icon: "star", label: "Star (5-Point)", content: "Solid/filled 5-point star" },
-  { kind: "block-arrow", arrow: false, icon: "block-arrow", label: "Block Arrow", content: "Filled 2D block arrow" },
-  { kind: "heart", arrow: false, icon: "heart", label: "Heart", content: "Solid/filled heart shape" },
-  { kind: "diamond", arrow: false, icon: "diamond", label: "Diamond", content: "Solid/filled diamond shape" },
-  { kind: "speech-bubble", arrow: false, icon: "speech-bubble", label: "Speech Bubble", content: "Solid/filled speech bubble" },
-  { kind: "hexagon", arrow: false, icon: "hexagon", label: "Hexagon", content: "Solid/filled 6-sided hexagon" },
-  { kind: "line", arrow: false, icon: "line", label: "Line", content: "Straight line" },
-  { kind: "line", arrow: true, icon: "arrowUpRight", label: "Arrow", content: "Line with arrow head" },
+const SHAPE_PRESETS: { kind: ShapeKind; arrow: boolean; icon: IconName; label: string; key: string; content: string }[] = [
+  { kind: "rect", arrow: false, icon: "rectangle", label: "Rectangle", key: "rect", content: "Solid/filled rectangle" },
+  { kind: "ellipse", arrow: false, icon: "circle", label: "Ellipse", key: "ellipse", content: "Solid/filled circle or ellipse" },
+  { kind: "triangle", arrow: false, icon: "triangle", label: "Triangle", key: "triangle", content: "Solid/filled triangle" },
+  { kind: "star", arrow: false, icon: "star", label: "Star (5-Point)", key: "star", content: "Solid/filled 5-point star" },
+  { kind: "block-arrow", arrow: false, icon: "block-arrow", label: "Block Arrow", key: "blockArrow", content: "Filled 2D block arrow" },
+  { kind: "heart", arrow: false, icon: "heart", label: "Heart", key: "heart", content: "Solid/filled heart shape" },
+  { kind: "diamond", arrow: false, icon: "diamond", label: "Diamond", key: "diamond", content: "Solid/filled diamond shape" },
+  { kind: "speech-bubble", arrow: false, icon: "speech-bubble", label: "Speech Bubble", key: "speechBubble", content: "Solid/filled speech bubble" },
+  { kind: "hexagon", arrow: false, icon: "hexagon", label: "Hexagon", key: "hexagon", content: "Solid/filled 6-sided hexagon" },
+  { kind: "line", arrow: false, icon: "line", label: "Line", key: "line", content: "Straight line" },
+  { kind: "line", arrow: true, icon: "arrowUpRight", label: "Arrow", key: "arrow", content: "Line with arrow head" },
 ];
 
 /**
@@ -53,6 +54,7 @@ const SHAPE_PRESETS: { kind: ShapeKind; arrow: boolean; icon: IconName; label: s
  * deselected, otherwise existing shapes are uneditable.
  */
 export function ShapeOptionBar() {
+  const { t } = useI18n();
   const {
     workspace,
     scheduler,
@@ -246,7 +248,7 @@ export function ShapeOptionBar() {
                   )}
                 >
                   <Icon name={preset.icon} class={clsx("size-3.5", activePreset().label === preset.label ? "text-editor-accent" : "text-[#A1A1AA]")} strokeWidth={1.6} />
-                  <span>{preset.label}</span>
+                  <span>{t(`tools.options.shapes.${preset.key}`, preset.label)}</span>
                 </button>
               )}
             </For>
@@ -270,13 +272,13 @@ export function ShapeOptionBar() {
               : "border-editor-field-border bg-editor-field text-[#A1A1AA] hover:border-[#4B515D] hover:text-white"
           )}
         >
-          <span>Fill</span>
+          <span>{t("properties.fill", "Fill")}</span>
         </button>
         <Show when={fillEnabled()}>
-          <Tooltip content="Fill color" placement="top">
+          <Tooltip content={t("tools.options.fillColor", "Fill color")} placement="top">
             <button
               type="button"
-              aria-label="Fill color"
+              aria-label={t("tools.options.fillColor", "Fill color")}
               onClick={handleOpenFillColorPicker}
               class="size-[22px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 transition-transform hover:scale-105 ring-1 ring-white/20"
               style={{ "background-color": fillColor() }}
@@ -289,7 +291,7 @@ export function ShapeOptionBar() {
 
       {/* Stroke Pill & Popover (Matching TextOptionBar) */}
       <div class="relative flex items-center select-none" data-shape-stroke>
-        <Tooltip content="Stroke outline options" placement="top">
+        <Tooltip content={t("tools.options.strokeOptions", "Stroke outline options")} placement="top">
           <button
             type="button"
             aria-label="Stroke options"
@@ -307,8 +309,8 @@ export function ShapeOptionBar() {
               fallback={
                 <div class="flex items-center gap-1.5">
                   <span class="size-2.5 shrink-0 rounded-full border border-[#363B44] bg-[#2A2E37]" />
-                  <span class="text-[#A1A1AA] group-hover:text-white font-medium transition-colors">Stroke:</span>
-                  <span class="inline-block min-w-[34px] font-mono text-[#A1A1AA] font-medium text-left">Off</span>
+                  <span class="text-[#A1A1AA] group-hover:text-white font-medium transition-colors">{t("tools.options.stroke", "Stroke")}:</span>
+                  <span class="inline-block min-w-[34px] font-mono text-[#A1A1AA] font-medium text-left">{t("common.off", "Off")}</span>
                 </div>
               }
             >
@@ -317,7 +319,7 @@ export function ShapeOptionBar() {
                   class="size-2.5 shrink-0 rounded-full border border-black/50 ring-1 ring-white/30 shadow-2xs"
                   style={{ background: strokeColor() }}
                 />
-                <span class="text-[#A1A1AA] font-medium">Stroke:</span>
+                <span class="text-[#A1A1AA] font-medium">{t("tools.options.stroke", "Stroke")}:</span>
                 <span class="inline-block min-w-[34px] font-mono text-white font-bold text-left">{strokeWidthValue()}px</span>
               </div>
             </Show>
@@ -331,7 +333,7 @@ export function ShapeOptionBar() {
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div class="flex items-center justify-between pb-2 mb-2 border-b border-[#2D323C]">
-              <span class="text-[11px] font-semibold text-white">Stroke Outline</span>
+              <span class="text-[11px] font-semibold text-white">{t("tools.options.strokeOutline", "Stroke Outline")}</span>
               <label class="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="checkbox"
@@ -340,7 +342,7 @@ export function ShapeOptionBar() {
                   onChange={(e) => setStroke(e.currentTarget.checked)}
                   class="accent-editor-accent cursor-pointer"
                 />
-                <span class="text-[11px] font-medium text-white">{strokeEnabled() ? "On" : "Off"}</span>
+                <span class="text-[11px] font-medium text-white">{strokeEnabled() ? t("common.on", "On") : t("common.off", "Off")}</span>
               </label>
             </div>
 
@@ -357,7 +359,7 @@ export function ShapeOptionBar() {
                 )}
               >
                 <div class="flex items-center justify-between">
-                  <span class="text-[10px] text-[#A1A1AA] font-medium">Color</span>
+                  <span class="text-[10px] text-[#A1A1AA] font-medium">{t("common.color", "Color")}</span>
                   <button
                     type="button"
                     aria-label="Stroke color"
@@ -373,7 +375,7 @@ export function ShapeOptionBar() {
                 </div>
 
                 <div class="flex items-center justify-between">
-                  <span class="text-[10px] text-[#A1A1AA] font-medium">Width</span>
+                  <span class="text-[10px] text-[#A1A1AA] font-medium">{t("common.width", "Width")}</span>
                   <div class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70 hover:border-[#4B515D]">
                     <input
                       type="number"
@@ -397,7 +399,7 @@ export function ShapeOptionBar() {
       <Show when={kind() === "rect"}>
         <Divider />
         <div class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70 hover:border-[#4B515D]">
-          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Radius</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{t("properties.cornerRadius", "Radius")}</span>
           <input
             type="number"
             aria-label="Corner radius"
@@ -425,7 +427,7 @@ export function ShapeOptionBar() {
               : "border-editor-field-border bg-editor-field text-[#A1A1AA] hover:border-[#4B515D] hover:text-white"
           )}
         >
-          <span>Arrow</span>
+          <span>{t("tools.options.shapes.arrow", "Arrow")}</span>
         </button>
       </Show>
     </div>

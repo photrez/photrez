@@ -60,7 +60,7 @@ export type EditorCommand =
   | "window.minimize"
   | "window.toggle-maximize"
   | "window.close"
-  | "help.about";
+  | "help.about" | "app.settings";
 
 const EDITOR_COMMANDS: ReadonlySet<string> = new Set<EditorCommand>([
   "file.new",
@@ -99,6 +99,7 @@ const EDITOR_COMMANDS: ReadonlySet<string> = new Set<EditorCommand>([
   "window.toggle-maximize",
   "window.close",
   "help.about",
+  "app.settings",
 ]);
 
 // ── Save queue — lives in saveState.ts (shared with the autosave timer) ──
@@ -701,6 +702,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         break;
       case "help.about":
         void dialog.about();
+        break;
+      case "app.settings":
+        void dialog.settings();
         break;
     }
   };

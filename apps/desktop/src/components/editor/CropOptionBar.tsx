@@ -22,6 +22,7 @@ import {
 } from "@/viewport/modernCropGeometry";
 import { ToolPill } from "./shell/OptionBarShared";
 import { discardCropSession, applyCropPreview } from "./cropToolActions";
+import { useI18n } from "@/i18n/I18nProvider";
 import {
   CropRatioPicker,
   CropRatioInputs,
@@ -36,6 +37,7 @@ import {
 } from "./CropOptionBarSections";
 
 export function CropOptionBar() {
+  const { t } = useI18n();
   const {
     workspace,
     renderer,
@@ -429,7 +431,7 @@ export function CropOptionBar() {
 
   return (
     <>
-      <ToolPill icon="crop" label="Crop" />
+      <ToolPill icon="crop" label={t("tools.crop", "Crop")} />
 
       <Divider />
 
@@ -651,7 +653,7 @@ export function CropOptionBar() {
         }}
         class="h-6 px-2.5 rounded-[4px] border border-editor-border bg-editor-surface-2 text-editor-text-dim text-[11px] font-semibold hover:text-editor-text"
       >
-        Cancel
+        {t("common.cancel", "Cancel")}
       </button>
 
       <button
@@ -660,7 +662,7 @@ export function CropOptionBar() {
         }}
         class="h-6 px-2.5 rounded-[4px] border border-editor-accent/50 bg-editor-accent/15 text-editor-text text-[11px] font-semibold"
       >
-        Apply
+        {t("common.apply", "Apply")}
       </button>
     </>
   );

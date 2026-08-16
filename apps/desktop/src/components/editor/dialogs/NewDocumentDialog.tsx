@@ -3,6 +3,7 @@ import { clsx } from "clsx";
 import { DesktopDialog, DesktopDialogButton, desktopDialogFieldClass } from "./DesktopDialog";
 import type { DialogRequest, NewDocumentResult } from "./DialogProvider";
 import { type Unit, UNITS, formatUnit, unitToPx } from "@/lib/units";
+import { useI18n } from "@/i18n/I18nProvider";
 
 const PRESETS = {
   Paper: [
@@ -38,11 +39,17 @@ const PRESETS = {
     { name: "8×10 Landscape", width: 2400, height: 3000 },
     { name: "8×10 Portrait", width: 3000, height: 2400 },
   ],
-
 };
 
 type Category = keyof typeof PRESETS;
 const CATEGORIES = Object.keys(PRESETS) as Category[];
+
+const CATEGORY_KEYS: Record<Category, string> = {
+  Paper: "dialogs.newDocument.categories.paper",
+  "Social Media": "dialogs.newDocument.categories.socialMedia",
+  "Web & Video": "dialogs.newDocument.categories.webVideo",
+  Photography: "dialogs.newDocument.categories.photography",
+};
 
 const getOrientationBadge = (w: number, h: number) => {
   if (w > h) return "L";
@@ -56,6 +63,7 @@ export function NewDocumentDialogContent(props: {
   dialogRef?: (element: HTMLDivElement) => void;
   onKeyDown?: JSX.EventHandler<HTMLDivElement, KeyboardEvent>;
 }) {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = createSignal<Category>(CATEGORIES[0]);
   const [docName, setDocName] = createSignal("New Project");
   // Always stored in pixels
@@ -109,7 +117,7 @@ export function NewDocumentDialogContent(props: {
 
   return (
     <DesktopDialog
-      title={props.request.options.title ?? "New Document"}
+      title={props.request.options.title ?? t("dialogs.newDocument.title", "New Document")}
       kind="new-document"
       onDismiss={handleCancel}
       widthClass="w-[780px]"
@@ -133,7 +141,7 @@ export function NewDocumentDialogContent(props: {
                   )}
                   onClick={() => setActiveTab(cat)}
                 >
-                  {cat}
+                  {t(CATEGORY_KEYS[cat], cat)}
                 </button>
               )}
             </For>
@@ -186,7 +194,7 @@ export function NewDocumentDialogContent(props: {
         <div class="w-[240px] shrink-0 bg-editor-topbar/30 flex flex-col p-4 gap-4">
           <div class="flex flex-col gap-4 flex-1">
             <div class="flex flex-col gap-1.5">
-              <label class="text-[12px] font-medium text-editor-text-dim">Name</label>
+              <label class="text-[12px] font-medium text-editor-text-dim">{t("dialogs.newDocument.name", "Name")}</label>
               <input
                 type="text"
                 class={desktopDialogFieldClass}
@@ -196,7 +204,7 @@ export function NewDocumentDialogContent(props: {
             </div>
             <div class="flex gap-2">
               <div class="flex flex-col gap-1.5 flex-1 min-w-0">
-                <label class="text-[12px] font-medium text-editor-text-dim">Width</label>
+                <label class="text-[12px] font-medium text-editor-text-dim">{t("dialogs.newDocument.width", "Width")}</label>
                 <input
                   ref={widthInput!}
                   type="number"
@@ -217,7 +225,7 @@ export function NewDocumentDialogContent(props: {
                 />
               </div>
               <div class="flex flex-col gap-1.5 flex-1 min-w-0">
-                <label class="text-[12px] font-medium text-editor-text-dim">Height</label>
+                <label class="text-[12px] font-medium text-editor-text-dim">{t("dialogs.newDocument.height", "Height")}</label>
                 <input
                   ref={heightInput!}
                   type="number"
@@ -238,7 +246,7 @@ export function NewDocumentDialogContent(props: {
                 />
               </div>
               <div class="flex flex-col gap-1.5 w-[60px] shrink-0">
-                <label class="text-[12px] font-medium text-editor-text-dim">Unit</label>
+                <label class="text-[12px] font-medium text-editor-text-dim">{t("dialogs.newDocument.unit", "Unit")}</label>
                 <select
                   class={`${desktopDialogFieldClass} text-center`}
                   value={unit()}
@@ -249,14 +257,14 @@ export function NewDocumentDialogContent(props: {
               </div>
             </div>
             <div class="flex flex-col gap-1.5">
-              <label class="text-[12px] font-medium text-editor-text-dim">Background</label>
+              <label class="text-[12px] font-medium text-editor-text-dim">{t("dialogs.newDocument.background", "Background")}</label>
               <select
                 class={desktopDialogFieldClass}
                 value={background()}
                 onChange={(e) => setBackground(e.currentTarget.value as "transparent" | "white")}
               >
-                <option value="transparent">Transparent</option>
-                <option value="white">White</option>
+                <option value="transparent">{t("dialogs.newDocument.transparent", "Transparent")}</option>
+                <option value="white">{t("dialogs.newDocument.white", "White")}</option>
               </select>
             </div>
           </div>
@@ -266,10 +274,10 @@ export function NewDocumentDialogContent(props: {
       {/* FOOTER */}
       <div class="h-14 border-t border-editor-divider bg-editor-panel flex items-center justify-end px-5 gap-3 shrink-0">
         <DesktopDialogButton class="w-24 h-8" onClick={handleCancel}>
-          Cancel
+          {t("common.cancel", "Cancel")}
         </DesktopDialogButton>
         <DesktopDialogButton variant="primary" class="w-24 h-8" data-dialog-confirm onClick={handleCreate}>
-          Create
+          {t("dialogs.newDocument.create", "Create")}
         </DesktopDialogButton>
       </div>
     </DesktopDialog>

@@ -8,6 +8,7 @@ import { showToast } from "../Toast";
 import { useDialog } from "../dialogs/DialogProvider";
 import { openImageFilesAsDocuments } from "../editorOpenImage";
 import { createNewDocFromLayerDrag } from "../crossDocLayerOps";
+import { useI18n } from "@/i18n/I18nProvider";
 
 const PRESETS = [
   { label: "Instagram Post", width: 1080, height: 1080, tag: "1080 × 1080 px", icon: "square" },
@@ -17,6 +18,7 @@ const PRESETS = [
 ] as const;
 
 export function EmptyWorkspace() {
+  const { t } = useI18n();
   const { openImage, workspace, scheduler, renderer } = useEditor();
   const dialog = useDialog();
   const dragController = useDragController();
@@ -102,7 +104,7 @@ export function EmptyWorkspace() {
   const armed = () => fileDragOver();
   const dropPrompt = () => {
     const n = dragFileCount();
-    return n > 1 ? `Release to open ${n} images` : "Release to open image";
+    return n > 1 ? `Release to open ${n} images` : t("welcome.dropPromptArmed", "Release to open image");
   };
 
   return (
@@ -131,8 +133,8 @@ export function EmptyWorkspace() {
               <Icon name="image-plus" class="size-5" strokeWidth={1.5} />
             </div>
             <div class="min-w-0">
-              <h2 class="text-[14px] font-semibold text-editor-text">Start a Photrez document</h2>
-              <p class="mt-0.5 text-[12px] text-editor-text-dim">Open an image, drop one into the workspace, or create a blank canvas.</p>
+              <h2 class="text-[14px] font-semibold text-editor-text">{t("welcome.title", "Start a Photrez document")}</h2>
+              <p class="mt-0.5 text-[12px] text-editor-text-dim">{t("welcome.description", "Open an image, drop one into the workspace, or create a blank canvas.")}</p>
             </div>
           </div>
         </div>
@@ -147,7 +149,7 @@ export function EmptyWorkspace() {
             class="flex h-9 w-full items-center justify-center gap-2 rounded-[4px] bg-editor-accent px-3 text-[13px] font-medium text-white transition-colors hover:bg-editor-accent/90 focus-visible:outline focus-visible:outline-1 focus-visible:outline-editor-accent"
           >
             <Icon name="folder-plus" class="size-4" strokeWidth={1.75} />
-            Open Image
+            {t("welcome.openImage", "Open Image")}
           </button>
           <button
             type="button"
@@ -155,12 +157,12 @@ export function EmptyWorkspace() {
             class="flex h-9 w-full items-center justify-center gap-2 rounded-[4px] border border-editor-field-border bg-editor-field px-3 text-[13px] font-medium text-editor-text transition-colors hover:bg-white/[0.045] focus-visible:outline focus-visible:outline-1 focus-visible:outline-editor-accent"
           >
             <Icon name="plus" class="size-4" strokeWidth={1.75} />
-            New Document
+            {t("welcome.newDocument", "New Document")}
           </button>
         </div>
 
         <div class="border-t border-editor-divider px-5 py-3.5">
-          <div class="mb-2.5 text-[11px] font-semibold text-editor-text">Quick Presets</div>
+          <div class="mb-2.5 text-[11px] font-semibold text-editor-text">{t("welcome.quickPresets", "Quick Presets")}</div>
           <div class="grid grid-cols-2 gap-2">
             <For each={PRESETS}>
               {(preset) => (
@@ -187,7 +189,7 @@ export function EmptyWorkspace() {
         </div>
 
         <div class="flex items-center justify-between border-t border-editor-divider px-5 py-3 text-[11px] text-editor-text-dim">
-          <span>{armed() ? dropPrompt() : "Drop PNG, JPEG, or WebP files anywhere in this workspace."}</span>
+          <span>{armed() ? dropPrompt() : t("welcome.dropPromptDefault", "Drop PNG, JPEG, or WebP files anywhere in this workspace.")}</span>
           <kbd class="font-sans rounded-[3px] border border-editor-divider bg-editor-field px-1.5 py-0.5 text-[10px] text-editor-text-dim">Ctrl+O</kbd>
         </div>
       </section>

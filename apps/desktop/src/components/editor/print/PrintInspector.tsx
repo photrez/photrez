@@ -3,6 +3,7 @@ import { For, Show, createEffect, createMemo, createRenderEffect, createResource
 import { showToast } from "../Toast";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/desktop";
+import { useI18n } from "@/i18n/I18nProvider";
 import type {
   PrintOptions,
   PrintOrientation,
@@ -64,6 +65,7 @@ interface PaperSizesData {
 }
 
 export function PrintInspector(props: PrintInspectorProps) {
+  const { t } = useI18n();
   // Print state is a single source of truth from PrintDialog / usePrintSettings.
   // All callbacks invoke Rust commands directly — no fallback instance.
   const o = props.options;
@@ -567,16 +569,16 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
             >
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
             </svg>
-            <span>Printer Setup</span>
+            <span>{t("dialogs.print.printerSetup", "Printer Setup")}</span>
           </div>
-          <span class="text-[11px] text-editor-text-dim font-normal">System Spooler</span>
+          <span class="text-[11px] text-editor-text-dim font-normal">{t("dialogs.print.systemSpooler", "System Spooler")}</span>
         </button>
 
         <Show when={printerOpen()}>
           <div class="p-3.5 flex flex-col gap-3 bg-editor-panel/40">
             {/* Printer Dropdown + Refresh Button */}
             <div class="flex items-center justify-between gap-1.5">
-              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Printer:</label>
+              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">{t("dialogs.print.printer", "Printer:")}</label>
               <div class="flex flex-1 items-center gap-1">
                 <select
                   class="flex-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
@@ -591,10 +593,10 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                   }}
                 >
                   <Show when={loadingPrinters()}>
-                    <option>Loading printers...</option>
+                    <option>{t("dialogs.print.loadingPrinters", "Loading printers...")}</option>
                   </Show>
                   <Show when={!loadingPrinters() && printers().length === 0}>
-                    <option disabled>No printers found</option>
+                    <option disabled>{t("dialogs.print.noPrinters", "No printers found")}</option>
                   </Show>
                   <Show when={!loadingPrinters() && printers().length > 0}>
                     <For each={printers()}>
@@ -609,8 +611,8 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                   class="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-editor-text-dim hover:bg-editor-hover active:bg-editor-active transition-colors disabled:opacity-40"
                   onClick={refreshPrinters}
                   disabled={loadingPrinters()}
-                  title="Refresh printer list"
-                  aria-label="Refresh printer list"
+                  title={t("dialogs.print.refreshPrinters", "Refresh printer list")}
+                  aria-label={t("dialogs.print.refreshPrinters", "Refresh printer list")}
                 >
                   <svg
                     style={loadingPrinters() ? { animation: "spin 1s linear infinite" } : undefined}
@@ -645,7 +647,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
             {/* Copies & Print Settings... */}
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Copies:</label>
+                <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">{t("dialogs.print.copies", "Copies:")}</label>
                 <input
                   type="number"
                   min="1"
@@ -664,18 +666,18 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                 class="h-[28px] rounded-[4px] border border-editor-field-border bg-editor-field px-3 text-[11px] font-medium text-editor-text hover:bg-editor-hover active:bg-editor-active transition-colors"
                 onClick={handleOpenPrinterProperties}
               >
-                Print Settings...
+                {t("dialogs.print.printerProps", "Print Settings...")}
               </button>
             </div>
 
             {/* Layout Orientation Segmented Buttons */}
             <div class="flex items-center justify-between gap-2 mt-0.5">
-              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Layout:</label>
+              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">{t("dialogs.print.layout", "Layout:")}</label>
               <div class="flex items-center rounded-[4px] border border-editor-field-border bg-editor-field p-0.5 flex-1">
                 <button
                   type="button"
                   class={`${BTN_BASE} ${o().orientation === "portrait" ? ACTIVE_CLS : INACTIVE_CLS}`}
-                  title="Portrait"
+                  title={t("dialogs.print.portrait", "Portrait")}
                   onClick={() => handleOrientationToggle("portrait")}
                 >
                   <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -683,12 +685,12 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                     <line x1="9" y1="8" x2="15" y2="8" stroke-width="1.4" opacity="0.6" />
                     <line x1="9" y1="12" x2="15" y2="12" stroke-width="1.4" opacity="0.6" />
                   </svg>
-                  Portrait
+                  {t("dialogs.print.portrait", "Portrait")}
                 </button>
                 <button
                   type="button"
                   class={`${BTN_BASE} ${o().orientation === "landscape" ? ACTIVE_CLS : INACTIVE_CLS}`}
-                  title="Landscape"
+                  title={t("dialogs.print.landscape", "Landscape")}
                   onClick={() => handleOrientationToggle("landscape")}
                 >
                   <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -696,7 +698,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                     <line x1="8" y1="9" x2="16" y2="9" stroke-width="1.4" opacity="0.6" />
                     <line x1="8" y1="13" x2="16" y2="13" stroke-width="1.4" opacity="0.6" />
                   </svg>
-                  Landscape
+                  {t("dialogs.print.landscape", "Landscape")}
                 </button>
               </div>
             </div>
@@ -723,27 +725,27 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
             >
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
             </svg>
-            <span>Color Management</span>
+            <span>{t("dialogs.print.colorManagement", "Color Management")}</span>
           </div>
-          <span class="text-[11px] text-editor-text-dim font-normal">System Managed</span>
+          <span class="text-[11px] text-editor-text-dim font-normal">{t("dialogs.print.systemManaged", "System Managed")}</span>
         </button>
 
         <Show when={colorOpen()}>
           <div class="p-3.5 flex flex-col gap-2.5 text-[11px] bg-editor-panel/40">
             <div class="flex items-center justify-between py-0.5">
-              <span class="text-editor-text-dim font-medium">Document Profile:</span>
+              <span class="text-editor-text-dim font-medium">{t("dialogs.print.docProfile", "Document Profile:")}</span>
               <span class="font-semibold text-editor-text">sRGB IEC61966-2.1</span>
             </div>
             <div class="flex items-center justify-between gap-2">
-              <label class="text-editor-text-dim font-medium">Color Handling:</label>
+              <label class="text-editor-text-dim font-medium">{t("dialogs.print.colorHandling", "Color Handling:")}</label>
               <select class="rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 py-1 text-[11px] text-editor-text opacity-70" disabled>
-                <option>Printer Manages Colors</option>
+                <option>{t("dialogs.print.printerManagesColors", "Printer Manages Colors")}</option>
               </select>
             </div>
             <div class="flex items-center justify-between gap-2 opacity-50 cursor-not-allowed" title="ICC Soft-proofing deferred to post-v1 release">
-              <label class="text-editor-text-dim font-medium">Rendering Intent:</label>
+              <label class="text-editor-text-dim font-medium">{t("dialogs.print.renderingIntent", "Rendering Intent:")}</label>
               <select class="rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 py-1 text-[11px] text-editor-text" disabled>
-                <option>Perceptual</option>
+                <option>{t("dialogs.print.perceptual", "Perceptual")}</option>
               </select>
             </div>
           </div>
@@ -769,7 +771,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
             >
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
             </svg>
-            <span>Position and Size</span>
+            <span>{t("dialogs.print.positionAndSize", "Position and Size")}</span>
           </div>
           <select
             class="rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-0.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none cursor-pointer"
@@ -780,10 +782,10 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
               setUnit(val);
             }}
           >
-            <option value="cm">Centimeters</option>
-            <option value="in">Inches</option>
-            <option value="mm">Millimeters</option>
-            <option value="px">Pixels</option>
+            <option value="cm">{t("dialogs.print.centimeters", "Centimeters")}</option>
+            <option value="in">{t("dialogs.print.inches", "Inches")}</option>
+            <option value="mm">{t("dialogs.print.millimeters", "Millimeters")}</option>
+            <option value="px">{t("dialogs.print.pixels", "Pixels")}</option>
           </select>
         </button>
 
@@ -791,7 +793,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
           <div class="p-3.5 flex flex-col gap-3 bg-editor-panel/40">
             {/* Paper Size Selector */}
             <div class="flex items-center justify-between gap-2">
-              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Paper Size:</label>
+              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">{t("dialogs.print.paperSize", "Paper Size:")}</label>
               <select
                 class="flex-1 min-w-0 truncate rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors cursor-pointer"
                 ref={paperSelectEl}
@@ -808,7 +810,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
 
             {/* Margin — read-only, per-side from printer driver minimum */}
             <div class="flex items-center justify-between gap-2">
-              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">Margin:</label>
+              <label class="w-[72px] shrink-0 text-editor-text-dim text-[11px] font-medium">{t("dialogs.print.margins", "Margin:")}</label>
               <Show when={paperSizesRes()?.defaultMargins} fallback={
                 <span class="text-[11px] font-semibold text-editor-text">{displayMargin().toFixed(1)} mm</span>
               }>
@@ -836,13 +838,13 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                     }
                   }}
                 />
-                Center on Page
+                {t("dialogs.print.centerOnPage", "Center on Page")}
               </label>
 
               <Show when={!o().centerImage}>
                 <div class="flex items-center gap-4 mt-0.5 pl-5">
                   <div class="flex items-center gap-1.5">
-                    <span class="text-[11px] text-editor-text-dim font-medium">Top:</span>
+                    <span class="text-[11px] text-editor-text-dim font-medium">{t("dialogs.print.topOffset", "Top:")}</span>
                     <input
                       type="number" step="0.1"
                       class="w-[64px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
@@ -856,7 +858,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                     <span class="text-[11px] text-editor-text-dim font-medium">{o().unit}</span>
                   </div>
                   <div class="flex items-center gap-1.5">
-                    <span class="text-[11px] text-editor-text-dim font-medium">Left:</span>
+                    <span class="text-[11px] text-editor-text-dim font-medium">{t("dialogs.print.leftOffset", "Left:")}</span>
                     <input
                       type="number" step="0.1"
                       class="w-[64px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
@@ -876,7 +878,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
             {/* Scaled Print Size */}
             <div class="flex flex-col gap-2 pt-1.5 border-t border-editor-divider/40">
               <div class="flex items-center justify-between">
-                <label class="text-[11.5px] font-semibold text-editor-text-header">Scaled Print Size</label>
+                <label class="text-[11.5px] font-semibold text-editor-text-header">{t("dialogs.print.scaledPrintSize", "Scaled Print Size")}</label>
                 <label class="flex items-center gap-1.5 text-[11px] text-editor-text cursor-pointer font-medium">
                   <input
                     type="checkbox"
@@ -884,13 +886,13 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                     ref={scaleCheckboxEl}
                     onChange={(e) => handleScaleToFitToggle(e.currentTarget.checked)}
                   />
-                  Scale to Fit
+                  {t("dialogs.print.scaleToFit", "Scale to Fit")}
                 </label>
               </div>
 
               {/* Scale Slider */}
               <div class="flex items-center gap-2">
-                <span class="w-[42px] shrink-0 text-[11px] text-editor-text-dim font-medium">Scale:</span>
+                <span class="w-[42px] shrink-0 text-[11px] text-editor-text-dim font-medium">{t("dialogs.print.scale", "Scale:")}</span>
                 <input
                   type="range" min="10" max="400" step="1"
                   class="flex-1 accent-[var(--color-editor-accent)] h-1.5 bg-editor-divider rounded-lg cursor-pointer"
@@ -917,7 +919,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
               {/* Width / Height */}
               <div class="flex items-center justify-between gap-2 mt-1">
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[11px] text-editor-text-dim font-medium">Width:</span>
+                  <span class="text-[11px] text-editor-text-dim font-medium">{t("common.width", "Width:")}</span>
                   <input
                     type="number" step="0.1"
                     class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
@@ -927,7 +929,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                   <span class="text-[11px] text-editor-text-dim font-medium">{o().unit}</span>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <span class="text-[11px] text-editor-text-dim font-medium">Height:</span>
+                  <span class="text-[11px] text-editor-text-dim font-medium">{t("common.height", "Height:")}</span>
                   <input
                     type="number" step="0.1"
                     class="w-[68px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none transition-colors"
@@ -944,7 +946,7 @@ function formatPaperSizeLabel(name: string, widthMm: number, heightMm: number): 
                   ppiQuality().colorClass
                 }`}
               >
-                <span>Print Resolution:</span>
+                <span>{t("dialogs.print.printResolution", "Print Resolution:")}</span>
                 <span>{currentPPI()} PPI — {ppiQuality().badgeText}</span>
               </div>
             </div>

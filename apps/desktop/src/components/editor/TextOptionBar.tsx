@@ -11,6 +11,7 @@ import type { FontFamily } from "@/lib/fontEnumeration";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import type { LayerNode } from "@/engine/types";
 import type { TextData, TextStrokeAlign } from "@/engine/textTypes";
+import { useI18n } from "@/i18n/I18nProvider";
 
 type TextLayer = LayerNode & { type: "text"; textData: TextData };
 
@@ -104,6 +105,7 @@ function shallowEqualTextData(cur: TextData, patch: Partial<TextData>): boolean 
  * preview + search, color read from the same foreground used elsewhere.
  */
 export function TextOptionBar() {
+  const { t } = useI18n();
   const {
     workspace,
     renderer,
@@ -463,17 +465,17 @@ export function TextOptionBar() {
 
   return (
     <div data-text-option-bar class="flex items-center gap-1.5 text-[11px] select-none">
-      <ToolPill icon="type" label="Text" />
+      <ToolPill icon="type" label={t("tools.text", "Text")} />
 
       <Divider />
 
       {/* Font family — searchable dropdown with WYSIWYG preview (plan R4/R5) */}
       <div class="relative">
-        <Tooltip content="Font family" placement="top">
+        <Tooltip content={t("tools.options.fontFamily", "Font family")} placement="top">
           <button
             type="button"
             data-font-picker-trigger
-            aria-label="Font family"
+            aria-label={t("tools.options.fontFamily", "Font family")}
             aria-haspopup="listbox"
             aria-expanded={fontPickerOpen()}
             onClick={() => {
@@ -507,8 +509,8 @@ export function TextOptionBar() {
             <input
               ref={searchRef}
               type="search"
-              placeholder="Search fonts..."
-              aria-label="Search fonts"
+              placeholder={t("tools.options.searchFonts", "Search fonts...")}
+              aria-label={t("tools.options.searchFonts", "Search fonts...")}
               value={fontSearch()}
               onInput={(e) => {
                 setFontSearch(e.currentTarget.value);
@@ -582,11 +584,11 @@ export function TextOptionBar() {
 
       {/* Font size — free number input + custom dark preset popover */}
       <div class="relative">
-        <Tooltip content="Font size" placement="top">
+        <Tooltip content={t("tools.options.fontSize", "Font size")} placement="top">
           <div class="group flex h-[24px] shrink-0 items-center rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent focus-within:ring-1 focus-within:ring-editor-accent/70 hover:border-[#4B515D]">
             <input
               type="number"
-              aria-label="Font size"
+              aria-label={t("tools.options.fontSize", "Font size")}
               min={1}
               max={2000}
               value={sizeDraft() ?? String(fontSize())}
@@ -600,7 +602,7 @@ export function TextOptionBar() {
             <span class="text-[10px] font-medium text-[#A1A1AA] select-none">px</span>
             <button
               type="button"
-              aria-label="Font size presets"
+              aria-label={t("tools.options.fontSize", "Font size")}
               aria-expanded={sizePickerOpen()}
               onClick={() => setSizePickerOpen(!sizePickerOpen())}
               class="ml-1 flex items-center p-0.5 text-[#A1A1AA] hover:text-white transition-colors cursor-pointer"
@@ -655,10 +657,10 @@ export function TextOptionBar() {
 
       {/* Weight — custom dark dropdown matching Font Family */}
       <div class="relative">
-        <Tooltip content="Font weight" placement="top">
+        <Tooltip content={t("tools.options.fontWeight", "Font weight")} placement="top">
           <button
             type="button"
-            aria-label="Font weight"
+            aria-label={t("tools.options.fontWeight", "Font weight")}
             aria-expanded={weightPickerOpen()}
             onClick={() => setWeightPickerOpen(!weightPickerOpen())}
             class="group flex h-[24px] shrink-0 items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-medium text-white transition-colors hover:border-[#4B515D] hover:bg-editor-field/80 select-none cursor-pointer"
@@ -697,23 +699,23 @@ export function TextOptionBar() {
           <div class="fixed inset-0 z-40" onClick={() => setWeightPickerOpen(false)} />
         </Show>
       </div>
-      <Tooltip content="Italic" placement="top">
-        <button type="button" aria-label="Italic" aria-pressed={fontItalic()} onClick={toggleItalic} class={iconBtnClass(fontItalic())}>
+      <Tooltip content={t("tools.options.italic", "Italic")} placement="top">
+        <button type="button" aria-label={t("tools.options.italic", "Italic")} aria-pressed={fontItalic()} onClick={toggleItalic} class={iconBtnClass(fontItalic())}>
           <span class="italic font-serif font-bold text-xs">I</span>
         </button>
       </Tooltip>
-      <Tooltip content="Underline" placement="top">
-        <button type="button" aria-label="Underline" aria-pressed={fontUnderline()} onClick={toggleUnderline} class={iconBtnClass(fontUnderline())}>
+      <Tooltip content={t("tools.options.underline", "Underline")} placement="top">
+        <button type="button" aria-label={t("tools.options.underline", "Underline")} aria-pressed={fontUnderline()} onClick={toggleUnderline} class={iconBtnClass(fontUnderline())}>
           <span class="underline font-bold text-xs">U</span>
         </button>
       </Tooltip>
-      <Tooltip content="Strikethrough" placement="top">
-        <button type="button" aria-label="Strikethrough" aria-pressed={fontStrikethrough()} onClick={toggleStrikethrough} class={iconBtnClass(fontStrikethrough())}>
+      <Tooltip content={t("tools.options.strikethrough", "Strikethrough")} placement="top">
+        <button type="button" aria-label={t("tools.options.strikethrough", "Strikethrough")} aria-pressed={fontStrikethrough()} onClick={toggleStrikethrough} class={iconBtnClass(fontStrikethrough())}>
           <span class="line-through font-bold text-xs">S</span>
         </button>
       </Tooltip>
-      <Tooltip content="Uppercase (ALL CAPS)" placement="top">
-        <button type="button" aria-label="Uppercase" aria-pressed={fontUppercase()} onClick={toggleUppercase} class={iconBtnClass(fontUppercase())}>
+      <Tooltip content={t("tools.options.uppercase", "Uppercase (ALL CAPS)")} placement="top">
+        <button type="button" aria-label={t("tools.options.uppercase", "Uppercase (ALL CAPS)")} aria-pressed={fontUppercase()} onClick={toggleUppercase} class={iconBtnClass(fontUppercase())}>
           <span class="font-bold text-[10px] tracking-tighter">TT</span>
         </button>
       </Tooltip>
@@ -723,10 +725,10 @@ export function TextOptionBar() {
       {/* Alignment */}
       <div class="flex shrink-0 items-center gap-0.5">
         {(["left", "center", "right"] as const).map((a) => (
-          <Tooltip content={a === "left" ? "Align left" : a === "center" ? "Align center" : "Align right"} placement="top">
+          <Tooltip content={a === "left" ? t("properties.alignLeft", "Align left") : a === "center" ? t("properties.alignCenter", "Align center") : t("properties.alignRight", "Align right")} placement="top">
             <button
               type="button"
-              aria-label={a === "left" ? "Align left" : a === "center" ? "Align center" : "Align right"}
+              aria-label={a === "left" ? t("properties.alignLeft", "Align left") : a === "center" ? t("properties.alignCenter", "Align center") : t("properties.alignRight", "Align right")}
               aria-pressed={align() === a}
               onClick={() => setAlign(a)}
               class={iconBtnClass(align() === a)}
@@ -741,15 +743,15 @@ export function TextOptionBar() {
 
       {/* Text Mode Dropdown (Auto Width / Fixed Box) */}
       <div class="relative select-none">
-        <Tooltip content="Text box mode (Auto width vs Fixed box)" placement="top">
+        <Tooltip content={t("tools.options.boxModeDesc", "Text box mode (Auto width vs Fixed box)")} placement="top">
           <button
             type="button"
-            aria-label="Text box mode"
+            aria-label={t("tools.options.boxModeDesc", "Text box mode")}
             aria-expanded={boxModePickerOpen()}
             onClick={() => setBoxModePickerOpen(!boxModePickerOpen())}
             class="group flex h-[24px] shrink-0 items-center justify-between gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-medium text-white transition-colors duration-75 select-none cursor-pointer hover:border-[#4B515D]"
           >
-            <span>{boxMode() === "point" ? "Auto Width" : "Fixed Box"}</span>
+            <span>{boxMode() === "point" ? t("tools.options.autoWidth", "Auto Width") : t("tools.options.fixedBox", "Fixed Box")}</span>
             <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white" strokeWidth={1.75} />
           </button>
         </Tooltip>
@@ -768,7 +770,7 @@ export function TextOptionBar() {
                   : "text-[#A1A1AA] hover:bg-white/5 hover:text-white"
               )}
             >
-              <span>Auto Width</span>
+              <span>{t("tools.options.autoWidth", "Auto Width")}</span>
               <Show when={boxMode() === "point"}>
                 <Icon name="check" class="size-3 text-editor-accent shrink-0" strokeWidth={3} />
               </Show>
@@ -786,7 +788,7 @@ export function TextOptionBar() {
                   : "text-[#A1A1AA] hover:bg-white/5 hover:text-white"
               )}
             >
-              <span>Fixed Box</span>
+              <span>{t("tools.options.fixedBox", "Fixed Box")}</span>
               <Show when={boxMode() === "area"}>
                 <Icon name="check" class="size-3 text-editor-accent shrink-0" strokeWidth={3} />
               </Show>
@@ -797,10 +799,10 @@ export function TextOptionBar() {
       </div>
 
       {/* Color — reads/shared with the editor foreground in draw mode (R2) */}
-      <Tooltip content="Text color" placement="top">
+      <Tooltip content={t("tools.options.textColor", "Text color")} placement="top">
         <button
           type="button"
-          aria-label="Text color"
+          aria-label={t("tools.options.textColor", "Text color")}
           onClick={handleOpenTextColorPicker}
           class="size-[24px] shrink-0 cursor-pointer rounded-[4px] border border-editor-field-border p-0 transition-transform hover:scale-105 ring-1 ring-white/20"
           style={{ "background-color": color() }}
@@ -811,10 +813,10 @@ export function TextOptionBar() {
 
       {/* Stroke Pill & Flyout Popover (B-stroke) */}
       <div class="relative flex items-center select-none" data-text-stroke>
-        <Tooltip content="Stroke outline options" placement="top">
+        <Tooltip content={t("tools.options.strokeOptions", "Stroke outline options")} placement="top">
           <button
             type="button"
-            aria-label="Toggle stroke options"
+            aria-label={t("tools.options.strokeOptions", "Toggle stroke options")}
             aria-expanded={strokePopoverOpen()}
             onClick={() => setStrokePopoverOpen(!strokePopoverOpen())}
             class={clsx(
@@ -829,8 +831,8 @@ export function TextOptionBar() {
               fallback={
                 <div class="flex items-center gap-1.5">
                   <span class="size-2.5 shrink-0 rounded-full border border-[#363B44] bg-[#2A2E37]" />
-                  <span class="text-[#A1A1AA] group-hover:text-white font-medium transition-colors">Stroke:</span>
-                  <span class="inline-block min-w-[34px] font-mono text-[#A1A1AA] font-medium text-left">Off</span>
+                  <span class="text-[#A1A1AA] group-hover:text-white font-medium transition-colors">{t("tools.options.stroke", "Stroke")}:</span>
+                  <span class="inline-block min-w-[34px] font-mono text-[#A1A1AA] font-medium text-left">{t("common.off", "Off")}</span>
                 </div>
               }
             >
@@ -839,7 +841,7 @@ export function TextOptionBar() {
                   class="size-2.5 shrink-0 rounded-full border border-black/50 ring-1 ring-white/30 shadow-2xs"
                   style={{ background: strokeColor() }}
                 />
-                <span class="text-[#A1A1AA] font-medium">Stroke:</span>
+                <span class="text-[#A1A1AA] font-medium">{t("tools.options.stroke", "Stroke")}:</span>
                 <span class="inline-block min-w-[34px] font-mono text-white font-bold text-left">{strokeWidth()}px</span>
               </div>
             </Show>
@@ -855,7 +857,7 @@ export function TextOptionBar() {
           >
             {/* Header & Main Toggle Switch */}
             <div class="flex items-center justify-between border-b border-[#2D323C] pb-2 mb-2.5">
-              <span class="text-[11px] font-bold text-white tracking-tight">Stroke Outline</span>
+              <span class="text-[11px] font-bold text-white tracking-tight">{t("tools.options.strokeOutline", "Stroke Outline")}</span>
               <button
                 type="button"
                 role="switch"
@@ -892,7 +894,7 @@ export function TextOptionBar() {
                 {/* Width Slider & Stepper */}
                 <div class="mb-3 space-y-1.5">
                   <div class="flex items-center justify-between text-[10px]">
-                    <span class="text-[#A1A1AA] font-medium">Width</span>
+                    <span class="text-[#A1A1AA] font-medium">{t("common.width", "Width")}</span>
                     <div class="flex items-center gap-1">
                       <button
                         type="button"
@@ -938,7 +940,7 @@ export function TextOptionBar() {
 
                 {/* Color Swatch Field Pill */}
                 <div class="mb-3 flex items-center justify-between text-[10px]">
-                  <span class="text-[#A1A1AA] font-medium">Color</span>
+                  <span class="text-[#A1A1AA] font-medium">{t("common.color", "Color")}</span>
                   <button
                     type="button"
                     aria-label="Stroke color"
@@ -955,7 +957,7 @@ export function TextOptionBar() {
 
                 {/* Position Segmented Buttons */}
                 <div>
-                  <span class="block mb-1 text-[10px] font-medium text-[#A1A1AA]">Position</span>
+                  <span class="block mb-1 text-[10px] font-medium text-[#A1A1AA]">{t("properties.position", "Position")}</span>
                   <div class="flex rounded-[4px] border border-[#363B44] bg-[#17191E] p-0.5 shadow-inner">
                     <button
                       type="button"
@@ -968,7 +970,7 @@ export function TextOptionBar() {
                           : "text-[#A1A1AA] hover:text-white hover:bg-white/5",
                       )}
                     >
-                      Outside
+                      {t("tools.options.strokeOutside", "Outside")}
                     </button>
                     <button
                       type="button"
@@ -981,7 +983,7 @@ export function TextOptionBar() {
                           : "text-[#A1A1AA] hover:text-white hover:bg-white/5",
                       )}
                     >
-                      Center
+                      {t("tools.options.strokeCenter", "Center")}
                     </button>
                     <button
                       type="button"
@@ -994,7 +996,7 @@ export function TextOptionBar() {
                           : "text-[#A1A1AA] hover:text-white hover:bg-white/5",
                       )}
                     >
-                      Inside
+                      {t("tools.options.strokeInside", "Inside")}
                     </button>
                   </div>
                 </div>

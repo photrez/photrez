@@ -9,8 +9,10 @@ import {
   paintSizeToSizeSlider,
 } from "./brushToolState";
 import { Slider } from "./primitives";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function BrushContextMenu() {
+  const { t } = useI18n();
   const {
     activeTool,
     brushSize,
@@ -174,7 +176,7 @@ export function BrushContextMenu() {
       >
         <div class="flex flex-col gap-1">
           <span class="text-[10px] font-medium text-editor-text-dim">
-            Size: {size()}px
+            {t("tools.options.size", "Size")}: {size()}px
           </span>
           <div class="relative flex items-center h-[14px]">
             <Slider
@@ -195,7 +197,7 @@ export function BrushContextMenu() {
 
         <div class="flex flex-col gap-1">
           <span class="text-[10px] font-medium text-editor-text-dim">
-            Hardness: {Math.round(hardness() * 100)}%
+            {t("tools.options.hardness", "Hardness")}: {Math.round(hardness() * 100)}%
           </span>
           <div class="relative flex items-center h-[14px]">
             <Slider
@@ -216,7 +218,7 @@ export function BrushContextMenu() {
 
         <div class="flex flex-col gap-1">
           <span class="text-[10px] font-medium text-editor-text-dim">
-            Strength: {Math.round(opacity() * 100)}%
+            {t("tools.options.strength", "Strength")}: {Math.round(opacity() * 100)}%
           </span>
           <div class="relative flex items-center h-[14px]">
             <Slider
@@ -274,7 +276,7 @@ export function BrushContextMenu() {
             close();
           }}
         >
-          Reset
+          {t("common.reset", "Reset")}
         </button>
       </div>
     </Show>

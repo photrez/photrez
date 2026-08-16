@@ -7,6 +7,7 @@ import type { ToolId } from "../tools/toolTypes";
 import { Tooltip } from "../Tooltip";
 import { useDialog } from "../dialogs/DialogProvider";
 import { TOOL_ITEMS } from "../editorData";
+import { useI18n } from "@/i18n/I18nProvider";
 
 const TOOL_SHORTCUTS: Record<ToolId, string> = {
   move: "V",
@@ -21,7 +22,26 @@ const TOOL_SHORTCUTS: Record<ToolId, string> = {
   text: "T",
 };
 
+const TOOL_I18N_KEYS: Record<ToolId, string> = {
+  move: "tools.move",
+  selection: "tools.rectSelect",
+  crop: "tools.crop",
+  eyedropper: "tools.eyedropper",
+  brush: "tools.brush",
+  eraser: "tools.eraser",
+  paintBucket: "tools.paintBucket",
+  gradient: "tools.gradient",
+  shape: "tools.shape",
+  text: "tools.text",
+};
+
+const VARIANT_I18N_KEYS: Record<string, string> = {
+  rect: "tools.rectSelect",
+  ellipse: "tools.ellipseSelect",
+};
+
 export function LeftToolRail(props: { disabled?: boolean }) {
+  const { t } = useI18n();
   const { activeTool, setActiveTool, fgColor, setFgColor, bgColor, setBgColor, scheduler, workspace, layerTransformSession, setLayerTransformSession, colorPickerOpen, setColorPickerOpen, colorPickerTarget, setColorPickerTarget, selectionShape, setSelectionShape } = useEditor();
   const dialogs = useDialog();
 
@@ -146,8 +166,16 @@ export function LeftToolRail(props: { disabled?: boolean }) {
             return tool.variants.find((v) => v.id === selectionShape()) ?? tool.variants[0];
           });
           const currentIcon = () => activeVariant()?.icon ?? tool.icon;
-          const currentLabel = () => activeVariant()?.label ?? tool.label;
-          const tooltipContent = () => currentLabel() + (tool.variants ? " (Right-click for options)" : "");
+          const currentLabel = () => {
+            const variant = activeVariant();
+            if (variant) {
+              const vKey = VARIANT_I18N_KEYS[variant.id];
+              return vKey ? t(vKey, variant.label) : variant.label;
+            }
+            const tKey = TOOL_I18N_KEYS[tool.id];
+            return tKey ? t(tKey, tool.label) : tool.label;
+          };
+          const tooltipContent = () => currentLabel() + (tool.variants ? ` (${t("tools.rightClickOptions", "Right-click for options")})` : "");
 
           return (
             <div class="relative">
@@ -211,7 +239,7 @@ export function LeftToolRail(props: { disabled?: boolean }) {
                         )}
                       >
                         <Icon name={variant.icon} class="size-4" strokeWidth={1.6} />
-                        {variant.label}
+                        {VARIANT_I18N_KEYS[variant.id] ? t(VARIANT_I18N_KEYS[variant.id], variant.label) : variant.label}
                       </button>
                     )}
                   </For>
@@ -227,7 +255,7 @@ export function LeftToolRail(props: { disabled?: boolean }) {
       {/* Overlapping Color Swatches Container */}
       <div class="relative size-[38px] shrink-0 group my-2 select-none">
         {/* Background Swatch */}
-        <Tooltip content="Background Color" placement="right">
+        <Tooltip content={t("tools.backgroundColor", "Background Color")} placement="right">
           <div 
             onClick={() => handleOpenColorPicker("background")}
             class="absolute bottom-0 right-0 size-[28px] rounded-full border border-white/20 shadow-md cursor-pointer transition-transform duration-100 hover:scale-105"
@@ -236,7 +264,7 @@ export function LeftToolRail(props: { disabled?: boolean }) {
         </Tooltip>
 
         {/* Foreground Swatch */}
-        <Tooltip content="Foreground Color" placement="right">
+        <Tooltip content={t("tools.foregroundColor", "Foreground Color")} placement="right">
           <div 
             onClick={() => handleOpenColorPicker("foreground")}
             class="absolute top-0 left-0 size-[28px] rounded-full border border-white/30 outline outline-1 outline-black/40 shadow-md cursor-pointer z-10 transition-transform duration-100 hover:scale-105"
@@ -245,11 +273,11 @@ export function LeftToolRail(props: { disabled?: boolean }) {
         </Tooltip>
 
         {/* Diagonal Swap Micro-Arrow Trigger */}
-        <Tooltip content="Swap Colors" shortcut="X" placement="right">
+        <Tooltip content={t("tools.swapColors", "Swap Colors")} shortcut="X" placement="right">
           <button
             onClick={handleSwapColors}
             class="absolute -top-1.5 -right-1.5 z-20 size-4 bg-editor-toolbar border border-editor-divider rounded-full flex items-center justify-center text-editor-icon hover:text-editor-text scale-0 group-hover:scale-100 transition-transform duration-150 shadow cursor-pointer"
-            aria-label="Swap Colors"
+            aria-label={t("tools.swapColors", "Swap Colors")}
           >
             <Icon name="rotate" class="size-2.5" />
           </button>

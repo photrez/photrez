@@ -6,8 +6,10 @@ import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import { clsx } from "clsx";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function SelectionOptionBar() {
+  const { t } = useI18n();
   const {
     workspace,
     renderer,
@@ -143,7 +145,7 @@ export function SelectionOptionBar() {
 
   return (
     <>
-      <ToolPill icon={selectionShape() === "ellipse" ? "circle-dashed" : "square-dashed"} label="Selection" />
+      <ToolPill icon={selectionShape() === "ellipse" ? "circle-dashed" : "square-dashed"} label={t("tools.rectSelect", "Selection")} />
 
       <Divider />
 
@@ -151,8 +153,8 @@ export function SelectionOptionBar() {
       <SelectDropdown
         value={selectionShape()}
         options={[
-          { value: "rect", label: "Rectangular", icon: "square-dashed" },
-          { value: "ellipse", label: "Elliptical", icon: "circle-dashed" },
+          { value: "rect", label: t("tools.rectSelect", "Rectangular"), icon: "square-dashed" },
+          { value: "ellipse", label: t("tools.ellipseSelect", "Elliptical"), icon: "circle-dashed" },
         ]}
         onChange={(v) => setSelectionShape(v as "rect" | "ellipse")}
       />
@@ -161,12 +163,12 @@ export function SelectionOptionBar() {
 
       {/* Style/Constraint Selector */}
       <SelectDropdown
-        labelPrefix="Style"
+        labelPrefix={t("tools.options.style", "Style")}
         value={selectionConstraintMode()}
         options={[
-          { value: "normal", label: "Normal" },
-          { value: "ratio", label: "Fixed Ratio" },
-          { value: "size", label: "Fixed Size" },
+          { value: "normal", label: t("tools.options.normal", "Normal") },
+          { value: "ratio", label: t("tools.options.fixedRatio", "Fixed Ratio") },
+          { value: "size", label: t("tools.options.fixedSize", "Fixed Size") },
         ]}
         onChange={(v) => setSelectionConstraintMode(v as "normal" | "ratio" | "size")}
       />
@@ -209,7 +211,7 @@ export function SelectionOptionBar() {
 
       <Divider />
 
-      <span class="hidden @min-[960px]:inline-block text-[10px] font-bold uppercase tracking-wider text-editor-text-dim shrink-0">Position</span>
+      <span class="hidden @min-[960px]:inline-block text-[10px] font-bold uppercase tracking-wider text-editor-text-dim shrink-0">{t("properties.position", "Position")}</span>
 
       <div class="flex shrink-0 items-center gap-1">
         <EditableNumField
@@ -234,7 +236,7 @@ export function SelectionOptionBar() {
 
       <Divider />
 
-      <span class="hidden @min-[960px]:inline-block text-[10px] font-bold uppercase tracking-wider text-editor-text-dim shrink-0">Size</span>
+      <span class="hidden @min-[960px]:inline-block text-[10px] font-bold uppercase tracking-wider text-editor-text-dim shrink-0">{t("tools.options.size", "Size")}</span>
 
       <div class="flex shrink-0 items-center gap-1">
         <EditableNumField
@@ -259,7 +261,7 @@ export function SelectionOptionBar() {
 
       <Divider />
 
-      <span class="hidden @min-[960px]:inline-block text-[10px] font-bold uppercase tracking-wider text-editor-text-dim shrink-0">Rotation</span>
+      <span class="hidden @min-[960px]:inline-block text-[10px] font-bold uppercase tracking-wider text-editor-text-dim shrink-0">{t("properties.rotation", "Rotation")}</span>
 
       <EditableNumField
         label="R"
@@ -274,14 +276,14 @@ export function SelectionOptionBar() {
       {/* Main Bar Controls */}
       <div class="hidden @min-[880px]:flex items-center gap-1.5 shrink-0">
         <Divider />
-        <Tooltip content="Show resize/rotate handles" shortcut="Ctrl+T">
+        <Tooltip content={t("tools.options.handlesTip", "Show resize/rotate handles")} shortcut="Ctrl+T">
           <ToggleBtn
             active={selectionEditMode() && hasSelection()}
             onChange={(val) => {
               if (hasSelection()) setSelectionEditMode(val);
             }}
             icon="maximize"
-            label="Transform"
+            label={t("properties.transform", "Transform")}
             labelClass="@max-[900px]:hidden"
             class={clsx(!hasSelection() && "opacity-30 pointer-events-none")}
           />
@@ -289,7 +291,7 @@ export function SelectionOptionBar() {
 
         <Divider />
 
-        <Tooltip content="Cut Selection" shortcut="Ctrl+X">
+        <Tooltip content={t("tools.options.cutSelection", "Cut Selection")} shortcut="Ctrl+X">
           <button
             onClick={handleCut}
             disabled={!hasSelection()}
@@ -301,11 +303,11 @@ export function SelectionOptionBar() {
             )}
           >
             <Icon name="slice" class="size-3" strokeWidth={1.5} />
-            Cut
+            {t("menus.items.cut", "Cut")}
           </button>
         </Tooltip>
 
-        <Tooltip content="Copy Selection" shortcut="Ctrl+C">
+        <Tooltip content={t("tools.options.copySelection", "Copy Selection")} shortcut="Ctrl+C">
           <button
             onClick={handleCopy}
             disabled={!hasSelection()}
@@ -317,11 +319,11 @@ export function SelectionOptionBar() {
             )}
           >
             <Icon name="copy" class="size-3" strokeWidth={1.5} />
-            Copy
+            {t("menus.items.copy", "Copy")}
           </button>
         </Tooltip>
 
-        <Tooltip content="Paste" shortcut="Ctrl+V">
+        <Tooltip content={t("menus.items.paste", "Paste")} shortcut="Ctrl+V">
           <button
             onClick={handlePaste}
             disabled={!hasSelection()}
@@ -333,13 +335,13 @@ export function SelectionOptionBar() {
             )}
           >
             <Icon name="square-dashed" class="size-3" strokeWidth={1.5} />
-            Paste
+            {t("menus.items.paste", "Paste")}
           </button>
         </Tooltip>
 
         <Divider />
 
-        <Tooltip content="Invert Selection" shortcut="Ctrl+I">
+        <Tooltip content={t("tools.options.invertSelection", "Invert Selection")} shortcut="Ctrl+I">
           <button
             onClick={handleInvert}
             disabled={!hasSelection()}
@@ -351,11 +353,11 @@ export function SelectionOptionBar() {
             )}
           >
             <Icon name="flip-h" class="size-3" strokeWidth={1.5} />
-            Invert
+            {t("menus.items.invertSelection", "Invert")}
           </button>
         </Tooltip>
 
-        <Tooltip content="Delete Selection Pixels" shortcut="Del">
+        <Tooltip content={t("tools.options.deleteSelection", "Delete Selection Pixels")} shortcut="Del">
           <button
             onClick={handleDelete}
             disabled={!hasSelection()}
@@ -367,11 +369,11 @@ export function SelectionOptionBar() {
             )}
           >
             <Icon name="trash" class="size-3" strokeWidth={1.5} />
-            Delete
+            {t("layers.deleteLayer", "Delete")}
           </button>
         </Tooltip>
 
-        <Tooltip content="Deselect" shortcut="Esc">
+        <Tooltip content={t("menus.items.deselect", "Deselect")} shortcut="Esc">
           <button
             onClick={handleDeselect}
             disabled={!hasSelection()}
@@ -383,7 +385,7 @@ export function SelectionOptionBar() {
             )}
           >
             <Icon name="x" class="size-3" strokeWidth={1.5} />
-            Deselect
+            {t("menus.items.deselect", "Deselect")}
           </button>
         </Tooltip>
       </div>
@@ -391,37 +393,22 @@ export function SelectionOptionBar() {
       {/* Overflow dropdown for narrow container */}
       <MoreDropdown>
         <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Position</span>
-          <div class="grid grid-cols-2 gap-1.5">
-            <EditableNumField label="X" value={selection()?.x ?? 0} onSubmit={submitX} disabled={!hasSelection()} suffix="px" class="w-full" />
-            <EditableNumField label="Y" value={selection()?.y ?? 0} onSubmit={submitY} disabled={!hasSelection()} suffix="px" class="w-full" />
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Size</span>
-          <div class="grid grid-cols-2 gap-1.5">
-            <EditableNumField label="W" value={selection()?.width ?? 0} onSubmit={submitW} disabled={!hasSelection()} suffix="px" class="w-full" />
-            <EditableNumField label="H" value={selection()?.height ?? 0} onSubmit={submitH} disabled={!hasSelection()} suffix="px" class="w-full" />
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Rotation</span>
-          <EditableNumField
-            label="R"
-            value={selection()?.angle ?? 0}
-            suffix="°"
-            onSubmit={submitAngle}
-            disabled={!hasSelection()}
-            class="w-full"
+          <span class="text-[10px] font-bold text-[#A1A1AA] uppercase tracking-wider">{t("tools.options.moreOptions", "Options")}</span>
+          <ToggleBtn
+            active={selectionEditMode() && hasSelection()}
+            onChange={(val) => {
+              if (hasSelection()) setSelectionEditMode(val);
+            }}
+            icon="maximize"
+            label={t("properties.transform", "Transform")}
+            class={clsx("w-full justify-center", !hasSelection() && "opacity-30 pointer-events-none")}
           />
         </div>
 
         <div class="h-px bg-editor-divider my-1" />
 
         <div class="grid grid-cols-2 gap-1.5">
-          <Tooltip content="Cut Selection" shortcut="Ctrl+X">
+          <Tooltip content={t("tools.options.cutSelection", "Cut Selection")} shortcut="Ctrl+X">
             <button
               onClick={handleCut}
               disabled={!hasSelection()}
@@ -433,10 +420,10 @@ export function SelectionOptionBar() {
               )}
             >
               <Icon name="slice" class="size-3" strokeWidth={1.5} />
-              Cut
+              {t("menus.items.cut", "Cut")}
             </button>
           </Tooltip>
-          <Tooltip content="Copy Selection" shortcut="Ctrl+C">
+          <Tooltip content={t("tools.options.copySelection", "Copy Selection")} shortcut="Ctrl+C">
             <button
               onClick={handleCopy}
               disabled={!hasSelection()}
@@ -448,10 +435,10 @@ export function SelectionOptionBar() {
               )}
             >
               <Icon name="copy" class="size-3" strokeWidth={1.5} />
-              Copy
+              {t("menus.items.copy", "Copy")}
             </button>
           </Tooltip>
-          <Tooltip content="Paste" shortcut="Ctrl+V">
+          <Tooltip content={t("menus.items.paste", "Paste")} shortcut="Ctrl+V">
             <button
               onClick={handlePaste}
               disabled={!hasSelection()}
@@ -463,10 +450,10 @@ export function SelectionOptionBar() {
               )}
             >
               <Icon name="square-dashed" class="size-3" strokeWidth={1.5} />
-              Paste
+              {t("menus.items.paste", "Paste")}
             </button>
           </Tooltip>
-          <Tooltip content="Invert Selection" shortcut="Ctrl+I">
+          <Tooltip content={t("tools.options.invertSelection", "Invert Selection")} shortcut="Ctrl+I">
             <button
               onClick={handleInvert}
               disabled={!hasSelection()}
@@ -478,10 +465,10 @@ export function SelectionOptionBar() {
               )}
             >
               <Icon name="flip-h" class="size-3" strokeWidth={1.5} />
-              Invert
+              {t("menus.items.invertSelection", "Invert")}
             </button>
           </Tooltip>
-          <Tooltip content="Delete Selection Pixels" shortcut="Del">
+          <Tooltip content={t("tools.options.deleteSelection", "Delete Selection Pixels")} shortcut="Del">
             <button
               onClick={handleDelete}
               disabled={!hasSelection()}
@@ -493,10 +480,10 @@ export function SelectionOptionBar() {
               )}
             >
               <Icon name="trash" class="size-3" strokeWidth={1.5} />
-              Delete
+              {t("layers.deleteLayer", "Delete")}
             </button>
           </Tooltip>
-          <Tooltip content="Deselect" shortcut="Esc">
+          <Tooltip content={t("menus.items.deselect", "Deselect")} shortcut="Esc">
             <button
               onClick={handleDeselect}
               disabled={!hasSelection()}
@@ -508,7 +495,7 @@ export function SelectionOptionBar() {
               )}
             >
               <Icon name="x" class="size-3" strokeWidth={1.5} />
-              Deselect
+              {t("menus.items.deselect", "Deselect")}
             </button>
           </Tooltip>
         </div>

@@ -17,6 +17,7 @@ export const MENU_ITEMS: readonly MenuItem[] = [
   "View",
   "Window",
   "Help",
+  "Settings",
 ] as const;
 
 export const DOCUMENT_TABS: readonly DocumentTab[] = [

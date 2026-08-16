@@ -1,12 +1,14 @@
 import { createSignal, onMount } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
 import { DesktopDialog, DesktopDialogButton } from "./DesktopDialog";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export interface AboutDialogProps {
   onDismiss: () => void;
 }
 
 export function AboutDialog(props: AboutDialogProps) {
+  const { t } = useI18n();
   const [version, setVersion] = createSignal("0.1.0");
 
   onMount(() => {
@@ -21,13 +23,13 @@ export function AboutDialog(props: AboutDialogProps) {
 
   return (
     <DesktopDialog
-      title="About Photrez"
+      title={t("dialogs.about.title", "About Photrez")}
       kind="about"
       widthClass="w-[min(400px,calc(100vw-24px))]"
       onDismiss={props.onDismiss}
       actions={
         <DesktopDialogButton variant="primary" onClick={props.onDismiss}>
-          Close
+          {t("common.close", "Close")}
         </DesktopDialogButton>
       }
     >
@@ -68,7 +70,7 @@ export function AboutDialog(props: AboutDialogProps) {
               </span>
             </div>
             <p class="mt-0.5 text-[11px] leading-tight text-editor-text-subtle">
-              Native desktop image studio — Lean. Offline. Under 80 MB.
+              {t("dialogs.about.tagline", "Native desktop image studio — Lean. Offline. Under 80 MB.")}
             </p>
           </div>
         </div>
@@ -77,16 +79,16 @@ export function AboutDialog(props: AboutDialogProps) {
         <div class="rounded-[6px] border border-editor-field-border bg-[#151516] p-2.5 text-[11px]">
           <div class="grid grid-cols-2 gap-y-1.5 text-editor-text-subtle">
             <div>
-              Core Engine: <span class="font-medium text-editor-text">Rust (photrez-core)</span>
+              {t("dialogs.about.coreEngine", "Core Engine")}: <span class="font-medium text-editor-text">Rust (photrez-core)</span>
             </div>
             <div>
-              Rasterizer: <span class="font-medium text-editor-text">WebGL 2D</span>
+              {t("dialogs.about.rasterizer", "Rasterizer")}: <span class="font-medium text-editor-text">WebGL 2D</span>
             </div>
             <div>
-              Runtime Shell: <span class="font-medium text-editor-text">Tauri v2 + SolidJS</span>
+              {t("dialogs.about.runtimeShell", "Runtime Shell")}: <span class="font-medium text-editor-text">Tauri v2 + SolidJS</span>
             </div>
             <div>
-              License: <span class="font-medium text-editor-text">AGPLv3 Open-Source</span>
+              {t("dialogs.about.license", "License")}: <span class="font-medium text-editor-text">AGPLv3 Open-Source</span>
             </div>
           </div>
         </div>

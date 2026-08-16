@@ -16,8 +16,10 @@ import { useLayerActions } from "./useLayerActions";
 import { cancelLayerTransformSession } from "../transformSession";
 import { ContextMenu, type ContextMenuEntry } from "../ContextMenu";
 import { Slider } from "../primitives";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function LayersPanel() {
+  const { t } = useI18n();
   const {
     workspace,
     renderer,
@@ -209,10 +211,12 @@ export function LayersPanel() {
     const isMulti = selectedLayerIds().length > 1;
 
     return [
-      { kind: "item", label: "New Layer", shortcut: "Ctrl+Shift+N", onSelect: handleAddLayer },
+      { kind: "item", label: t("menus.items.newLayer", "New Layer"), shortcut: "Ctrl+Shift+N", onSelect: handleAddLayer },
       {
         kind: "item",
-        label: isMulti ? `Duplicate ${selectedLayerIds().length} Layers` : "Duplicate Layer",
+        label: isMulti
+          ? t("layers.duplicateCount", { count: selectedLayerIds().length })
+          : t("menus.items.duplicateLayer", "Duplicate Layer"),
         shortcut: "Ctrl+J",
         onSelect: handleDuplicateActiveLayer,
       },
@@ -220,7 +224,7 @@ export function LayersPanel() {
         ? [
             {
               kind: "item" as const,
-              label: "Rename Layer",
+              label: t("layers.renameLayer", "Rename Layer"),
               disabled: layer.locked,
               onSelect: () => {
                 setEditingLayerId(layer.id);
@@ -232,12 +236,12 @@ export function LayersPanel() {
       { kind: "separator" },
       {
         kind: "item",
-        label: layer.visible ? "Hide Layer" : "Show Layer",
+        label: layer.visible ? t("layers.hideLayer", "Hide Layer") : t("layers.showLayer", "Show Layer"),
         onSelect: (event: MouseEvent) => handleToggleVisibility(event, layer.id),
       },
       {
         kind: "item",
-        label: layer.locked ? "Unlock Layer" : "Lock Layer",
+        label: layer.locked ? t("layers.unlockLayer", "Unlock Layer") : t("layers.lockLayer", "Lock Layer"),
         onSelect: (event: MouseEvent) => handleToggleLock(event, layer.id),
       },
       { kind: "separator" },
@@ -245,19 +249,19 @@ export function LayersPanel() {
         ? [
             {
               kind: "item" as const,
-              label: "Move Layer Up",
+              label: t("layers.moveLayerUp", "Move Layer Up"),
               disabled: index <= 0 || layer.isBackground,
               onSelect: (event: MouseEvent) => handleMoveUp(event, index),
             },
             {
               kind: "item" as const,
-              label: "Move Layer Down",
+              label: t("layers.moveLayerDown", "Move Layer Down"),
               disabled: index < 0 || index >= layers().length - 1 || layers()[index + 1]?.isBackground,
               onSelect: (event: MouseEvent) => handleMoveDown(event, index),
             },
             {
               kind: "item" as const,
-              label: "Merge Down",
+              label: t("menus.items.mergeDown", "Merge Down"),
               shortcut: "Ctrl+E",
               disabled: index < 0 || index >= layers().length - 1,
               onSelect: handleMergeActiveLayerDown,
@@ -266,14 +270,14 @@ export function LayersPanel() {
         : [
             {
               kind: "item" as const,
-              label: `Merge ${selectedLayerIds().length} Selected Layers`,
+              label: t("layers.mergeCount", { count: selectedLayerIds().length }),
               shortcut: "Ctrl+E",
               onSelect: handleMergeActiveLayerDown,
             },
           ]),
       {
         kind: "item",
-        label: "Flatten Image",
+        label: t("menus.items.flattenImage", "Flatten Image"),
         shortcut: "Ctrl+Shift+E",
         disabled: layers().length <= 1,
         onSelect: handleFlattenAllLayers,
@@ -282,7 +286,7 @@ export function LayersPanel() {
         ? [
             {
               kind: "item" as const,
-              label: "Apply Adjustment",
+              label: t("layers.applyAdjustment", "Apply Adjustment"),
               disabled: !layer.hasAdjustments,
               onSelect: handleApplyAdjustment,
             },
@@ -291,7 +295,9 @@ export function LayersPanel() {
       { kind: "separator" },
       {
         kind: "item",
-        label: isMulti ? `Delete ${selectedLayerIds().length} Layers` : "Delete Layer",
+        label: isMulti
+          ? t("layers.deleteCount", { count: selectedLayerIds().length })
+          : t("menus.items.deleteLayer", "Delete Layer"),
         shortcut: "Delete",
         danger: true,
         disabled: isMulti ? false : (layer.isBackground || layers().length <= 1),
@@ -398,7 +404,7 @@ export function LayersPanel() {
             onClick={() => setShowOpacitySlider(!showOpacitySlider())}
             class="flex items-center gap-1 hover:text-editor-text transition-colors text-editor-text-dim disabled:opacity-50"
           >
-            <span class="text-[12px]">Opacity</span>
+            <span class="text-[12px]">{t("tools.options.opacity", "Opacity")}</span>
             <span class="text-[12px] font-medium text-editor-text">
               {activeLayer() ? Math.round(activeLayer()!.opacity * 100) : 100}%
             </span>
@@ -409,7 +415,7 @@ export function LayersPanel() {
             <div class="fixed inset-0 z-40" onClick={() => setShowOpacitySlider(false)} />
             <div class="absolute right-0 top-[30px] z-50 flex w-[150px] flex-col gap-2 rounded-[6px] border border-editor-divider bg-editor-panel p-3 shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
               <div class="flex items-center justify-between text-[11px] text-editor-text-dim">
-                <span>Opacity</span>
+                <span>{t("tools.options.opacity", "Opacity")}</span>
                 <span class="font-sans tabular-nums text-editor-text">
                   {activeLayer() ? Math.round(activeLayer()!.opacity * 100) : 100}%
                 </span>
@@ -466,10 +472,10 @@ export function LayersPanel() {
       </div>
 
       <div class={clsx("flex items-center gap-4 px-3.5 py-3", !activeDocumentId() && "opacity-50 pointer-events-none")}>
-        <span class="text-[12px] text-editor-text-dim">Lock:</span>
+        <span class="text-[12px] text-editor-text-dim">{t("layers.lock", "Lock:")}</span>
         <div class="flex items-center gap-4 text-editor-icon">
           <Tooltip content={
-              activeLayer()?.isBackground ? "Rename layer to unlock" : (activeLayer()?.locked ? "Unlock layer" : "Lock layer")
+              activeLayer()?.isBackground ? t("layers.renameToUnlock", "Rename layer to unlock") : (activeLayer()?.locked ? t("layers.unlockLayer", "Unlock layer") : t("layers.lockLayer", "Lock layer"))
             }>
             <button
               disabled={!activeLayer() || activeLayer()?.isBackground}
@@ -483,7 +489,7 @@ export function LayersPanel() {
             </button>
           </Tooltip>
           <Tooltip content={
-              activeLayer()?.isBackground ? "Rename layer to unlock" : (activeLayer()?.lockTransparency ? "Unlock Transparency" : "Lock Transparency")
+              activeLayer()?.isBackground ? t("layers.renameToUnlock", "Rename layer to unlock") : (activeLayer()?.lockTransparency ? t("layers.unlockTransparency", "Unlock Transparency") : t("layers.lockTransparency", "Lock Transparency"))
             }>
             <button
               disabled={!activeLayer() || activeLayer()?.locked || activeLayer()?.isBackground}
@@ -497,7 +503,7 @@ export function LayersPanel() {
             </button>
           </Tooltip>
           <Tooltip content={
-              activeLayer()?.isBackground ? "Rename layer to unlock" : (activeLayer()?.lockPosition ? "Unlock Position" : "Lock Position")
+              activeLayer()?.isBackground ? t("layers.renameToUnlock", "Rename layer to unlock") : (activeLayer()?.lockPosition ? t("layers.unlockPosition", "Unlock Position") : t("layers.lockPosition", "Lock Position"))
             }>
             <button
               disabled={!activeLayer() || activeLayer()?.locked || activeLayer()?.isBackground}
@@ -511,7 +517,7 @@ export function LayersPanel() {
             </button>
           </Tooltip>
           <Tooltip content={
-              activeLayer()?.isBackground ? "Rename layer to unlock" : (activeLayer()?.lockRotation ? "Unlock Rotation" : "Lock Rotation")
+              activeLayer()?.isBackground ? t("layers.renameToUnlock", "Rename layer to unlock") : (activeLayer()?.lockRotation ? t("layers.unlockRotation", "Unlock Rotation") : t("layers.lockRotation", "Lock Rotation"))
             }>
             <button
               disabled={!activeLayer() || activeLayer()?.locked || activeLayer()?.isBackground}
@@ -610,8 +616,8 @@ export function LayersPanel() {
               <div class="flex w-full flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-editor-divider/50 text-center">
                 <Icon name="layers" class="size-6 text-editor-text-dim opacity-50" strokeWidth={1.5} />
                 <div class="space-y-1">
-                  <p class="text-[13px] font-medium text-editor-text">No layers yet</p>
-                  <p class="text-[12px] text-editor-text-dim leading-snug">Add an image to get started.</p>
+                  <p class="text-[13px] font-medium text-editor-text">{t("layers.noLayersYet", "No layers yet")}</p>
+                  <p class="text-[12px] text-editor-text-dim leading-snug">{t("layers.addAnImage", "Add an image to get started.")}</p>
                 </div>
               </div>
             </div>
@@ -705,51 +711,51 @@ export function LayersPanel() {
 
       {/* Layer Actions footer */}
       <div class={clsx("flex shrink-0 items-center gap-5 border-t border-editor-divider bg-editor-panel px-4 py-2.5 text-editor-icon", !activeDocumentId() && "opacity-50 pointer-events-none")}>
-        <Tooltip content="New Layer">
+        <Tooltip content={t("layers.newLayer", "New Layer")}>
           <button
             onClick={handleAddLayer}
             class="hover:text-editor-text"
-            aria-label="New Layer"
+            aria-label={t("layers.newLayer", "New Layer")}
           >
             <Icon name="plus" class="size-[17px]" strokeWidth={1.75} />
           </button>
         </Tooltip>
-        <Tooltip content="Duplicate Layer">
+        <Tooltip content={t("layers.duplicateLayer", "Duplicate Layer")}>
           <button
             onClick={handleDuplicateActiveLayer}
             disabled={!activeLayer()}
             class="hover:text-editor-text disabled:opacity-30"
-            aria-label="Duplicate Layer"
+            aria-label={t("layers.duplicateLayer", "Duplicate Layer")}
           >
             <Icon name="copy" class="size-[17px]" strokeWidth={1.75} />
           </button>
         </Tooltip>
-        <Tooltip content="Merge Down">
+        <Tooltip content={t("layers.mergeDown", "Merge Down")}>
           <button
             onClick={handleMergeActiveLayerDown}
             disabled={!activeLayer() || layers().indexOf(activeLayer()!) === layers().length - 1}
             class="hover:text-editor-text disabled:opacity-30"
-            aria-label="Merge Down"
+            aria-label={t("layers.mergeDown", "Merge Down")}
           >
             <Icon name="chevron-down" class="size-[17px]" strokeWidth={1.75} />
           </button>
         </Tooltip>
-        <Tooltip content="Flatten All Layers">
+        <Tooltip content={t("layers.flattenAll", "Flatten All Layers")}>
           <button
             onClick={handleFlattenAllLayers}
             disabled={layers().length <= 1}
             class="hover:text-editor-text disabled:opacity-30"
-            aria-label="Flatten All Layers"
+            aria-label={t("layers.flattenAll", "Flatten All Layers")}
           >
             <Icon name="square-dashed" class="size-[17px]" strokeWidth={1.75} />
           </button>
         </Tooltip>
-        <Tooltip content={activeLayer()?.isBackground ? "Cannot delete Background layer" : "Delete Layer"}>
+        <Tooltip content={activeLayer()?.isBackground ? t("layers.cannotDeleteBackground", "Cannot delete Background layer") : t("layers.deleteLayer", "Delete Layer")}>
           <button
             disabled={layers().length <= 1 || activeLayer()?.isBackground}
             onClick={handleDeleteActiveLayer}
             class="ml-auto hover:text-editor-accent disabled:opacity-30 disabled:hover:text-editor-icon"
-            aria-label="Delete Layer"
+            aria-label={t("layers.deleteLayer", "Delete Layer")}
           >
             <Icon name="trash" class="size-[17px]" strokeWidth={1.75} />
           </button>

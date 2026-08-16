@@ -13,8 +13,10 @@ import { Portal } from "solid-js/web";
 import { DesktopDialog, DesktopDialogButton, desktopDialogFieldClass } from "./DesktopDialog";
 import { Slider } from "../primitives";
 import { useEditor } from "../shell/EditorContext";
+import { useI18n } from "@/i18n/I18nProvider";
 import { NewDocumentDialogContent } from "./NewDocumentDialog";
 import { AboutDialog } from "./AboutDialog";
+import { SettingsDialog } from "./SettingsDialog";
 
 export interface ConfirmDialogOptions {
   title: string;
@@ -89,6 +91,7 @@ export interface DialogContextValue {
   colorPicker: (options: ColorPickerDialogOptions) => Promise<string | null>;
   newDocument: (options?: NewDocumentDialogOptions) => Promise<NewDocumentResult | null>;
   about: () => Promise<void>;
+  settings: () => Promise<void>;
 }
 
 export type DialogRequest =
@@ -99,7 +102,8 @@ export type DialogRequest =
   | { kind: "confirm-save"; options: ConfirmSaveOptions; resolve: (result: ConfirmSaveResult) => void }
   | { kind: "color-picker"; options: ColorPickerDialogOptions; resolve: (result: string | null) => void }
   | { kind: "new-document"; options: NewDocumentDialogOptions; resolve: (result: NewDocumentResult | null) => void }
-  | { kind: "about"; resolve: () => void };
+  | { kind: "about"; resolve: () => void }
+  | { kind: "settings"; resolve: () => void };
 
 const isDangerRequest = (request: DialogRequest) => (
   request.kind === "confirm" && request.options.tone === "danger"
@@ -118,6 +122,7 @@ export function useDialog(): DialogContextValue {
 }
 
 export function DialogProvider(props: ParentProps) {
+  const { t } = useI18n();
   const [current, setCurrent] = createSignal<DialogRequest | null>(null);
   const queue: DialogRequest[] = [];
   let dialogRef!: HTMLDivElement;
@@ -168,6 +173,11 @@ export function DialogProvider(props: ParentProps) {
 
   const about = () => new Promise<void>((resolve) => {
     queue.push({ kind: "about", resolve });
+    showNext();
+  });
+
+  const settings = () => new Promise<void>((resolve) => {
+    queue.push({ kind: "settings", resolve });
     showNext();
   });
 
@@ -323,6 +333,7 @@ export function DialogProvider(props: ParentProps) {
   }
 
   function ColorPickerDialogContent(props: { request: Extract<DialogRequest, { kind: "color-picker" }> }) {
+    const { t } = useI18n();
     const initialHex = props.request.options.initialColor;
     const initialRgb = hexToRgb(initialHex);
     const initialHsv = rgbToHsv(initialRgb.r, initialRgb.g, initialRgb.b);
@@ -498,12 +509,12 @@ export function DialogProvider(props: ParentProps) {
             <div class="flex items-start justify-between">
               {/* Swatch Preview Container */}
               <div class="flex flex-col items-center w-[86px] select-none">
-                <span class="text-[9px] font-medium text-editor-text-dim leading-none mb-1">new</span>
+                <span class="text-[9px] font-medium text-editor-text-dim leading-none mb-1">{t("common.newColor", "New Color").toLowerCase()}</span>
                 <div class="flex flex-col w-12 h-12 rounded-[4px] border border-editor-field-border overflow-hidden shadow-sm shrink-0">
-                  <div class="flex-1" style={{ "background-color": currentHex() }} title="New Color" />
-                  <div class="flex-1" style={{ "background-color": initialHex }} title="Current Color" />
+                  <div class="flex-1" style={{ "background-color": currentHex() }} title={t("common.newColor", "New Color")} />
+                  <div class="flex-1" style={{ "background-color": initialHex }} title={t("common.currentColor", "Current Color")} />
                 </div>
-                <span class="text-[9px] font-medium text-editor-text-dim leading-none mt-1">current</span>
+                <span class="text-[9px] font-medium text-editor-text-dim leading-none mt-1">{t("common.currentColor", "Current Color").toLowerCase()}</span>
               </div>
 
               {/* OK & Cancel buttons */}
@@ -664,7 +675,7 @@ export function DialogProvider(props: ParentProps) {
             data-dialog-cancel
             onClick={handleCancel}
           >
-            Cancel
+            {t("common.cancel", "Cancel")}
           </DesktopDialogButton>
           <DesktopDialogButton
             ref={(element) => { confirmRef = element; }}
@@ -672,13 +683,13 @@ export function DialogProvider(props: ParentProps) {
             variant="secondary"
             onClick={handleSave}
           >
-            Save
+            {t("menus.items.save", "Save")}
           </DesktopDialogButton>
         </>}
       >
         <div class="flex flex-col gap-4 p-2">
           <div class="flex items-center justify-between text-[11px] text-editor-text-dim">
-            <label class="font-semibold uppercase tracking-wider">Quality</label>
+            <label class="font-semibold uppercase tracking-wider">{t("dialogs.export.quality", "Quality")}</label>
             <span class="font-sans tabular-nums text-editor-text font-bold">{sliderValue()}%</span>
           </div>
           <div class="relative flex items-center h-[14px]">
@@ -694,8 +705,8 @@ export function DialogProvider(props: ParentProps) {
           </div>
           <p class="text-[11px] text-editor-text-dim leading-relaxed">
             {props.request.options.format === "jpeg"
-              ? "Higher quality = larger file size. 90-95% recommended for photos."
-              : "Higher quality = larger file size. WebP offers good compression at 80-90%."}
+              ? t("dialogs.export.jpegQualityHint", "Higher quality = larger file size. 90-95% recommended for photos.")
+              : t("dialogs.export.webpQualityHint", "Higher quality = larger file size. WebP offers good compression at 80-90%.")}
           </p>
         </div>
       </DesktopDialog>
@@ -828,7 +839,7 @@ export function DialogProvider(props: ParentProps) {
     );
   }
 
-  const value: DialogContextValue = { confirm, alert, quality, confirmWithCheckbox, confirmSave, colorPicker, newDocument, about };
+  const value: DialogContextValue = { confirm, alert, quality, confirmWithCheckbox, confirmSave, colorPicker, newDocument, about, settings };
 
   return (
     <DialogContext.Provider value={value}>
@@ -911,6 +922,19 @@ export function DialogProvider(props: ParentProps) {
               )}
               {r.kind === "about" && (
                 <AboutDialog
+                  onDismiss={() => {
+                    r.resolve();
+                    setCurrent(null);
+                    queueMicrotask(() => {
+                      restoreFocusTo?.focus();
+                      restoreFocusTo = null;
+                      showNext();
+                    });
+                  }}
+                />
+              )}
+              {r.kind === "settings" && (
+                <SettingsDialog
                   onDismiss={() => {
                     r.resolve();
                     setCurrent(null);

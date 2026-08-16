@@ -9,7 +9,7 @@ import { RightDock } from "./RightDock";
 import { useDesktopGuards, useDesktopShortcuts } from "@/lib/desktop";
 import { EmptyWorkspace } from "./EmptyWorkspace";
 import { ErrorBoundary } from "../ErrorBoundary";
-import { I18nProvider } from "@/i18n/I18nProvider";
+import { I18nProvider, useI18n } from "@/i18n/I18nProvider";
 
 const ResizeCanvasModal = lazy(() => import("../dialogs/ResizeCanvasModal").then(m => ({ default: m.ResizeCanvasModal })));
 const ExportDialog = lazy(() => import("../dialogs/ExportDialog").then(m => ({ default: m.ExportDialog })));
@@ -186,36 +186,42 @@ export function EditorShell() {
       <DragGlobalGuard />
       <TauriCloseGuard workspace={workspace} scheduler={scheduler} />
       <DesktopShortcutsGuard onToggleRightDock={toggleRightDock} />
-      <ErrorBoundary fallback={(err, reset) => (
-        <div class="flex flex-1 items-center justify-center bg-editor-bg p-8">
-          <div class="max-w-md rounded-lg border border-editor-divider bg-editor-panel p-6 shadow-lg">
-            <h2 class="mb-2 text-lg font-semibold text-editor-accent">Editor Error</h2>
-            <p class="mb-4 text-sm text-editor-text-dim">
-              An unexpected error occurred in the editor. Other panels and tabs remain accessible.
-            </p>
-            <details class="text-xs text-editor-text-dim">
-              <summary class="cursor-pointer hover:text-editor-text">Error details</summary>
-              <pre class="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-editor-divider bg-editor-bg p-2 font-mono text-[11px]">{err.message}</pre>
-            </details>
-            <button
-              type="button"
-              class="mt-4 rounded-md bg-editor-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-              onClick={() => reset()}
-            >
-              Try Again
-            </button>
-          </div>
-        </div>
-      )}>
-        <I18nProvider>
+      <I18nProvider>
+        <ErrorBoundary fallback={(err, reset) => <EditorErrorFallback err={err} reset={reset} />}>
           <EditorLayout
             rightDockOpen={rightDockOpen()}
             toggleRightDock={toggleRightDock}
             setRightDockOpen={setRightDockOpen}
           />
-        </I18nProvider>
-      </ErrorBoundary>
+        </ErrorBoundary>
+      </I18nProvider>
     </EditorProvider>
+  );
+}
+
+function EditorErrorFallback(props: { err: Error; reset: () => void }) {
+  const { t } = useI18n();
+
+  return (
+    <div class="flex flex-1 items-center justify-center bg-editor-bg p-8">
+      <div class="max-w-md rounded-lg border border-editor-divider bg-editor-panel p-6 shadow-lg">
+        <h2 class="mb-2 text-lg font-semibold text-editor-accent">{t("errors.editorError", "Editor Error")}</h2>
+        <p class="mb-4 text-sm text-editor-text-dim">
+          {t("errors.unexpectedError", "An unexpected error occurred in the editor. Other panels and tabs remain accessible.")}
+        </p>
+        <details class="text-xs text-editor-text-dim">
+          <summary class="cursor-pointer hover:text-editor-text">{t("errors.errorDetails", "Error details")}</summary>
+          <pre class="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-editor-divider bg-editor-bg p-2 font-mono text-[11px]">{props.err.message}</pre>
+        </details>
+        <button
+          type="button"
+          class="mt-4 rounded-md bg-editor-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+          onClick={() => props.reset()}
+        >
+          {t("errors.tryAgain", "Try Again")}
+        </button>
+      </div>
+    </div>
   );
 }
 

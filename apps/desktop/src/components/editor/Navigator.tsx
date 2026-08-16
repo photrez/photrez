@@ -2,6 +2,7 @@ import { createEffect, createSignal, Show, onMount, onCleanup } from "solid-js";
 import { useEditor } from "./shell/EditorContext";
 import { Icon } from "./icons";
 import { drawLayerToContext } from "@/engine/layerComposite";
+import { useI18n } from "@/i18n/I18nProvider";
 
 // Canvas 2D cannot use CSS var(); read the accent token once (the palette is
 // static dark per design lock, so a module-level read stays accurate).
@@ -33,6 +34,7 @@ interface NavigatorDragState {
 }
 
 export function Navigator() {
+  const { t } = useI18n();
   const {
     workspace,
     zoom,
@@ -281,7 +283,7 @@ export function Navigator() {
         fallback={
           <div class="flex h-[88px] flex-col items-center justify-center gap-2 rounded-[3px] border border-dashed border-editor-divider/50 text-center">
             <Icon name="crop" class="size-5 text-editor-text-dim opacity-50" strokeWidth={1.5} />
-            <span class="text-[12px] text-editor-text-dim">No image open</span>
+            <span class="text-[12px] text-editor-text-dim">{t("history.noImageOpen", "No image open")}</span>
           </div>
         }
       >

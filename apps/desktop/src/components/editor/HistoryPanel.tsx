@@ -2,8 +2,10 @@ import { For, Show } from "solid-js";
 import { useEditor } from "./shell/EditorContext";
 import { Icon, type IconName } from "./icons";
 import { clsx } from "clsx";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function HistoryPanel() {
+  const { t } = useI18n();
   const {
     activeDocumentId,
     historyItems,
@@ -36,7 +38,7 @@ export function HistoryPanel() {
               class="size-5 text-editor-text-dim opacity-50"
               strokeWidth={1.5}
             />
-            <span class="text-[12px] text-editor-text-dim">No image open</span>
+            <span class="text-[12px] text-editor-text-dim">{t("history.noImageOpen", "No image open")}</span>
           </div>
         }
       >
@@ -87,7 +89,7 @@ export function HistoryPanel() {
               </For>
               <Show when={historyItems().length === 1}>
                 <p class="px-4 py-2 text-[11px] text-editor-text-dim/55">
-                  Edits appear here
+                  {t("history.editsAppearHere", "Edits appear here")}
                 </p>
               </Show>
             </div>

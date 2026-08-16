@@ -3,8 +3,10 @@ import { useEditor } from "./shell/EditorContext";
 import { ToolPill, Divider, OptionCheckbox } from "./shell/OptionBarShared";
 import { Icon } from "./icons";
 import { Tooltip } from "./Tooltip";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function EyedropperOptionBar() {
+  const { t } = useI18n();
   const { fgColor } = useEditor();
   const [copied, setCopied] = createSignal(false);
   const [autoCopy, setAutoCopy] = createSignal(
@@ -39,7 +41,7 @@ export function EyedropperOptionBar() {
 
   return (
     <>
-      <ToolPill icon="pipette" label="Eyedropper" />
+      <ToolPill icon="pipette" label={t("tools.eyedropper", "Eyedropper")} />
 
       <Divider />
 
@@ -51,13 +53,13 @@ export function EyedropperOptionBar() {
         />
         
         {/* Click to Copy HEX badge */}
-        <Tooltip content="Click to copy HEX color">
+        <Tooltip content={t("tools.options.clickToCopyHex", "Click to copy HEX color")}>
           <button
             type="button"
             onClick={copyHexToClipboard}
             class="group flex h-[24px] items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[10px] font-sans font-semibold text-white transition-colors hover:border-[#4B515D] cursor-pointer select-none"
           >
-            <span class="font-mono text-[11px] font-semibold tracking-wide text-white">{copied() ? "Copied!" : fgColor()}</span>
+            <span class="font-mono text-[11px] font-semibold tracking-wide text-white">{copied() ? t("tools.options.copied", "Copied!") : fgColor()}</span>
             <Show when={copied()} fallback={<Icon name="copy" class="size-3 text-[#A1A1AA] group-hover:text-white transition-colors" />}>
               <Icon name="check" class="size-3 text-editor-accent" strokeWidth={2.5} />
             </Show>
@@ -71,7 +73,7 @@ export function EyedropperOptionBar() {
       <OptionCheckbox
         checked={autoCopy()}
         onChange={handleAutoCopyChange}
-        label="Auto-Copy HEX"
+        label={t("tools.options.autoCopyHex", "Auto-Copy HEX")}
       />
     </>
   );

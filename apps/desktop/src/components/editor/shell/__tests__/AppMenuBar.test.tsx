@@ -168,4 +168,13 @@ describe("AppMenuBar", () => {
     expect(button(closedHost.container, "Show Side Panels")).toBeEnabled();
     closedHost.dispose();
   });
+
+  it("opens Settings menu and routes Preferences to app.settings", () => {
+    const host = renderMenu();
+    button(host.container, "Settings").click();
+    expect(document.querySelector('[role="menu"][aria-label="Settings menu"]')).not.toBeNull();
+    button(host.container, "Preferences…").click();
+    expect(host.execute).toHaveBeenCalledWith("app.settings");
+    host.dispose();
+  });
 });

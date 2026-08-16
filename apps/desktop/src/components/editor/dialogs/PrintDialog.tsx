@@ -7,6 +7,7 @@ import { DesktopDialog } from "./DesktopDialog";
 import { PrintPaperViewport } from "../print/PrintPaperViewport";
 import { PrintInspector } from "../print/PrintInspector";
 import { usePrintSettings } from "../print/usePrintSettings";
+import { useI18n } from "@/i18n/I18nProvider";
 
 /// Downscale an encoded image (JPEG bytes) so the longest edge is at most `maxPx`.
 /// Returns a JPEG blob suitable for preview. Falls back to original data if
@@ -32,6 +33,7 @@ async function downscalePreview(data: Uint8Array, maxPx: number): Promise<Blob> 
 }
 
 export function PrintDialog() {
+  const { t } = useI18n();
   const {
     showPrintDialog,
     setShowPrintDialog,
@@ -144,7 +146,7 @@ export function PrintDialog() {
       <PreviewTrigger />
       <Portal mount={document.body}>
         <DesktopDialog
-          title="Photrez Print Settings"
+          title={t("dialogs.print.title", "Photrez Print Settings")}
           kind="print"
           manageFocus
           dismissible={!printing()}
@@ -211,7 +213,7 @@ export function PrintDialog() {
                 onClick={() => setShowPrintDialog(false)}
                 disabled={printing()}
               >
-                Cancel
+                {t("common.cancel", "Cancel")}
               </button>
               <button
                 type="button"
@@ -225,7 +227,7 @@ export function PrintDialog() {
                     <path class="opacity-100" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                 </Show>
-                {printPhase() === "preparing" ? "Preparing..." : printPhase() === "done" ? "Sent to printer" : "Print"}
+                {printPhase() === "preparing" ? t("common.loading", "Preparing...") : printPhase() === "done" ? "Sent to printer" : t("dialogs.print.printBtn", "Print")}
               </button>
             </div>
           </div>

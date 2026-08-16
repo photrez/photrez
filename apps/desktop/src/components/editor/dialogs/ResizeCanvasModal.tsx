@@ -8,8 +8,10 @@ import { DesktopDialog, DesktopDialogButton, desktopDialogFieldClass } from "./D
 import { getEffectiveMaxDim } from "@/engine/types";
 import { showToast } from "../Toast";
 import { type Unit, UNITS, formatUnit, unitToPx, pxToUnit } from "@/lib/units";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function ResizeCanvasModal() {
+  const { t } = useI18n();
   const {
     showResizeDialog,
     setShowResizeDialog,
@@ -133,21 +135,21 @@ export function ResizeCanvasModal() {
     <Show when={showResizeDialog()}>
       <Portal mount={document.body}>
         <DesktopDialog
-          title="Resize Canvas"
+          title={t("dialogs.resizeCanvas.title", "Resize Canvas")}
           kind="resize-canvas"
           manageFocus
           onDismiss={handleCancel}
           actions={<>
-            <DesktopDialogButton onClick={handleCancel}>Cancel</DesktopDialogButton>
-            <DesktopDialogButton variant="primary" onClick={handleApply}>Resize</DesktopDialogButton>
+            <DesktopDialogButton onClick={handleCancel}>{t("common.cancel", "Cancel")}</DesktopDialogButton>
+            <DesktopDialogButton variant="primary" onClick={handleApply}>{t("dialogs.resizeCanvas.resize", "Resize")}</DesktopDialogButton>
           </>}
         >
           <div class="flex flex-col gap-2.5">
             <p class="mb-1 text-[11px] text-editor-text-dim">
-              Set the canvas dimensions. Existing layer content keeps its top-left position.
+              {t("dialogs.resizeCanvas.description", "Set the canvas dimensions. Existing layer content keeps its top-left position.")}
             </p>
             <div class="flex items-center gap-2">
-              <label for="resize-canvas-width" class="w-[52px] text-[11px] font-medium text-editor-text-dim">Width</label>
+              <label for="resize-canvas-width" class="w-[52px] text-[11px] font-medium text-editor-text-dim">{t("dialogs.resizeCanvas.width", "Width")}</label>
               <input
                 id="resize-canvas-width"
                 ref={wRef!}
@@ -172,7 +174,7 @@ export function ResizeCanvasModal() {
             </div>
 
             <div class="flex h-6 items-center pl-[52px]">
-              <Tooltip content={aspectLocked() ? "Unlock aspect ratio" : "Lock aspect ratio"}>
+              <Tooltip content={aspectLocked() ? t("dialogs.resizeCanvas.unlockAspect", "Unlock aspect ratio") : t("dialogs.resizeCanvas.lockAspect", "Lock aspect ratio")}>
                 <button
                   type="button"
                   onClick={() => setAspectLocked(!aspectLocked())}
@@ -184,13 +186,13 @@ export function ResizeCanvasModal() {
                   }`}
                 >
                   <Icon name={aspectLocked() ? "link" : "unlink"} class="size-3.5" strokeWidth={1.75} />
-                  Keep proportions
+                  {t("dialogs.resizeCanvas.keepProportions", "Keep proportions")}
                 </button>
               </Tooltip>
             </div>
 
             <div class="flex items-center gap-2">
-              <label for="resize-canvas-height" class="w-[52px] text-[11px] font-medium text-editor-text-dim">Height</label>
+              <label for="resize-canvas-height" class="w-[52px] text-[11px] font-medium text-editor-text-dim">{t("dialogs.resizeCanvas.height", "Height")}</label>
               <input
                 id="resize-canvas-height"
                 ref={hRef!}

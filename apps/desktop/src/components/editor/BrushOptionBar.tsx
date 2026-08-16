@@ -5,12 +5,14 @@ import { ToolPill, MoreDropdown, Divider } from "./shell/OptionBarShared";
 import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
 import { Slider } from "./primitives";
+import { useI18n } from "@/i18n/I18nProvider";
 
 function formatPercent(value: number): number {
   return Math.round(value * 100);
 }
 
 export function BrushOptionBar() {
+  const { t } = useI18n();
   const {
     activeTool,
     brushSize, setBrushSize,
@@ -28,7 +30,7 @@ export function BrushOptionBar() {
   } = useEditor();
 
   const isEraser = () => activeTool() === "eraser";
-  const label = () => (isEraser() ? "Eraser" : "Brush");
+  const label = () => (isEraser() ? t("tools.eraser", "Eraser") : t("tools.brush", "Brush"));
   const size = () => (isEraser() ? eraserSize() : brushSize());
   const hardness = () => (isEraser() ? eraserHardness() : brushHardness());
   const opacity = () => (isEraser() ? eraserOpacity() : brushOpacity());
@@ -125,7 +127,7 @@ export function BrushOptionBar() {
 
       <div class="flex items-center gap-1.5 shrink-0">
         <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
-          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Size</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{t("tools.options.size", "Size")}</span>
           <input
             data-paint-size
             type="number"
@@ -159,7 +161,7 @@ export function BrushOptionBar() {
       <Divider />
       <div class="flex items-center gap-1.5 shrink-0">
         <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
-          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Hard</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{t("tools.options.hard", "Hard")}</span>
           <input
             data-paint-hardness
             type="number"
@@ -173,7 +175,7 @@ export function BrushOptionBar() {
         </label>
 
         <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
-          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Strength</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{t("tools.options.strength", "Strength")}</span>
           <input
             data-paint-opacity
             type="number"
@@ -192,7 +194,7 @@ export function BrushOptionBar() {
         <Divider />
 
         <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
-          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Flow</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{t("tools.options.flow", "Flow")}</span>
           <input
             data-paint-flow
             type="number"
@@ -206,7 +208,7 @@ export function BrushOptionBar() {
         </label>
 
         <label class="flex h-[24px] items-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-1.5 transition-colors focus-within:border-editor-accent hover:border-[#4B515D]">
-          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">Smooth</span>
+          <span class="text-[10px] font-medium text-[#A1A1AA] select-none">{t("tools.options.smooth", "Smooth")}</span>
           <input
             data-paint-smoothing
             type="number"
@@ -220,7 +222,7 @@ export function BrushOptionBar() {
         </label>
 
         <div class="relative">
-          <Tooltip content="Brush presets">
+          <Tooltip content={t("tools.options.brushPresets", "Brush presets")}>
             <button
               type="button"
               data-paint-preset
@@ -250,11 +252,11 @@ export function BrushOptionBar() {
         </div>
 
         <Show when={isEraser()}>
-          <Tooltip content="Set eraser to full hard strength">
+          <Tooltip content={t("tools.options.eraserFullStrength", "Set eraser to full hard strength")}>
             <button
               type="button"
               class="h-[24px] rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 px-2 text-[11px] font-semibold text-[#A1A1AA] transition-colors hover:border-editor-field-border hover:bg-editor-field hover:text-white cursor-pointer select-none"
-              aria-label="Set eraser to full hard strength"
+              aria-label={t("tools.options.eraserFullStrength", "Set eraser to full hard strength")}
               onClick={() => {
                 setEraserHardness(1);
                 setEraserOpacity(1);
@@ -271,25 +273,25 @@ export function BrushOptionBar() {
       {/* Overflow dropdown for narrow container */}
       <MoreDropdown>
           {/* Flow */}
-         <div class="flex flex-col gap-1">
-           <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Flow</span>
-           <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
-             <input
-               type="number"
-               min="0"
-               max="100"
-               value={formatPercent(flow())}
-               onInput={(e) => setFlowValue(Number(e.currentTarget.value))}
-               class="w-full bg-transparent text-[11px] text-editor-text outline-none"
-             />
-             <span class="text-[10px] text-editor-text-dim">%</span>
-           </label>
-         </div>
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">{t("tools.options.flow", "Flow")}</span>
+            <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={formatPercent(flow())}
+                onInput={(e) => setFlowValue(Number(e.currentTarget.value))}
+                class="w-full bg-transparent text-[11px] text-editor-text outline-none"
+              />
+              <span class="text-[10px] text-editor-text-dim">%</span>
+            </label>
+          </div>
 
-         {/* Smoothing */}
-         <div class="flex flex-col gap-1">
-           <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Smoothing</span>
-           <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
+          {/* Smoothing */}
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">{t("tools.options.smoothing", "Smoothing")}</span>
+            <label class="flex h-[24px] items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1.5">
               <input
                 type="number"
                 min="0"
@@ -306,9 +308,9 @@ export function BrushOptionBar() {
 
         {/* Preset Selector */}
         <div class="flex flex-col gap-1">
-          <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Presets</span>
+          <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">{t("panels.presets", "Presets")}</span>
           <div class="relative">
-            <Tooltip content="Brush presets">
+            <Tooltip content={t("tools.options.brushPresets", "Brush presets")}>
               <button
                 type="button"
                 onClick={() => setShowPresets(!showPresets())}
@@ -339,11 +341,11 @@ export function BrushOptionBar() {
 
         {/* Eraser hard-100 helper */}
         <Show when={isEraser()}>
-          <Tooltip content="Set eraser to full hard strength">
+          <Tooltip content={t("tools.options.eraserFullStrength", "Set eraser to full hard strength")}>
             <button
               type="button"
               class="h-[24px] w-full rounded-[3px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text hover:bg-editor-field/85 transition-colors mt-1"
-              aria-label="Set eraser to full hard strength"
+              aria-label={t("tools.options.eraserFullStrength", "Set eraser to full hard strength")}
               onClick={() => {
                 setEraserHardness(1);
                 setEraserOpacity(1);

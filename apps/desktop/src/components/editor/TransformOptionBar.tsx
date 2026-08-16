@@ -7,8 +7,10 @@ import { useEditor } from "./shell/EditorContext";
 import { ToggleBtn, Divider, ToolPill, MoreDropdown } from "./shell/OptionBarShared";
 import { cancelLayerTransformSession, commitLayerTransformSession, resetLayerTransformPreview } from "./transformSession";
 import type { Transform2D } from "@/engine/types";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function TransformOptionBar() {
+  const { t } = useI18n();
   const {
     workspace,
     scheduler,
@@ -119,7 +121,7 @@ export function TransformOptionBar() {
 
   return (
     <>
-      <ToolPill icon="move" label="Transform" />
+      <ToolPill icon="move" label={t("properties.transform", "Transform")} />
 
       <Divider />
 
@@ -193,18 +195,18 @@ export function TransformOptionBar() {
               <div class="hidden @min-[880px]:flex items-center gap-1.5 shrink-0">
                 <Show when={session()}>
                   {(s) => (
-                  <Tooltip content="Lock Aspect Ratio">
+                  <Tooltip content={t("tools.options.lockAspectRatio", "Lock Aspect Ratio")}>
                     <ToggleBtn
                       active={constrainRatio()}
                       onChange={setConstrainRatio}
                       icon={constrainRatio() ? "link" : "unlink"}
-                      label="Ratio"
+                      label={t("tools.options.aspectRatio", "Ratio")}
                     />
                   </Tooltip>
                   )}
                 </Show>
 
-                <Tooltip content="Reset preview transform values">
+                <Tooltip content={t("tools.options.resetTransformPreview", "Reset preview transform values")}>
                   <button
                     type="button"
                     onClick={resetPreview}
@@ -216,7 +218,7 @@ export function TransformOptionBar() {
                         : "border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white",
                     )}
                   >
-                    Reset Preview
+                    {t("properties.reset", "Reset Preview")}
                   </button>
                 </Tooltip>
               </div>
@@ -230,17 +232,17 @@ export function TransformOptionBar() {
         {(s) => (
           <MoreDropdown>
             <div class="flex flex-col gap-1.5">
-              <span class="text-[10px] font-bold text-[#A1A1AA] uppercase tracking-wider">Options</span>
+              <span class="text-[10px] font-bold text-[#A1A1AA] uppercase tracking-wider">{t("tools.options.moreOptions", "Options")}</span>
               <div class="flex items-center gap-2 bg-editor-field/30 p-1.5 rounded-[4px] border border-editor-field-border">
-                <Tooltip content="Lock Aspect Ratio">
+                <Tooltip content={t("tools.options.lockAspectRatio", "Lock Aspect Ratio")}>
                   <ToggleBtn
                     active={constrainRatio()}
                     onChange={setConstrainRatio}
                     icon={constrainRatio() ? "link" : "unlink"}
-                    label="Ratio"
+                    label={t("tools.options.aspectRatio", "Ratio")}
                   />
                 </Tooltip>
-                <Tooltip content="Reset preview transform values">
+                <Tooltip content={t("tools.options.resetTransformPreview", "Reset preview transform values")}>
                   <button
                     type="button"
                     onClick={resetPreview}
@@ -252,7 +254,7 @@ export function TransformOptionBar() {
                         : "border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white",
                     )}
                   >
-                    Reset
+                    {t("properties.reset", "Reset")}
                   </button>
                 </Tooltip>
               </div>
@@ -263,22 +265,22 @@ export function TransformOptionBar() {
 
       <Divider />
 
-      <Tooltip content="Apply transform" shortcut="Enter">
+      <Tooltip content={t("tools.options.applyTransform", "Apply transform")} shortcut="Enter">
         <button
           type="button"
           class="h-6 px-2.5 rounded-[4px] border border-editor-accent bg-editor-accent text-white text-[11px] font-bold shadow-xs hover:bg-editor-accent/90 cursor-pointer select-none transition-colors"
           onClick={apply}
         >
-          Apply
+          {t("common.apply", "Apply")}
         </button>
       </Tooltip>
-      <Tooltip content="Cancel transform" shortcut="Esc">
+      <Tooltip content={t("tools.options.cancelTransform", "Cancel transform")} shortcut="Esc">
         <button
           type="button"
           class="h-6 px-2.5 rounded-[4px] border border-[#363B44] bg-editor-field text-[#A1A1AA] text-[11px] font-semibold hover:border-[#4B515D] hover:text-white cursor-pointer select-none transition-colors"
           onClick={cancel}
         >
-          Cancel
+          {t("common.cancel", "Cancel")}
         </button>
       </Tooltip>
     </>

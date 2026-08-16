@@ -11,6 +11,7 @@ import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
 import { useDialog } from "./dialogs/DialogProvider";
 import { useEditor } from "./shell/EditorContext";
+import { useI18n } from "@/i18n/I18nProvider";
 import { CROP_PRESETS } from "@/viewport/cropPresets";
 
 // ─── Type guards (moved from CropOptionBar) ───
@@ -40,12 +41,13 @@ export function CropStraightenControl(props: {
   onResetRotation: () => void;
   layout: "inline" | "menu";
 }) {
+  const { t } = useI18n();
   const rotation = () => props.rotation();
   if (props.layout === "menu") {
     return (
       <div class="flex flex-col gap-1.5">
         <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">
-          Straighten
+          {t("crop.straighten", "Straighten")}
         </span>
         <div class="flex items-center gap-2">
           <div class="relative flex h-[18px] flex-1 items-center">
@@ -76,9 +78,9 @@ export function CropStraightenControl(props: {
   }
   return (
     <div class="flex items-center gap-1.5">
-      <Tooltip content="Straighten / rotate">
+      <Tooltip content={t("tools.options.straightenRotate", "Straighten / rotate")}>
         <span class="text-[10px] text-editor-text-dim select-none uppercase tracking-wide">
-          Straighten
+          {t("crop.straighten", "Straighten")}
         </span>
       </Tooltip>
       <div class="relative flex h-[18px] w-[88px] items-center">
@@ -111,28 +113,29 @@ export function CropRotateButtons(props: {
   onRotate: (delta: number) => void;
   layout: "inline" | "menu";
 }) {
+  const { t } = useI18n();
   if (props.layout === "menu") {
     return (
       <div class="flex flex-col gap-1.5 mt-1.5">
         <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">
-          Rotate
+          {t("properties.rotation", "Rotate")}
         </span>
         <div class="flex items-center h-[26px] bg-editor-field rounded-[4px] border border-editor-field-border p-[1px]">
-          <Tooltip content="Rotate 90° CCW">
+          <Tooltip content={t("tools.options.rotate90CCW", "Rotate 90° CCW")}>
             <button
               onClick={() => props.onRotate(-90)}
               class="flex-1 flex items-center justify-center h-full rounded-[2px] text-editor-icon hover:bg-editor-hover hover:text-white transition-colors"
-              aria-label="Rotate 90 degrees counter-clockwise"
+              aria-label={t("tools.options.rotate90CCW", "Rotate 90° CCW")}
             >
               <Icon name="rotate-ccw" class="size-[14px]" strokeWidth={2} />
             </button>
           </Tooltip>
           <div class="w-px h-3.5 bg-editor-field-border mx-[1px]" />
-          <Tooltip content="Rotate 90° CW">
+          <Tooltip content={t("tools.options.rotate90CW", "Rotate 90° CW")}>
             <button
               onClick={() => props.onRotate(90)}
               class="flex-1 flex items-center justify-center h-full rounded-[2px] text-editor-icon hover:bg-editor-hover hover:text-white transition-colors"
-              aria-label="Rotate 90 degrees clockwise"
+              aria-label={t("tools.options.rotate90CW", "Rotate 90° CW")}
             >
               <Icon name="rotate-cw" class="size-[14px]" strokeWidth={2} />
             </button>
@@ -143,20 +146,20 @@ export function CropRotateButtons(props: {
   }
   return (
     <div class="flex items-center gap-1">
-      <Tooltip content="Rotate 90° CCW">
+      <Tooltip content={t("tools.options.rotate90CCW", "Rotate 90° CCW")}>
         <button
           onClick={() => props.onRotate(-90)}
           class="flex size-[24px] shrink-0 items-center justify-center rounded-[3px] border border-transparent text-editor-icon hover:border-editor-field-border hover:text-editor-text transition-colors"
-          aria-label="Rotate 90 degrees counter-clockwise"
+          aria-label={t("tools.options.rotate90CCW", "Rotate 90° CCW")}
         >
           <Icon name="rotate-ccw" class="size-4" strokeWidth={1.5} />
         </button>
       </Tooltip>
-      <Tooltip content="Rotate 90° CW">
+      <Tooltip content={t("tools.options.rotate90CW", "Rotate 90° CW")}>
         <button
           onClick={() => props.onRotate(90)}
           class="flex size-[24px] shrink-0 items-center justify-center rounded-[3px] border border-transparent text-editor-icon hover:border-editor-field-border hover:text-editor-text transition-colors"
-          aria-label="Rotate 90 degrees clockwise"
+          aria-label={t("tools.options.rotate90CW", "Rotate 90° CW")}
         >
           <Icon name="rotate-cw" class="size-4" strokeWidth={1.5} />
         </button>
@@ -213,22 +216,23 @@ export function CropClassicToggle(props: {
   onChange: (v: boolean) => void;
   layout: "inline" | "menu";
 }) {
+  const { t } = useI18n();
   const checkbox = (
     <OptionCheckbox
       checked={props.checked()}
       onChange={props.onChange}
-      label="Classic Crop"
+      label={t("crop.classicCrop", "Classic Crop")}
     />
   );
   if (props.layout === "menu") {
     return (
-      <Tooltip content="Classic crop: draw a rectangle on the image (resizes canvas)">
+      <Tooltip content={t("tools.options.classicCropTip", "Classic crop: draw a rectangle on the image (resizes canvas)")}>
         <div class="flex items-center -mx-1.5 px-1.5">{checkbox}</div>
       </Tooltip>
     );
   }
   return (
-    <Tooltip content="Classic crop: draw a rectangle on the image (resizes canvas)">
+    <Tooltip content={t("tools.options.classicCropTip", "Classic crop: draw a rectangle on the image (resizes canvas)")}>
       {checkbox}
     </Tooltip>
   );
@@ -251,6 +255,8 @@ export function CropRatioPicker(props: {
   isActivePill: (p: { w: number; h: number }) => boolean;
   onPillClick: (p: { w: number; h: number }) => void;
 }) {
+  const { t } = useI18n();
+
   return (
     <div class="relative">
       <button
@@ -259,13 +265,13 @@ export function CropRatioPicker(props: {
         class="group flex h-[24px] shrink-0 items-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-semibold text-white hover:border-[#4B515D] transition-colors cursor-pointer select-none whitespace-nowrap"
       >
         <span class="font-medium text-[#A1A1AA]">
-          Ratio: <span class="font-semibold text-white">{props.ratioLabel()}</span>
+          {t("tools.options.aspectRatio", "Ratio")}: <span class="font-semibold text-white">{props.ratioLabel()}</span>
         </span>
         <Icon name="chevron-down" class="size-3 text-[#A1A1AA] group-hover:text-white transition-colors shrink-0" />
       </button>
 
       <Show when={props.open()}>
-        <div class="absolute top-full left-0 z-50 mt-1.5 flex flex-col rounded-[6px] border border-[#363B44] bg-[#1B1D22] py-1 shadow-2xl max-h-[300px] overflow-y-auto min-w-[160px]">
+        <div class="absolute left-0 top-full mt-1.5 flex flex-col rounded-[6px] border border-[#363B44] bg-[#1B1D22] py-1 shadow-2xl max-h-[300px] overflow-y-auto min-w-[160px] z-50">
           <div
             class="fixed inset-0 z-[-1]"
             onClick={() => props.setOpen(false)}
@@ -282,7 +288,7 @@ export function CropRatioPicker(props: {
             }}
           >
             <Icon name="lock" class="size-3" strokeWidth={1.5} />
-            <span>Lock Current Shape</span>
+            <span>{t("crop.lockShape", "Lock Current Shape")}</span>
           </button>
 
           <div class="h-px bg-[#2D323C] my-1" />
@@ -290,7 +296,7 @@ export function CropRatioPicker(props: {
           {/* Recents list if available */}
           <Show when={props.recents().length > 0}>
             <div class="px-3 py-0.5 text-[9px] font-bold text-[#A1A1AA] uppercase tracking-wider">
-              Recents
+              {t("common.recents", "Recents")}
             </div>
             <For each={props.recents()}>
               {(r) => (
@@ -441,13 +447,14 @@ export function CropSizeInputs(props: {
 }
 
 function SwapButton(props: { onSwap: () => void }) {
+  const { t } = useI18n();
   return (
-    <Tooltip content="Swap Width/Height">
+    <Tooltip content={t("tools.options.swapDimensions", "Swap Width/Height")}>
       <button
         type="button"
         onClick={props.onSwap}
         class="flex size-[20px] shrink-0 items-center justify-center rounded-[3px] border border-transparent text-editor-icon hover:border-editor-field-border hover:text-editor-text transition-colors cursor-pointer"
-        aria-label="Swap width and height"
+        aria-label={t("tools.options.swapDimensions", "Swap Width/Height")}
       >
         <Icon name="swap" class="size-3.5" strokeWidth={1.5} />
       </button>
@@ -467,6 +474,7 @@ export function CropFillControls(props: {
   onPickColor: (v: string) => void;
   onUseBackground: () => void;
 }) {
+  const { t } = useI18n();
   const dialogs = useDialog();
   const { setColorPickerOpen, setColorPickerTarget } = useEditor();
 
@@ -522,7 +530,7 @@ export function CropFillControls(props: {
           class="flex h-[24px] shrink-0 items-center gap-1 rounded-[3px] border border-editor-field-border bg-editor-field px-1"
           data-crop-fill-source={props.fillSource()}
         >
-          <Tooltip content="Crop fill color">
+          <Tooltip content={t("tools.options.cropFillColor", "Crop fill color")}>
             <button
               data-crop-fill-color
               type="button"
@@ -531,7 +539,7 @@ export function CropFillControls(props: {
               style={{ "background-color": props.fillColor() }}
             />
           </Tooltip>
-          <Tooltip content="Use Background Color">
+          <Tooltip content={t("tools.options.useBgColor", "Use Background Color")}>
             <button
               data-crop-fill-use-bg
               type="button"

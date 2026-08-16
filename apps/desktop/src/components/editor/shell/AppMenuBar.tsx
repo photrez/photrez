@@ -19,6 +19,47 @@ const MENU_LABEL_KEYS: Record<MenuItem, string> = {
   View: "menus.view",
   Window: "menus.window",
   Help: "menus.help",
+  Settings: "menus.settings",
+};
+
+const MENU_ITEM_KEYS: Partial<Record<EditorCommand, string>> = {
+  "file.new": "menus.items.newDocument",
+  "file.open": "menus.items.openImage",
+  "file.save": "menus.items.save",
+  "file.save-as": "menus.items.saveAs",
+  "file.export": "menus.items.export",
+  "file.print": "menus.items.print",
+  "edit.undo": "menus.items.undo",
+  "edit.redo": "menus.items.redo",
+  "edit.cut": "menus.items.cut",
+  "edit.copy": "menus.items.copy",
+  "edit.paste": "menus.items.paste",
+  "edit.select-all": "menus.items.selectAll",
+  "edit.deselect": "menus.items.deselect",
+  "edit.invert-selection": "menus.items.invertSelection",
+  "image.resize": "menus.items.resizeCanvas",
+  "layer.new": "menus.items.newLayer",
+  "layer.duplicate": "menus.items.duplicateLayer",
+  "layer.delete": "menus.items.deleteLayer",
+  "layer.select-all": "menus.items.selectAllLayers",
+  "layer.merge-down": "menus.items.mergeDown",
+  "layer.stamp-visible": "menus.items.stampVisible",
+  "layer.flatten": "menus.items.flattenImage",
+  "view.zoom-in": "menus.items.zoomIn",
+  "view.zoom-out": "menus.items.zoomOut",
+  "view.actual-size": "menus.items.actualSize",
+  "view.fit-canvas": "menus.items.fitCanvas",
+  "view.zoom-to-selection": "menus.items.zoomToSelection",
+  "view.toggle-snap": "menus.items.snap",
+  "view.toggle-snap-layers": "menus.items.snapToLayers",
+  "view.toggle-snap-canvas": "menus.items.snapToCanvas",
+  "view.toggle-side-panels": "menus.items.toggleSidePanels",
+  "view.toggle-right-dock-layout": "menus.items.useStackedSideDock",
+  "window.minimize": "menus.items.minimize",
+  "window.toggle-maximize": "menus.items.maximize",
+  "window.close": "menus.items.closeWindow",
+  "help.about": "menus.items.about",
+  "app.settings": "menus.items.preferences",
 };
 
 const MENU_DEFINITIONS: Record<MenuItem, readonly MenuEntry[]> = {
@@ -82,6 +123,9 @@ const MENU_DEFINITIONS: Record<MenuItem, readonly MenuEntry[]> = {
   Help: [
     { kind: "item", label: "About Photrez", command: "help.about" },
   ],
+  Settings: [
+    { kind: "item", label: "Preferences…", command: "app.settings" },
+  ],
 };
 
 type AppMenuBarProps = {
@@ -96,6 +140,7 @@ function RecentFilesMenu(props: {
   onOpenRecent: (path: string) => void;
   onClearRecent: () => void;
 }) {
+  const { t } = useI18n();
   const recent = getRecentFiles();
   return (
     <>
@@ -117,17 +162,17 @@ function RecentFilesMenu(props: {
         <button
           type="button"
           role="menuitem"
-          aria-label="Clear Recent Files"
+          aria-label={t("menus.items.clearRecent", "Clear Recent Files")}
           class="flex h-7 w-full items-center px-3 text-left text-[11px] text-editor-text-dim outline-none hover:bg-editor-field/70 focus-visible:bg-editor-field/70"
           onClick={() => props.onClearRecent()}
         >
-          Clear Recent Files
+          {t("menus.items.clearRecent", "Clear Recent Files")}
         </button>
       </Show>
       <Show when={recent.length === 0}>
         <div role="separator" class="my-1 h-px bg-editor-divider" />
         <div role="menuitem" class="flex h-7 items-center px-3 text-[11px] text-editor-text-dim/60" aria-disabled="true">
-          No Recent Files
+          {t("menus.items.noRecentFiles", "No Recent Files")}
         </div>
       </Show>
     </>
@@ -210,37 +255,40 @@ export function AppMenuBar(props: AppMenuBarProps) {
 
   const labelFor = (entry: Extract<MenuEntry, { kind: "item" }>) => {
     if (entry.command === "view.toggle-side-panels") {
-      return props.isRightDockOpen ? "Hide Side Panels" : "Show Side Panels";
+      return props.isRightDockOpen ? t("menus.items.hideSidePanels", "Hide Side Panels") : t("menus.items.showSidePanels", "Show Side Panels");
     }
     if (entry.command === "view.toggle-right-dock-layout") {
       const editor = useEditor();
-      return editor.rightDockLayout() === "side-by-side" ? "Use Stacked Side Dock" : "Use Side-by-Side Side Dock";
+      return editor.rightDockLayout() === "side-by-side"
+        ? t("menus.items.useStackedSideDock", "Use Stacked Side Dock")
+        : t("menus.items.useSideBySideSideDock", "Use Side-by-Side Side Dock");
     }
     if (entry.command === "view.toggle-snap") {
       try {
         const editor = useEditor();
-        return editor.moveSnapEnabled() ? "✓ Snap" : "Snap";
+        return editor.moveSnapEnabled() ? `✓ ${t("menus.items.snap", "Snap")}` : t("menus.items.snap", "Snap");
       } catch {
-        return entry.label;
+        return t("menus.items.snap", entry.label);
       }
     }
     if (entry.command === "view.toggle-snap-layers") {
       try {
         const editor = useEditor();
-        return editor.snapToLayersEnabled() ? "✓ Snap to Layers" : "Snap to Layers";
+        return editor.snapToLayersEnabled() ? `✓ ${t("menus.items.snapToLayers", "Snap to Layers")}` : t("menus.items.snapToLayers", "Snap to Layers");
       } catch {
-        return entry.label;
+        return t("menus.items.snapToLayers", entry.label);
       }
     }
     if (entry.command === "view.toggle-snap-canvas") {
       try {
         const editor = useEditor();
-        return editor.snapToCanvasEnabled() ? "✓ Snap to Canvas" : "Snap to Canvas";
+        return editor.snapToCanvasEnabled() ? `✓ ${t("menus.items.snapToCanvas", "Snap to Canvas")}` : t("menus.items.snapToCanvas", "Snap to Canvas");
       } catch {
-        return entry.label;
+        return t("menus.items.snapToCanvas", entry.label);
       }
     }
-    return entry.label;
+    const key = MENU_ITEM_KEYS[entry.command];
+    return key ? t(key, entry.label) : entry.label;
   };
 
   const activate = (command: EditorCommand) => {

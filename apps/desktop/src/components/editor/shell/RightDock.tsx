@@ -1,8 +1,4 @@
 import { createSignal, Show, type JSX } from "solid-js";
-
-function FadeIn(props: { children: JSX.Element }) {
-  return <div class="animate-fade-in flex flex-col flex-1 min-h-0">{props.children}</div>;
-}
 import { clsx } from "clsx";
 import { Icon } from "../icons";
 import { Tooltip } from "../Tooltip";
@@ -13,6 +9,11 @@ import { HistoryPanel } from "../HistoryPanel";
 import { Navigator } from "../Navigator";
 import { useEditor } from "./EditorContext";
 import { Slider } from "../primitives";
+import { useI18n } from "@/i18n/I18nProvider";
+
+function FadeIn(props: { children: JSX.Element }) {
+  return <div class="animate-fade-in flex flex-col flex-1 min-h-0">{props.children}</div>;
+}
 
 type RightDockProps = {
   open: boolean;
@@ -20,13 +21,14 @@ type RightDockProps = {
 };
 
 function ExportButton() {
+  const { t } = useI18n();
   const { setShowExportDialog } = useEditor();
   return (
     <button
       onClick={() => setShowExportDialog(true)}
       class="flex h-[28px] shrink-0 items-center gap-2 rounded-[4px] border border-editor-field-border px-3 text-[12.5px] text-editor-text transition-colors hover:bg-white/[0.045] hover:text-editor-text"
     >
-      Export
+      {t("menus.items.export", "Export")}
       <Icon
         name="chevron-down"
         class="size-3.5 text-editor-text-dim"
@@ -37,6 +39,7 @@ function ExportButton() {
 }
 
 function InspectorDock() {
+  const { t } = useI18n();
   const { inspectorTab, setInspectorTab, adjustSubTab, setAdjustSubTab, rightDockLayout } = useEditor();
   const isStacked = () => rightDockLayout() === "stacked";
 
@@ -91,7 +94,7 @@ function InspectorDock() {
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
             )}
           >
-            Properties
+            {t("panels.properties", "Properties")}
           </button>
           <button
             type="button"
@@ -105,7 +108,7 @@ function InspectorDock() {
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
             )}
           >
-            Adjustments
+            {t("panels.adjustments", "Adjustments")}
           </button>
           <button
             type="button"
@@ -119,7 +122,7 @@ function InspectorDock() {
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
             )}
           >
-            Presets
+            {t("panels.presets", "Presets")}
           </button>
         </nav>
       </div>
@@ -129,8 +132,8 @@ function InspectorDock() {
         {activeTab() === "presets" && (
           <div class="flex h-full flex-col items-center justify-center p-6 text-center">
             <Icon name="sparkles" class="size-6 text-editor-text-dim opacity-50 mb-3" strokeWidth={1.5} />
-            <p class="text-[13px] font-medium text-editor-text">Presets</p>
-            <p class="text-[12px] text-editor-text-dim leading-snug mt-1">Coming soon: save and apply custom filter adjustments and effects.</p>
+            <p class="text-[13px] font-medium text-editor-text">{t("panels.presets", "Presets")}</p>
+            <p class="text-[12px] text-editor-text-dim leading-snug mt-1">{t("panels.presetsComingSoon", "Coming soon: save and apply custom filter adjustments and effects.")}</p>
           </div>
         )}
       </div>
@@ -139,9 +142,10 @@ function InspectorDock() {
 }
 
 function LayoutToggleButton() {
+  const { t } = useI18n();
   const { rightDockLayout, setRightDockLayout } = useEditor();
   return (
-    <Tooltip content={rightDockLayout() === "side-by-side" ? "Switch to Stacked Dock" : "Switch to Side-by-Side Dock"}>
+    <Tooltip content={rightDockLayout() === "side-by-side" ? t("panels.switchToStacked", "Switch to Stacked Dock") : t("panels.switchToSideBySide", "Switch to Side-by-Side Dock")}>
       <button
         onClick={() => setRightDockLayout(rightDockLayout() === "side-by-side" ? "stacked" : "side-by-side")}
         class={clsx(
@@ -160,6 +164,7 @@ function LayoutToggleButton() {
 }
 
 function LayerDock(props: Pick<RightDockProps, "onClose">) {
+  const { t } = useI18n();
   const {
     rightDockLayout,
     rightDockPanel,
@@ -213,7 +218,7 @@ function LayerDock(props: Pick<RightDockProps, "onClose">) {
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
             )}
           >
-            Layers
+            {t("panels.layers", "Layers")}
           </button>
           <button
             type="button"
@@ -227,7 +232,7 @@ function LayerDock(props: Pick<RightDockProps, "onClose">) {
                 : "text-editor-text-dim hover:bg-white/[0.02] hover:text-editor-text"
             )}
           >
-            History
+            {t("panels.history", "History")}
           </button>
         </nav>
       </div>
@@ -252,10 +257,10 @@ function LayerDock(props: Pick<RightDockProps, "onClose">) {
               class="size-3.5 text-editor-text-dim"
               strokeWidth={1.75}
             />
-            <span>Navigator</span>
+            <span>{t("panels.navigator", "Navigator")}</span>
           </button>
           <Show when={!navigatorCollapsed()}>
-            <Tooltip content="Fit Screen">
+            <Tooltip content={t("canvasProps.fitToScreen", "Fit Screen")}>
               <button
                 onClick={() => {
                   const engine = workspace.getActiveEngine();

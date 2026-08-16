@@ -16,6 +16,7 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, untrack, type JSX } from "solid-js";
 import { useEditor } from "./shell/EditorContext";
 import { commitTextSession, cancelTextSession, setPendingTextFlush } from "./canvas/pointerTools/textTool";
+import { useI18n } from "@/i18n/I18nProvider";
 
 /**
  * Small minimum width so a one-character or empty text box still offers a
@@ -31,6 +32,7 @@ import type { DocumentEngine } from "@/engine/document";
 const RERASTER_DEBOUNCE_MS = 50;
 
 export function TextEditOverlay() {
+  const { t } = useI18n();
   const {
     workspace,
     renderer,
@@ -481,7 +483,7 @@ export function TextEditOverlay() {
         ref={textareaRef}
         data-text-edit-overlay
         aria-label="Edit text"
-        placeholder="Type text..."
+        placeholder={t("tools.options.typeText", "Type text...")}
         rows={rows()}
         value={value()}
         spellcheck={false}
@@ -568,11 +570,11 @@ export function TextEditOverlay() {
         style={shortcutBadgeStyle()}
         class="flex items-center gap-1.5 whitespace-nowrap rounded-[3px] border border-editor-field-border/80 bg-editor-panel/95 px-2 py-0.5 text-[10px] text-editor-text-dim shadow-md backdrop-blur-xs select-none"
       >
-        <span><strong class="font-semibold text-editor-text">↵</strong> Newline</span>
+        <span><strong class="font-semibold text-editor-text">↵</strong> {t("tools.text.newline", "Newline")}</span>
         <span class="opacity-40">·</span>
-        <span><strong class="font-semibold text-editor-accent">Ctrl+Enter</strong> Commit</span>
+        <span><strong class="font-semibold text-editor-accent">Ctrl+Enter</strong> {t("tools.text.commit", "Commit")}</span>
         <span class="opacity-40">·</span>
-        <span><strong class="font-semibold text-editor-text">Esc</strong> Cancel</span>
+        <span><strong class="font-semibold text-editor-text">Esc</strong> {t("common.cancel", "Cancel")}</span>
       </div>
 
       {/* Live drag dimension badge while creating an area text box */}

@@ -64,17 +64,17 @@ export function BottomStatusBar() {
   const getToolDisplayName = () => {
     const tool = activeTool();
     switch (tool) {
-      case "move": return "Move Tool";
-      case "selection": return "Selection Tool";
-      case "crop": return "Crop Tool";
-      case "eyedropper": return "Eyedropper Tool";
-      case "brush": return "Brush Tool";
-      case "eraser": return "Eraser Tool";
-      case "paintBucket": return "Paint Bucket Tool";
-      case "gradient": return "Gradient Tool";
-      case "shape": return "Shape Tool";
-      case "text": return "Text Tool";
-      default: return "Select Tool";
+      case "move": return t("tools.move", "Move Tool");
+      case "selection": return t("tools.rectSelect", "Selection Tool");
+      case "crop": return t("tools.crop", "Crop Tool");
+      case "eyedropper": return t("tools.eyedropper", "Eyedropper Tool");
+      case "brush": return t("tools.brush", "Brush Tool");
+      case "eraser": return t("tools.eraser", "Eraser Tool");
+      case "paintBucket": return t("tools.paintBucket", "Paint Bucket Tool");
+      case "gradient": return t("tools.gradient", "Gradient Tool");
+      case "shape": return t("tools.shape", "Shape Tool");
+      case "text": return t("tools.text", "Text Tool");
+      default: return t("tools.select", "Select Tool");
     }
   };
 
@@ -82,8 +82,11 @@ export function BottomStatusBar() {
 
   const paintBlockReason = () => {
     const layer = activeLayer();
-    if (!layer) return "No active layer selected";
-    return getPaintToolBlockReason(layer, activeTool() === "eraser");
+    if (!layer) return t("status.toolTips.noActiveLayer", "No active layer selected");
+    if (layer.locked) return t("status.toolTips.layerLocked", "Layer locked");
+    if (!layer.visible) return t("status.toolTips.layerHidden", "Layer hidden");
+    if (activeTool() === "eraser" && layer.lockTransparency) return t("status.toolTips.transparencyProtected", "Transparent pixels protected");
+    return null;
   };
 
   const statusText = () => {
@@ -93,12 +96,13 @@ export function BottomStatusBar() {
     }
     if (gradientDragLine()) {
       const g = gradientDragLine()!;
-      return `Gradient vector: ${g.distance} px, ${g.angle}° (Hold Shift for 45° angle lock)`;
+      return t("status.gradientVector", { distance: g.distance, angle: g.angle });
     }
     if (layerTransformSession()) {
-      return "Transforming layer. Drag handles to scale/rotate. Hold Shift to constrain aspect ratio.";
+      return t("status.toolTips.transforming", "Transforming layer. Drag handles to scale/rotate. Hold Shift to constrain aspect ratio.");
     }
-    return TOOL_DESCRIPTIONS[activeTool()] || t("status.ready");
+    const tipKey = `status.toolTips.${activeTool()}`;
+    return t(tipKey, TOOL_DESCRIPTIONS[activeTool()] || t("status.ready"));
   };
 
   return (
@@ -160,8 +164,8 @@ export function BottomStatusBar() {
                     type="button"
                     onClick={() => saveProgress().cancel?.()}
                     class="ml-0.5 text-editor-text-dim hover:text-editor-text transition-colors"
-                    title="Cancel save"
-                    aria-label="Cancel save"
+                    title={t("status.cancelSave", "Cancel save")}
+                    aria-label={t("status.cancelSave", "Cancel save")}
                   >
                     <Icon name="x" class="size-3" />
                   </button>

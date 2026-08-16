@@ -14,6 +14,7 @@ import { getAvailableFonts, getInstantFonts, type FontFamily } from "@/lib/fontE
 import type { TextData, TextStrokeAlign } from "@/engine/textTypes";
 import { useLayerActions } from "./layers/useLayerActions";
 import type { LayerNode, Transform2D } from "@/engine/types";
+import { useI18n } from "@/i18n/I18nProvider";
 
 const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
   { value: 100, label: "Thin" },
@@ -28,6 +29,7 @@ const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
 ];
 
 export function PropertiesPanel() {
+  const { t } = useI18n();
   const { workspace, layers, selectedLayerId, selectedLayerIds, scheduler, activeDocumentId, docWidth, docHeight, constrainRatio, setConstrainRatio, textEditSession, setColorPickerOpen, setColorPickerTarget } = useEditor();
   const dialogs = useDialog();
   const layerActions = useLayerActions();
@@ -414,10 +416,10 @@ export function PropertiesPanel() {
   const transformStatusText = () => {
     const layer = activeLayer();
     if (!layer) return null;
-    if (layer.locked) return "Layer is locked. Unlock it in Layers to edit transform values.";
-    if (layer.lockPosition && layer.lockRotation) return "Position and rotation are locked for this layer.";
-    if (layer.lockPosition) return "Position fields are locked for this layer.";
-    if (layer.lockRotation) return "Rotation is locked for this layer.";
+    if (layer.locked) return t("properties.layerLockedTransform", "Layer is locked. Unlock it in Layers to edit transform values.");
+    if (layer.lockPosition && layer.lockRotation) return t("properties.posRotLocked", "Position and rotation are locked for this layer.");
+    if (layer.lockPosition) return t("properties.posLocked", "Position fields are locked for this layer.");
+    if (layer.lockRotation) return t("properties.rotLocked", "Rotation is locked for this layer.");
     return null;
   };
 
@@ -430,8 +432,8 @@ export function PropertiesPanel() {
             <div class="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
               <Icon name="sliders" class="size-6 text-editor-text-dim opacity-50" strokeWidth={1.5} />
               <div class="space-y-1">
-                <p class="text-[13px] font-medium text-editor-text">No image open</p>
-                <p class="text-[12px] text-editor-text-dim leading-snug">Open or create an image to view and edit properties.</p>
+                <p class="text-[13px] font-medium text-editor-text">{t("properties.noImageOpen", "No image open")}</p>
+                <p class="text-[12px] text-editor-text-dim leading-snug">{t("properties.noImageOpenDesc", "Open or create an image to view and edit properties.")}</p>
               </div>
             </div>
           }
@@ -448,7 +450,7 @@ export function PropertiesPanel() {
                     <SectionHeader
                       icon="layers"
                       iconClass="text-editor-text-dim"
-                      label="Selected Layer"
+                      label={t("properties.selectedLayer", "Selected Layer")}
                     />
                     <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
                       <LayerThumb layer={safeLayer()!} isActive={true} />
@@ -470,12 +472,12 @@ export function PropertiesPanel() {
                       <SectionHeader
                         icon="type"
                         iconClass="text-editor-text-dim"
-                        label="Typography"
+                        label={t("properties.typography", "Typography")}
                       />
 
                       <div class="mt-2 flex flex-col gap-2">
                         {/* Font Family Dropdown */}
-                        <PropRow label="Font">
+                        <PropRow label={t("properties.font", "Font")}>
                           <div class="relative flex-1">
                             <button
                               type="button"
@@ -498,8 +500,8 @@ export function PropertiesPanel() {
                               <div class="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-[6px] border border-[#363B44] bg-[#1B1D22] shadow-2xl">
                                 <input
                                   type="search"
-                                  placeholder="Search fonts..."
-                                  aria-label="Search fonts in inspector"
+                                  placeholder={t("tools.options.searchFonts", "Search fonts...")}
+                                  aria-label={t("tools.options.searchFonts", "Search fonts in inspector")}
                                   value={fontSearch()}
                                   onInput={(e) => setFontSearch(e.currentTarget.value)}
                                   class="w-full border-b border-[#2D323C] bg-transparent px-2.5 py-1.5 text-[11px] text-white outline-none placeholder:text-[#A1A1AA]/60"
@@ -540,7 +542,7 @@ export function PropertiesPanel() {
                         </PropRow>
 
                         {/* Size & Weight */}
-                        <PropRow label="Size & Weight">
+                        <PropRow label={t("properties.sizeAndWeight", "Size & Weight")}>
                           <div class="flex flex-1 items-center gap-1 min-w-0">
                             <EditableNumField
                               value={textLayer().textData.fontSize}
@@ -562,7 +564,7 @@ export function PropertiesPanel() {
                         </PropRow>
 
                         {/* Style & Align */}
-                        <PropRow label="Style & Align">
+                        <PropRow label={t("properties.styleAndAlign", "Style & Align")}>
                           <button
                             type="button"
                             aria-label="Italic"
@@ -601,7 +603,7 @@ export function PropertiesPanel() {
                         </PropRow>
 
                         {/* Box Mode */}
-                        <PropRow label="Box Mode">
+                        <PropRow label={t("properties.boxMode", "Box Mode")}>
                           <div class="flex flex-1 items-center gap-1 min-w-0">
                             <SelectDropdown
                               value={textLayer().textData.boxMode}
@@ -636,7 +638,7 @@ export function PropertiesPanel() {
                         </PropRow>
 
                         {/* Spacing & Line Height */}
-                        <PropRow label="Spacing">
+                        <PropRow label={t("properties.spacing", "Spacing")}>
                           <div class="flex flex-1 items-center gap-1 min-w-0">
                             <EditableNumField
                               label="Line H"
@@ -662,7 +664,7 @@ export function PropertiesPanel() {
                         </PropRow>
 
                         {/* Color & Stroke */}
-                        <PropRow label="Color & Stroke">
+                        <PropRow label={t("properties.colorAndStroke", "Color & Stroke")}>
                           <div class="flex flex-1 items-center gap-1.5">
                             <button
                               type="button"
@@ -685,7 +687,7 @@ export function PropertiesPanel() {
                                   : "border-editor-field-border bg-editor-field text-editor-text-dim hover:text-editor-text",
                               )}
                             >
-                              Outline
+                              {t("properties.stroke", "Stroke")}
                             </button>
                             <Show when={(textLayer().textData.stroke?.width ?? 0) > 0}>
                               <EditableNumField
@@ -712,7 +714,7 @@ export function PropertiesPanel() {
 
                         {/* Stroke Position Segmented Control (when outline enabled) */}
                         <Show when={(textLayer().textData.stroke?.width ?? 0) > 0}>
-                          <PropRow label="Position">
+                          <PropRow label={t("properties.position", "Position")}>
                             <div class="flex h-[24px] flex-1 rounded-[3px] border border-editor-field-border bg-editor-field p-0.5 select-none">
                               <button
                                 type="button"
@@ -768,18 +770,18 @@ export function PropertiesPanel() {
                   <SectionHeader
                     icon="move"
                     iconClass="text-editor-text-dim"
-                    label="Transform"
+                    label={t("properties.transform", "Transform")}
                   />
 
                   <div class="mt-2 flex flex-col gap-2">
                     <Show when={transformStatusText()}>
                       {(message) => <StatusHint>{message()}</StatusHint>}
                     </Show>
-                    <PropRow label="Position">
+                    <PropRow label={t("properties.position", "Position")}>
                       <EditableNumField label="X" value={safeLayer()!.transform.x} suffix="px" onSubmit={handlePositionField("x")} disabled={safeLayer()!.lockPosition || safeLayer()!.locked} class="flex-1" />
                       <EditableNumField label="Y" value={safeLayer()!.transform.y} suffix="px" onSubmit={handlePositionField("y")} disabled={safeLayer()!.lockPosition || safeLayer()!.locked} class="flex-1" />
                     </PropRow>
-                    <PropRow label="Size">
+                    <PropRow label={t("tools.options.size", "Size")}>
                       <EditableNumField label="W" value={safeLayer()!.width * safeLayer()!.transform.scaleX} suffix="px" onSubmit={handleSizeField("w")} disabled={safeLayer()!.locked} class="flex-1" />
                       <EditableNumField label="H" value={safeLayer()!.height * safeLayer()!.transform.scaleY} suffix="px" onSubmit={handleSizeField("h")} disabled={safeLayer()!.locked} class="flex-1" />
                       <button
@@ -791,14 +793,14 @@ export function PropertiesPanel() {
                         <Icon name={constrainRatio() ? "link" : "unlink"} class="size-3.5" strokeWidth={1.75} />
                       </button>
                     </PropRow>
-                    <PropRow label="Rotation">
+                    <PropRow label={t("properties.rotation", "Rotation")}>
                       <EditableNumField label="R" value={safeLayer()!.transform.rotation} suffix="deg" onSubmit={handleRotationField} disabled={safeLayer()!.lockRotation || safeLayer()!.locked} class="flex-1" />
                     </PropRow>
-                    <PropRow label="Scale">
+                    <PropRow label={t("properties.scale", "Scale")}>
                       <NumField label="X" value={`${Math.round(safeLayer()!.transform.scaleX * 100)}`} suffix="%" class="flex-1" />
                       <NumField label="Y" value={`${Math.round(safeLayer()!.transform.scaleY * 100)}`} suffix="%" class="flex-1" />
                     </PropRow>
-                    <PropRow label="Opacity">
+                    <PropRow label={t("tools.options.opacity", "Opacity")}>
                       <div class="flex-grow flex items-center gap-2.5">
                         <div class="relative flex-grow flex items-center h-[24px]">
                           <Slider
@@ -825,7 +827,7 @@ export function PropertiesPanel() {
                       </div>
                     </PropRow>
 
-                    <PropRow label="Actions">
+                    <PropRow label={t("properties.actions", "Actions")}>
                       <button
                         type="button"
                         aria-label="Flip horizontal"
@@ -834,7 +836,7 @@ export function PropertiesPanel() {
                         class="flex h-[26px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                       >
                         <Icon name="flip-h" class="size-3.5" strokeWidth={1.75} />
-                        Flip H
+                        {t("properties.flipH", "Flip H")}
                       </button>
                       <button
                         type="button"
@@ -844,7 +846,7 @@ export function PropertiesPanel() {
                         class="flex h-[26px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                       >
                         <Icon name="flip-v" class="size-3.5" strokeWidth={1.75} />
-                        Flip V
+                        {t("properties.flipV", "Flip V")}
                       </button>
                       <button
                         type="button"
@@ -854,15 +856,15 @@ export function PropertiesPanel() {
                         class="flex h-[26px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                       >
                         <Icon name="rotate-ccw" class="size-3.5" strokeWidth={1.75} />
-                        Reset
+                        {t("common.reset", "Reset")}
                       </button>
                     </PropRow>
 
-                    <PropRow label="Quick">
-                      <Tooltip content={safeLayer()!.lockPosition ? "Position locked for this layer" : "Center horizontally on canvas"}>
+                    <PropRow label={t("canvasProps.quickActions", "Quick")}>
+                      <Tooltip content={safeLayer()!.lockPosition ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.centerH", "Center horizontally on canvas")}>
                         <button
                         type="button"
-                        aria-label="Center horizontally on canvas"
+                        aria-label={t("properties.centerH", "Center horizontally on canvas")}
                         disabled={safeLayer()!.locked || safeLayer()!.lockPosition}
                         onClick={handleCenterHorizontal}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
@@ -870,10 +872,10 @@ export function PropertiesPanel() {
                           <Icon name="align-h" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockPosition ? "Position locked for this layer" : "Center vertically on canvas"}>
+                      <Tooltip content={safeLayer()!.lockPosition ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.centerV", "Center vertically on canvas")}>
                         <button
                         type="button"
-                        aria-label="Center vertically on canvas"
+                        aria-label={t("properties.centerV", "Center vertically on canvas")}
                         disabled={safeLayer()!.locked || safeLayer()!.lockPosition}
                         onClick={handleCenterVertical}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
@@ -881,10 +883,10 @@ export function PropertiesPanel() {
                           <Icon name="align-v" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockPosition ? "Position locked for this layer" : "Fit to canvas (scale + center)"}>
+                      <Tooltip content={safeLayer()!.lockPosition ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.fitCanvas", "Fit to canvas (scale + center)")}>
                         <button
                         type="button"
-                        aria-label="Fit to canvas"
+                        aria-label={t("properties.fitCanvas", "Fit to canvas (scale + center)")}
                         disabled={safeLayer()!.locked || safeLayer()!.lockPosition}
                         onClick={handleFitToCanvas}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
@@ -892,10 +894,10 @@ export function PropertiesPanel() {
                           <Icon name="maximize" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockRotation ? "Rotation locked for this layer" : "Rotate 90° counterclockwise"}>
+                      <Tooltip content={safeLayer()!.lockRotation ? t("properties.rotLockedShort", "Rotation locked for this layer") : t("properties.rotateCCW", "Rotate 90° counterclockwise")}>
                         <button
                         type="button"
-                        aria-label="Rotate 90° counterclockwise"
+                        aria-label={t("properties.rotateCCW", "Rotate 90° counterclockwise")}
                         disabled={safeLayer()!.locked || safeLayer()!.lockRotation}
                         onClick={() => handleRotate90("ccw")}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
@@ -903,10 +905,10 @@ export function PropertiesPanel() {
                           <Icon name="rotate-ccw" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockRotation ? "Rotation locked for this layer" : "Rotate 90° clockwise"}>
+                      <Tooltip content={safeLayer()!.lockRotation ? t("properties.rotLockedShort", "Rotation locked for this layer") : t("properties.rotateCW", "Rotate 90° clockwise")}>
                         <button
                         type="button"
-                        aria-label="Rotate 90° clockwise"
+                        aria-label={t("properties.rotateCW", "Rotate 90° clockwise")}
                         disabled={safeLayer()!.locked || safeLayer()!.lockRotation}
                         onClick={() => handleRotate90("cw")}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
@@ -929,7 +931,7 @@ export function PropertiesPanel() {
               <SectionHeader
                 icon="layers"
                 iconClass="text-editor-text-dim"
-                label="Multiple Layers"
+                label={t("properties.multipleLayers", "Multiple Layers")}
               />
               <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
                 <div class="flex size-8 shrink-0 items-center justify-center rounded-[3px] bg-editor-panel-bg text-editor-accent border border-editor-divider">
@@ -937,7 +939,7 @@ export function PropertiesPanel() {
                 </div>
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-[11.5px] font-medium text-editor-text leading-tight">
-                    {selectedLayerIds().length} Layers Selected
+                    {t("properties.layersSelected", { count: selectedLayerIds().length })}
                   </p>
                   <p class="truncate text-[10.5px] text-editor-text-dim leading-snug mt-0.5">
                     {selectedLayerIds().map(id => layers().find(l => l.id === id)?.name).filter(Boolean).join(", ")}
@@ -953,16 +955,16 @@ export function PropertiesPanel() {
                   <SectionHeader
                     icon="move"
                     iconClass="text-editor-text-dim"
-                    label="Combined Bounds"
+                    label={t("properties.combinedBounds", "Combined Bounds")}
                   />
                   <div class="mt-2 flex flex-col gap-2">
-                    <PropRow label="Position">
+                    <PropRow label={t("properties.position", "Position")}>
                       <div class="flex items-center gap-1.5">
                         <NumField label="X" value={String(Math.round(group().x * 10) / 10)} suffix="px" />
                         <NumField label="Y" value={String(Math.round(group().y * 10) / 10)} suffix="px" />
                       </div>
                     </PropRow>
-                    <PropRow label="Size">
+                    <PropRow label={t("tools.options.size", "Size")}>
                       <div class="flex items-center gap-1.5">
                         <NumField label="W" value={String(Math.round(group().width * 10) / 10)} suffix="px" />
                         <NumField label="H" value={String(Math.round(group().height * 10) / 10)} suffix="px" />
@@ -978,10 +980,10 @@ export function PropertiesPanel() {
               <SectionHeader
                 icon="grid-3"
                 iconClass="text-editor-text-dim"
-                label="Align to Canvas"
+                label={t("properties.alignToCanvas", "Align to Canvas")}
               />
               <div class="mt-2 grid grid-cols-6 gap-1">
-                <Tooltip content="Align Left">
+                <Tooltip content={t("tools.options.alignLeft", "Align Left")}>
                   <button
                     type="button"
                     onClick={() => handleAlign("left")}
@@ -990,7 +992,7 @@ export function PropertiesPanel() {
                     <Icon name="align-left" class="size-3.5" />
                   </button>
                 </Tooltip>
-                <Tooltip content="Align Horizontal Center">
+                <Tooltip content={t("tools.options.alignCenterH", "Align Horizontal Center")}>
                   <button
                     type="button"
                     onClick={() => handleAlign("center-h")}
@@ -999,7 +1001,7 @@ export function PropertiesPanel() {
                     <Icon name="align-h" class="size-3.5" />
                   </button>
                 </Tooltip>
-                <Tooltip content="Align Right">
+                <Tooltip content={t("tools.options.alignRight", "Align Right")}>
                   <button
                     type="button"
                     onClick={() => handleAlign("right")}
@@ -1008,7 +1010,7 @@ export function PropertiesPanel() {
                     <Icon name="align-right" class="size-3.5" />
                   </button>
                 </Tooltip>
-                <Tooltip content="Align Top">
+                <Tooltip content={t("tools.options.alignTop", "Align Top")}>
                   <button
                     type="button"
                     onClick={() => handleAlign("top")}
@@ -1017,7 +1019,7 @@ export function PropertiesPanel() {
                     <Icon name="align-top" class="size-3.5" />
                   </button>
                 </Tooltip>
-                <Tooltip content="Align Vertical Center">
+                <Tooltip content={t("tools.options.alignCenterV", "Align Vertical Center")}>
                   <button
                     type="button"
                     onClick={() => handleAlign("center-v")}
@@ -1026,7 +1028,7 @@ export function PropertiesPanel() {
                     <Icon name="align-v" class="size-3.5" />
                   </button>
                 </Tooltip>
-                <Tooltip content="Align Bottom">
+                <Tooltip content={t("tools.options.alignBottom", "Align Bottom")}>
                   <button
                     type="button"
                     onClick={() => handleAlign("bottom")}
@@ -1044,7 +1046,7 @@ export function PropertiesPanel() {
                 <SectionHeader
                   icon="split-h"
                   iconClass="text-editor-text-dim"
-                  label="Distribute Spacing"
+                  label={t("properties.distributeSpacing", "Distribute Spacing")}
                 />
                 <div class="mt-2 grid grid-cols-2 gap-1.5">
                   <button
@@ -1053,7 +1055,7 @@ export function PropertiesPanel() {
                     class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
                   >
                     <Icon name="distribute-h" class="size-3.5" />
-                    <span>Horizontal</span>
+                    <span>{t("properties.distributeH", "Horizontal")}</span>
                   </button>
                   <button
                     type="button"
@@ -1061,7 +1063,7 @@ export function PropertiesPanel() {
                     class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text-dim hover:bg-editor-hover hover:text-editor-text transition-colors"
                   >
                     <Icon name="distribute-v" class="size-3.5" />
-                    <span>Vertical</span>
+                    <span>{t("properties.distributeV", "Vertical")}</span>
                   </button>
                 </div>
               </div>
@@ -1072,7 +1074,7 @@ export function PropertiesPanel() {
               <SectionHeader
                 icon="sliders"
                 iconClass="text-editor-text-dim"
-                label="Batch Actions"
+                label={t("properties.batchActions", "Batch Actions")}
               />
               <div class="mt-2 flex flex-col gap-1.5">
                 <button
@@ -1081,7 +1083,7 @@ export function PropertiesPanel() {
                   class="flex h-7 w-full items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text hover:bg-editor-hover transition-colors"
                 >
                   <Icon name="layers" class="size-3.5 text-editor-text-dim" />
-                  <span>Merge Selected Layers</span>
+                  <span>{t("properties.mergeSelectedLayers", "Merge Selected Layers")}</span>
                 </button>
                 <div class="grid grid-cols-2 gap-1.5">
                   <button
@@ -1090,7 +1092,7 @@ export function PropertiesPanel() {
                     class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-editor-divider bg-editor-field text-[11px] font-medium text-editor-text hover:bg-editor-hover transition-colors"
                   >
                     <Icon name="copy" class="size-3.5 text-editor-text-dim" />
-                    <span>Duplicate</span>
+                    <span>{t("layers.duplicateLayer", "Duplicate")}</span>
                   </button>
                   <button
                     type="button"
@@ -1098,7 +1100,7 @@ export function PropertiesPanel() {
                     class="flex h-7 items-center justify-center gap-1.5 rounded-[3px] border border-red-500/20 bg-red-500/10 text-[11px] font-medium text-red-400 hover:bg-red-500/20 transition-colors"
                   >
                     <Icon name="trash" class="size-3.5 text-red-400" />
-                    <span>Delete</span>
+                    <span>{t("layers.deleteLayer", "Delete")}</span>
                   </button>
                 </div>
               </div>

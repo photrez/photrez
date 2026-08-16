@@ -5,37 +5,53 @@ import { SectionHeader } from "./layers/SectionHeader";
 import { LayerThumb } from "./layers/LayerThumb";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
 import { Slider } from "./primitives";
+import { useI18n } from "@/i18n/I18nProvider";
 
-const COMING_SOON_SECTIONS: readonly {
-  icon: IconName;
-  iconClass: string;
-  label: string;
-}[] = [
-  { icon: "spline", iconClass: "text-editor-text-dim", label: "Tone Curve" },
-  { icon: "palette", iconClass: "text-sky-400", label: "HSL / Color" },
-  { icon: "swatch", iconClass: "text-amber-400", label: "Color Grading" },
-  { icon: "sparkles", iconClass: "text-sky-300", label: "Detail" },
+const COMING_SOON_SECTIONS = [
   {
-    icon: "aperture",
+    icon: "spline" as IconName,
+    iconClass: "text-editor-text-dim",
+    labelKey: "adjustments.toneCurve",
+    defaultLabel: "Tone Curve",
+    descKey: "adjustments.toneCurveDesc",
+    defaultDesc: "Non-destructive spline-based RGB tone and contrast adjustment.",
+  },
+  {
+    icon: "palette" as IconName,
+    iconClass: "text-sky-400",
+    labelKey: "adjustments.hslColor",
+    defaultLabel: "HSL / Color",
+    descKey: "adjustments.hslColorDesc",
+    defaultDesc: "Selective color tuning for Hue, Saturation, and Luminance channels.",
+  },
+  {
+    icon: "swatch" as IconName,
+    iconClass: "text-amber-400",
+    labelKey: "adjustments.colorGrading",
+    defaultLabel: "Color Grading",
+    descKey: "adjustments.colorGradingDesc",
+    defaultDesc: "Three-way color wheels control for shadows, midtones, and highlights.",
+  },
+  {
+    icon: "sparkles" as IconName,
+    iconClass: "text-sky-300",
+    labelKey: "adjustments.detail",
+    defaultLabel: "Detail",
+    descKey: "adjustments.detailDesc",
+    defaultDesc: "Unsharp masking, high-pass sharpening, and bilateral noise reduction.",
+  },
+  {
+    icon: "aperture" as IconName,
     iconClass: "text-emerald-400",
-    label: "Lens Corrections",
+    labelKey: "adjustments.lensCorrections",
+    defaultLabel: "Lens Corrections",
+    descKey: "adjustments.lensCorrectionsDesc",
+    defaultDesc: "Chromatic aberration control, barrel distortion, and vignette corrections.",
   },
 ] as const;
 
-const COMING_SOON_DESCRIPTIONS: Record<string, string> = {
-  "Tone Curve":
-    "Non-destructive spline-based RGB tone and contrast adjustment.",
-  "HSL / Color":
-    "Selective color tuning for Hue, Saturation, and Luminance channels.",
-  "Color Grading":
-    "Three-way color wheels control for shadows, midtones, and highlights.",
-  Detail:
-    "Unsharp masking, high-pass sharpening, and bilateral noise reduction.",
-  "Lens Corrections":
-    "Chromatic aberration control, barrel distortion, and vignette corrections.",
-};
-
 export function AdjustmentsPanel() {
+  const { t } = useI18n();
   const { workspace, layers, selectedLayerId, scheduler, activeDocumentId } =
     useEditor();
   // Adjustment is applied non-destructively: the slider writes the adjustment
@@ -183,10 +199,10 @@ export function AdjustmentsPanel() {
               />
               <div class="space-y-1">
                 <p class="text-[13px] font-medium text-editor-text">
-                  No image open
+                  {t("history.noImageOpen", "No image open")}
                 </p>
                 <p class="text-[12px] text-editor-text-dim leading-snug">
-                  Open or create an image to adjust pixels.
+                  {t("properties.noImageOpenDesc", "Open or create an image to adjust pixels.")}
                 </p>
               </div>
             </div>
@@ -203,10 +219,10 @@ export function AdjustmentsPanel() {
                 />
                 <div class="space-y-1">
                   <p class="text-[13px] font-medium text-editor-text">
-                    No layer selected
+                    {t("adjustments.noLayerSelected", "No layer selected")}
                   </p>
                   <p class="text-[12px] text-editor-text-dim leading-snug">
-                    Select a layer to adjust its pixels.
+                    {t("adjustments.selectLayerToAdjust", "Select a layer to adjust its pixels.")}
                   </p>
                 </div>
               </div>
@@ -218,7 +234,7 @@ export function AdjustmentsPanel() {
                   <SectionHeader
                     icon="layers"
                     iconClass="text-editor-text-dim"
-                    label="Selected Layer"
+                    label={t("adjustments.selectedLayer", "Selected Layer")}
                   />
                   <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
                     <LayerThumb layer={layer()} isActive={true} />
@@ -243,11 +259,11 @@ export function AdjustmentsPanel() {
                   <SectionHeader
                     icon="sun"
                     iconClass="text-editor-text-dim"
-                    label="Basic"
+                    label={t("adjustments.basic", "Basic")}
                     trailing={
                       <button
                         type="button"
-                        aria-label="Reset basic adjustments"
+                        aria-label={t("common.reset", "Reset basic adjustments")}
                         disabled={!hasPendingAdjustment()}
                         onClick={resetBasicAdjustment}
                         class="flex size-5 items-center justify-center rounded-[3px] text-editor-text-dim hover:bg-white/[0.045] hover:text-editor-text disabled:pointer-events-none disabled:opacity-40"
@@ -259,27 +275,28 @@ export function AdjustmentsPanel() {
 
                   <div class="mt-2 flex flex-col gap-2">
                     <AdjustmentSliderRow
-                      label="Bright"
+                      label={t("adjustments.bright", "Bright")}
                       value={basicAdjustment().brightness}
                       onInput={(value) =>
                         setAdjustmentValue("brightness", value)
                       }
                     />
                     <AdjustmentSliderRow
-                      label="Contrast"
+                      label={t("adjustments.contrast", "Contrast")}
                       value={basicAdjustment().contrast}
-                      onInput={(value) => setAdjustmentValue("contrast", value)}
+                      onInput={(value) =>
+                        setAdjustmentValue("contrast", value)
+                      }
                     />
                     <AdjustmentSliderRow
-                      label="Saturate"
+                      label={t("adjustments.saturate", "Saturate")}
                       value={basicAdjustment().saturation}
                       onInput={(value) =>
                         setAdjustmentValue("saturation", value)
                       }
                     />
                     <p class="mt-1 text-[11px] leading-snug text-editor-text-dim">
-                      Drag to preview directly on the active layer. Undo
-                      restores the previous pixels.
+                      {t("adjustments.dragToPreview", "Drag to preview directly on the active layer. Undo restores the previous pixels.")}
                     </p>
                     <Show when={basicStatusText()}>
                       {(message) => <StatusHint>{message()}</StatusHint>}
@@ -292,7 +309,8 @@ export function AdjustmentsPanel() {
                     <CollapsibleSection
                       icon={section.icon}
                       iconClass={section.iconClass}
-                      label={section.label}
+                      label={t(section.labelKey, section.defaultLabel)}
+                      description={t(section.descKey, section.defaultDesc)}
                     />
                   )}
                 </For>
@@ -366,7 +384,9 @@ function CollapsibleSection(props: {
   icon: IconName;
   iconClass: string;
   label: string;
+  description: string;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = createSignal(false);
 
   return (
@@ -396,11 +416,10 @@ function CollapsibleSection(props: {
           <div class="flex flex-col gap-2 rounded-[6px] border border-dashed border-editor-field-border bg-white/[0.015] p-3 transition-colors hover:bg-white/[0.025]">
             <div class="flex items-center gap-1.5 text-editor-text-dim text-[10px] font-bold uppercase tracking-wider">
               <Icon name="sparkles" class="size-3 opacity-70" strokeWidth={2} />
-              <span>In Development</span>
+              <span>{t("adjustments.inDevelopment", "In Development")}</span>
             </div>
             <p class="text-[11.5px] leading-relaxed text-editor-text-dim">
-              {COMING_SOON_DESCRIPTIONS[props.label] ||
-                "This professional adjustment tool is currently in development."}
+              {props.description}
             </p>
           </div>
         </div>

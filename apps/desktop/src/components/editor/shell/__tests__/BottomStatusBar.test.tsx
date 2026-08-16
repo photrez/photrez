@@ -51,7 +51,7 @@ describe("BottomStatusBar i18n", () => {
     await tick();
 
     expect(container.textContent).toContain("Kanvas:");
-    expect(container.textContent).toContain("Zum:");
+    expect(container.textContent).toContain("Zoom:");
     expect(container.textContent).toContain("Riwayat");
   });
 });

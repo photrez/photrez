@@ -2,8 +2,10 @@ import { useEditor } from "../shell/EditorContext";
 import { Icon } from "../icons";
 import { PropRow, SelectField } from "../primitives";
 import { SectionHeader } from "../layers/SectionHeader";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function CanvasProperties() {
+  const { t } = useI18n();
   const {
     workspace,
     scheduler,
@@ -42,7 +44,7 @@ export function CanvasProperties() {
         <SectionHeader
           icon="image"
           iconClass="text-editor-text-dim"
-          label="Selected Document"
+          label={t("canvasProps.selectedDocument", "Selected Document")}
         />
         <div class="mt-3 flex items-center gap-3 rounded-[4px] border border-editor-divider bg-editor-field p-2.5">
           <div class="flex size-[34px] shrink-0 items-center justify-center rounded-[3px] border border-black/40 bg-white/[0.05] text-editor-text-dim">
@@ -53,7 +55,7 @@ export function CanvasProperties() {
               {docName()}
             </p>
             <p class="truncate text-[11px] text-editor-text-dim leading-snug mt-0.5">
-              Canvas · {w()} × {h()} px
+              {t("status.canvas", "Canvas")} · {w()} × {h()} px
             </p>
           </div>
         </div>
@@ -63,11 +65,11 @@ export function CanvasProperties() {
         <SectionHeader
           icon="image"
           iconClass="text-editor-text-dim"
-          label="Canvas"
+          label={t("status.canvas", "Canvas")}
         />
 
         <div class="mt-3 flex flex-col gap-2.5">
-          <PropRow label="Size">
+          <PropRow label={t("tools.options.size", "Size")}>
             <button
               type="button"
               onClick={handleResizeCanvas}
@@ -78,15 +80,15 @@ export function CanvasProperties() {
             </button>
           </PropRow>
 
-          <PropRow label="Mode">
+          <PropRow label={t("canvasProps.mode", "Mode")}>
             <SelectField value="RGB / 8" class="flex-1" />
           </PropRow>
 
-          <PropRow label="Profile">
+          <PropRow label={t("canvasProps.profile", "Profile")}>
             <SelectField value="sRGB IEC61966-2.1" class="flex-1" />
           </PropRow>
 
-          <PropRow label="Zoom">
+          <PropRow label={t("status.zoom", "Zoom")}>
             <button
               type="button"
               onClick={handleFitToScreen}
@@ -103,18 +105,18 @@ export function CanvasProperties() {
         <SectionHeader
           icon="maximize"
           iconClass="text-editor-text-dim"
-          label="Quick Actions"
+          label={t("canvasProps.quickActions", "Quick Actions")}
         />
 
         <div class="mt-3 flex flex-col gap-2">
           <ActionButton
             icon="maximize"
-            label="Fit to Screen"
+            label={t("canvasProps.fitToScreen", "Fit to Screen")}
             onClick={handleFitToScreen}
           />
           <ActionButton
             icon="crop"
-            label="Resize Canvas"
+            label={t("menus.items.resizeCanvas", "Resize Canvas")}
             onClick={handleResizeCanvas}
           />
         </div>

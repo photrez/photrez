@@ -1,7 +1,9 @@
 import { useEditor } from "./shell/EditorContext";
 import { ToolPill, Divider, SelectDropdown } from "./shell/OptionBarShared";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function GradientOptionBar() {
+  const { t } = useI18n();
   const {
     gradientType, setGradientType,
     gradientPreset, setGradientPreset,
@@ -25,17 +27,17 @@ export function GradientOptionBar() {
   return (
     <div class="flex items-center gap-2.5 px-2 text-[11px] select-none">
       {/* Tool Pill Badge */}
-      <ToolPill icon="swatch" label="Gradient" />
+      <ToolPill icon="swatch" label={t("tools.gradient", "Gradient")} />
 
       <Divider />
 
       {/* Type Dropdown */}
       <SelectDropdown
-        labelPrefix="Type"
+        labelPrefix={t("tools.options.gradientType", "Type")}
         value={gradientType()}
         options={[
-          { value: "linear", label: "Linear" },
-          { value: "radial", label: "Radial" },
+          { value: "linear", label: t("tools.options.linear", "Linear") },
+          { value: "radial", label: t("tools.options.radial", "Radial") },
         ]}
         onChange={(v) => setGradientType(v as "linear" | "radial")}
       />
@@ -44,11 +46,11 @@ export function GradientOptionBar() {
 
       {/* Preset Selector */}
       <SelectDropdown
-        labelPrefix="Preset"
+        labelPrefix={t("tools.options.gradientPreset", "Preset")}
         value={gradientPreset()}
         options={[
-          { value: "fg-bg", label: "Foreground → Background" },
-          { value: "fg-transparent", label: "Foreground → Transparent" },
+          { value: "fg-bg", label: t("tools.options.fgBg", "Foreground → Background") },
+          { value: "fg-transparent", label: t("tools.options.fgTransparent", "Foreground → Transparent") },
         ]}
         onChange={(v) => setGradientPreset(v as "fg-bg" | "fg-transparent")}
       />
@@ -74,7 +76,7 @@ export function GradientOptionBar() {
             "background-position": "0 0, 0 4px, 4px -4px, -4px 0px",
             "background-color": "#1a1a1a",
           }}
-          title="Live Gradient Preview"
+          title={t("tools.options.gradientPreview", "Live Gradient Preview")}
         >
           <div
             class="size-full"
@@ -94,11 +96,11 @@ export function GradientOptionBar() {
       <button
         type="button"
         onClick={handleReverse}
-        title="Reverse gradient colors (Swap Foreground ↔ Background)"
+        title={t("tools.options.reverseGradientTip", "Reverse gradient colors (Swap Foreground ↔ Background)")}
         class="flex h-6 items-center gap-1.5 rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 px-2 text-[11px] font-semibold text-[#A1A1AA] transition-colors hover:border-editor-field-border hover:bg-editor-field hover:text-white cursor-pointer select-none"
       >
         <span class="text-[12px]">⇄</span>
-        <span>Reverse</span>
+        <span>{t("tools.options.reverse", "Reverse")}</span>
       </button>
     </div>
   );

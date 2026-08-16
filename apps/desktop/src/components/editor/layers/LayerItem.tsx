@@ -7,6 +7,7 @@ import { LayerNode, DocumentModel } from "@/engine/types";
 import { LayerThumb } from "./LayerThumb";
 import { LAYER_DRAG_MIME, LayerDragPayload } from "../dragTypes";
 import { useDragController } from "../DragController";
+import { useI18n } from "@/i18n/I18nProvider";
 
 // actually touches. Avoids the production `any` while staying decoupled
 // from the full WorkspaceManager/Scheduler types →LayerItem only needs
@@ -53,6 +54,7 @@ interface LayerItemProps {
 }
 
 export function LayerItem(props: LayerItemProps) {
+  const { t } = useI18n();
   const dragController = useDragController();
 
   // A layer can move up unless it's the top row or the (locked) Background;
@@ -276,7 +278,7 @@ export function LayerItem(props: LayerItemProps) {
 
       {/* Up and Down Chevrons for Reordering */}
       <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-100 pr-1">
-        <Tooltip content="Move Layer Up">
+        <Tooltip content={t("layers.moveLayerUp", "Move Layer Up")}>
           <button
             disabled={!canMoveUp}
             onClick={(e) => props.onMoveUp(e, props.idx)}
@@ -285,7 +287,7 @@ export function LayerItem(props: LayerItemProps) {
             <Icon name="chevron-up" class="size-3.5" />
           </button>
         </Tooltip>
-        <Tooltip content="Move Layer Down">
+        <Tooltip content={t("layers.moveLayerDown", "Move Layer Down")}>
           <button
             disabled={!canMoveDown}
             onClick={(e) => props.onMoveDown(e, props.idx)}
@@ -298,7 +300,7 @@ export function LayerItem(props: LayerItemProps) {
 
       {/* Adjustments Indicator */}
       <Show when={props.layer.hasAdjustments}>
-        <Tooltip content="Layer has basic adjustments (brightness/contrast/saturation) applied">
+        <Tooltip content={t("layers.layerAdjustmentsApplied", "Layer has basic adjustments (brightness/contrast/saturation) applied")}>
           <div
             class="text-editor-accent size-6 flex items-center justify-center mr-1"
           >

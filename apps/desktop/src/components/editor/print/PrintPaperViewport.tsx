@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Show, createSignal } from "solid-js";
+import { useI18n } from "@/i18n/I18nProvider";
 import type { PrintOptions } from "./printTypes";
 import { formatPhysicalDimensions, TARGET_PRINT_DPI, MM_PER_INCH } from "./printTypes";
 
@@ -16,6 +17,7 @@ interface PrintPaperViewportProps {
 }
 
 export function PrintPaperViewport(props: PrintPaperViewportProps) {
+  const { t } = useI18n();
   const [isDragging, setIsDragging] = createSignal(false);
   const [dragStartPos, setDragStartPos] = createSignal<{ x: number; y: number } | null>(null);
   const [initialOffsets, setInitialOffsets] = createSignal<{ left: number; top: number }>({ left: 0, top: 0 });
@@ -268,7 +270,7 @@ export function PrintPaperViewport(props: PrintPaperViewportProps) {
         <svg class="size-3 text-editor-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
         </svg>
-        <span>Click and drag image on paper to reposition</span>
+        <span>{t("dialogs.print.repositionHint", "Click and drag image on paper to reposition")}</span>
       </div>
     </div>
   );

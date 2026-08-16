@@ -3,6 +3,7 @@ import { clsx } from "clsx";
 import { Show, For, createSignal, JSX } from "solid-js";
 import { Tooltip } from "../Tooltip";
 import { Portal } from "solid-js/web";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function ToggleBtn(props: { active: boolean; onChange: (v: boolean) => void; icon: IconName; label: string; labelClass?: string; class?: string }) {
   return (
@@ -62,13 +63,14 @@ export function ToolPill(props: { icon: IconName; label: string }) {
 }
 
 export function MoreDropdown(props: { children: JSX.Element }) {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = createSignal(false);
   return (
     <div class="relative hidden @max-[880px]:flex">
-      <Tooltip content="More Options" placement="top">
+      <Tooltip content={t("tools.options.moreOptions", "More Options")} placement="top">
         <button
           type="button"
-          aria-label="More Options"
+          aria-label={t("tools.options.moreOptions", "More Options")}
           onClick={() => setIsOpen(!isOpen())}
           class="flex size-[24px] shrink-0 items-center justify-center rounded-[3px] border border-editor-field-border bg-editor-field text-[#A1A1AA] hover:border-[#4B515D] hover:text-white transition-colors cursor-pointer"
         >

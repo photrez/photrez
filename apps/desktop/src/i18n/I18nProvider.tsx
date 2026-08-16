@@ -5,7 +5,7 @@ export interface I18nValue {
   locale: () => Locale;
   locales: readonly Locale[];
   setLocale: (l: Locale) => void;
-  t: (key: string, opts?: Record<string, unknown>) => string;
+  t: (key: string, optsOrDef?: Record<string, unknown> | string, opts?: Record<string, unknown>) => string;
 }
 
 const I18nContext = createContext<I18nValue>();
@@ -24,7 +24,12 @@ const fallbackI18n: I18nValue = {
   setLocale: (l) => {
     void i18n.changeLanguage(l);
   },
-  t: (key, opts) => i18n.t(key, opts),
+  t: (key, optsOrDef, opts) => {
+    if (typeof optsOrDef === "string") {
+      return i18n.t(key, { defaultValue: optsOrDef, ...(opts ?? {}) });
+    }
+    return i18n.t(key, optsOrDef);
+  },
 };
 
 export function I18nProvider(props: { children: JSX.Element }) {
@@ -40,9 +45,12 @@ export function I18nProvider(props: { children: JSX.Element }) {
 
   // Track the locale signal so any component calling t() re-renders when the
   // active language changes.
-  const t = (key: string, opts?: Record<string, unknown>) => {
+  const t = (key: string, optsOrDef?: Record<string, unknown> | string, opts?: Record<string, unknown>) => {
     locale();
-    return i18n.t(key, opts);
+    if (typeof optsOrDef === "string") {
+      return i18n.t(key, { defaultValue: optsOrDef, ...(opts ?? {}) });
+    }
+    return i18n.t(key, optsOrDef);
   };
 
   const value: I18nValue = {

@@ -6,8 +6,10 @@ import { clsx } from "clsx";
 import { Tooltip } from "./Tooltip";
 import { useEditor } from "./shell/EditorContext";
 import { ToggleBtn, Divider, ToolPill, MoreDropdown, OptionCheckbox } from "./shell/OptionBarShared";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function MoveOptionBar() {
+  const { t } = useI18n();
   const {
     workspace,
     activeTool,
@@ -188,40 +190,40 @@ export function MoveOptionBar() {
 
   return (
     <>
-      <ToolPill icon="cursor" label="Move" />
+      <ToolPill icon="cursor" label={t("tools.move", "Move")} />
 
       <Divider />
 
-      <Tooltip content="Auto-Select Layer on Hover">
+      <Tooltip content={t("tools.options.autoSelectTip", "Auto-Select Layer on Hover")}>
         <OptionCheckbox
           checked={moveAutoSelect()}
           onChange={setMoveAutoSelect}
-          label="Auto-Select"
+          label={t("tools.options.autoSelect", "Auto-Select")}
         />
       </Tooltip>
 
-      <Tooltip content="Enable Snapping">
+      <Tooltip content={t("tools.options.snapTip", "Enable Snapping")}>
         <OptionCheckbox
           checked={moveSnapEnabled()}
           onChange={setMoveSnapEnabled}
-          label="Snap"
+          label={t("tools.options.snap", "Snap")}
         />
       </Tooltip>
 
       <Divider />
 
-      <Tooltip content="Show transform bounding box and handles around selected layer">
+      <Tooltip content={t("tools.options.transformControlsTip", "Show transform bounding box and handles around selected layer")}>
         <OptionCheckbox
           checked={showTransformControls()}
           onChange={setShowTransformControls}
-          label="Transform Controls"
+          label={t("properties.transform", "Transform Controls")}
         />
       </Tooltip>
 
       <Show when={moveAutoSelect() && hoveredLayer()}>
         {(hl) => (
           <div class="flex h-[24px] shrink-0 items-center gap-1.5 rounded-[4px] bg-editor-field border border-editor-field-border px-2 text-[11px] text-editor-text-dim max-w-[120px] overflow-hidden">
-            <span class="text-[9px] text-editor-accent font-bold uppercase tracking-wider @max-[900px]:hidden">Target:</span>
+            <span class="text-[9px] text-editor-accent font-bold uppercase tracking-wider @max-[900px]:hidden">{t("tools.options.target", "Target")}:</span>
             <span class="text-editor-text font-medium truncate">{hl().name}</span>
           </div>
         )}
@@ -233,7 +235,7 @@ export function MoveOptionBar() {
         <Show when={isLocked()}>
           <div class="flex h-[24px] shrink-0 items-center gap-1 rounded-[3px] border border-editor-accent/20 bg-editor-accent/5 px-2 text-[11px] text-editor-accent/70">
             <Icon name="lock" class="size-3" strokeWidth={1.5} />
-            Locked
+            {t("layers.locked", "Locked")}
           </div>
           <Divider />
         </Show>
@@ -288,34 +290,34 @@ export function MoveOptionBar() {
           <Divider />
 
           <div class={clsx("flex shrink-0 items-center gap-0.5 text-editor-icon", isLocked() && "opacity-30 pointer-events-none")}>
-            <span class="text-[10px] font-medium text-[#A1A1AA] mr-1 @max-[900px]:hidden select-none">Align</span>
-            <Tooltip content="Align Left">
-              <button onClick={() => handleAlign("left")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align left">
+            <span class="text-[10px] font-medium text-[#A1A1AA] mr-1 @max-[900px]:hidden select-none">{t("properties.align", "Align")}</span>
+            <Tooltip content={t("properties.alignLeft", "Align Left")}>
+              <button onClick={() => handleAlign("left")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.alignLeft", "Align left")}>
                 <Icon name="align-left" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Align Horizontal Center">
-              <button onClick={() => handleAlign("center-h")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align center horizontal">
+            <Tooltip content={t("properties.alignHCenter", "Align Horizontal Center")}>
+              <button onClick={() => handleAlign("center-h")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.alignHCenter", "Align center horizontal")}>
                 <Icon name="align-h" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Align Right">
-              <button onClick={() => handleAlign("right")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align right">
+            <Tooltip content={t("properties.alignRight", "Align Right")}>
+              <button onClick={() => handleAlign("right")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.alignRight", "Align right")}>
                 <Icon name="align-right" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Align Top">
-              <button onClick={() => handleAlign("top")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align top">
+            <Tooltip content={t("properties.alignTop", "Align Top")}>
+              <button onClick={() => handleAlign("top")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.alignTop", "Align top")}>
                 <Icon name="align-top" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Align Vertical Center">
-              <button onClick={() => handleAlign("center-v")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align center vertical">
+            <Tooltip content={t("properties.alignVCenter", "Align Vertical Center")}>
+              <button onClick={() => handleAlign("center-v")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.alignVCenter", "Align center vertical")}>
                 <Icon name="align-v" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Align Bottom">
-              <button onClick={() => handleAlign("bottom")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Align bottom">
+            <Tooltip content={t("properties.alignBottom", "Align Bottom")}>
+              <button onClick={() => handleAlign("bottom")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.alignBottom", "Align bottom")}>
                 <Icon name="align-bottom" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
@@ -324,14 +326,14 @@ export function MoveOptionBar() {
           <Divider />
 
           <div class={clsx("flex shrink-0 items-center gap-0.5 text-editor-icon", isLocked() && "opacity-30 pointer-events-none")}>
-            <span class="text-[10px] font-medium text-[#A1A1AA] mr-1 @max-[900px]:hidden select-none">Flip</span>
-            <Tooltip content="Flip Horizontal">
-              <button onClick={() => handleFlip("h")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Flip horizontal">
+            <span class="text-[10px] font-medium text-[#A1A1AA] mr-1 @max-[900px]:hidden select-none">{t("properties.flip", "Flip")}</span>
+            <Tooltip content={t("properties.flipH", "Flip Horizontal")}>
+              <button onClick={() => handleFlip("h")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.flipH", "Flip horizontal")}>
                 <Icon name="flip-h" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Flip Vertical">
-              <button onClick={() => handleFlip("v")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label="Flip vertical">
+            <Tooltip content={t("properties.flipV", "Flip Vertical")}>
+              <button onClick={() => handleFlip("v")} class="flex size-[24px] items-center justify-center rounded-[4px] border border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white transition-all cursor-pointer" aria-label={t("properties.flipV", "Flip vertical")}>
                 <Icon name="flip-v" class="size-3.5" strokeWidth={1.5} />
               </button>
             </Tooltip>
@@ -339,14 +341,14 @@ export function MoveOptionBar() {
 
           <Divider />
 
-          <Tooltip content="Reset Transform">
+          <Tooltip content={t("properties.resetTransform", "Reset Transform")}>
             <button onClick={handleResetTransform} disabled={isLocked()} class={clsx(
               "flex h-[24px] shrink-0 items-center rounded-[4px] border px-2 text-[11px] font-semibold transition-all cursor-pointer select-none",
               isLocked()
                 ? "border-transparent text-[#A1A1AA]/30 cursor-default"
                 : "border-editor-field-border/60 bg-editor-field/40 text-[#A1A1AA] hover:border-editor-field-border hover:bg-editor-field hover:text-white",
             )}>
-              Reset
+              {t("properties.reset", "Reset")}
             </button>
           </Tooltip>
         </div>
@@ -354,35 +356,35 @@ export function MoveOptionBar() {
         {/* Overflow dropdown for narrow container */}
         <MoreDropdown>
           <div class={clsx("flex flex-col gap-1.5 text-editor-icon", isLocked() && "opacity-30 pointer-events-none")}>
-            <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Align</span>
+            <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">{t("properties.align", "Align")}</span>
             <div class="flex items-center gap-2 bg-editor-field/30 p-1.5 rounded-[4px] border border-editor-field-border">
-              <Tooltip content="Align Left">
-                <button onClick={() => handleAlign("left")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align left">
+              <Tooltip content={t("tools.options.alignLeft", "Align Left")}>
+                <button onClick={() => handleAlign("left")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.alignLeft", "Align Left")}>
                   <Icon name="align-left" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
-              <Tooltip content="Align Horizontal Center">
-                <button onClick={() => handleAlign("center-h")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align center horizontal">
+              <Tooltip content={t("tools.options.alignCenterH", "Align Horizontal Center")}>
+                <button onClick={() => handleAlign("center-h")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.alignCenterH", "Align Horizontal Center")}>
                   <Icon name="align-h" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
-              <Tooltip content="Align Right">
-                <button onClick={() => handleAlign("right")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align right">
+              <Tooltip content={t("tools.options.alignRight", "Align Right")}>
+                <button onClick={() => handleAlign("right")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.alignRight", "Align Right")}>
                   <Icon name="align-right" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
-              <Tooltip content="Align Top">
-                <button onClick={() => handleAlign("top")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align top">
+              <Tooltip content={t("tools.options.alignTop", "Align Top")}>
+                <button onClick={() => handleAlign("top")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.alignTop", "Align Top")}>
                   <Icon name="align-top" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
-              <Tooltip content="Align Vertical Center">
-                <button onClick={() => handleAlign("center-v")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align center vertical">
+              <Tooltip content={t("tools.options.alignCenterV", "Align Vertical Center")}>
+                <button onClick={() => handleAlign("center-v")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.alignCenterV", "Align Vertical Center")}>
                   <Icon name="align-v" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
-              <Tooltip content="Align Bottom">
-                <button onClick={() => handleAlign("bottom")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Align bottom">
+              <Tooltip content={t("tools.options.alignBottom", "Align Bottom")}>
+                <button onClick={() => handleAlign("bottom")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.alignBottom", "Align Bottom")}>
                   <Icon name="align-bottom" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
@@ -390,15 +392,15 @@ export function MoveOptionBar() {
           </div>
 
           <div class={clsx("flex flex-col gap-1.5 text-editor-icon mt-1", isLocked() && "opacity-30 pointer-events-none")}>
-            <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">Flip</span>
+            <span class="text-[10px] font-bold text-editor-text-dim uppercase tracking-wider">{t("properties.flip", "Flip")}</span>
             <div class="flex items-center gap-2 bg-editor-field/30 p-1.5 rounded-[4px] border border-editor-field-border">
-              <Tooltip content="Flip Horizontal">
-                <button onClick={() => handleFlip("h")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Flip horizontal">
+              <Tooltip content={t("tools.options.flipHorizontal", "Flip Horizontal")}>
+                <button onClick={() => handleFlip("h")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.flipHorizontal", "Flip Horizontal")}>
                   <Icon name="flip-h" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
-              <Tooltip content="Flip Vertical">
-                <button onClick={() => handleFlip("v")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label="Flip vertical">
+              <Tooltip content={t("tools.options.flipVertical", "Flip Vertical")}>
+                <button onClick={() => handleFlip("v")} class="rounded-[3px] p-0.5 hover:text-editor-text" aria-label={t("tools.options.flipVertical", "Flip Vertical")}>
                   <Icon name="flip-v" class="size-4" strokeWidth={1.5} />
                 </button>
               </Tooltip>
@@ -407,7 +409,7 @@ export function MoveOptionBar() {
 
           <div class="h-px bg-editor-divider my-1" />
 
-          <Tooltip content="Reset Transform">
+          <Tooltip content={t("tools.options.resetTransform", "Reset Transform")}>
             <button
               onClick={handleResetTransform}
               disabled={isLocked()}

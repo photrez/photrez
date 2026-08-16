@@ -12,8 +12,10 @@ import { showToast } from "../Toast";
 import { useDialog } from "../dialogs/DialogProvider";
 import { ContextMenu, type ContextMenuEntry } from "../ContextMenu";
 import { exportActiveDocument } from "../exportDocument";
+import { useI18n } from "@/i18n/I18nProvider";
 
 function ExportButton() {
+  const { t } = useI18n();
   const { setShowExportDialog, workspace, activeDocumentId, documents } = useEditor();
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 });
@@ -46,23 +48,23 @@ function ExportButton() {
   const menuItems: ContextMenuEntry[] = [
     {
       kind: "item",
-      label: "Quick Export as PNG",
+      label: t("menus.items.quickExportPng", "Quick Export as PNG"),
       onSelect: () => handleQuickExport("png", 100),
     },
     {
       kind: "item",
-      label: "Quick Export as JPG",
+      label: t("menus.items.quickExportJpg", "Quick Export as JPG"),
       onSelect: () => handleQuickExport("jpeg", 90),
     },
     {
       kind: "item",
-      label: "Quick Export as WebP",
+      label: t("menus.items.quickExportWebp", "Quick Export as WebP"),
       onSelect: () => handleQuickExport("webp", 90),
     },
     { kind: "separator" },
     {
       kind: "item",
-      label: "Export As...",
+      label: t("menus.items.exportAs", "Export As..."),
       onSelect: () => setShowExportDialog(true),
     },
   ];
@@ -77,7 +79,7 @@ function ExportButton() {
         }}
         class="flex h-[28px] shrink-0 items-center gap-2 rounded-[4px] border border-editor-field-border px-3 text-[12.5px] text-editor-text transition-colors hover:bg-white/[0.045] hover:text-editor-text"
       >
-        Export
+        {t("menus.items.export", "Export")}
         <Icon
           name="chevron-down"
           class="size-3.5 text-editor-text-dim"
@@ -88,7 +90,7 @@ function ExportButton() {
         open={menuOpen()}
         x={menuPos().x}
         y={menuPos().y}
-        ariaLabel="Export menu"
+        ariaLabel={t("menus.items.export", "Export menu")}
         items={menuItems}
         onClose={() => setMenuOpen(false)}
       />
@@ -97,9 +99,10 @@ function ExportButton() {
 }
 
 function LayoutToggleButton() {
+  const { t } = useI18n();
   const { rightDockLayout, setRightDockLayout } = useEditor();
   return (
-    <Tooltip content={rightDockLayout() === "side-by-side" ? "Switch to Stacked Dock" : "Switch to Side-by-Side Dock"}>
+    <Tooltip content={rightDockLayout() === "side-by-side" ? t("menus.items.useStackedSideDock", "Switch to Stacked Dock") : t("menus.items.useSideBySideSideDock", "Switch to Side-by-Side Dock")}>
       <button
         onClick={() => setRightDockLayout(rightDockLayout() === "side-by-side" ? "stacked" : "side-by-side")}
         class={clsx(
@@ -118,11 +121,12 @@ function LayoutToggleButton() {
 }
 
 function CloseDockButton() {
+  const { t } = useI18n();
   const { setRightDockOpen } = useEditor();
   return (
     <button
       class="flex size-7 items-center justify-center rounded-[4px] text-editor-icon hover:bg-white/[0.045] hover:text-editor-text lg:hidden"
-      aria-label="Close side panels"
+      aria-label={t("menus.items.hideSidePanels", "Close side panels")}
       onClick={() => setRightDockOpen(false)}
     >
       <Icon name="x" class="size-4" strokeWidth={1.75} />
@@ -131,6 +135,7 @@ function CloseDockButton() {
 }
 
 export function DocumentTabsBar() {
+  const { t } = useI18n();
   const { workspace, documents, activeDocumentId, renderer, scheduler, layerTransformSession, setLayerTransformSession } = useEditor();
   const drag = useDragController();
   const dialog = useDialog();
@@ -252,10 +257,10 @@ export function DocumentTabsBar() {
     const session = workspace.getSession(id);
     if (session?.dirty) {
       const confirmed = await dialog.confirm({
-        title: "Unsaved Changes",
-        message: `"${session.displayName}" has unsaved changes. Discard them?`,
-        confirmLabel: "Discard",
-        cancelLabel: "Cancel",
+        title: t("dialogs.unsavedChanges.title", "Unsaved Changes"),
+        message: t("dialogs.unsavedChanges.message", { name: session.displayName }),
+        confirmLabel: t("common.discard", "Discard"),
+        cancelLabel: t("common.cancel", "Cancel"),
         tone: "danger",
       });
       if (!confirmed) return;
@@ -538,7 +543,7 @@ export function DocumentTabsBar() {
                 <button
                   onClick={(e) => handleCloseTab(e, tab.id)}
                   class="flex size-4 items-center justify-center rounded text-editor-text-dim hover:text-editor-text hover:bg-editor-app-hover"
-                  aria-label={`Close ${tab.displayName}`}
+                  aria-label={t("common.closeTab", "Close tab")}
                 >
                   <Icon name="x" class="size-3.5" strokeWidth={1.75} />
                 </button>
@@ -554,7 +559,7 @@ export function DocumentTabsBar() {
       <button
         onClick={handleNewTab}
         class="flex w-11 shrink-0 items-center justify-center text-editor-icon hover:text-editor-text border-l border-editor-divider h-full"
-        aria-label="New document"
+        aria-label={t("menus.items.newDocument", "New document")}
       >
         <Icon name="plus" class="size-[18px]" strokeWidth={1.75} />
       </button>
