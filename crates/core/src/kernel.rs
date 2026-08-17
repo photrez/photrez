@@ -69,7 +69,15 @@ fn is_inside_mask(px: i32, py: i32, mask: Option<&FillMaskRust>) -> bool {
     }
 }
 
-fn matches_source(data: &[u8], idx: usize, sr: i64, sg: i64, sb: i64, sa: i64, tol_sq: i64) -> bool {
+fn matches_source(
+    data: &[u8],
+    idx: usize,
+    sr: i64,
+    sg: i64,
+    sb: i64,
+    sa: i64,
+    tol_sq: i64,
+) -> bool {
     let dr = data[idx] as i64 - sr;
     let dg = data[idx + 1] as i64 - sg;
     let db = data[idx + 2] as i64 - sb;
@@ -265,7 +273,15 @@ fn linear_gradient_coord(px: f64, py: f64, ax: f64, ay: f64, dx: f64, dy: f64, l
     ((px - ax) * dx + (py - ay) * dy) / len_sq
 }
 
-fn radial_gradient_coord(px: f64, py: f64, ax: f64, ay: f64, _dx: f64, _dy: f64, len_sq: f64) -> f64 {
+fn radial_gradient_coord(
+    px: f64,
+    py: f64,
+    ax: f64,
+    ay: f64,
+    _dx: f64,
+    _dy: f64,
+    len_sq: f64,
+) -> f64 {
     if len_sq == 0.0 {
         return 0.0;
     }
@@ -373,7 +389,18 @@ pub fn gradient_fill_wasm(
     } else {
         None
     };
-    gradient_fill_impl(&mut data, w, h, grad_type as u8, ax, ay, bx, by, &stops, mask);
+    gradient_fill_impl(
+        &mut data,
+        w,
+        h,
+        grad_type as u8,
+        ax,
+        ay,
+        bx,
+        by,
+        &stops,
+        mask,
+    );
     data
 }
 
@@ -399,8 +426,7 @@ fn to_u8_clamp(v: f64) -> u8 {
         m
     } else if frac > 0.5 {
         m + 1.0
-    } else if (m as i64) % 2 == 0
-    {
+    } else if (m as i64) % 2 == 0 {
         m
     } else {
         m + 1.0
@@ -411,7 +437,12 @@ fn to_u8_clamp(v: f64) -> u8 {
 /// Pure per-pixel basic adjustment. `brightness/contrast/saturation` are in
 /// [-100, 100]; out-of-range values are clamped like the TS `normalizeBasicAdjustment`.
 /// private — tests live in-module.
-fn apply_basic_adjustment_impl(data: &[u8], brightness: f64, contrast: f64, saturation: f64) -> Vec<u8> {
+fn apply_basic_adjustment_impl(
+    data: &[u8],
+    brightness: f64,
+    contrast: f64,
+    saturation: f64,
+) -> Vec<u8> {
     let b = brightness.clamp(-100.0, 100.0);
     let c = contrast.clamp(-100.0, 100.0);
     let s = saturation.clamp(-100.0, 100.0);
@@ -451,7 +482,12 @@ fn apply_basic_adjustment_impl(data: &[u8], brightness: f64, contrast: f64, satu
 }
 
 #[wasm_bindgen]
-pub fn apply_basic_adjustment_wasm(buffer: &[u8], brightness: f64, contrast: f64, saturation: f64) -> Vec<u8> {
+pub fn apply_basic_adjustment_wasm(
+    buffer: &[u8],
+    brightness: f64,
+    contrast: f64,
+    saturation: f64,
+) -> Vec<u8> {
     apply_basic_adjustment_impl(buffer, brightness, contrast, saturation)
 }
 
@@ -512,7 +548,14 @@ mod tests {
     #[test]
     fn ellipse_mask_only_fills_inside() {
         let mut img = solid(20, 20, 0, 0, 0, 255);
-        let mask = Some(FillMaskRust { x: 0, y: 0, w: 20, h: 20, shape: 1, inverted: false });
+        let mask = Some(FillMaskRust {
+            x: 0,
+            y: 0,
+            w: 20,
+            h: 20,
+            shape: 1,
+            inverted: false,
+        });
         let changed = flood_fill_impl(&mut img, 20, 20, 10, 10, 255, 255, 255, 255, 0, mask, true);
         assert!(changed);
         assert_eq!(&img[0..4], &[0, 0, 0, 255]);
