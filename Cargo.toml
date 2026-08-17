@@ -7,3 +7,11 @@ members = [
 
 [workspace.dependencies]
 # We will define shared dependencies here as we proceed.
+
+# WASM release profile for the wasm crate only (plan phase 4). Cargo only
+# allows a subset of keys in package-scoped profiles (`opt-level`, `debug`,
+# `debug-assertions`, `overflow-checks`, `split-debuginfo`); `lto`/`codegen-units`/
+# `strip`/`panic` are rejected here, so they are intentionally omitted. Scoped
+# to the package so the native Tauri binary keeps its own default release profile.
+[profile.release.package.photrez-core]
+opt-level = "s"

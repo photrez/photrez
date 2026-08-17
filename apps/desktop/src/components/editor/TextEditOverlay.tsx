@@ -570,9 +570,9 @@ export function TextEditOverlay() {
         style={shortcutBadgeStyle()}
         class="flex items-center gap-1.5 whitespace-nowrap rounded-[3px] border border-editor-field-border/80 bg-editor-panel/95 px-2 py-0.5 text-[10px] text-editor-text-dim shadow-md backdrop-blur-xs select-none"
       >
-        <span><strong class="font-semibold text-editor-text">↵</strong> {t("tools.text.newline", "Newline")}</span>
+        <span><strong class="font-semibold text-editor-text">↵</strong> {t("tools.textActions.newline", "Newline")}</span>
         <span class="opacity-40">·</span>
-        <span><strong class="font-semibold text-editor-accent">Ctrl+Enter</strong> {t("tools.text.commit", "Commit")}</span>
+        <span><strong class="font-semibold text-editor-accent">Ctrl+Enter</strong> {t("tools.textActions.commit", "Commit")}</span>
         <span class="opacity-40">·</span>
         <span><strong class="font-semibold text-editor-text">Esc</strong> {t("common.cancel", "Cancel")}</span>
       </div>

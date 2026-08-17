@@ -153,7 +153,7 @@ describe("PrintDialog", () => {
     button(view.dialog()!, "Print").click();
     await tick();
     const dialog = view.dialog()!;
-    expect(button(dialog, "Preparing...").disabled).toBe(true);
+    expect(button(dialog, "Loading…").disabled).toBe(true);
     expect(button(dialog, "Cancel").disabled).toBe(true);
     finish(undefined);
     await tick();
@@ -167,7 +167,7 @@ describe("PrintDialog", () => {
     await tick();
     button(view.dialog()!, "Print").click();
     await tick();
-    const btn = button(view.dialog()!, "Preparing...");
+    const btn = button(view.dialog()!, "Loading…");
     const spinner = btn.querySelector("svg");
     expect(spinner).not.toBeNull();
     expect(spinner!.className.baseVal).toContain("animate-spin");

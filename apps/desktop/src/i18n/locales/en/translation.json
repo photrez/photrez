@@ -226,7 +226,7 @@
       "flow": "Flow",
       "smoothing": "Smoothing"
     },
-    "text": {
+    "textActions": {
       "newline": "Newline",
       "commit": "Commit"
     }

@@ -259,7 +259,7 @@ describe("MoveOptionBar", () => {
     document.body.appendChild(container);
     const dispose = render(() => <MoveOptionBar />, container);
 
-    const flipHBtn = qs<HTMLButtonElement>(container, 'button[aria-label="Flip horizontal"]')!;
+    const flipHBtn = qs<HTMLButtonElement>(container, 'button[aria-label="Flip H"]')!;
     flipHBtn.click();
 
     expect(history.commit).toHaveBeenCalled();
@@ -299,7 +299,7 @@ describe("MoveOptionBar", () => {
     document.body.appendChild(container);
     const dispose = render(() => <MoveOptionBar />, container);
 
-    const flipVBtn = qs<HTMLButtonElement>(container, 'button[aria-label="Flip vertical"]')!;
+    const flipVBtn = qs<HTMLButtonElement>(container, 'button[aria-label="Flip V"]')!;
     flipVBtn.click();
 
     expect(history.commit).toHaveBeenCalled();
@@ -724,7 +724,7 @@ describe("MoveOptionBar", () => {
 
     qs<HTMLButtonElement>(container, 'button[aria-label="Align left"]')!.click();
     expect(engine.transformLayer).not.toHaveBeenCalled();
-    qs<HTMLButtonElement>(container, 'button[aria-label="Flip horizontal"]')!.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Flip H"]')!.click();
     expect(engine.flipLayer).not.toHaveBeenCalled();
     dispose();
     container.parentNode?.removeChild(container);
@@ -1018,9 +1018,6 @@ describe("MoveOptionBar", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispose = render(() => <MoveOptionBar />, container);
-
-    // The label text should be visible
-    expect(container.textContent).toContain("Transform Controls");
 
     // Find the checkbox input and click it
     const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]');

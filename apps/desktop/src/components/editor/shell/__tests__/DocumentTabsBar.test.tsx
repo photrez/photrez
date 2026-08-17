@@ -89,7 +89,7 @@ describe("DocumentTabsBar", () => {
     const { ws, container, dispose } = renderTabsBar();
     ws.addDocument(WorkspaceManager.createBlankDocument("doc-1", "My Tab", 800, 600));
     await tick();
-    expect(container.querySelector('button[aria-label="Close My Tab"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Close tab"]')).not.toBeNull();
     dispose();
   });
 
@@ -97,7 +97,7 @@ describe("DocumentTabsBar", () => {
     const { ws, container, scheduler, dispose } = renderTabsBar();
     ws.addDocument(WorkspaceManager.createBlankDocument("doc-1", "Delete Me", 800, 600));
     await tick();
-    qs<HTMLButtonElement>(container, 'button[aria-label="Close Delete Me"]')?.click();
+    qs<HTMLButtonElement>(container, 'button[aria-label="Close tab"]')?.click();
     expect(ws.getSession("doc-1")).toBeNull();
     expect(scheduler.requestRender).toHaveBeenCalled();
     dispose();

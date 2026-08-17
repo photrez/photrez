@@ -14,7 +14,7 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 ## Project Status
 
 - **Phase**: Deep-sync & documentation hardening (2026-07-02). Bun migration, mojibake cleanup, print feature, keyboard shortcut expansion, window-state persistence, E2E grand-tour, and multi-cycle bug-fix passes completed.
-- **Core Crate**: Document model, layer management, bitmap buffers, selection, transform, brush/eraser, import decode, export encode, and workspace management exist. Core tests pass (`cargo test -p photrez-core`: 89 tests). Workspace total: 114 tests (`cargo test --workspace`: 89 core + 25 desktop).
+- **Core Crate**: `photrez-core` is the WASM export encoder only (PNG/JPEG/WebP via the `image` crate), bound as `encode_image_wasm`. The domain model (document/layer/selection/transform/brush/workspace/history) was pruned in Phase 1 — app state lives in the TypeScript `DocumentEngine`. Core crate has 0 Rust tests (encoder exercised via TS `wasmExport`/`exportDocument`); desktop crate retains 25 tests.
 - **Renderer**: MVP rendering is **WebGL2** (`apps/desktop/src/renderer/webgl2.ts`). A standalone GPU crate was evaluated but removed from the workspace (a pre-existing Windows entry-point issue); the future rendering direction keeps WebGL2 and only reintroduces a GPU crate when compute shaders or advanced blend modes exceed WebGL2 capabilities.
 - **WASM Strategy (2026-06-30)**: `photrez-core` is the source for WASM compilation (`wasm-pack` target). Hot-path operations (brush mask, tile ops, transform math, color space, export encode) will be ported from TypeScript to Rust and exposed as zero-copy WASM modules — no Tauri IPC overhead.
 - **Frontend**: Full UI shell with multi-document workspace, document tabs, empty state, drag/drop, and all core editing interactions. Artboard renders via WebGL2 projection-matrix-driven camera viewport.
@@ -78,7 +78,7 @@ SolidJS editor shell
                - write_file_bytes (image export allowlist, 256MB cap)
 
 Rust crate:
-  - photrez-core: source for WASM compilation + domain model + 89 tests
+  - photrez-core: export encoder only (WASM), no domain model/tests after Phase 1 prune
 ```
 
 ### Historical / Future-Target Reference
@@ -271,7 +271,7 @@ photrez/
 │           ├── Cargo.toml          # Tauri dependencies
 │           └── tauri.conf.json     # Tauri configuration
 ├── crates/
-│   ├── core/                       # photrez-core (document model + logic, 89 tests)
+│   ├── core/                       # photrez-core (WASM export encoder only, after Phase 1 prune)
 │   │   └── src/
 │   │       ├── lib.rs              # Crate root
 │   │       ├── document.rs         # Document struct & operations
@@ -315,7 +315,7 @@ photrez/
 
 ### Source of Truth
 
-- **Document state (MVP)**: In TypeScript `DocumentEngine` (`apps/desktop/src/engine/document.ts`). Rust `photrez-core` retains the domain model as reference + test coverage.
+- **Document state (MVP)**: In TypeScript `DocumentEngine` (`apps/desktop/src/engine/document.ts`). After Phase 1 prune, `photrez-core` is the WASM export encoder only (no domain model / no tests) — app state lives in TS.
 - **Document state (future)**: Stays in TS `DocumentEngine`. Rust WASM modules are called for compute, not ownership — no dual-state synchronization problem.
 - **UI state**: In SolidJS signals (tool selection, zoom level, panel visibility).
 - **Pixel data (MVP)**: `ImageBitmap` per layer in `DocumentEngine`, rendered by WebGL2. Future WASM modules operate on `Uint8Array` zero-copy from JS.

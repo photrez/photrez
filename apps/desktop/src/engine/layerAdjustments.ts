@@ -1,3 +1,7 @@
+// WASM acceleration facade (Phase 4). Importing it does not eagerly load the
+// WASM pkg — `getWasmExportModule` only fetches the compiled module on first use.
+import { applyBasicAdjustmentWithWasm, getWasmExportModule } from "@/components/editor/wasmExport";
+
 export type BasicAdjustment = {
   brightness: number;
   contrast: number;
@@ -161,6 +165,22 @@ function solve3x3(A: number[][], b: number[]): [number, number, number] {
 }
 
 export function applyBasicAdjustmentToPixels(
+  pixels: Uint8ClampedArray,
+  adjustment: BasicAdjustment,
+): Uint8ClampedArray {
+  // WASM-accelerated path (Phase 4). Falls back to the pure-TS impl if the
+  // kernel is unavailable; kicks off module init so the next bake uses WASM.
+  const out = applyBasicAdjustmentWithWasm(pixels, adjustment.brightness, adjustment.contrast, adjustment.saturation);
+  if (out) {
+    return new Uint8ClampedArray(out);
+  }
+  void getWasmExportModule();
+  return applyBasicAdjustmentToPixelsTs(pixels, adjustment);
+}
+
+// Pure TypeScript implementation. Kept as the WASM fallback and exported for
+// benchmarking (Phase 4). per-channel contrast/brightness/saturation.
+export function applyBasicAdjustmentToPixelsTs(
   pixels: Uint8ClampedArray,
   adjustment: BasicAdjustment,
 ): Uint8ClampedArray {

@@ -24,7 +24,11 @@ vi.mock("../dialogs/DialogProvider", () => ({
   }),
 }));
 
-function clickPill(container: HTMLElement, label: string) {
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function clickPill(container: HTMLElement, label: string) {
   let searchLabel = label;
   if (label === "+") searchLabel = "Custom...";
 
@@ -34,10 +38,12 @@ function clickPill(container: HTMLElement, label: string) {
   if (!pill) {
     const ratioBtn = Array.from(buttonsBefore).find(b => {
       const text = b.textContent?.trim() || "";
-      return text.startsWith("Ratio:") || text === "Ratio";
+      // Trigger label is "Aspect Ratio: <mode>" (en catalog overrides the "Ratio" default).
+      return text.startsWith("Aspect Ratio:") || text.startsWith("Ratio:") || text === "Ratio" || text === "Aspect Ratio";
     });
     if (ratioBtn) {
       ratioBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await tick();
       const buttonsAfter = container.querySelectorAll("button");
       pill = Array.from(buttonsAfter).find(b => b.textContent?.trim() === searchLabel);
     }
@@ -79,7 +85,7 @@ const modernContextBase = {
   activeDocumentId: () => "mock-doc-id",
 };
 
-function runWithContainer(fn: (container: HTMLElement, dispose: () => void) => void) {
+async function runWithContainer(fn: (container: HTMLElement, dispose: () => void) => Promise<void>) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let disposed = false;
@@ -90,7 +96,7 @@ function runWithContainer(fn: (container: HTMLElement, dispose: () => void) => v
     }
   };
   try {
-    fn(container, dispose);
+    await fn(container, dispose);
   } finally {
     dispose();
   }
@@ -107,8 +113,8 @@ describe("CropOptionBar", () => {
   });
 
   describe("fill background controls", () => {
-    it("defaults to the editor background color in Use Background Color mode", () => {
-      runWithContainer((container, done) => {
+    it("defaults to the editor background color in Use Background Color mode", async () => {
+      await runWithContainer(async (container, done) => {
         renderOptionBar({
           ...modernContextBase,
           bgColor: () => "#224466",
@@ -126,8 +132,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("changing the background color updates crop fill while using background mode", () => {
-      runWithContainer((container, done) => {
+    it("changing the background color updates crop fill while using background mode", async () => {
+      await runWithContainer(async (container, done) => {
         const [bgColor, setBgColor] = createSignal("#111111");
         renderOptionBar({
           ...modernContextBase,
@@ -183,8 +189,8 @@ describe("CropOptionBar", () => {
       }
     });
 
-    it("can return a custom fill to Use Background Color", () => {
-      runWithContainer((container, done) => {
+    it("can return a custom fill to Use Background Color", async () => {
+      await runWithContainer(async (container, done) => {
         const setCropFillSource = vi.fn();
         renderOptionBar({
           ...modernContextBase,
@@ -205,8 +211,8 @@ describe("CropOptionBar", () => {
   });
 
   describe("crop box always fits inside canvas after changes", () => {
-    it("keeps frame within canvas bounds after repeated mode changes", () => {
-      runWithContainer((container, done) => {
+    it("keeps frame within canvas bounds after repeated mode changes", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
         const [cropAspect, setCropAspect] = createSignal<{ w: number; h: number } | null>(null);
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
@@ -225,26 +231,26 @@ describe("CropOptionBar", () => {
         }, container);
 
         // Free→Ratio: frame should be max at 16:9
-        clickPill(container, "16:9");
+        await clickPill(container, "16:9");
         let frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(MAX_W);
         expect(frame.h).toBeLessThanOrEqual(MAX_H);
         expect(frame.w / frame.h).toBeCloseTo(16 / 9, 1);
 
         // Ratio→Size (800x600): frame at target zoom
-        clickPill(container, "Size");
+        await clickPill(container, "Size");
         frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(MAX_W);
         expect(frame.h).toBeLessThanOrEqual(MAX_H);
 
         // Size→Free: frame unchanged
-        clickPill(container, "Free");
+        await clickPill(container, "Free");
         frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(MAX_W);
         expect(frame.h).toBeLessThanOrEqual(MAX_H);
 
         // Free→Ratio again: frame re-fitted
-        clickPill(container, "16:9");
+        await clickPill(container, "16:9");
         frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(MAX_W);
         expect(frame.h).toBeLessThanOrEqual(MAX_H);
@@ -254,8 +260,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("clamps oversized frame when switching from Size to Free in Modern mode", () => {
-      runWithContainer((container, done) => {
+    it("clamps oversized frame when switching from Size to Free in Modern mode", async () => {
+      await runWithContainer(async (container, done) => {
         // Start with an oversized frame (simulating a large size target that doesn't fit)
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("size");
         const [cropAspect, setCropAspect] = createSignal<{ w: number; h: number } | null>(null);
@@ -272,7 +278,7 @@ describe("CropOptionBar", () => {
           modernCropFrame: modernFrame, setModernCropFrame: setModernFrameSpy,
         }, container);
 
-        clickPill(container, "Free");
+        await clickPill(container, "Free");
 
         const frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(MAX_W);
@@ -287,8 +293,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("fills canvas at target aspect when switching to Size mode (Modern)", () => {
-      runWithContainer((container, done) => {
+    it("fills canvas at target aspect when switching to Size mode (Modern)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 400, h: 300 });
@@ -306,7 +312,7 @@ describe("CropOptionBar", () => {
         }, container);
 
         // Switch to Size mode — frame fills canvas at target 800x600 (4:3) aspect
-        clickPill(container, "Size");
+        await clickPill(container, "Size");
         let frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(MAX_W);
         expect(frame.h).toBeLessThanOrEqual(MAX_H);
@@ -315,8 +321,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("fills canvas at target aspect under any zoom (Modern)", () => {
-      runWithContainer((container, done) => {
+    it("fills canvas at target aspect under any zoom (Modern)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 400, h: 300 });
@@ -335,7 +341,7 @@ describe("CropOptionBar", () => {
 
         // Switch to Size mode — frame fills canvas at target 800x600 (4:3) aspect
         // Even at zoom=0.5, the frame should fill the max canvas bounds (in screen space)
-        clickPill(container, "Size");
+        await clickPill(container, "Size");
         let frame = setModernFrameSpy.mock.lastCall?.[0];
         // Frame is in doc coords; multiply by zoom to check screen-space bounds
         expect(frame.w * 0.5).toBeLessThanOrEqual(MAX_W);
@@ -346,8 +352,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("re-fits frame after ratio preset change in Modern mode", () => {
-      runWithContainer((container, done) => {
+    it("re-fits frame after ratio preset change in Modern mode", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("ratio");
         const [cropAspect, setCropAspect] = createSignal<{ w: number; h: number } | null>({ w: 16, h: 9 });
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
@@ -364,7 +370,7 @@ describe("CropOptionBar", () => {
         }, container);
 
         // Change preset from 16:9 to 3:2
-        clickPill(container, "3:2");
+        await clickPill(container, "3:2");
 
         expect(setCropAspectSpy).toHaveBeenCalledWith({ w: 3, h: 2 });
         const frame = setModernFrameSpy.mock.lastCall?.[0];
@@ -377,7 +383,7 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("re-fits frame when switching to custom ratio 'preset' in Modern mode", () => {
+    it("re-fits frame when switching to custom ratio 'preset' in Modern mode", async () => {
       const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("ratio");
       const [cropAspect, setCropAspect] = createSignal<{ w: number; h: number } | null>(null);
       const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 600, h: 400 });
@@ -397,7 +403,7 @@ describe("CropOptionBar", () => {
       const dispose = render(() => <CropOptionBar />, container);
 
       // Click "+" to expand custom W:H fields, then submit W=5 H=4
-      clickPill(container, "+");
+      await clickPill(container, "+");
 
       // Query inputs after clicking "+" (custom W, custom H, Angle)
       const inputs = Array.from(container.querySelectorAll("input")).filter((i) => (i as HTMLInputElement).type === "text");
@@ -417,8 +423,8 @@ describe("CropOptionBar", () => {
       document.body.removeChild(container);
     });
 
-    it("keeps frame within canvas bounds in Classic mode after mode changes", () => {
-      runWithContainer((container, done) => {
+    it("keeps frame within canvas bounds in Classic mode after mode changes", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropRect, setCropRect] = createSignal<{ x: number; y: number; w: number; h: number } | null>({
           x: 0, y: 0, w: 1600, h: 1200,
         });
@@ -448,7 +454,7 @@ describe("CropOptionBar", () => {
         }, container);
 
         // Free→Ratio: fits to 16:9 within 1600x1200 doc
-        clickPill(container, "16:9");
+        await clickPill(container, "16:9");
         let rect = setCropRectSpy.mock.lastCall?.[0];
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.y).toBeGreaterThanOrEqual(0);
@@ -457,14 +463,14 @@ describe("CropOptionBar", () => {
         expect(rect.w / rect.h).toBeCloseTo(16 / 9, 1);
 
         // Ratio→Size (800x600): fits within doc
-        clickPill(container, "Size");
+        await clickPill(container, "Size");
         rect = setCropRectSpy.mock.lastCall?.[0];
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.w).toBeLessThanOrEqual(1600);
         expect(rect.y + rect.h).toBeLessThanOrEqual(1200);
 
         // Size→Free: no rect change expected
-        clickPill(container, "Free");
+        await clickPill(container, "Free");
         // Only 2 calls so far (Ratio + Size), Free doesn't change rect in Classic
         expect(setCropRectSpy).toHaveBeenCalledTimes(2);
 
@@ -474,7 +480,7 @@ describe("CropOptionBar", () => {
   });
 
   describe("mode select immediate application", () => {
-    it("applies Free→Ratio immediately in Classic mode with existing cropRect", () => {
+    it("applies Free→Ratio immediately in Classic mode with existing cropRect", async () => {
       const [cropRect, setCropRect] = createSignal<{ x: number; y: number; w: number; h: number } | null>({
         x: 0, y: 0, w: 1600, h: 1200,
       });
@@ -507,7 +513,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "16:9");
+      await clickPill(container, "16:9");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("ratio");
       expect(setCropAspectSpy).toHaveBeenCalledWith({ w: 16, h: 9 });
@@ -523,7 +529,7 @@ describe("CropOptionBar", () => {
       container.parentNode?.removeChild(container);
     });
 
-    it("applies Free→Ratio immediately in Modern mode", () => {
+    it("applies Free→Ratio immediately in Modern mode", async () => {
       const [cropAspect, setCropAspect] = createSignal<{ w: number; h: number } | null>(null);
       const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
       const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 500, h: 500 });
@@ -563,7 +569,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "16:9");
+      await clickPill(container, "16:9");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("ratio");
       expect(setCropAspectSpy).toHaveBeenCalledWith({ w: 16, h: 9 });
@@ -579,7 +585,7 @@ describe("CropOptionBar", () => {
       container.parentNode?.removeChild(container);
     });
 
-    it("fills canvas at target aspect when switching to Size mode (Modern)", () => {
+    it("fills canvas at target aspect when switching to Size mode (Modern)", async () => {
       const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
       const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
       const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 500, h: 500 });
@@ -619,7 +625,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "Size");
+      await clickPill(container, "Size");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("size");
       expect(setCropSizeTargetSpy).toHaveBeenCalledWith({ w: 800, h: 600 });
@@ -633,7 +639,7 @@ describe("CropOptionBar", () => {
       container.parentNode?.removeChild(container);
     });
 
-    it("applies Free→Size immediately in Classic mode with existing cropRect", () => {
+    it("applies Free→Size immediately in Classic mode with existing cropRect", async () => {
       const [cropRect, setCropRect] = createSignal<{ x: number; y: number; w: number; h: number } | null>({
         x: 0, y: 0, w: 1600, h: 1200,
       });
@@ -666,7 +672,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "Size");
+      await clickPill(container, "Size");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("size");
       expect(setCropSizeTargetSpy).toHaveBeenCalledWith({ w: 800, h: 600 });
@@ -680,7 +686,7 @@ describe("CropOptionBar", () => {
       container.parentNode?.removeChild(container);
     });
 
-    it("applies Ratio→Free immediately without changing frame (Classic)", () => {
+    it("applies Ratio→Free immediately without changing frame (Classic)", async () => {
       const [cropRect, setCropRect] = createSignal<{ x: number; y: number; w: number; h: number } | null>({
         x: 50, y: 50, w: 400, h: 300,
       });
@@ -711,7 +717,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "Free");
+      await clickPill(container, "Free");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("free");
       // Rect should NOT be changed when going to Free
@@ -721,7 +727,7 @@ describe("CropOptionBar", () => {
       container.parentNode?.removeChild(container);
     });
 
-    it("applies Ratio→Free immediately without changing frame geometry (Modern)", () => {
+    it("applies Ratio→Free immediately without changing frame geometry (Modern)", async () => {
       const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("ratio");
       const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 600, h: 400 });
       const setCropModeSpy = vi.fn((m) => setCropMode(m));
@@ -758,7 +764,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "Free");
+      await clickPill(container, "Free");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("free");
       // Free mode clamps frame to max bounds (600x400 already fits, so unchanged)
@@ -771,7 +777,7 @@ describe("CropOptionBar", () => {
       container.parentNode?.removeChild(container);
     });
 
-    it("applies Ratio→Size immediately in Classic mode", () => {
+    it("applies Ratio→Size immediately in Classic mode", async () => {
       const [cropRect, setCropRect] = createSignal<{ x: number; y: number; w: number; h: number } | null>({
         x: 0, y: 0, w: 1600, h: 900,
       });
@@ -804,7 +810,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "Size");
+      await clickPill(container, "Size");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("size");
       expect(setCropSizeTargetSpy).toHaveBeenCalledWith({ w: 800, h: 600 });
@@ -818,7 +824,7 @@ describe("CropOptionBar", () => {
       container.parentNode?.removeChild(container);
     });
 
-    it("applies Size→Free immediately in Classic mode without changing rect", () => {
+    it("applies Size→Free immediately in Classic mode without changing rect", async () => {
       const [cropRect, setCropRect] = createSignal<{ x: number; y: number; w: number; h: number } | null>({
         x: 100, y: 100, w: 800, h: 600,
       });
@@ -849,7 +855,7 @@ describe("CropOptionBar", () => {
       document.body.appendChild(container);
       const dispose = render(() => <CropOptionBar />, container);
 
-      clickPill(container, "Free");
+      await clickPill(container, "Free");
 
       expect(setCropModeSpy).toHaveBeenCalledWith("free");
       expect(setCropRectSpy).not.toHaveBeenCalled();
@@ -915,7 +921,7 @@ describe("CropOptionBar", () => {
     const dispose = render(() => <CropOptionBar />, container);
 
     // Click "+" to expand custom W:H fields
-    clickPill(container, "+");
+    await clickPill(container, "+");
 
     const inputs = Array.from(container.querySelectorAll("input")).filter((i) => (i as HTMLInputElement).type === "text");
     expect(inputs.length).toBeGreaterThan(0);
@@ -1076,7 +1082,7 @@ describe("CropOptionBar", () => {
 
     const dispose = render(() => <CropOptionBar />, container);
 
-    const swapBtn = container.querySelector('button[aria-label="Swap width and height"]') as HTMLButtonElement | null;
+    const swapBtn = container.querySelector('button[aria-label="Swap Width/Height"]') as HTMLButtonElement | null;
     expect(swapBtn).not.toBeNull();
 
     swapBtn!.click();
@@ -1097,7 +1103,7 @@ describe("CropOptionBar", () => {
     container.parentNode?.removeChild(container);
   });
 
-  it("cancel discards hidden crop preview and stays in Crop tool", () => {
+  it("cancel discards hidden crop preview and stays in Crop tool", async () => {
     const [cropRect, setCropRect] = createSignal<{ x: number; y: number; w: number; h: number } | null>({
       x: 10,
       y: 20,
@@ -1173,8 +1179,8 @@ describe("CropOptionBar", () => {
     const fitMaxW = 800;
     const fitMaxH = 600;
 
-    it("small target (100×100) produces frame filling canvas at 1:1 aspect", () => {
-      runWithContainer((container, done) => {
+    it("small target (100×100) produces frame filling canvas at 1:1 aspect", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 400, h: 300 });
@@ -1190,7 +1196,7 @@ describe("CropOptionBar", () => {
           modernCropFrame: modernFrame, setModernCropFrame: setModernFrameSpy,
         }, container);
 
-        clickPill(container, "Size");
+        await clickPill(container, "Size");
 
         const frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(fitMaxW);
@@ -1202,8 +1208,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("very tall target (1000×2000) produces frame filling canvas at 1:2 aspect", () => {
-      runWithContainer((container, done) => {
+    it("very tall target (1000×2000) produces frame filling canvas at 1:2 aspect", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 400, h: 300 });
@@ -1219,7 +1225,7 @@ describe("CropOptionBar", () => {
           modernCropFrame: modernFrame, setModernCropFrame: setModernFrameSpy,
         }, container);
 
-        clickPill(container, "Size");
+        await clickPill(container, "Size");
 
         const frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(fitMaxW);
@@ -1230,8 +1236,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("very wide target (2000×1000) produces frame filling canvas at 2:1 aspect", () => {
-      runWithContainer((container, done) => {
+    it("very wide target (2000×1000) produces frame filling canvas at 2:1 aspect", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 400, h: 300 });
@@ -1247,7 +1253,7 @@ describe("CropOptionBar", () => {
           modernCropFrame: modernFrame, setModernCropFrame: setModernFrameSpy,
         }, container);
 
-        clickPill(container, "Size");
+        await clickPill(container, "Size");
 
         const frame = setModernFrameSpy.mock.lastCall?.[0];
         expect(frame.w).toBeLessThanOrEqual(fitMaxW);
@@ -1258,8 +1264,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("size W input submit refits frame to new aspect (Modern)", () => {
-      runWithContainer((container, done) => {
+    it("size W input submit refits frame to new aspect (Modern)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>({ w: 800, h: 600 });
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("size");
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 800, h: 600 });
@@ -1291,8 +1297,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("size H input submit refits frame to new aspect (Modern)", () => {
-      runWithContainer((container, done) => {
+    it("size H input submit refits frame to new aspect (Modern)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>({ w: 800, h: 600 });
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("size");
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 800, h: 600 });
@@ -1325,8 +1331,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("swap button in Size mode refits frame to swapped aspect (Modern)", () => {
-      runWithContainer((container, done) => {
+    it("swap button in Size mode refits frame to swapped aspect (Modern)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>({ w: 300, h: 600 });
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("size");
         const [modernFrame, setModernFrame] = createSignal<{ w: number; h: number }>({ w: 400, h: 800 });
@@ -1344,7 +1350,7 @@ describe("CropOptionBar", () => {
 
         // Find the swap button (has aria-label "Swap Width/Height")
         const swapBtn = Array.from(container.querySelectorAll("button")).find(
-          (b) => b.getAttribute("aria-label") === "Swap width and height"
+          (b) => b.getAttribute("aria-label") === "Swap Width/Height"
         );
         expect(swapBtn).toBeDefined();
         swapBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1361,8 +1367,8 @@ describe("CropOptionBar", () => {
   });
 
   describe("Size mode physical unit value stability (no drift)", () => {
-    it("3×4 cm stays stable across repeated submits", () => {
-      runWithContainer((container, done) => {
+    it("3×4 cm stays stable across repeated submits", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [sizeUnit, setSizeUnit] = createSignal<"px" | "cm" | "mm" | "in">("cm");
         const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
@@ -1412,8 +1418,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("4×6 in stays stable across repeated submits", () => {
-      runWithContainer((container, done) => {
+    it("4×6 in stays stable across repeated submits", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [sizeUnit, setSizeUnit] = createSignal<"px" | "cm" | "mm" | "in">("in");
         const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
@@ -1454,8 +1460,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("unit switch (cm→px→cm) preserves displayed value", () => {
-      runWithContainer((container, done) => {
+    it("unit switch (cm→px→cm) preserves displayed value", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [sizeUnit, setSizeUnit] = createSignal<"px" | "cm" | "mm" | "in">("cm");
         const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
@@ -1497,8 +1503,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("mode switch (Size→Free→Size) preserves value", () => {
-      runWithContainer((container, done) => {
+    it("mode switch (Size→Free→Size) preserves value", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("size");
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
@@ -1535,8 +1541,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("repeated re-renders cause no value drift (3×4 cm)", () => {
-      runWithContainer((container, done) => {
+    it("repeated re-renders cause no value drift (3×4 cm)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const [sizeUnit, setSizeUnit] = createSignal<"px" | "cm" | "mm" | "in">("cm");
         const [renderTick, setRenderTick] = createSignal(0);
@@ -1577,8 +1583,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("3×4 cm converts to ~354×472 px at 300 DPI (not 113×151)", () => {
-      runWithContainer((container, done) => {
+    it("3×4 cm converts to ~354×472 px at 300 DPI (not 113×151)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
 
@@ -1617,8 +1623,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("4×6 in converts to ~1200×1800 px at 300 DPI (not 384×576)", () => {
-      runWithContainer((container, done) => {
+    it("4×6 in converts to ~1200×1800 px at 300 DPI (not 384×576)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
 
@@ -1657,8 +1663,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("applied crop passes rounded pixel values at 300 DPI (not silently downscaled)", () => {
-      runWithContainer((container, done) => {
+    it("applied crop passes rounded pixel values at 300 DPI (not silently downscaled)", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropSizeTarget, setCropSizeTarget] = createSignal<{ w: number; h: number } | null>(null);
         const setCropSizeTargetSpy = vi.fn((t) => setCropSizeTarget(t));
 
@@ -1689,8 +1695,8 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("locks modern crop frame shape in modern interaction mode", () => {
-      runWithContainer((container, done) => {
+    it("locks modern crop frame shape in modern interaction mode", async () => {
+      await runWithContainer(async (container, done) => {
         const [cropMode, setCropMode] = createSignal<"free" | "ratio" | "size">("free");
         const [cropAspect, setCropAspect] = createSignal<{ w: number; h: number } | null>(null);
         const setCropModeSpy = vi.fn((m) => setCropMode(m));
@@ -1706,7 +1712,7 @@ describe("CropOptionBar", () => {
           setModernCropFrame: setModernFrameSpy,
         }, container);
 
-        clickPill(container, "Lock Current Shape");
+        await clickPill(container, "Lock Current Shape");
 
         expect(setCropModeSpy).toHaveBeenCalledWith("ratio");
         expect(setCropAspectSpy).toHaveBeenCalledWith({ w: 400, h: 300 });
@@ -1719,8 +1725,8 @@ describe("CropOptionBar", () => {
   });
 
   describe("crop tool UI redesign (2026-07-15)", () => {
-    it("removes the Modern paradigm toggle (no standalone 'Modern' button)", () => {
-      runWithContainer((container, done) => {
+    it("removes the Modern paradigm toggle (no standalone 'Modern' button)", async () => {
+      await runWithContainer(async (container, done) => {
         renderOptionBar({ ...modernContextBase }, container);
         const hasModern = Array.from(container.querySelectorAll("button")).some(
           (b) => b.textContent?.trim() === "Modern"
@@ -1730,10 +1736,10 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("straighten slider updates modern image rotation", () => {
+    it("straighten slider updates modern image rotation", async () => {
       const setModernCropImageTransform = vi.fn();
       const commitModernCropState = vi.fn();
-      runWithContainer((container, done) => {
+      await runWithContainer(async (container, done) => {
         renderOptionBar({ ...modernContextBase, setModernCropImageTransform, commitModernCropState }, container);
         const slider = container.querySelector('input[type="range"]') as HTMLInputElement | null;
         expect(slider).not.toBeNull();
@@ -1744,9 +1750,9 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("straighten slider updates classic rotation when in classic mode", () => {
+    it("straighten slider updates classic rotation when in classic mode", async () => {
       const setCropRotation = vi.fn();
-      runWithContainer((container, done) => {
+      await runWithContainer(async (container, done) => {
         renderOptionBar({ ...modernContextBase, cropInteractionMode: () => "classic" as const, setCropRotation }, container);
         const slider = container.querySelector('input[type="range"]') as HTMLInputElement | null;
         expect(slider).not.toBeNull();
@@ -1757,9 +1763,9 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("inline Classic toggle is reachable and switches interaction mode to classic", () => {
+    it("inline Classic toggle is reachable and switches interaction mode to classic", async () => {
       const setCropInteractionMode = vi.fn();
-      runWithContainer((container, done) => {
+      await runWithContainer(async (container, done) => {
         renderOptionBar({ ...modernContextBase, setCropInteractionMode }, container);
         const classicLabel = Array.from(container.querySelectorAll("label")).find(
           (l) => l.textContent?.trim() === "Classic Crop"
@@ -1772,9 +1778,9 @@ describe("CropOptionBar", () => {
       });
     });
 
-    it("Classic crop toggle in More menu switches interaction mode to classic", () => {
+    it("Classic crop toggle in More menu switches interaction mode to classic", async () => {
       const setCropInteractionMode = vi.fn();
-      runWithContainer((container, done) => {
+      await runWithContainer(async (container, done) => {
         renderOptionBar({ ...modernContextBase, setCropInteractionMode }, container);
         const moreTrigger = container.querySelector(".relative.hidden")?.querySelector("button") as HTMLButtonElement | null;
         expect(moreTrigger).not.toBeNull();

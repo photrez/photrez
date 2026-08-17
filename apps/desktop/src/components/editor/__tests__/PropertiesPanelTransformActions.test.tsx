@@ -135,7 +135,7 @@ describe("PropertiesPanel transform actions (Flip / Reset)", () => {
     engine.transformLayer(layer.id, { scaleX: 1, scaleY: 1, x: 0, y: 0 });
 
     const { container, dispose } = renderWithSelectedLayer(workspace, layer.id);
-    const btn = container.querySelector<HTMLButtonElement>("button[aria-label='Fit to canvas']");
+    const btn = container.querySelector<HTMLButtonElement>("button[aria-label='Fit to canvas (scale + center)']");
     btn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     const t = engine.getLayer(layer.id)!.transform;
@@ -178,7 +178,7 @@ describe("PropertiesPanel transform actions (Flip / Reset)", () => {
 
     const centerH = container.querySelector<HTMLButtonElement>("button[aria-label='Center horizontally on canvas']");
     const centerV = container.querySelector<HTMLButtonElement>("button[aria-label='Center vertically on canvas']");
-    const fit = container.querySelector<HTMLButtonElement>("button[aria-label='Fit to canvas']");
+    const fit = container.querySelector<HTMLButtonElement>("button[aria-label='Fit to canvas (scale + center)']");
     const rotCcw = container.querySelector<HTMLButtonElement>("button[aria-label='Rotate 90° counterclockwise']");
     const rotCw = container.querySelector<HTMLButtonElement>("button[aria-label='Rotate 90° clockwise']");
 

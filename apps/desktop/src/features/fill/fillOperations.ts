@@ -9,6 +9,10 @@
  * The return value is the same reference — useful for chaining.
  */
 
+// WASM acceleration facade (Phase 3+). Importing it does not eagerly load the
+// WASM pkg — `getWasmExportModule` only fetches the compiled module on first use.
+import { floodFillWithWasm, gradientFillWithWasm, getWasmExportModule } from "@/components/editor/wasmExport";
+
 export interface FillMask {
   x: number;
   y: number;
@@ -43,6 +47,34 @@ function isInsideEllipse(
  * Queue-based scanline (safe for large areas — no recursion).
  */
 export function floodFill(
+  imgData: ImageData,
+  sx: number,
+  sy: number,
+  fillR: number,
+  fillG: number,
+  fillB: number,
+  fillA: number,
+  tolerance: number,
+  mask?: FillMask | null,
+  contiguous: boolean = true,
+): ImageData {
+  // WASM-accelerated path (Phase 3). Falls back to the pure-TS impl if the
+  // kernel is unavailable; kicks off module init so the next fill uses WASM.
+  const out = floodFillWithWasm(
+    imgData.data, imgData.width, imgData.height,
+    sx, sy, fillR, fillG, fillB, fillA, tolerance, mask ?? null, contiguous,
+  );
+  if (out) {
+    imgData.data.set(out);
+    return imgData;
+  }
+  void getWasmExportModule();
+  return floodFillTs(imgData, sx, sy, fillR, fillG, fillB, fillA, tolerance, mask, contiguous);
+}
+
+// Pure TypeScript implementation. Kept as the WASM fallback and exported for
+// benchmarking (Phase 3). queue BFS, no recursion.
+export function floodFillTs(
   imgData: ImageData,
   sx: number,
   sy: number,
@@ -156,8 +188,33 @@ export function floodFill(
 export function gradientFill(
   imgData: ImageData,
   type: GradientType,
-  ax: number, ay: number,
-  bx: number, by: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  stops: ColorStop[],
+  mask?: FillMask | null,
+): ImageData {
+  // WASM-accelerated path (Phase 4). Falls back to the pure-TS impl if the
+  // kernel is unavailable; kicks off module init so the next fill uses WASM.
+  const out = gradientFillWithWasm(imgData.data, imgData.width, imgData.height, type, ax, ay, bx, by, stops, mask ?? null);
+  if (out) {
+    imgData.data.set(out);
+    return imgData;
+  }
+  void getWasmExportModule();
+  return gradientFillTs(imgData, type, ax, ay, bx, by, stops, mask);
+}
+
+// Pure TypeScript implementation. Kept as the WASM fallback and exported for
+// benchmarking (Phase 4). per-pixel coord + stop lerp, no recursion.
+export function gradientFillTs(
+  imgData: ImageData,
+  type: GradientType,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
   stops: ColorStop[],
   mask?: FillMask | null,
 ): ImageData {

@@ -268,7 +268,7 @@ describe("TextOptionBar", () => {
     qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
     await new Promise((r) => setTimeout(r, 0));
 
-    const search = qs<HTMLInputElement>(container, 'input[aria-label="Search fonts"]')!;
+    const search = qs<HTMLInputElement>(container, 'input[type="search"]')!;
     expect(document.activeElement).toBe(search);
     cleanup();
   });
@@ -279,7 +279,7 @@ describe("TextOptionBar", () => {
     await new Promise((r) => setTimeout(r, 0));
     qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
 
-    const search = qs<HTMLInputElement>(container, 'input[aria-label="Search fonts"]')!;
+    const search = qs<HTMLInputElement>(container, 'input[type="search"]')!;
     search.value = "ar";
     search.dispatchEvent(new Event("input", { bubbles: true }));
 
@@ -298,7 +298,7 @@ describe("TextOptionBar", () => {
     const { container, cleanup } = mountTextBar();
     qs<HTMLButtonElement>(container, "[data-font-picker-trigger]")!.click();
 
-    const search = qs<HTMLInputElement>(container, 'input[aria-label="Search fonts"]')!;
+    const search = qs<HTMLInputElement>(container, 'input[type="search"]')!;
     search.value = "zzzz";
     search.dispatchEvent(new Event("input", { bubbles: true }));
 
@@ -323,7 +323,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: renders font/size/style/align/color controls when no text layer is selected", () => {
+  it("draw mode: renders font/size/style/align/color controls when no text layer is selected", async () => {
     buildMock();
     const { container, cleanup } = mountTextBar();
     expect(qs(container, "[data-font-picker-trigger]")).not.toBeNull();
@@ -337,7 +337,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: Font weight popover updates the textFontWeight signal", () => {
+  it("draw mode: Font weight popover updates the textFontWeight signal", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
     const btn = qs<HTMLButtonElement>(container, 'button[aria-label="Font weight"]')!;
@@ -352,7 +352,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("font weight: options show named labels (Regular/Bold/Black) mapped to numeric values", () => {
+  it("font weight: options show named labels (Regular/Bold/Black) mapped to numeric values", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
     const btn = qs<HTMLButtonElement>(container, 'button[aria-label="Font weight"]')!;
@@ -370,7 +370,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("font weight: a custom (non-preset) weight displays its formatted label on the trigger button", () => {
+  it("font weight: a custom (non-preset) weight displays its formatted label on the trigger button", async () => {
     buildMock({ textFontWeight: () => 650 });
     const { container, cleanup } = mountTextBar();
     const btn = qs<HTMLButtonElement>(container, 'button[aria-label="Font weight"]')!;
@@ -378,7 +378,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: Italic click updates textFontItalic", () => {
+  it("draw mode: Italic click updates textFontItalic", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
     qs<HTMLButtonElement>(container, 'button[aria-label="Italic"]')!.click();
@@ -386,7 +386,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: size input updates textFontSize (clamped 1..2000)", () => {
+  it("draw mode: size input updates textFontSize (clamped 1..2000)", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
     const size = qs<HTMLInputElement>(container, 'input[aria-label="Font size"]')!;
@@ -400,7 +400,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: align buttons update textAlign", () => {
+  it("draw mode: align buttons update textAlign", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
     qs<HTMLButtonElement>(container, 'button[aria-label="Align center"]')!.click();
@@ -410,7 +410,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: color swatch writes the shared editor foreground color", () => {
+  it("draw mode: color swatch writes the shared editor foreground color", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
     const color = qs<HTMLButtonElement>(container, 'button[aria-label="Text color"]')!;
@@ -437,7 +437,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("edit mode: controls reflect the selected text layer and commit BEFORE mutation", () => {
+  it("edit mode: controls reflect the selected text layer and commit BEFORE mutation", async () => {
     const layer = makeTextLayer({
       id: "t1",
       textData: { ...baseData, fontStyle: "italic", align: "center" },
@@ -461,7 +461,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("edit mode: clicking the already-active control does not push a ghost commit", () => {
+  it("edit mode: clicking the already-active control does not push a ghost commit", async () => {
     const layer = makeTextLayer({ id: "t2", textData: { ...baseData, align: "left" } });
     const { engine, commit } = buildMock({}, layer);
     const { container, cleanup } = mountTextBar();
@@ -474,7 +474,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("edit mode: font/size/color edits route through applyEdit (updateTextData)", () => {
+  it("edit mode: font/size/color edits route through applyEdit (updateTextData)", async () => {
     const layer = makeTextLayer({ id: "t3" });
     const { engine } = buildMock({}, layer);
     const { container, cleanup } = mountTextBar();
@@ -496,12 +496,12 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: stroke toggle enables at 4px then disables at 0", () => {
+  it("draw mode: stroke toggle enables at 4px then disables at 0", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
     // Open stroke options popover
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, '[data-text-stroke] button')!.click();
     const toggle = qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!;
 
     toggle.click();
@@ -509,11 +509,11 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("stroke width: clearing the input does NOT disable the stroke (empty draft reverts on blur)", () => {
+  it("stroke width: clearing the input does NOT disable the stroke (empty draft reverts on blur)", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, '[data-text-stroke] button')!.click();
     qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // enable stroke -> 4
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     width.value = "";
@@ -525,11 +525,11 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("stroke width: stepper clamps at 1 and never disables via minus", () => {
+  it("stroke width: stepper clamps at 1 and never disables via minus", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, '[data-text-stroke] button')!.click();
     qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // enable stroke -> 4
     const minus = qs<HTMLButtonElement>(container, 'button[aria-label="Decrease stroke width"]')!;
     minus.click(); // 3
@@ -560,11 +560,11 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("stroke width: clear-then-retype commits the new value (draft → 8, no ghost 0)", () => {
+  it("stroke width: clear-then-retype commits the new value (draft → 8, no ghost 0)", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, '[data-text-stroke] button')!.click();
     qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click(); // enable stroke -> 4
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     width.value = "";
@@ -579,12 +579,12 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("draw mode: stroke width input and stroke color route to session signals", () => {
+  it("draw mode: stroke width input and stroke color route to session signals", async () => {
     const { setters } = buildMock();
     const { container, cleanup } = mountTextBar();
 
     // Open stroke flyout & enable stroke.
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, '[data-text-stroke] button')!.click();
     qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!.click();
 
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
@@ -598,12 +598,12 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("edit mode: stroke patch routes through updateTextData on the layer", () => {
+  it("edit mode: stroke patch routes through updateTextData on the layer", async () => {
     const layer = makeTextLayer({ id: "t4", textData: { ...baseData, stroke: { width: 4, color: "#000000" } } });
     const { engine } = buildMock({}, layer);
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, '[data-text-stroke] button')!.click();
     const width = qs<HTMLInputElement>(container, 'input[aria-label="Stroke width"]')!;
     width.value = "8";
     width.dispatchEvent(new Event("input", { bubbles: true }));
@@ -616,12 +616,12 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("edit mode: no-op stroke press on an already-stroked layer commits nothing", () => {
+  it("edit mode: no-op stroke press on an already-stroked layer commits nothing", async () => {
     const layer = makeTextLayer({ id: "t5", textData: { ...baseData, stroke: { width: 4, color: "#ff0000" } } });
     const { engine } = buildMock({}, layer);
     const { container, cleanup } = mountTextBar();
 
-    qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke options"]')!.click();
+    qs<HTMLButtonElement>(container, '[data-text-stroke] button')!.click();
     const toggle = qs<HTMLButtonElement>(container, 'button[aria-label="Toggle stroke"]')!;
     toggle.click();
     expect(engine.updateTextData).toHaveBeenCalledWith(
@@ -631,7 +631,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("edit mode with an OPEN session on the same layer skips the history commit (B4)", () => {
+  it("edit mode with an OPEN session on the same layer skips the history commit (B4)", async () => {
     const layer = makeTextLayer({ id: "t6" });
     const { engine, commit } = buildMock(
       {
@@ -655,7 +655,7 @@ describe("TextOptionBar", () => {
     cleanup();
   });
 
-  it("edit mode with a session open on a DIFFERENT layer still commits (per-layer guard)", () => {
+  it("edit mode with a session open on a DIFFERENT layer still commits (per-layer guard)", async () => {
     const layer = makeTextLayer({ id: "t7" });
     const { engine, commit } = buildMock(
       {
@@ -679,14 +679,14 @@ describe("TextOptionBar", () => {
 });
 
 describe("OptionBar text mount gating", () => {
-  it("shows TextOptionBar when the text tool is active", () => {
+  it("shows TextOptionBar when the text tool is active", async () => {
     mockUseEditor(optionBarEditor({ activeTool: () => "text", selectedLayerId: () => null }) as any);
     const { container, cleanup } = mountOptionBar();
     expect(container.querySelector("[data-text-option-bar]")).not.toBeNull();
     cleanup();
   });
 
-  it("hides TextOptionBar when move tool is active even if a text layer is selected", () => {
+  it("hides TextOptionBar when move tool is active even if a text layer is selected", async () => {
     const layer = makeTextLayer();
     mockUseEditor(optionBarEditor({ activeTool: () => "move" }, layer) as any);
     const { container, cleanup } = mountOptionBar();
@@ -694,14 +694,14 @@ describe("OptionBar text mount gating", () => {
     cleanup();
   });
 
-  it("hides TextOptionBar when move tool is active and no text is selected", () => {
+  it("hides TextOptionBar when move tool is active and no text is selected", async () => {
     mockUseEditor(optionBarEditor({ activeTool: () => "move" }) as any);
     const { container, cleanup } = mountOptionBar();
     expect(container.querySelector("[data-text-option-bar]")).toBeNull();
     cleanup();
   });
 
-  it("hides TextOptionBar when a raster layer is selected (not a text layer)", () => {
+  it("hides TextOptionBar when a raster layer is selected (not a text layer)", async () => {
     const raster = makeRasterLayer();
     mockUseEditor(optionBarEditor({ activeTool: () => "move" }, raster) as any);
     const { container, cleanup } = mountOptionBar();
@@ -709,7 +709,7 @@ describe("OptionBar text mount gating", () => {
     cleanup();
   });
 
-  it("does not crash and hides the bar when the engine returns null", () => {
+  it("does not crash and hides the bar when the engine returns null", async () => {
     mockUseEditor(optionBarEditor({ activeTool: () => "move", selectedLayerId: () => "ghost" }) as any);
     const { container, cleanup } = mountOptionBar();
     expect(container.querySelector("[data-text-option-bar]")).toBeNull();

@@ -226,7 +226,7 @@
       "flow": "Aliran (Flow)",
       "smoothing": "Kehalusan (Smoothing)"
     },
-    "text": {
+    "textActions": {
       "newline": "Baris Baru",
       "commit": "Terapkan"
     }
