@@ -103,11 +103,12 @@ export async function showSaveDialogAllFormats(defaultName: string): Promise<str
   const path = await save({
     defaultPath: defaultName,
     filters: [
-      { name: "All Supported Formats", extensions: ["ptz", "png", "jpg", "jpeg", "webp"] },
+      { name: "All Supported Formats", extensions: ["ptz", "png", "jpg", "jpeg", "webp", "tiff"] },
       { name: "Photrez Project (*.ptz)", extensions: ["ptz"] },
       { name: "PNG Image (*.png)", extensions: ["png"] },
       { name: "JPEG Image (*.jpg)", extensions: ["jpg", "jpeg"] },
-      { name: "WebP Image (*.webp)", extensions: ["webp"] }
+      { name: "WebP Image (*.webp)", extensions: ["webp"] },
+      { name: "TIFF Image (*.tiff)", extensions: ["tiff"] }
     ]
   });
   if (!path) return null;

@@ -218,6 +218,11 @@ describe("encodeComposite", () => {
     await encodeComposite(engine, "webp", 75);
     expect(capturedBlobOptions.type).toBe("image/webp");
     expect(capturedBlobOptions.quality).toBe(0.75);
+
+    // TIFF (lossless, no quality)
+    await encodeComposite(engine, "tiff", 100);
+    expect(capturedBlobOptions.type).toBe("image/tiff");
+    expect(capturedBlobOptions.quality).toBeUndefined();
   });
 
   it("returns correct magic bytes for each export format", async () => {
@@ -229,6 +234,7 @@ describe("encodeComposite", () => {
       "image/png":  { magic: [0x89, 0x50, 0x4e, 0x47], label: "\\x89PNG" },
       "image/jpeg": { magic: [0xff, 0xd8, 0xff, 0xe0], label: "\\xFF\\xD8\\xFF" },
       "image/webp": { magic: [0x52, 0x49, 0x46, 0x46], label: "RIFF" },
+      "image/tiff": { magic: [0x49, 0x49, 0x2a, 0x00], label: "II*" },
     };
     vi.stubGlobal("OffscreenCanvas", vi.fn(function (this: any, w: number, h: number) {
       this.width = w;
@@ -244,7 +250,7 @@ describe("encodeComposite", () => {
     const engine = makeMockEngine([]);
 
     for (const [format, { magic, label }] of Object.entries(signatures)) {
-      const formatKey = format.replace("image/", "") as "png" | "jpeg" | "webp";
+      const formatKey = format.replace("image/", "") as "png" | "jpeg" | "webp" | "tiff";
       const bytes = await encodeComposite(engine, formatKey, 85);
       const firstBytes = Array.from(bytes.slice(0, magic.length));
       expect(firstBytes, `${formatKey}: magic bytes ${label}`).toEqual(magic);
@@ -256,11 +262,12 @@ describe("encodeComposite", () => {
       "image/png":  [0x89, 0x50, 0x4e, 0x47],
       "image/jpeg": [0xff, 0xd8, 0xff, 0xe0],
       "image/webp": [0x52, 0x49, 0x46, 0x46],
+      "image/tiff": [0x49, 0x49, 0x2a, 0x00],
     };
 
     const assertFormatAtQuality = async (
       engine: DocumentEngine,
-      format: "png" | "jpeg" | "webp",
+      format: "png" | "jpeg" | "webp" | "tiff",
       quality: number,
     ) => {
       const bytes = await encodeComposite(engine, format, quality);
@@ -286,7 +293,7 @@ describe("encodeComposite", () => {
       { ...BASE_LAYER, id: "bg", name: "Bg", imageBitmap: { width: 2, height: 2 } as ImageBitmap },
     ]);
 
-    const formats = ["png", "jpeg", "webp"] as const;
+    const formats = ["png", "jpeg", "webp", "tiff"] as const;
     const qualities = [1, 50, 100];
 
     for (const format of formats) {

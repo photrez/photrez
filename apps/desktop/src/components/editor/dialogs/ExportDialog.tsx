@@ -8,12 +8,13 @@ import { Icon } from "../icons";
 import { tick } from "@/lib/dom";
 import { useI18n } from "@/i18n/I18nProvider";
 
-type ExportFormat = "png" | "jpeg" | "webp";
+type ExportFormat = "png" | "jpeg" | "webp" | "tiff";
 
 const FORMATS: { id: ExportFormat; label: string; extensions: string[] }[] = [
   { id: "png", label: "PNG", extensions: ["png"] },
   { id: "jpeg", label: "JPEG", extensions: ["jpg", "jpeg"] },
   { id: "webp", label: "WebP", extensions: ["webp"] },
+  { id: "tiff", label: "TIFF", extensions: ["tiff"] },
 ];
 
 export function ExportDialog() {
@@ -36,7 +37,7 @@ export function ExportDialog() {
   const [donePath, setDonePath] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
 
-  const hasQuality = () => format() !== "png";
+  const hasQuality = () => format() !== "png" && format() !== "tiff";
 
   const activeDoc = () => documents().find(d => d.id === activeDocumentId());
   const docName = () => activeDoc()?.displayName || "Untitled";
@@ -64,6 +65,8 @@ export function ExportDialog() {
         return t("dialogs.export.formats.jpegDesc", "Standard lossy compression. Best for photos and general web sharing.");
       case "webp":
         return t("dialogs.export.formats.webpDesc", "Modern image format. Superior compression and quality with transparency support.");
+      case "tiff":
+        return t("dialogs.export.formats.tiffDesc", "Lossless archival format. Larger file size, ideal for print and further editing.");
       default:
         return "";
     }

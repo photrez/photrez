@@ -70,7 +70,7 @@ SolidJS editor shell
         |      - shaders in apps/desktop/src/lib/gpu/shaders/*.wgsl
         |
         +--> Native Rust (export encode, serial codec)
-        |      - PNG/JPEG/WebP via `image` crate
+        |              - PNG/JPEG/WebP/TIFF via `image` crate
         |      - zero-copy bytes from TS / Tauri IPC
         |
         +--> Tauri 2 shell commands (cold-path only)

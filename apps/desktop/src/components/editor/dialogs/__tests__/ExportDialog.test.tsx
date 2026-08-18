@@ -74,6 +74,12 @@ describe("ExportDialog", () => {
     selectEl.dispatchEvent(new Event("change", { bubbles: true }));
     expect(selectEl.value).toBe("jpeg");
     expect(dialog.querySelector<HTMLInputElement>('#export-quality')?.value).toBe("90");
+
+    // TIFF is lossless → quality slider stays hidden
+    selectEl.value = "tiff";
+    selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(selectEl.value).toBe("tiff");
+    expect(dialog.querySelector('input[type="range"]')).toBeNull();
     view.dispose();
   });
 

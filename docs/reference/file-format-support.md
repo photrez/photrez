@@ -37,6 +37,7 @@ This document defines which image formats Photrez can open (import) and export i
 | JPEG | `.jpg` | `0.0..1.0` (default `0.85`) | Lossy | No transparency support |
 | PNG | `.png` | N/A (lossless) | Lossless | Supports transparency |
 | WebP | `.webp` | `0.0..1.0` (default `0.85`) | Lossy | Supports transparency |
+| TIFF | `.tiff` | n/a (lossless) | Lossless | Preserves alpha, large file |
 
 ### Export Validation Rules
 
@@ -62,7 +63,7 @@ This document defines which image formats Photrez can open (import) and export i
 | Format | Reason |
 | --- | --- |
 | PSD | Out of MVP scope; planned for Layer B |
-| TIFF | Low priority for target users |
+| TIFF | ✅ Exported in 0.2.0 (lossless, archival/print) |
 | SVG | Vector format; Photrez is raster-only in MVP |
 | RAW (CR2, NEF, ARW) | Requires specialized decoder; post-MVP |
 | ICO | Niche format; not needed for target users |

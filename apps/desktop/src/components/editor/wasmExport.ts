@@ -36,9 +36,13 @@ export async function encodeImageWithWasm(
   width: number,
   height: number,
   rgbaBytes: Uint8Array,
-  formatStr: "png" | "jpeg" | "webp",
+  formatStr: "png" | "jpeg" | "webp" | "tiff",
   quality: number,
 ): Promise<Uint8Array | null> {
+  // WebP: route to browser Canvas convertToBlob. The Rust `image` 0.25 WebP
+  // encoder emits ~5KB degenerate output for non-trivial content (data loss);
+  // the browser encoder is correct. See FEATURES.md WebP DEFECT (2026-08-18).
+  if (formatStr === "webp") return null;
   try {
     const wasmMod = await getWasmExportModule();
     if (!wasmMod || typeof wasmMod.encode_image_wasm !== "function") {

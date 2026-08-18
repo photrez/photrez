@@ -8,6 +8,7 @@ pub enum ExportFormat {
     PNG,
     JPEG,
     WebP,
+    TIFF,
 }
 
 /// Encode a pre-composited RGBA buffer to a file format. This is the only
@@ -33,6 +34,7 @@ pub fn encode_image_wasm(
         "png" => ExportFormat::PNG,
         "jpeg" | "jpg" => ExportFormat::JPEG,
         "webp" => ExportFormat::WebP,
+        "tiff" => ExportFormat::TIFF,
         _ => return Err(JsValue::from_str("Unsupported export format")),
     };
 
@@ -91,6 +93,15 @@ pub fn encode_image_wasm(
                 .map_err(|e| JsValue::from_str(&format!("Failed to encode JPEG: {}", e)))?;
         }
         ExportFormat::WebP => {
+            // NOTE: the `image` crate's WebP support (image-webp 0.2.4) is
+            // LOSSLESS-ONLY — it ignores `quality` and always writes a VP8L
+            // (lossless) file. That is CORRECT (exact round-trip, no data loss),
+            // but produces large files and does not honor the quality slider.
+            // The frontend therefore routes WebP to the browser Canvas
+            // convertToBlob (lossy, quality-aware) via an early-return in
+            // wasmExport.ts; this Rust path is the lossless fallback and is kept
+            // correct. See FEATURES.md WebP note (the earlier "~5 KB defect" was a
+            // compressible test-fixture artifact, not data loss).
             img_buffer
                 .write_to(
                     &mut Cursor::new(&mut encoded_bytes),
@@ -98,7 +109,135 @@ pub fn encode_image_wasm(
                 )
                 .map_err(|e| JsValue::from_str(&format!("Failed to encode WebP: {}", e)))?;
         }
+        ExportFormat::TIFF => {
+            // TIFF is lossless and preserves alpha; quality is ignored.
+            img_buffer
+                .write_to(
+                    &mut Cursor::new(&mut encoded_bytes),
+                    image::ImageFormat::Tiff,
+                )
+                .map_err(|e| JsValue::from_str(&format!("Failed to encode TIFF: {}", e)))?;
+        }
     }
 
     Ok(encoded_bytes)
+}
+
+#[cfg(test)]
+mod benchmarks {
+    use super::*;
+
+    fn make_rgba(w: u32, h: u32) -> Vec<u8> {
+        let mut v = vec![0u8; w as usize * h as usize * 4];
+        for (i, b) in v.iter_mut().enumerate() {
+            *b = (i * 7) as u8;
+        }
+        v
+    }
+
+    // Measures encode throughput of the existing export path + TIFF (image crate
+    // feature "tiff") on a 4K RGBA buffer. Pure CPU; no GPU needed. Answers R2:
+    // is adding export formats cheap? Run:
+    //   cargo test -p photrez-core --release bench_export_formats_4k -- --nocapture
+    #[test]
+    fn bench_export_formats_4k() {
+        let w = 4000u32;
+        let h = 3000u32;
+        let px = make_rgba(w, h);
+        println!(
+            "\n[export-bench] W={w} H={h} px={} (4K RGBA, ~{} MB)",
+            w as usize * h as usize,
+            (w as usize * h as usize * 4) / 1_000_000
+        );
+        // Existing supported formats via the production export entry point.
+        for fmt in ["png", "jpeg", "webp"] {
+            let t0 = std::time::Instant::now();
+            let out = encode_image_wasm(w, h, &px, fmt, 95).expect("encode");
+            let ms = t0.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "  {:<5}: {:7.2} ms  -> {} KB",
+                fmt.to_uppercase(),
+                ms,
+                out.len() / 1024
+            );
+        }
+        // TIFF via image crate directly (feature "tiff") — the candidate new format.
+        let t0 = std::time::Instant::now();
+        let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(w, h, px.clone()).unwrap();
+        let mut out = Vec::new();
+        img.write_to(
+            &mut std::io::Cursor::new(&mut out),
+            image::ImageFormat::Tiff,
+        )
+        .expect("tiff");
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        println!("  TIFF : {:7.2} ms  -> {} KB", ms, out.len() / 1024);
+    }
+
+    // Incompressible pseudo-random RGBA (Knuth multiplicative hash per byte).
+    // Used so the WebP lossless encoder cannot cheat via trivial patterns.
+    fn pseudo_noise(w: u32, h: u32) -> Vec<u8> {
+        let n = (w as usize) * (h as usize) * 4;
+        let mut v = Vec::with_capacity(n);
+        for i in 0..n {
+            let x = (i as u32).wrapping_mul(2654435761).wrapping_add(i as u32);
+            v.push((x ^ (x >> 15) ^ (x << 13)) as u8);
+        }
+        v
+    }
+
+    // WebP correctness guard. The `image`/image-webp WebP path is LOSSLESS
+    // (VP8L) and ignores `quality`; it is CORRECT (exact round-trip), just large.
+    // The earlier "~5 KB WebP = data loss" alarm was a fixture artifact: the
+    // `(i*7)` ramp is highly compressible and shrinks to a few KB even losslessly.
+    // This guard uses INCOMPRESSIBLE data and asserts the decode equals the
+    // original exactly (proving no data loss).
+    #[test]
+    fn verify_webp_export_valid() {
+        let w = 4000u32;
+        let h = 3000u32;
+        let px = pseudo_noise(w, h);
+        let out = encode_image_wasm(w, h, &px, "webp", 95).expect("webp encode");
+        // Lossless output of incompressible 4K must be large (MBs), not ~5 KB.
+        assert!(
+            out.len() > 5_000_000,
+            "lossless WebP of 4K noise only {} KB — encoder is broken",
+            out.len() / 1024
+        );
+        // Exact round-trip: decode must equal the original pixels.
+        let img = image::load_from_memory(&out).expect("decode webp");
+        assert_eq!((img.width(), img.height()), (w, h));
+        let dec = img.to_rgba8().into_raw();
+        assert_eq!(
+            dec, px,
+            "lossless WebP round-trip mismatch — real data loss"
+        );
+    }
+
+    // WebP characterization (image-webp = LOSSLESS-only). Shows the encoder is
+    // correct: incompressible 4K -> large file (MBs), and the old "~5 KB defect"
+    // was just the compressible ramp fixture. Run:
+    //   cargo test -p photrez-core --release bench_webp_lossless -- --nocapture
+    #[test]
+    fn bench_webp_lossless() {
+        let w = 4000u32;
+        let h = 3000u32;
+        let noise = pseudo_noise(w, h);
+        let t0 = std::time::Instant::now();
+        let out = encode_image_wasm(w, h, &noise, "webp", 95).expect("webp encode");
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "  WEBP[lossless, pseudo-noise 4K]: {:7.2} ms -> {} KB  (large = correct)",
+            ms,
+            out.len() / 1024
+        );
+        // The original B1 fixture was a smooth ramp (i*7) — highly compressible,
+        // hence the misleading 5 KB. Decode still round-trips exactly.
+        let ramp: Vec<u8> = (0..noise.len()).map(|i| (i * 7) as u8).collect();
+        let ramp_out = encode_image_wasm(w, h, &ramp, "webp", 95).expect("webp encode");
+        println!(
+            "  WEBP[lossless, ramp 4K]       : {} KB  (small because ramp compresses; NOT data loss)",
+            ramp_out.len() / 1024
+        );
+    }
 }

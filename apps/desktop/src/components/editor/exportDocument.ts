@@ -6,12 +6,13 @@ import { drawLayerToContext } from "@/engine/layerComposite";
 import { bakeAdjustmentToBitmap, bakeAdjustmentToBitmapGpu } from "@/engine/layerAdjustments";
 import { encodeImageWithWasm } from "./wasmExport";
 
-export type ExportFormat = "png" | "jpeg" | "webp";
+export type ExportFormat = "png" | "jpeg" | "webp" | "tiff";
 
 function getMimeType(format: ExportFormat): string {
   switch (format) {
     case "jpeg": return "image/jpeg";
     case "webp": return "image/webp";
+    case "tiff": return "image/tiff";
     default: return "image/png";
   }
 }
@@ -20,6 +21,7 @@ function getExtension(format: ExportFormat): string {
   switch (format) {
     case "jpeg": return "jpg";
     case "webp": return "webp";
+    case "tiff": return "tiff";
     default: return "png";
   }
 }
@@ -90,7 +92,7 @@ export async function encodeComposite(
   const mimeType = getMimeType(format);
   const blob = await canvas.convertToBlob({
     type: mimeType,
-    quality: format !== "png" ? clampedQuality : undefined,
+    quality: format !== "png" && format !== "tiff" ? clampedQuality : undefined,
   });
 
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -122,7 +124,7 @@ export async function exportActiveDocument(
 const QUALITY_KEY_PREFIX = "photrez.quality.";
 
 export function getSavedQuality(format: ExportFormat): number | null {
-  if (format === "png") return null; // lossless, never prompted
+  if (format === "png" || format === "tiff") return null; // lossless, never prompted
   try {
     const raw = localStorage.getItem(QUALITY_KEY_PREFIX + format);
     if (raw === null) return null;
@@ -134,7 +136,7 @@ export function getSavedQuality(format: ExportFormat): number | null {
 }
 
 export function setSavedQuality(format: ExportFormat, quality: number): void {
-  if (format === "png") return;
+  if (format === "png" || format === "tiff") return;
   try {
     localStorage.setItem(QUALITY_KEY_PREFIX + format, String(quality));
   } catch {

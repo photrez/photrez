@@ -362,7 +362,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
               setSaveProgress({ phase: "done", label: "Saved", fraction: 1 });
             } else {
               const format: ExportFormat = ext === "jpg" || ext === "jpeg" ? "jpeg"
-                : ext === "webp" ? "webp" : "png";
+                : ext === "webp" ? "webp" : ext === "tiff" ? "tiff" : "png";
               // Lossy formats: prompt quality only the FIRST time this format is
               // saved; the choice is persisted per-format so later saves of the
               // same format write directly. Cancel aborts the save (anti-accidental
@@ -447,7 +447,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
             } else {
               // Flat format save
               const format: ExportFormat = ext === "jpg" || ext === "jpeg" ? "jpeg"
-                : ext === "webp" ? "webp" : "png";
+                : ext === "webp" ? "webp" : ext === "tiff" ? "tiff" : "png";
               const layerCount = engine.getLayers().length;
 
               // Warning for multi-layer documents
