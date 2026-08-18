@@ -339,7 +339,7 @@ Measurement protocol: `docs/reference/performance-measurement-protocol.md`
 
 ## GPU Compute Layer (2026-08-18)
 
-Interactive per-pixel compute (invert, adjustments, filters) runs on the **GPU via WebGPU compute shaders written in WGSL**. Layer flatten/transform are compositing (Canvas2D export + WebGL2 live preview) and are already GPU-backed — they are not WGSL compute ops. Evidence-backed rationale:
+Interactive per-pixel compute (invert, adjustments, filters) runs on the **GPU via WebGPU compute shaders written in WGSL**. Layer flatten/transform are compositing (Canvas2D export + WebGL2 live preview) and are already GPU-backed — they are not WGSL compute ops. Brush stroke commit (`useBrushOverlay.commitBrushStroke`) composites dabs via Canvas2D `drawImage` (platform-GPU) + `createImageBitmap` — also already GPU-backed, not a WGSL candidate. **Scope delivered:** invert (G1) + adjustments B/C/S (G2) as WGSL; flatten/transform (G3) and brush (G4) evaluated N/A; **GPU/Rust optimization track closed** (no further WGSL/Rust win without benchmark proof). Evidence-backed rationale:
 
 - Browser WebGPU accepts **WGSL only** (Chrome 117 dropped SPIR-V ingestion); `rust-gpu` (SPIR-V) does not run directly in the Tauri WebView2. Hand-written WGSL is the correct "build-it-ourselves" form.
 - Benchmark on real AMD Radeon (Deno native WebGPU / wgpu→D3D12): invert 4K (12M px) = **GPU 3.73ms vs TS 21.49ms ≈ 5.9×, correct=true**; 3.73ms << 16.6ms frame budget → realtime/no-delay proven.

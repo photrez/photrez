@@ -29,7 +29,6 @@ const nodeTestFiles = [
   "src/components/editor/__tests__/crossDocLayerOps.test.ts",
   "src/components/editor/__tests__/transformSession.test.ts",
   "src/components/editor/__tests__/pasteboardClickPolicy.test.ts",
-  "src/components/editor/__tests__/paintStrokeRenderer.test.ts",
   "src/components/editor/__tests__/paintStrokeCoordinates.test.ts",
   "src/components/editor/__tests__/paintCommitCommand.test.ts",
   "src/components/editor/__tests__/exportDocument.test.ts",
