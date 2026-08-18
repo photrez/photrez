@@ -53,6 +53,7 @@
 | ✅ DONE | Print Performance Phase 1: Composite at printer's native DPI — StretchDIBits 1:1 fast path (bypasses CPU scaling, ~20-60ms eliminated) |
 | ✅ DONE | Print Performance Phase 2: Skip temp file + base64 IPC — raw Uint8Array via Tauri v2 InvokeBody::Raw (eliminates disk I/O, base64 encode/decode, and Rust PNG decode, ~230-450ms eliminated) |
 | ✅ DONE | Print Performance Raw RGBA: Eliminate final encode/decode — raw pixels via `ctx.getImageData()` directly to GDI, zero-encode print pipeline (eliminates last ~150-200ms, 100% lossless) |
+| 🟢 DONE (G1+G2) | GPU Compute Layer (WGSL) — Interactive pixel compute pivots from the locked Rust/WASM plan to **browser WebGPU/WGSL** (realtime/no-delay). Benchmark on real AMD Radeon: invert 4K = GPU 3.73ms vs TS 21.49ms ≈ 5.9×; **adjustments (B/C/S) 4K = GPU 53.7ms vs TS ~260ms ≈ 4.83×, correct (maxChannelDiff=0)**. Export encode stays native Rust; CPU fallback retained when WebGPU absent. G1: `DocumentEngine.invertLayerPixels` routes via `GpuCompute.invertRgba` (3 wiring tests). G2: `adjust.wgsl` + `bakeAdjustmentToBitmapGpu` routes commit/export bake through WGSL (`adjustmentGpu.wiring.test.ts` 2 + unit 3). G3 (flatten/transform preview) = N/A (compositing already GPU-backed via Canvas2D/WebGL2; WGSL track complete at G2). WASM cleanup: `invert_rgba_wasm` removed (orphaned); flood/gradient/adjustment WASM retained as CPU-accel tier. Supersedes the 2026-06 future-target WASM decision for interactive compute. |
 
 ---
 

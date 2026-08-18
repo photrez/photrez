@@ -3,7 +3,7 @@ import type { DocumentEngine } from "@/engine/document";
 import { getEffectiveMaxDim } from "@/engine/types";
 import { writeFileBytes, showSaveDialog } from "@/tauri/native";
 import { drawLayerToContext } from "@/engine/layerComposite";
-import { bakeAdjustmentToBitmap } from "@/engine/layerAdjustments";
+import { bakeAdjustmentToBitmap, bakeAdjustmentToBitmapGpu } from "@/engine/layerAdjustments";
 import { encodeImageWithWasm } from "./wasmExport";
 
 export type ExportFormat = "png" | "jpeg" | "webp";
@@ -29,8 +29,14 @@ function getExtension(format: ExportFormat): string {
 // (see renderer/shaders.ts :: applyAdjustment), so the exported file matches
 // what the user sees. Operates on straight-alpha RGBA (getImageData), which is
 // what applyBasicAdjustmentToPixels expects.
-function bakeAdjustment(layer: LayerNode): ImageBitmap {
-  return bakeAdjustmentToBitmap(layer.imageBitmap!, layer.width, layer.height, layer.basicAdjustment!);
+async function bakeAdjustment(layer: LayerNode): Promise<ImageBitmap> {
+  // Prefer the WGSL compute bake (GPU, realtime); fall back to the CPU bake
+  // when WebGPU is absent or errors (headless export, unsupported GPU).
+  try {
+    return await bakeAdjustmentToBitmapGpu(layer.imageBitmap!, layer.width, layer.height, layer.basicAdjustment!);
+  } catch {
+    return bakeAdjustmentToBitmap(layer.imageBitmap!, layer.width, layer.height, layer.basicAdjustment!);
+  }
 }
 
 export async function encodeComposite(
@@ -64,7 +70,7 @@ export async function encodeComposite(
     const layer = layers[i];
     if (!layer.visible || !layer.imageBitmap) continue;
     if (layer.basicAdjustment) {
-      const adjusted = bakeAdjustment(layer);
+      const adjusted = await bakeAdjustment(layer);
       drawLayerToContext(ctx, { ...layer, imageBitmap: adjusted });
       adjusted.close();
     } else {

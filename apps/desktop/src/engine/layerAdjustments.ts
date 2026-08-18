@@ -1,6 +1,7 @@
 // WASM acceleration facade (Phase 4). Importing it does not eagerly load the
 // WASM pkg — `getWasmExportModule` only fetches the compiled module on first use.
 import { applyBasicAdjustmentWithWasm, getWasmExportModule } from "@/components/editor/wasmExport";
+import { adjustRgba } from "@/lib/gpu/gpuCompute";
 
 export type BasicAdjustment = {
   brightness: number;
@@ -221,6 +222,30 @@ export function bakeAdjustmentToBitmap(
   ctx.drawImage(bitmap, 0, 0);
   const imageData = ctx.getImageData(0, 0, width, height);
   imageData.data.set(applyBasicAdjustmentToPixels(imageData.data, adjustment));
+  ctx.putImageData(imageData, 0, 0);
+  return canvas.transferToImageBitmap();
+}
+
+/**
+ * GPU-compute variant of bakeAdjustmentToBitmap: routes the B/C/S pixel pass
+ * through the WGSL compute path (GpuCompute.adjustRgba) when WebGPU is present,
+ * falling back to the CPU bake on absence/error. Used by commit + export so the
+ * adjustment bake runs on the GPU (realtime) instead of the CPU pixel loop.
+ * Alpha preserved; source bitmap left untouched.
+ */
+export async function bakeAdjustmentToBitmapGpu(
+  bitmap: ImageBitmap,
+  width: number,
+  height: number,
+  adjustment: BasicAdjustment,
+): Promise<ImageBitmap> {
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Failed to acquire 2D context for adjustment bake");
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const res = await adjustRgba(imageData.data, adjustment);
+  imageData.data.set(res.data);
   ctx.putImageData(imageData, 0, 0);
   return canvas.transferToImageBitmap();
 }

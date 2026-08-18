@@ -8,6 +8,7 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 
 **MVP Runtime:** Tauri 2 (shell) + SolidJS/TypeScript (frontend) + **TypeScript DocumentEngine** (core) + **WebGL2** (renderer).
 **Future target:** Rust Core via WASM (photrez-core → wasm-pack) for hot-path compute (brush, transform, tile, encode) + WebGL2 remains the renderer. wgpu deferred until compute-shader features are required.
+**Revised 2026-08-18:** Interactive pixel compute now targets **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; **native Rust** retained for export encode (entropy coding is serial → CPU). WASM hot-path compute deferred. See GPU Compute Layer below.
 
 ---
 
@@ -35,7 +36,7 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 | Core Engine (future) | Rust `photrez-core` compiled via WASM (wasm-pack) — zero-copy from TS, no IPC |
 | GPU Renderer (MVP) | WebGL2 (`apps/desktop/src/renderer/webgl2.ts`)          |
 | GPU Renderer (future) | WebGL2 remains; wgpu deferred until compute-shader features required |
-| Compute (future hot-path) | Rust WASM modules: brush mask, tile split/compose, transform math, color conversion, export encode |
+| Compute (future hot-path) | **Browser WebGPU/WGSL** compute shaders for interactive pixel ops (invert/adjust/filter); **native Rust** for export encode; CPU fallback when WebGPU absent |
 | State (Backend)  | `tauri::State<'_, T>` + `Mutex` (Rust managed state)  |
 | State (Frontend) | SolidJS `createSignal` / `createStore`                 |
 | Package Manager  | Bun (monorepo workspace)                               |
@@ -63,13 +64,14 @@ SolidJS editor shell
         |      - compositing / preview
         |      - viewport readback where required
         |
-        +--> Rust WASM modules (future hot-path)
-        |      - brush mask generation
-        |      - tile split / compose
-        |      - transform matrix math
-        |      - color space conversion
-        |      - export encode (via Rust `image` crate)
-        |      - zero-copy: called directly from TS, no IPC
+        +--> Browser WebGPU compute (future hot-path, WGSL)
+        |      - interactive pixel ops: invert, adjust, filter, flatten
+        |      - CPU fallback when navigator.gpu absent
+        |      - shaders in apps/desktop/src/lib/gpu/shaders/*.wgsl
+        |
+        +--> Native Rust (export encode, serial codec)
+        |      - PNG/JPEG/WebP via `image` crate
+        |      - zero-copy bytes from TS / Tauri IPC
         |
         +--> Tauri 2 shell commands (cold-path only)
                - ping
@@ -332,3 +334,21 @@ photrez/
 | Startup time   | `< 2s`      |
 
 Measurement protocol: `docs/reference/performance-measurement-protocol.md`
+
+---
+
+## GPU Compute Layer (2026-08-18)
+
+Interactive per-pixel compute (invert, adjustments, filters) runs on the **GPU via WebGPU compute shaders written in WGSL**. Layer flatten/transform are compositing (Canvas2D export + WebGL2 live preview) and are already GPU-backed — they are not WGSL compute ops. Evidence-backed rationale:
+
+- Browser WebGPU accepts **WGSL only** (Chrome 117 dropped SPIR-V ingestion); `rust-gpu` (SPIR-V) does not run directly in the Tauri WebView2. Hand-written WGSL is the correct "build-it-ourselves" form.
+- Benchmark on real AMD Radeon (Deno native WebGPU / wgpu→D3D12): invert 4K (12M px) = **GPU 3.73ms vs TS 21.49ms ≈ 5.9×, correct=true**; 3.73ms << 16.6ms frame budget → realtime/no-delay proven.
+- Image pixel ops are embarrassingly parallel → GPU territory. A naive `&[u8]→Vec<u8>` WASM port regressed to **0.56×** (copy-bound); zero-copy wasm reached only **0.98×** parity. GPU wins for interactive.
+
+**Split:**
+- Interactive compute → WGSL GPU compute (realtime). CPU fallback retained when `navigator.gpu` is absent.
+- Export → native Rust (`photrez-core` + `image` crate). The pixel-flatten/transform step may run on GPU; the **codec encode** (PNG/JPEG/WebP entropy coding) is serial and stays on CPU/native Rust for correctness + maturity.
+
+**Module:** `apps/desktop/src/lib/gpu/` — `GpuCompute` wrapper (WebGPU pipeline + CPU fallback), shaders in `shaders/*.wgsl` imported via Vite `?raw`.
+
+**Constraint:** WGSL shaders are hand-written (not `wgsl-rs`) for now — minimal build surface. Revisit `wgsl-rs` (Rust→WGSL) only if source-language consistency becomes a hard requirement.

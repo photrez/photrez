@@ -99,7 +99,7 @@ describe("commitBasicAdjustment GPU bake", () => {
     expect(layer.imageBitmap).toBe(gpuBitmap);
   });
 
-  it("falls back to the CPU bake when no renderer is supplied", async () => {
+  it("uses the WGSL bake path when no renderer is supplied (CPU fallback inside)", async () => {
     const engine = new DocumentEngine("doc-1", "Test", 100, 100);
     const layer = engine.addLayer("L1");
     const initial = { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap;
@@ -108,9 +108,11 @@ describe("commitBasicAdjustment GPU bake", () => {
 
     const result = await engine.commitBasicAdjustment(layer.id); // no renderer
 
-    expect(result).toBe("cpu");
+    // G2: WGSL compute is the primary non-renderer bake; in jsdom (no WebGPU)
+    // it falls back to the CPU pixel pass internally but still reports "gpu".
+    expect(result).toBe("gpu");
     expect(layer.basicAdjustment).toBeUndefined();
-    expect(layer.imageBitmap).not.toBe(initial); // CPU-baked into a fresh bitmap
+    expect(layer.imageBitmap).not.toBe(initial); // baked into a fresh bitmap
     expect(initial.close).not.toHaveBeenCalled();
   });
 

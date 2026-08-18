@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock the compiled wasm package's dynamic import. Toggle `hasKernel` to
-// simulate the kernel being present vs absent (feature-detect fallback path).
-let hasKernel = true;
+// Mock the compiled wasm package's dynamic import.
 let floodFillImpl:
   | ((
       buf: Uint8Array,
@@ -53,20 +51,6 @@ let adjustmentsImpl:
 
 vi.mock("@/wasm/pkg/photrez_core", () => ({
   default: vi.fn(async () => {}),
-  get invert_rgba_wasm() {
-    return hasKernel
-      ? (px: Uint8Array) => {
-          const out = new Uint8Array(px.length);
-          for (let i = 0; i < px.length; i += 4) {
-            out[i] = 255 - px[i];
-            out[i + 1] = 255 - px[i + 1];
-            out[i + 2] = 255 - px[i + 2];
-            out[i + 3] = px[i + 3];
-          }
-          return out;
-        }
-      : undefined;
-  },
   // Mock kernel: fills the clicked pixel to the fill colour (wiring test only;
   // real algorithm correctness is covered by Rust unit tests + fillOperations.test.ts).
   get flood_fill_wasm() {
@@ -85,7 +69,7 @@ vi.mock("@/wasm/pkg/photrez_core", () => ({
   set_panic_hook: vi.fn(),
 }));
 
-import { invertRgbaWithWasm, invertRgbaFallback, getWasmExportModule } from "../wasmExport";
+import { getWasmExportModule } from "../wasmExport";
 import { floodFill, gradientFill } from "@/features/fill/fillOperations";
 import { applyBasicAdjustmentToPixels } from "@/engine/layerAdjustments";
 
@@ -103,7 +87,6 @@ function makeImage(w: number, h: number, fill: [number, number, number, number] 
 
 describe("kernel WASM wrapper wiring", () => {
   beforeEach(() => {
-    hasKernel = true;
     vi.clearAllMocks();
     floodFillImpl = vi.fn((buf: Uint8Array, width: number, height: number, sx: number, sy: number, fr: number, fg: number, fb: number, fa: number) => {
       const out = new Uint8Array(buf);
@@ -150,24 +133,6 @@ describe("kernel WASM wrapper wiring", () => {
       }
       return out;
     });
-  });
-
-  it("dispatches to wasm invert_rgba_wasm and returns inverted bytes", async () => {
-    const input = new Uint8Array([10, 20, 30, 255, 40, 50, 60, 128]);
-    const out = await invertRgbaWithWasm(input);
-    expect(out).not.toBeNull();
-    expect(Array.from(out!)).toEqual([245, 235, 225, 255, 215, 205, 195, 128]);
-  });
-
-  it("returns null when wasm kernel is absent (fallback reachable)", async () => {
-    hasKernel = false;
-    const out = await invertRgbaWithWasm(new Uint8Array([1, 2, 3, 4]));
-    expect(out).toBeNull();
-  });
-
-  it("TS fallback invert math is correct", () => {
-    const out = invertRgbaFallback(new Uint8Array([10, 20, 30, 255]));
-    expect(Array.from(out)).toEqual([245, 235, 225, 255]);
   });
 
   it("floodFill dispatches to wasm flood_fill_wasm and writes the result back", async () => {

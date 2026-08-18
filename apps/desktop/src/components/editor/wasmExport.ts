@@ -52,37 +52,11 @@ export async function encodeImageWithWasm(
   }
 }
 
-// ── Pointwise compute kernels (Phase 2+) ─────────────────────────────────────
-// Reference kernel: invert RGBA. Follows the canonical WASM FFI shape
-// (buffer-in `&[u8]` / buffer-out `Vec<u8>`); floodFill (Phase 3) and
-// gradientFill/adjustments-bake (Phase 4) extend this pattern.
-export async function invertRgbaWithWasm(rgba: Uint8Array): Promise<Uint8Array | null> {
-  const wasmMod = await getWasmExportModule();
-  if (!wasmMod || typeof wasmMod.invert_rgba_wasm !== "function") return null;
-  try {
-    const out = wasmMod.invert_rgba_wasm(rgba);
-    return out ? new Uint8Array(out) : null;
-  } catch (err) {
-    console.warn("WASM invert failed, using TS fallback:", err);
-    return null;
-  }
-}
+// ── Pointwise compute kernels (CPU-accel tier; live) ─────────────────────────
+// floodFill / gradientFill / adjustments-bake mirror the TS CPU impls and are
+// dispatched by the Paint Bucket, Gradient, and adjustment-bake paths. invert
+// moved to WGSL (gpuCompute.ts) and is no longer a WASM kernel.
 
-export function invertRgbaFallback(rgba: Uint8Array): Uint8Array {
-  const out = new Uint8Array(rgba.length);
-  for (let i = 0; i < rgba.length; i += 4) {
-    out[i] = 255 - rgba[i];
-    out[i + 1] = 255 - rgba[i + 1];
-    out[i + 2] = 255 - rgba[i + 2];
-    out[i + 3] = rgba[i + 3];
-  }
-  return out;
-}
-
-export async function invertRgba(rgba: Uint8Array): Promise<Uint8Array> {
-  const wasm = await invertRgbaWithWasm(rgba);
-  return wasm ?? invertRgbaFallback(rgba);
-}
 
 // ── Flood fill (Phase 3) ──────────────────────────────────────────────────────
 // Mirrors `FillMask` from `features/fill/fillOperations.ts`. Returns a full

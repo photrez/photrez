@@ -5,23 +5,11 @@
 // scalar kernel. Phase 3 (floodFill) and Phase 4 (gradientFill,
 // adjustments-bake) follow the same pattern; `+simd128` is enabled via
 // `.cargo/config.toml` for later SIMD variants.
+use js_sys::Uint8Array;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use wasm_bindgen::prelude::*;
-
-/// Reference pointwise kernel: invert RGB, keep alpha. Validates the WASM
-/// kernel FFI ahead of the real accelerators. scalar only.
-#[wasm_bindgen]
-pub fn invert_rgba_wasm(px: &[u8]) -> Vec<u8> {
-    let mut out = px.to_vec();
-    let len = out.len() - out.len() % 4;
-    let mut i = 0;
-    while i < len {
-        out[i] = 255 - out[i];
-        out[i + 1] = 255 - out[i + 1];
-        out[i + 2] = 255 - out[i + 2];
-        i += 4;
-    }
-    out
-}
 
 // Dev-only panic hook so wasm panics surface in the browser console. Release
 // builds use `panic = "abort"` (see Cargo.toml) and omit this export.
@@ -179,7 +167,7 @@ fn flood_fill_impl(
 }
 
 /// WASM entry point for flood fill. Copies the input RGBA buffer, runs the pure
-/// kernel, returns the filled copy (same buffer-out contract as `invert_rgba_wasm`).
+/// kernel, returns the filled copy (same buffer-out contract as the other pointwise kernels).
 /// scalar queue BFS; SIMD not applicable to 4-connected flood.
 #[wasm_bindgen]
 pub fn flood_fill_wasm(
@@ -491,6 +479,63 @@ pub fn apply_basic_adjustment_wasm(
     apply_basic_adjustment_impl(buffer, brightness, contrast, saturation)
 }
 
+// ── Zero-copy accelerator prototype (Phase 5 follow-up) ───────────────────────
+// Pixels are owned by wasm (allocated here) so kernels mutate in place and avoid
+// the 2x memcpy of the `&[u8] -> Vec<u8>` shape. Validated by bench-zero-copy.ts.
+thread_local! {
+    static BUFFERS: RefCell<HashMap<u32, Vec<u8>>> = RefCell::new(HashMap::new());
+}
+static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+
+#[wasm_bindgen]
+pub fn alloc_rgba_buffer(len: usize) -> u32 {
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    BUFFERS.with(|b| {
+        b.borrow_mut().insert(id, vec![0u8; len]);
+    });
+    id
+}
+
+#[wasm_bindgen]
+pub fn free_rgba_buffer(id: u32) {
+    BUFFERS.with(|b| {
+        b.borrow_mut().remove(&id);
+    });
+}
+
+// Zero-copy view into wasm-owned memory (no copy to JS).
+#[wasm_bindgen]
+pub fn rgba_buffer_view(id: u32) -> Uint8Array {
+    BUFFERS.with(|b| {
+        let m = b.borrow();
+        let v = m.get(&id).expect("invalid buffer id");
+        // SAFETY: `view` borrows wasm linear memory; the Vec is stable (never
+        // resized) and is only freed via `free_rgba_buffer`, so the view stays
+        // valid until then. JS must not outlive the free call.
+        unsafe { Uint8Array::view(v) }
+    })
+}
+
+#[wasm_bindgen]
+pub fn invert_rgba_inplace(id: u32) {
+    BUFFERS.with(|b| {
+        let mut m = b.borrow_mut();
+        let v = m.get_mut(&id).expect("invalid buffer id");
+        invert_inplace_impl(v);
+    });
+}
+
+fn invert_inplace_impl(data: &mut [u8]) {
+    let len = data.len() - data.len() % 4;
+    let mut i = 0;
+    while i < len {
+        data[i] = 255 - data[i];
+        data[i + 1] = 255 - data[i + 1];
+        data[i + 2] = 255 - data[i + 2];
+        i += 4;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,5 +680,13 @@ mod tests {
         let img = vec![200u8, 100, 50, 255];
         let out = apply_basic_adjustment_impl(&img, 0.0, 50.0, 0.0);
         assert_ne!(&out[0..3], &[200, 100, 50]);
+    }
+
+    #[test]
+    fn invert_inplace_mutates_in_place() {
+        let mut img = vec![10u8, 20, 30, 255, 40, 50, 60, 128];
+        invert_inplace_impl(&mut img);
+        assert_eq!(&img[0..4], &[245, 235, 225, 255]);
+        assert_eq!(&img[4..8], &[215, 205, 195, 128]);
     }
 }

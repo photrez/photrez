@@ -18,8 +18,9 @@ import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./la
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
-import { normalizeBasicAdjustment, bakeAdjustmentToBitmap, type BasicAdjustment } from "./layerAdjustments";
+import { normalizeBasicAdjustment, bakeAdjustmentToBitmap, bakeAdjustmentToBitmapGpu, type BasicAdjustment } from "./layerAdjustments";
 import type { RenderBackend } from "../renderer/types";
+import { invertRgba } from "../lib/gpu/gpuCompute";
 
 import {
   addLayer as applyAddLayer,
@@ -593,6 +594,35 @@ export class DocumentEngine {
   }
 
   /**
+   * Inverts the pixels of a layer in place (per-layer color invert). Uses the
+   * GPU compute path when available, falling back to the CPU pixel pass. The
+   * result is baked into a fresh ImageBitmap via replaceLayerBitmap so any
+   * undo/redo snapshot keeps the original raster.
+   *
+   * Callers MUST commit a history snapshot BEFORE calling this (mirrors the
+   * other mutating engine methods that rely on the command layer for undo).
+   */
+  async invertLayerPixels(id: LayerId): Promise<"gpu" | "cpu" | "noop"> {
+    const layer = this.getLayer(id);
+    if (!layer || !layer.imageBitmap) return "noop";
+
+    const { width, height } = layer;
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Failed to acquire 2D context for invert");
+    ctx.drawImage(layer.imageBitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const res = await invertRgba(imageData.data);
+    imageData.data.set(res.data);
+    ctx.putImageData(imageData, 0, 0);
+    const newBitmap = canvas.transferToImageBitmap();
+    this.replaceLayerBitmap(layer, newBitmap);
+    this.markLayerDirty(id);
+    this.notifyVisualChange();
+    return res.usedGpu ? "gpu" : "cpu";
+  }
+
+  /**
    * Commits the live (GPU-previewed) adjustment into the layer's pixels. Called
    * when the user releases the adjustment slider. The adjustment is baked via a
    * CPU pixel pass and the param is dropped, so the stored bitmap now reflects
@@ -628,6 +658,16 @@ export class DocumentEngine {
       if (gpu) {
         baked = gpu;
         usedGpu = true;
+      }
+    }
+    // WGSL compute bake (GPU): used when no WebGL renderer bake is available
+    // (e.g. export / headless). Falls back to the CPU bake below on any error.
+    if (!baked) {
+      try {
+        baked = await bakeAdjustmentToBitmapGpu(layer.imageBitmap, layer.width, layer.height, adj);
+        usedGpu = true;
+      } catch {
+        baked = null;
       }
     }
     if (!baked) {
