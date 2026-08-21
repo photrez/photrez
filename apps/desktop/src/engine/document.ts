@@ -93,6 +93,7 @@ export class DocumentEngine {
   // entries never pin an ImageBitmap object after its snapshot is evicted.
   private snapshotRetainedBitmaps = new WeakSet<ImageBitmap>();
   private rustEngine: any = null;
+  private syncingFromRust = false;
 
   constructor(id: DocumentId, name: string, width: number, height: number) {
     this.model = {
@@ -900,7 +901,34 @@ export class DocumentEngine {
     this.onVisualChangeCallback = null;
   }
 
+  /**
+   * Push the current TS model INTO Rust so both sides stay consistent.
+   * Choke point called from notifyChange: any TS-side mutation that bypasses
+   * Rust (opacity/visibility/locks/rename/blendMode/merge/flatten/shape-text
+   * creation/bitmap replace/selection variants) is automatically mirrored.
+   * Bitmaps are stripped (JS-heap only); unknown fields are ignored by serde.
+   * Idempotent — pushing a model that just came FROM Rust is a no-op.
+   */
+  private pushModelToRust(): void {
+    if (!USE_RUST_SSOT || !this.rustEngine || this.syncingFromRust) return;
+    this.syncingFromRust = true;
+    try {
+      const layers = this.model.layers.map(l => {
+        const { imageBitmap: _ib, baseImageBitmap: _bb, ...rest } = l;
+        return rest;
+      });
+      this.rustEngine.restore_snapshot(
+        JSON.stringify({ ...this.model, layers }),
+      );
+    } catch {
+      // Rust resync is best-effort; TS model remains authoritative for render
+    } finally {
+      this.syncingFromRust = false;
+    }
+  }
+
   private notifyChange(): void {
+    this.pushModelToRust();
     if (this.onChangeCallback) {
       this.onChangeCallback();
     }
