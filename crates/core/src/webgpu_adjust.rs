@@ -79,7 +79,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 /// pipeline, and per-size buffers so repeated `render` calls only pay
 /// upload + dispatch + readback.
 #[wasm_bindgen]
-pub struct PoaRenderer {
+pub struct WebGpuAdjustRenderer {
     device: web_sys::GpuDevice,
     pipeline: web_sys::GpuComputePipeline,
     work_buffer: web_sys::GpuBuffer,
@@ -93,10 +93,10 @@ fn jserr(e: JsValue) -> JsValue {
 }
 
 #[wasm_bindgen]
-impl PoaRenderer {
+impl WebGpuAdjustRenderer {
     /// Create the renderer for a fixed `width` x `height` RGBA buffer.
     /// Returns an error string (not a panic) when WebGPU is unavailable.
-    pub async fn create(width: u32, height: u32) -> Result<PoaRenderer, JsValue> {
+    pub async fn create(width: u32, height: u32) -> Result<WebGpuAdjustRenderer, JsValue> {
         let win = window().ok_or_else(|| JsValue::from_str("poa: no window"))?;
         let gpu = win.navigator().gpu();
 
@@ -130,7 +130,7 @@ impl PoaRenderer {
         );
         let pipeline = device.create_compute_pipeline(&pipeline_desc);
 
-        Ok(PoaRenderer {
+        Ok(WebGpuAdjustRenderer {
             device,
             pipeline,
             work_buffer,

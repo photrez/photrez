@@ -4,7 +4,7 @@
 // Real-engine benchmark: C (Rust wasm Engine) vs TS (pure-TS) vs A (Rust wasm
 // owning a WebGPU compute pipeline + readback).
 //
-// Mirrors the produced C/TS paths and the TRUE Technique A (PoaRenderer actually
+// Mirrors the produced C/TS paths and the TRUE Technique A (WebGpuAdjustRenderer actually
 // dispatches the compute shader and reads the adjusted pixels back to the CPU —
 // no synthetic dispatch-only timing).
 //
@@ -12,7 +12,7 @@
 //   deno run --allow-read apps/desktop/src/lib/gpu/bench-real-engine.ts
 //
 // poa.rs must be built first: `bun run --filter photrez-desktop build:wasm`.
-import init, { Engine, PoaRenderer, rgba_buffer_view, free_rgba_buffer } from "../../wasm/pkg/photrez_core.js";
+import init, { Engine, WebGpuAdjustRenderer, rgba_buffer_view, free_rgba_buffer } from "../../wasm/pkg/photrez_core.js";
 
 await (init as any)();
 
@@ -84,7 +84,7 @@ async function main() {
 
   // A — Rust wasm owning the WebGPU compute pipeline + readback (true A).
   if ((navigator as any).gpu) {
-    const r: any = await PoaRenderer.create(w, h);
+    const r: any = await WebGpuAdjustRenderer.create(w, h);
     await timeIt("A", async () => {
       const out: Uint8Array = await r.render(src as any, adj.brightness, adj.contrast, adj.saturation);
       if (out.length !== src.length) throw new Error("A length mismatch");

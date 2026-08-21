@@ -129,22 +129,22 @@ export async function runRealEngineBench(w = 1280, h = 720, iters = 30): Promise
   if (!hasGpu) {
     // eslint-disable-next-line no-console
     console.log("  A      SKIPPED (no navigator.gpu — need Chrome 113+/Edge with WebGPU or Deno)");
-  } else if (!m?.PoaRenderer) {
+  } else if (!m?.WebGpuAdjustRenderer) {
     // eslint-disable-next-line no-console
-    console.log("  A      SKIPPED (PoaRenderer not in wasm pkg — run `bun run --filter photrez-desktop build:wasm`)");
+    console.log("  A      SKIPPED (WebGpuAdjustRenderer not in wasm pkg — run `bun run --filter photrez-desktop build:wasm`)");
   } else {
-    const PoaRenderer: any = m.PoaRenderer;
+    const WebGpuAdjustRenderer: any = m.WebGpuAdjustRenderer;
     let renderer: any;
     try {
-      renderer = await PoaRenderer.create(w, h);
+      renderer = await WebGpuAdjustRenderer.create(w, h);
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.warn("[bench] PoaRenderer.create failed:", e);
+      console.warn("[bench] WebGpuAdjustRenderer.create failed:", e);
       // eslint-disable-next-line no-console
       console.log("  A      FAILED (create error — see above)");
       return;
     }
-    // PoaRenderer.render takes Uint8Array (js_sys::Uint8Array) — pass src as Uint8Array
+    // WebGpuAdjustRenderer.render takes Uint8Array (js_sys::Uint8Array) — pass src as Uint8Array
     const srcU8 = src; // already Uint8Array
     await timeAsync("A", async () => {
       const out: Uint8Array = await renderer.render(srcU8, adj.brightness, adj.contrast, adj.saturation);

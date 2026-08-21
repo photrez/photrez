@@ -228,7 +228,7 @@ export function bakeAdjustmentToBitmap(
 }
 
 // Technique A — Rust wasm owns WebGPU compute + readback (fastest per 2026-08-18 bench: 5.9× vs C at 12 Mpx, 2.9× at 2 Mpx).
-// Cached per-size PoaRenderer so the pipeline isn't recreated per bake.
+// Cached per-size WebGpuAdjustRenderer so the pipeline isn't recreated per bake.
 let poaCache: { w: number; h: number; renderer: any } | null = null;
 
 async function tryAdjustRgbaPoa(
@@ -239,13 +239,13 @@ async function tryAdjustRgbaPoa(
 ): Promise<Uint8Array | null> {
   if (typeof navigator === "undefined" || !(navigator as any).gpu) return null;
   const m = await getWasmExportModule();
-  if (!m?.PoaRenderer) return null;
+  if (!m?.WebGpuAdjustRenderer) return null;
   try {
     if (!poaCache || poaCache.w !== w || poaCache.h !== h) {
-      poaCache = { w, h, renderer: await m.PoaRenderer.create(w, h) };
+      poaCache = { w, h, renderer: await m.WebGpuAdjustRenderer.create(w, h) };
     }
     const out: Uint8Array = await poaCache.renderer.render(pixels, adj.brightness, adj.contrast, adj.saturation);
-    console.log(`[bake] Poa A used ${w}x${h}`);
+    console.log(`[bake] WebGPU A used ${w}x${h}`);
     return out;
   } catch {
     poaCache = null;
@@ -255,7 +255,7 @@ async function tryAdjustRgbaPoa(
 
 /**
  * GPU-compute variant of bakeAdjustmentToBitmap: routes the B/C/S pixel pass
- * through the Rust WebGPU path (PoaRenderer, Technique A, fastest) when WebGPU
+ * through the Rust WebGPU path (WebGpuAdjustRenderer, Technique A, fastest) when WebGPU
  * is present, falling back to the TS WGSL path (GpuCompute.adjustRgba) and then
  * to the Rust CPU Engine (C) / TS CPU. Used by commit + export so the
  * adjustment bake runs on the GPU (realtime) instead of the CPU pixel loop.

@@ -2,5 +2,5 @@
 pub mod engine;
 pub mod export;
 pub mod kernel;
-// Technique A (PoC-A): Rust/WASM owning a WebGPU canvas inside the webview.
-pub mod poa;
+// Technique A: Rust/WASM owning a WebGPU compute pipeline inside the webview.
+pub mod webgpu_adjust;
