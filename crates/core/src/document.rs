@@ -232,6 +232,102 @@ impl DocumentEngine {
         self.model.layers.len()
     }
 
+    /// Merge a layer down into the one below it (graph op — pixel composite is
+    /// done TS-side; caller attaches the bitmap to `merged_id` after sync).
+    /// Parity with TS applyMergeDown: merged node inherits bottom's blendMode,
+    /// locked = top||bottom, inserted at the pair's stack position.
+    pub fn merge_down(
+        &mut self,
+        id: String,
+        merged_id: String,
+        name: String,
+        locked: bool,
+    ) -> bool {
+        let idx = match self.model.layers.iter().position(|l| l.id == id) {
+            Some(i) => i,
+            None => return false,
+        };
+        if idx >= self.model.layers.len() - 1 {
+            return false;
+        }
+        let bottom = self.model.layers[idx + 1].clone();
+        let w = self.model.width;
+        let h = self.model.height;
+        let mut m = Layer::new(merged_id.clone(), name, w, h);
+        m.locked = locked;
+        m.blend_mode = bottom.blend_mode.clone();
+        let removed: Vec<Layer> = self.model.layers.drain(idx..idx + 2).collect();
+        drop(removed);
+        self.model.layers.insert(idx, m);
+        self.model.active_layer_id = Some(merged_id);
+        self.model.dirty = true;
+        true
+    }
+
+    /// Merge multiple arbitrary layers into one raster node at the highest
+    /// stack position of the selection. Parity with TS applyMergeSelectedLayers.
+    pub fn merge_selected(
+        &mut self,
+        ids: Vec<String>,
+        merged_id: String,
+        name: String,
+        locked: bool,
+    ) -> bool {
+        if ids.len() < 2 {
+            return false;
+        }
+        let selected_count = self
+            .model
+            .layers
+            .iter()
+            .filter(|l| ids.contains(&l.id))
+            .count();
+        if selected_count < 2 {
+            return false;
+        }
+        let w = self.model.width;
+        let h = self.model.height;
+        let mut updated: Vec<Layer> =
+            Vec::with_capacity(self.model.layers.len() - selected_count + 1);
+        let mut inserted = false;
+        for l in std::mem::take(&mut self.model.layers) {
+            if ids.contains(&l.id) {
+                if !inserted {
+                    let mut m = Layer::new(merged_id.clone(), name.clone(), w, h);
+                    m.locked = locked;
+                    updated.push(m);
+                    inserted = true;
+                }
+            } else {
+                updated.push(l);
+            }
+        }
+        self.model.layers = updated;
+        self.model.active_layer_id = Some(merged_id);
+        self.model.dirty = true;
+        true
+    }
+
+    /// Flatten all layers into a single Background node. Parity with TS
+    /// applyFlattenLayers (isBackground + position/rotation locks).
+    pub fn flatten(&mut self, merged_id: String, name: String, locked: bool) -> bool {
+        if self.model.layers.len() <= 1 {
+            return false;
+        }
+        let w = self.model.width;
+        let h = self.model.height;
+        let mut m = Layer::new(merged_id.clone(), name, w, h);
+        m.locked = locked;
+        m.is_background = Some(true);
+        m.lock_position = Some(true);
+        m.lock_rotation = Some(true);
+        self.model.layers.clear();
+        self.model.layers.push(m.clone());
+        self.model.active_layer_id = Some(m.id);
+        self.model.dirty = true;
+        true
+    }
+
     pub fn snapshot_json(&self) -> String {
         serde_json::to_string(&self.model).unwrap_or_else(|_| "{}".to_string())
     }
@@ -421,6 +517,51 @@ mod tests {
             json.rfind("\"bg\"").unwrap() > json.rfind("\"l1\"").unwrap(),
             "background must remain bottommost after reorder"
         );
+    }
+
+    #[test]
+    fn merge_down() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        // addLayer inserts ABOVE active → stack (top→bottom): [upper, lower]
+        e.add_layer("lower".into(), "L".into(), 100, 100);
+        e.add_layer("upper".into(), "U".into(), 100, 100);
+        assert!(e.merge_down("upper".into(), "m1".into(), "U + L".into(), false));
+        assert_eq!(e.layer_count(), 1);
+        assert_eq!(e.get_active_layer_id(), Some("m1".into()));
+        // Cannot merge the bottom-most layer (nothing below it).
+        assert!(!e.merge_down("m1".into(), "m2".into(), "x".into(), false));
+    }
+
+    #[test]
+    fn merge_selected() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("a".into(), "A".into(), 100, 100);
+        e.add_layer("b".into(), "B".into(), 100, 100);
+        e.add_layer("c".into(), "C".into(), 100, 100);
+        assert!(e.merge_selected(
+            vec!["a".into(), "c".into()],
+            "m".into(),
+            "merged".into(),
+            false
+        ));
+        assert_eq!(e.layer_count(), 2);
+        assert_eq!(e.get_active_layer_id(), Some("m".into()));
+        // Fewer than 2 matching ids is a no-op.
+        assert!(!e.merge_selected(vec!["b".into()], "m2".into(), "x".into(), false));
+    }
+
+    #[test]
+    fn flatten_all() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("a".into(), "A".into(), 100, 100);
+        e.add_layer("b".into(), "B".into(), 100, 100);
+        assert!(e.flatten("flat".into(), "Background".into(), false));
+        assert_eq!(e.layer_count(), 1);
+        assert_eq!(e.get_active_layer_id(), Some("flat".into()));
+        let json = e.get_layers_json();
+        assert!(json.contains("\"isBackground\":true"));
+        // Single layer cannot flatten.
+        assert!(!e.flatten("f2".into(), "x".into(), false));
     }
 
     #[test]

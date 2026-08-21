@@ -246,6 +246,33 @@ export class DocumentEngine {
   }
 
   mergeDown(id: LayerId): void {
+    // Rust graph op first — pixel composite stays TS (bitmaps are JS-heap).
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const idx = this.model.layers.findIndex(l => l.id === id);
+        const top = this.model.layers[idx];
+        const bottom = this.model.layers[idx + 1];
+        if (top && bottom && idx !== -1 && idx < this.model.layers.length - 1) {
+          const mergedBitmap = compositeTwoLayers(top, bottom, this.model.width, this.model.height);
+          const mergedId = `layer-${crypto.randomUUID()}`;
+          const ok: boolean = this.rustEngine.merge_down(
+            id, mergedId, `${top.name} + ${bottom.name}`, bottom.locked || top.locked,
+          );
+          if (ok) {
+            this.syncLayersFromRust();
+            const merged = this.model.layers.find(l => l.id === mergedId)!;
+            merged.imageBitmap = mergedBitmap;
+            for (const removedId of [top.id, bottom.id]) {
+              this.dirtyLayerIds.delete(removedId);
+              this.textureHandles.delete(removedId);
+            }
+            this.markLayerDirty(merged.id);
+            this.notifyChange();
+            return;
+          }
+        }
+      } catch {}
+    }
     const result = applyMergeDown(this.model, id);
     if (!result) return;
 
@@ -259,6 +286,37 @@ export class DocumentEngine {
   }
 
   mergeSelectedLayers(ids: LayerId[]): void {
+    // Rust graph op first — pixel composite stays TS.
+    if (USE_RUST_SSOT && this.rustEngine && ids.length >= 2) {
+      try {
+        const selected = this.model.layers.filter(l => ids.includes(l.id));
+        if (selected.length >= 2) {
+          const mergedBitmap = compositeAllLayers(selected, this.model.width, this.model.height);
+          if (mergedBitmap) {
+            const mergedId = `layer-${crypto.randomUUID()}`;
+            const isLocked = selected.some(l => l.locked);
+            const mergedName = selected.length === 2
+              ? `${selected[0].name} + ${selected[1].name}`
+              : `${selected[0].name} (+${selected.length - 1} merged)`;
+            const ok: boolean = this.rustEngine.merge_selected(
+              [...ids], mergedId, mergedName, isLocked,
+            );
+            if (ok) {
+              this.syncLayersFromRust();
+              const merged = this.model.layers.find(l => l.id === mergedId)!;
+              merged.imageBitmap = mergedBitmap;
+              for (const removedId of ids) {
+                this.dirtyLayerIds.delete(removedId);
+                this.textureHandles.delete(removedId);
+              }
+              this.markLayerDirty(merged.id);
+              this.notifyChange();
+              return;
+            }
+          }
+        }
+      } catch {}
+    }
     const result = applyMergeSelectedLayers(this.model, ids);
     if (!result) return;
 
@@ -272,6 +330,29 @@ export class DocumentEngine {
   }
 
   flattenLayers(): void {
+    // Rust graph op first — pixel composite stays TS.
+    if (USE_RUST_SSOT && this.rustEngine && this.model.layers.length > 1) {
+      try {
+        const mergedBitmap = compositeAllLayers(this.model.layers, this.model.width, this.model.height);
+        if (mergedBitmap) {
+          const mergedId = `layer-${crypto.randomUUID()}`;
+          const removedIds = this.model.layers.map(l => l.id);
+          const ok: boolean = this.rustEngine.flatten(mergedId, "Background", false);
+          if (ok) {
+            this.syncLayersFromRust();
+            const flattened = this.model.layers.find(l => l.id === mergedId)!;
+            flattened.imageBitmap = mergedBitmap;
+            for (const removedId of removedIds) {
+              this.dirtyLayerIds.delete(removedId);
+              this.textureHandles.delete(removedId);
+            }
+            this.markLayerDirty(flattened.id);
+            this.notifyChange();
+            return;
+          }
+        }
+      } catch {}
+    }
     const removedIds = applyFlattenLayers(this.model);
     if (removedIds.length === 0) return;
 
