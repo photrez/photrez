@@ -16,7 +16,7 @@ import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { getLoadedWasmModule } from "@/components/editor/wasmExport";
-const USE_RUST_SSOT = false; // flip to true to test Rust DocumentEngine vertical slice (add/select/undo)
+const USE_RUST_SSOT = true; // flip to true to test Rust DocumentEngine vertical slice (add/select/undo) — testing no-regresi
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
@@ -292,6 +292,23 @@ export class DocumentEngine {
   }
 
   reorderLayer(fromIndex: number, toIndex: number): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const ok: boolean = this.rustEngine.reorder_layer(fromIndex, toIndex);
+        if (ok) {
+          const layersJson = this.rustEngine.get_layers_json();
+          const rustLayers = JSON.parse(layersJson);
+          this.model.layers = rustLayers.map((l: any) => ({
+            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
+            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
+            imageBitmap: this.model.layers.find(x => x.id === l.id)?.imageBitmap ?? null, hasAdjustments: l.hasAdjustments ?? false,
+          }));
+          this.model.dirty = true;
+          this.notifyChange();
+          return;
+        }
+      } catch {}
+    }
     applyReorderLayer(this.model, fromIndex, toIndex);
     this.notifyChange();
   }
@@ -459,11 +476,30 @@ export class DocumentEngine {
 
   // ─── Selection ───
   createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        this.rustEngine.set_selection(x, y, w, h, angle ?? 0, shape ? shape : null, null);
+        const json = this.rustEngine.get_selection_json();
+        this.model.selection = JSON.parse(json);
+        this.model.dirty = true;
+        this.notifyChange();
+        return;
+      } catch {}
+    }
     applyCreateSelection(this.model, x, y, w, h, angle, shape);
     this.notifyChange();
   }
 
   clearSelection(): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        this.rustEngine.clear_selection();
+        this.model.selection = null;
+        this.model.dirty = true;
+        this.notifyChange();
+        return;
+      } catch {}
+    }
     applyClearSelection(this.model);
     this.notifyChange();
   }
@@ -886,6 +922,12 @@ export class DocumentEngine {
   }
 
   snapshot(): DocumentModel {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const json = this.rustEngine.snapshot_json();
+        return JSON.parse(json);
+      } catch {}
+    }
     // Register every live bitmap so replaceLayerBitmap never closes one a
     // committed snapshot still references.
     this.retainBitmaps(this.model);
@@ -893,6 +935,24 @@ export class DocumentEngine {
   }
 
   restore(snapshot: DocumentModel, options?: { restoreViewport?: boolean }): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const json = JSON.stringify(snapshot);
+        if (this.rustEngine.restore_snapshot(json)) {
+          const layersJson = this.rustEngine.get_layers_json();
+          const rustLayers = JSON.parse(layersJson);
+          this.model.layers = rustLayers.map((l: any) => ({
+            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
+            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
+            imageBitmap: this.model.layers.find(x => x.id === l.id)?.imageBitmap ?? null, hasAdjustments: l.hasAdjustments ?? false,
+          }));
+          this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
+          this.model.dirty = true;
+          this.notifyChange();
+          return;
+        }
+      } catch {}
+    }
     const currentViewport = { ...this.model.viewport };
 
     // NOTE: we intentionally do NOT close any bitmaps from the current model

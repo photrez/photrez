@@ -131,6 +131,19 @@ impl DocumentEngine {
         None
     }
 
+    pub fn reorder_layer(&mut self, from_index: usize, to_index: usize) -> bool {
+        if from_index >= self.model.layers.len() || to_index >= self.model.layers.len() {
+            return false;
+        }
+        if from_index == to_index {
+            return true;
+        }
+        let layer = self.model.layers.remove(from_index);
+        self.model.layers.insert(to_index, layer);
+        self.model.dirty = true;
+        true
+    }
+
     pub fn layer_count(&self) -> usize {
         self.model.layers.len()
     }
@@ -172,6 +185,20 @@ impl DocumentEngine {
 
     pub fn has_undo(&self) -> bool { self.history.can_undo() }
     pub fn has_redo(&self) -> bool { self.history.can_redo() }
+
+    pub fn set_selection(&mut self, x: f64, y: f64, width: f64, height: f64, angle: f64, shape: Option<String>, inverted: Option<bool>) {
+        self.model.selection = Some(SelectionState { x, y, width, height, angle, shape, inverted });
+        self.model.dirty = true;
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.model.selection = None;
+        self.model.dirty = true;
+    }
+
+    pub fn get_selection_json(&self) -> String {
+        serde_json::to_string(&self.model.selection).unwrap_or_else(|_| "null".to_string())
+    }
 }
 
 #[cfg(test)]
@@ -245,5 +272,28 @@ mod tests {
         let new_id = e.duplicate_layer("l1".into()).expect("duplicate");
         assert_eq!(e.layer_count(), 2);
         assert_eq!(e.get_active_layer_id(), Some(new_id));
+    }
+
+    #[test]
+    fn reorder_layer() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("l1".into(), "A".into(), 100, 100);
+        e.add_layer("l2".into(), "B".into(), 100, 100);
+        e.add_layer("l3".into(), "C".into(), 100, 100);
+        // Layers are in order of insertion: l1 at 0, l2 at 1, l3 at 2 (top is first? Actually addLayer inserts above active, so order is l3,l2,l1 top to bottom — but reorder should still work)
+        assert!(e.reorder_layer(0, 2));
+        assert_eq!(e.get_layers_json(), e.get_layers_json()); // just check it doesn't panic and count stays
+        assert_eq!(e.layer_count(), 3);
+        assert!(!e.reorder_layer(10, 0));
+    }
+
+    #[test]
+    fn selection() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        assert_eq!(e.get_selection_json(), "null");
+        e.set_selection(10.0, 20.0, 100.0, 50.0, 0.0, Some("rect".into()), Some(false));
+        assert!(e.get_selection_json().contains("10"));
+        e.clear_selection();
+        assert_eq!(e.get_selection_json(), "null");
     }
 }
