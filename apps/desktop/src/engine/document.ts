@@ -15,6 +15,8 @@ import type {
 import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
+import { getLoadedWasmModule } from "@/components/editor/wasmExport";
+const USE_RUST_SSOT = false; // flip to true to test Rust DocumentEngine vertical slice (add/select/undo)
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
@@ -90,6 +92,7 @@ export class DocumentEngine {
   // saved baselines) — they must survive bitmap replacement. WeakSet so stale
   // entries never pin an ImageBitmap object after its snapshot is evicted.
   private snapshotRetainedBitmaps = new WeakSet<ImageBitmap>();
+  private rustEngine: any = null;
 
   constructor(id: DocumentId, name: string, width: number, height: number) {
     this.model = {
@@ -110,6 +113,12 @@ export class DocumentEngine {
     };
     this.textureHandles = new Map();
     this.dirtyLayerIds = new Set();
+    if (USE_RUST_SSOT) {
+      const m = getLoadedWasmModule();
+      if (m?.DocumentEngine) {
+        try { this.rustEngine = new m.DocumentEngine(id, name, width, height); } catch {}
+      }
+    }
   }
 
   // ─── Accessors ───
@@ -159,6 +168,29 @@ export class DocumentEngine {
 
   // ─── Layer Operations ───
   addLayer(name: string, width?: number, height?: number): LayerNode {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+      const w = width ?? this.model.width;
+      const h = height ?? this.model.height;
+      this.rustEngine.add_layer(id, name, w, h);
+      // Sync back to TS model for thin-renderer (so layers() signal updates)
+      try {
+        const layersJson = this.rustEngine.get_layers_json();
+        const rustLayers = JSON.parse(layersJson);
+        // Map Rust Layer (camelCase) to TS LayerNode (keep minimal fields for the slice)
+        this.model.layers = rustLayers.map((l: any) => ({
+          id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
+          locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
+          imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
+        }));
+        this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
+        this.model.dirty = true;
+        const newLayer = this.model.layers.find(l => l.id === id)!;
+        this.markLayerDirty(newLayer.id);
+        this.notifyChange();
+        return newLayer;
+      } catch {}
+    }
     const newLayer = applyAddLayer(this.model, name, width, height);
     this.markLayerDirty(newLayer.id);
     this.notifyChange();
@@ -166,6 +198,26 @@ export class DocumentEngine {
   }
 
   duplicateLayer(id: LayerId): LayerNode {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const newId: string | null = this.rustEngine.duplicate_layer(id);
+        if (newId) {
+          const layersJson = this.rustEngine.get_layers_json();
+          const rustLayers = JSON.parse(layersJson);
+          this.model.layers = rustLayers.map((l: any) => ({
+            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
+            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
+            imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
+          }));
+          this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
+          this.model.dirty = true;
+          const dup = this.model.layers.find(l => l.id === newId)!;
+          this.markLayerDirty(dup.id);
+          this.notifyChange();
+          return dup;
+        }
+      } catch {}
+    }
     const duplicated = applyDuplicateLayer(this.model, id);
     this.markLayerDirty(duplicated.id);
     this.notifyChange();
@@ -211,6 +263,26 @@ export class DocumentEngine {
   }
 
   deleteLayer(id: LayerId): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const ok: boolean = this.rustEngine.delete_layer(id);
+        if (ok) {
+          const layersJson = this.rustEngine.get_layers_json();
+          const rustLayers = JSON.parse(layersJson);
+          this.model.layers = rustLayers.map((l: any) => ({
+            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
+            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
+            imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
+          }));
+          this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
+          this.model.dirty = true;
+          this.dirtyLayerIds.delete(id);
+          this.textureHandles.delete(id);
+          this.notifyChange();
+          return;
+        }
+      } catch {}
+    }
     const removedId = applyDeleteLayer(this.model, id);
     if (removedId === null) return;
 
@@ -225,6 +297,16 @@ export class DocumentEngine {
   }
 
   setActiveLayer(id: LayerId | null): void {
+    if (USE_RUST_SSOT && this.rustEngine && id !== null) {
+      try {
+        const ok: boolean = this.rustEngine.set_active_layer(id);
+        if (ok) {
+          this.model.activeLayerId = id;
+          this.notifyChange();
+          return;
+        }
+      } catch {}
+    }
     applySetActiveLayer(this.model, id);
     this.notifyChange();
   }
