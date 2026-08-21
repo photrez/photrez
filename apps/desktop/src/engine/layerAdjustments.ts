@@ -2,6 +2,7 @@
 // WASM pkg — `getWasmExportModule` only fetches the compiled module on first use.
 import { applyBasicAdjustmentWithWasm, getWasmExportModule } from "@/components/editor/wasmExport";
 import { adjustRgba } from "@/lib/gpu/gpuCompute";
+import { renderLayerPixelsRust } from "@/lib/rustEngineC";
 
 export type BasicAdjustment = {
   brightness: number;
@@ -226,10 +227,37 @@ export function bakeAdjustmentToBitmap(
   return canvas.transferToImageBitmap();
 }
 
+// Technique A — Rust wasm owns WebGPU compute + readback (fastest per 2026-08-18 bench: 5.9× vs C at 12 Mpx, 2.9× at 2 Mpx).
+// Cached per-size PoaRenderer so the pipeline isn't recreated per bake.
+let poaCache: { w: number; h: number; renderer: any } | null = null;
+
+async function tryAdjustRgbaPoa(
+  pixels: Uint8Array,
+  adj: BasicAdjustment,
+  w: number,
+  h: number,
+): Promise<Uint8Array | null> {
+  if (typeof navigator === "undefined" || !(navigator as any).gpu) return null;
+  const m = await getWasmExportModule();
+  if (!m?.PoaRenderer) return null;
+  try {
+    if (!poaCache || poaCache.w !== w || poaCache.h !== h) {
+      poaCache = { w, h, renderer: await m.PoaRenderer.create(w, h) };
+    }
+    const out: Uint8Array = await poaCache.renderer.render(pixels, adj.brightness, adj.contrast, adj.saturation);
+    console.log(`[bake] Poa A used ${w}x${h}`);
+    return out;
+  } catch {
+    poaCache = null;
+    return null;
+  }
+}
+
 /**
  * GPU-compute variant of bakeAdjustmentToBitmap: routes the B/C/S pixel pass
- * through the WGSL compute path (GpuCompute.adjustRgba) when WebGPU is present,
- * falling back to the CPU bake on absence/error. Used by commit + export so the
+ * through the Rust WebGPU path (PoaRenderer, Technique A, fastest) when WebGPU
+ * is present, falling back to the TS WGSL path (GpuCompute.adjustRgba) and then
+ * to the Rust CPU Engine (C) / TS CPU. Used by commit + export so the
  * adjustment bake runs on the GPU (realtime) instead of the CPU pixel loop.
  * Alpha preserved; source bitmap left untouched.
  */
@@ -244,8 +272,31 @@ export async function bakeAdjustmentToBitmapGpu(
   if (!ctx) throw new Error("Failed to acquire 2D context for adjustment bake");
   ctx.drawImage(bitmap, 0, 0);
   const imageData = ctx.getImageData(0, 0, width, height);
+  // Try A first (Rust wasm + WebGPU, fastest per 2026-08-18 bench: 5.9× vs C at 12 Mpx)
+  const poaData = await tryAdjustRgbaPoa(new Uint8Array(imageData.data), adjustment, width, height);
+  if (poaData) {
+    imageData.data.set(poaData);
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.transferToImageBitmap();
+  }
   const res = await adjustRgba(imageData.data, adjustment);
-  imageData.data.set(res.data);
+  if (res.usedGpu) {
+    imageData.data.set(res.data);
+  } else {
+    // WebGPU unavailable: prefer the Rust Engine (SSOT for layer pixels) over the
+    // TS CPU pass. Fall back to the TS result already computed by adjustRgba on any error.
+    try {
+      const rust = await renderLayerPixelsRust(
+        width,
+        height,
+        new Uint8Array(imageData.data),
+        adjustment,
+      );
+      imageData.data.set(rust);
+    } catch {
+      imageData.data.set(res.data);
+    }
+  }
   ctx.putImageData(imageData, 0, 0);
   return canvas.transferToImageBitmap();
 }

@@ -277,6 +277,7 @@ export function AdjustmentsPanel() {
                     <AdjustmentSliderRow
                       label={t("adjustments.bright", "Bright")}
                       value={basicAdjustment().brightness}
+                      type="brightness"
                       onInput={(value) =>
                         setAdjustmentValue("brightness", value)
                       }
@@ -284,6 +285,7 @@ export function AdjustmentsPanel() {
                     <AdjustmentSliderRow
                       label={t("adjustments.contrast", "Contrast")}
                       value={basicAdjustment().contrast}
+                      type="contrast"
                       onInput={(value) =>
                         setAdjustmentValue("contrast", value)
                       }
@@ -291,6 +293,7 @@ export function AdjustmentsPanel() {
                     <AdjustmentSliderRow
                       label={t("adjustments.saturate", "Saturate")}
                       value={basicAdjustment().saturation}
+                      type="saturation"
                       onInput={(value) =>
                         setAdjustmentValue("saturation", value)
                       }
@@ -339,16 +342,12 @@ function StatusHint(props: { children: string }) {
 function AdjustmentSliderRow(props: {
   label: string;
   value: number;
+  type?: "brightness" | "contrast" | "saturation" | "default";
   onInput: (value: number) => void;
 }) {
   const displayValue = () =>
     props.value > 0 ? `+${props.value}` : `${props.value}`;
-  const type = () => {
-    if (props.label === "Bright") return "brightness";
-    if (props.label === "Contrast") return "contrast";
-    if (props.label === "Saturate") return "saturation";
-    return "default";
-  };
+  const type = () => props.type || "default";
 
   return (
     <div class="flex min-h-[28px] items-center gap-2.5">

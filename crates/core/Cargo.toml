@@ -17,7 +17,42 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 uuid = { version = "1.7", features = ["v4", "js"] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
+wasm-bindgen-futures = "0.4"
+# Technique A (PoC-A): Rust/WASM owns a WebGPU canvas inside the webview.
+# web-sys exposes the browser's WebGPU API from wasm; enable only the types used
+# (mirrors the proven TS path in apps/desktop/src/lib/gpu/gpuCompute.ts).
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Navigator",
+    "Gpu",
+    "GpuAdapter",
+    "GpuDevice",
+    "GpuQueue",
+    "GpuBuffer",
+    "GpuBufferDescriptor",
+    "GpuBufferBinding",
+    "GpuShaderModule",
+    "GpuShaderModuleDescriptor",
+    "GpuComputePipeline",
+    "GpuComputePipelineDescriptor",
+    "GpuProgrammableStage",
+    "GpuAutoLayoutMode",
+    "GpuBindGroup",
+    "GpuBindGroupDescriptor",
+    "GpuBindGroupLayout",
+    "GpuBindGroupEntry",
+    "GpuCommandEncoder",
+    "GpuComputePassEncoder",
+    "GpuComputePassDescriptor",
+    "GpuCommandBuffer",
+] }
 # Dev-only panic hook so wasm panics surface in the console (used by
 # `set_panic_hook`, compiled only in debug builds).
 console_error_panic_hook = "0.1"
+
+# web-sys exposes WebGPU types only under the `web_sys_unstable_apis` cfg
+# (used by the Technique A PoC in poa.rs). Declare it so the cfg name is known
+# and does not trigger an "unexpected cfg" warning.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(web_sys_unstable_apis)'] }
 

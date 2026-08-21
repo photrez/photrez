@@ -641,33 +641,31 @@ export class DocumentEngine {
       return "noop";
     }
 
-    // Prefer the async PBO bake (non-blocking main thread readback), then the
-    // sync GPU bake, then the CPU pixel pass (export, fill, tests).
+    // Poa (Rust wasm WebGPU) is fastest per 2026-08-18 bench (5.9× vs C at 12 Mpx, 2.9× at 2 Mpx) — try first even when WebGL is present.
     let baked: ImageBitmap | null = null;
     let usedGpu = false;
-    const gpuAsync = renderer?.bakeLayerToBitmapAsync?.(id, layer.width, layer.height, adj);
-    if (gpuAsync) {
-      const gpu = await gpuAsync;
-      if (gpu) {
-        baked = gpu;
-        usedGpu = true;
+    try {
+      baked = await bakeAdjustmentToBitmapGpu(layer.imageBitmap, layer.width, layer.height, adj);
+      if (baked) usedGpu = true;
+    } catch {
+      baked = null;
+    }
+    // Fallback to WebGL renderer bakes (PBO async, then sync) if Poa/WGSL failed.
+    if (!baked) {
+      const gpuAsync = renderer?.bakeLayerToBitmapAsync?.(id, layer.width, layer.height, adj);
+      if (gpuAsync) {
+        const gpu = await gpuAsync;
+        if (gpu) {
+          baked = gpu;
+          usedGpu = true;
+        }
       }
     }
-    if (!usedGpu) {
+    if (!baked) {
       const gpu = renderer?.bakeLayerToBitmap?.(id, layer.width, layer.height, adj) ?? null;
       if (gpu) {
         baked = gpu;
         usedGpu = true;
-      }
-    }
-    // WGSL compute bake (GPU): used when no WebGL renderer bake is available
-    // (e.g. export / headless). Falls back to the CPU bake below on any error.
-    if (!baked) {
-      try {
-        baked = await bakeAdjustmentToBitmapGpu(layer.imageBitmap, layer.width, layer.height, adj);
-        usedGpu = true;
-      } catch {
-        baked = null;
       }
     }
     if (!baked) {
@@ -681,6 +679,7 @@ export class DocumentEngine {
     layer.hasAdjustments = false;
     this.model.dirty = true;
     this.markLayerDirty(id);
+    this.notifyChange();
     return usedGpu ? "gpu" : "cpu";
   }
 

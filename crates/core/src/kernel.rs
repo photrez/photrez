@@ -425,23 +425,17 @@ fn to_u8_clamp(v: f64) -> u8 {
 /// Pure per-pixel basic adjustment. `brightness/contrast/saturation` are in
 /// [-100, 100]; out-of-range values are clamped like the TS `normalizeBasicAdjustment`.
 /// private — tests live in-module.
-fn apply_basic_adjustment_impl(
-    data: &[u8],
-    brightness: f64,
-    contrast: f64,
-    saturation: f64,
-) -> Vec<u8> {
+fn apply_basic_adjustment_impl(data: &mut [u8], brightness: f64, contrast: f64, saturation: f64) {
     let b = brightness.clamp(-100.0, 100.0);
     let c = contrast.clamp(-100.0, 100.0);
     let s = saturation.clamp(-100.0, 100.0);
     let contrast_factor = (259.0 * (c + 255.0)) / (255.0 * (259.0 - c));
-    let mut out = data.to_vec();
-    let len = out.len() - out.len() % 4;
+    let len = data.len() - data.len() % 4;
     let mut i = 0;
     while i < len {
-        let r0 = out[i] as f64 / 255.0;
-        let g0 = out[i + 1] as f64 / 255.0;
-        let b0 = out[i + 2] as f64 / 255.0;
+        let r0 = data[i] as f64 / 255.0;
+        let g0 = data[i + 1] as f64 / 255.0;
+        let b0 = data[i + 2] as f64 / 255.0;
         let mut cr = contrast_factor * (r0 - 0.5) + 0.5;
         let mut cg = contrast_factor * (g0 - 0.5) + 0.5;
         let mut cb = contrast_factor * (b0 - 0.5) + 0.5;
@@ -461,12 +455,11 @@ fn apply_basic_adjustment_impl(
         cr = lum + (cr - lum) * sat_factor;
         cg = lum + (cg - lum) * sat_factor;
         cb = lum + (cb - lum) * sat_factor;
-        out[i] = to_u8_clamp(cr * 255.0);
-        out[i + 1] = to_u8_clamp(cg * 255.0);
-        out[i + 2] = to_u8_clamp(cb * 255.0);
+        data[i] = to_u8_clamp(cr * 255.0);
+        data[i + 1] = to_u8_clamp(cg * 255.0);
+        data[i + 2] = to_u8_clamp(cb * 255.0);
         i += 4;
     }
-    out
 }
 
 #[wasm_bindgen]
@@ -476,7 +469,35 @@ pub fn apply_basic_adjustment_wasm(
     contrast: f64,
     saturation: f64,
 ) -> Vec<u8> {
-    apply_basic_adjustment_impl(buffer, brightness, contrast, saturation)
+    let mut out = buffer.to_vec();
+    apply_basic_adjustment_impl(&mut out, brightness, contrast, saturation);
+    out
+}
+
+// ── C-slice helpers: let `Engine` own pixel buffers + adjustment state ─────────
+// (Technique C: Rust SSOT for state + pixels; TS uploads the zero-copy view.)
+pub fn write_buffer(id: u32, src: &[u8]) {
+    BUFFERS.with(|b| {
+        let mut m = b.borrow_mut();
+        let v = m.get_mut(&id).expect("invalid buffer id");
+        v.copy_from_slice(src);
+    });
+}
+
+pub fn apply_adjustment_inplace(id: u32, brightness: f64, contrast: f64, saturation: f64) {
+    BUFFERS.with(|b| {
+        let mut m = b.borrow_mut();
+        let v = m.get_mut(&id).expect("invalid buffer id");
+        apply_basic_adjustment_impl(v, brightness, contrast, saturation);
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn buffer_clone(id: u32) -> Vec<u8> {
+    BUFFERS.with(|b| {
+        let m = b.borrow();
+        m.get(&id).expect("invalid buffer id").clone()
+    })
 }
 
 // ── Zero-copy accelerator prototype (Phase 5 follow-up) ───────────────────────
@@ -654,32 +675,32 @@ mod tests {
 
     #[test]
     fn identity_adjustment_is_noop() {
-        let img = vec![10u8, 20, 30, 255, 40, 50, 60, 128];
-        let out = apply_basic_adjustment_impl(&img, 0.0, 0.0, 0.0);
-        assert_eq!(out, img);
+        let mut img = vec![10u8, 20, 30, 255, 40, 50, 60, 128];
+        apply_basic_adjustment_impl(&mut img, 0.0, 0.0, 0.0);
+        assert_eq!(img, vec![10u8, 20, 30, 255, 40, 50, 60, 128]);
     }
 
     #[test]
     fn full_brightness_lifts_black_to_midgray() {
-        let img = vec![0u8, 0, 0, 255];
-        let out = apply_basic_adjustment_impl(&img, 100.0, 0.0, 0.0);
+        let mut img = vec![0u8, 0, 0, 255];
+        apply_basic_adjustment_impl(&mut img, 100.0, 0.0, 0.0);
         // t=1, cr = (1-0)*0.5 = 0.5 -> 127.5 -> tie -> 128
-        assert_eq!(&out[0..3], &[128, 128, 128]);
-        assert_eq!(out[3], 255);
+        assert_eq!(&img[0..3], &[128, 128, 128]);
+        assert_eq!(img[3], 255);
     }
 
     #[test]
     fn full_saturation_keeps_pure_red() {
-        let img = vec![255u8, 0, 0, 255];
-        let out = apply_basic_adjustment_impl(&img, 0.0, 0.0, 100.0);
-        assert_eq!(&out[0..4], &[255, 0, 0, 255]);
+        let mut img = vec![255u8, 0, 0, 255];
+        apply_basic_adjustment_impl(&mut img, 0.0, 0.0, 100.0);
+        assert_eq!(&img[0..4], &[255, 0, 0, 255]);
     }
 
     #[test]
     fn contrast_changes_midtone() {
-        let img = vec![200u8, 100, 50, 255];
-        let out = apply_basic_adjustment_impl(&img, 0.0, 50.0, 0.0);
-        assert_ne!(&out[0..3], &[200, 100, 50]);
+        let mut img = vec![200u8, 100, 50, 255];
+        apply_basic_adjustment_impl(&mut img, 0.0, 50.0, 0.0);
+        assert_ne!(&img[0..3], &[200, 100, 50]);
     }
 
     #[test]

@@ -40,6 +40,8 @@ import { prewarmFonts } from "@/lib/fontEnumeration";
 import { useTauriCloseHandler } from "@/lib/desktop/useTauriCloseHandler";
 import { useDialog } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession } from "../transformSession";
+// dev bench helper — window.__benchRealEngine() (no UI, no prod cost)
+if (import.meta.env.DEV) void import("@/lib/gpu/benchRealEngineDev");
 
 // Core singletons import
 import { WorkspaceManager } from "@/engine/workspace";

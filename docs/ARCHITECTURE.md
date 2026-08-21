@@ -10,6 +10,8 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 **Future target:** Rust Core via WASM (photrez-core → wasm-pack) for hot-path compute (brush, transform, tile, encode) + WebGL2 remains the renderer. wgpu deferred until compute-shader features are required.
 **Revised 2026-08-18:** Interactive pixel compute now targets **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; **native Rust** retained for export encode (entropy coding is serial → CPU). WASM hot-path compute deferred. See GPU Compute Layer below.
 
+**Rust Engine SSOT (Technique C) — 2026-08-18:** A `photrez-core` `Engine` (wasm-bindgen) now owns a single layer's pixels + non-destructive adjustment state, renders in place, and uploads zero-copy (`rgba_buffer_view`) to WebGL2. It is wired as the CPU-tier bake backend in `bakeAdjustmentToBitmapGpu` when WebGPU is absent (behavior-preserving; falls back to TS on error). Live preview stays the GPU shader uniform. Primary **Technique A** (Rust/WASM owns a WebGPU canvas in-webview) is the still-gated next step. Benchmarks + decision: `docs/plans/2026-08-18-gpu-rust-further-research.md`.
+
 ---
 
 ## Project Status
