@@ -206,8 +206,24 @@ impl DocumentEngine {
         if from_index == to_index {
             return true;
         }
-        let layer = self.model.layers.remove(from_index);
-        self.model.layers.insert(to_index, layer);
+        // Parity with TS applyReorderLayer: the Background is pinned to the
+        // bottom — it can never be reordered, and nothing may sit below it.
+        if self.model.layers[from_index].is_background == Some(true) {
+            return false;
+        }
+        let mut updated = self.model.layers.clone();
+        let moved = updated.remove(from_index);
+        updated.insert(to_index, moved);
+        // Invariant: re-seat the Background at the bottom if the move pushed
+        // it off the bottom (a layer beneath the opaque Background would be
+        // unreachable / hidden).
+        if let Some(bg_idx) = updated.iter().position(|l| l.is_background == Some(true)) {
+            if bg_idx != updated.len() - 1 {
+                let bg = updated.remove(bg_idx);
+                updated.push(bg);
+            }
+        }
+        self.model.layers = updated;
         self.model.dirty = true;
         true
     }
@@ -283,6 +299,19 @@ impl DocumentEngine {
     pub fn clear_selection(&mut self) {
         self.model.selection = None;
         self.model.dirty = true;
+    }
+
+    /// Mark a layer as the Background (bottommost, position/rotation locked).
+    /// Used by document open / flatten to flag the bottom layer.
+    pub fn set_layer_background(&mut self, layer_id: String) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == layer_id) {
+            l.is_background = Some(true);
+            l.lock_position = Some(true);
+            l.lock_rotation = Some(true);
+            self.model.dirty = true;
+            return true;
+        }
+        false
     }
 
     pub fn get_selection_json(&self) -> String {
@@ -369,11 +398,29 @@ mod tests {
         e.add_layer("l1".into(), "A".into(), 100, 100);
         e.add_layer("l2".into(), "B".into(), 100, 100);
         e.add_layer("l3".into(), "C".into(), 100, 100);
-        // Layers are in order of insertion: l1 at 0, l2 at 1, l3 at 2 (top is first? Actually addLayer inserts above active, so order is l3,l2,l1 top to bottom — but reorder should still work)
         assert!(e.reorder_layer(0, 2));
-        assert_eq!(e.get_layers_json(), e.get_layers_json()); // just check it doesn't panic and count stays
         assert_eq!(e.layer_count(), 3);
         assert!(!e.reorder_layer(10, 0));
+    }
+
+    #[test]
+    fn reorder_pins_background_to_bottom() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        // Simulate a Background: bottom layer flagged isBackground.
+        e.add_layer("bg".into(), "Background".into(), 100, 100);
+        e.set_layer_background("bg".into());
+        e.add_layer("l1".into(), "A".into(), 100, 100);
+        e.add_layer("l2".into(), "B".into(), 100, 100);
+        // Order now (top→bottom): l2, l1, bg → bg at index 2 (bottom).
+        // Moving bg is forbidden.
+        assert!(!e.reorder_layer(2, 0));
+        // Moving l1 to index 2 (below bg) re-seats bg back to the bottom.
+        assert!(e.reorder_layer(1, 2));
+        let json = e.get_layers_json();
+        assert!(
+            json.rfind("\"bg\"").unwrap() > json.rfind("\"l1\"").unwrap(),
+            "background must remain bottommost after reorder"
+        );
     }
 
     #[test]
