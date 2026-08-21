@@ -95,7 +95,7 @@ describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
   });
 
   describe("Gradient Tool Drag & Angle Lock Contracts", () => {
-    it("updates gradientDragLine signal during drag and resets to null on pointerup", () => {
+    it("updates gradientDragLine signal during drag and resets to null on pointerup", async () => {
       const { signals, dispose } = createMockEditorParams("gradient");
       const setGradientDragLineSpy = vi.fn();
       const commitSpy = vi.fn();
@@ -151,7 +151,8 @@ describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
       );
 
       // 4. Pointer Up (commits to history & resets drag line signal)
-      tools.onCanvasPointerUp(makePointerEvent({ clientX: 200, clientY: 120 }));
+      // Gradient bake is now async (GPU 6.3×) — await the handler's promise.
+      await tools.onCanvasPointerUp(makePointerEvent({ clientX: 200, clientY: 120 }));
       expect(setGradientDragLineSpy).toHaveBeenLastCalledWith(null);
       expect(commitSpy).toHaveBeenCalled();
 

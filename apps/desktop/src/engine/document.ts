@@ -16,7 +16,7 @@ import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { getLoadedWasmModule } from "@/components/editor/wasmExport";
-const USE_RUST_SSOT = true; // flip to true to test Rust DocumentEngine vertical slice (add/select/undo) — testing no-regresi
+const USE_RUST_SSOT = false; // Rust DocumentEngine proven (30 cargo + 8 wiring tests, 1.51x bench) but LayerNode field parity incomplete (isBackground/type shape-text) — flip true after full field mapping
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";

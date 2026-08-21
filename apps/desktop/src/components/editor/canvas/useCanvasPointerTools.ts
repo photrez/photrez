@@ -852,7 +852,11 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
     interactiveState.dragTool = null;
 
     // ── Gradient: apply on pointer up (GPU 6.3× at 12 Mpx for 2-stop) ──
-    if (await applyGradientFill(pointerCtx, gradientDragState)) return;
+    // Only await for the gradient tool — awaiting unconditionally would defer
+    // crop/shape/text handling by a microtask and break their sync contracts.
+    if (tool === "gradient") {
+      if (await applyGradientFill(pointerCtx, gradientDragState)) return;
+    }
 
     // ── Shape: apply/commit on pointer up (deletes temp under 3px) ──
     if (applyShapeDrag(pointerCtx, e, shapeDragState)) return;

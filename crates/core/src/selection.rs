@@ -17,6 +17,14 @@ pub struct SelectionState {
 
 impl Default for SelectionState {
     fn default() -> Self {
-        Self { x: 0.0, y: 0.0, width: 0.0, height: 0.0, angle: 0.0, shape: None, inverted: None }
+        Self {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 0.0,
+            angle: 0.0,
+            shape: None,
+            inverted: None,
+        }
     }
 }

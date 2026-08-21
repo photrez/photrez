@@ -116,6 +116,16 @@ export async function applyGradientFill(
 
   if (editor.activeTool() !== "gradient" || !state.isDragging) return false;
   state.isDragging = false;
+  // Capture drag points BEFORE clearing state — the guards below need them.
+  const dragStart = state.start;
+  const dragEnd = state.end;
+  // Reset the drag line SYNCHRONOUSLY — the line must vanish the instant the
+  // pointer releases, even though the pixel bake below is async (GPU/WASM).
+  state.start = null;
+  state.end = null;
+  if (typeof setGradientDragLine === "function") {
+    setGradientDragLine(null);
+  }
   const resetGradientState = () => {
     state.start = null;
     state.end = null;
@@ -126,7 +136,7 @@ export async function applyGradientFill(
 
   const engine = workspace.getActiveEngine();
   const history = workspace.getActiveHistory();
-  if (!engine || !history || !state.start || !state.end) {
+  if (!engine || !history || !dragStart || !dragEnd) {
     resetGradientState();
     return true;
   }
@@ -181,11 +191,11 @@ export async function applyGradientFill(
   }
 
   // Convert gradient start/end to layer-local space (accounts for transform)
-  const startLocal = documentToLayerLocal(state.start.x, state.start.y, layer.transform, layer.width, layer.height);
-  const endLocal = documentToLayerLocal(state.end.x, state.end.y, layer.transform, layer.width, layer.height);
+  const startLocal = documentToLayerLocal(dragStart.x, dragStart.y, layer.transform, layer.width, layer.height);
+  const endLocal = documentToLayerLocal(dragEnd.x, dragEnd.y, layer.transform, layer.width, layer.height);
 
   // Calm inline loading in status bar (200ms delay per Material/Carbon — avoids flicker on 31ms, shows on 81ms+).
-  let loadingTimer: number | null = window.setTimeout(() => ctx.editor.setStatusLoadingMessage("Applying gradient..."), 200);
+  let loadingTimer: number | null = window.setTimeout(() => ctx.editor.setStatusLoadingMessage?.("Applying gradient..."), 200);
   try {
     // GPU first for 2-stop unmasked (6.3× at 12 Mpx), falls back to WASM/TS inside gradientFillAsync
     await gradientFillAsync(
@@ -196,7 +206,7 @@ export async function applyGradientFill(
     );
   } finally {
     if (loadingTimer !== null) clearTimeout(loadingTimer);
-    ctx.editor.setStatusLoadingMessage(null);
+    ctx.editor.setStatusLoadingMessage?.(null);
   }
 
   const preSnapshot = engine.snapshot();

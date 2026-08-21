@@ -11,7 +11,11 @@ pub struct History {
 
 impl History {
     pub fn new(max_depth: usize) -> Self {
-        Self { undo_stack: Vec::new(), redo_stack: Vec::new(), max_depth }
+        Self {
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            max_depth,
+        }
     }
 
     pub fn commit(&mut self, snapshot: DocumentModel) {
@@ -22,18 +26,26 @@ impl History {
         }
     }
 
-    pub fn can_undo(&self) -> bool { !self.undo_stack.is_empty() }
-    pub fn can_redo(&self) -> bool { !self.redo_stack.is_empty() }
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
 
     pub fn undo(&mut self, current: DocumentModel) -> Option<DocumentModel> {
-        if !self.can_undo() { return None; }
+        if !self.can_undo() {
+            return None;
+        }
         let prev = self.undo_stack.pop().unwrap();
         self.redo_stack.push(current);
         Some(prev)
     }
 
     pub fn redo(&mut self, current: DocumentModel) -> Option<DocumentModel> {
-        if !self.can_redo() { return None; }
+        if !self.can_redo() {
+            return None;
+        }
         let next = self.redo_stack.pop().unwrap();
         self.undo_stack.push(current);
         Some(next)
@@ -44,8 +56,12 @@ impl History {
         self.redo_stack.clear();
     }
 
-    pub fn undo_count(&self) -> usize { self.undo_stack.len() }
-    pub fn redo_count(&self) -> usize { self.redo_stack.len() }
+    pub fn undo_count(&self) -> usize {
+        self.undo_stack.len()
+    }
+    pub fn redo_count(&self) -> usize {
+        self.redo_stack.len()
+    }
 }
 
 #[cfg(test)]
@@ -54,9 +70,29 @@ mod tests {
     use crate::document::{DocumentModel, Layer, Transform2D};
 
     fn make_model(layers: usize) -> DocumentModel {
-        let mut m = DocumentModel { id: "doc".into(), name: "Test".into(), width: 100, height: 100, layers: Vec::new(), active_layer_id: None, selection: None, dirty: false };
+        let mut m = DocumentModel {
+            id: "doc".into(),
+            name: "Test".into(),
+            width: 100,
+            height: 100,
+            layers: Vec::new(),
+            active_layer_id: None,
+            selection: None,
+            dirty: false,
+        };
         for i in 0..layers {
-            m.layers.push(Layer { id: format!("l{}", i), name: format!("L{}", i), visible: true, locked: false, opacity: 1.0, blend_mode: "normal".into(), transform: Transform2D::default(), width: 100, height: 100, has_adjustments: false });
+            m.layers.push(Layer {
+                id: format!("l{}", i),
+                name: format!("L{}", i),
+                visible: true,
+                locked: false,
+                opacity: 1.0,
+                blend_mode: "normal".into(),
+                transform: Transform2D::default(),
+                width: 100,
+                height: 100,
+                has_adjustments: false,
+            });
         }
         m
     }

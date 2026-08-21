@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // DocumentEngine SSOT — Rust owns layer graph + selection + history (vertical slice: add/select/undo)
 
-use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
 use crate::history::History;
 use crate::selection::SelectionState;
+use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +20,15 @@ pub struct Transform2D {
 
 impl Default for Transform2D {
     fn default() -> Self {
-        Self { x: 0.0, y: 0.0, scale_x: 1.0, scale_y: 1.0, rotation: 0.0, flip_h: false, flip_v: false }
+        Self {
+            x: 0.0,
+            y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotation: 0.0,
+            flip_h: false,
+            flip_v: false,
+        }
     }
 }
 
@@ -42,9 +50,16 @@ pub struct Layer {
 impl Layer {
     fn new(id: String, name: String, width: u32, height: u32) -> Self {
         Self {
-            id, name, visible: true, locked: false, opacity: 1.0,
-            blend_mode: "normal".to_string(), transform: Transform2D::default(),
-            width, height, has_adjustments: false,
+            id,
+            name,
+            visible: true,
+            locked: false,
+            opacity: 1.0,
+            blend_mode: "normal".to_string(),
+            transform: Transform2D::default(),
+            width,
+            height,
+            has_adjustments: false,
         }
     }
 }
@@ -72,8 +87,20 @@ pub struct DocumentEngine {
 impl DocumentEngine {
     #[wasm_bindgen(constructor)]
     pub fn new(id: String, name: String, width: u32, height: u32) -> Self {
-        let model = DocumentModel { id, name, width, height, layers: Vec::new(), active_layer_id: None, selection: None, dirty: false };
-        Self { model, history: History::new(50) }
+        let model = DocumentModel {
+            id,
+            name,
+            width,
+            height,
+            layers: Vec::new(),
+            active_layer_id: None,
+            selection: None,
+            dirty: false,
+        };
+        Self {
+            model,
+            history: History::new(50),
+        }
     }
 
     pub fn add_layer(&mut self, layer_id: String, name: String, width: u32, height: u32) {
@@ -183,11 +210,32 @@ impl DocumentEngine {
         false
     }
 
-    pub fn has_undo(&self) -> bool { self.history.can_undo() }
-    pub fn has_redo(&self) -> bool { self.history.can_redo() }
+    pub fn has_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+    pub fn has_redo(&self) -> bool {
+        self.history.can_redo()
+    }
 
-    pub fn set_selection(&mut self, x: f64, y: f64, width: f64, height: f64, angle: f64, shape: Option<String>, inverted: Option<bool>) {
-        self.model.selection = Some(SelectionState { x, y, width, height, angle, shape, inverted });
+    pub fn set_selection(
+        &mut self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        angle: f64,
+        shape: Option<String>,
+        inverted: Option<bool>,
+    ) {
+        self.model.selection = Some(SelectionState {
+            x,
+            y,
+            width,
+            height,
+            angle,
+            shape,
+            inverted,
+        });
         self.model.dirty = true;
     }
 
@@ -291,7 +339,15 @@ mod tests {
     fn selection() {
         let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
         assert_eq!(e.get_selection_json(), "null");
-        e.set_selection(10.0, 20.0, 100.0, 50.0, 0.0, Some("rect".into()), Some(false));
+        e.set_selection(
+            10.0,
+            20.0,
+            100.0,
+            50.0,
+            0.0,
+            Some("rect".into()),
+            Some(false),
+        );
         assert!(e.get_selection_json().contains("10"));
         e.clear_selection();
         assert_eq!(e.get_selection_json(), "null");
