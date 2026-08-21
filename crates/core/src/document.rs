@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+use crate::history::History;
+use crate::selection::SelectionState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -56,22 +58,22 @@ pub struct DocumentModel {
     pub height: u32,
     pub layers: Vec<Layer>,
     pub active_layer_id: Option<String>,
+    pub selection: Option<SelectionState>,
     pub dirty: bool,
 }
 
 #[wasm_bindgen]
 pub struct DocumentEngine {
     model: DocumentModel,
-    history: Vec<DocumentModel>,
-    future: Vec<DocumentModel>,
+    history: History,
 }
 
 #[wasm_bindgen]
 impl DocumentEngine {
     #[wasm_bindgen(constructor)]
     pub fn new(id: String, name: String, width: u32, height: u32) -> Self {
-        let model = DocumentModel { id, name, width, height, layers: Vec::new(), active_layer_id: None, dirty: false };
-        Self { model, history: Vec::new(), future: Vec::new() }
+        let model = DocumentModel { id, name, width, height, layers: Vec::new(), active_layer_id: None, selection: None, dirty: false };
+        Self { model, history: History::new(50) }
     }
 
     pub fn add_layer(&mut self, layer_id: String, name: String, width: u32, height: u32) {
@@ -147,17 +149,12 @@ impl DocumentEngine {
 
     pub fn commit_snapshot(&mut self) {
         let snap = self.model.clone();
-        self.history.push(snap);
-        if self.history.len() > 50 {
-            self.history.remove(0);
-        }
-        self.future.clear();
+        self.history.commit(snap);
     }
 
     pub fn undo(&mut self) -> bool {
-        if let Some(prev) = self.history.pop() {
-            let cur = self.model.clone();
-            self.future.push(cur);
+        let cur = self.model.clone();
+        if let Some(prev) = self.history.undo(cur) {
             self.model = prev;
             return true;
         }
@@ -165,17 +162,16 @@ impl DocumentEngine {
     }
 
     pub fn redo(&mut self) -> bool {
-        if let Some(next) = self.future.pop() {
-            let cur = self.model.clone();
-            self.history.push(cur);
+        let cur = self.model.clone();
+        if let Some(next) = self.history.redo(cur) {
             self.model = next;
             return true;
         }
         false
     }
 
-    pub fn has_undo(&self) -> bool { !self.history.is_empty() }
-    pub fn has_redo(&self) -> bool { !self.future.is_empty() }
+    pub fn has_undo(&self) -> bool { self.history.can_undo() }
+    pub fn has_redo(&self) -> bool { self.history.can_redo() }
 }
 
 #[cfg(test)]
