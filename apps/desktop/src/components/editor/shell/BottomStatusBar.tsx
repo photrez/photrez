@@ -39,6 +39,8 @@ export function BottomStatusBar() {
     setRightDockOpen,
     gradientDragLine,
     scheduler,
+    statusLoadingMessage,
+    setStatusLoadingMessage,
   } = useEditor();
   const { t } = useI18n();
 
@@ -105,8 +107,22 @@ export function BottomStatusBar() {
     return t(tipKey, TOOL_DESCRIPTIONS[activeTool()] || t("status.ready"));
   };
 
+  // Tiling progress: "Applying gradient 3/16" → 18% thin bar on top, no flicker, no full overlay
+  const tilingProgress = () => {
+    const msg = statusLoadingMessage();
+    if (!msg) return null;
+    const m = msg.match(/(\d+)\/(\d+)/);
+    if (!m) return null;
+    const cur = parseInt(m[1], 10), total = parseInt(m[2], 10);
+    if (!total) return null;
+    return Math.max(0, Math.min(100, (cur / total) * 100));
+  };
+
   return (
-    <footer class="flex h-[24px] shrink-0 items-center justify-between border-t border-editor-divider bg-editor-panel-bg px-3 text-[10.5px] text-editor-text-dim select-none">
+    <footer class="relative flex h-[24px] shrink-0 items-center justify-between border-t border-editor-divider bg-editor-panel-bg px-3 text-[10.5px] text-editor-text-dim select-none">
+      <Show when={tilingProgress() !== null}>
+        <div class="absolute left-0 top-0 h-[2px] bg-editor-accent transition-all duration-200" style={{ width: `${tilingProgress()}%` }} />
+      </Show>
       <div class="flex items-center gap-3">
         <Show when={activeDocumentId()}>
           <span>
@@ -121,6 +137,27 @@ export function BottomStatusBar() {
           <span class="border-l border-editor-divider pl-3">
             <span class="text-editor-text/60">{statusText()}</span>
           </span>
+          {/* Calm inline loading for heavy ops — only after 200ms, thin bar on top, no overlay, no flicker */}
+          <Show when={statusLoadingMessage()}>
+            <span class="border-l border-editor-divider pl-3 flex items-center gap-1.5">
+              <svg class="size-3 animate-spin text-editor-accent" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span class="text-editor-text">{statusLoadingMessage()}</span>
+              <Show when={tilingProgress() !== null}>
+                <button
+                  type="button"
+                  onClick={() => setStatusLoadingMessage(null)}
+                  class="ml-1 flex size-3.5 items-center justify-center rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300"
+                  title="Cancel"
+                  aria-label="Cancel"
+                >
+                  <span class="text-[10px] leading-none">×</span>
+                </button>
+              </Show>
+            </span>
+          </Show>
           <span class="border-l border-editor-divider pl-3">
             <Show
               when={typeof selectedLayerIds === "function" && selectedLayerIds().length > 1}

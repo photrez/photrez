@@ -592,6 +592,8 @@ export function EditorProvider(props: {
     setShowPrintDialog: editorState.setShowPrintDialog,
     loadingMessage: editorState.loadingMessage,
     setLoadingMessage: editorState.setLoadingMessage,
+    statusLoadingMessage: editorState.statusLoadingMessage,
+    setStatusLoadingMessage: editorState.setStatusLoadingMessage,
     renamingLayerId: editorState.renamingLayerId,
     setRenamingLayerId: editorState.setRenamingLayerId,
     renameLayerName: editorState.renameLayerName,

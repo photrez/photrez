@@ -185,6 +185,49 @@ export function floodFillTs(
 /**
  * Fill with a gradient defined by two points and color stops.
  */
+let gradPoaCache: { w: number; h: number; renderer: any } | null = null;
+export async function warmupGradientRenderer(width: number, height: number): Promise<void> {
+  if (typeof navigator === "undefined" || !(navigator as any).gpu) return;
+  if (gradPoaCache && gradPoaCache.w === width && gradPoaCache.h === height) return;
+  const m = await getWasmExportModule();
+  if (!m?.WebGpuAdjustRenderer) return;
+  try {
+    gradPoaCache = { w: width, h: height, renderer: await m.WebGpuAdjustRenderer.create(width, height) };
+  } catch {}
+}
+async function tryGradientFillPoa(
+  data: Uint8Array,
+  width: number,
+  height: number,
+  type: GradientType,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  stops: ColorStop[],
+): Promise<Uint8Array | null> {
+  if (typeof navigator === "undefined" || !(navigator as any).gpu) return null;
+  if (stops.length !== 2) return null; // A currently handles 2-stop linear/radial only (common case, 6.3× at 12 Mpx)
+  const m = await getWasmExportModule();
+  if (!m?.WebGpuAdjustRenderer) return null;
+  try {
+    if (!gradPoaCache || gradPoaCache.w !== width || gradPoaCache.h !== height) {
+      gradPoaCache = { w: width, h: height, renderer: await m.WebGpuAdjustRenderer.create(width, height) };
+    }
+    const s0 = stops[0], s1 = stops[1];
+    const out: Uint8Array = await gradPoaCache.renderer.gradient(
+      data, ax, ay, bx, by,
+      s0.offset, s0.r, s0.g, s0.b, s0.a,
+      s1.offset, s1.r, s1.g, s1.b, s1.a,
+      type === "linear" ? 0 : 1,
+    );
+    return out;
+  } catch {
+    gradPoaCache = null;
+    return null;
+  }
+}
+
 export function gradientFill(
   imgData: ImageData,
   type: GradientType,
@@ -195,6 +238,14 @@ export function gradientFill(
   stops: ColorStop[],
   mask?: FillMask | null,
 ): ImageData {
+  // Masked or N-stop gradients fall back to WASM/TS (A handles 2-stop unmasked only)
+  if (!mask && stops.length === 2 && typeof navigator !== "undefined" && (navigator as any).gpu) {
+    // fire-and-forget GPU path is async — for sync fillOperations API we keep the
+    // WASM/TS path. The async GPU path is exposed via gradientFillAsync for callers
+    // that can await (e.g. bench, future tool). This keeps the sync API fast and
+    // avoids making every fill site async.
+    void getWasmExportModule();
+  }
   // WASM-accelerated path (Phase 4). Falls back to the pure-TS impl if the
   // kernel is unavailable; kicks off module init so the next fill uses WASM.
   const out = gradientFillWithWasm(imgData.data, imgData.width, imgData.height, type, ax, ay, bx, by, stops, mask ?? null);
@@ -204,6 +255,28 @@ export function gradientFill(
   }
   void getWasmExportModule();
   return gradientFillTs(imgData, type, ax, ay, bx, by, stops, mask);
+}
+
+export async function gradientFillAsync(
+  imgData: ImageData,
+  type: GradientType,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  stops: ColorStop[],
+  mask?: FillMask | null,
+): Promise<ImageData> {
+  if (!mask && stops.length === 2) {
+    const poa = await tryGradientFillPoa(new Uint8Array(imgData.data), imgData.width, imgData.height, type, ax, ay, bx, by, stops);
+    if (poa) {
+      imgData.data.set(poa);
+      console.log(`[gradient] WebGPU A used ${imgData.width}x${imgData.height}`);
+      return imgData;
+    }
+  }
+  // fall back to sync WASM/TS path
+  return gradientFill(imgData, type, ax, ay, bx, by, stops, mask);
 }
 
 // Pure TypeScript implementation. Kept as the WASM fallback and exported for

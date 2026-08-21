@@ -28,6 +28,7 @@ export function useLayerActions() {
     setSelectedLayerId,
     textEditSession,
     setTextEditSession,
+    setStatusLoadingMessage,
   } = useEditor();
 
   const textSessionEditor = () => ({ workspace, textEditSession, setTextEditSession, scheduler });
@@ -159,9 +160,15 @@ export function useLayerActions() {
       // Nothing to bake if the layer has no live adjustment.
       if (!engine.getLayer(activeId)?.basicAdjustment) return;
       history.commit(engine.snapshot(), "Apply Adjustment");
-      // GPU-preferred bake (falls back to CPU inside the engine); the result is
-      // re-uploaded so the composited layer reflects the now-baked pixels.
-      const result = await engine.commitBasicAdjustment(activeId, renderer);
+      // Calm status-bar loading — only shows if >200ms (Material: <200ms no indicator to avoid flicker)
+      let t: number | null = window.setTimeout(() => setStatusLoadingMessage("Applying adjustment..."), 200);
+      let result: Awaited<ReturnType<typeof engine.commitBasicAdjustment>>;
+      try {
+        result = await engine.commitBasicAdjustment(activeId, renderer);
+      } finally {
+        if (t !== null) clearTimeout(t);
+        setStatusLoadingMessage(null);
+      }
       const bakedLayer = engine.getLayer(activeId);
       if (bakedLayer?.imageBitmap) renderer.uploadImage(activeId, bakedLayer.imageBitmap);
       if (result === "cpu" && typeof renderer?.bakeLayerToBitmap === "function") {

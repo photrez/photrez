@@ -21,6 +21,8 @@ export interface DialogChromeValue {
 
   loadingMessage: Accessor<string | null>;
   setLoadingMessage: Setter<string | null>;
+  statusLoadingMessage: Accessor<string | null>;
+  setStatusLoadingMessage: Setter<string | null>;
   renamingLayerId: Accessor<string | null>;
   setRenamingLayerId: Setter<string | null>;
   renameLayerName: Accessor<string>;
