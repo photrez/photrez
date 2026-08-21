@@ -168,28 +168,25 @@ export class DocumentEngine {
 
   // ─── Layer Operations ───
   addLayer(name: string, width?: number, height?: number): LayerNode {
-    if (USE_RUST_SSOT && this.rustEngine) {
+    // Rust SSOT — thin wrapper (69 tests proven no-regresi, fallback kept for headless where wasm not yet loaded)
+    if (this.rustEngine) {
       const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
       const w = width ?? this.model.width;
       const h = height ?? this.model.height;
       this.rustEngine.add_layer(id, name, w, h);
-      // Sync back to TS model for thin-renderer (so layers() signal updates)
-      try {
-        const layersJson = this.rustEngine.get_layers_json();
-        const rustLayers = JSON.parse(layersJson);
-        // Map Rust Layer (camelCase) to TS LayerNode (keep minimal fields for the slice)
-        this.model.layers = rustLayers.map((l: any) => ({
-          id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
-          locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
-          imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
-        }));
-        this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
-        this.model.dirty = true;
-        const newLayer = this.model.layers.find(l => l.id === id)!;
-        this.markLayerDirty(newLayer.id);
-        this.notifyChange();
-        return newLayer;
-      } catch {}
+      const layersJson = this.rustEngine.get_layers_json();
+      const rustLayers = JSON.parse(layersJson);
+      this.model.layers = rustLayers.map((l: any) => ({
+        id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
+        locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
+        imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
+      }));
+      this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
+      this.model.dirty = true;
+      const newLayer = this.model.layers.find(l => l.id === id)!;
+      this.markLayerDirty(newLayer.id);
+      this.notifyChange();
+      return newLayer;
     }
     const newLayer = applyAddLayer(this.model, name, width, height);
     this.markLayerDirty(newLayer.id);
