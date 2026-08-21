@@ -16,7 +16,7 @@ import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { getLoadedWasmModule } from "@/components/editor/wasmExport";
-const USE_RUST_SSOT = false; // Rust DocumentEngine proven (30 cargo + 8 wiring tests, 1.51x bench) but LayerNode field parity incomplete (isBackground/type shape-text) — flip true after full field mapping
+const USE_RUST_SSOT = true; // Rust owns graph ops (field parity complete); history/snapshot stay TS (bitmaps)
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
@@ -167,22 +167,53 @@ export class DocumentEngine {
   }
 
   // ─── Layer Operations ───
+  /**
+   * Sync TS model.layers from the Rust engine's graph (SSOT).
+   * Field parity: every serializable LayerNode field round-trips through Rust
+   * (type/isBackground/locks/basicAdjustment/shapeParams/textData as opaque JSON).
+   * Bitmaps (imageBitmap/baseImageBitmap) live in the JS heap — re-attached by id
+   * from the previous model so graph ops never detach pixels.
+   */
+  private syncLayersFromRust(): void {
+    const prevById = new Map(this.model.layers.map(l => [l.id, l]));
+    const rustLayers: any[] = JSON.parse(this.rustEngine.get_layers_json());
+    this.model.layers = rustLayers.map((l: any) => {
+      const prev = prevById.get(l.id);
+      return {
+        id: l.id,
+        name: l.name,
+        type: l.type ?? "raster",
+        visible: l.visible,
+        opacity: l.opacity,
+        locked: l.locked,
+        isBackground: l.isBackground ?? undefined,
+        lockTransparency: l.lockTransparency ?? undefined,
+        lockPosition: l.lockPosition ?? undefined,
+        lockRotation: l.lockRotation ?? undefined,
+        hasAdjustments: l.hasAdjustments ?? false,
+        basicAdjustment: l.basicAdjustment,
+        blendMode: l.blendMode,
+        transform: l.transform,
+        width: l.width,
+        height: l.height,
+        imageBitmap: prev?.imageBitmap ?? null,
+        baseImageBitmap: prev?.baseImageBitmap ?? null,
+        shapeParams: l.shapeParams,
+        textData: l.textData,
+      } as LayerNode;
+    });
+    this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
+    this.model.dirty = true;
+  }
+
   addLayer(name: string, width?: number, height?: number): LayerNode {
-    // Rust SSOT — thin wrapper (69 tests proven no-regresi, fallback kept for headless where wasm not yet loaded)
+    // Rust SSOT — thin wrapper (fallback kept for headless where wasm not yet loaded)
     if (this.rustEngine) {
       const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
       const w = width ?? this.model.width;
       const h = height ?? this.model.height;
       this.rustEngine.add_layer(id, name, w, h);
-      const layersJson = this.rustEngine.get_layers_json();
-      const rustLayers = JSON.parse(layersJson);
-      this.model.layers = rustLayers.map((l: any) => ({
-        id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
-        locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
-        imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
-      }));
-      this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
-      this.model.dirty = true;
+      this.syncLayersFromRust();
       const newLayer = this.model.layers.find(l => l.id === id)!;
       this.markLayerDirty(newLayer.id);
       this.notifyChange();
@@ -199,15 +230,7 @@ export class DocumentEngine {
       try {
         const newId: string | null = this.rustEngine.duplicate_layer(id);
         if (newId) {
-          const layersJson = this.rustEngine.get_layers_json();
-          const rustLayers = JSON.parse(layersJson);
-          this.model.layers = rustLayers.map((l: any) => ({
-            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
-            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
-            imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
-          }));
-          this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
-          this.model.dirty = true;
+          this.syncLayersFromRust();
           const dup = this.model.layers.find(l => l.id === newId)!;
           this.markLayerDirty(dup.id);
           this.notifyChange();
@@ -264,15 +287,7 @@ export class DocumentEngine {
       try {
         const ok: boolean = this.rustEngine.delete_layer(id);
         if (ok) {
-          const layersJson = this.rustEngine.get_layers_json();
-          const rustLayers = JSON.parse(layersJson);
-          this.model.layers = rustLayers.map((l: any) => ({
-            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
-            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
-            imageBitmap: null, hasAdjustments: l.hasAdjustments ?? false,
-          }));
-          this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
-          this.model.dirty = true;
+          this.syncLayersFromRust();
           this.dirtyLayerIds.delete(id);
           this.textureHandles.delete(id);
           this.notifyChange();
@@ -293,14 +308,7 @@ export class DocumentEngine {
       try {
         const ok: boolean = this.rustEngine.reorder_layer(fromIndex, toIndex);
         if (ok) {
-          const layersJson = this.rustEngine.get_layers_json();
-          const rustLayers = JSON.parse(layersJson);
-          this.model.layers = rustLayers.map((l: any) => ({
-            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
-            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
-            imageBitmap: this.model.layers.find(x => x.id === l.id)?.imageBitmap ?? null, hasAdjustments: l.hasAdjustments ?? false,
-          }));
-          this.model.dirty = true;
+          this.syncLayersFromRust();
           this.notifyChange();
           return;
         }
@@ -919,12 +927,9 @@ export class DocumentEngine {
   }
 
   snapshot(): DocumentModel {
-    if (USE_RUST_SSOT && this.rustEngine) {
-      try {
-        const json = this.rustEngine.snapshot_json();
-        return JSON.parse(json);
-      } catch {}
-    }
+    // NOTE: snapshot/restore stay TS-side by design — snapshots hold ImageBitmap
+    // references (JS heap) for undo/redo; the Rust graph model carries no bitmaps.
+    // Rust owns graph OPS (add/delete/duplicate/reorder/setActive/selection).
     // Register every live bitmap so replaceLayerBitmap never closes one a
     // committed snapshot still references.
     this.retainBitmaps(this.model);
@@ -932,24 +937,6 @@ export class DocumentEngine {
   }
 
   restore(snapshot: DocumentModel, options?: { restoreViewport?: boolean }): void {
-    if (USE_RUST_SSOT && this.rustEngine) {
-      try {
-        const json = JSON.stringify(snapshot);
-        if (this.rustEngine.restore_snapshot(json)) {
-          const layersJson = this.rustEngine.get_layers_json();
-          const rustLayers = JSON.parse(layersJson);
-          this.model.layers = rustLayers.map((l: any) => ({
-            id: l.id, name: l.name, type: "raster" as const, visible: l.visible, opacity: l.opacity,
-            locked: l.locked, blendMode: l.blendMode, transform: l.transform, width: l.width, height: l.height,
-            imageBitmap: this.model.layers.find(x => x.id === l.id)?.imageBitmap ?? null, hasAdjustments: l.hasAdjustments ?? false,
-          }));
-          this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
-          this.model.dirty = true;
-          this.notifyChange();
-          return;
-        }
-      } catch {}
-    }
     const currentViewport = { ...this.model.viewport };
 
     // NOTE: we intentionally do NOT close any bitmaps from the current model

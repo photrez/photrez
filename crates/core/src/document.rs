@@ -37,29 +37,49 @@ impl Default for Transform2D {
 pub struct Layer {
     pub id: String,
     pub name: String,
+    #[serde(rename = "type")]
+    pub layer_type: String,
     pub visible: bool,
     pub locked: bool,
     pub opacity: f64,
+    pub is_background: Option<bool>,
+    pub lock_transparency: Option<bool>,
+    pub lock_position: Option<bool>,
+    pub lock_rotation: Option<bool>,
+    pub has_adjustments: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub basic_adjustment: Option<serde_json::Value>,
     pub blend_mode: String,
     pub transform: Transform2D,
     pub width: u32,
     pub height: u32,
-    pub has_adjustments: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shape_params: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_data: Option<serde_json::Value>,
 }
 
 impl Layer {
-    fn new(id: String, name: String, width: u32, height: u32) -> Self {
+    pub(crate) fn new(id: String, name: String, width: u32, height: u32) -> Self {
         Self {
             id,
             name,
+            layer_type: "raster".to_string(),
             visible: true,
             locked: false,
             opacity: 1.0,
+            is_background: None,
+            lock_transparency: None,
+            lock_position: None,
+            lock_rotation: None,
+            has_adjustments: false,
+            basic_adjustment: None,
             blend_mode: "normal".to_string(),
             transform: Transform2D::default(),
             width,
             height,
-            has_adjustments: false,
+            shape_params: None,
+            text_data: None,
         }
     }
 }
@@ -105,7 +125,17 @@ impl DocumentEngine {
 
     pub fn add_layer(&mut self, layer_id: String, name: String, width: u32, height: u32) {
         let layer = Layer::new(layer_id.clone(), name, width, height);
-        self.model.layers.push(layer);
+        // Parity with TS applyAddLayer: insert directly ABOVE the active layer,
+        // else at the front (top) of the stack.
+        let active_index = self
+            .model
+            .active_layer_id
+            .as_ref()
+            .and_then(|id| self.model.layers.iter().position(|l| &l.id == id));
+        match active_index {
+            Some(i) => self.model.layers.insert(i, layer),
+            None => self.model.layers.insert(0, layer),
+        }
         self.model.active_layer_id = Some(layer_id);
         self.model.dirty = true;
     }
@@ -127,10 +157,21 @@ impl DocumentEngine {
     }
 
     pub fn delete_layer(&mut self, layer_id: String) -> bool {
+        // Parity with TS applyDeleteLayer: background layer and last remaining
+        // layer cannot be deleted.
+        if let Some(l) = self.model.layers.iter().find(|l| l.id == layer_id) {
+            if l.is_background == Some(true) {
+                return false;
+            }
+        }
+        if self.model.layers.len() <= 1 {
+            return false;
+        }
         if let Some(pos) = self.model.layers.iter().position(|l| l.id == layer_id) {
             self.model.layers.remove(pos);
             if self.model.active_layer_id.as_deref() == Some(&layer_id) {
-                self.model.active_layer_id = self.model.layers.first().map(|l| l.id.clone());
+                let next_idx = pos.min(self.model.layers.len().saturating_sub(1));
+                self.model.active_layer_id = self.model.layers.get(next_idx).map(|l| l.id.clone());
             }
             self.model.dirty = true;
             return true;

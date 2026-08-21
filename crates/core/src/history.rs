@@ -67,7 +67,7 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::{DocumentModel, Layer, Transform2D};
+    use crate::document::{DocumentModel, Layer};
 
     fn make_model(layers: usize) -> DocumentModel {
         let mut m = DocumentModel {
@@ -81,18 +81,8 @@ mod tests {
             dirty: false,
         };
         for i in 0..layers {
-            m.layers.push(Layer {
-                id: format!("l{}", i),
-                name: format!("L{}", i),
-                visible: true,
-                locked: false,
-                opacity: 1.0,
-                blend_mode: "normal".into(),
-                transform: Transform2D::default(),
-                width: 100,
-                height: 100,
-                has_adjustments: false,
-            });
+            m.layers
+                .push(Layer::new(format!("l{}", i), format!("L{}", i), 100, 100));
         }
         m
     }
