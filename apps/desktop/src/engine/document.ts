@@ -680,6 +680,7 @@ export class DocumentEngine {
       }
       this.model.dirty = true;
       this.markLayerDirty(id);
+      this.pushModelToRust(); // width/height are graph fields — keep Rust in sync
       this.notifyVisualChange();
     }
   }
@@ -701,6 +702,7 @@ export class DocumentEngine {
       normalized.saturation !== 0;
     this.model.dirty = true;
     this.markLayerDirty(id);
+    this.pushModelToRust(); // hasAdjustments/basicAdjustment are graph fields
     this.notifyVisualChange();
   }
 
@@ -713,6 +715,7 @@ export class DocumentEngine {
       layer.hasAdjustments = false;
       this.model.dirty = true;
       this.markLayerDirty(id);
+      this.pushModelToRust();
       this.notifyVisualChange();
     }
   }
@@ -1015,8 +1018,12 @@ export class DocumentEngine {
     this.model.dirty = this.savedModel
       ? !DocumentEngine.modelsEqual(this.savedModel, this.model)
       : this.model.dirty;
-      this.notifyVisualChange();
-    }
+    // CRITICAL: undo/redo replaces the whole graph from a TS snapshot — the
+    // Rust engine must receive the restored graph or its next op (e.g. addLayer)
+    // would resurrect pre-undo state and overwrite the restoration.
+    this.pushModelToRust();
+    this.notifyVisualChange();
+  }
 
   // Cheap structural equality (no pixel compare) used for dirty detection
   // against the saved baseline. Compares refs for immutable ImageBitmaps;
