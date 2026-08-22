@@ -258,7 +258,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         return;
       }
       // [perf] Issue C instrumentation: quantify snapshot vs restore cost on
-      // large canvases before optimizing (docs/plans/2026-08-21-brush-engine-research.md).
+      // large canvases before optimizing.
       const perfT0 = performance.now();
       const snapshot = direction === "undo"
         ? history.undo(engine.snapshot())
@@ -268,15 +268,25 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         return;
       }
 
+      // ── Fase 1 tile path: paint entries carry tile patches ──
+      // Pixels are restored via surface patches + per-tile uploads; the model
+      // is identical for pure-paint entries, so engine.restore (and its
+      // full-texture re-upload) is intentionally skipped.
+      const patches = direction === "undo"
+        ? history.consumeLastUndoPatches()
+        : history.consumeLastRedoPatches();
+      if (patches) {
+        const tiles = direction === "undo" ? patches.before : patches.after;
+        editor.renderer.uploadSurfaceTiles?.(patches.layerId, patches.surfaceWidth, patches.surfaceHeight, tiles);
+        const perfDone = performance.now();
+        console.info(
+          `[perf] ${direction}(tiles): upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms tiles=${tiles.length}`,
+        );
+        editor.scheduler.requestRender();
+        return;
+      }
 
       engine.restore(snapshot);
-      const perfTRestore = performance.now();
-      const perfTotal = perfTRestore - perfT0;
-      // [diag] ALWAYS log during Issue C investigation (undo is infrequent);
-      // the felt delay may live in the FOLLOWING render/upload pass, not here.
-      console.info(
-        `[perf] ${direction}: snapshot=${(perfTHist - perfT0).toFixed(1)}ms restore=${(perfTRestore - perfTHist).toFixed(1)}ms total=${perfTotal.toFixed(1)}ms`,
-      );
 
       // An open text session must re-anchor its preSnapshot: the user now
       // sees an OLDER state, so the session's next commit diffs against it.
@@ -295,6 +305,10 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // Notify workspace to trigger UI sync (layers, history panel, adjustments, etc.)
       editor.workspace.notifyVisualChange();
       editor.scheduler.requestRender();
+      const perfDone = performance.now();
+      console.info(
+        `[perf] ${direction}(snapshot): hist=${(perfTHist - perfT0).toFixed(1)}ms restore+upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms`,
+      );
     } catch (error) {
       showToast(`${direction === "undo" ? "Undo" : "Redo"} failed: ${error instanceof Error ? error.message : "unknown error"}`, "error");
     }

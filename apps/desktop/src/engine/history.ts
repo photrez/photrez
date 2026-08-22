@@ -1,5 +1,20 @@
 import type { DocumentModel, LayerNode } from "./types";
 import { MAX_HISTORY_DEPTH } from "./types";
+import type { TileUploadLike } from "../renderer/types";
+
+/**
+ * Fase 1 tile store: imperative before/after tile patches for a paint commit.
+ * Data-shaped (not closures) so multi-step history UIs can replay them later.
+ */
+export interface HistoryTilePatches {
+  layerId: string;
+  surfaceWidth: number;
+  surfaceHeight: number;
+  /** Pre-stroke pixels of every touched tile (undo direction). */
+  before: TileUploadLike[];
+  /** Post-stroke pixels of every touched tile (redo direction). */
+  after: TileUploadLike[];
+}
 
 /**
  * Release GPU/heap-backed ImageBitmaps held by a discarded snapshot. An
@@ -27,6 +42,8 @@ interface SnapshotEntry {
   timestamp: number;
   lastPaintCoords: { x: number; y: number } | null;
   label?: string;
+  /** Fase 1 tile patches (paint commits). Presence marks an imperative entry. */
+  imperative?: HistoryTilePatches;
 }
 
 export interface HistoryItem {
@@ -65,12 +82,13 @@ export class CommandHistory {
     return this.currentLastPaintCoords;
   }
 
-  commit(snapshot: DocumentModel, label?: string): void {
+  commit(snapshot: DocumentModel, label?: string, imperative?: HistoryTilePatches): void {
     this.undoStack.push({
       snapshot,
       timestamp: Date.now(),
       lastPaintCoords: this.currentLastPaintCoords,
       label,
+      imperative,
     });
 
     // Clear redo stack on new operation
@@ -99,6 +117,9 @@ export class CommandHistory {
     return this.redoStack.length > 0;
   }
 
+  private lastUndoPatches?: HistoryTilePatches;
+  private lastRedoPatches?: HistoryTilePatches;
+
   undo(currentSnapshot: DocumentModel): DocumentModel | null {
     if (!this.canUndo()) {
       return null;
@@ -106,17 +127,30 @@ export class CommandHistory {
 
     const previousEntry = this.undoStack.pop()!;
 
-    // Save current to redo stack
+    // Save current to redo stack. The imperative is OWNED BY THE ENTRY
+    // (tile-memento model): it travels unchanged so a later redo replays
+    // THIS entry's after-tiles — never live surface state (2026-08-22 bug:
+    // a getter-parked object made every redo replay the last stroke only).
     this.redoStack.push({
       snapshot: currentSnapshot,
       timestamp: Date.now(),
       lastPaintCoords: this.currentLastPaintCoords,
       label: previousEntry.label,
+      imperative: previousEntry.imperative,
     });
 
     this.currentLastPaintCoords = previousEntry.lastPaintCoords;
+    // Fase 1: patches to execute for THIS undo (pre-stroke tiles of the entry).
+    this.lastUndoPatches = previousEntry.imperative;
 
     return previousEntry.snapshot;
+  }
+
+  /** Fase 1: tile patches to execute for the just-performed undo (consume-once). */
+  consumeLastUndoPatches(): HistoryTilePatches | undefined {
+    const p = this.lastUndoPatches;
+    this.lastUndoPatches = undefined;
+    return p;
   }
 
   redo(currentSnapshot: DocumentModel): DocumentModel | null {
@@ -126,17 +160,28 @@ export class CommandHistory {
 
     const nextEntry = this.redoStack.pop()!;
 
-    // Save current to undo stack
+    // Save current to undo stack — the entry's own imperative travels with it
+    // (see undo(): entry-owned patches, no live-state reads).
     this.undoStack.push({
       snapshot: currentSnapshot,
       timestamp: Date.now(),
       lastPaintCoords: this.currentLastPaintCoords,
       label: nextEntry.label,
+      imperative: nextEntry.imperative,
     });
 
     this.currentLastPaintCoords = nextEntry.lastPaintCoords;
+    // Fase 1: patches to execute for THIS redo (post-stroke tiles of the entry).
+    this.lastRedoPatches = nextEntry.imperative;
 
     return nextEntry.snapshot;
+  }
+
+  /** Fase 1: tile patches to execute for the just-performed redo (consume-once). */
+  consumeLastRedoPatches(): HistoryTilePatches | undefined {
+    const p = this.lastRedoPatches;
+    this.lastRedoPatches = undefined;
+    return p;
   }
 
   getHistoryStack(): HistoryItem[] {

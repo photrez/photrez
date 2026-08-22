@@ -15,6 +15,16 @@ export interface DirtyRectLike {
   height: number;
 }
 
+/** One tile-sized pixel region to upload (Fase 1 tile store). */
+export interface TileUploadLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** RGBA8 straight-alpha pixels for exactly width x height */
+  data: Uint8ClampedArray;
+}
+
 export interface TextureRef {
   id: string;
   texture: WebGLTexture;
@@ -28,6 +38,16 @@ export interface RenderBackend {
 
   initialize(canvas: HTMLCanvasElement): void;
   uploadImage(layerId: string, source: ImageBitmap, dirtyRect?: DirtyRectLike): TextureRef;
+  /**
+   * Fase 1 tile store: upload only touched tiles of a paint surface.
+   * Optional — legacy render backends (tests, CPU) may not implement it.
+   */
+  uploadSurfaceTiles?(
+    layerId: string,
+    surfaceWidth: number,
+    surfaceHeight: number,
+    tiles: TileUploadLike[],
+  ): void;
   destroyTexture(layerId: string): void;
   render(state: RenderState, viewProjectionMatrix?: Float32Array): void;
   resize(docWidth: number, docHeight: number, zoom: number, dpr: number): void;

@@ -4,6 +4,7 @@ import { useDialog } from "./dialogs/DialogProvider";
 import type { DocumentEngine } from "@/engine/document";
 import type { DocumentModel } from "@/engine/types";
 import type { CommandHistory } from "@/engine/history";
+import { tilesInRect, PAINT_TILE_SIZE } from "@/lib/paint/paintTileSurface";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
 import { mapPaintPointToLayerLocal } from "./paintStrokeCoordinates";
@@ -89,6 +90,15 @@ export function useBrushOverlay() {
   // Cleared between strokes via clearRect. Reallocated only when layer dimensions change.
   let cachedCommitCanvas: OffscreenCanvas | null = null;
   let cachedCommitCtx: OffscreenCanvasRenderingContext2D | null = null;
+
+  // ── Tile-commit scratch buffer ──
+  // Dirty-rect-sized GPU-backed canvas for dab rasterization. The paint surface
+  // is software-backed (willReadFrequently), where per-dab drawImage costs
+  // ~0.5-1ms CPU each (measured 2026-08-22: 300+ slow dabs = 230-410ms);
+  // drawing on a GPU canvas then copying the scratch into touched tiles keeps
+  // raw-dab semantics at GPU speed.
+  let cachedTileScratch: OffscreenCanvas | null = null;
+  let cachedTileScratchCtx: OffscreenCanvasRenderingContext2D | null = null;
 
   function startHoldTimer() {
     if (holdRaf !== null) return;
@@ -672,6 +682,12 @@ export function useBrushOverlay() {
     performComposite(engine, layerId, layer, true);
   }
 
+  // Max touched tiles for the tile-commit path before falling back to the
+  // legacy single-PATCH commit. 16 tiles = ~1Mpx touched area; beyond that
+  // per-tile getImageData/texSubImage2D call overhead dominates (measured
+  // 2026-08-22: 224-320 tiles → 371-821ms vs legacy single-rect ~8ms).
+  const TILE_COMMIT_MAX_TILES = 16;
+
   async function commitBrushStroke(engine: DocumentEngine, history: CommandHistory, layerId: string, isEraser: boolean, anchor?: { x: number; y: number } | null) {
     const _t0 = performance.now();
     if (prevStrokePointCount === 0) return;
@@ -706,6 +722,123 @@ export function useBrushOverlay() {
     sCtx.clearRect(0, 0, w, h);
     const dirty = clampDirtyRect(paintSession.dirtyRect, w, h);
     const hasDirt = dirty.x1 > dirty.x0 && dirty.y1 > dirty.y0 && paintSession.dabPositions.length > 0;
+
+    // ── Fase 1 tile-commit path (flag photrez.tileCommit=1) ───────────────
+    // Dabs go straight onto the engine's persistent paint surface; only
+    // touched tiles are uploaded. Skips the O(canvas) full-size
+    // createImageBitmap entirely. Guards: lockTransparency needs a full-layer
+    // destination-in (legacy path); a confirmed bake preBake needs the
+    // snapshot-restore semantics of the legacy path.
+    let useTileCommit = false;
+    try { useTileCommit = localStorage.getItem("photrez.tileCommit") === "1"; } catch { /* no storage */ }
+    if (useTileCommit && hasDirt && !layer.lockTransparency && !(preBake && preBake.layerId === layerId)) {
+      const surface = engine.getPaintSurface(layerId);
+      // Hybrid threshold: per-tile API calls scale with touched area, so past
+      // this many tiles the legacy single-PATCH path is strictly faster
+      // (measured 2026-08-22 @6.9K: 300-tile stroke = 700ms vs legacy ~8ms).
+      // Small/medium strokes — the common case — keep the tile path.
+      if (surface) {
+        const tiles = tilesInRect(dirty.x0, dirty.y0, dirty.x1, dirty.y1, w, h);
+        if (tiles.length > TILE_COMMIT_MAX_TILES) {
+          console.info(`[perf] commitBrushStroke(tile): ${tiles.length} tiles > max ${TILE_COMMIT_MAX_TILES}, legacy fallback`);
+        } else {
+        // [perf] phase breakdown — find the 200-700ms hidden cost (2026-08-22)
+        const _p0 = performance.now();
+        const before = tiles.map((t) => surface.snapshotTile(t));
+        const _p1 = performance.now();
+        const sctx = surface.context;
+
+        if (effectiveIsEraser) {
+          // Overlay holds the erased result — replace-copy touched tiles.
+          sctx.save();
+          sctx.globalCompositeOperation = "source-over";
+          for (const t of tiles) {
+            sctx.clearRect(t.x, t.y, t.w, t.h);
+            sctx.drawImage(overlayCanvasRef, t.x, t.y, t.w, t.h, t.x, t.y, t.w, t.h);
+          }
+          sctx.restore();
+        } else {
+          // Raw dabs (WYSIWYG inverse-adjust color), same as legacy commit —
+          // rasterized on the GPU-backed dirty-rect scratch first: the software
+          // surface costs ~0.5-1ms CPU PER dab (measured 2026-08-22).
+          const tip = getBrushTip({ size: paintSession.tipSize, hardness: paintSession.tipHardness, curve: "soft" });
+          if (tip) {
+            const dx0 = dirty.x0;
+            const dy0 = dirty.y0;
+            const dw = Math.max(1, dirty.x1 - dx0);
+            const dh = Math.max(1, dirty.y1 - dy0);
+            if (!cachedTileScratch || cachedTileScratch.width !== dw || cachedTileScratch.height !== dh) {
+              cachedTileScratch = new OffscreenCanvas(dw, dh);
+              cachedTileScratchCtx = cachedTileScratch.getContext("2d");
+            }
+            const sc = cachedTileScratchCtx!;
+            sc.clearRect(0, 0, dw, dh);
+            const dabColor = inverseBasicAdjustmentToColor(
+              paintSession.color,
+              layer.basicAdjustment ?? { brightness: 0, contrast: 0, saturation: 0 },
+            );
+            const rawTip = getTipCanvas(tip, dabColor);
+            const r = tip.diameter / 2;
+            for (let i = 0; i < paintSession.dabPositions.length; i++) {
+              const d = paintSession.dabPositions[i];
+              sc.globalAlpha = d.alpha;
+              sc.drawImage(rawTip, 0, 0, rawTip.width, rawTip.height,
+                Math.round(d.x - r) - dx0, Math.round(d.y - r) - dy0, tip.diameter, tip.diameter);
+            }
+            sc.globalAlpha = 1;
+            // Stamp scratch into each touched tile (clipped intersection only —
+            // tile regions outside the dirty rect must keep their pixels).
+            for (const t of tiles) {
+              const ix0 = Math.max(t.x, dx0), iy0 = Math.max(t.y, dy0);
+              const ix1 = Math.min(t.x + t.w, dx0 + dw), iy1 = Math.min(t.y + t.h, dy0 + dh);
+              if (ix1 <= ix0 || iy1 <= iy0) continue;
+              sctx.drawImage(cachedTileScratch!, ix0 - dx0, iy0 - dy0, ix1 - ix0, iy1 - iy0, ix0, iy0, ix1 - ix0, iy1 - iy0);
+            }
+          }
+        }
+
+        const uploads = tiles.map((t) => {
+          const img = surface.readTile(t);
+          return { x: t.x, y: t.y, width: t.w, height: t.h, data: img.data };
+        });
+        const _p2 = performance.now();
+        const _dabN = paintSession.dabPositions.length;
+        const imperative = {
+          layerId,
+          surfaceWidth: w,
+          surfaceHeight: h,
+          before: before.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
+          after: uploads,
+        };
+        // Imperative is entry-owned (tile-memento model): history stores it
+        // with this commit and replays its before/after tiles on undo/redo.
+        history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative);
+        const _p3 = performance.now();
+        renderer.uploadSurfaceTiles?.(layerId, w, h, uploads);
+        const _p4 = performance.now();
+        scheduler.requestRender();
+        overlayCtx.clearRect(0, 0, w, h);
+        prevStrokePointCount = 0;
+        paintSession = null;
+        // Diagnosis gate: phases only when the whole commit is slow — verified
+        // steady state is ~8-45ms dominated by legit dab rasterization count.
+        const _dtT = _p4 - _t0;
+        if (_dtT > 16) {
+          console.warn(
+            `[perf] tile-commit phases: surface=${(_p0 - _t0).toFixed(1)} snap=${(_p1 - _p0).toFixed(1)} dabs=${(_p2 - _p1).toFixed(1)} hist=${(_p3 - _p2).toFixed(1)} upload=${(_p4 - _p3).toFixed(1)}ms total=${_dtT.toFixed(1)} tiles=${tiles.length} dab#=${_dabN}`,
+          );
+        }
+        return;
+        }
+      } else {
+        console.info("[perf] commitBrushStroke(tile): no paint surface for layer, legacy fallback");
+      }
+    } else if (useTileCommit) {
+      console.info(
+        "[perf] commitBrushStroke(tile): guard fallback",
+        JSON.stringify({ hasDirt, lockTransparency: layer.lockTransparency, preBakeHit: preBake?.layerId === layerId }),
+      );
+    }
 
     if (effectiveIsEraser) {
       // Eraser: overlay already holds the erased result (seeded with layer

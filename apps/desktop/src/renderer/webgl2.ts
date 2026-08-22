@@ -1,4 +1,4 @@
-import type { RenderBackend, RenderCapabilities, TextureRef } from "./types";
+import type { RenderBackend, RenderCapabilities, TextureRef, TileUploadLike } from "./types";
 import type { RenderState, BlendMode } from "../engine/types";
 import type { BasicAdjustment } from "../engine/layerAdjustments";
 import { setDeviceMaxTextureSize } from "../engine/types";
@@ -274,6 +274,49 @@ export class WebGL2Backend implements RenderBackend {
       this.gl.deleteTexture(ref.texture);
     }
     this.textures.delete(layerId);
+  }
+
+  /**
+   * Fase 1 tile store: upload only the touched tiles of a layer-sized paint
+   * surface. Creates the layer texture on demand (empty alloc + mipmap),
+   * then one texSubImage2D per tile, one generateMipmap total.
+   */
+  uploadSurfaceTiles(
+    layerId: string,
+    surfaceWidth: number,
+    surfaceHeight: number,
+    tiles: TileUploadLike[],
+  ): void {
+    const gl = this.gl;
+    if (!gl) throw new Error("Renderer not initialized");
+    if (this.contextLost || gl.isContextLost()) {
+      throw new Error("Renderer context is lost; upload is paused until restore");
+    }
+    if (tiles.length === 0) return;
+
+    let ref = this.textures.get(layerId);
+    if (!ref || ref.width !== surfaceWidth || ref.height !== surfaceHeight) {
+      this.destroyTexture(layerId);
+      const texture = gl.createTexture();
+      if (!texture) throw new Error("Failed to create WebGL2 texture");
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, surfaceWidth, surfaceHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.magFilterNearest ? gl.NEAREST : gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      ref = { id: layerId, texture, width: surfaceWidth, height: surfaceHeight };
+      this.textures.set(layerId, ref);
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, ref.texture);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    for (const t of tiles) {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, t.x, t.y, t.width, t.height, gl.RGBA, gl.UNSIGNED_BYTE, t.data);
+    }
+    gl.generateMipmap(gl.TEXTURE_2D);
   }
 
   /**

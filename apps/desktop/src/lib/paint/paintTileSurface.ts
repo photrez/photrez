@@ -1,7 +1,7 @@
 // PaintTileSurface (Fase 1) — persistent software-backed paint surface with
 // tile-keyed snapshots for cheap paint commits and undo patches.
 //
-// Design notes (docs/plans/2026-08-21-brush-engine-research.md, FASE 1 DRAFT):
+// Design notes (2026-08-21 research):
 // - willReadFrequently:true => browser keeps pixels in RAM (software canvas),
 //   making per-tile getImageData/putImageData cheap without GPU stalls
 //   (verified: MDN HTMLCanvasElement.getContext).
@@ -91,6 +91,11 @@ export class PaintTileSurface {
   /** Pre-stroke capture of one tile region (call BEFORE painting touches it). */
   snapshotTile(r: TileRect): TileKeyed<ImageData> {
     return { key: r.key, tx: r.tx, ty: r.ty, value: this.ctx.getImageData(r.x, r.y, r.w, r.h) };
+  }
+
+  /** Direct 2d context for the tile-commit path (raw dab drawImage ops). */
+  get context(): OffscreenCanvasRenderingContext2D {
+    return this.ctx;
   }
 
   /** Undo/redo patch application (putImageData replaces tile pixels exactly). */
