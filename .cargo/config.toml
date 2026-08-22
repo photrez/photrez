@@ -1,2 +1,8 @@
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+simd128"]
+rustflags = [
+    "-C", "target-feature=+simd128",
+    # webgpu_adjust.rs (Technique A / WebGpuAdjustRenderer) is gated behind
+    # this cfg; without it the module compiles EMPTY and the export silently
+    # disappears from the pkg (discovered 2026-08-21 - Technique A was inert).
+    "--cfg", "web_sys_unstable_apis",
+]

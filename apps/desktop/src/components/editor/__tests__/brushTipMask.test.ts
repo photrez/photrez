@@ -14,6 +14,9 @@ import {
   compositeMaskToImageData,
   paintMaskToContext,
   paintTransientBrushTipToContext,
+  paintGradientDab,
+  isGradientDabEnabled,
+  buildGradientStops,
   paintMaskToContextDirty,
   compositeMaskToImageDataDirty,
   emptyDirtyRect,
@@ -739,5 +742,82 @@ describe("paintMaskToContextDirty", () => {
 
     expect(ctx.getImageData).not.toHaveBeenCalled();
     expect(ctx.putImageData).not.toHaveBeenCalled();
+  });
+});
+
+describe("gradient dab experiment (R3, flag-gated)", () => {
+  const tip = {
+    width: 32,
+    height: 32,
+    radius: 16,
+    diameter: 32,
+    R_nominal: 16,
+    dataSize: 64,
+    data: (() => {
+      const d = new Float32Array(64 * 64);
+      for (let y = 0; y < 64; y++)
+        for (let x = 0; x < 64; x++) {
+          const nx = (x - 32) / 31;
+          const ny = (y - 32) / 31;
+          const dist = Math.sqrt(nx * nx + ny * ny);
+          d[y * 64 + x] = dist <= 1 ? Math.pow(1 - dist, 0.8) : 0;
+        }
+      return d;
+    })(),
+  };
+  const endpoint = { x: 100, y: 100, pressure: 1 };
+  function makeCtx() {
+    return {
+      canvas: { width: 1920, height: 1080 },
+      createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      fillRect: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(32 * 32 * 4), width: 32, height: 32 })),
+      putImageData: vi.fn(),
+      globalCompositeOperation: null,
+      fillStyle: null,
+    } as unknown as CanvasRenderingContext2D;
+  }
+  const setFlag = (on: boolean) => {
+    // unit-node has no localStorage; stub what isGradientDabEnabled reads
+    (globalThis as any).localStorage = { getItem: () => (on ? "1" : null) };
+  };
+
+  it("isGradientDabEnabled defaults to false", () => {
+    setFlag(false);
+    expect(isGradientDabEnabled()).toBe(false);
+  });
+
+  it("flag on -> dab routes through radialGradient fillRect (no CPU pixel pass)", () => {
+    setFlag(true);
+    const ctx = makeCtx();
+    const ok = paintTransientBrushTipToContext(ctx, tip as any, endpoint, null, 0.5, "#c85028", false);
+    expect(ok).toBe(true);
+    expect(ctx.createRadialGradient).toHaveBeenCalledTimes(1);
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
+    expect(ctx.putImageData).not.toHaveBeenCalled();
+  });
+
+  it("flag off -> legacy per-pixel path (getImageData/putImageData used)", () => {
+    setFlag(false);
+    const ctx = makeCtx();
+    const ok = paintTransientBrushTipToContext(ctx, tip as any, endpoint, null, 0.5, "#c85028", false);
+    expect(ok).toBe(true);
+    expect(ctx.createRadialGradient).not.toHaveBeenCalled();
+    expect(ctx.getImageData).toHaveBeenCalled();
+    expect(ctx.putImageData).toHaveBeenCalled();
+  });
+
+  it("eraser never uses the gradient experiment", () => {
+    setFlag(true);
+    const ctx = makeCtx();
+    paintTransientBrushTipToContext(ctx, tip as any, endpoint, null, 0.5, "#c85028", true);
+    expect(ctx.createRadialGradient).not.toHaveBeenCalled();
+  });
+
+  it("buildGradientStops samples center->edge monotonically from tip data", () => {
+    const stops = buildGradientStops(tip as any, 12);
+    expect(stops.length).toBe(13);
+    expect(stops[0][0]).toBe(0);
+    expect(stops[0][1]).toBeGreaterThanOrEqual(stops[12][1]);
   });
 });

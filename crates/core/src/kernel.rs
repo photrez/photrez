@@ -474,6 +474,371 @@ pub fn apply_basic_adjustment_wasm(
     out
 }
 
+// ── Round-2 porting candidates ────────────────────────────────────────────────
+// Benchmarked against TS mirrors in apps/desktop/scripts/bench-cpu-pixel-round2.ts
+// (see docs/plans/2026-08-21-rust-gpu-benchmark-matrix.md, R2/R3).
+
+/// R2: bounding box of non-transparent pixels (alpha > 0).
+/// Returns [min_x, min_y, max_x, max_y] (inclusive), or empty when the image is
+/// fully transparent. Mirrors SelectionOperations.trimTransparent's scan.
+#[wasm_bindgen]
+pub fn trim_bbox_wasm(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
+    let w = width as usize;
+    let total = w.saturating_mul(height as usize);
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    for i in 0..total {
+        if pixels[i * 4 + 3] > 0 {
+            let x = (i % w) as u32;
+            let y = (i / w) as u32;
+            if x < min_x {
+                min_x = x;
+            }
+            if x > max_x {
+                max_x = x;
+            }
+            if y < min_y {
+                min_y = y;
+            }
+            if y > max_y {
+                max_y = y;
+            }
+        }
+    }
+    if max_x < min_x || max_y < min_y {
+        Vec::new()
+    } else {
+        vec![min_x, min_y, max_x, max_y]
+    }
+}
+
+/// R3: brush dab stamp — bilinear resample of the precomputed tip into the
+/// mask with saturating accumulation `cur + (255-cur)*a`. Mirrors
+/// brushTipMask.stampBrushTip exactly (same bounds/clamp semantics).
+#[wasm_bindgen]
+pub fn brush_stamp_wasm(
+    mask: &mut [u8],
+    mask_width: u32,
+    mask_height: u32,
+    tip_data: &[f32],
+    data_size: u32,
+    diameter: f64,
+    center_x: f64,
+    center_y: f64,
+    alpha_scale: f64,
+) {
+    stamp_into(
+        mask,
+        mask_width,
+        mask_height,
+        tip_data,
+        data_size,
+        diameter,
+        center_x,
+        center_y,
+        alpha_scale,
+    );
+}
+
+/// Shared stamp body (used by both the copy and zero-copy entry points).
+fn stamp_into(
+    mask: &mut [u8],
+    mask_width: u32,
+    mask_height: u32,
+    tip_data: &[f32],
+    data_size: u32,
+    diameter: f64,
+    center_x: f64,
+    center_y: f64,
+    alpha_scale: f64,
+) {
+    let a_scale = alpha_scale.clamp(0.0, 1.0) as f32;
+    let half_extent = (diameter / 2.0) as f32;
+    let center_index = half_extent - 0.5;
+    let ds = data_size as usize;
+    if ds == 0 {
+        return;
+    }
+    let data_scale = data_size as f32 / diameter as f32;
+    let cx = center_x as f32;
+    let cy = center_y as f32;
+    let mw = mask_width as i64;
+    let mh = mask_height as i64;
+
+    let min_x = ((cx - half_extent).floor() as i64).max(0);
+    let max_x = (((cx + half_extent).ceil() as i64) - 1).min(mw - 1);
+    let min_y = ((cy - half_extent).floor() as i64).max(0);
+    let max_y = (((cy + half_extent).ceil() as i64) - 1).min(mh - 1);
+
+    let mut y = min_y;
+    while y <= max_y {
+        let ty = (y as f32 - cy + center_index) * data_scale;
+        let y0 = ty.floor();
+        let y1 = y0 + 1.0;
+        let wy = ty - y0;
+        let y0_in = y0 >= 0.0 && y0 < ds as f32;
+        let y1_in = y1 >= 0.0 && y1 < ds as f32;
+        let y0_off = (y0.max(0.0) as usize) * ds;
+        let y1_off = (y1.max(0.0) as usize) * ds;
+
+        let row_idx = (y * mw) as usize;
+        let mut x = min_x;
+        while x <= max_x {
+            let tx = (x as f32 - cx + center_index) * data_scale;
+            let x0 = tx.floor();
+            let x1 = x0 + 1.0;
+            let wx = tx - x0;
+            let x0_in = x0 >= 0.0 && x0 < ds as f32;
+            let x1_in = x1 >= 0.0 && x1 < ds as f32;
+
+            let a00 = if y0_in && x0_in {
+                tip_data[y0_off + x0.max(0.0) as usize]
+            } else {
+                0.0
+            };
+            let a10 = if y0_in && x1_in {
+                tip_data[y0_off + x1.max(0.0) as usize]
+            } else {
+                0.0
+            };
+            let a01 = if y1_in && x0_in {
+                tip_data[y1_off + x0.max(0.0) as usize]
+            } else {
+                0.0
+            };
+            let a11 = if y1_in && x1_in {
+                tip_data[y1_off + x1.max(0.0) as usize]
+            } else {
+                0.0
+            };
+
+            let a0 = a00 * (1.0 - wx) + a10 * wx;
+            let a1 = a01 * (1.0 - wx) + a11 * wx;
+            let interpolated = a0 * (1.0 - wy) + a1 * wy;
+            if interpolated <= 0.0 {
+                x += 1;
+                continue;
+            }
+            let scaled = interpolated * a_scale;
+            if scaled <= 0.0 {
+                x += 1;
+                continue;
+            }
+            let idx = row_idx + x as usize;
+            let cur = mask[idx];
+            if cur != 255 {
+                // Mirror TS exactly: round the DELTA, then add (not add-then-round).
+                let delta = ((255.0 - cur as f32) * scaled).round() as u32;
+                mask[idx] = (cur as u32 + delta).min(255) as u8;
+            }
+            x += 1;
+        }
+        y += 1;
+    }
+}
+
+/// R3: straight-alpha-over composite of a paint mask into an RGBA buffer,
+/// restricted to a dirty rect. Mirrors brushTipMask.compositeMaskToImageDataDirty.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn composite_mask_wasm(
+    dst: &mut [u8],
+    dst_width: u32,
+    origin_x: i32,
+    origin_y: i32,
+    mask: &[u8],
+    mask_width: u32,
+    rect_x0: u32,
+    rect_y0: u32,
+    rect_x1: u32,
+    rect_y1: u32,
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
+    is_eraser: bool,
+) {
+    compose_over(
+        dst, dst_width, origin_x, origin_y, mask, mask_width, rect_x0, rect_y0, rect_x1, rect_y1,
+        r, g, b, a, is_eraser,
+    );
+}
+
+/// Shared composite body (used by both the copy and zero-copy entry points).
+fn compose_over(
+    dst: &mut [u8],
+    dst_width: u32,
+    origin_x: i32,
+    origin_y: i32,
+    mask: &[u8],
+    mask_width: u32,
+    rect_x0: u32,
+    rect_y0: u32,
+    rect_x1: u32,
+    rect_y1: u32,
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
+    is_eraser: bool,
+) {
+    let stroke_alpha = a.clamp(0.0, 1.0) as f32;
+    let (pr, pg, pb) = (r as f32, g as f32, b as f32);
+    let img_w = dst_width as usize;
+    let mw = mask_width as usize;
+
+    // The TS caller clamps the dirty rect to mask bounds before invoking
+    // (clampDirtyRect); mirror that contract instead of re-validating here.
+    for y in rect_y0..rect_y1 {
+        let row_in_mask = y as usize * mw;
+        let row_in_image = ((y as i32 - origin_y) as usize) * img_w;
+        for x in rect_x0..rect_x1 {
+            let mask_alpha = mask[row_in_mask + x as usize] as f32 / 255.0;
+            if mask_alpha <= 0.0 {
+                continue;
+            }
+            let i = (row_in_image + (x as i32 - origin_x) as usize) << 2;
+            let alpha = mask_alpha * stroke_alpha;
+            if is_eraser {
+                dst[i + 3] = ((dst[i + 3] as f32) * (1.0 - alpha)).round() as u8;
+                continue;
+            }
+            let dst_a = dst[i + 3] as f32 / 255.0;
+            let out_a = alpha + dst_a * (1.0 - alpha);
+            if out_a <= 0.0 {
+                dst[i] = 0;
+                dst[i + 1] = 0;
+                dst[i + 2] = 0;
+                dst[i + 3] = 0;
+                continue;
+            }
+            dst[i] = ((pr * alpha + dst[i] as f32 * dst_a * (1.0 - alpha)) / out_a).round() as u8;
+            dst[i + 1] =
+                ((pg * alpha + dst[i + 1] as f32 * dst_a * (1.0 - alpha)) / out_a).round() as u8;
+            dst[i + 2] =
+                ((pb * alpha + dst[i + 2] as f32 * dst_a * (1.0 - alpha)) / out_a).round() as u8;
+            dst[i + 3] = (out_a * 255.0).round() as u8;
+        }
+    }
+}
+
+// ── Zero-copy variants (round 2) ─────────────────────────────────────────────
+// The &[u8] shapes above copy the whole buffer across the wasm boundary PER
+// CALL, which dominates runtime for large masks (measured: 17x slower than TS
+// for d32 stamps). These variants keep buffers owned by wasm (BUFFERS map) so
+// repeated calls touch data in place — the fair comparison shape.
+
+/// R2 zero-copy: bbox of alpha>0 pixels for buffer `id`.
+#[wasm_bindgen]
+pub fn trim_bbox_buffer(id: u32, width: u32, height: u32) -> Vec<u32> {
+    let px = BUFFERS.with(|b| b.borrow().get(&id).cloned().expect("invalid buffer id"));
+    trim_bbox_impl(&px, width, height)
+}
+
+/// R3 zero-copy: stamp into owned mask buffer `id`.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn brush_stamp_buffer(
+    id: u32,
+    mask_width: u32,
+    mask_height: u32,
+    tip_data: &[f32],
+    data_size: u32,
+    diameter: f64,
+    center_x: f64,
+    center_y: f64,
+    alpha_scale: f64,
+) {
+    BUFFERS.with(|b| {
+        let mut m = b.borrow_mut();
+        let v = m.get_mut(&id).expect("invalid buffer id");
+        stamp_into(
+            v,
+            mask_width,
+            mask_height,
+            tip_data,
+            data_size,
+            diameter,
+            center_x,
+            center_y,
+            alpha_scale,
+        );
+    });
+}
+
+/// R3 zero-copy: composite into owned RGBA buffer `id`.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn composite_mask_buffer(
+    id: u32,
+    dst_width: u32,
+    origin_x: i32,
+    origin_y: i32,
+    mask_id: u32,
+    mask_width: u32,
+    rect_x0: u32,
+    rect_y0: u32,
+    rect_x1: u32,
+    rect_y1: u32,
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
+    is_eraser: bool,
+) {
+    // Mask read must not alias the mutable dst borrow: copy-on-read is avoided
+    // by scoping the two lookups; ids are distinct by contract (caller owns
+    // separate buffers), asserted cheaply in tests.
+    let mask = BUFFERS.with(|bufs| {
+        bufs.borrow()
+            .get(&mask_id)
+            .cloned()
+            .expect("invalid mask buffer id")
+    });
+    BUFFERS.with(|bufs| {
+        let mut m = bufs.borrow_mut();
+        let v = m.get_mut(&id).expect("invalid dst buffer id");
+        compose_over(
+            v, dst_width, origin_x, origin_y, &mask, mask_width, rect_x0, rect_y0, rect_x1,
+            rect_y1, r, g, b, a, is_eraser,
+        );
+    });
+}
+
+fn trim_bbox_impl(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
+    let w = width as usize;
+    let total = w.saturating_mul(height as usize);
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    for i in 0..total {
+        if pixels.get(i * 4 + 3).copied().unwrap_or(0) > 0 {
+            let x = (i % w) as u32;
+            let y = (i / w) as u32;
+            if x < min_x {
+                min_x = x;
+            }
+            if x > max_x {
+                max_x = x;
+            }
+            if y < min_y {
+                min_y = y;
+            }
+            if y > max_y {
+                max_y = y;
+            }
+        }
+    }
+    if max_x < min_x || max_y < min_y {
+        Vec::new()
+    } else {
+        vec![min_x, min_y, max_x, max_y]
+    }
+}
+
 // ── C-slice helpers: let `Engine` own pixel buffers + adjustment state ─────────
 // (Technique C: Rust SSOT for state + pixels; TS uploads the zero-copy view.)
 pub fn write_buffer(id: u32, src: &[u8]) {
@@ -709,5 +1074,55 @@ mod tests {
         invert_inplace_impl(&mut img);
         assert_eq!(&img[0..4], &[245, 235, 225, 255]);
         assert_eq!(&img[4..8], &[215, 205, 195, 128]);
+    }
+
+    // ── Round-2 kernels ──
+
+    #[test]
+    fn trim_bbox_finds_bounds_and_handles_empty() {
+        // 4x2 image: opaque pixel only at (2,1)
+        let mut px = vec![0u8; 4 * 2 * 4];
+        px[(1 * 4 + 2) * 4 + 3] = 255;
+        assert_eq!(trim_bbox_wasm(&px, 4, 2), vec![2, 1, 2, 1]);
+        // fully transparent -> empty
+        assert!(trim_bbox_wasm(&[0u8; 4 * 2 * 4], 4, 2).is_empty());
+    }
+
+    #[test]
+    fn brush_stamp_accumulates_toward_saturation() {
+        // uniform tip (alpha 1 everywhere), dataScale = 1 (dataSize == diameter)
+        let ds = 8u32;
+        let tip = vec![1.0f32; (ds * ds) as usize];
+        let mut mask = vec![0u8; 64];
+        brush_stamp_wasm(&mut mask, 8, 8, &tip, ds, 8.0, 4.0, 4.0, 0.5);
+        // center pixel: first dab ~128 (255*0.5 rounded)
+        assert_eq!(mask[4 * 8 + 4], 128);
+        // second dab at same point accumulates: 128 + round(127*0.5) = 128+64
+        brush_stamp_wasm(&mut mask, 8, 8, &tip, ds, 8.0, 4.0, 4.0, 0.5);
+        assert_eq!(mask[4 * 8 + 4], 192);
+        // many dabs saturate to exactly 255 and stay there
+        for _ in 0..50 {
+            brush_stamp_wasm(&mut mask, 8, 8, &tip, ds, 8.0, 4.0, 4.0, 0.5);
+        }
+        assert_eq!(mask[4 * 8 + 4], 255);
+    }
+
+    #[test]
+    fn composite_over_matches_straight_alpha_and_eraser_halves() {
+        // dst: opaque red pixel; mask full coverage, paint blue a=0.5
+        let mut dst = vec![255u8, 0, 0, 255];
+        let mask = vec![255u8; 1];
+        composite_mask_wasm(
+            &mut dst, 1, 0, 0, &mask, 1, 0, 0, 1, 1, 0.0, 0.0, 255.0, 0.5, false,
+        );
+        // out_a = 1; r = (0*0.5 + 255*1*0.5)/1 = 127.5 -> 128; b symmetric -> 128
+        assert_eq!(&dst[..4], &[128, 0, 128, 255]);
+
+        // eraser with alpha 0.5 halves existing alpha
+        let mut dst2 = vec![10u8, 20, 30, 200];
+        composite_mask_wasm(
+            &mut dst2, 1, 0, 0, &mask, 1, 0, 0, 1, 1, 0.0, 0.0, 0.0, 0.5, true,
+        );
+        assert_eq!(dst2[3], 100);
     }
 }

@@ -67,8 +67,56 @@ async function invertRgbaGpu(pixels: Uint8Array | Uint8ClampedArray): Promise<Ui
   return mapped;
 }
 
+// ── Technique A (Rust PoA) tier for invert ───────────────────────────────────
+// Mirrors tryAdjustRgbaPoa (engine/layerAdjustments.ts): cached WebGpuAdjustRenderer
+// per size, null when WebGPU or the wasm module is unavailable. Dynamic import keeps
+// lib/gpu dependency-free at the top level.
+let invertPoaCache: { w: number; h: number; renderer: any } | null = null;
+
+/** @internal test hook — clears the module-level PoA renderer cache */
+export function __resetInvertPoaCacheForTests(): void {
+  invertPoaCache = null;
+}
+
+async function tryInvertRgbaPoa(
+  pixels: Uint8Array | Uint8ClampedArray,
+  width: number,
+  height: number,
+): Promise<Uint8Array | null> {
+  if (typeof navigator === "undefined" || !(navigator as unknown as { gpu?: unknown }).gpu) {
+    return null;
+  }
+  const m = await import("@/components/editor/wasmExport").then((mod) => mod.getWasmExportModule());
+  if (!m?.WebGpuAdjustRenderer) return null;
+  try {
+    if (!invertPoaCache || invertPoaCache.w !== width || invertPoaCache.h !== height) {
+      invertPoaCache = {
+        w: width,
+        h: height,
+        renderer: await m.WebGpuAdjustRenderer.create(width, height),
+      };
+    }
+    console.log(`[invert] WebGPU A used ${width}x${height}`);
+    return await invertPoaCache.renderer.invert(new Uint8Array(pixels));
+  } catch (err) {
+    console.warn("[invert] PoA path failed, falling back:", err);
+    invertPoaCache = null;
+    return null;
+  }
+}
+
 // Public: invert RGBA, preferring GPU, falling back to CPU on any absence/error.
-export async function invertRgba(pixels: Uint8Array | Uint8ClampedArray): Promise<GpuRunResult> {
+// Tier order: Rust PoA (Technique A) -> TS WGSL -> CPU. Width/height enable the
+// PoA tier (renderer is size-bound); omitting them skips straight to TS/CPU.
+export async function invertRgba(
+  pixels: Uint8Array | Uint8ClampedArray,
+  width?: number,
+  height?: number,
+): Promise<GpuRunResult> {
+  if (width !== undefined && height !== undefined && width * height * 4 === pixels.length) {
+    const poa = await tryInvertRgbaPoa(pixels, width, height);
+    if (poa) return { data: poa, usedGpu: true };
+  }
   if (isGpuComputeAvailable()) {
     try {
       return { data: await invertRgbaGpu(pixels), usedGpu: true };

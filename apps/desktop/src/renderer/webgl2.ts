@@ -191,6 +191,20 @@ export class WebGL2Backend implements RenderBackend {
   }
 
   uploadImage(layerId: string, source: ImageBitmap, dirtyRect?: { x: number; y: number; width: number; height: number }): TextureRef {
+    // [perf] Issue C/B instrumentation: reveal patch-vs-full path, source dims,
+    // and true GPU-side cost of every texture update (>3ms warns).
+    const _t0 = performance.now();
+    const ref = this.uploadImageInternal(layerId, source, dirtyRect);
+    const _dt = performance.now() - _t0;
+    if (_dt > 3) {
+      console.warn(
+        `[perf] uploadImage ${dirtyRect ? "PATCH" : "FULL"}: ${_dt.toFixed(1)}ms src=${source.width}x${source.height}${dirtyRect ? ` rect=${dirtyRect.width}x${dirtyRect.height}@(${dirtyRect.x},${dirtyRect.y})` : ""}`,
+      );
+    }
+    return ref;
+  }
+
+  private uploadImageInternal(layerId: string, source: ImageBitmap, dirtyRect?: { x: number; y: number; width: number; height: number }): TextureRef {
     const gl = this.gl;
     if (!gl) throw new Error("Renderer not initialized");
     if (this.contextLost || gl.isContextLost()) {

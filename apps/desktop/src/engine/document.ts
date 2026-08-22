@@ -23,6 +23,7 @@ import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
 import { normalizeBasicAdjustment, bakeAdjustmentToBitmap, bakeAdjustmentToBitmapGpu, type BasicAdjustment } from "./layerAdjustments";
 import type { RenderBackend } from "../renderer/types";
 import { invertRgba } from "../lib/gpu/gpuCompute";
+import { PaintTileSurface } from "../lib/paint/paintTileSurface";
 
 import {
   addLayer as applyAddLayer,
@@ -54,8 +55,8 @@ import {
   textLayerToRaster as applyTextLayerToRaster,
 } from "./layerOps";
 import { renderShapeToBitmap } from "./shapeRaster";
-import { rasterizeText } from "./textRasterizer";
 import { normalizeTextData, type TextData } from "./textTypes";
+import { rasterizeText } from "./textRasterizer";
 import type { ShapeParams } from "./types";
 import {
   setViewport as applySetViewport,
@@ -78,6 +79,14 @@ export class DocumentEngine {
   private model: DocumentModel;
   private textureHandles: Map<LayerId, TextureHandle>;
   private dirtyLayerIds: Set<LayerId>;
+  /**
+   * Fase 1 tile store (docs/plans/2026-08-21-brush-engine-research.md):
+   * persistent software-backed pixel surface for layers currently being
+   * PAINTED. Created lazily via getPaintSurface; invalidated whenever the
+   * layer bitmap changes through any non-paint path (replaceLayerBitmap,
+   * restore) so it can never drift from engine state.
+   */
+  private paintSurfaces: Map<LayerId, PaintTileSurface> = new Map();
   // Saved baseline for dirty detection. isDirty() must compare against the
   // last *saved* state, not a flag carried inside the model (which undo/restore
   // would revive and falsely report clean).
@@ -229,10 +238,29 @@ export class DocumentEngine {
   duplicateLayer(id: LayerId): LayerNode {
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
+        const src = this.getLayer(id);
         const newId: string | null = this.rustEngine.duplicate_layer(id);
         if (newId) {
           this.syncLayersFromRust();
           const dup = this.model.layers.find(l => l.id === newId)!;
+          // Rust owns the graph only — pixels are cloned TS-side so the
+          // duplicate gets its OWN bitmap (editing either never aliases).
+          if (src?.imageBitmap) {
+            const off = new OffscreenCanvas(src.width, src.height);
+            const ctx = off.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(src.imageBitmap, 0, 0);
+              dup.imageBitmap = off.transferToImageBitmap();
+              if (src.baseImageBitmap) {
+                const off2 = new OffscreenCanvas(src.width, src.height);
+                const ctx2 = off2.getContext("2d");
+                if (ctx2) {
+                  ctx2.drawImage(src.baseImageBitmap, 0, 0);
+                  dup.baseImageBitmap = off2.transferToImageBitmap();
+                }
+              }
+            }
+          }
           this.markLayerDirty(dup.id);
           this.notifyChange();
           return dup;
@@ -372,6 +400,7 @@ export class DocumentEngine {
           this.syncLayersFromRust();
           this.dirtyLayerIds.delete(id);
           this.textureHandles.delete(id);
+          this.paintSurfaces.delete(id);
           this.notifyChange();
           return;
         }
@@ -382,6 +411,7 @@ export class DocumentEngine {
 
     this.dirtyLayerIds.delete(removedId);
     this.textureHandles.delete(removedId);
+    this.paintSurfaces.delete(removedId);
     this.notifyChange();
   }
 
@@ -417,6 +447,23 @@ export class DocumentEngine {
 
   // ─── Shape Layers ───
   addShapeLayer(name: string, params: ShapeParams): LayerNode {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const id = `layer-${crypto.randomUUID()}`;
+        const bitmap = renderShapeToBitmap(params);
+        const ok: boolean = this.rustEngine.add_typed_layer(
+          id, name, bitmap.width, bitmap.height, "shape", JSON.stringify(params),
+        );
+        if (ok) {
+          this.syncLayersFromRust();
+          const layer = this.model.layers.find(l => l.id === id)!;
+          layer.imageBitmap = bitmap;
+          this.markLayerDirty(layer.id);
+          this.notifyChange();
+          return layer;
+        }
+      } catch {}
+    }
     const layer = applyAddShapeLayer(this.model, name, params);
     this.markLayerDirty(layer.id);
     this.notifyChange();
@@ -448,8 +495,48 @@ export class DocumentEngine {
     return !!layer && applyIsShapeLayer(layer);
   }
 
+  /**
+   * Flag a layer as the document Background (bottommost, position/rotation
+   * locked). Goes through Rust so graph guards (delete/reorder bg-pin) apply.
+   * Used by document factories (blank/open/flatten).
+   */
+  markLayerAsBackground(id: LayerId): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_background(id)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
+    // Fallback: mutate TS-side; next notifyChange mirrors into Rust.
+    const layer = this.getLayer(id);
+    if (layer) {
+      layer.isBackground = true;
+      layer.lockPosition = true;
+      layer.lockRotation = true;
+      this.model.dirty = true;
+    }
+    this.notifyChange();
+  }
+
   // ─── Text Layers ───
   addTextLayer(name: string, data: TextData): LayerNode {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const normalized = normalizeTextData(data);
+        const { imageBitmap, width, height } = rasterizeText(normalized);
+        const id = `layer-${crypto.randomUUID()}`;
+        const ok: boolean = this.rustEngine.add_typed_layer(
+          id, name, width, height, "text", JSON.stringify(normalized),
+        );
+        if (ok) {
+          this.syncLayersFromRust();
+          const layer = this.model.layers.find(l => l.id === id)!;
+          layer.imageBitmap = imageBitmap;
+          this.markLayerDirty(layer.id);
+          this.notifyChange();
+          return layer;
+        }
+      } catch {}
+    }
     const layer = applyAddTextLayer(this.model, name, data);
     this.markLayerDirty(layer.id);
     this.notifyChange();
@@ -485,52 +572,97 @@ export class DocumentEngine {
   // ─── Layer Properties ───
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerOpacity(id: LayerId, opacity: number): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_opacity(id, opacity)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerOpacity(this.model, id, opacity);
     this.notifyChange();
   }
 
   setLayerVisibility(id: LayerId, visible: boolean): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_visibility(id, visible)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerVisibility(this.model, id, visible);
     this.notifyChange();
   }
 
   setLayerLocked(id: LayerId, locked: boolean): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_locked(id, locked)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerLocked(this.model, id, locked);
     this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockTransparency(id: LayerId, locked: boolean): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_lock_transparency(id, locked)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerLockTransparency(this.model, id, locked);
     this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockPosition(id: LayerId, locked: boolean): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_lock_position(id, locked)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerLockPosition(this.model, id, locked);
     this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockRotation(id: LayerId, locked: boolean): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_lock_rotation(id, locked)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerLockRotation(this.model, id, locked);
     this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerName(id: LayerId, name: string): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_name(id, name)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerName(this.model, id, name);
     this.notifyChange();
   }
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerBlendMode(id: LayerId, mode: BlendMode): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_blend_mode(id, mode)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applySetLayerBlendMode(this.model, id, mode);
     this.notifyChange();
   }
 
   // ─── Layer Transform ───
   moveLayer(id: LayerId, x: number, y: number): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.move_layer(id, x, y)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applyMoveLayer(this.model, id, x, y);
     this.notifyChange();
   }
@@ -543,6 +675,9 @@ export class DocumentEngine {
    * single-shot callers keep using moveLayer().
    */
   moveLayerSilent(id: LayerId, x: number, y: number): void {
+    // Deliberately TS-side WITHOUT Rust sync: this fires on EVERY pointermove
+    // (50+ fps) and a full JSON round-trip per frame would jank the drag.
+    // flushChangeNotification() pushes the final transform to Rust once.
     applyMoveLayer(this.model, id, x, y);
   }
 
@@ -552,11 +687,35 @@ export class DocumentEngine {
   }
 
   transformLayer(id: LayerId, transform: Partial<Transform2D>): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        const ok: boolean = this.rustEngine.transform_layer(
+          id,
+          transform.x ?? null,
+          transform.y ?? null,
+          transform.scaleX ?? null,
+          transform.scaleY ?? null,
+          transform.rotation ?? null,
+          transform.flipH ?? null,
+          transform.flipV ?? null,
+        );
+        if (ok) {
+          this.syncLayersFromRust();
+          this.notifyChange();
+          return;
+        }
+      } catch {}
+    }
     applyTransformLayer(this.model, id, transform);
     this.notifyChange();
   }
 
   flipLayer(id: LayerId, axis: "h" | "v"): void {
+    if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.flip_layer(id, axis)) {
+      this.syncLayersFromRust();
+      this.notifyChange();
+      return;
+    }
     applyFlipLayer(this.model, id, axis);
     this.notifyChange();
   }
@@ -592,11 +751,29 @@ export class DocumentEngine {
   }
 
   selectAll(): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        this.rustEngine.select_all();
+        this.model.selection = JSON.parse(this.rustEngine.get_selection_json());
+        this.model.dirty = true;
+        this.notifyChange();
+        return;
+      } catch {}
+    }
     applySelectAll(this.model);
     this.notifyChange();
   }
 
   invertSelection(): void {
+    if (USE_RUST_SSOT && this.rustEngine) {
+      try {
+        this.rustEngine.invert_selection();
+        this.model.selection = JSON.parse(this.rustEngine.get_selection_json());
+        this.model.dirty = true;
+        this.notifyChange();
+        return;
+      } catch {}
+    }
     applyInvertSelection(this.model);
     this.notifyChange();
   }
@@ -715,6 +892,9 @@ export class DocumentEngine {
   private replaceLayerBitmap(layer: LayerNode, bitmap: ImageBitmap): void {
     const prev = layer.imageBitmap;
     layer.imageBitmap = bitmap;
+    // Bitmap replaced through a non-paint path (bake, invert, text raster,
+    // undo restore) — any cached paint surface is now stale.
+    this.paintSurfaces.delete(layer.id);
     // Close the superseded raster only when NO committed snapshot references
     // it (snapshot() registers live bitmaps). Snapshotted bitmaps survive for
     // undo/redo; unregistered ones (live-typing intermediates) close now,
@@ -724,8 +904,7 @@ export class DocumentEngine {
     }
   }
 
-  setLayerImageBitmap(id: LayerId, bitmap: ImageBitmap): void {
-    const layer = this.getLayer(id);
+  setLayerImageBitmap(id: LayerId, bitmap: ImageBitmap): void {    const layer = this.getLayer(id);
     if (layer) {
       if (!bitmap) {
         throw new TypeError("Bitmap cannot be null");
@@ -750,6 +929,9 @@ export class DocumentEngine {
       // snapshot or layer references remain.
       layer.imageBitmap = bitmap;
       layer.baseImageBitmap = null;
+      // Bitmap replaced through a non-paint path — drop any cached paint
+      // surface so it can never drift from engine state.
+      this.paintSurfaces.delete(id);
       // NOTE: intentionally do NOT clear basicAdjustment here. Adjustments are
       // a non-destructive layer-level effect applied in the renderer shader, so
       // replacing the layer bitmap (paint commit, fill, etc.) must keep the
@@ -764,6 +946,29 @@ export class DocumentEngine {
       this.pushModelToRust(); // width/height are graph fields — keep Rust in sync
       this.notifyVisualChange();
     }
+  }
+
+  /**
+   * Fase 1 tile store (docs/plans/2026-08-21-brush-engine-research.md):
+   * persistent software-backed pixel surface for a painted layer, created
+   * lazily from the current bitmap. The paint commit path goes THROUGH this
+   * surface (tile-keyed patches); any non-paint bitmap replacement invalidates
+   * it so it can never drift from engine state.
+   */
+  getPaintSurface(id: LayerId): PaintTileSurface | null {
+    const cached = this.paintSurfaces.get(id);
+    if (cached) return cached;
+    const layer = this.getLayer(id);
+    if (!layer || !layer.imageBitmap) return null;
+    if (layer.width <= 0 || layer.height <= 0) return null;
+    const surface = new PaintTileSurface(layer.width, layer.height, layer.imageBitmap);
+    this.paintSurfaces.set(id, surface);
+    return surface;
+  }
+
+  /** Drop a cached paint surface (e.g. after undo restores different pixels). */
+  invalidatePaintSurface(id: LayerId): void {
+    this.paintSurfaces.delete(id);
   }
 
   applyBasicAdjustment(id: LayerId, adjustment: BasicAdjustment): void {
@@ -820,7 +1025,7 @@ export class DocumentEngine {
     if (!ctx) throw new Error("Failed to acquire 2D context for invert");
     ctx.drawImage(layer.imageBitmap, 0, 0);
     const imageData = ctx.getImageData(0, 0, width, height);
-    const res = await invertRgba(imageData.data);
+    const res = await invertRgba(imageData.data, width, height);
     imageData.data.set(res.data);
     ctx.putImageData(imageData, 0, 0);
     const newBitmap = canvas.transferToImageBitmap();
@@ -1093,6 +1298,10 @@ export class DocumentEngine {
     for (const layer of this.model.layers) {
       this.dirtyLayerIds.add(layer.id);
     }
+    // Undo/redo swapped every bitmap reference — cached paint surfaces would
+    // silently hold pre-restore pixels. Drop them; the next getPaintSurface
+    // re-syncs from the restored bitmap.
+    this.paintSurfaces.clear();
     // Dirty = restored state differs from the last *saved* baseline. Without
     // this, undo to a pre-save state (whose snapshot carries dirty=false)
     // would falsely report clean after a save.
@@ -1170,3 +1379,4 @@ export class DocumentEngine {
     return sampleSingleLayerAlpha(this.model.layers, x, y, layerId);
   }
 }
+

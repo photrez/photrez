@@ -257,15 +257,26 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       if (!canRestore) {
         return;
       }
+      // [perf] Issue C instrumentation: quantify snapshot vs restore cost on
+      // large canvases before optimizing (docs/plans/2026-08-21-brush-engine-research.md).
+      const perfT0 = performance.now();
       const snapshot = direction === "undo"
         ? history.undo(engine.snapshot())
         : history.redo(engine.snapshot());
+      const perfTHist = performance.now();
       if (!snapshot) {
         return;
       }
 
 
       engine.restore(snapshot);
+      const perfTRestore = performance.now();
+      const perfTotal = perfTRestore - perfT0;
+      // [diag] ALWAYS log during Issue C investigation (undo is infrequent);
+      // the felt delay may live in the FOLLOWING render/upload pass, not here.
+      console.info(
+        `[perf] ${direction}: snapshot=${(perfTHist - perfT0).toFixed(1)}ms restore=${(perfTRestore - perfTHist).toFixed(1)}ms total=${perfTotal.toFixed(1)}ms`,
+      );
 
       // An open text session must re-anchor its preSnapshot: the user now
       // sees an OLDER state, so the session's next commit diffs against it.

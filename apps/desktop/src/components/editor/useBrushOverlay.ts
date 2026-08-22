@@ -837,6 +837,23 @@ export function useBrushOverlay() {
             const eng = workspace.getActiveEngine();
             const id = eng?.getActiveLayerId() ?? null;
             const bmp = id ? eng!.getLayer(id)?.imageBitmap : undefined;
+            // Pre-touch the overlay canvas at the ACTIVE LAYER's size and force
+            // its GPU backing now, so the FIRST brush stroke doesn't pay
+            // resize + allocation + cold-raster (fraction-second hitch on large
+            // canvases). Mirrors the commit-canvas warm below.
+            try {
+              const lyr = id ? eng!.getLayer(id) : undefined;
+              if (lyr && lyr.width && lyr.height && (el.width !== lyr.width || el.height !== lyr.height)) {
+                el.width = lyr.width;
+                el.height = lyr.height;
+              }
+              if (bmp) {
+                el.getContext("2d")?.drawImage(bmp, 0, 0);
+                el.getContext("2d")?.clearRect(0, 0, el.width, el.height);
+              }
+            } catch {
+              // Layer/bitmap not ready — first stroke simply pays the cold cost.
+            }
             if (!cctx || !bmp) return;
             try {
               cctx.drawImage(bmp, 0, 0);

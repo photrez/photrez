@@ -6,6 +6,11 @@ use crate::selection::SelectionState;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
+// Resource guards — parity with TS types.ts / layerOps applyAddLayer.
+const MAX_LAYERS: usize = 200;
+const MAX_CANVAS_DIM: u32 = 16384;
+const MAX_PIXEL_BUDGET: u64 = 1024 * 1024 * 1024; // 1 GB
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Transform2D {
@@ -124,6 +129,9 @@ impl DocumentEngine {
     }
 
     pub fn add_layer(&mut self, layer_id: String, name: String, width: u32, height: u32) {
+        if !self.can_accept_layer(width, height) {
+            return;
+        }
         let layer = Layer::new(layer_id.clone(), name, width, height);
         // Parity with TS applyAddLayer: insert directly ABOVE the active layer,
         // else at the front (top) of the stack.
@@ -138,6 +146,67 @@ impl DocumentEngine {
         }
         self.model.active_layer_id = Some(layer_id);
         self.model.dirty = true;
+    }
+
+    /// Resource guards — parity with TS applyAddLayer/canAddLayer:
+    /// MAX_LAYERS(200), MAX_CANVAS_DIM(16384), 1GB pixel budget projection.
+    fn can_accept_layer(&self, width: u32, height: u32) -> bool {
+        if self.model.layers.len() >= MAX_LAYERS {
+            return false;
+        }
+        if width > MAX_CANVAS_DIM || height > MAX_CANVAS_DIM {
+            return false;
+        }
+        let current: u64 = self
+            .model
+            .layers
+            .iter()
+            .map(|l| l.width as u64 * l.height as u64 * 4)
+            .sum();
+        let projected = current + (width as u64) * (height as u64) * 4;
+        projected <= MAX_PIXEL_BUDGET
+    }
+
+    /// Add a parametric layer (shape/text). `extra_json` carries the
+    /// serializable params object (shapeParams / textData) verbatim.
+    pub fn add_typed_layer(
+        &mut self,
+        layer_id: String,
+        name: String,
+        width: u32,
+        height: u32,
+        layer_type: String,
+        extra_json: String,
+    ) -> bool {
+        if !self.can_accept_layer(width, height) {
+            return false;
+        }
+        let mut layer = Layer::new(layer_id.clone(), name, width, height);
+        let parsed: Option<serde_json::Value> = match serde_json::from_str(&extra_json) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        if layer_type == "shape" {
+            layer.shape_params = parsed;
+        } else if layer_type == "text" {
+            layer.text_data = parsed;
+        } else {
+            return false;
+        }
+        layer.layer_type = layer_type;
+        // Insert above active (parity with applyAddLayer).
+        let active_index = self
+            .model
+            .active_layer_id
+            .as_ref()
+            .and_then(|id| self.model.layers.iter().position(|l| &l.id == id));
+        match active_index {
+            Some(i) => self.model.layers.insert(i, layer),
+            None => self.model.layers.insert(0, layer),
+        }
+        self.model.active_layer_id = Some(layer_id);
+        self.model.dirty = true;
+        true
     }
 
     pub fn get_layers_json(&self) -> String {
@@ -326,6 +395,197 @@ impl DocumentEngine {
         self.model.active_layer_id = Some(m.id);
         self.model.dirty = true;
         true
+    }
+
+    // ── Property setters (Batch A) — parity with TS layerOps setters ──
+
+    pub fn set_layer_opacity(&mut self, id: String, opacity: f64) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            if l.locked {
+                return false;
+            }
+            l.opacity = opacity.max(0.0).min(1.0);
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_layer_visibility(&mut self, id: String, visible: bool) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            l.visible = visible;
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_layer_locked(&mut self, id: String, locked: bool) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            l.locked = locked;
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_layer_lock_transparency(&mut self, id: String, locked: bool) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            l.lock_transparency = Some(locked);
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_layer_lock_position(&mut self, id: String, locked: bool) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            l.lock_position = Some(locked);
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_layer_lock_rotation(&mut self, id: String, locked: bool) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            l.lock_rotation = Some(locked);
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    /// Renaming the Background demotes it to a normal layer (clears
+    /// isBackground + position/rotation locks) — parity with TS setLayerName.
+    pub fn set_layer_name(&mut self, id: String, name: String) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            if l.is_background == Some(true) {
+                l.is_background = None;
+                l.lock_position = Some(false);
+                l.lock_rotation = Some(false);
+            }
+            l.name = name;
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn set_layer_blend_mode(&mut self, id: String, mode: String) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            if l.locked {
+                return false;
+            }
+            l.blend_mode = mode;
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    // ── Transform ops (Batch C) — parity with TS layerOps ──
+
+    pub fn move_layer(&mut self, id: String, x: f64, y: f64) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            if l.locked || l.lock_position == Some(true) {
+                return false;
+            }
+            l.transform.x = x;
+            l.transform.y = y;
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    /// Partial transform merge. `None` fields are left unchanged; position
+    /// respects lockPosition, rotation respects lockRotation (TS parity).
+    pub fn transform_layer(
+        &mut self,
+        id: String,
+        x: Option<f64>,
+        y: Option<f64>,
+        scale_x: Option<f64>,
+        scale_y: Option<f64>,
+        rotation: Option<f64>,
+        flip_h: Option<bool>,
+        flip_v: Option<bool>,
+    ) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            if l.locked {
+                return false;
+            }
+            if l.lock_position != Some(true) {
+                if let Some(v) = x {
+                    l.transform.x = v;
+                }
+                if let Some(v) = y {
+                    l.transform.y = v;
+                }
+            }
+            if l.lock_rotation != Some(true) {
+                if let Some(v) = rotation {
+                    l.transform.rotation = v;
+                }
+            }
+            if let Some(v) = scale_x {
+                l.transform.scale_x = v;
+            }
+            if let Some(v) = scale_y {
+                l.transform.scale_y = v;
+            }
+            if let Some(v) = flip_h {
+                l.transform.flip_h = v;
+            }
+            if let Some(v) = flip_v {
+                l.transform.flip_v = v;
+            }
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn flip_layer(&mut self, id: String, axis: String) -> bool {
+        if let Some(l) = self.model.layers.iter_mut().find(|l| l.id == id) {
+            if l.locked {
+                return false;
+            }
+            if axis == "h" {
+                l.transform.flip_h = !l.transform.flip_h;
+            } else {
+                l.transform.flip_v = !l.transform.flip_v;
+            }
+            self.model.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    // ── Selection variants (Batch D) — parity with TS selectionOps ──
+
+    pub fn select_all(&mut self) {
+        self.model.selection = Some(SelectionState {
+            x: 0.0,
+            y: 0.0,
+            width: self.model.width as f64,
+            height: self.model.height as f64,
+            angle: 0.0,
+            shape: None,
+            inverted: None,
+        });
+        self.model.dirty = true;
+    }
+
+    pub fn invert_selection(&mut self) {
+        match &mut self.model.selection {
+            Some(sel) => {
+                sel.inverted = Some(!sel.inverted.unwrap_or(false));
+                self.model.dirty = true;
+            }
+            None => self.select_all(),
+        }
     }
 
     pub fn snapshot_json(&self) -> String {
@@ -580,5 +840,118 @@ mod tests {
         assert!(e.get_selection_json().contains("10"));
         e.clear_selection();
         assert_eq!(e.get_selection_json(), "null");
+    }
+
+    #[test]
+    fn property_setters() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("l1".into(), "Background".into(), 100, 100);
+        e.set_layer_background("l1".into());
+
+        // Opacity clamps to 0..1.
+        assert!(e.set_layer_opacity("l1".into(), 0.5));
+        assert!(e.get_layers_json().contains("\"opacity\":0.5"));
+        assert!(e.set_layer_opacity("l1".into(), 5.0));
+        assert!(e.get_layers_json().contains("\"opacity\":1"));
+
+        // Visibility / locked / lock flags.
+        assert!(e.set_layer_visibility("l1".into(), false));
+        assert!(e.get_layers_json().contains("\"visible\":false"));
+        assert!(e.set_layer_visibility("l1".into(), true));
+        assert!(e.set_layer_lock_transparency("l1".into(), true));
+        assert!(e.get_layers_json().contains("\"lockTransparency\":true"));
+
+        // Renaming the Background demotes it (clears isBackground + locks).
+        assert!(e.set_layer_name("l1".into(), "Renamed".into()));
+        let json = e.get_layers_json();
+        assert!(json.contains("\"Renamed\""));
+        assert!(!json.contains("\"isBackground\":true"));
+        assert!(json.contains("\"lockPosition\":false"));
+
+        // Blend mode set; unknown id is a no-op.
+        assert!(e.set_layer_blend_mode("l1".into(), "multiply".into()));
+        assert!(e.get_layers_json().contains("multiply"));
+        assert!(!e.set_layer_blend_mode("nope".into(), "screen".into()));
+    }
+
+    #[test]
+    fn locked_layer_blocks_opacity_and_blend_mode() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("l1".into(), "A".into(), 100, 100);
+        e.set_layer_locked("l1".into(), true);
+        // Locked: opacity and blend mode changes are rejected (TS parity).
+        assert!(!e.set_layer_opacity("l1".into(), 0.2));
+        assert!(!e.set_layer_blend_mode("l1".into(), "screen".into()));
+        // But visibility/locks/name still work on a locked layer.
+        assert!(e.set_layer_visibility("l1".into(), false));
+        assert!(e.set_layer_name("l1".into(), "Still works".into()));
+    }
+
+    #[test]
+    fn transform_ops() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("l1".into(), "A".into(), 100, 100);
+
+        assert!(e.move_layer("l1".into(), 10.0, 20.0));
+        assert!(e.transform_layer(
+            "l1".into(),
+            Some(30.0),
+            None,
+            Some(2.0),
+            None,
+            Some(45.0),
+            Some(true),
+            None,
+        ));
+        let json = e.get_layers_json();
+        assert!(json.contains("\"x\":30"));
+        assert!(json.contains("\"scaleX\":2"));
+        assert!(json.contains("\"rotation\":45"));
+        assert!(json.contains("\"flipH\":true"));
+
+        // lockPosition blocks x/y but not scale.
+        e.set_layer_lock_position("l1".into(), true);
+        assert!(!e.move_layer("l1".into(), 99.0, 99.0));
+        assert!(e.transform_layer("l1".into(), Some(77.0), None, None, None, None, None, None));
+        assert!(e.get_layers_json().contains("\"x\":30"));
+
+        // flip toggles; locked layer rejects.
+        assert!(e.flip_layer("l1".into(), "h".into()));
+        e.set_layer_locked("l1".into(), true);
+        assert!(!e.flip_layer("l1".into(), "v".into()));
+    }
+
+    #[test]
+    fn select_all_and_invert() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 800, 600);
+        e.select_all();
+        let sel = e.get_selection_json();
+        assert!(sel.contains("\"width\":800"));
+        assert!(sel.contains("\"height\":600"));
+        e.invert_selection();
+        assert!(e.get_selection_json().contains("\"inverted\":true"));
+        e.invert_selection();
+        assert!(e.get_selection_json().contains("\"inverted\":false"));
+        // Invert with no selection = select all.
+        e.clear_selection();
+        e.invert_selection();
+        assert!(e.get_selection_json().contains("\"width\":800"));
+    }
+
+    #[test]
+    fn resource_guards() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        // Dimension guard: 16384+ per side rejected.
+        e.add_layer("ok".into(), "OK".into(), 100, 100);
+        let before = e.layer_count();
+        e.add_layer("huge".into(), "Huge".into(), 20000, 100);
+        assert_eq!(e.layer_count(), before, "over-dim layer must be rejected");
+        // Layer-count guard: 200 max (fill remaining, then one more must fail).
+        while e.layer_count() < 200 {
+            e.add_layer(format!("f{}", e.layer_count()), "F".into(), 10, 10);
+        }
+        assert_eq!(e.layer_count(), 200);
+        e.add_layer("over".into(), "Over".into(), 10, 10);
+        assert_eq!(e.layer_count(), 200, "MAX_LAYERS must cap at 200");
     }
 }

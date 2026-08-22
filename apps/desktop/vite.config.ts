@@ -1,8 +1,16 @@
 /// <reference types="vitest" />
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 import solidPlugin from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import wasm from "vite-plugin-wasm";
+
+// Test-only: load the REAL Rust wasm via fs+initSync (vitest fetch cannot read
+// file: URLs). Alias applies inside vitest projects only; production keeps
+// the real pkg. See src/test/wasmTestShim.ts.
+const wasmTestShim = fileURLToPath(
+  new URL("./src/test/wasmTestShim.ts", import.meta.url),
+);
 
 // Keep this list conservative: only tests that do not require browser globals,
 // Solid rendering, canvas APIs, or DOM event wiring belong in the fast project.
@@ -85,6 +93,7 @@ export default defineConfig({
           css: true,
           pool: "threads",
           isolate: true,
+          alias: { "@/wasm/pkg/photrez_core": wasmTestShim },
         },
         esbuild: {
           jsx: "automatic",
@@ -109,6 +118,7 @@ export default defineConfig({
           // useBrushOverlay). Re-run --failed always passed - runner slowness,
           // not a regression. 30000ms removes the flake structurally.
           testTimeout: 30000,
+          alias: { "@/wasm/pkg/photrez_core": wasmTestShim },
         },
         extends: true,
         esbuild: {

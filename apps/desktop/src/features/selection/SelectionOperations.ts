@@ -209,17 +209,14 @@ export class SelectionOperations {
       return imageData;
     }
 
-    // Extract the trimmed region into a new buffer
+    // Extract the trimmed region into a new buffer. Rows are copied via
+    // TypedArray.set (memcpy path) — measured 2.8x faster than per-channel
+    // indexing at 4K (77.9 -> 27.9ms, byte-identical; see
+    // apps/desktop/scripts/bench-r2-microfix.ts).
     const trimmedData = new Uint8ClampedArray(trimmedW * trimmedH * 4);
     for (let y = 0; y < trimmedH; y++) {
-      for (let x = 0; x < trimmedW; x++) {
-        const srcIdx = ((top + y) * width + (left + x)) * 4;
-        const dstIdx = (y * trimmedW + x) * 4;
-        trimmedData[dstIdx] = pixels[srcIdx];
-        trimmedData[dstIdx + 1] = pixels[srcIdx + 1];
-        trimmedData[dstIdx + 2] = pixels[srcIdx + 2];
-        trimmedData[dstIdx + 3] = pixels[srcIdx + 3];
-      }
+      const src = ((top + y) * width + left) * 4;
+      trimmedData.set(pixels.subarray(src, src + trimmedW * 4), y * trimmedW * 4);
     }
 
     return {

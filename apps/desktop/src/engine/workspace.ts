@@ -204,9 +204,8 @@ export class WorkspaceManager {
   ): DocumentSession {
     const engine = new DocumentEngine(id, name, width, height);
     const bg = engine.addLayer("Background"); // Default empty background layer
-    bg.isBackground = true;
-    bg.lockPosition = true;
-    bg.lockRotation = true;
+    // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
+    engine.markLayerAsBackground(bg.id);
 
     if (options?.backgroundColor === "white") {
       const canvas = new OffscreenCanvas(width, height);
@@ -244,9 +243,8 @@ export class WorkspaceManager {
     const engine = new DocumentEngine(id, name, bitmap.width, bitmap.height);
     const bgLayer = engine.addLayer("Background", bitmap.width, bitmap.height);
     engine.setLayerImageBitmap(bgLayer.id, bitmap);
-    bgLayer.isBackground = true;
-    bgLayer.lockPosition = true;
-    bgLayer.lockRotation = true;
+    // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
+    engine.markLayerAsBackground(bgLayer.id);
     engine.clearDirty();
 
     const history = new CommandHistory();

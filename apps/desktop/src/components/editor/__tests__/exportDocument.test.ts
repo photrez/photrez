@@ -2,6 +2,15 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import type { DocumentEngine } from "@/engine/document";
 import type { LayerNode } from "@/engine/types";
 
+// This file verifies the Canvas convertToBlob contract (mime/quality mapping).
+// Since the wasm PNG/JPEG/TIFF encoders became active in tests (wasmTestShim),
+// encodeComposite would take the WASM path and never reach convertToBlob.
+// Force the fallback scenario under test by disabling the wasm encoder.
+vi.mock("../wasmExport", async (importOriginal) => {
+  const mod: any = await importOriginal();
+  return { ...mod, encodeImageWithWasm: async () => null };
+});
+
 const BASE_LAYER: LayerNode = {
   id: "l1",
   name: "Test",

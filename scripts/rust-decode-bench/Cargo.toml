@@ -1,0 +1,18 @@
+[package]
+name = "rust-decode-bench"
+version = "0.1.0"
+edition = "2021"
+
+# standalone: opt OUT of the repo root workspace (its profile sets
+# opt-level="s" for photrez-core; this bench wants full speed)
+[workspace]
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+zune-core = "0.5"
+zune-png = "0.5"
+zune-jpeg = "0.5"
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -131,20 +131,40 @@ function rasterizeBrushTipWithCurve(
   // Scale factor: maps data-space pixel to spatial pixel coordinate
   const scale = diameter / dataSize;
 
-  for (let dy = 0; dy < dataSize; dy += 1) {
-    // Spatial pixel-center position mapped from data-coordinate dy.
-    // When scale=1 (no downsampling): (dy + 0.5) * 1 = dy + 0.5,
-    // matching the original (y + 0.5) pixel-center convention.
-    const yPos = (dy + 0.5) * scale;
-    for (let dx = 0; dx < dataSize; dx += 1) {
-      const xPos = (dx + 0.5) * scale;
-      const distance = Math.hypot(xPos - center, yPos - center);
-      data[dy * dataSize + dx] = diameterNominal < MIN_RELIABLE_BRUSH_DIAMETER_PX
-        || (curve === "soft" && h >= BRUSH_HARD_EDGE_THRESHOLD)
+  // Perf (2026-08-21): profile is radially symmetric AND the grid is mirror-
+  // symmetric, so compute one quadrant and mirror it (negation of offsets is
+  // exact => mirrored alphas are bit-identical). Also sqrt instead of hypot
+  // (hypot's overflow safety costs several-fold for no benefit here).
+  const xOff = new Float64Array(dataSize);
+  for (let dx = 0; dx < dataSize; dx += 1) {
+    xOff[dx] = (dx + 0.5) * scale - center;
+  }
+  // Compute one QUADRANT (incl. center line/cell when odd); mirror writes
+  // cover the rest exactly. Total expensive evaluations = dataSize^2 / 4.
+  const midRow = Math.ceil(dataSize / 2);
+  const midCol = Math.ceil(dataSize / 2);
+  const modeSmall = diameterNominal < MIN_RELIABLE_BRUSH_DIAMETER_PX
+    || (curve === "soft" && h >= BRUSH_HARD_EDGE_THRESHOLD);
+
+  for (let dy = 0; dy < midRow; dy += 1) {
+    const yOff = (dy + 0.5) * scale - center;
+    const yy = yOff * yOff;
+    const rowBase = dy * dataSize;
+    const mirrorRowBase = (dataSize - 1 - dy) * dataSize;
+    for (let dx = 0; dx < midCol; dx += 1) {
+      const xo = xOff[dx];
+      const distance = Math.sqrt(xo * xo + yy);
+      const alpha = modeSmall
         ? smallRoundAlpha(distance, R_nominal)
         : curve === "soft"
           ? brushAlpha(distance / R_nominal, h)
           : brushAlphaAtDistance(distance, R_nominal, h, curve);
+      const mdx = dataSize - 1 - dx;
+      const mrow = dataSize - 1 - dy;
+      data[rowBase + dx] = alpha;
+      data[rowBase + mdx] = alpha;
+      data[mirrorRowBase + dx] = alpha;
+      data[mirrorRowBase + mdx] = alpha;
     }
   }
   const _dt = performance.now() - _t0;
@@ -567,6 +587,66 @@ export function paintMaskToContextDirty(
   ctx.putImageData(imageData, r.x0, r.y0);
 }
 
+// ── EXPERIMENT: compositor-GPU dab (R3 candidate, flag-gated) ────────────────
+// Renders a dab as a Canvas2D radialGradient fillRect whose alpha stops sample
+// tip.data along the radius — the profile is preserved but the per-pixel work
+// moves to the platform compositor (measured ~free vs 10.5ms/dab at d512).
+// OFF by default; enable with localStorage["photrez.gradientDab"]="1".
+export function isGradientDabEnabled(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("photrez.gradientDab") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Sample the tip profile radially into gradient stops (center -> edge). */
+export function buildGradientStops(tip: BrushTip, stopCount = 12): Array<[number, number]> {
+  const ds = tip.dataSize;
+  const c = ds / 2;
+  const stops: Array<[number, number]> = [];
+  for (let s = 0; s <= stopCount; s++) {
+    const t = s / stopCount; // 0=center, 1=edge
+    const x = Math.min(ds - 1, Math.round(c + t * (c - 0.5)));
+    const a = tip.data[Math.round(c) * ds + x] ?? 0;
+    stops.push([t, a]);
+  }
+  return stops;
+}
+
+/**
+ * Paint one dab via radialGradient fillRect (compositor-GPU path).
+ * Accumulation uses repeated source-over, which approximates (not bit-matches)
+ * the legacy mask-saturation math — visual parity is under evaluation.
+ */
+export function paintGradientDab(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  tip: BrushTip,
+  endpoint: BrushPoint,
+  lastDab: BrushPoint | null,
+  alphaScale: number,
+  color: string,
+): boolean {
+  if (brushPointsEqual(lastDab, endpoint)) return false;
+
+  const r = tip.diameter / 2;
+  const grad = ctx.createRadialGradient(endpoint.x, endpoint.y, 0, endpoint.x, endpoint.y, r);
+  const stops = buildGradientStops(tip);
+  // parse hex color to rgba parts once
+  const hex = color.replace("#", "");
+  const cr = parseInt(hex.slice(0, 2), 16) || 0;
+  const cg = parseInt(hex.slice(2, 4), 16) || 0;
+  const cb = parseInt(hex.slice(4, 6), 16) || 0;
+  const base = Math.max(0, Math.min(1, alphaScale));
+  for (const [t, a] of stops) {
+    grad.addColorStop(Math.min(1, t), `rgba(${cr},${cg},${cb},${(a * base).toFixed(4)})`);
+  }
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = grad as unknown as string;
+  ctx.fillRect(endpoint.x - r, endpoint.y - r, tip.diameter, tip.diameter);
+  return true;
+}
+
 export function paintTransientBrushTipToContext(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   tip: BrushTip,
@@ -576,6 +656,9 @@ export function paintTransientBrushTipToContext(
   color: string,
   isEraser: boolean,
 ): boolean {
+  if (!isEraser && isGradientDabEnabled()) {
+    return paintGradientDab(ctx, tip, endpoint, lastDab, alphaScale, color);
+  }
   if (brushPointsEqual(lastDab, endpoint)) return false;
 
   const canvasWidth = ctx.canvas.width;
