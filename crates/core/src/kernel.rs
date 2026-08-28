@@ -873,6 +873,24 @@ thread_local! {
 }
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
+/// Read-only access to a pinned buffer without copying (bench + future tile
+/// store seeding). Closure sees the live bytes inside wasm linear memory.
+pub(crate) fn with_buffer<R>(id: u32, f: impl FnOnce(&[u8]) -> R) -> R {
+    BUFFERS.with(|b| {
+        let m = b.borrow();
+        f(m.get(&id).expect("invalid buffer id"))
+    })
+}
+
+/// Mutable access to a pinned buffer (decode-into shape: kernels write
+/// results straight into wasm-owned memory, JS reads via rgba_buffer_view).
+pub(crate) fn with_buffer_mut<R>(id: u32, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    BUFFERS.with(|b| {
+        let mut m = b.borrow_mut();
+        f(m.get_mut(&id).expect("invalid buffer id"))
+    })
+}
+
 #[wasm_bindgen]
 pub fn alloc_rgba_buffer(len: usize) -> u32 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);

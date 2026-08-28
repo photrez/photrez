@@ -273,7 +273,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
   });
 
   it.each(["onCanvasPointerCancel", "onCanvasLostPointerCapture"] as const)(
-    "%s finalizes the last sampled endpoint before committing",
+    "%s terminal behavior follows the 2026-08-24 contract",
     (terminalHandler) => {
       const { signals, dispose } = createMockEditor({ activeTool: "brush" });
       mockUseEditor(signals);
@@ -283,6 +283,7 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
       canvas.releasePointerCapture = vi.fn();
       const onPaintStroke = vi.fn();
       const commitBrushStroke = vi.fn();
+      const cancelBrushStroke = vi.fn();
       const { tools, dispose: disposeTools } = createPointerTools({
         getCanvasContainerRef: () => document.createElement("div"),
         getCanvasRef: () => canvas,
@@ -292,6 +293,8 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
         stopMomentum: vi.fn(),
         fitToScreenAndRender: vi.fn(),
         commitBrushStroke,
+        cancelBrushStroke,
+        isBrushStrokeActive: () => true,
         onPaintStroke,
       });
 
@@ -299,10 +302,18 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
       tools.onCanvasPointerMove({ clientX: 23, clientY: 10, buttons: 1, pointerId: 1 } as any);
       tools[terminalHandler]({ pointerId: 1 } as PointerEvent);
 
-      expect(onPaintStroke.mock.calls.at(-1)?.[3]).toBe(true);
-      expect(onPaintStroke.mock.invocationCallOrder.at(-1)).toBeLessThan(
-        commitBrushStroke.mock.invocationCallOrder[0],
-      );
+      if (terminalHandler === "onCanvasPointerCancel") {
+        // pointercancel = DISCARD (design contract): no commit ever runs.
+        expect(cancelBrushStroke).toHaveBeenCalled();
+        expect(commitBrushStroke).not.toHaveBeenCalled();
+        expect(onPaintStroke.mock.calls.at(-1)?.[3]).not.toBe(true);
+      } else {
+        // lostpointercapture keeps commit semantics: finalize endpoint first.
+        expect(onPaintStroke.mock.calls.at(-1)?.[3]).toBe(true);
+        expect(onPaintStroke.mock.invocationCallOrder.at(-1)).toBeLessThan(
+          commitBrushStroke.mock.invocationCallOrder[0],
+        );
+      }
 
       disposeTools();
       dispose();

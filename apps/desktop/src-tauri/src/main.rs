@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod alloc_stats;
 mod cursor;
 mod file_io;
 mod fonts;
 mod menu;
+mod paint_parity_cmds;
 mod print_core;
 mod print_geometry;
 mod print_settings;
@@ -22,6 +24,10 @@ use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_window_state::StateFlags;
 
 struct CliState(Mutex<Option<String>>);
+
+// Dev-only allocation accounting (R1 parity shadow harness).
+#[global_allocator]
+static GLOBAL_ALLOC: alloc_stats::CountingAlloc = alloc_stats::CountingAlloc;
 
 /// Accept only existing files with a readable extension (same whitelist as
 /// `file_io::READ_FILE_EXTENSIONS` plus `.ptz`). Returns None for anything
@@ -204,6 +210,28 @@ fn main() {
             file_io::delete_file,
             file_io::delete_autosave_file,
             file_io::close_app,
+            paint_parity_cmds::paint_parity_shadow,
+            paint_parity_cmds::paint_parity_commit,
+            paint_parity_cmds::paint_parity_tip_register,
+            paint_parity_cmds::paint_parity_tiles_for_keys,
+            paint_parity_cmds::paint_parity_mem,
+            paint_parity_cmds::paint_parity_mem_reset,
+            paint_parity_cmds::paint_parity_autorun_enabled,
+            paint_parity_cmds::paint_parity_export,
+            paint_parity_cmds::paint_shadow_autorun_enabled,
+            paint_parity_cmds::paint_shadow_export,
+            paint_parity_cmds::rust_pixels_open_document,
+            paint_parity_cmds::rust_pixels_close_document,
+            paint_parity_cmds::rust_pixels_init,
+            paint_parity_cmds::rust_pixels_remove_layer,
+            paint_parity_cmds::rust_pixels_resize_layer,
+            paint_parity_cmds::rust_pixels_write_region,
+            paint_parity_cmds::apply_tile_patch,
+            paint_parity_cmds::rust_pixels_undo,
+            paint_parity_cmds::rust_pixels_redo,
+            paint_parity_cmds::rust_pixels_snapshot_tile,
+            paint_parity_cmds::rust_pixels_snapshot_layer,
+            paint_parity_cmds::rust_pixels_get_epoch,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");

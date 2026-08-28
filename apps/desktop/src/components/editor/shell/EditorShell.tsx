@@ -38,6 +38,7 @@ import { destroySaveWorkerPool } from "../saveWorkerPool";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { prewarmFonts } from "@/lib/fontEnumeration";
 import { useTauriCloseHandler } from "@/lib/desktop/useTauriCloseHandler";
+import { transformPreview, applyFacadePreviews, installFacadeCommitShim } from "@/lib/protocol/facadeRegistry";
 import { useDialog } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession } from "../transformSession";
 // dev bench helper — window.__benchRealEngine() (no UI, no prod cost)
@@ -120,6 +121,12 @@ export function EditorShell() {
   const workspace = new WorkspaceManager();
   const camera = new ViewportCamera();
   const renderer = new WebGL2Backend();
+  // ADR 0008 H0: feature-gated legacy commit shim. The wrapper body exits
+  // immediately when photrez.facade is off — effectively zero runtime work.
+  installFacadeCommitShim({
+    getEngine: () => workspace.getActiveEngine() as never,
+    getDocId: () => (workspace.getActiveEngine() as unknown as { getId(): string } | null)?.getId() ?? "default",
+  });
   // Feature-flag signal owned by this component instance (not module scope):
   // the RenderScheduler callback below reads it via closure, and it is passed
   // into EditorProvider so the context value stays in sync.
@@ -132,14 +139,18 @@ export function EditorShell() {
   const scheduler = new RenderScheduler(() => {
     const engine = workspace.getActiveEngine();
     if (!engine) return;
+    // Ticket 2.2 + Opacity: during facade gestures the transient previews
+    // (transform/opacity) are applied to the OUTGOING RenderState only —
+    // the engine model stays untouched; Rust's committed deltas are authoritative.
+    const buildState = () => applyFacadePreviews(engine.getRenderState());
     if (useGPUCameraForModernCrop()) {
       const matrix = camera.getViewProjectionMatrix();
-      renderer.render(engine.getRenderState(), matrix);
+      renderer.render(buildState(), matrix);
     } else if (camera.isModernCropActive) {
-      renderer.render(engine.getRenderState());
+      renderer.render(buildState());
     } else {
       const matrix = camera.getViewProjectionMatrix();
-      renderer.render(engine.getRenderState(), matrix);
+      renderer.render(buildState(), matrix);
     }
   });
 

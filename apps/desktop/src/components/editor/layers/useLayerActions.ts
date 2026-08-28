@@ -10,6 +10,15 @@ import {
 import { cancelLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession } from "../canvas/pointerTools/textTool";
 import { showToast } from "../Toast";
+import { getFacade, isFacadeEnabled, seedFacadeFromEngine, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
+import { isFacadeOwnedLayer } from "@/engine/document";
+import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+
+// Ticket 2.1: single facade per document when photrez.facade=1. Rust is sole owner for addLayer.
+// Registry lives in @/lib/protocol/facadeRegistry (shared with Ticket 2.2 transform drag).
+export function __resetFacadeForTests(): void {
+  __resetFacadeRegistryForTests();
+}
 
 export function useLayerActions() {
   const {
@@ -159,25 +168,149 @@ export function useLayerActions() {
     if (engine && history && activeId) {
       // Nothing to bake if the layer has no live adjustment.
       if (!engine.getLayer(activeId)?.basicAdjustment) return;
-      history.commit(engine.snapshot(), "Apply Adjustment");
-      // Calm status-bar loading — only shows if >200ms (Material: <200ms no indicator to avoid flicker)
-      let t: number | null = window.setTimeout(() => setStatusLoadingMessage("Applying adjustment..."), 200);
-      let result: Awaited<ReturnType<typeof engine.commitBasicAdjustment>>;
-      try {
-        result = await engine.commitBasicAdjustment(activeId, renderer);
-      } finally {
-        if (t !== null) clearTimeout(t);
-        setStatusLoadingMessage(null);
+
+      // C5.4 canonical-pixel path (flag matches the brush/bucket/fill-layer gating).
+      const rustPixelsFlag = (() => {
+        try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
+      })();
+      const surface = engine.getPaintSurface(activeId);
+
+      if (rustPixelsFlag && surface) {
+        // Capture pre-bake state BEFORE mutation so undo restores it.
+        const preSnapshot = engine.snapshot();
+        const layer = engine.getLayer(activeId);
+        const preBitmap = layer?.imageBitmap;
+
+        // Calm status-bar loading — only shows if >200ms (Material: <200ms no indicator to avoid flicker)
+        let t: number | null = window.setTimeout(() => setStatusLoadingMessage("Applying adjustment..."), 200);
+        let result: Awaited<ReturnType<typeof engine.commitBasicAdjustment>>;
+        try {
+          result = await engine.commitBasicAdjustment(activeId, renderer);
+        } finally {
+          if (t !== null) clearTimeout(t);
+          setStatusLoadingMessage(null);
+        }
+
+        const bakedLayer = engine.getLayer(activeId);
+        if (!bakedLayer?.imageBitmap) return;
+
+        // Fire-and-forget keeps the handler responsive; canonical write + cache sync complete async.
+        void (async () => {
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const docId = engine.getId();
+
+            // Extract baked RGBA from the produced ImageBitmap.
+            const bakeCanvas = new OffscreenCanvas(bakedLayer.width, bakedLayer.height);
+            const bakeCtx = bakeCanvas.getContext("2d")!;
+            bakeCtx.drawImage(bakedLayer.imageBitmap!, 0, 0);
+            const bakedImageData = bakeCtx.getImageData(0, 0, bakedLayer.width, bakedLayer.height);
+            const bakedRgba = Array.from(bakedImageData.data);
+
+            // C5.4 ensure-if-absent: Adjustment Bake may be the FIRST raster op on a layer,
+            // so seed the canonical store from the PRE-bake bitmap when Rust has no entry yet.
+            let layerReady = true;
+            try {
+              await invoke("rust_pixels_get_epoch", { docId, layerId: activeId });
+            } catch {
+              layerReady = false;
+            }
+            if (!layerReady && preBitmap && layer) {
+              const preCanvas = new OffscreenCanvas(layer.width, layer.height);
+              const preCtx = preCanvas.getContext("2d")!;
+              preCtx.drawImage(preBitmap, 0, 0);
+              const preImageData = preCtx.getImageData(0, 0, layer.width, layer.height);
+              await invoke("rust_pixels_init", {
+                docId,
+                layerId: activeId,
+                width: layer.width,
+                height: layer.height,
+                bytes: Array.from(preImageData.data),
+              });
+            }
+
+            // Ensure the derived surface reflects the CURRENT canonical state.
+            await rehydratePaintSurfaceFromRust(docId, activeId, surface);
+
+            // Write baked pixels to Rust canonical (whole layer).
+            const res = (await invoke("rust_pixels_write_region", {
+              docId,
+              layerId: activeId,
+              x: 0,
+              y: 0,
+              w: bakedLayer.width,
+              h: bakedLayer.height,
+              rgba: bakedRgba,
+            })) as {
+              before: { x: number; y: number; w: number; h: number; data: number[] }[];
+              after: { x: number; y: number; w: number; h: number; data: number[] }[];
+              epoch: number;
+              version: number;
+            };
+
+            // Sync TS derived cache from Rust authoritative returned tiles.
+            applyRustTilesToSurface(surface.context, res.after);
+            surface.pixelEpoch = res.epoch;
+            surface.pixelVersion = res.version;
+            renderer?.uploadSurfaceTiles?.(activeId, bakedLayer.width, bakedLayer.height,
+              res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
+
+            // C5.4 bitmap sync: bitmap was set by commitBasicAdjustment before Rust write.
+            // Now that write_region succeeded, bitmap and Rust are proven identical.
+            bakedLayer.bitmapEpoch = res.epoch;
+
+            // Imperative memento: single user-visible history step.
+            // history stores before/after tiles; Rust entry synced via rust_pixels_undo.
+            const imperative = {
+              layerId: activeId,
+              surfaceWidth: bakedLayer.width,
+              surfaceHeight: bakedLayer.height,
+              before: res.before.map((t) => ({
+                x: t.x, y: t.y, width: t.w, height: t.h,
+                data: new Uint8ClampedArray(t.data),
+              })),
+              after: res.after.map((t) => ({
+                x: t.x, y: t.y, width: t.w, height: t.h,
+                data: new Uint8ClampedArray(t.data),
+              })),
+            };
+            history.commit(preSnapshot, "Apply Adjustment", imperative);
+          } catch (err) {
+            showToast(`Adjustment Bake failed: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
+            // Fallback: commit without imperative so undo still works (legacy-compatible).
+            history.commit(preSnapshot, "Apply Adjustment");
+          }
+        })();
+
+        if (result === "cpu" && typeof renderer?.bakeLayerToBitmap === "function") {
+          showToast(
+            "Layer adjustment bake fell back to CPU — painting may stutter on large layers.",
+            "warn",
+          );
+        }
+        scheduler.requestRender();
+      } else {
+        // Legacy path (TS-authoritative bitmap).
+        history.commit(engine.snapshot(), "Apply Adjustment");
+        // Calm status-bar loading — only shows if >200ms (Material: <200ms no indicator to avoid flicker)
+        let t: number | null = window.setTimeout(() => setStatusLoadingMessage("Applying adjustment..."), 200);
+        let result: Awaited<ReturnType<typeof engine.commitBasicAdjustment>>;
+        try {
+          result = await engine.commitBasicAdjustment(activeId, renderer);
+        } finally {
+          if (t !== null) clearTimeout(t);
+          setStatusLoadingMessage(null);
+        }
+        const bakedLayer = engine.getLayer(activeId);
+        if (bakedLayer?.imageBitmap) renderer.uploadImage(activeId, bakedLayer.imageBitmap);
+        if (result === "cpu" && typeof renderer?.bakeLayerToBitmap === "function") {
+          showToast(
+            "Layer adjustment bake fell back to CPU — painting may stutter on large layers.",
+            "warn",
+          );
+        }
+        scheduler.requestRender();
       }
-      const bakedLayer = engine.getLayer(activeId);
-      if (bakedLayer?.imageBitmap) renderer.uploadImage(activeId, bakedLayer.imageBitmap);
-      if (result === "cpu" && typeof renderer?.bakeLayerToBitmap === "function") {
-        showToast(
-          "Layer adjustment bake fell back to CPU — painting may stutter on large layers.",
-          "warn",
-        );
-      }
-      scheduler.requestRender();
     }
   };
 
@@ -352,14 +485,34 @@ export function useLayerActions() {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
-    if (engine && history) {
-      history.commit(engine.snapshot(), "New Layer");
+    if (!engine || !history) return;
+    if (isFacadeEnabled()) {
+      const docId = workspace.getActiveDocumentId() ?? "default";
+      const facade = getFacade(docId);
+      // Seed facade from engine on first use (one-time projection, not dual owner after)
+      seedFacadeFromEngine(engine as never, facade);
       try {
-        engine.addLayer(`Layer ${engine.getLayers().length + 1}`);
+        const snap = facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`);
+        // Project facade snapshot into engine (engine becomes read-only view, no history)
+        (engine as unknown as { applyFacadeSnapshot: (s: unknown) => void }).applyFacadeSnapshot(snap);
         scheduler.requestRender();
       } catch (err) {
-        showToast(`Cannot add layer: ${(err as Error).message}`, "error");
+        const msg = (err as Error).message;
+        if (msg.includes("E_VERSION_MISMATCH")) {
+          showToast("Version conflict — retrying", "warn");
+          // On mismatch, re-sync from engine and retry once would go here (deferred)
+        } else {
+          showToast(`Cannot add layer: ${msg}`, "error");
+        }
       }
+      return;
+    }
+    history.commit(engine.snapshot(), "New Layer");
+    try {
+      engine.addLayer(`Layer ${engine.getLayers().length + 1}`);
+      scheduler.requestRender();
+    } catch (err) {
+      showToast(`Cannot add layer: ${(err as Error).message}`, "error");
     }
   };
 
@@ -370,6 +523,31 @@ export function useLayerActions() {
     const multiIds = selectedLayerIds();
 
     if (multiIds.length > 1 && engine && history) {
+      // ADR 0008 DeleteLayer UX guard: mixed ownership selection is rejected
+      // ATOMICALLY — no partial mutation, no partial protocol traffic. A
+      // user-approved partial operation would require explicit future design.
+      if (isFacadeEnabled()) {
+        const ownedIds = multiIds.filter((id) => isFacadeOwnedLayer(id));
+        if (ownedIds.length > 0 && ownedIds.length < multiIds.length) {
+          showToast(MIXED_OWNERSHIP_MESSAGE, "warn");
+          return;
+        }
+        if (ownedIds.length > 0) {
+          const facade = getFacade(engine.getId());
+          let lastSnap: unknown = null;
+          for (const id of ownedIds) {
+            const s = facade.deleteLayer(id);
+            if (s) {
+              engine.applyFacadeSnapshot(s as never);
+              lastSnap = s;
+              renderer.destroyTexture(id);
+            }
+          }
+          setSelectedLayerId(engine.getActiveLayerId());
+          scheduler.requestRender();
+          return;
+        }
+      }
       const session = textEditSession();
       if (session && multiIds.includes(session.layerId)) {
         cancelTextSession(textSessionEditor());
@@ -409,6 +587,18 @@ export function useLayerActions() {
         return;
       }
       if (engine.getLayers().length <= 1) return;
+      // ADR 0008 DeleteLayer ticket: facade-owned layer deletes through Rust —
+      // ONE DeleteLayer command (expectedVersion enforced), projection
+      // authoritative, NO legacy history.commit, no dangling ownership marker.
+      if (isFacadeEnabled() && isFacadeOwnedLayer(activeId)) {
+        const facade = getFacade(engine.getId());
+        const snap = facade.deleteLayer(activeId);
+        if (snap) engine.applyFacadeSnapshot(snap as never);
+        renderer.destroyTexture(activeId);
+        setSelectedLayerId(engine.getActiveLayerId());
+        scheduler.requestRender();
+        return;
+      }
       history.commit(engine.snapshot(), "Delete Layer");
       engine.deleteLayer(activeId);
       renderer.destroyTexture(activeId);

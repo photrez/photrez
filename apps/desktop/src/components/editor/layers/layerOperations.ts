@@ -5,6 +5,10 @@ import { compositeAllLayers } from "@/engine/layerComposite";
 import { applyBasicAdjustmentToColor } from "@/engine/layerAdjustments";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import type { SelectionState } from "@/features/selection/SelectionTypes";
+import type { LayerNode } from "@/engine/types";
+import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
+import { showToast } from "../Toast";
 
 export function mergeActiveLayerDown(
   engine: DocumentEngine,
@@ -186,6 +190,15 @@ export function stampVisibleLayers(
  * Replaces the entire layer content with an opaque `color` bitmap. Skips
  * locked layers and layers with no active id. Commits history BEFORE mutation
  * so the fill is undoable/redoable, then uploads the new bitmap to the renderer.
+ *
+ * C5.4 (Fill Layer): when the canonical Rust pixel owner is enabled
+ * (localStorage "photrez.rustPixels" === "1") and the layer has a PaintTileSurface,
+ * the fill writes through `rust_pixels_write_region` (one canonical `Pixel` history
+ * entry) and drives the derived TS PaintTileSurface + history memento from the Rust
+ * result — mirroring the brush/bucket. A single user Fill yields exactly ONE
+ * user-visible undo step (the Rust history entry is subordinate to the TS
+ * `history.commit` that drives undo/redo; there is no second step). Legacy path
+ * (flag off, or no surface e.g. shape/text layers) is preserved unchanged.
  */
 export function fillActiveLayerWithColor(
   engine: DocumentEngine,
@@ -206,105 +219,105 @@ export function fillActiveLayerWithColor(
     ? applyBasicAdjustmentToColor(color, layer.basicAdjustment)
     : color;
 
-  const w = layer.width;
-  const h = layer.height;
-
-  // When a selection is active, the fill is scoped to the selection bounds
-  // (matching how similar editors fill only the selected region). Without a
-  // selection the entire layer is filled, identical to the prior behavior.
   const sel = engine.getSelection();
 
+  // C5.4 canonical-pixel path (flag matches the brush/bucket/undo gating).
+  const rustPixelsFlag = (() => {
+    try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
+  })();
+  const surface = engine.getPaintSurface(activeId);
+  if (rustPixelsFlag && surface) {
+    const docId = engine.getId();
+    // Fire-and-forget keeps the Alt+Del handler synchronous so it can
+    // requestRender immediately; the canonical write + cache sync complete async.
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        // C5.4 ensure-if-absent: a Fill Layer can be the FIRST raster op on a
+        // layer, so seed the canonical store from the current derived pixels when
+        // Rust has no entry yet (mirrors the brush/bucket; never overwrites).
+        let layerReady = true;
+        try {
+          await invoke("rust_pixels_get_epoch", { docId, layerId: activeId });
+        } catch {
+          layerReady = false;
+        }
+        if (!layerReady) {
+          const seedData = surface.context.getImageData(0, 0, layer.width, layer.height).data;
+          await invoke("rust_pixels_init", {
+            docId,
+            layerId: activeId,
+            width: layer.width,
+            height: layer.height,
+            bytes: Array.from(seedData),
+          });
+        }
+        // Ensure the derived surface reflects the CURRENT canonical state before
+        // we overlay the fill (mirrors the brush/bucket pre-commit rehydration).
+        await rehydratePaintSurfaceFromRust(docId, activeId, surface);
+        // Source current pixels from Rust so OVERLAPPING fills read the post-prior-fill
+        // canonical buffer (not a stale TS bitmap).
+        const tiles = (await invoke("rust_pixels_snapshot_layer", { docId, layerId: activeId })) as
+          { x: number; y: number; w: number; h: number; data: number[] }[];
+        const before = reconstructLayerBuffer(tiles, layer.width, layer.height);
+        // Build the filled result, preserving outside-selection pixels from `before`.
+        const existing = await createImageBitmap(new ImageData(before as Uint8ClampedArray<ArrayBuffer>, layer.width, layer.height));
+        const offscreen = buildFilledCanvas(layer, fillColor, sel, existing);
+        if (!offscreen) return;
+        const after = (offscreen.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D)
+          .getImageData(0, 0, layer.width, layer.height).data as Uint8ClampedArray;
+        const changed = computeChangedRegion(before, after, layer.width, layer.height);
+        if (!changed) return;
+        // Capture pre-fill state BEFORE clearing the adjustment so undo restores it.
+        const preSnapshot = engine.snapshot();
+        if (layer.basicAdjustment) engine.clearBasicAdjustments(activeId);
+        const res = (await invoke("rust_pixels_write_region", {
+          docId,
+          layerId: activeId,
+          x: changed.x,
+          y: changed.y,
+          w: changed.w,
+          h: changed.h,
+          rgba: Array.from(changed.rgba),
+        })) as {
+          before: { x: number; y: number; w: number; h: number; data: number[] }[];
+          after: { x: number; y: number; w: number; h: number; data: number[] }[];
+          epoch: number;
+          version: number;
+        };
+        // TS derived cache updated from Rust's authoritative returned `after` tiles + epoch.
+        applyRustTilesToSurface(surface.context, res.after);
+        surface.pixelEpoch = res.epoch;
+        surface.pixelVersion = res.version;
+        renderer?.uploadSurfaceTiles?.(activeId, layer.width, layer.height, res.after.map(t => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
+        // C5.4 bitmap sync: bitmap was set before Rust write (setLayerImageBitmap).
+        // Now that write_region succeeded, bitmap and Rust are proven identical.
+        const fillLayer = engine.getLayer(activeId);
+        if (fillLayer) fillLayer.bitmapEpoch = res.epoch;
+        // Imperative is entry-owned (tile-memento model): history stores it and
+        // replays its before/after tiles on undo/redo; the Rust entry is synced
+        // via `rust_pixels_undo` (single step, no second TS-visible entry).
+        const imperative = {
+          layerId: activeId,
+          surfaceWidth: layer.width,
+          surfaceHeight: layer.height,
+          before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+          after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+        };
+        history.commit(preSnapshot, "Fill Layer", imperative);
+      } catch (err) {
+        showToast(`Fill Layer failed: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
+      }
+    })();
+    return true;
+  }
+
+  // ── Legacy path (TS-authoritative bitmap) ──
   let bitmap: ImageBitmap | null = null;
   try {
-    if (typeof OffscreenCanvas !== "undefined") {
-      const offscreen = new OffscreenCanvas(w, h);
-      const ctx = offscreen.getContext("2d");
-      if (ctx) {
-        // Preserve existing layer content outside the filled region.
-        const existing = engine.getLayerImageBitmap(activeId);
-        if (existing) ctx.drawImage(existing, 0, 0);
-
-        ctx.fillStyle = fillColor;
-        if (sel) {
-          // Selection is in document space; map it into layer-local pixel
-          // space so the fill lands under the marquee even after the layer
-          // is resized/translated/rotated. Identity transform ⇒ unchanged.
-          const aabb = SelectionOperations.selectionToLayerAabb(sel, layer.transform, w, h);
-          const sx = Math.round(aabb.x);
-          const sy = Math.round(aabb.y);
-          const sw = Math.max(0, Math.round(aabb.width));
-          const sh = Math.max(0, Math.round(aabb.height));
-          if (sel.inverted) {
-            if (sel.shape === "ellipse") {
-              // Inverted ellipse: fill everything EXCEPT the ellipse interior.
-              const img = ctx.getImageData(0, 0, w, h);
-              const hex = fillColor.replace("#", "");
-              const r = parseInt(hex.slice(0, 2), 16);
-              const g = parseInt(hex.slice(2, 4), 16);
-              const b = parseInt(hex.slice(4, 6), 16);
-              const localSel: SelectionState = {
-                x: aabb.x, y: aabb.y,
-                width: aabb.width, height: aabb.height,
-                angle: 0, shape: "ellipse",
-              };
-              for (let py = 0; py < h; py++) {
-                for (let px = 0; px < w; px++) {
-                  if (!SelectionOperations.isInsideEllipse(px, py, localSel)) {
-                    const idx = (py * w + px) * 4;
-                    img.data[idx] = r;
-                    img.data[idx + 1] = g;
-                    img.data[idx + 2] = b;
-                    img.data[idx + 3] = 255;
-                  }
-                }
-              }
-              ctx.putImageData(img, 0, 0);
-            } else {
-              // Fill everything EXCEPT the (clamped) selected rect.
-              const left = Math.max(0, Math.min(w, sx));
-              const top = Math.max(0, Math.min(h, sy));
-              const right = Math.max(0, Math.min(w, sx + sw));
-              const bottom = Math.max(0, Math.min(h, sy + sh));
-              ctx.fillRect(0, 0, w, top);
-              ctx.fillRect(0, bottom, w, h - bottom);
-              ctx.fillRect(0, top, left, bottom - top);
-              ctx.fillRect(right, top, w - right, bottom - top);
-            }
-          } else {
-            if (sel.shape === "ellipse") {
-              // Non-inverted ellipse: fill only pixels INSIDE the ellipse.
-              const img = ctx.getImageData(0, 0, w, h);
-              const hex = fillColor.replace("#", "");
-              const r = parseInt(hex.slice(0, 2), 16);
-              const g = parseInt(hex.slice(2, 4), 16);
-              const b = parseInt(hex.slice(4, 6), 16);
-              const localSel: SelectionState = {
-                x: aabb.x, y: aabb.y,
-                width: aabb.width, height: aabb.height,
-                angle: 0, shape: "ellipse",
-              };
-              for (let py = sy; py < sy + sh; py++) {
-                for (let px = sx; px < sx + sw; px++) {
-                  if (SelectionOperations.isInsideEllipse(px, py, localSel)) {
-                    const idx = (py * w + px) * 4;
-                    img.data[idx] = r;
-                    img.data[idx + 1] = g;
-                    img.data[idx + 2] = b;
-                    img.data[idx + 3] = 255;
-                  }
-                }
-              }
-              ctx.putImageData(img, 0, 0);
-            } else {
-              ctx.fillRect(sx, sy, sw, sh);
-            }
-          }
-        } else {
-          ctx.fillRect(0, 0, w, h);
-        }
-        bitmap = offscreen.transferToImageBitmap();
-      }
-    }
+    const offscreen = buildFilledCanvas(layer, fillColor, sel, engine.getLayerImageBitmap(activeId));
+    if (!offscreen) return false;
+    bitmap = (offscreen as OffscreenCanvas).transferToImageBitmap();
   } catch (err: unknown) {
     if (import.meta.env.DEV) console.error("Failed to fill layer with color:", err);
     return false;
@@ -323,4 +336,110 @@ export function fillActiveLayerWithColor(
   engine.setLayerImageBitmap(activeId, bitmap);
   renderer.uploadImage(activeId, bitmap);
   return true;
+}
+
+/** Build an OffscreenCanvas (or HTMLCanvas fallback) with the solid fill applied,
+ *  preserving existing pixels outside the (optional) selection. Shared by the
+ *  legacy and C5.4 Rust-canonical paths so fill semantics stay identical. */
+function buildFilledCanvas(
+  layer: LayerNode,
+  fillColor: string,
+  sel: SelectionState | null,
+  existing: ImageBitmap | null,
+): OffscreenCanvas | HTMLCanvasElement | null {
+  const w = layer.width, h = layer.height;
+  const offscreen = typeof OffscreenCanvas !== "undefined"
+    ? new OffscreenCanvas(w, h)
+    : (() => {
+        const el = document.createElement("canvas");
+        el.width = w;
+        el.height = h;
+        return el;
+      })();
+  const ctx = offscreen.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) return null;
+  if (existing) ctx.drawImage(existing, 0, 0);
+  applyFillToContext(ctx, layer, fillColor, sel);
+  return offscreen;
+}
+
+/** Apply the solid fill (whole-layer or selection-scoped) onto an already-drawn
+ *  2D context. Extracted from `fillActiveLayerWithColor` so the legacy and
+ *  Rust-canonical paths share identical fill semantics. */
+function applyFillToContext(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layer: LayerNode,
+  fillColor: string,
+  sel: SelectionState | null,
+): void {
+  const w = layer.width, h = layer.height;
+  ctx.fillStyle = fillColor;
+  if (sel) {
+    // Selection is in document space; map it into layer-local pixel space so the
+    // fill lands under the marquee even after the layer is resized/translated/rotated.
+    const aabb = SelectionOperations.selectionToLayerAabb(sel, layer.transform, w, h);
+    const sx = Math.round(aabb.x);
+    const sy = Math.round(aabb.y);
+    const sw = Math.max(0, Math.round(aabb.width));
+    const sh = Math.max(0, Math.round(aabb.height));
+    if (sel.inverted) {
+      if (sel.shape === "ellipse") {
+        // Inverted ellipse: fill everything EXCEPT the ellipse interior.
+        const img = ctx.getImageData(0, 0, w, h);
+        const hex = fillColor.replace("#", "");
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        const localSel: SelectionState = { x: aabb.x, y: aabb.y, width: aabb.width, height: aabb.height, angle: 0, shape: "ellipse" };
+        for (let py = 0; py < h; py++) {
+          for (let px = 0; px < w; px++) {
+            if (!SelectionOperations.isInsideEllipse(px, py, localSel)) {
+              const idx = (py * w + px) * 4;
+              img.data[idx] = r;
+              img.data[idx + 1] = g;
+              img.data[idx + 2] = b;
+              img.data[idx + 3] = 255;
+            }
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+      } else {
+        // Fill everything EXCEPT the (clamped) selected rect.
+        const left = Math.max(0, Math.min(w, sx));
+        const top = Math.max(0, Math.min(h, sy));
+        const right = Math.max(0, Math.min(w, sx + sw));
+        const bottom = Math.max(0, Math.min(h, sy + sh));
+        ctx.fillRect(0, 0, w, top);
+        ctx.fillRect(0, bottom, w, h - bottom);
+        ctx.fillRect(0, top, left, bottom - top);
+        ctx.fillRect(right, top, w - right, bottom - top);
+      }
+    } else {
+      if (sel.shape === "ellipse") {
+        // Non-inverted ellipse: fill only pixels INSIDE the ellipse.
+        const img = ctx.getImageData(0, 0, w, h);
+        const hex = fillColor.replace("#", "");
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        const localSel: SelectionState = { x: aabb.x, y: aabb.y, width: aabb.width, height: aabb.height, angle: 0, shape: "ellipse" };
+        for (let py = sy; py < sy + sh; py++) {
+          for (let px = sx; px < sx + sw; px++) {
+            if (SelectionOperations.isInsideEllipse(px, py, localSel)) {
+              const idx = (py * w + px) * 4;
+              img.data[idx] = r;
+              img.data[idx + 1] = g;
+              img.data[idx + 2] = b;
+              img.data[idx + 3] = 255;
+            }
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+      } else {
+        ctx.fillRect(sx, sy, sw, sh);
+      }
+    }
+  } else {
+    ctx.fillRect(0, 0, w, h);
+  }
 }

@@ -42,7 +42,8 @@ export function createSnapshot(model: DocumentModel): DocumentModel {
       // TextData is a flat object; spread is a full deep copy. Undo/redo of
       // any text op MUST restore the params or the layer loads as plain text
       // without content (shape-tool bug class d1b1403).
-      textData: l.textData ? { ...l.textData } : undefined
+      textData: l.textData ? { ...l.textData } : undefined,
+      bitmapEpoch: l.bitmapEpoch,
     }))
   };
 }
@@ -80,7 +81,10 @@ export function restoreSnapshot(snapshot: DocumentModel): DocumentModel {
       // TextData is a flat object; spread is a full deep copy. Undo/redo of
       // any text op MUST restore the params or the layer loads as plain text
       // without content (shape-tool bug class d1b1403).
-      textData: l.textData ? { ...l.textData } : undefined
+      textData: l.textData ? { ...l.textData } : undefined,
+      // C5.4: bitmapEpoch cleared on restore — restored bitmap may not match
+      // current Rust canonical. ensureBitmapCurrent() will re-verify on demand.
+      bitmapEpoch: undefined,
     }))
   };
 }

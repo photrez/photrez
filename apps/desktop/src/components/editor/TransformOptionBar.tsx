@@ -7,6 +7,8 @@ import { useEditor } from "./shell/EditorContext";
 import { ToggleBtn, Divider, ToolPill, MoreDropdown } from "./shell/OptionBarShared";
 import { cancelLayerTransformSession, commitLayerTransformSession, resetLayerTransformPreview } from "./transformSession";
 import type { Transform2D } from "@/engine/types";
+import { isFacadeEnabled, getFacade, setTransformPreview, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
+import { isFacadeOwnedLayer } from "@/engine/document";
 import { useI18n } from "@/i18n/I18nProvider";
 
 export function TransformOptionBar() {
@@ -39,6 +41,18 @@ export function TransformOptionBar() {
 
   const apply = () => {
     const current = engine();
+    const currentSession = session();
+    // Ticket 2.2: facade-owned layer — one Rust command at apply, projection
+    // authoritative; the per-edit preview signal is cleared.
+    if (current && currentSession && isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
+      const f = getFacade(current.getId());
+      const snap = f.commitTransform();
+      if (snap) current.applyFacadeSnapshot(snap as never);
+      clearTransformPreview();
+      setLayerTransformSession(null);
+      scheduler.requestRender();
+      return;
+    }
     const history = workspace.getActiveHistory();
     if (commitLayerTransformSession(session(), current, history)) {
       setLayerTransformSession(null);
@@ -48,6 +62,14 @@ export function TransformOptionBar() {
 
   const cancel = () => {
     const current = engine();
+    const currentSession = session();
+    if (current && currentSession && isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
+      getFacade(current.getId()).cancelTransform();
+      clearTransformPreview();
+      setLayerTransformSession(null);
+      scheduler.requestRender();
+      return;
+    }
     if (cancelLayerTransformSession(session(), current)) {
       setLayerTransformSession(null);
       scheduler.requestRender();
@@ -56,6 +78,16 @@ export function TransformOptionBar() {
 
   const resetPreview = () => {
     const current = engine();
+    const currentSession = session();
+    // Ticket 2.2: facade-owned layer — revert transient preview to the
+    // session's original transform (still uncommitted; zero IPC).
+    if (current && currentSession && isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
+      getFacade(current.getId()).updateTransform({ ...currentSession.originalTransform });
+      setTransformPreview({ layerId: currentSession.layerId, transform: { ...currentSession.originalTransform } });
+      setTransformTick((t) => t + 1);
+      scheduler.requestRender();
+      return;
+    }
     if (resetLayerTransformPreview(session(), current)) {
       setTransformTick(t => t + 1);
       scheduler.requestRender();
@@ -68,8 +100,17 @@ export function TransformOptionBar() {
     if (!current || !currentSession) return;
     const layer = current.getLayer(currentSession.layerId);
     if (!layer || layer.locked) return;
+    // Ticket 2.2: facade-owned layer — transient preview per edit, zero IPC.
+    if (isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
+      const next = { ...layer.transform, ...patch };
+      getFacade(current.getId()).updateTransform(next);
+      setTransformPreview({ layerId: layer.id, transform: next });
+      setTransformTick((t) => t + 1);
+      scheduler.requestRender();
+      return;
+    }
     current.transformLayer(currentSession.layerId, { ...layer.transform, ...patch });
-    setTransformTick(t => t + 1);
+    setTransformTick((t) => t + 1);
     scheduler.requestRender();
   };
 
@@ -95,6 +136,15 @@ export function TransformOptionBar() {
       const ratioScale = Math.sign(layer.transform.scaleY || 1) * Math.abs(nextScaleX);
       next.scaleY = ratioScale;
     }
+    // Ticket 2.2: facade-owned layer — transient preview, zero IPC.
+    if (isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
+      const full = { ...layer.transform, ...next };
+      getFacade(current.getId()).updateTransform(full);
+      setTransformPreview({ layerId: layer.id, transform: full });
+      setTransformTick((t) => t + 1);
+      scheduler.requestRender();
+      return;
+    }
     current.transformLayer(currentSession.layerId, next);
     setTransformTick(t => t + 1);
     scheduler.requestRender();
@@ -113,6 +163,15 @@ export function TransformOptionBar() {
     if (constrainRatio() && layer.width > 0) {
       const ratioScale = Math.sign(layer.transform.scaleX || 1) * Math.abs(nextScaleY);
       next.scaleX = ratioScale;
+    }
+    // Ticket 2.2: facade-owned layer — transient preview, zero IPC.
+    if (isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
+      const full = { ...layer.transform, ...next };
+      getFacade(current.getId()).updateTransform(full);
+      setTransformPreview({ layerId: layer.id, transform: full });
+      setTransformTick((t) => t + 1);
+      scheduler.requestRender();
+      return;
     }
     current.transformLayer(currentSession.layerId, next);
     setTransformTick(t => t + 1);

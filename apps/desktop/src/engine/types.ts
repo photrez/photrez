@@ -94,6 +94,15 @@ export interface LayerNode {
   shapeParams?: ShapeParams;
   /** Text layer only: parametric source of truth. Absent for other types. */
   textData?: TextData;
+  /**
+   * C5.4 bitmap sync: the Rust epoch at which this exact `imageBitmap` was
+   * proven to match the Rust canonical pixel buffer.  `undefined` means
+   * freshness relative to Rust is unknown — consumers that need canonical
+   * pixels must call `ensureBitmapCurrent()` first.
+   *
+   * This field is transient (in-memory only, not persisted to .ptz).
+   */
+  bitmapEpoch?: number;
 }
 
 // ─── Selection ───

@@ -113,6 +113,8 @@ export function CanvasViewport() {
   const {
     onPaintStroke,
     commitBrushStroke,
+    cancelActiveStroke,
+    isStrokeActive,
     setOverlayCanvasRef,
     getOverlayCanvasRef,
   } = useBrushOverlay();
@@ -339,6 +341,8 @@ export function CanvasViewport() {
     stopMomentum,
     fitToScreenAndRender,
     commitBrushStroke,
+    cancelBrushStroke: cancelActiveStroke,
+    isBrushStrokeActive: isStrokeActive,
     onPaintStroke,
     cropSnapTargets: () => cropSnapTargets(),
     moveSnapEnabled: () => moveSnapEnabled(),

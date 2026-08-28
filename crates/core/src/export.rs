@@ -3,6 +3,68 @@ use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use wasm_bindgen::prelude::*;
 
+// ── PNG decode offload (Rust-migration package: measured 1.8x vs browser) ────
+// R5 bench (2026-08-21): image-crate png path 145ms @4K vs Chrome
+// createImageBitmap 262ms. Decode-into-pinned-buffer shape: the file bytes
+// cross the boundary once; decoded RGBA stays in wasm memory for zero-copy
+// JS readout via rgba_buffer_view. Two-step (dimensions first) lets TS apply
+// its MAX_CANVAS_DIM guard BEFORE allocating pixel memory.
+
+/// Header-only dimension probe. Errors on invalid/truncated PNG.
+/// Errors are `String` (wasm-bindgen converts to JS Error; works in native
+/// tests where JsValue cannot be constructed).
+#[wasm_bindgen]
+pub fn png_dimensions_wasm(png_bytes: &[u8]) -> Result<DecodedImageMeta, String> {
+    let reader = image::ImageReader::new(Cursor::new(png_bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("PNG read failed: {}", e))?;
+    let dims = reader
+        .into_dimensions()
+        .map_err(|e| format!("PNG header parse failed: {}", e))?;
+    Ok(DecodedImageMeta {
+        width: dims.0,
+        height: dims.1,
+    })
+}
+
+#[wasm_bindgen]
+pub struct DecodedImageMeta {
+    width: u32,
+    height: u32,
+}
+
+#[wasm_bindgen]
+impl DecodedImageMeta {
+    #[wasm_bindgen(getter)]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    #[wasm_bindgen(getter)]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+}
+
+/// Full decode of `png_bytes` into the pinned RGBA buffer `buf_id`
+/// (must be >= width*height*4; allocate via alloc_rgba_buffer after probing
+/// dimensions). Returns the decoded dimensions.
+#[wasm_bindgen]
+pub fn decode_png_into_wasm(png_bytes: &[u8], buf_id: u32) -> Result<DecodedImageMeta, String> {
+    let img = image::load_from_memory_with_format(png_bytes, image::ImageFormat::Png)
+        .map_err(|e| format!("PNG decode failed: {}", e))?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let need = width as usize * height as usize * 4;
+    crate::kernel::with_buffer_mut(buf_id, |dst| {
+        if dst.len() < need {
+            return Err(format!("buffer too small: {} < {}", dst.len(), need));
+        }
+        dst[..need].copy_from_slice(rgba.as_raw());
+        Ok(())
+    })?;
+    Ok(DecodedImageMeta { width, height })
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ExportFormat {
     PNG,
@@ -239,5 +301,54 @@ mod benchmarks {
             "  WEBP[lossless, ramp 4K]       : {} KB  (small because ramp compresses; NOT data loss)",
             ramp_out.len() / 1024
         );
+    }
+}
+
+#[cfg(test)]
+mod png_decode_tests {
+    use super::*;
+
+    fn tiny_png() -> Vec<u8> {
+        // Encode a 2x2 (red, green / blue, transparent) PNG via the image crate.
+        let img = image::RgbaImage::from_fn(2, 2, |x, y| match (x, y) {
+            (0, 0) => image::Rgba([255, 0, 0, 255]),
+            (1, 0) => image::Rgba([0, 255, 0, 255]),
+            (0, 1) => image::Rgba([0, 0, 255, 255]),
+            _ => image::Rgba([0, 0, 0, 0]),
+        });
+        let mut out = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .expect("encode");
+        out.into_inner()
+    }
+
+    #[test]
+    fn dimensions_probe_matches() {
+        let meta = png_dimensions_wasm(&tiny_png()).expect("dims");
+        assert_eq!(meta.width(), 2);
+        assert_eq!(meta.height(), 2);
+    }
+
+    #[test]
+    fn decode_into_buffer_pixel_exact() {
+        let buf = crate::kernel::alloc_rgba_buffer(2 * 2 * 4);
+        let meta = decode_png_into_wasm(&tiny_png(), buf).expect("decode");
+        assert_eq!((meta.width(), meta.height()), (2, 2));
+        crate::kernel::with_buffer(buf, |px| {
+            assert_eq!(
+                px,
+                &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 0]
+            );
+        });
+        crate::kernel::free_rgba_buffer(buf);
+    }
+
+    #[test]
+    fn rejects_truncated_and_undersized_buffer() {
+        assert!(png_dimensions_wasm(b"not a png").is_err());
+        let buf = crate::kernel::alloc_rgba_buffer(4); // too small on purpose
+        assert!(decode_png_into_wasm(&tiny_png(), buf).is_err());
+        crate::kernel::free_rgba_buffer(buf);
     }
 }

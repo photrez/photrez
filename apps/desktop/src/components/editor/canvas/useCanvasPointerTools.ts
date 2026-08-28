@@ -40,6 +40,10 @@ interface UseCanvasPointerToolsParams {
   stopMomentum: () => void;
   fitToScreenAndRender: () => void;
   commitBrushStroke: (engine: DocumentEngine, history: CommandHistory, id: string, isEraser: boolean, anchor?: { x: number; y: number } | null) => void;
+  /** Discard the active brush/eraser stroke (pointercancel / Escape): no commit, no history entry. */
+  cancelBrushStroke?: () => boolean;
+  /** True while a brush/eraser stroke gesture is live. */
+  isBrushStrokeActive?: () => boolean;
   onPaintStroke?: (
     points: { x: number; y: number }[],
     isEraser: boolean,
@@ -232,9 +236,21 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
   const onWindowBlur = () => stopEdgeRaf();
   const onVisibilityChange = () => { if (document.hidden) stopEdgeRaf(); };
   // Escape aborts an in-progress shape drag (layer is removed, no history entry).
+  // Escape during an active brush/eraser stroke discards the stroke (no commit).
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape" && shapeDragState.isDragging) {
       cancelActiveShapeDrag();
+      return;
+    }
+    if (
+      e.key === "Escape" &&
+      params.isBrushStrokeActive?.() &&
+      ((activeTool() as ToolType) === "brush" || (activeTool() as ToolType) === "eraser")
+    ) {
+      params.cancelBrushStroke?.();
+      interactiveState.strokePoints = [];
+      interactiveState.isDragging = false;
+      interactiveState.dragTool = null;
     }
   };
   if (typeof window !== "undefined") {
@@ -899,16 +915,12 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
 
     const tool = (interactiveState.dragTool ?? activeTool()) as ToolType;
     if (tool === "brush" || tool === "eraser") {
-      const layerId = engine.getActiveLayerId();
-      if (history && layerId && interactiveState.strokePoints.length > 0) {
-        interactiveState.onPaintStroke?.(
-          interactiveState.strokePoints,
-          tool === "eraser",
-          interactiveState.paintSettings,
-          true,
-        );
-        params.commitBrushStroke(engine, history, layerId, tool === "eraser");
-      }
+      // pointercancel during an active stroke = DISCARD (design contract:
+      // palm/touch takeover must not permanently paint). The surface was never
+      // mutated pre-commit, so discard is a pure preview teardown. The cancel
+      // handler below clears strokePoints, so the subsequent lostpointercapture
+      // event sees an empty gesture and cannot double-commit.
+      params.cancelBrushStroke?.();
     }
 
     if (tool === "selection") {

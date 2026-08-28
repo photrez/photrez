@@ -17,6 +17,18 @@ import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { getLoadedWasmModule } from "@/components/editor/wasmExport";
 const USE_RUST_SSOT = true; // Rust owns graph ops (field parity complete); history/snapshot stay TS (bitmaps)
+
+// Gate A: facade isolation — when photrez.facade=1, Rust is sole owner for facade layers.
+const FACADE_FLAG = "photrez.facade";
+function isFacadeEnabled(): boolean {
+  try { return typeof localStorage !== "undefined" && localStorage.getItem(FACADE_FLAG) === "1"; } catch { return false; }
+}
+const facadeOwnedIds = new Set<string>();
+function isFacadeOwned(id: string): boolean { return isFacadeEnabled() && facadeOwnedIds.has(id); }
+export function isFacadeOwnedLayer(id: string): boolean { return isFacadeOwned(id); }
+export function hasFacadeOwnedLayers(): boolean { return isFacadeEnabled() && facadeOwnedIds.size > 0; }function markFacadeOwned(ids: string[]): void { for (const id of ids) facadeOwnedIds.add(id); }
+function clearFacadeOwnedForTests(): void { facadeOwnedIds.clear(); }
+if (typeof globalThis !== "undefined") (globalThis as unknown as Record<string, unknown>).__clearFacadeOwnedForTests = clearFacadeOwnedForTests;
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
@@ -103,6 +115,10 @@ export class DocumentEngine {
   private snapshotRetainedBitmaps = new WeakSet<ImageBitmap>();
   private rustEngine: any = null;
   private syncingFromRust = false;
+  // ADR 0008 DeleteLayer ticket: ids this engine projected as facade-owned in
+  // its LAST applyFacadeSnapshot. Used to unmark (reconcile) ownership when a
+  // projected id disappears — no dangling markers after delete/undone-add.
+  private facadeProjectedIds: Set<string> | null = null;
 
   constructor(id: DocumentId, name: string, width: number, height: number) {
     this.model = {
@@ -393,6 +409,7 @@ export class DocumentEngine {
   }
 
   deleteLayer(id: LayerId): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade — legacy delete blocked`);
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const ok: boolean = this.rustEngine.delete_layer(id);
@@ -572,6 +589,7 @@ export class DocumentEngine {
   // ─── Layer Properties ───
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerOpacity(id: LayerId, opacity: number): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade — legacy opacity blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_opacity(id, opacity)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -582,6 +600,7 @@ export class DocumentEngine {
   }
 
   setLayerVisibility(id: LayerId, visible: boolean): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade — legacy visibility blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_visibility(id, visible)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -687,6 +706,7 @@ export class DocumentEngine {
   }
 
   transformLayer(id: LayerId, transform: Partial<Transform2D>): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade — legacy transform blocked`);
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const ok: boolean = this.rustEngine.transform_layer(
@@ -878,6 +898,76 @@ export class DocumentEngine {
   getLayerImageBitmap(id: LayerId): ImageBitmap | null {
     const layer = this.getLayer(id);
     return layer ? layer.imageBitmap : null;
+  }
+
+  /**
+   * C5.4 bitmap sync: ensure `layer.imageBitmap` reflects the current Rust
+   * canonical pixel state.  When the bitmap is stale (or freshness is unknown),
+   * reconstruct it from the PaintTileSurface (preferred) or from a full Rust
+   * canonical snapshot and replace the layer bitmap via the existing lifetime
+   * mechanism.
+   *
+   * Call this before any consumer that MUST see canonical pixels (export, save,
+   * crop, merge, invert, adjustment-bake input, eyedropper).
+   *
+   * Does NOT create a Rust store — when no Rust entry exists the bitmap IS
+   * the source of truth and this is a no-op.
+   */
+  async ensureBitmapCurrent(docId: string, layerId: LayerId): Promise<void> {
+    const layer = this.getLayer(layerId);
+    if (!layer) return;
+
+    // 1. Check whether Rust has a canonical store for this layer.
+    let rustEpoch: number | null = null;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const res = await invoke("rust_pixels_get_epoch", { docId, layerId });
+      rustEpoch = typeof res === "number" ? res : null;
+    } catch {
+      // No Rust store — bitmap IS the source of truth.
+      return;
+    }
+    if (rustEpoch == null) return;
+
+    // 2. Already known current?
+    if (layer.bitmapEpoch === rustEpoch) return;
+
+    // 3. Bitmap is stale/unknown — sync from PaintTileSurface or Rust.
+    const surface = this.paintSurfaces.get(layerId);
+    if (surface && surface.pixelEpoch === rustEpoch) {
+      // Surface is current — reconstruct bitmap from surface tiles.
+      const rect = surface.readRect(0, 0, layer.width, layer.height);
+      const canvas = new OffscreenCanvas(layer.width, layer.height);
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.putImageData(rect, 0, 0);
+        const newBitmap = canvas.transferToImageBitmap();
+        this.replaceLayerBitmap(layer, newBitmap);
+        layer.bitmapEpoch = rustEpoch;
+      }
+    } else {
+      // Surface missing or stale — read full canonical from Rust.
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const tiles = (await invoke("rust_pixels_snapshot_layer", {
+          docId, layerId,
+        })) as { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[] | null;
+        if (!tiles || tiles.length === 0) return;
+        // Reconstruct full RGBA from tiles.
+        const canvas = new OffscreenCanvas(layer.width, layer.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        for (const t of tiles) {
+          const id = new ImageData(new Uint8ClampedArray(t.data), t.w, t.h);
+          ctx.putImageData(id, t.x, t.y);
+        }
+        const newBitmap = canvas.transferToImageBitmap();
+        this.replaceLayerBitmap(layer, newBitmap);
+        layer.bitmapEpoch = rustEpoch;
+      } catch {
+        // Best-effort: leave bitmap as-is if Rust read fails.
+      }
+    }
   }
 
   /**
@@ -1223,7 +1313,7 @@ export class DocumentEngine {
     }
   }
 
-  private notifyVisualChange(): void {
+  public notifyVisualChange(): void {
     if (this.onVisualChangeCallback) {
       this.onVisualChangeCallback();
     }
@@ -1254,6 +1344,11 @@ export class DocumentEngine {
   }
 
   restore(snapshot: DocumentModel, options?: { restoreViewport?: boolean }): void {
+    if (isFacadeEnabled() && facadeOwnedIds.size > 0) {
+      const hasFacadeInSnapshot = snapshot.layers.some((l) => facadeOwnedIds.has(l.id));
+      const hasFacadeInCurrent = this.model.layers.some((l) => facadeOwnedIds.has(l.id));
+      if (hasFacadeInSnapshot || hasFacadeInCurrent) throw new Error(`E_FACADE_OWNED: legacy restore blocked while facade owns layers`);
+    }
     const currentViewport = { ...this.model.viewport };
 
     // NOTE: we intentionally do NOT close any bitmaps from the current model
@@ -1262,7 +1357,34 @@ export class DocumentEngine {
     // closed/detached bitmaps ("image source is detached" errors).  Bitmap
     // memory is reclaimed by GC once no snapshot or layer references remain.
 
+    // C5.4 Part 1: orphan Rust pixel-store cleanup.  Capture the old layer
+    // IDs before replacing the model so we can detect which layers were removed
+    // by the snapshot restore.  Removed layers leave orphan PixelLayer entries
+    // in the Rust PixelStoreRegistry — clean them up to prevent memory leaks.
+    const oldLayerIds = new Set(this.model.layers.map(l => l.id));
+
     this.model = restoreSnapshot(snapshot);
+
+    // Compute removed layer IDs and fire-and-forget cleanup of their Rust
+    // pixel stores.  Failures are non-fatal — the TS restore already succeeded.
+    const newLayerIds = new Set(this.model.layers.map(l => l.id));
+    const removedIds: string[] = [];
+    for (const id of oldLayerIds) {
+      if (!newLayerIds.has(id)) removedIds.push(id);
+    }
+    if (removedIds.length > 0) {
+      const docId = this.model.id;
+      void (async () => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          for (const id of removedIds) {
+            await invoke("rust_pixels_remove_layer", { docId, layerId: id });
+          }
+        } catch (err) {
+          console.warn("[c5.4] orphan pixel-store cleanup failed:", err);
+        }
+      })();
+    }
 
     // Invariant: the Background layer is always the bottommost layer.
     // A restored snapshot (e.g. a legacy / hand-edited saved file)
@@ -1358,6 +1480,67 @@ export class DocumentEngine {
       }
     }
     return true;
+  }
+
+  // ─── Facade Projection (Ticket 2.1) ───
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number }> }): void {
+    const existingById = new Map(this.model.layers.map((l) => [l.id, l] as const));
+    const nextLayers: typeof this.model.layers = [];
+    for (const rl of snapshot.layers) {
+      const existing = existingById.get(rl.id);
+      if (existing) {
+        existing.name = rl.name;
+        existing.visible = rl.visible;
+        existing.opacity = rl.opacity;
+        existing.transform.x = rl.x;
+        existing.transform.y = rl.y;
+        existing.transform.scaleX = rl.scaleX;
+        existing.transform.scaleY = rl.scaleY;
+        existing.transform.rotation = rl.rotation;
+        nextLayers.push(existing);
+      } else {
+        const newLayer: (typeof this.model.layers)[number] = {
+          id: rl.id,
+          name: rl.name,
+          type: "raster",
+          visible: rl.visible,
+          locked: false,
+          opacity: rl.opacity,
+          isBackground: false,
+          lockTransparency: false,
+          lockPosition: false,
+          lockRotation: false,
+          hasAdjustments: false,
+          basicAdjustment: undefined,
+          blendMode: "normal",
+          transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: false, flipV: false },
+          width: this.model.width,
+          height: this.model.height,
+          imageBitmap: null,
+          baseImageBitmap: null,
+          textureHandle: null,
+        } as unknown as (typeof this.model.layers)[number];
+        nextLayers.push(newLayer);
+      }
+    }
+    this.model.layers = nextLayers;
+    if (nextLayers.length > 0 && !nextLayers.find((l) => l.id === this.model.activeLayerId)) {
+      this.model.activeLayerId = nextLayers[0].id;
+    }
+    // ADR 0008 DeleteLayer ticket: reconcile the owned-id set with the
+    // projection — ids that disappeared from the snapshot (deleted layer,
+    // undone add) must NOT keep a dangling facade-ownership marker.
+    const nextIds = new Set(nextLayers.map((l) => l.id));
+    if (this.facadeProjectedIds) {
+      for (const prev of this.facadeProjectedIds) {
+        if (!nextIds.has(prev)) facadeOwnedIds.delete(prev);
+      }
+    }
+    markFacadeOwned(nextLayers.map((l) => l.id));
+    this.facadeProjectedIds = nextIds;
+    this.dirtyLayerIds.clear();
+    for (const l of nextLayers) this.dirtyLayerIds.add(l.id);
+    this.notifyVisualChange();
   }
 
   // ─── Memory Budget ───

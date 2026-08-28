@@ -132,3 +132,9 @@ nul
 
 # Tauri/NSIS build output
 $out/
+
+# C4/C5 generated artifacts
+*.err
+tip-snap.json
+wdio.tauri.conf.js
+scripts/sync-response.ps1

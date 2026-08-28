@@ -14,6 +14,14 @@ import { getAvailableFonts, getInstantFonts, type FontFamily } from "@/lib/fontE
 import type { TextData, TextStrokeAlign } from "@/engine/textTypes";
 import { useLayerActions } from "./layers/useLayerActions";
 import type { LayerNode, Transform2D } from "@/engine/types";
+import { isFacadeEnabled, facadeCommitNumericTransform } from "@/lib/protocol/facadeRegistry";
+import {
+  opacityPreview,
+  setOpacityPreview,
+  clearOpacityPreview,
+  commitFacadeOpacity,
+} from "@/lib/protocol/facadeRegistry";
+import { isFacadeOwnedLayer } from "@/engine/document";
 import { useI18n } from "@/i18n/I18nProvider";
 
 const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
@@ -282,12 +290,27 @@ export function PropertiesPanel() {
     setColorPickerOpen(false);
   };
 
+  let facadeOpacityStart: number | null = null;
+
   const handleOpacityChange = (val: number) => {
     const engine = workspace.getActiveEngine();
     const id = selectedLayerId();
     if (engine && id) {
       const layer = engine.getLayer(id);
       if (!layer || layer.locked) return;
+      const target = val / 100;
+      // ADR 0008 Opacity ticket: facade-owned layers keep slider ticks fully
+      // transient in TS (render preview only, ZERO protocol commands); the
+      // single SetOpacity command fires at the semantic boundary
+      // (finishOpacityEdit) with expectedVersion enforced.
+      if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+        if (Math.abs(layer.opacity - target) < 0.0001) return;
+        if (facadeOpacityStart === null) facadeOpacityStart = layer.opacity;
+        setOpacityPreview({ layerId: id, opacity: target });
+        scheduler.requestRender();
+        workspace.notifyVisualChange();
+        return;
+      }
       if (Math.abs(layer.opacity - val / 100) < 0.0001) return;
       if (opacityEditLayerId() !== id) {
         workspace.getActiveHistory()?.commit(engine.snapshot(), "Adjust Opacity");
@@ -300,6 +323,26 @@ export function PropertiesPanel() {
   };
 
   const finishOpacityEdit = () => {
+    const id = opacityEditLayerId();
+    const engine = workspace.getActiveEngine();
+    // Facade commit boundary: ONE SetOpacity command (expectedVersion enforced)
+    // + authoritative projection; transient preview cleared. Skipped when the
+    // gesture ended at the starting value (no-op guard).
+    if (id && engine && isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+      const pv = opacityPreview();
+      const final = pv && pv.layerId === id ? pv.opacity : null;
+      clearOpacityPreview();
+      facadeOpacityStart = null;
+      if (final !== null && Math.abs(final - (facadeOpacityStart ?? final)) > 0.0001) {
+        const r = commitFacadeOpacity(engine as never, [id], final);
+        void r;
+        scheduler.requestRender();
+        workspace.notifyVisualChange();
+      }
+      setOpacityEditLayerId(null);
+      return;
+    }
+    facadeOpacityStart = null;
     setOpacityEditLayerId(null);
   };
 
@@ -309,6 +352,16 @@ export function PropertiesPanel() {
     if (!engine || !id) return false;
     const layer = engine.getLayer(id);
     if (!layer || layer.locked) return false;
+
+    // Ticket 2.2: facade-owned layers commit through Rust (one command per
+    // committed edit, expectedVersion enforced, projection updates the model).
+    if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+      const ok = facadeCommitNumericTransform(engine, id, patch);
+      if (!ok) return false;
+      scheduler.requestRender();
+      workspace.notifyVisualChange();
+      return true;
+    }
 
     const next = { ...layer.transform, ...patch };
     if (

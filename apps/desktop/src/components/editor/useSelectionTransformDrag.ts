@@ -16,6 +16,8 @@ import {
 import { shapeRenderMargin } from "@/engine/shapeRaster";
 import { getRotateCursorByPos } from "@/viewport/cursorRotate";
 import { commitLayerTransformSession } from "./transformSession";
+import { isFacadeEnabled, getFacade, transformPreview, setTransformPreview, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
+import { isFacadeOwnedLayer } from "@/engine/document";
 
 interface UseSelectionTransformDragParams {
   isNavigationMode?: boolean;
@@ -57,7 +59,23 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     pointerId: number;
     layerId: string;
     pendingSnapshot?: DocumentModel | null;
+    // Ticket 2.2: facade drag — transient-only moves, Rust commit on pointerup.
+    facade?: boolean;
+    liveTransform?: Transform2D;
   } | null>(null);
+
+  // Ticket 2.2: a drag targets the facade path when the flag is on and the
+  // layer is facade-owned (Rust persistent owner). Legacy drags are unchanged.
+  const isFacadeDrag = (layer: { id: string }) => isFacadeEnabled() && isFacadeOwnedLayer(layer.id);
+
+  // Effective transform = transient facade preview while dragging, else the
+  // persisted layer transform. Overlay memos read this so handles/HUD track
+  // the pointer during facade drags without any engine mutation.
+  const effTransformOf = (layer: { id: string; transform: Transform2D }): Transform2D => {
+    const p = transformPreview();
+    if (p && p.layerId === layer.id) return p.transform;
+    return layer.transform;
+  };
 
   const getLayer = () => {
     const layer = activeLayer();
@@ -96,7 +114,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
   const visBox = createMemo<{ transform: Transform2D; w: number; h: number } | null>(() => {
     const layer = getLayer();
     if (!layer) return null;
-    return visBoxOf(layer, layer.transform, layer.width, layer.height);
+    return visBoxOf(layer, effTransformOf(layer), layer.width, layer.height);
   });
 
   // Convert a transform expressed in the VISIBLE (shape-path) box frame back to
@@ -129,17 +147,17 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
 
   const rotation = createMemo(() => {
     const layer = getLayer();
-    return layer ? layer.transform.rotation : 0;
+    return layer ? effTransformOf(layer).rotation : 0;
   });
 
   const scaleX = createMemo(() => {
     const layer = getLayer();
-    return layer ? layer.transform.scaleX : 1;
+    return layer ? effTransformOf(layer).scaleX : 1;
   });
 
   const scaleY = createMemo(() => {
     const layer = getLayer();
-    return layer ? layer.transform.scaleY : 1;
+    return layer ? effTransformOf(layer).scaleY : 1;
   });
 
   const layerX = createMemo(() => {
@@ -222,6 +240,27 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
 
   const isLayerTransformSessionType = (type: string) => type !== "move";
 
+  // Ticket 2.2: single mutation funnel for drags.
+  // - facade drag: TRANSIENT ONLY — updateTransform + renderer preview. Zero
+  //   adapter/IPC calls, zero persistent TS mutation. Rust receives one
+  //   TransformLayer command (with expectedVersion) at pointerup.
+  // - legacy drag: unchanged per-move engine.transformLayer mutation.
+  const applyDragTransform = (
+    engine: { getId: () => string; transformLayer: (id: string, t: Partial<Transform2D>) => void },
+    layerId: string,
+    drag: { pointerId: number; facade?: boolean; startTransform: Transform2D },
+    partial: Partial<Transform2D>
+  ) => {
+    if (drag.facade) {
+      const full = { ...drag.startTransform, ...partial } as Transform2D;
+      getFacade(engine.getId()).updateTransform(full);
+      setTransformPreview({ layerId, transform: full });
+      setDragState((d) => (d && d.pointerId === drag.pointerId ? { ...d, liveTransform: full } : d));
+    } else {
+      engine.transformLayer(layerId, partial);
+    }
+  };
+
   const handlePointerDown = (e: PointerEvent, type: string) => {
     if (props.isNavigationMode) return;
     if (type === "rotate" && (e.ctrlKey || e.metaKey)) {
@@ -240,6 +279,13 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       try { svg.setPointerCapture(e.pointerId); } catch {}
     }
 
+    // Ticket 2.2: facade drag — no TS history snapshot; Rust owns persistence
+    // and its history is appended once at commitTransform (pointerup).
+    const facade = isFacadeDrag(layer);
+    if (facade) {
+      getFacade(engine.getId()).beginTransform(layer.id, { ...layer.transform });
+    }
+
     setDragState({
       type,
       startX: e.clientX,
@@ -247,7 +293,9 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       startTransform: { ...layer.transform },
       pointerId: e.pointerId,
       layerId: layer.id,
-      pendingSnapshot: engine.snapshot(),
+      pendingSnapshot: facade ? null : engine.snapshot(),
+      facade,
+      liveTransform: facade ? { ...layer.transform } : undefined,
     });
   };
 
@@ -299,7 +347,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       } else {
         props.onSnapClear?.();
       }
-      engine.transformLayer(layer.id, { x: nextX, y: nextY });
+      applyDragTransform(engine, layer.id, drag, { x: nextX, y: nextY });
       props.onHudUpdate?.({
         mode: "move",
         clientX: e.clientX,
@@ -319,7 +367,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
         drag.startTransform.rotation,
         e.shiftKey
       );
-      engine.transformLayer(layer.id, { rotation: newRot });
+      applyDragTransform(engine, layer.id, drag, { rotation: newRot });
       setHoverPos({ x: e.clientX, y: e.clientY });
       props.onHudUpdate?.({
         mode: "rotate",
@@ -390,7 +438,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
           e.altKey,
         )
       );
-      engine.transformLayer(layer.id, newTransform);
+      applyDragTransform(engine, layer.id, drag, newTransform);
       const effW = startVb.w * Math.abs(newTransform.scaleX);
       const effH = startVb.h * Math.abs(newTransform.scaleY);
       props.onHudUpdate?.({
@@ -412,6 +460,39 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     const svg = props.getSvgRef();
     if (svg) {
       try { svg.releasePointerCapture(e.pointerId); } catch {}
+    }
+
+    // ── Ticket 2.2: facade commit path ────────────────────────────────────
+    // Exactly ONE Rust TransformLayer command (expectedVersion enforced) when
+    // the gesture changed something; zero protocol calls for a plain click.
+    // The RenderDelta projection is authoritative and clears the preview.
+    // Legacy TS history/text-bake are skipped: Rust owns transform history,
+    // and facade-owned layers are raster-only today.
+    if (drag.facade) {
+      const engine = workspace.getActiveEngine();
+      if (engine) {
+        const facade = getFacade(engine.getId());
+        const live = drag.liveTransform ?? drag.startTransform;
+        const changed =
+          live.x !== drag.startTransform.x ||
+          live.y !== drag.startTransform.y ||
+          live.scaleX !== drag.startTransform.scaleX ||
+          live.scaleY !== drag.startTransform.scaleY ||
+          live.rotation !== drag.startTransform.rotation;
+        if (changed) {
+          const snap = facade.commitTransform();
+          if (snap) engine.applyFacadeSnapshot(snap as never);
+        } else {
+          facade.cancelTransform();
+        }
+      }
+      clearTransformPreview();
+      scheduler.requestRender();
+      props.onSnapClear?.();
+      props.onHudUpdate?.(null);
+      if (drag.type === "rotate") setHoverPos(null);
+      setDragState(null);
+      return;
     }
 
     // Commit the gesture snapshot ONLY if the layer transform actually changed.
@@ -480,6 +561,18 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     if (svg) {
       try { svg.releasePointerCapture(e.pointerId); } catch {}
     }
+    // Ticket 2.2: facade cancel — the engine was never mutated during the
+    // drag, so there is nothing to restore; drop the transient session.
+    if (drag.facade) {
+      getFacade(workspace.getActiveEngine()?.getId() ?? "").cancelTransform();
+      clearTransformPreview();
+      scheduler.requestRender();
+      props.onSnapClear?.();
+      props.onHudUpdate?.(null);
+      if (drag.type === "rotate") setHoverPos(null);
+      setDragState(null);
+      return;
+    }
     const engine = workspace.getActiveEngine();
     const layer = getLayer();
     if (engine && layer) {
@@ -507,6 +600,21 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       if (e.key === "Escape" && drag) {
         const engine = workspace.getActiveEngine();
         const layer = getLayer();
+        // Ticket 2.2: facade Escape — drop transient session, engine untouched.
+        if (drag.facade) {
+          getFacade(engine?.getId() ?? "").cancelTransform();
+          clearTransformPreview();
+          scheduler.requestRender();
+          const svg = props.getSvgRef();
+          if (svg) {
+            try { svg.releasePointerCapture(drag.pointerId); } catch {}
+          }
+          props.onSnapClear?.();
+          props.onHudUpdate?.(null);
+          if (drag.type === "rotate") setHoverPos(null);
+          setDragState(null);
+          return;
+        }
         if (engine && layer) {
           const session = layerTransformSession();
           if (session?.documentId === engine.getId() && session.layerId === layer.id) {

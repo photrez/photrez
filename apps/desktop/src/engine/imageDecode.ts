@@ -1,4 +1,5 @@
 import { MAX_CANVAS_DIM, getEffectiveMaxDim } from "./types";
+import { getLoadedWasmModule } from "@/components/editor/wasmExport";
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_MAGIC = [0xff, 0xd8, 0xff];
@@ -15,6 +16,60 @@ function startsWith(bytes: Uint8Array, magic: readonly number[]): boolean {
     if (bytes[i] !== magic[i]) return false;
   }
   return true;
+}
+
+function isRustPngEnabled(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("photrez.rustPng") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rust PNG decode offload (flag photrez.rustPng=1). Decode-into-pinned-buffer
+ * shape: file bytes cross the wasm boundary once; decoded RGBA stays in wasm
+ * memory (zero-copy view) and ImageData copies it out synchronously before
+ * the pinned buffer is freed. Returns null on ANY failure so the caller can
+ * fall back to the browser decoder - the open path must never regress.
+ * R5 bench: Rust png 145ms vs Chrome createImageBitmap 262ms @4K.
+ */
+export async function decodePngWithWasm(bytes: Uint8Array): Promise<ImageBitmap | null> {
+  const mod = getLoadedWasmModule();  if (
+    !mod ||
+    typeof mod.png_dimensions_wasm !== "function" ||
+    typeof mod.decode_png_into_wasm !== "function"
+  ) {
+    return null;
+  }
+  let buf: number | null = null;
+  try {
+    const dims = mod.png_dimensions_wasm(bytes);
+    const w = dims.width as number;
+    const h = dims.height as number;
+    if (w > getEffectiveMaxDim() || h > getEffectiveMaxDim()) {
+      throw new ImageTooLargeError(w, h);
+    }
+    buf = mod.alloc_rgba_buffer(w * h * 4);
+    mod.decode_png_into_wasm(bytes, buf);
+    const view: Uint8Array = mod.rgba_buffer_view(buf);
+    const clamped = new Uint8ClampedArray(view.buffer as ArrayBuffer, view.byteOffset, w * h * 4);
+    const imageData = new ImageData(clamped, w, h); // copies out of wasm memory
+    mod.free_rgba_buffer(buf);
+    buf = null;
+    return await createImageBitmap(imageData);
+  } catch (err) {
+    if (err instanceof ImageTooLargeError) throw err;
+    if (buf !== null) {
+      try {
+        mod.free_rgba_buffer(buf);
+      } catch {
+        /* already freed */
+      }
+    }
+    console.warn("[rustPng] decode failed, falling back to browser:", err);
+    return null;
+  }
 }
 
 /**
@@ -77,6 +132,12 @@ export async function decodeImageBytes(bytes: Uint8Array): Promise<ImageBitmap> 
   }
   if (!isSupportedImageBytes(bytes)) {
     throw new UnsupportedImageError();
+  }
+
+  // Rust offload (flag-gated): PNG only, silent fallback to browser decode.
+  if (isRustPngEnabled() && startsWith(bytes, PNG_MAGIC)) {
+    const rustBitmap = await decodePngWithWasm(bytes);
+    if (rustBitmap) return rustBitmap;
   }
 
   const blobBytes = new ArrayBuffer(bytes.byteLength);

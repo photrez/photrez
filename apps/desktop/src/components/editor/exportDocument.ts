@@ -64,6 +64,16 @@ export async function encodeComposite(
     ctx.fillRect(0, 0, width, height);
   }
 
+  // C5.4 bitmap sync: ensure all layer bitmaps reflect Rust canonical before
+  // compositing for export.  This is the smallest correct boundary — sync only
+  // when the consumer actually needs canonical pixels.
+  const docId = engine.getId();
+  for (const layer of layers) {
+    if (layer.visible && layer.imageBitmap) {
+      await engine.ensureBitmapCurrent(docId, layer.id);
+    }
+  }
+
   // Composite layers bottom-to-top using the same drawLayerToContext
   // that the frontend renderer uses — ensures blend mode parity.
   // Adjustments are non-destructive (applied in the GPU shader live), so we

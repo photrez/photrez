@@ -17,6 +17,19 @@ export class WorkspaceManager {
   private onChangeListeners: Set<() => void> = new Set();
   private onVisualChangeListeners: Set<() => void> = new Set();
 
+  // C5.1: notify the Rust canonical pixel registry of document open/close so the
+  // document-namespaced pixel storage is created/released deterministically.
+  // Guarded: no-op outside the Tauri runtime (tests / web build).
+  private notifyRustPixelDoc(
+    cmd: "rust_pixels_open_document" | "rust_pixels_close_document",
+    id: DocumentId,
+  ): void {
+    if (typeof (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ === "undefined") return;
+    import("@tauri-apps/api/core")
+      .then((m) => (m as { invoke: (c: string, a: Record<string, unknown>) => Promise<unknown> }).invoke(cmd, { docId: id }))
+      .catch(() => {});
+  }
+
   // ─── Document Lifecycle ───
   addDocument(session: DocumentSession): void {
     if (this.sessions.size >= MAX_OPEN_DOCUMENTS) {
@@ -25,6 +38,7 @@ export class WorkspaceManager {
 
     const id = session.engine.getId();
     this.sessions.set(id, session);
+    this.notifyRustPixelDoc("rust_pixels_open_document", id);
     this.activeDocumentId = id;
 
     // Connect document engine change triggers back to workspace context updates.
@@ -62,6 +76,7 @@ export class WorkspaceManager {
 
       const index = Array.from(this.sessions.keys()).indexOf(id);
       this.sessions.delete(id);
+      this.notifyRustPixelDoc("rust_pixels_close_document", id);
 
       // consecutive assignments to `this.activeDocumentId` where the
       // first (line 53) computed `keys.indexOf(id) + 1` against the

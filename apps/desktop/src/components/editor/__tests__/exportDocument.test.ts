@@ -27,9 +27,11 @@ const BASE_LAYER: LayerNode = {
 
 function makeMockEngine(layers: LayerNode[], width = 2, height = 2): DocumentEngine {
   return {
+    getId: () => "test-doc",
     getWidth: () => width,
     getHeight: () => height,
     getLayers: () => layers,
+    ensureBitmapCurrent: async () => {},
   } as unknown as DocumentEngine;
 }
 

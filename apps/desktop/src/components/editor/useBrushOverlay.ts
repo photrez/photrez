@@ -4,16 +4,22 @@ import { useDialog } from "./dialogs/DialogProvider";
 import type { DocumentEngine } from "@/engine/document";
 import type { DocumentModel } from "@/engine/types";
 import type { CommandHistory } from "@/engine/history";
-import { tilesInRect, PAINT_TILE_SIZE } from "@/lib/paint/paintTileSurface";
+import {
+  tilesInRect,
+  mergeTilesToRects,
+  PAINT_TILE_SIZE,
+  type TileKeyed,
+} from "@/lib/paint/paintTileSurface";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
 import { mapPaintPointToLayerLocal } from "./paintStrokeCoordinates";
 import { showToast } from "./Toast";
+import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyBasicAdjustmentToColor, inverseBasicAdjustmentToColor } from "@/engine/layerAdjustments";
+import { isRustShadowEnabled, runShadowForCommit, applyRustTilesToSurface, isPristineOpaqueWhite, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import {
   getBrushDabSpacing,
   getBrushTip,
-  interpolateDabs,
   getEffectiveFlowMultiplier,
   type DirtyRect,
   emptyDirtyRect,
@@ -21,6 +27,14 @@ import {
   clampDirtyRect,
   parsePaintColor,
 } from "./brushTipMask";
+import { createDabProducer, type DabProducer } from "./brushDabProducer";
+
+// ── C4 pilot (R2 flagged active-layer): Rust owns the canonical pixel buffer ──
+// Bug 2 fix: there is no TS-side "seeded" flag. `paint_parity_commit` ensures
+// the layer exists in Rust (idempotent: inits only when Rust has no store entry)
+// and composites each stroke onto the existing canonical pixels. Seeding state
+// lives entirely in Rust, namespaced by (docId, layerId), so reopening a
+// document or switching documents can never inherit stale seeded state.
 
 // ── Hold timer (time-based endpoint dab) ──
 // During slow strokes or holds where interpolateDabs produces 0 dabs
@@ -55,6 +69,9 @@ interface PaintStrokeSession {
   dabsRendered: number;
   lastPoint: { x: number; y: number } | null;
   spacingCarry: number;
+  /** Dab producer (TS reference impl or Rust BrushStrokeEngine behind
+   *  photrez.rustDabs). Owns the spacing/carry state machine. */
+  producer: DabProducer;
   /** Accumulated dirty region for this stroke. */
   dirtyRect: DirtyRect;
 }
@@ -90,6 +107,84 @@ export function useBrushOverlay() {
   // Cleared between strokes via clearRect. Reallocated only when layer dimensions change.
   let cachedCommitCanvas: OffscreenCanvas | null = null;
   let cachedCommitCtx: OffscreenCanvasRenderingContext2D | null = null;
+
+  // ── Context-loss upload handling (design §cancellation/context-loss) ──
+  // Scratch/overlay are 2D canvases — GL loss never destroys stroke data. When the
+  // WebGL context is down, uploads are HELD (not dropped) and flushed on restore.
+  let glUploadsPending: { layerId: string; w: number; h: number; tiles: unknown[] }[] = [];
+  let glLost = false;
+  const onWebGLContextLost = () => { glLost = true; };
+  const onWebGLContextRestored = () => {
+    glLost = false;
+    const r = renderer as { uploadSurfaceTiles?: (...a: unknown[]) => void } | undefined;
+    if (!r?.uploadSurfaceTiles) { glUploadsPending = []; return; }
+    const pending = glUploadsPending;
+    glUploadsPending = [];
+    for (const u of pending) {
+      try { r.uploadSurfaceTiles(u.layerId, u.w, u.h, u.tiles); } catch { /* drop on repeated failure; next full resync recovers */ }
+    }
+    scheduler.requestRender();
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("webglcontextlost", onWebGLContextLost, true);
+    window.addEventListener("webglcontextrestored", onWebGLContextRestored, true);
+  }
+  onCleanup(() => {
+    if (typeof window !== "undefined") {
+      window.removeEventListener("webglcontextlost", onWebGLContextLost, true);
+      window.removeEventListener("webglcontextrestored", onWebGLContextRestored, true);
+    }
+  });
+
+  function queueOrUploadTiles(layerId: string, w: number, h: number, tiles: unknown[]): boolean {
+    // Returns true when the upload was handed to the renderer now; false when
+    // it was queued because the GL context is currently lost.
+    if (glLost) {
+      glUploadsPending.push({ layerId, w, h, tiles });
+      return false;
+    }
+    try {
+      (renderer as { uploadSurfaceTiles?: (...a: unknown[]) => void }).uploadSurfaceTiles?.(layerId, w, h, tiles);
+      return true;
+    } catch {
+      glUploadsPending.push({ layerId, w, h, tiles });
+      return false;
+    }
+  }
+
+  // ── Stroke cancellation (pointercancel / Escape) ──
+  // Discards the active session: surface was NEVER mutated pre-commit, so discard
+  // is a pure preview teardown. Eraser strokes must restore layer visibility (the
+  // stroke start uploaded a 1×1 transparent texture to hide the WebGL layer).
+  function cancelActiveStroke(): boolean {
+    const hadStroke = paintSession !== null || prevStrokePointCount > 0;
+    stopHoldTimer();
+    strokeGen++; // invalidate pending RAF composites and any in-flight async commit
+    if (compositeRaf !== null) {
+      cancelAnimationFrame(compositeRaf);
+      compositeRaf = null;
+    }
+    compositePending = false;
+    const engine = workspace.getActiveEngine();
+    const layerId = engine?.getActiveLayerId();
+    const layer = engine && layerId ? engine.getLayer(layerId) : null;
+    if (paintSession?.isEraser && layerId && layer?.imageBitmap) {
+      try {
+        renderer.uploadImage(layerId, layer.imageBitmap);
+        scheduler.requestRender();
+      } catch { /* context lost — restored resync re-uploads */ }
+    }
+    if (overlayCtx && overlayCanvasRef) {
+      overlayCtx.clearRect(0, 0, overlayCanvasRef.width, overlayCanvasRef.height);
+    }
+    prevStrokePointCount = 0;
+    paintSession = null;
+    return hadStroke;
+  }
+
+  function isStrokeActive(): boolean {
+    return paintSession !== null;
+  }
 
   // ── Tile-commit scratch buffer ──
   // Dirty-rect-sized GPU-backed canvas for dab rasterization. The paint surface
@@ -311,6 +406,12 @@ export function useBrushOverlay() {
     const activeId = activeEngine.getActiveLayerId();
     if (!activeId) return;
 
+    // Gate A: brush isolation — facade-owned layer cannot be painted via legacy path
+    if (isFacadeOwnedLayer(activeId)) {
+      showToast("This layer is owned by Rust facade — legacy brush blocked", "warn");
+      return;
+    }
+
     const layer = activeEngine.getLayer(activeId);
     if (!layer) return;
 
@@ -413,6 +514,7 @@ export function useBrushOverlay() {
         dabsRendered: 0,
         lastPoint: null,
         spacingCarry: 0,
+        producer: createDabProducer(settings.size),
         dirtyRect: emptyDirtyRect(),
       };
       lastDabTime = performance.now();
@@ -467,16 +569,21 @@ export function useBrushOverlay() {
       const localPt = mapPaintPointToLayerLocal(pt, layer);
 
       if (!paintSession.lastPoint) {
+        // Anchor the producer (emits nothing); initial stamp as before.
+        paintSession.producer.update(localPt.x, localPt.y);
         paintSession.dabPositions.push({ x: localPt.x, y: localPt.y, alpha: alphaScale });
         paintSession.dirtyRect = expandDirtyRect(paintSession.dirtyRect, localPt.x, localPt.y, tipExtent);
       } else {
-        const result = interpolateDabs(paintSession.lastPoint, localPt, spacing, paintSession.spacingCarry);
-        paintSession.spacingCarry = result.carry;
-        for (const dab of result.dabs) {
-          paintSession.dabPositions.push({ x: dab.x, y: dab.y, alpha: alphaScale });
-          paintSession.dirtyRect = expandDirtyRect(paintSession.dirtyRect, dab.x, dab.y, tipExtent);
-        }
-        if (result.dabs.length > 0) {
+        const dabCount = paintSession.producer.update(localPt.x, localPt.y);
+        paintSession.spacingCarry = paintSession.producer.carry();
+        const view = dabCount > 0 ? paintSession.producer.view() : null;
+        if (view && dabCount > 0) {
+          for (let i = 0; i < dabCount; i++) {
+            const dabX = view[i * 2];
+            const dabY = view[i * 2 + 1];
+            paintSession.dabPositions.push({ x: dabX, y: dabY, alpha: alphaScale });
+            paintSession.dirtyRect = expandDirtyRect(paintSession.dirtyRect, dabX, dabY, tipExtent);
+          }
           lastDabTime = performance.now();
         }
       }
@@ -682,14 +789,14 @@ export function useBrushOverlay() {
     performComposite(engine, layerId, layer, true);
   }
 
-  // Max touched tiles for the tile-commit path before falling back to the
-  // legacy single-PATCH commit. 16 tiles = ~1Mpx touched area; beyond that
-  // per-tile getImageData/texSubImage2D call overhead dominates (measured
-  // 2026-08-22: 224-320 tiles → 371-821ms vs legacy single-rect ~8ms).
-  const TILE_COMMIT_MAX_TILES = 16;
-
   async function commitBrushStroke(engine: DocumentEngine, history: CommandHistory, layerId: string, isEraser: boolean, anchor?: { x: number; y: number } | null) {
     const _t0 = performance.now();
+    if (isFacadeOwnedLayer(layerId)) {
+      showToast("This layer is owned by Rust facade — legacy brush commit blocked", "warn");
+      prevStrokePointCount = 0;
+      paintSession = null;
+      return;
+    }
     if (prevStrokePointCount === 0) return;
     if (!overlayCanvasRef) return;
     const w = overlayCanvasRef.width;
@@ -729,44 +836,75 @@ export function useBrushOverlay() {
     // createImageBitmap entirely. Guards: lockTransparency needs a full-layer
     // destination-in (legacy path); a confirmed bake preBake needs the
     // snapshot-restore semantics of the legacy path.
-    let useTileCommit = false;
-    try { useTileCommit = localStorage.getItem("photrez.tileCommit") === "1"; } catch { /* no storage */ }
+    let useTileCommit = true;
+    // Graduated default-ON (T-BRUSH-TILECOMMIT-GRAD): explicit opt-out via "0".
+    // Legacy single-PATCH path retained for lockTransparency/preBake guards.
+    // Rollback: localStorage.setItem("photrez.tileCommit", "0").
+    try { useTileCommit = localStorage.getItem("photrez.tileCommit") !== "0"; } catch { useTileCommit = true; }
     if (useTileCommit && hasDirt && !layer.lockTransparency && !(preBake && preBake.layerId === layerId)) {
-      const surface = engine.getPaintSurface(layerId);
+      const surface = (engine as {
+        getPaintSurface?: (id: string) => {
+          context: OffscreenCanvasRenderingContext2D;
+          snapshotTile: (tile: { x: number; y: number; w: number; h: number }) => TileKeyed<ImageData>;
+          restoreTile: (patch: TileKeyed<ImageData>) => void;
+          readRect: (x: number, y: number, w: number, h: number) => ImageData;
+          pixelEpoch: number;
+          pixelVersion: number;
+        } | null;
+      }).getPaintSurface?.(layerId) ?? null;
       // Hybrid threshold: per-tile API calls scale with touched area, so past
       // this many tiles the legacy single-PATCH path is strictly faster
       // (measured 2026-08-22 @6.9K: 300-tile stroke = 700ms vs legacy ~8ms).
       // Small/medium strokes — the common case — keep the tile path.
       if (surface) {
+        const beforePatches: TileKeyed<ImageData>[] = [];
+        const afterPatches: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
+        const rectUploads: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
+        let histCommitted = false;
+        let perfTiles = 0, perfRects = 0, perfYields = 0, perfDabs = 0;
+        let tP0 = 0, tP2 = 0, tP3 = 0, tP4 = 0;
+        try {
         const tiles = tilesInRect(dirty.x0, dirty.y0, dirty.x1, dirty.y1, w, h);
-        if (tiles.length > TILE_COMMIT_MAX_TILES) {
-          console.info(`[perf] commitBrushStroke(tile): ${tiles.length} tiles > max ${TILE_COMMIT_MAX_TILES}, legacy fallback`);
-        } else {
-        // [perf] phase breakdown — find the 200-700ms hidden cost (2026-08-22)
-        const _p0 = performance.now();
-        const before = tiles.map((t) => surface.snapshotTile(t));
-        const _p1 = performance.now();
+        perfTiles = tiles.length;
+        const rects = mergeTilesToRects(tiles);
+        perfRects = rects.length;
+        // Fase 1.5 (2026-08-23): no tile-count fallback. Merged
+        // rects (mergeSparseRects pattern) keep GPU calls O(rects) instead of
+        // O(tiles); budgeted yielding caps any single frame at
+        // ~7ms of commit work instead of one blocking mega-upload. History
+        // patches stay per-tile so undo/redo remain sub-3ms at every brush
+        // size (display granularity != history granularity).
+        //   docs/plans/2026-08-23-dirty-region-research.md
+        tP0 = performance.now();
         const sctx = surface.context;
+        const gen = strokeGen;
+        const BUDGET_MS = 7;
 
-        if (effectiveIsEraser) {
-          // Overlay holds the erased result — replace-copy touched tiles.
-          sctx.save();
-          sctx.globalCompositeOperation = "source-over";
-          for (const t of tiles) {
-            sctx.clearRect(t.x, t.y, t.w, t.h);
-            sctx.drawImage(overlayCanvasRef, t.x, t.y, t.w, t.h, t.x, t.y, t.w, t.h);
-          }
-          sctx.restore();
-        } else {
-          // Raw dabs (WYSIWYG inverse-adjust color), same as legacy commit —
-          // rasterized on the GPU-backed dirty-rect scratch first: the software
-          // surface costs ~0.5-1ms CPU PER dab (measured 2026-08-22).
+        // Dab rasterization happens ONCE on the GPU-backed scratch before
+        // the rect loop (the software surface costs ~0.5-1ms CPU PER dab,
+        // measured 2026-08-22 — same reason as the original tile path).
+        let scratchReady = false;
+        let dx0 = 0, dy0 = 0, dw = 0, dh = 0;
+        // R2 Step2 DEV-only forensics carriers (no production effect; populated only when shadow flag on)
+        let scratchSnap: ImageData | null = null;
+        let emulFull: Uint8ClampedArray | null = null;
+        let foreGeo: { dx0: number; dy0: number; dw: number; dh: number } | null = null;
+        let foreA: Uint8ClampedArray | Uint8Array | null = null;
+        let foreTipW = 0, foreTipH = 0, foreTipDiameter = 0;
+        let c3Ready = false;
+        let c3Brush = 0;
+        let c3Hardness = 0;
+        let c3Color: [number, number, number] = [225, 90, 23];
+        const foreRects: { x: number; y: number; w: number; h: number; rx: number; ry: number }[] = [];
+        const foreRectImgs: ImageData[] = [];
+        const forePerDabSnaps: Uint8ClampedArray[] = [];
+        if (!effectiveIsEraser) {
           const tip = getBrushTip({ size: paintSession.tipSize, hardness: paintSession.tipHardness, curve: "soft" });
           if (tip) {
-            const dx0 = dirty.x0;
-            const dy0 = dirty.y0;
-            const dw = Math.max(1, dirty.x1 - dx0);
-            const dh = Math.max(1, dirty.y1 - dy0);
+            dx0 = dirty.x0;
+            dy0 = dirty.y0;
+            dw = Math.max(1, dirty.x1 - dx0);
+            dh = Math.max(1, dirty.y1 - dy0);
             if (!cachedTileScratch || cachedTileScratch.width !== dw || cachedTileScratch.height !== dh) {
               cachedTileScratch = new OffscreenCanvas(dw, dh);
               cachedTileScratchCtx = cachedTileScratch.getContext("2d");
@@ -784,52 +922,368 @@ export function useBrushOverlay() {
               sc.globalAlpha = d.alpha;
               sc.drawImage(rawTip, 0, 0, rawTip.width, rawTip.height,
                 Math.round(d.x - r) - dx0, Math.round(d.y - r) - dy0, tip.diameter, tip.diameter);
+              // R2 Step2 final forensic: per-dab scratch state (ladder config only)
+              if (isRustShadowEnabled() && paintSession.tipSize === 256 && Math.abs(paintSession.tipHardness - 0.8) < 1e-9 && paintSession.dabPositions.length <= 16) {
+                try { forePerDabSnaps.push(Uint8ClampedArray.from(sc.getImageData(0, 0, dw, dh).data)); } catch {}
+              }
             }
             sc.globalAlpha = 1;
-            // Stamp scratch into each touched tile (clipped intersection only —
-            // tile regions outside the dirty rect must keep their pixels).
-            for (const t of tiles) {
-              const ix0 = Math.max(t.x, dx0), iy0 = Math.max(t.y, dy0);
-              const ix1 = Math.min(t.x + t.w, dx0 + dw), iy1 = Math.min(t.y + t.h, dy0 + dh);
-              if (ix1 <= ix0 || iy1 <= iy0) continue;
-              sctx.drawImage(cachedTileScratch!, ix0 - dx0, iy0 - dy0, ix1 - ix0, iy1 - iy0, ix0, iy0, ix1 - ix0, iy1 - iy0);
+            scratchReady = true;
+            // ── R2 Step2 DEV forensics: capture production scratch + build Rust-formula emulation over SAME dirty rect ──
+            if (isRustShadowEnabled()) {
+              try {
+                scratchSnap = sc.getImageData(0, 0, dw, dh);
+                foreA = rawTip.getContext("2d")!.getImageData(0, 0, rawTip.width, rawTip.height).data;
+                foreTipW = rawTip.width; foreTipH = rawTip.height; foreTipDiameter = tip.diameter;
+                c3Ready = true; c3Brush = tip.diameter; c3Hardness = paintSession.tipHardness;
+                { const pcv = parsePaintColor(dabColor); c3Color = [pcv.r, pcv.g, pcv.b]; }
+                const A2 = foreA;
+                const md2 = (c: number, a: number) => ((c * a + 127) / 255) | 0;
+                emulFull = new Uint8ClampedArray(dw * dh * 4);
+                for (let i = 0; i < emulFull.length; i += 4) { emulFull[i] = 255; emulFull[i + 1] = 255; emulFull[i + 2] = 255; emulFull[i + 3] = 255; }
+                for (const d of paintSession.dabPositions) {
+                  const ox = Math.round(d.x - r) - dx0, oy = Math.round(d.y - r) - dy0;
+                  const x0m = Math.max(0, ox), y0m = Math.max(0, oy);
+                  const x1m = Math.min(dw, ox + tip.diameter), y1m = Math.min(dh, oy + tip.diameter);
+                  for (let py = y0m; py < y1m; py++) {
+                    for (let px = x0m; px < x1m; px++) {
+                      const ti = ((py - oy) * rawTip.width + (px - ox)) * 4;
+                      const sa = A2[ti + 3], inv = 255 - sa;
+                      const di = (py * dw + px) * 4;
+                      for (let ch = 0; ch < 3; ch++) emulFull[di + ch] = Math.min(255, md2(A2[ti + ch], sa) + md2(255, inv));
+                      emulFull[di + 3] = 255;
+                    }
+                  }
+                }
+                foreGeo = { dx0, dy0, dw, dh };
+              } catch { /* forensics must never break commit */ }
             }
           }
         }
 
-        const uploads = tiles.map((t) => {
-          const img = surface.readTile(t);
-          return { x: t.x, y: t.y, width: t.w, height: t.h, data: img.data };
-        });
+        let yields = 0;
+        let frameStart = performance.now();
+
+        // Phase A: capture ALL before-patches FIRST - the single-crossing
+        // stamp below paints the ENTIRE dirty rect at once, so any snapshot
+        // taken after it would capture painted pixels (2026-08-23 undo
+        // corruption bug: rect 2's "before" contained rect 1's paint).
+        for (const rect of rects) {
+          for (const t of rect.tiles) beforePatches.push(surface.snapshotTile(t));
+        }
+
+        // ── R2 Canonical C3 (flag-gated, fresh-white-docs only): Rust patches replace TS raster ──
+        let c3Applied = false;
+        let c3Flag = false;
+        try { c3Flag = localStorage.getItem("photrez.canonicalCommit") === "1"; } catch {}
+        if (c3Flag && !effectiveIsEraser && scratchReady && isRustShadowEnabled() && c3Ready) {
+          try {
+            // pristine guard: every before-patch must be opaque white (C3 scope = fresh blank docs)
+            let pristine = true;
+            for (const p of beforePatches) {
+              if (!isPristineOpaqueWhite(p.value.data)) { pristine = false; break; }
+            }
+            if (pristine) {
+              const { invoke } = await import("@tauri-apps/api/core");
+              const res = await invoke("paint_parity_shadow", {
+                req: {
+                  w, h, prep_white: true, eraser: false,
+                  brush: c3Brush, hardness: c3Hardness,
+                  dabs: paintSession.dabPositions.map((d) => ({ x: d.x, y: d.y, alpha: d.alpha })),
+                  tip_w: c3Brush, tip_h: c3Brush, tip_data: [],
+                  canonical_tip: true, tip_color: c3Color,
+                },
+                opts: { include_tiles: true },
+              }) as { tiles: { x: number; y: number; w: number; h: number; data: number[] }[] };
+              // surface seam (existing putImageData path, via tested helper)
+              applyRustTilesToSurface(sctx, res.tiles);
+              for (const t of res.tiles) {
+                const data = new Uint8ClampedArray(t.w * t.h * 4);
+                data.set(t.data);
+                afterPatches.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
+                rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) });
+              }
+              c3Applied = true;
+              console.info(`[c3] canonical patches applied: ${res.tiles.length} tiles`);
+            } else {
+              console.info("[c3] skipped: base not pristine white (outside C3 scope)");
+            }
+          } catch (err) {
+            console.warn("[c3] canonical path failed — falling back to legacy:", err);
+          }
+        }
+
+        // ── C4 pilot (R2 flagged active-layer): Rust owns canonical pixels ──
+        // Every eligible committed stroke calls `paint_parity_commit`, which
+        // composites the dab onto the EXISTING canonical pixels in Rust, then
+        // returns the exact pre-stroke (`before`) and composited (`after`) tiles.
+        // The TS cache is synced from Rust's returned `after` (single source of
+        // truth). OFF unless photrez.rustPixels === "1". Mutually exclusive with
+        // the C3 canonical path by *mode* — gated on c3Flag (photrez.canonicalCommit),
+        // not on c3Applied — so the two modes never both apply to the same stroke.
+        // c3Applied is set true by C4's own commit below; that must NOT disable
+        // later C4 strokes, so the C4 entry guard uses c3Flag, not c3Applied.
+        const rustPixelsFlag = (() => {
+          try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
+        })();
+        if (rustPixelsFlag && !c3Flag && !effectiveIsEraser && scratchReady) {
+          // Bug 1 + Bug 2 fix: every eligible committed stroke reaches Rust, and
+          // Rust remains the canonical pixel owner. `paint_parity_commit` ensures
+          // the layer exists (idempotent; no TS seeded flag, so no stale state
+          // across documents/closes), composites the dab onto the EXISTING
+          // canonical pixels, and returns the exact pre-stroke (`before`) and
+          // composited (`after`) tiles. TS receives the FINAL canonical tile
+          // (not a dab-on-white tile), so overlapping strokes accumulate correctly.
+          const docId = workspace.getActiveDocumentId() ?? "";
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            // C5.2: if the derived TS cache is stale vs the Rust canonical epoch,
+            // rebuild it from Rust before applying the new commit.
+            await rehydratePaintSurfaceFromRust(docId, layerId, surface);
+            const tip = getBrushTip({ size: paintSession.tipSize, hardness: paintSession.tipHardness, curve: "soft" });
+            const brush = tip ? tip.diameter : paintSession.tipSize;
+            const dabColor = inverseBasicAdjustmentToColor(
+              paintSession.color,
+              layer.basicAdjustment ?? { brightness: 0, contrast: 0, saturation: 0 },
+            );
+            const pcv = parsePaintColor(dabColor);
+            const full = surface.readRect(0, 0, w, h);
+            const res = (await invoke("paint_parity_commit", {
+              docId,
+              layerId,
+              bytes: Array.from(full.data),
+              req: {
+                w, h, prep_white: true, eraser: false,
+                brush, hardness: paintSession.tipHardness,
+                dabs: paintSession.dabPositions.map((d) => ({ x: d.x, y: d.y, alpha: d.alpha })),
+                tip_w: brush, tip_h: brush, tip_data: [],
+                canonical_tip: true, tip_color: [pcv.r, pcv.g, pcv.b],
+              },
+              opts: { include_tiles: true },
+            })) as {
+              before: { x: number; y: number; w: number; h: number; data: number[] }[];
+              after: { x: number; y: number; w: number; h: number; data: number[] }[];
+              epoch: number;
+              version: number;
+            };
+            // TS cache updated from Rust's authoritative returned `after` tiles + epoch.
+            applyRustTilesToSurface(sctx, res.after);
+            surface.pixelEpoch = res.epoch;
+            // C5.3-A: record which authoritative history cursor these pixels reflect.
+            surface.pixelVersion = res.version;
+            for (const t of res.after) {
+              const data = new Uint8ClampedArray(t.w * t.h * 4);
+              data.set(t.data);
+              afterPatches.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
+              rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) });
+            }
+            c3Applied = true;
+            console.info(`[c4] canonical commit: ${res.after.length} tiles (epoch ${res.epoch}, version ${res.version})`);
+          } catch (err) {
+            // C5.1 recovery: a failed commit falls back to legacy for this stroke.
+            // `paint_parity_commit` is idempotent (ensure-if-absent), so the next
+            // stroke retries cleanly — no stale seeded-state to clear.
+            console.warn("[c4] canonical path failed — falling back to legacy:", err);
+          }
+        }
+
+        // Phase B: ONE GPU->CPU crossing for the whole dirty rect (benchmarked
+        // 2026-08-23 via agent-browser Chrome: per-tile crossings cost
+        // ~55ms EACH at 300 tiles = 16.9s total; one full-rect draw =
+        // 97ms). Transparent scratch regions preserve existing surface
+        // pixels under source-over, same as the old clipped stamps.
+        if (!c3Applied && !effectiveIsEraser && scratchReady) {
+          sctx.drawImage(cachedTileScratch!, 0, 0, dw, dh, dx0, dy0, dw, dh);
+        }
+
+        // Phase C: per-rect readback -> per-tile patches + upload entries.
+        if (!c3Applied) {
+        for (let ri = 0; ri < rects.length; ri++) {
+          const rect = rects[ri];
+          const rt = rect.tiles;
+          if (effectiveIsEraser) {
+            // Overlay holds the erased result — replace-copy the rect's tiles.
+            // (Software->software draws, disjoint per rect - safe after all
+            // snapshots were taken in Phase A.)
+            sctx.save();
+            sctx.globalCompositeOperation = "source-over";
+            for (const t of rt) {
+              sctx.clearRect(t.x, t.y, t.w, t.h);
+              sctx.drawImage(overlayCanvasRef, t.x, t.y, t.w, t.h, t.x, t.y, t.w, t.h);
+            }
+            sctx.restore();
+          }
+
+          // ONE readback per rect feeds everything: per-tile upload entries
+          // (texSubImage2D per-tile measured faster than one giant rect
+          // upload: 41ms vs 73ms) + compact per-tile after-patches.
+          const rectImg = surface.readRect(rect.x, rect.y, rect.w, rect.h);
+          for (const t of rt) {
+            const col = t.x - rect.x;
+            const row0 = t.y - rect.y;
+            const data = new Uint8ClampedArray(t.w * t.h * 4); // compact copy per patch entry
+            for (let row = 0; row < t.h; row++) {
+              data.set(
+                rectImg.data.subarray((row0 + row) * rect.w * 4 + col * 4, (row0 + row) * rect.w * 4 + col * 4 + t.w * 4),
+                row * t.w * 4,
+              );
+            }
+            afterPatches.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
+            rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
+            if (isRustShadowEnabled()) { foreRects.push({ x: t.x, y: t.y, w: t.w, h: t.h, rx: rect.x, ry: rect.y }); foreRectImgs.push(rectImg); }
+          }
+
+          if (ri < rects.length - 1 && performance.now() - frameStart > BUDGET_MS) {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            if (gen !== strokeGen) return; // superseded by a newer stroke
+            yields++;
+            frameStart = performance.now();
+          }
+        }
+        } // end !c3Applied (Phase C skipped when canonical patches were applied)
+        perfYields = yields;
+
         const _p2 = performance.now();
+        tP2 = _p2;
         const _dabN = paintSession.dabPositions.length;
+        perfDabs = _dabN;
         const imperative = {
           layerId,
           surfaceWidth: w,
           surfaceHeight: h,
-          before: before.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
-          after: uploads,
+          before: beforePatches.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
+          after: afterPatches,
         };
         // Imperative is entry-owned (tile-memento model): history stores it
         // with this commit and replays its before/after tiles on undo/redo.
         history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative);
-        const _p3 = performance.now();
-        renderer.uploadSurfaceTiles?.(layerId, w, h, uploads);
-        const _p4 = performance.now();
+        histCommitted = true;
+        tP3 = performance.now();
+        // ── R2 Step2 DEV forensics assembly (inside try scope): scratch / surface / tsAfter boundaries ──
+        if (isRustShadowEnabled() && scratchSnap && emulFull && foreGeo && foreA && foreTipW) {
+          try {
+            const gx = foreGeo.dx0, gy = foreGeo.dy0, gw = foreGeo.dw, gh = foreGeo.dh;
+            // (a) scratch readback vs straight-unpremul emulation of stacked stamps over TRANSPARENT
+            const emulT = new Uint8ClampedArray(gw * gh * 4);
+            {
+              const half = foreTipDiameter / 2;
+              for (const d of paintSession.dabPositions) {
+                const ox = Math.round(d.x - half) - gx, oy = Math.round(d.y - half) - gy;
+                const x0m = Math.max(0, ox), y0m = Math.max(0, oy);
+                const x1m = Math.min(gw, ox + foreTipDiameter), y1m = Math.min(gh, oy + foreTipDiameter);
+                for (let py = y0m; py < y1m; py++) {
+                  for (let px = x0m; px < x1m; px++) {
+                    const ti = ((py - oy) * foreTipW + (px - ox)) * 4;
+                    const sa = foreA[ti + 3];
+                    if (sa === 0) continue;
+                    const di = (py * gw + px) * 4;
+                    const pmR = ((foreA[ti] * sa + 127) / 255) | 0;
+                    const pmG = ((foreA[ti + 1] * sa + 127) / 255) | 0;
+                    const pmB = ((foreA[ti + 2] * sa + 127) / 255) | 0;
+                    emulT[di]     = Math.round(pmR * 255 / sa);
+                    emulT[di + 1] = Math.round(pmG * 255 / sa);
+                    emulT[di + 2] = Math.round(pmB * 255 / sa);
+                    emulT[di + 3] = sa;
+                  }
+                }
+              }
+            }
+            let sMax = 0, sSum = 0, sN = 0; const sChMx = [0, 0, 0, 0];
+            let sFirst: { x: number; y: number; channel: string } | null = null;
+            let tMax = 0, tSum = 0, tN = 0;
+            let tFirst: { x: number; y: number; channel: string } | null = null;
+            for (let i = 0; i < foreRects.length; i++) {
+              const rr = foreRects[i], img = foreRectImgs[i];
+              // (b) surface output vs white-base Rust-formula emulation
+              for (let py = 0; py < rr.h; py++) {
+                for (let px = 0; px < rr.w; px++) {
+                  const si = ((rr.y - gy + py) * gw + (rr.x - gx + px)) * 4;
+                  const di = (py * rr.w + px) * 4;
+                  for (let ch = 0; ch < 4; ch++) {
+                    const d = Math.abs(emulFull[si + ch] - img.data[di + ch]);
+                    if (d > sMax) sMax = d;
+                    sSum += d; if (d > sChMx[ch]) sChMx[ch] = d;
+                    if (d > 0 && !sFirst) sFirst = { x: rr.x + px, y: rr.y + py, channel: ["R", "G", "B", "A"][ch] };
+                  }
+                }
+              }
+              // (c) tsAfter slicing fidelity for tiles of this rect
+              const colB = rr.x - rr.rx, rowB = rr.y - rr.ry;
+              for (const p of afterPatches) {
+                if (p.x !== rr.x || p.y !== rr.y || p.width !== rr.w || p.height !== rr.h) continue;
+                for (let row = 0; row < p.height; row++) {
+                  const srcOff = ((rowB + row) * img.width + colB) * 4;
+                  const dstOff = row * p.width * 4;
+                  for (let k = 0; k < p.width * 4; k++) {
+                    const d = Math.abs(img.data[srcOff + k] - p.data[dstOff + k]);
+                    if (d > tMax) tMax = d;
+                    tSum += d;
+                    if (d > 0 && !tFirst) tFirst = { x: p.x + (((dstOff + k) / 4) | 0) % p.width, y: p.y + row, channel: ["R", "G", "B", "A"][k & 3] };
+                  }
+                }
+                tN += p.width * p.height * 4;
+                break;
+              }
+            }
+            let tEmMax = 0; { let s = 0; for (let i = 0; i < emulT.length; i++) { const d = Math.abs(emulT[i] - scratchSnap.data[i]); if (d > tEmMax) tEmMax = d; s += d; } var tEmMean = +(s / emulT.length).toFixed(3); }
+            (window as unknown as Record<string, unknown>).__photrezScratchForensics = {
+              geo: foreGeo,
+              rects: foreRects.slice(),
+              dabs: paintSession.dabPositions.map((d) => ({ x: d.x, y: d.y, alpha: d.alpha })),
+              scratchPerDab: forePerDabSnaps,
+              scratchBytes: Array.from(scratchSnap.data),
+              scratchVsEmulatedTransparent: { max: tEmMax, mean: tEmMean },
+              stampToSurface: { max: sMax, mean: +(sSum / Math.max(1, sN)).toFixed(3), chMax: sChMx, first: sFirst },
+              readbackVsTsAfter: { max: tMax, mean: +(tSum / Math.max(1, tN)).toFixed(3), first: tFirst },
+            };
+          } catch { /* forensics never breaks commit */ }
+        }
+      } catch (err) {
+          if (!histCommitted) {
+            // Pre-H failure: surface must return to pristine — restore every
+            // snapshotted tile, drop the session, no history entry.
+            for (const p of beforePatches) {
+              try { surface.restoreTile(p); } catch { /* best-effort; snapshot itself failed for this tile */ }
+            }
+            if (overlayCtx && overlayCanvasRef) overlayCtx.clearRect(0, 0, overlayCanvasRef.width, overlayCanvasRef.height);
+            prevStrokePointCount = 0;
+            paintSession = null;
+            showToast(`Brush commit failed — stroke discarded (${err instanceof Error ? err.message : "unknown error"})`, "error");
+            scheduler.requestRender();
+            return;
+          }
+          throw err; // post-commit code is outside the try; safeguard only
+        }
+        const uploadedNow = queueOrUploadTiles(layerId, w, h, rectUploads);
+        tP4 = performance.now();
         scheduler.requestRender();
+        // ── R2 Step1 Shadow (candidate-only, bounded, reversible) ──
+        // TS remains canonical; Rust never mutates document/history/GPU.
+        // Flag OFF (default) => no work; flag ON => fire-and-forget candidate, logs to window.__photrezShadowLog.
+        const _shadowSession = paintSession;
+        try {
+          if (isRustShadowEnabled() && _shadowSession && afterPatches.length) {
+            const tsAfter = new Map(afterPatches.map((p) => [`${p.x / 256},${p.y / 256}`, p.data]));
+            const tipObj = getBrushTip({ size: _shadowSession.tipSize, hardness: _shadowSession.tipHardness, curve: "soft" });
+            const tipCanvas = tipObj
+              ? (getTipCanvas(tipObj, inverseBasicAdjustmentToColor(_shadowSession.color, layer.basicAdjustment ?? { brightness: 0, contrast: 0, saturation: 0 })) as unknown as OffscreenCanvas)
+              : null;
+            const dabs = _shadowSession.dabPositions.map((d) => ({ x: d.x, y: d.y, alpha: d.alpha }));
+            void runShadowForCommit({ w, h, brush: _shadowSession.tipSize, hardness: _shadowSession.tipHardness, dabs, tip: tipCanvas, eraser: effectiveIsEraser, prepWhite: true, tsAfter, t0: _t0 }).catch(() => {});
+          }
+        } catch {}
         overlayCtx.clearRect(0, 0, w, h);
         prevStrokePointCount = 0;
         paintSession = null;
-        // Diagnosis gate: phases only when the whole commit is slow — verified
-        // steady state is ~8-45ms dominated by legit dab rasterization count.
-        const _dtT = _p4 - _t0;
+        // Diagnosis gate: phases only when the whole commit is slow. Upload time
+        // is only meaningful when it ran now (not queued behind a lost context).
+        const _dtT = tP4 - _t0;
         if (_dtT > 16) {
           console.warn(
-            `[perf] tile-commit phases: surface=${(_p0 - _t0).toFixed(1)} snap=${(_p1 - _p0).toFixed(1)} dabs=${(_p2 - _p1).toFixed(1)} hist=${(_p3 - _p2).toFixed(1)} upload=${(_p4 - _p3).toFixed(1)}ms total=${_dtT.toFixed(1)} tiles=${tiles.length} dab#=${_dabN}`,
+            `[perf] tile-commit phases: surface=${(tP0 - _t0).toFixed(1)} dabs=${(tP2 - tP0).toFixed(1)} hist=${(tP3 - tP2).toFixed(1)} upload=${uploadedNow ? (tP4 - tP3).toFixed(1) : "queued"}ms total=${_dtT.toFixed(1)} tiles=${perfTiles} rects=${perfRects} yields=${perfYields} dab#=${perfDabs}`,
           );
         }
         return;
-        }
       } else {
         console.info("[perf] commitBrushStroke(tile): no paint surface for layer, legacy fallback");
       }
@@ -941,6 +1395,10 @@ export function useBrushOverlay() {
   return {
     onPaintStroke,
     commitBrushStroke,
+    /** Discard the active stroke (pointercancel / Escape): no surface mutation, no history entry. Returns true when a stroke was actually discarded. */
+    cancelActiveStroke,
+    /** True while a stroke gesture is live (between pointerdown and commit/cancel). */
+    isStrokeActive,
     setOverlayCanvasRef: (el: HTMLCanvasElement | null) => {
       overlayCanvasRef = el;
       overlayCtx = el ? el.getContext("2d") : null;

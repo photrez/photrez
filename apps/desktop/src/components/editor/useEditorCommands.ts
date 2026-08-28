@@ -20,6 +20,9 @@ import { easeOutCubic } from "@/viewport/easing";
 import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } from "./exportDocument";
 import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss, scheduleSave } from "./saveState";
 import { cancelAutosave } from "./autoSave";
+import { getFacade } from "@/lib/protocol/facadeRegistry";
+import { hasFacadeOwnedLayers } from "@/engine/document";
+import { applyRustTilesToSurface } from "@/lib/rustShadow";
 
 export const NATIVE_MENU_EVENT = "photrez://native-menu";
 export const EDITOR_COMMAND_EVENT = "photrez://editor-command";
@@ -141,11 +144,14 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // When a transform session exists, undo is always available:
       // mini undo first (revert individual gesture), then cancel-session fallback.
       if (editor.layerTransformSession()) return true;
+      // Ticket 2.2: facade-owned content keeps its history in Rust.
+      if (hasFacadeOwnedLayers()) return true;
       return (editor.activeTool() === "crop" && (editor.canCropUndo() || editor.canModernCropUndo()))
         || editor.workspace.getActiveHistory()?.canUndo() === true;
     }
     if (command === "edit.redo") {
       if (editor.layerTransformSession()) return true;
+      if (hasFacadeOwnedLayers()) return true;
       return (editor.activeTool() === "crop" && (editor.canCropRedo() || editor.canModernCropRedo()))
         || editor.workspace.getActiveHistory()?.canRedo() === true;
     }
@@ -187,7 +193,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     return true;
   };
 
-  const restoreHistorySnapshot = (direction: "undo" | "redo") => {
+  const restoreHistorySnapshot = async (direction: "undo" | "redo") => {
     // Try transform mini undo/redo first when session is active.
     // Each pointerDown for resize/rotate saves a snapshot to the mini undo
     // stack, so Ctrl+Z reverts individual gestures within the session.
@@ -246,6 +252,35 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       }
     }
 
+    // ── Ticket 2.2: facade (Rust-owned) history first ────────────────────
+    // Transforms/addLayers created under photrez.facade=1 have NO TS history
+    // entries (Gate A blocks legacy mutation), so their undo/redo can only
+    // come from Rust. Rust Undo on an EMPTY stack is a no-op success, so we
+    // detect that via lastHistoryDeltaWasEmpty and fall through to the legacy
+    // TS history for pre-facade entries. TRANSITIONAL behavior: while any
+    // facade-owned layer exists, Gate A blocks engine.restore() of TS entries
+    // whose snapshots contain facade layers — such entries stay pinned until
+    // facade layers are removed. Documented in AI_HISTORY; not a final
+    // history architecture.
+    if (hasFacadeOwnedLayers()) {
+      const engine = editor.workspace.getActiveEngine();
+      if (engine) {
+        try {
+          const facade = getFacade(engine.getId());
+          const snap = direction === "undo" ? facade.undo() : facade.redo();
+          if (!facade.lastHistoryDeltaWasEmpty) {
+            engine.applyFacadeSnapshot(snap as never);
+            editor.scheduler.requestRender();
+            editor.workspace.notifyVisualChange();
+            return;
+          }
+          // Rust had nothing — fall through to legacy TS history.
+        } catch {
+          // Rust command rejected — fall through to legacy TS history.
+        }
+      }
+    }
+
     try {
       const engine = editor.workspace.getActiveEngine();
       const history = editor.workspace.getActiveHistory();
@@ -276,8 +311,89 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         ? history.consumeLastUndoPatches()
         : history.consumeLastRedoPatches();
       if (patches) {
-        const tiles = direction === "undo" ? patches.before : patches.after;
+        let tiles = direction === "undo" ? patches.before : patches.after;
+        // ── C4 pilot (R2 flagged active-layer): Rust is authoritative ──
+        // When photrez.rustPixels is ON, pull the authoritative tiles from Rust
+        // (undo/redo restores the canonical buffer) and sync the derived TS
+        // cache from them. Falls back to the local memento if Rust has no entry.
+        let rustRes: { tiles: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number } | null = null;
+        const rustPixelsFlag = (() => {
+          try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
+        })();
+        if (rustPixelsFlag) {
+          try {
+            const docId = editor.workspace.getActiveDocumentId() ?? "";
+            const { invoke } = await import("@tauri-apps/api/core");
+            rustRes = (await invoke(
+              direction === "undo" ? "rust_pixels_undo" : "rust_pixels_redo",
+              { docId, layerId: patches.layerId },
+            )) as { tiles: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number };
+            if (rustRes && rustRes.tiles.length) {
+              // Authoritative bytes from Rust → update the derived TS cache (CPU surface).
+              const toSurface = rustRes.tiles.map((t) => ({
+                x: t.x, y: t.y, w: t.w, h: t.h, data: new Uint8ClampedArray(t.data),
+              }));
+              const engine = editor.workspace.getActiveEngine();
+              const surf = engine?.getPaintSurface(patches.layerId) as
+                | { context: { putImageData(img: { width: number; height: number; data: Uint8ClampedArray }, x: number, y: number): void }; pixelEpoch: number; pixelVersion?: number }
+                | null
+                | undefined;
+              if (surf) {
+                applyRustTilesToSurface(surf.context, toSurface);
+                surf.pixelEpoch = rustRes.epoch;
+                // C5.3-A: record which authoritative history cursor these pixels reflect.
+                surf.pixelVersion = rustRes.version;
+              }
+              // Re-map to the renderer's upload shape (width/height) for GPU upload.
+              tiles = rustRes.tiles.map((t) => ({
+                x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data),
+              }));
+            }
+          } catch (err) {
+            console.warn("[c4] undo/redo sync failed — using local patches:", err);
+          }
+        }
         editor.renderer.uploadSurfaceTiles?.(patches.layerId, patches.surfaceWidth, patches.surfaceHeight, tiles);
+        // Imperative paint entries replay pixels via tiles above, but the model
+        // snapshot (captured pre/post action) also carries non-pixel state a paint
+        // op mutates — Fill Layer clears `basicAdjustment` so the adjustment bakes
+        // into the fill colour. The full engine.restore(snapshot) is skipped for
+        // perf (pure-paint model is otherwise identical), so sync only the
+        // specific non-pixel field here. `snapshot` carries the correct model for
+        // both directions: undo restores the pre-action value, redo the post-action
+        // (cleared) value.
+        const snapLayer = snapshot.layers.find((l) => l.id === patches.layerId);
+        const liveLayer = snapLayer ? engine.getLayer(patches.layerId) : null;
+        if (snapLayer && liveLayer) {
+          const a = snapLayer.basicAdjustment;
+          const b = liveLayer.basicAdjustment;
+          const same = (a === undefined && b === undefined) ||
+            (a !== undefined && b !== undefined && a.brightness === b.brightness && a.contrast === b.contrast && a.saturation === b.saturation);
+          if (!same) {
+            liveLayer.basicAdjustment = a ? { ...a } : undefined;
+            engine.notifyVisualChange();
+          }
+        }
+        // C5.4 Part 2: bitmap sync for imperative undo/redo.  The paint-tile
+        // fast-path skips engine.restore() for performance, but operations like
+        // Fill Layer and Adjustment Bake replace layer.imageBitmap.  On undo,
+        // the snapshot carries the pre-operation bitmap reference; on redo, the
+        // post-operation bitmap.  Sync it so export/save/eyedropper read the
+        // correct pixels.  The bitmap is an immutable ImageBitmap reference —
+        // no copy needed.
+        if (snapLayer && liveLayer) {
+          const snapBitmap = snapLayer.imageBitmap;
+          const liveBitmap = liveLayer.imageBitmap;
+          if (snapBitmap && snapBitmap !== liveBitmap) {
+            liveLayer.imageBitmap = snapBitmap;
+          }
+          // C5.4 bitmap sync: after imperative undo/redo, bitmap from snapshot
+          // matches Rust reverted state. Set bitmapEpoch to the new Rust epoch
+          // (forward-only: epoch advanced even though pixel state reverted).
+          if (rustRes && rustRes.tiles.length > 0) {
+            liveLayer.bitmapEpoch = rustRes.epoch;
+          }
+        }
         const perfDone = performance.now();
         console.info(
           `[perf] ${direction}(tiles): upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms tiles=${tiles.length}`,

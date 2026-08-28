@@ -159,6 +159,14 @@ export async function serializeAndSaveProject(
   };
 
   try {
+    // C5.4 bitmap sync: ensure all layer bitmaps reflect Rust canonical before
+    // encoding for persistence.  Sync only dirty/visible layers to minimize overhead.
+    for (const layer of model.layers) {
+      if (layer.imageBitmap) {
+        await engine.ensureBitmapCurrent(docId, layer.id);
+      }
+    }
+
     // ── Separate clean (cache) from dirty (needs encode) ──
     const encodeTasks: EncodeTask[] = [];
     const cleanLayerWrites: Promise<void>[] = [];

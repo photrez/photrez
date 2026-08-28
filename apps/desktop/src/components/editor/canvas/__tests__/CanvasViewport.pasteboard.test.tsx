@@ -15,13 +15,16 @@ vi.mock("../useViewportRenderer", () => ({
 }));
 
 // Mock useBrushOverlay
-const { mockCommitBrushStroke } = vi.hoisted(() => ({
+const { mockCommitBrushStroke, mockCancelBrushStroke } = vi.hoisted(() => ({
   mockCommitBrushStroke: vi.fn(),
+  mockCancelBrushStroke: vi.fn(),
 }));
 vi.mock("../../useBrushOverlay", () => ({
   useBrushOverlay: () => ({
     onPaintStroke: vi.fn(),
     commitBrushStroke: mockCommitBrushStroke,
+    cancelActiveStroke: mockCancelBrushStroke,
+    isStrokeActive: () => true,
     setOverlayCanvasRef: vi.fn(),
     getOverlayCanvasRef: vi.fn(),
   }),
@@ -595,7 +598,7 @@ describe("CanvasViewport Pasteboard Clicks", () => {
     expect(getCrop()).toEqual({ x: 120, y: 120, w: 180, h: 120 });
   });
 
-  it("commits brush stroke on pointercancel during active brush drag", async () => {
+  it("discards brush stroke on pointercancel during active brush drag (no commit)", async () => {
     renderViewport();
     await new Promise((resolve) => setTimeout(resolve, 0));
     setTool("brush");
@@ -606,7 +609,25 @@ describe("CanvasViewport Pasteboard Clicks", () => {
     canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 50, clientY: 50, button: 0, pointerId: 99 }));
     canvas.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 99 }));
 
-    expect(mockCommitBrushStroke).toHaveBeenCalled();
+    // Design contract (2026-08-24): pointercancel = DISCARD — the stroke must
+    // never permanently paint. cancelBrushStroke runs; commit must not.
+    expect(mockCancelBrushStroke).toHaveBeenCalled();
+    expect(mockCommitBrushStroke).not.toHaveBeenCalled();
+  });
+
+  it("Escape during an active brush stroke discards it (no commit)", async () => {
+    renderViewport();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    setTool("brush");
+
+    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
+    if (!canvas) throw new Error("Canvas not found");
+
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 50, clientY: 50, button: 0, pointerId: 99 }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(mockCancelBrushStroke).toHaveBeenCalled();
+    expect(mockCommitBrushStroke).not.toHaveBeenCalled();
   });
 
   it("commits brush stroke on lostpointercapture during active brush drag", async () => {
