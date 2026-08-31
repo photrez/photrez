@@ -501,6 +501,9 @@ impl ProtocolEngine {
             },
         });
         self.cursor = self.entries.len();
+        // Phase 1: an external (TS) op is a committed logical mutation, so the
+        // DocumentVersion must advance exactly once — matching apply_pixel_patch.
+        self.version += 1;
         Ok(())
     }
 
@@ -657,7 +660,7 @@ impl ProtocolEngine {
                 &token,
                 memory_cost_bytes,
             )?;
-            self.version += 1;
+            // Note: record_external already bumps version; do not bump again.
             return Ok(CommandResult {
                 document_version: self.version,
                 delta: RenderDelta {

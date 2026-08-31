@@ -1,6 +1,34 @@
 import type { DocumentModel, LayerNode } from "./types";
 import { MAX_HISTORY_DEPTH } from "./types";
 import type { TileUploadLike } from "../renderer/types";
+import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
+
+/**
+ * Phase 1 (History Unification): route every TS commit into the SAME Rust
+ * `ProtocolEngine` cursor so TS and Rust operations share ONE logical history
+ * position.
+ *
+ * Gated: the bridge is OFF by default in production. It is enabled only when
+ * the runtime DEV gate `localStorage["photrez.historyBridge"] === "1"` is set
+ * AND the app is running in the Tauri runtime. In default production the TS
+ * `CommandHistory` remains the sole undo/redo authority (no Rust cursor append,
+ * so no TS/Rust split-brain).
+ */
+const HISTORY_BRIDGE_GATE = "photrez.historyBridge";
+
+/**
+ * Reusable predicate (shared by the commit funnel AND the undo/redo cursor-sync
+ * in useEditorCommands so the two can never drift): the TS→Rust history bridge
+ * is enabled only when the runtime DEV gate `localStorage["photrez.historyBridge"]
+ * === "1"` is set AND the app runs in the Tauri runtime. Default production OFF.
+ */
+export function historyBridgeEnabled(): boolean {
+  return (
+    typeof localStorage !== "undefined" &&
+    localStorage.getItem(HISTORY_BRIDGE_GATE) === "1" &&
+    isTauriRuntime()
+  );
+}
 
 /**
  * Fase 1 tile store: imperative before/after tile patches for a paint commit.
@@ -57,9 +85,18 @@ export class CommandHistory {
   private maxDepth: number;
   private currentLastPaintCoords: { x: number; y: number } | null = null;
   private liveBitmapGetter: (() => Iterable<ImageBitmap | null>) | null = null;
+  private docIdGetter: (() => string) | null = null;
 
   constructor(maxDepth: number = MAX_HISTORY_DEPTH) {
     this.maxDepth = maxDepth;
+  }
+
+  /**
+   * Phase 1: supply the active document id so commits can be appended to the
+   * correct Rust history cursor. Called once by the editor shell.
+   */
+  attachDocIdGetter(getter: () => string): void {
+    this.docIdGetter = getter;
   }
 
   /**
@@ -82,7 +119,50 @@ export class CommandHistory {
     return this.currentLastPaintCoords;
   }
 
-  commit(snapshot: DocumentModel, label?: string, imperative?: HistoryTilePatches): void {
+  commit(
+    snapshot: DocumentModel,
+    label?: string,
+    imperative?: HistoryTilePatches,
+    alreadyRecordedInRust = false,
+  ): void {
+    // Phase 1: append this commit to the unified Rust history cursor.
+    //  - imperative TS pixel op NOT yet in Rust (text/gradient/shape/transform)
+    //    -> `apply_tile_patch` (Pixel entry, same command Rust strokes use).
+    //  - non-pixel TS (metadata) op -> `rust_pixels_record_external` (External entry).
+    //  - `alreadyRecordedInRust` (brush/fill/adjustment bake) -> Rust already owns
+    //    the Pixel entry via `rust_pixels_write_region`; skip to avoid double-count.
+    // Gated by the runtime DEV flag localStorage["photrez.historyBridge"] === "1"
+    // (plus isTauriRuntime, folded into historyBridgeEnabled()).
+    if (historyBridgeEnabled() && this.docIdGetter) {
+      const docId = this.docIdGetter();
+      // Dynamic import (matching document.ts) keeps the Tauri API out of the
+      // module graph at import time so browser/test imports stay side-effect free.
+      const fire = (cmd: string, args: Record<string, unknown>) =>
+        import("@tauri-apps/api/core")
+          .then(({ invoke }) => invoke(cmd, args))
+          .catch(() => {});
+      try {
+        if (imperative && !alreadyRecordedInRust) {
+          fire("apply_tile_patch", {
+            docId,
+            layerId: imperative.layerId,
+            before: imperative.before,
+            after: imperative.after,
+          });
+        } else if (!alreadyRecordedInRust) {
+          fire("rust_pixels_record_external", {
+            docId,
+            label: label ?? "ts-meta",
+            affected: snapshot.activeLayerId ? [snapshot.activeLayerId] : [],
+            adapterId: "ts",
+            token: label ?? "ts-meta",
+          });
+        }
+      } catch {
+        /* bridge is best-effort; a failure must never break TS history */
+      }
+    }
+
     this.undoStack.push({
       snapshot,
       timestamp: Date.now(),
@@ -143,6 +223,11 @@ export class CommandHistory {
     // Fase 1: patches to execute for THIS undo (pre-stroke tiles of the entry).
     this.lastUndoPatches = previousEntry.imperative;
 
+    // NOTE: Rust cursor sync is NOT done here. It is done by useEditorCommands.ts
+    // after determining whether the operation is a pixel undo (rust_pixels_undo)
+    // or a metadata undo (no patches). Doing it here would cause DOUBLE UNDO
+    // when photrez.rustPixels=1.
+
     return previousEntry.snapshot;
   }
 
@@ -173,6 +258,8 @@ export class CommandHistory {
     this.currentLastPaintCoords = nextEntry.lastPaintCoords;
     // Fase 1: patches to execute for THIS redo (post-stroke tiles of the entry).
     this.lastRedoPatches = nextEntry.imperative;
+
+    // NOTE: Rust cursor sync is NOT done here. See undo() comment.
 
     return nextEntry.snapshot;
   }

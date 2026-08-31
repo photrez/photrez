@@ -304,7 +304,7 @@ export function fillActiveLayerWithColor(
           before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
           after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
         };
-        history.commit(preSnapshot, "Fill Layer", imperative);
+        history.commit(preSnapshot, "Fill Layer", imperative, true);
       } catch (err) {
         showToast(`Fill Layer failed: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
       }

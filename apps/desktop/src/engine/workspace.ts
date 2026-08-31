@@ -240,6 +240,8 @@ export class WorkspaceManager {
         [l.imageBitmap, l.baseImageBitmap].filter((b): b is ImageBitmap | null => b !== undefined),
       ),
     );
+    // Phase 1: lets the history bridge append commits to the correct Rust cursor.
+    history.attachDocIdGetter(() => engine.getModel().id);
 
     return {
       engine,
@@ -268,6 +270,8 @@ export class WorkspaceManager {
         [l.imageBitmap, l.baseImageBitmap].filter((b): b is ImageBitmap | null => b !== undefined),
       ),
     );
+    // Phase 1: lets the history bridge append commits to the correct Rust cursor.
+    history.attachDocIdGetter(() => engine.getModel().id);
 
     return {
       engine,

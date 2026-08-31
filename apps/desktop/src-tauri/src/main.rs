@@ -229,6 +229,7 @@ fn main() {
             paint_parity_cmds::apply_tile_patch,
             paint_parity_cmds::rust_pixels_undo,
             paint_parity_cmds::rust_pixels_redo,
+            paint_parity_cmds::rust_pixels_record_external,
             paint_parity_cmds::rust_pixels_snapshot_tile,
             paint_parity_cmds::rust_pixels_snapshot_layer,
             paint_parity_cmds::rust_pixels_get_epoch,

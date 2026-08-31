@@ -146,7 +146,7 @@ export function applyPaintBucketFill(
           before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
           after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
         };
-        history.commit(preSnapshot, "Paint Bucket Fill", imperative);
+        history.commit(preSnapshot, "Paint Bucket Fill", imperative, true);
         scheduler.requestRender();
       } catch (err) {
         showToast(`Fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");

@@ -30,11 +30,12 @@ import {
 import { createDabProducer, type DabProducer } from "./brushDabProducer";
 
 // ── C4 pilot (R2 flagged active-layer): Rust owns the canonical pixel buffer ──
-// Bug 2 fix: there is no TS-side "seeded" flag. `paint_parity_commit` ensures
-// the layer exists in Rust (idempotent: inits only when Rust has no store entry)
-// and composites each stroke onto the existing canonical pixels. Seeding state
-// lives entirely in Rust, namespaced by (docId, layerId), so reopening a
-// document or switching documents can never inherit stale seeded state.
+// Bug 2 fix: there is no TS-side "seeded" flag. Each layer is seeded into Rust
+// ONCE via `rust_pixels_init` (idempotent, namespaced by docId+layerId), then
+// every committed stroke sends ONLY its dirty region via `rust_pixels_write_region`
+// (which replaces those canonical pixels and returns before/after tiles). Seeding
+// state lives entirely in Rust, so reopening or switching documents can never
+// inherit stale seeded state.
 
 // ── Hold timer (time-based endpoint dab) ──
 // During slow strokes or holds where interpolateDabs produces 0 dabs
@@ -76,6 +77,39 @@ interface PaintStrokeSession {
   dirtyRect: DirtyRect;
 }
 
+// ── Strategy D: async-deferred C4 canonical commit (production analog of the
+// WebGL2 PBO readback validated in RESPONSE.md). Brush surface is Canvas2D, so
+// the literal PBO readback is replaced by an async `surface.readRect` + Tauri IPC
+// + `history.commit`. A per-document queue serializes commits so stroke N+1 never
+// overtakes stroke N (canonical state + history ordering preserved). The pointerup
+// handler returns immediately after enqueue — block = bbox bookkeeping only.
+const c4CommitQueues = new Map<string, Promise<void>>();
+
+interface C4SurfaceLike {
+  context: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+  readRect: (x: number, y: number, w: number, h: number) => ImageData;
+  pixelEpoch: number;
+  pixelVersion: number;
+}
+interface C4CommitJob {
+  docId: string;
+  layerId: string;
+  dx0: number; dy0: number; dw: number; dh: number;
+  w: number; h: number;
+  surface: C4SurfaceLike;
+  engine: DocumentEngine;
+  history: CommandHistory;
+  requestRender: () => void;
+  beforePatches: TileKeyed<ImageData>[];
+  effectiveIsEraser: boolean;
+  seq: number;
+}
+
+/** Test-only: await all in-flight C4 deferred commits (validation flush). */
+export async function flushC4Commits(): Promise<void> {
+  await Promise.allSettled([...c4CommitQueues.values()]);
+}
+
 export function useBrushOverlay() {
   const {
     workspace, renderer, scheduler, fgColor, bgColor, docWidth, docHeight,
@@ -88,6 +122,97 @@ export function useBrushOverlay() {
   let overlayCtx: CanvasRenderingContext2D | null = null;
   let prevStrokePointCount = 0;
   let strokeGen = 0;
+
+  async function c4CoreCommit(job: C4CommitJob): Promise<void> {
+    const { docId, layerId, dx0, dy0, dw, dh, w, h, surface, engine, history, requestRender, beforePatches, effectiveIsEraser } = job;
+    const sctx = surface.context;
+    const runCore = async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await rehydratePaintSurfaceFromRust(docId, layerId, surface as never);
+      let layerReady = true;
+      try { await invoke("rust_pixels_get_epoch", { docId, layerId }); } catch { layerReady = false; }
+      if (!layerReady) {
+        const seed = surface.readRect(0, 0, w, h);
+        await invoke("rust_pixels_init", { docId, layerId, width: w, height: h, bytes: new Uint8Array(seed.data.buffer, seed.data.byteOffset, seed.data.byteLength) });
+      }
+      const region = surface.readRect(dx0, dy0, dw, dh);
+      const res = (await invoke("rust_pixels_write_region", {
+        docId, layerId, x: dx0, y: dy0, w: dw, h: dh,
+        rgba: new Uint8Array(region.data.buffer, region.data.byteOffset, region.data.byteLength),
+      })) as { before: { x: number; y: number; w: number; h: number; data: number[] }[]; after: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number };
+      applyRustTilesToSurface(sctx, res.after);
+      surface.pixelEpoch = res.epoch;
+      surface.pixelVersion = res.version;
+      const afterPatches: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
+      const rectUploads: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
+      for (const t of res.after) {
+        const data = new Uint8ClampedArray(t.w * t.h * 4);
+        data.set(t.data);
+        afterPatches.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
+        rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) });
+      }
+      history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", {
+        layerId, surfaceWidth: w, surfaceHeight: h,
+        before: beforePatches.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
+        after: afterPatches,
+      });
+      queueOrUploadTiles(layerId, w, h, rectUploads);
+      requestRender();
+      try {
+        if (localStorage.getItem("photrez.c4Audit") === "1") {
+          const dirtyRectBytes = dw * dh * 4;
+          const responseBytes = res.after.reduce((s, t) => s + t.w * t.h * 4, 0);
+          console.info(`[c4-audit] dirtyRectBytes=${dirtyRectBytes} tileCount=${res.after.length} responseBytes=${responseBytes}`);
+        }
+      } catch { /* audit never breaks commit */ }
+    };
+    try {
+      await runCore();
+    } catch (err) {
+      // surface already holds the composited after-pixels; mirror them to TS via
+      // history.commit + tile upload (no cachedTileScratch dependency).
+      console.warn("[c4] async deferred commit failed — synchronous fallback:", err);
+      try {
+        const region = surface.readRect(dx0, dy0, dw, dh);
+        const afterData = new Uint8ClampedArray(region.data);
+        const afterPatches = [{ x: dx0, y: dy0, width: dw, height: dh, data: afterData }];
+        const rectUploads = [{ x: dx0, y: dy0, width: dw, height: dh, data: afterData }];
+        applyRustTilesToSurface(sctx, [{ x: dx0, y: dy0, w: dw, h: dh, data: Array.from(afterData) }]);
+        history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", {
+          layerId, surfaceWidth: w, surfaceHeight: h,
+          before: beforePatches.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
+          after: afterPatches,
+        });
+        queueOrUploadTiles(layerId, w, h, rectUploads);
+        requestRender();
+      } catch (err2) {
+        console.error("[c4] fallback also failed — pixels may be dropped for", docId, layerId, err2);
+      }
+    } finally {
+      // DEV-only: async-queue ordering probe (gate verification — tree-shaken in prod).
+      if ((import.meta as any).env?.DEV) {
+        const w = window as unknown as Record<string, any>;
+        (w.__c4DeferredDone = (w.__c4DeferredDone ?? 0) + 1);
+        (w.__c4DoneSeq = w.__c4DoneSeq ?? []).push(job.seq);
+      }
+    }
+  }
+
+  function enqueueC4Commit(job: C4CommitJob): void {
+    const key = `${job.docId}:${job.layerId}`;
+    const prev = c4CommitQueues.get(key) ?? Promise.resolve();
+    const next = prev.then(() => c4CoreCommit(job)).catch(() => {});
+    c4CommitQueues.set(key, next);
+    next.finally(() => { if (c4CommitQueues.get(key) === next) c4CommitQueues.delete(key); }).catch(() => {});
+    // DEV-only: async-queue ordering probe (gate verification — tree-shaken in prod).
+    if ((import.meta as any).env?.DEV) {
+      const w = window as unknown as Record<string, any>;
+      w.__c4Seq = (w.__c4Seq ?? 0) + 1;
+      job.seq = w.__c4Seq;
+      (w.__c4DeferredEnq = (w.__c4DeferredEnq ?? 0) + 1);
+      (w.__c4EnqSeq = w.__c4EnqSeq ?? []).push(job.seq);
+    }
+  }
 
   let paintSession: PaintStrokeSession | null = null;
 
@@ -791,6 +916,11 @@ export function useBrushOverlay() {
 
   async function commitBrushStroke(engine: DocumentEngine, history: CommandHistory, layerId: string, isEraser: boolean, anchor?: { x: number; y: number } | null) {
     const _t0 = performance.now();
+    // DEV-only: pointerup synchronous-blocking probe (gate verification — tree-shaken in prod).
+    if ((import.meta as any).env?.DEV) {
+      (window as unknown as Record<string, any>).__cpT0 = _t0;
+      (window as unknown as Record<string, any>).__cpSize = (window as unknown as Record<string, any>).__probeSize ?? 0;
+    }
     if (isFacadeOwnedLayer(layerId)) {
       showToast("This layer is owned by Rust facade — legacy brush commit blocked", "warn");
       prevStrokePointCount = 0;
@@ -861,6 +991,7 @@ export function useBrushOverlay() {
         const afterPatches: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
         const rectUploads: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
         let histCommitted = false;
+        let c4Deferred = false;
         let perfTiles = 0, perfRects = 0, perfYields = 0, perfDabs = 0;
         let tP0 = 0, tP2 = 0, tP3 = 0, tP4 = 0;
         try {
@@ -973,8 +1104,8 @@ export function useBrushOverlay() {
         }
 
         // ── R2 Canonical C3 (flag-gated, fresh-white-docs only): Rust patches replace TS raster ──
-        let c3Applied = false;
-        let c3Flag = false;
+  let c3Applied = false;
+  let c3Flag = false;
         try { c3Flag = localStorage.getItem("photrez.canonicalCommit") === "1"; } catch {}
         if (c3Flag && !effectiveIsEraser && scratchReady && isRustShadowEnabled() && c3Ready) {
           try {
@@ -1014,11 +1145,12 @@ export function useBrushOverlay() {
         }
 
         // ── C4 pilot (R2 flagged active-layer): Rust owns canonical pixels ──
-        // Every eligible committed stroke calls `paint_parity_commit`, which
-        // composites the dab onto the EXISTING canonical pixels in Rust, then
-        // returns the exact pre-stroke (`before`) and composited (`after`) tiles.
-        // The TS cache is synced from Rust's returned `after` (single source of
-        // truth). OFF unless photrez.rustPixels === "1". Mutually exclusive with
+        // Every eligible committed stroke sends ONLY its dirty region via
+        // `rust_pixels_write_region`, which replaces those canonical pixels in Rust
+        // (no dab re-composite: the surface already holds the composited after-pixels)
+        // and returns the exact pre-stroke (`before`) and (`after`) tiles. The TS
+        // cache is synced from Rust's returned `after` (single source of truth).
+        // OFF unless photrez.rustPixels === "1". Mutually exclusive with
         // the C3 canonical path by *mode* — gated on c3Flag (photrez.canonicalCommit),
         // not on c3Applied — so the two modes never both apply to the same stroke.
         // c3Applied is set true by C4's own commit below; that must NOT disable
@@ -1027,63 +1159,32 @@ export function useBrushOverlay() {
           try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
         })();
         if (rustPixelsFlag && !c3Flag && !effectiveIsEraser && scratchReady) {
-          // Bug 1 + Bug 2 fix: every eligible committed stroke reaches Rust, and
-          // Rust remains the canonical pixel owner. `paint_parity_commit` ensures
-          // the layer exists (idempotent; no TS seeded flag, so no stale state
-          // across documents/closes), composites the dab onto the EXISTING
-          // canonical pixels, and returns the exact pre-stroke (`before`) and
-          // composited (`after`) tiles. TS receives the FINAL canonical tile
-          // (not a dab-on-white tile), so overlapping strokes accumulate correctly.
+          // C4 (Strategy D): async-deferred dirty-region commit. The pointerup
+          // handler returns immediately after enqueue; the canonical write, tile
+          // rehydration, and history.commit run off-path via a per-document queue
+          // (stroke N+1 never overtakes N). Brush surface is Canvas2D, so this is
+          // the faithful analog of the WebGL2 PBO readback validated in RESPONSE.md
+          // (pointerup block <1ms, no busy-wait, ordered).
+          c3Applied = true;
+          c4Deferred = true;
+          histCommitted = true;
           const docId = workspace.getActiveDocumentId() ?? "";
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            // C5.2: if the derived TS cache is stale vs the Rust canonical epoch,
-            // rebuild it from Rust before applying the new commit.
-            await rehydratePaintSurfaceFromRust(docId, layerId, surface);
-            const tip = getBrushTip({ size: paintSession.tipSize, hardness: paintSession.tipHardness, curve: "soft" });
-            const brush = tip ? tip.diameter : paintSession.tipSize;
-            const dabColor = inverseBasicAdjustmentToColor(
-              paintSession.color,
-              layer.basicAdjustment ?? { brightness: 0, contrast: 0, saturation: 0 },
-            );
-            const pcv = parsePaintColor(dabColor);
-            const full = surface.readRect(0, 0, w, h);
-            const res = (await invoke("paint_parity_commit", {
-              docId,
-              layerId,
-              bytes: Array.from(full.data),
-              req: {
-                w, h, prep_white: true, eraser: false,
-                brush, hardness: paintSession.tipHardness,
-                dabs: paintSession.dabPositions.map((d) => ({ x: d.x, y: d.y, alpha: d.alpha })),
-                tip_w: brush, tip_h: brush, tip_data: [],
-                canonical_tip: true, tip_color: [pcv.r, pcv.g, pcv.b],
-              },
-              opts: { include_tiles: true },
-            })) as {
-              before: { x: number; y: number; w: number; h: number; data: number[] }[];
-              after: { x: number; y: number; w: number; h: number; data: number[] }[];
-              epoch: number;
-              version: number;
-            };
-            // TS cache updated from Rust's authoritative returned `after` tiles + epoch.
-            applyRustTilesToSurface(sctx, res.after);
-            surface.pixelEpoch = res.epoch;
-            // C5.3-A: record which authoritative history cursor these pixels reflect.
-            surface.pixelVersion = res.version;
-            for (const t of res.after) {
-              const data = new Uint8ClampedArray(t.w * t.h * 4);
-              data.set(t.data);
-              afterPatches.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
-              rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) });
-            }
-            c3Applied = true;
-            console.info(`[c4] canonical commit: ${res.after.length} tiles (epoch ${res.epoch}, version ${res.version})`);
-          } catch (err) {
-            // C5.1 recovery: a failed commit falls back to legacy for this stroke.
-            // `paint_parity_commit` is idempotent (ensure-if-absent), so the next
-            // stroke retries cleanly — no stale seeded-state to clear.
-            console.warn("[c4] canonical path failed — falling back to legacy:", err);
+          const _ce0 = performance.now();
+          enqueueC4Commit({
+            docId,
+            layerId,
+            dx0, dy0, dw, dh,
+            w, h,
+            surface: surface as unknown as C4SurfaceLike,
+            engine,
+            history,
+            requestRender: () => scheduler.requestRender(),
+            beforePatches,
+            effectiveIsEraser,
+            seq: 0,
+          });
+          if ((import.meta as any).env?.DEV) {
+            (window as unknown as Record<string, any>).__c4EnqueueMs = performance.now() - _ce0;
           }
         }
 
@@ -1156,8 +1257,10 @@ export function useBrushOverlay() {
         };
         // Imperative is entry-owned (tile-memento model): history stores it
         // with this commit and replays its before/after tiles on undo/redo.
-        history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative);
-        histCommitted = true;
+        if (!c4Deferred) {
+          history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative, true);
+          histCommitted = true;
+        }
         tP3 = performance.now();
         // ── R2 Step2 DEV forensics assembly (inside try scope): scratch / surface / tsAfter boundaries ──
         if (isRustShadowEnabled() && scratchSnap && emulFull && foreGeo && foreA && foreTipW) {
@@ -1254,9 +1357,12 @@ export function useBrushOverlay() {
           }
           throw err; // post-commit code is outside the try; safeguard only
         }
-        const uploadedNow = queueOrUploadTiles(layerId, w, h, rectUploads);
-        tP4 = performance.now();
-        scheduler.requestRender();
+        let uploadedNow = false;
+        if (!c4Deferred) {
+          uploadedNow = queueOrUploadTiles(layerId, w, h, rectUploads);
+          tP4 = performance.now();
+          scheduler.requestRender();
+        }
         // ── R2 Step1 Shadow (candidate-only, bounded, reversible) ──
         // TS remains canonical; Rust never mutates document/history/GPU.
         // Flag OFF (default) => no work; flag ON => fire-and-forget candidate, logs to window.__photrezShadowLog.
@@ -1275,6 +1381,19 @@ export function useBrushOverlay() {
         overlayCtx.clearRect(0, 0, w, h);
         prevStrokePointCount = 0;
         paintSession = null;
+        // DEV-only: record pointerup synchronous-blocking sample (entry→return of commitBrushStroke).
+        if ((import.meta as any).env?.DEV) {
+          const wd = window as unknown as Record<string, any>;
+          const t1 = performance.now();
+          const pending = (wd.__c4DeferredEnq ?? 0) - (wd.__c4DeferredDone ?? 0);
+          (wd.__photrezCommitProbe = wd.__photrezCommitProbe ?? { samples: [] }).samples.push({
+            syncMs: t1 - (wd.__cpT0 ?? t1),
+            c4EnqueueMs: wd.__c4EnqueueMs ?? 0,
+            size: wd.__cpSize ?? 0,
+            deferredPendingAtReturn: pending,
+            t: t1,
+          });
+        }
         // Diagnosis gate: phases only when the whole commit is slow. Upload time
         // is only meaningful when it ran now (not queued behind a lost context).
         const _dtT = tP4 - _t0;

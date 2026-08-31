@@ -368,8 +368,20 @@ impl PixelStoreRegistry {
                         a_data[d_off..d_off + len].copy_from_slice(&rgba[s_off..s_off + len]);
                     }
                 }
-                before.push(TilePatch { x: tile_x, y: tile_y, w: tile_w, h: tile_h, data: b_data });
-                after.push(TilePatch { x: tile_x, y: tile_y, w: tile_w, h: tile_h, data: a_data });
+                before.push(TilePatch {
+                    x: tile_x,
+                    y: tile_y,
+                    w: tile_w,
+                    h: tile_h,
+                    data: b_data,
+                });
+                after.push(TilePatch {
+                    x: tile_x,
+                    y: tile_y,
+                    w: tile_w,
+                    h: tile_h,
+                    data: a_data,
+                });
             }
         }
         let res = self.apply_pixel_patch(doc_id, layer_id, before.clone(), after.clone())?;
@@ -534,6 +546,32 @@ impl PixelStoreRegistry {
     /// Current `DocumentVersion` for the document.
     pub fn get_history_version(&self, doc_id: &str) -> Option<u64> {
         self.docs.get(doc_id).map(|d| d.history.version())
+    }
+
+    /// Phase 1: route a TS (non-pixel) logical mutation into the SAME unified
+    /// `ProtocolEngine` cursor so mixed TS/Rust operations share one history
+    /// position. Creates an `External` entry (no pixel delta) that advances the
+    /// cursor + bumps `DocumentVersion` exactly once. The actual metadata revert
+    /// on undo/redo remains TS-side; this entry only keeps the ordering unified.
+    pub fn record_external(
+        &mut self,
+        doc_id: &str,
+        label: &str,
+        affected: &[String],
+        adapter_id: &str,
+        token: &str,
+        memory_cost_bytes: u64,
+    ) -> Result<(), String> {
+        let doc = self
+            .docs
+            .get_mut(doc_id)
+            .ok_or_else(|| format!("document not open: {doc_id}"))?;
+        // TS ops are external to the Rust engine; register the adapter once so
+        // record_external's adapter check passes.
+        doc.history.register_adapter(adapter_id);
+        doc.history
+            .record_external(label, affected, adapter_id, token, memory_cost_bytes)
+            .map_err(|e| e.message)
     }
 }
 
@@ -1068,13 +1106,16 @@ mod tests {
     fn c5_4_write_region_tiles_localized_and_full() {
         let mut r = PixelStoreRegistry::new();
         r.open_document("d");
-        r.add_layer("d", "L", 300, 300, vec![0u8; 300 * 300 * 4]).unwrap();
+        r.add_layer("d", "L", 300, 300, vec![0u8; 300 * 300 * 4])
+            .unwrap();
         let mut rgba = vec![0u8; 10 * 10 * 4];
         for c in rgba.chunks_mut(4) {
             c.copy_from_slice(&[0, 255, 0, 255]);
         }
         // Region (250,150,10,10) crosses the x=256 tile boundary.
-        let (b, a, _, _) = r.write_region("d", "L", 250, 150, 10, 10, rgba).expect("write");
+        let (b, a, _, _) = r
+            .write_region("d", "L", 250, 150, 10, 10, rgba)
+            .expect("write");
         assert_eq!(b.len(), 2, "exactly two 256-tiles intersect the region");
         for t in b.iter().chain(a.iter()) {
             // Tiles are 256-grid-aligned (edge tiles clipped to layer bounds).
@@ -1094,12 +1135,19 @@ mod tests {
             c.copy_from_slice(&[1, 2, 3, 255]);
         }
         r.write_region("d", "L", 2, 2, 4, 4, rgba).unwrap();
-        assert_eq!(r.get_layer("d", "L").unwrap().pixels[(3 * 8 + 3) * 4 + 0], 1);
+        assert_eq!(
+            r.get_layer("d", "L").unwrap().pixels[(3 * 8 + 3) * 4 + 0],
+            1
+        );
         let (_lid, _tiles, _e, _v) = r.undo_pixel("d").expect("undo");
         let after_undo = r.get_layer("d", "L").unwrap().snapshot_region(0, 0, 8, 8);
         assert_eq!(after_undo, before, "undo restores pre-fill canonical");
         let _ = r.redo_pixel("d").expect("redo");
-        assert_eq!(r.get_layer("d", "L").unwrap().pixels[(3 * 8 + 3) * 4 + 0], 1, "redo re-applies fill");
+        assert_eq!(
+            r.get_layer("d", "L").unwrap().pixels[(3 * 8 + 3) * 4 + 0],
+            1,
+            "redo re-applies fill"
+        );
     }
 
     #[test]
@@ -1116,7 +1164,10 @@ mod tests {
         assert!(r.redo_pixel("d").is_some(), "redo available after undo");
         // New write after undo → future redo severed.
         r.write_region("d", "L", 4, 4, 4, 4, red.clone()).unwrap();
-        assert!(r.redo_pixel("d").is_none(), "redo truncated after new write");
+        assert!(
+            r.redo_pixel("d").is_none(),
+            "redo truncated after new write"
+        );
         assert_eq!(r.get_history_cursor("d"), Some(2));
     }
 
@@ -1126,16 +1177,27 @@ mod tests {
         r.open_document("d");
         r.add_layer("d", "L", 8, 8, vec![0u8; 8 * 8 * 4]).unwrap();
         let rgba = vec![0u8; 4 * 4 * 4];
-        assert!(r.write_region("d", "L", 6, 6, 4, 4, rgba.clone()).is_none(), "overflow rejected");
-        assert!(r.write_region("d", "L", 0, 0, 4, 4, vec![0u8; 3]).is_none(), "size mismatch rejected");
-        assert_eq!(r.get_history_cursor("d"), Some(0), "no cursor movement on rejected write");
+        assert!(
+            r.write_region("d", "L", 6, 6, 4, 4, rgba.clone()).is_none(),
+            "overflow rejected"
+        );
+        assert!(
+            r.write_region("d", "L", 0, 0, 4, 4, vec![0u8; 3]).is_none(),
+            "size mismatch rejected"
+        );
+        assert_eq!(
+            r.get_history_cursor("d"),
+            Some(0),
+            "no cursor movement on rejected write"
+        );
     }
 
     #[test]
     fn c5_4_write_region_history_bounded_to_50() {
         let mut r = PixelStoreRegistry::new();
         r.open_document("d");
-        r.add_layer("d", "L", 64, 64, vec![0u8; 64 * 64 * 4]).unwrap();
+        r.add_layer("d", "L", 64, 64, vec![0u8; 64 * 64 * 4])
+            .unwrap();
         let mut rgba = vec![0u8; 4 * 4 * 4];
         for c in rgba.chunks_mut(4) {
             c.copy_from_slice(&[7, 7, 7, 255]);
@@ -1145,7 +1207,11 @@ mod tests {
             let y = (i / 8) as i64 * 4;
             r.write_region("d", "L", x, y, 4, 4, rgba.clone()).unwrap();
         }
-        assert_eq!(r.get_history_cursor("d"), Some(50), "cursor capped at max_depth");
+        assert_eq!(
+            r.get_history_cursor("d"),
+            Some(50),
+            "cursor capped at max_depth"
+        );
         for _ in 0..50 {
             assert!(r.undo_pixel("d").is_some());
         }
@@ -1154,4 +1220,359 @@ mod tests {
 
     // (The external-pending barrier rejection is covered by the ProtocolEngine
     //  unit test `pixel_undo_redo_rejected_while_external_pending` in protocol.rs.)
+
+    #[test]
+    fn c4_dirty_region_brush_contract() {
+        let mut r = PixelStoreRegistry::new();
+        r.open_document("d");
+        r.add_layer("d", "L", 256, 256, vec![0u8; 256 * 256 * 4])
+            .unwrap();
+        // stroke 1: dirty region (40,40,60,60) painted red
+        let mut red = vec![0u8; 60 * 60 * 4];
+        for c in red.chunks_mut(4) {
+            c.copy_from_slice(&[255, 0, 0, 255]);
+        }
+        let (before, after, epoch, version) = r
+            .write_region("d", "L", 40, 40, 60, 60, red.clone())
+            .unwrap();
+        assert_eq!(epoch, 1);
+        assert_eq!(version, 1);
+        assert_eq!(
+            before.len(),
+            1,
+            "before = one tile patch for the dirty rect"
+        );
+        assert_eq!(after.len(), 1, "after = one tile patch for the dirty rect");
+        // Canonical pixels are the source of truth (TilePatch.data is raw RGBA).
+        let at = r.get_layer("d", "L").unwrap().pixels
+            [(40 * 256 + 40) * 4..(40 * 256 + 40) * 4 + 4]
+            .to_vec();
+        assert_eq!(
+            at,
+            vec![255, 0, 0, 255],
+            "stroke 1 region painted red in canonical"
+        );
+        let untouched = r.get_layer("d", "L").unwrap().pixels
+            [(0 * 256 + 0) * 4..(0 * 256 + 0) * 4 + 4]
+            .to_vec();
+        assert_eq!(untouched, vec![0, 0, 0, 0], "outside dirty rect stays zero");
+        // stroke 2: DISCONNECTED region (200,200,30,30) painted blue -> both accumulate
+        let mut blue = vec![0u8; 30 * 30 * 4];
+        for c in blue.chunks_mut(4) {
+            c.copy_from_slice(&[0, 0, 255, 255]);
+        }
+        let res2 = r
+            .write_region("d", "L", 200, 200, 30, 30, blue.clone())
+            .unwrap();
+        assert_eq!(res2.2, 2);
+        assert_eq!(res2.3, 2);
+        let px = r.get_layer("d", "L").unwrap().pixels
+            [(40 * 256 + 40) * 4..(40 * 256 + 40) * 4 + 4]
+            .to_vec();
+        assert_eq!(
+            px,
+            vec![255, 0, 0, 255],
+            "region 1 preserved after disconnected region 2"
+        );
+        let px2 = r.get_layer("d", "L").unwrap().pixels
+            [(200 * 256 + 200) * 4..(200 * 256 + 200) * 4 + 4]
+            .to_vec();
+        assert_eq!(
+            px2,
+            vec![0, 0, 255, 255],
+            "region 2 painted blue in canonical"
+        );
+    }
+
+    // ── Phase 1: History Unification ──
+    // Proof target: TS (non-pixel) and Rust (pixel) operations share EXACTLY ONE
+    // logical history cursor. The Rust `ProtocolEngine` already routes both
+    // `apply_pixel_patch` (Pixel entry) and `record_external` (External entry)
+    // into the same `entries`/`cursor`/`version` stream. These tests assert the
+    // invariants the gate requires on the REAL carrier (no hand-rolled cursor).
+
+    #[derive(Clone, Copy, Debug)]
+    enum Op {
+        RustPixel(u8), // Rust-side pixel mutation -> apply_pixel_patch (Pixel entry)
+        TsMeta,        // TS-side non-pixel mutation -> record_external (External entry)
+        Undo,
+        Redo,
+    }
+
+    fn xor_all(buf: &[u8], k: u8) -> Vec<u8> {
+        buf.iter().map(|b| b ^ k).collect()
+    }
+
+    /// Drive a real `PixelStoreRegistry` with a mixed op sequence and assert, at
+    /// every step, the Phase 1 invariants:
+    ///  - exactly ONE cursor position (`get_history_cursor == oracle cursor`),
+    ///  - canonical pixels equal the independent oracle,
+    ///  - `DocumentVersion` is strictly monotonic on commit, non-decreasing on undo/redo.
+    fn run_single_cursor(ops: &[Op]) -> bool {
+        const N: usize = 256;
+        let mut r = PixelStoreRegistry::new();
+        r.open_document("docA");
+        let seed = vec![0u8; N * N * 4];
+        r.add_layer("docA", "L", N as u32, N as u32, seed.clone())
+            .unwrap();
+
+        let mut oracle: Vec<u8> = seed.clone();
+        let mut cursor: usize = 0; // applied entries == Rust cursor
+        let mut tip: usize = 0; // total committed (redo branch truncated on new op)
+        let mut last_was_undo = false;
+        let mut prev_version: u64 = 0;
+
+        for op in ops {
+            match op {
+                Op::RustPixel(k) => {
+                    let cur = r.get_layer("docA", "L").unwrap().pixels.clone();
+                    let after_data = xor_all(&cur, *k);
+                    let before_patch = TilePatch {
+                        x: 0,
+                        y: 0,
+                        w: N,
+                        h: N,
+                        data: cur,
+                    };
+                    let after_patch = TilePatch {
+                        x: 0,
+                        y: 0,
+                        w: N,
+                        h: N,
+                        data: after_data.clone(),
+                    };
+                    let (_b, _ep, ver) = r
+                        .apply_pixel_patch("docA", "L", vec![before_patch], vec![after_patch])
+                        .expect("apply_pixel_patch");
+                    oracle = after_data;
+                    if last_was_undo {
+                        tip = cursor;
+                    }
+                    cursor += 1;
+                    tip = cursor;
+                    if ver != prev_version + 1 {
+                        return false; // version must advance exactly once per commit
+                    }
+                    prev_version = ver;
+                    last_was_undo = false;
+                }
+                Op::TsMeta => {
+                    // TS non-pixel op joins the SAME cursor as an External entry.
+                    r.record_external("docA", "ts-meta", &["L".to_string()], "ts", "tok", 0)
+                        .expect("record_external");
+                    if last_was_undo {
+                        tip = cursor;
+                    }
+                    cursor += 1;
+                    tip = cursor;
+                    let v = r.get_history_version("docA").unwrap();
+                    if v != prev_version + 1 {
+                        return false; // record_external bumps version once
+                    }
+                    prev_version = v;
+                    last_was_undo = false;
+                }
+                Op::Undo => {
+                    if cursor == 0 {
+                        return false; // cannot undo past start
+                    }
+                    match r.undo_pixel("docA") {
+                        Some((_l, tiles, _ep, _ver)) => {
+                            if let Some(t) = tiles.first() {
+                                oracle = t.data.clone();
+                            }
+                            // External entry: registry returns None -> oracle unchanged.
+                        }
+                        None => { /* external entry: oracle unchanged, cursor already decremented */
+                        }
+                    }
+                    cursor -= 1;
+                    last_was_undo = true;
+                    let v = r.get_history_version("docA").unwrap();
+                    if v < prev_version {
+                        return false;
+                    }
+                    prev_version = v;
+                }
+                Op::Redo => {
+                    if cursor >= tip {
+                        return false; // nothing to redo
+                    }
+                    match r.redo_pixel("docA") {
+                        Some((_l, tiles, _ep, _ver)) => {
+                            if let Some(t) = tiles.first() {
+                                oracle = t.data.clone();
+                            }
+                        }
+                        None => { /* external entry: oracle unchanged */ }
+                    }
+                    cursor += 1;
+                    last_was_undo = false;
+                    let v = r.get_history_version("docA").unwrap();
+                    if v < prev_version {
+                        return false;
+                    }
+                    prev_version = v;
+                }
+            }
+            if r.get_history_cursor("docA") != Some(cursor) {
+                return false; // INVARIANT: exactly one cursor position
+            }
+            if r.get_layer("docA", "L").unwrap().pixels != oracle {
+                return false; // INVARIANT: canonical pixels match oracle
+            }
+        }
+        true
+    }
+
+    fn seq(ops: Vec<Op>) -> Vec<Op> {
+        ops
+    }
+
+    #[test]
+    fn phase1_a_sequential_rust_ts_distinct_positions() {
+        // A: [Rust, TS, Rust, TS] -> 4 distinct entries, interleaved fine.
+        assert!(run_single_cursor(&seq(vec![
+            Op::RustPixel(1),
+            Op::TsMeta,
+            Op::RustPixel(2),
+            Op::TsMeta,
+        ])));
+    }
+
+    #[test]
+    fn phase1_b_interleaved_ts_rust_any_order() {
+        // B: [TS, Rust, TS, Rust] -> interleave reversed, also fine.
+        assert!(run_single_cursor(&seq(vec![
+            Op::TsMeta,
+            Op::RustPixel(1),
+            Op::TsMeta,
+            Op::RustPixel(2),
+        ])));
+    }
+
+    #[test]
+    fn phase1_c_undo_redo_returns_same_state() {
+        // C: [Rust, TS, Undo, Redo] -> back to same canonical + cursor.
+        assert!(run_single_cursor(&seq(vec![
+            Op::RustPixel(1),
+            Op::TsMeta,
+            Op::Undo,
+            Op::Redo,
+        ])));
+    }
+
+    #[test]
+    fn phase1_d_full_undo_redo_roundtrip() {
+        // D: [Rust, TS, Undo, Undo, Redo, Redo] -> round-trip to original.
+        assert!(run_single_cursor(&seq(vec![
+            Op::RustPixel(1),
+            Op::TsMeta,
+            Op::Undo,
+            Op::Undo,
+            Op::Redo,
+            Op::Redo,
+        ])));
+    }
+
+    #[test]
+    fn phase1_e_partial_undo_then_new_severs_redo() {
+        // E: [Rust, TS, Undo(partial), TS-new] -> redo branch severed; cursor jumps.
+        assert!(run_single_cursor(&seq(vec![
+            Op::RustPixel(1),
+            Op::TsMeta,
+            Op::Undo,
+            Op::TsMeta,
+        ])));
+        // And the severed redo is genuinely unavailable:
+        let mut r = PixelStoreRegistry::new();
+        r.open_document("d");
+        r.add_layer("d", "L", 8, 8, vec![0u8; 8 * 8 * 4]).unwrap();
+        r.apply_pixel_patch(
+            "d",
+            "L",
+            vec![tile(0, 0, 8, 8, 0)],
+            vec![tile(0, 0, 8, 8, 9)],
+        )
+        .unwrap();
+        r.record_external("d", "m", &["L".to_string()], "ts", "t", 0)
+            .unwrap();
+        r.undo_pixel("d"); // undo the TS meta entry -> cursor 1
+        let after_undo = r.get_history_cursor("d").unwrap();
+        // External redo returns no pixel tiles (TS reverts its own metadata) but the
+        // UNIFIED cursor MUST advance — that is the real redo signal.
+        let redone = r.redo_pixel("d");
+        assert_eq!(
+            r.get_history_cursor("d"),
+            Some(after_undo + 1),
+            "redo advances the unified cursor"
+        );
+        assert!(redone.is_none(), "external redo returns no pixel tiles");
+        r.record_external("d", "m2", &["L".to_string()], "ts", "t2", 0)
+            .unwrap(); // new op -> severs redo
+        let at_tip = r.get_history_cursor("d").unwrap();
+        assert!(r.redo_pixel("d").is_none(), "redo truncated after new op");
+        assert_eq!(
+            r.get_history_cursor("d"),
+            Some(at_tip),
+            "redo no-op leaves cursor unchanged"
+        );
+    }
+
+    #[test]
+    fn phase1_randomized_mixed_ops_pass() {
+        // 1000 deterministic randomized sequences (mulberry32 seed 0xC0FFEE).
+        let mut s: u32 = 0xC0FFEE;
+        let mut rng = || {
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            s
+        };
+        for _ in 0..1000u32 {
+            let len = 4 + (rng() % 11) as usize; // 4..14
+            let mut cursor = 0usize;
+            let mut tip = 0usize;
+            let mut ops: Vec<Op> = Vec::with_capacity(len);
+            for _ in 0..len {
+                loop {
+                    match rng() % 4 {
+                        0 => {
+                            ops.push(Op::RustPixel((rng() & 0xFF) as u8));
+                            cursor += 1;
+                            tip = cursor;
+                            break;
+                        }
+                        1 => {
+                            ops.push(Op::TsMeta);
+                            cursor += 1;
+                            tip = cursor;
+                            break;
+                        }
+                        2 => {
+                            if cursor == 0 {
+                                continue;
+                            }
+                            ops.push(Op::Undo);
+                            cursor -= 1;
+                            break;
+                        }
+                        3 => {
+                            if cursor >= tip {
+                                continue;
+                            }
+                            ops.push(Op::Redo);
+                            cursor += 1;
+                            break;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            assert!(
+                run_single_cursor(&ops),
+                "single-cursor invariant failed on a mixed randomized sequence"
+            );
+        }
+    }
 }

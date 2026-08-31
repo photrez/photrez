@@ -274,7 +274,7 @@ export function useLayerActions() {
                 data: new Uint8ClampedArray(t.data),
               })),
             };
-            history.commit(preSnapshot, "Apply Adjustment", imperative);
+            history.commit(preSnapshot, "Apply Adjustment", imperative, true);
           } catch (err) {
             showToast(`Adjustment Bake failed: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
             // Fallback: commit without imperative so undo still works (legacy-compatible).

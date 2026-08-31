@@ -22,6 +22,7 @@ import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDi
 import { cancelAutosave } from "./autoSave";
 import { getFacade } from "@/lib/protocol/facadeRegistry";
 import { hasFacadeOwnedLayers } from "@/engine/document";
+import { historyBridgeEnabled } from "@/engine/history";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
 
 export const NATIVE_MENU_EVENT = "photrez://native-menu";
@@ -292,6 +293,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       if (!canRestore) {
         return;
       }
+      // ── AUTHORITY CONVERGENCE ──
+      // Rust ProtocolEngine is the single logical undo/redo executor.
+      // TS history.canUndo()/canRedo() is used as pre-check (TS cursor ==
+      // Rust cursor by the cursor invariant). The actual Rust undo/redo
+      // is called FIRST in each path below (tile or metadata).
       // [perf] Issue C instrumentation: quantify snapshot vs restore cost on
       // large canvases before optimizing.
       const perfT0 = performance.now();
@@ -398,6 +404,31 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         console.info(
           `[perf] ${direction}(tiles): upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms tiles=${tiles.length}`,
         );
+        // CURSOR INVARIANT: sync the Rust cursor for tile operations so the
+        // TS cursor == Rust cursor, but ONLY when a Rust history entry actually
+        // exists for this undo/redo. The TS→Rust history bridge is the only
+        // thing that creates a Rust History entry on commit, and it is OFF by
+        // default in production (see historyBridgeEnabled). So when the bridge
+        // is off (default production), NO Rust entry exists and TS must NOT
+        // move the Rust cursor — otherwise TS independently restores pixels
+        // while Rust also steps, causing a real TS/Rust double-undo.
+        // When rustPixels=1: rust_pixels_undo/redo was already called above
+        // (for tile data); skip to avoid a double cursor step.
+        if (!rustPixelsFlag && historyBridgeEnabled()) {
+          try {
+            const docId = editor.workspace.getActiveDocumentId() ?? "";
+            const { invoke } = await import("@tauri-apps/api/core");
+            const activeId = engine.getActiveLayerId();
+            if (activeId) {
+              await invoke(
+                direction === "undo" ? "rust_pixels_undo" : "rust_pixels_redo",
+                { docId, layerId: activeId },
+              );
+            }
+          } catch {
+            // Best-effort: cursor sync failure must not break TS undo/redo.
+          }
+        }
         editor.scheduler.requestRender();
         return;
       }

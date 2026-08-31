@@ -229,6 +229,36 @@ pub fn rust_pixels_redo(
     }
 }
 
+/// Phase 1: route a TS (non-pixel) logical mutation into the SAME unified
+/// `ProtocolEngine` cursor so mixed TS/Rust operations share one history position.
+/// Records an `External` entry (no pixel delta); advances the cursor + bumps
+/// `DocumentVersion` exactly once. Returns the new epoch/version for TS cache sync.
+/// The actual metadata revert on undo/redo stays TS-side; this entry only keeps
+/// the ordering unified with Rust pixel operations.
+#[tauri::command]
+pub fn rust_pixels_record_external(
+    doc_id: String,
+    label: String,
+    affected: Vec<String>,
+    adapter_id: String,
+    token: String,
+) -> Result<PatchResultJson, String> {
+    let mut reg = registry();
+    let reg = reg.get_or_insert_with(Default::default);
+    reg.record_external(&doc_id, &label, &affected, &adapter_id, &token, 0)
+        .map_err(|e| e)?;
+    let version = reg.get_history_version(&doc_id).unwrap_or(0);
+    let epoch = affected
+        .first()
+        .and_then(|l| reg.get_layer(&doc_id, l).map(|ly| ly.epoch()))
+        .unwrap_or(0);
+    Ok(PatchResultJson {
+        tiles: Vec::new(),
+        epoch,
+        version,
+    })
+}
+
 /// Read back a region of the canonical buffer (bounded; for verification/transport).
 #[tauri::command]
 pub fn rust_pixels_snapshot_tile(
