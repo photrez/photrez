@@ -12,6 +12,8 @@ use crate::pixel_store::TilePatch;
 // The pixel-history payload stores immutable `Arc<StateNode>` states (the
 // StateNode/arena COW data model, always compiled in `state_node`).
 use crate::state_node::{StateNode, TILE};
+// The document snapshot DTO carried by `EntryPayload::Snapshot`.
+use crate::snapshot::DocumentSnapshot;
 
 /// Schema/protocol version. Bump on breaking envelope change.
 pub const CONTRACT_VERSION: u32 = 1;
@@ -198,6 +200,19 @@ pub enum EntryPayload {
         before: Arc<StateNode>,
         after: Arc<StateNode>,
     },
+    /// Atomic metadata+pixel snapshot entry. Carries the document metadata
+    /// snapshot with per-layer opaque `bitmap_token` references. Rust stores NO
+    /// ImageBitmap and NO pixel bytes here — TS owns the ImageBitmap and restores
+    /// it by the token on undo/redo, so ONE entry restores BOTH metadata and
+    /// pixel state atomically. Matches the `Pixel` pattern: BOTH `before` (the
+    /// state being left, returned by `undo_snapshot`) and `after` (the new
+    /// state, returned by `redo_snapshot`) are stored so each direction
+    /// restores the CORRECT snapshot (undo != redo). Introduced flag-OFF
+    /// (row-major + TS `CommandHistory` remain the ACTIVE default).
+    Snapshot {
+        before: DocumentSnapshot,
+        after: DocumentSnapshot,
+    },
 }
 
 #[derive(Debug)]
@@ -211,6 +226,34 @@ pub struct HistoryEntry {
     pub version_after: DocumentVersion,
     pub memory_cost_bytes: u64,
     pub payload: EntryPayload,
+}
+
+/// Typed discriminant of a payload — lets a dispatcher route `undo_pixel` vs
+/// `undo_snapshot` vs a metadata/external undo WITHOUT string-matching labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PayloadKind {
+    /// Row-major/storage pixel entry (handled by `undo_pixel`/`redo_pixel`).
+    Pixel,
+    /// Atomic metadata+pixel snapshot entry (handled by
+    /// `undo_snapshot`/`redo_snapshot`).
+    Snapshot,
+    /// TS (adapter) logical transition (host-handoff: the host steps the cursor).
+    External,
+    /// Native metadata (`RenderLayer`) payload (handled by the walker).
+    Metadata,
+}
+
+impl EntryPayload {
+    /// The logical kind of this payload (used for unambiguous dispatch routing).
+    pub fn kind(&self) -> PayloadKind {
+        match self {
+            EntryPayload::Native { .. } => PayloadKind::Metadata,
+            EntryPayload::Pixel { .. } => PayloadKind::Pixel,
+            EntryPayload::Snapshot { .. } => PayloadKind::Snapshot,
+            EntryPayload::External { .. } => PayloadKind::External,
+        }
+    }
 }
 
 // Helpers: a `StateNode` is the immutable pixel state for a layer (tile-major
@@ -298,6 +341,8 @@ pub struct HistoryEntryView {
     pub version_after: DocumentVersion,
     pub memory_cost_bytes: u64,
     pub payload_ref: Option<String>, // Some(token) for external entries
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_kind: Option<PayloadKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -532,21 +577,34 @@ impl ProtocolEngine {
             Some(e) => e,
             None => return Ok((None, None, None)),
         };
-        let (layer, tiles, node) = match &entry.payload {
+        match &entry.payload {
             EntryPayload::Pixel {
                 layer_id,
                 before,
                 after,
-            } => (
-                Some(layer_id.clone()),
-                Some(state_node_touched_patches(before, after)),
-                Some(before.clone()),
-            ),
-            _ => (None, None, None),
-        };
-        self.cursor -= 1;
-        self.version += 1;
-        Ok((layer, tiles, node))
+            } => {
+                let layer = Some(layer_id.clone());
+                let tiles = Some(state_node_touched_patches(before, after));
+                let node = Some(before.clone());
+                self.cursor -= 1;
+                self.version += 1;
+                Ok((layer, tiles, node))
+            }
+            // External (TS host-handoff) entries still step the unified cursor
+            // so the ordering stays unified (the host executes + commits later);
+            // no tiles are produced.
+            EntryPayload::External { .. } => {
+                self.cursor -= 1;
+                self.version += 1;
+                Ok((None, None, None))
+            }
+            // Snapshot / Native (metadata) entries are NOT owned by `undo_pixel`
+            // — consuming one here would silently EAT the atomic Snapshot/meta
+            // step and break atomicity. Return a no-op WITHOUT moving the
+            // cursor; the caller MUST route by `tip_payload_kind()` to
+            // `undo_snapshot` / the metadata undo path.
+            EntryPayload::Snapshot { .. } | EntryPayload::Native { .. } => Ok((None, None, None)),
+        }
     }
 
     /// Redo the entry at the cursor. Symmetric to `undo_pixel` (returns `after`).
@@ -565,21 +623,31 @@ impl ProtocolEngine {
             Some(e) => e,
             None => return Ok((None, None, None)),
         };
-        let (layer, tiles, node) = match &entry.payload {
+        match &entry.payload {
             EntryPayload::Pixel {
                 layer_id,
                 before,
                 after,
-            } => (
-                Some(layer_id.clone()),
-                Some(state_node_touched_patches(after, before)),
-                Some(after.clone()),
-            ),
-            _ => (None, None, None),
-        };
-        self.cursor += 1;
-        self.version += 1;
-        Ok((layer, tiles, node))
+            } => {
+                let layer = Some(layer_id.clone());
+                let tiles = Some(state_node_touched_patches(after, before));
+                let node = Some(after.clone());
+                self.cursor += 1;
+                self.version += 1;
+                Ok((layer, tiles, node))
+            }
+            // External (TS host-handoff) entries still step the unified cursor.
+            EntryPayload::External { .. } => {
+                self.cursor += 1;
+                self.version += 1;
+                Ok((None, None, None))
+            }
+            // Snapshot / Native (metadata) entries are NOT owned by `redo_pixel`
+            // — refuse (no-op, no cursor move) so a caller driving `redo_pixel`
+            // alone cannot eat an atomic Snapshot/meta step. Route by
+            // `tip_payload_kind()` instead.
+            EntryPayload::Snapshot { .. } | EntryPayload::Native { .. } => Ok((None, None, None)),
+        }
     }
 
     pub fn cursor(&self) -> usize {
@@ -592,6 +660,19 @@ impl ProtocolEngine {
 
     pub fn can_redo(&self) -> bool {
         self.cursor < self.entries.len()
+    }
+
+    /// The payload kind of the entry the next `undo_*` would consume (the entry
+    /// just below the cursor). `None` when there is nothing undoable (empty
+    /// history / cursor at 0). Lets a dispatcher route `undo_pixel` vs
+    /// `undo_snapshot` vs a metadata/external undo unambiguously instead of
+    /// string-matching labels. NOTE: a caller driving `undo_pixel` alone must
+    /// consult this FIRST — `undo_pixel` refuses to consume a non-pixel tip.
+    pub fn tip_payload_kind(&self) -> Option<PayloadKind> {
+        if self.cursor == 0 {
+            return None;
+        }
+        self.entries.get(self.cursor - 1).map(|e| e.payload.kind())
     }
 
     pub fn register_adapter(&mut self, adapter_id: &str) {
@@ -637,6 +718,111 @@ impl ProtocolEngine {
         // An external (TS) op is a committed logical mutation, so the
         // DocumentVersion must advance exactly once — matching apply_pixel_patch.
         self.version += 1;
+        Ok(())
+    }
+
+    /// Record an atomic metadata+pixel `Snapshot` entry. Mirrors
+    /// `record_external` (truncate redo, append, advance cursor + one Document
+    /// Version) but stores BOTH the `before` and `after` snapshot so an undo
+    /// restores the `before` and a redo re-applies the `after` — restoring BOTH
+    /// the metadata and (via the per-layer opaque `bitmap_token`) the pixel
+    /// state from ONE entry. `missing layers no-op` and `invalid doc Err` are
+    /// enforced by the registry/TS caller; here the snapshots are stored as
+    /// given.
+    pub fn record_snapshot(
+        &mut self,
+        before: DocumentSnapshot,
+        after: DocumentSnapshot,
+    ) -> Result<(), ProtocolError> {
+        self.entries.truncate(self.cursor);
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        let affected: Vec<String> = after.layers.iter().map(|l| l.layer_id.clone()).collect();
+        let cost = {
+            let b = serde_json::to_string(&before)
+                .map(|s| s.len() as u64)
+                .unwrap_or(0);
+            let a = serde_json::to_string(&after)
+                .map(|s| s.len() as u64)
+                .unwrap_or(0);
+            b + a
+        };
+        self.entries.push(HistoryEntry {
+            seq,
+            group_id: seq, // H0: singleton groups only
+            origin: Origin::Native,
+            label: "snapshot".to_string(),
+            affected_layer_ids: affected,
+            version_before: self.version,
+            version_after: self.version + 1,
+            memory_cost_bytes: cost,
+            payload: EntryPayload::Snapshot { before, after },
+        });
+        self.cursor = self.entries.len();
+        // A recorded snapshot is a committed logical mutation, so the
+        // DocumentVersion advances exactly once — matching the other entries.
+        self.version += 1;
+        Ok(())
+    }
+
+    /// Undo the entry just below the cursor IF it is a `Snapshot` entry.
+    /// Returns the `before` metadata snapshot (carrying the per-layer bitmap
+    /// token, i.e. the atomic metadata+pixel reference) and moves the cursor +
+    /// bumps one version. Non-snapshot entries return `Ok(None)` WITHOUT moving
+    /// the cursor, so a caller dispatches the actual undo (Pixel/metadata)
+    /// through the existing `undo_pixel` path. Rejects while a
+    /// `pending_external` barrier is set (E_EXTERNAL_PENDING).
+    pub fn undo_snapshot(&mut self) -> Result<Option<DocumentSnapshot>, ProtocolError> {
+        self.external_barrier_check()?;
+        if self.cursor == 0 {
+            return Ok(None);
+        }
+        let idx = self.cursor - 1;
+        let ret = match self.entries.get(idx) {
+            Some(HistoryEntry {
+                payload: EntryPayload::Snapshot { before, .. },
+                ..
+            }) => {
+                self.cursor -= 1;
+                self.version += 1;
+                Some(before.clone())
+            }
+            _ => None,
+        };
+        Ok(ret)
+    }
+
+    /// Redo the entry at the cursor IF it is a `Snapshot` entry. Symmetric to
+    /// `undo_snapshot` (returns the `after` snapshot; moves cursor + bumps one
+    /// version). Non-snapshot entries return `Ok(None)` WITHOUT moving the
+    /// cursor.
+    pub fn redo_snapshot(&mut self) -> Result<Option<DocumentSnapshot>, ProtocolError> {
+        self.external_barrier_check()?;
+        if self.cursor >= self.entries.len() {
+            return Ok(None);
+        }
+        let idx = self.cursor;
+        let ret = match self.entries.get(idx) {
+            Some(HistoryEntry {
+                payload: EntryPayload::Snapshot { after, .. },
+                ..
+            }) => {
+                self.cursor += 1;
+                self.version += 1;
+                Some(after.clone())
+            }
+            _ => None,
+        };
+        Ok(ret)
+    }
+
+    fn external_barrier_check(&self) -> Result<(), ProtocolError> {
+        if self.pending_external.is_some() {
+            return Err(ProtocolError {
+                code: "E_EXTERNAL_PENDING".to_string(),
+                message: "external history transition pending; commit cursor first".to_string(),
+            });
+        }
         Ok(())
     }
 
@@ -710,7 +896,9 @@ impl ProtocolEngine {
                     EntryPayload::External { token } => Some(token.clone()),
                     EntryPayload::Native { .. } => None,
                     EntryPayload::Pixel { .. } => None,
+                    EntryPayload::Snapshot { .. } => None,
                 },
+                payload_kind: Some(e.payload.kind()),
             })
             .collect();
         HistoryQuery {
@@ -992,6 +1180,13 @@ impl ProtocolEngine {
                             // apply walker leaves pixel entries untouched.
                             Vec::new()
                         }
+                        EntryPayload::Snapshot { .. } => {
+                            // Snapshot undo/redo is handled by the dedicated
+                            // undo_snapshot/redo_snapshot path (it restores the
+                            // metadata + bitmap-token reference); the metadata
+                            // walker leaves Snapshot entries untouched.
+                            Vec::new()
+                        }
                         EntryPayload::External { .. } => {
                             // Host handoff: adapter executes, then
                             // protocol_history_cursor_commit moves the cursor
@@ -1019,6 +1214,11 @@ impl ProtocolEngine {
                         EntryPayload::Pixel { .. } => {
                             // See undo branch: pixel entries are owned by
                             // undo_pixel/redo_pixel, not the metadata walker.
+                            Vec::new()
+                        }
+                        EntryPayload::Snapshot { .. } => {
+                            // See undo branch: snapshot entries are owned by
+                            // undo_snapshot/redo_snapshot, not the walker.
                             Vec::new()
                         }
                         EntryPayload::External { .. } => {
@@ -1708,6 +1908,67 @@ mod h0_tests {
         let r = eng.redo_pixel();
         assert!(r.is_err(), "pixel redo must reject while external pending");
         assert_eq!(r.unwrap_err().code, "E_EXTERNAL_PENDING");
+    }
+
+    // C3: `undo_snapshot`/`redo_snapshot` under a pending_external barrier are
+    // REJECTED with E_EXTERNAL_PENDING (no cursor move) — consistent with the
+    // pixel path, so a snapshot entry cannot be consumed mid-host-handoff.
+    #[test]
+    fn snapshot_undo_redo_rejected_while_external_pending() {
+        let mut eng = ProtocolEngine::new();
+        eng.register_adapter("ts-external");
+        eng.apply(env(Command::RecordExternalTransition {
+            label: "legacy op".into(),
+            affected_layer_ids: vec![],
+            adapter_id: "ts-external".into(),
+            token: "t".into(),
+            memory_cost_bytes: 1,
+        }))
+        .unwrap();
+        let hand = eng.apply(env(Command::Undo)).unwrap();
+        assert_eq!(hand.status.as_deref(), Some("external"));
+        assert!(eng.pending_external.is_some());
+        assert_eq!(eng.cursor(), 1, "cursor untracked while external pending");
+
+        let u = eng.undo_snapshot();
+        assert!(
+            u.is_err(),
+            "snapshot undo must reject while external pending"
+        );
+        assert_eq!(u.unwrap_err().code, "E_EXTERNAL_PENDING");
+        let r = eng.redo_snapshot();
+        assert!(
+            r.is_err(),
+            "snapshot redo must reject while external pending"
+        );
+        assert_eq!(r.unwrap_err().code, "E_EXTERNAL_PENDING");
+        assert_eq!(eng.cursor(), 1, "snapshot ops must not move the cursor");
+    }
+
+    // C4: the metadata walker's `Command::Undo` on a Snapshot tip must NOT
+    // consume the atomic snapshot entry (no cursor move + empty changes) —
+    // snapshot undo/redo is owned by `undo_snapshot`/`redo_snapshot`; the typed
+    // `tip_payload_kind()` exposes the routing discriminant.
+    #[test]
+    fn walker_undo_on_snapshot_tip_no_cursor_move_empty_changes() {
+        let mut eng = ProtocolEngine::new();
+        let before = crate::snapshot::DocumentSnapshot::new("d", 0);
+        let after = crate::snapshot::DocumentSnapshot::new("d", 1)
+            .with_layer(crate::snapshot::LayerSnapshot::new("L", 8, 8));
+        eng.record_snapshot(before, after).unwrap();
+        assert_eq!(eng.cursor(), 1);
+        assert_eq!(eng.tip_payload_kind(), Some(PayloadKind::Snapshot));
+
+        let r = eng.apply(env(Command::Undo)).unwrap();
+        assert!(
+            r.delta.changes.is_empty(),
+            "walker yields no changes for a snapshot tip"
+        );
+        assert_eq!(
+            eng.cursor(),
+            1,
+            "walker must not consume the atomic snapshot tip"
+        );
     }
 
     // Eviction: the pixel-only stream is bounded to `max_depth` (50)

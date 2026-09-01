@@ -315,6 +315,7 @@
 | ✅ DONE | Snapshot-based history (max 50)                                                                                                                 |
 | ✅ DONE | Redo branch discard on new mutation                                                                                                             |
 | ✅ DONE | Interactive History panel — chronological labeled operations, current/future state styling, multi-step time travel inside the preserved `Layers | History` tabs, edge-to-edge list geometry, persistent Navigator, baseline guidance, status-bar tab selection, and accessible state metthere ista |
+| ✅ DONE (Rust-core capability, flag OFF) | Rust-core atomic snapshot undo/redo — `DocumentSnapshot`/`LayerSnapshot` metadata+bitmap-token DTO (`crates/core/src/snapshot.rs`), `EntryPayload::Snapshot`, `record_snapshot`/`undo_snapshot`/`redo_snapshot` (metadata + opaque token restore, one entry = atomic metadata+pixel). Row-major + TS `CommandHistory` remain the ACTIVE default; TS does not call it yet. |
 
 ---
 

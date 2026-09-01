@@ -18,6 +18,7 @@ pub mod protocol;
 pub mod render_worker;
 pub mod rkyv_bench;
 pub mod selection;
+pub mod snapshot;
 pub mod webgpu_adjust;
 
 // Canonical persistent-pixel-ownership data model + tile-major store +

@@ -716,6 +716,69 @@ impl PixelStoreRegistry {
             .record_external(label, affected, adapter_id, token, memory_cost_bytes)
             .map_err(|e| e.message)
     }
+
+    /// Record an atomic metadata+pixel `Snapshot` entry into the document's
+    /// unified `ProtocolEngine` cursor. Mirrors `record_external` (bumps
+    /// `DocumentVersion` exactly once, truncates the redo branch) but stores BOTH
+    /// the `before` and `after` snapshot so undo restores the `before` and redo
+    /// re-applies the `after` — restoring the metadata AND (via the per-layer
+    /// opaque `bitmap_token`) the pixel reference from ONE entry.
+    ///
+    /// Boundary rules: an unopen/unknown document -> `Err`; a `before`/`after`
+    /// `doc_id` that mismatches `doc_id` -> `Err` (never mutate the wrong doc);
+    /// layers that have no canonical buffer in the store are left untouched
+    /// (no-op) — the snapshot's pixel restore happens TS-side via the token, so
+    /// Rust does not need a PixelLayer for every referenced layer.
+    pub fn record_snapshot(
+        &mut self,
+        doc_id: &str,
+        before: crate::snapshot::DocumentSnapshot,
+        after: crate::snapshot::DocumentSnapshot,
+    ) -> Result<(), String> {
+        let doc = self
+            .docs
+            .get_mut(doc_id)
+            .ok_or_else(|| format!("document not open: {doc_id}"))?;
+        if before.doc_id != doc_id {
+            return Err(format!(
+                "snapshot before.doc_id mismatch: {} != {doc_id}",
+                before.doc_id
+            ));
+        }
+        if after.doc_id != doc_id {
+            return Err(format!(
+                "snapshot after.doc_id mismatch: {} != {doc_id}",
+                after.doc_id
+            ));
+        }
+        doc.history
+            .record_snapshot(before, after)
+            .map_err(|e| e.message)
+    }
+
+    /// Undo the entry just below the cursor IF it is a `Snapshot` entry, returning
+    /// the metadata snapshot (with per-layer bitmap tokens). Non-snapshot entries
+    /// return `None` WITHOUT moving the cursor (so the caller dispatches the
+    /// actual undo through `undo_pixel`/metadata paths).
+    pub fn undo_snapshot(&mut self, doc_id: &str) -> Option<crate::snapshot::DocumentSnapshot> {
+        self.docs
+            .get_mut(doc_id)?
+            .history
+            .undo_snapshot()
+            .ok()
+            .flatten()
+    }
+
+    /// Redo the entry at the cursor IF it is a `Snapshot` entry. Symmetric to
+    /// `undo_snapshot`.
+    pub fn redo_snapshot(&mut self, doc_id: &str) -> Option<crate::snapshot::DocumentSnapshot> {
+        self.docs
+            .get_mut(doc_id)?
+            .history
+            .redo_snapshot()
+            .ok()
+            .flatten()
+    }
 }
 
 // Process-lifetime registry. The `static PIXEL_STORE: Option<HashMap<..>>`
