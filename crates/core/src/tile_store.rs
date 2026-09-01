@@ -1,14 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Phase A0 test-only tile-major packed TileStore. Compiled ONLY under
-//! `#[cfg(test)]`; zero production dependency.
+//! Production tile-major packed TileStore. This is the
+//! canonical byte store for the pack/upload path: ONE contiguous packed buffer
+//! per layer, with per-tile `{ offset, w, h }` descriptors so extraction is a
+//! zero-allocation `&[u8]` slice. Edge tiles are clipped to layer bounds.
 //!
 //! CANONICAL PACK ORDER: grid_x (tx) outer, grid_y (ty) inner —
 //! `(0,0), (0,1), ... (1,0), ...`. Every tile is `w_eff * h_eff * 4` bytes
 //! (full tiles are `TILE*TILE*4`; edge tiles are clipped to layer bounds).
 //! `descs` stores per-tile `{ offset, w, h }` so extraction never over-reads.
+//!
+//! The store API is the canonical pack/upload surface. `TILE_MAJOR` is OFF in
+//! the current build, so nothing consumes it yet in the lib build; dead-code is
+//! allowed (the surface is intentionally exposed for the flag-enabled path).
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 
+// Test-only independent-copy oracle. Production references none of these.
+#[cfg(test)]
 use crate::parity_oracle::{assert_byte_eq, PackedView, PixelReader};
 
 /// Canonical tile edge in pixels. Must match the engine value (256).
@@ -49,9 +58,12 @@ impl TileStore {
             row_major.len(),
             "row-major len mismatch"
         );
-        let tiles_w = (w + TILE - 1) / TILE;
-        let tiles_h = (h + TILE - 1) / TILE;
-        let mut packed = Vec::new();
+        let tiles_w = w.div_ceil(TILE);
+        let tiles_h = h.div_ceil(TILE);
+        // Pre-size `packed` to the exact final byte count (concatenating clipped
+        // edge tiles yields exactly `w*h*4` bytes) — avoids the realloc-doubling
+        // ingest regression measured at ~44ms @4096².
+        let mut packed = Vec::with_capacity((w * h * 4) as usize);
         let mut descs = Vec::with_capacity((tiles_w * tiles_h) as usize);
         for tx in 0..tiles_w {
             for ty in 0..tiles_h {
@@ -114,7 +126,8 @@ impl TileStore {
     }
 
     /// Transient tile-major materialization as a `PackedView` (layer dims, not
-    /// the padded tile-grid dims).
+    /// the padded tile-grid dims). Test-only (independent oracle round-trips).
+    #[cfg(test)]
     pub fn to_packed(&self) -> PackedView {
         PackedView {
             w: self.w,
@@ -133,8 +146,8 @@ pub fn packed_from_tiles(
     tiles: &[(u32, u32, u32, u32, Vec<u8>)],
 ) -> (Vec<u8>, Vec<TileDesc>) {
     assert!(w > 0 && h > 0);
-    let tiles_w = (w + TILE - 1) / TILE;
-    let tiles_h = (h + TILE - 1) / TILE;
+    let tiles_w = w.div_ceil(TILE);
+    let tiles_h = h.div_ceil(TILE);
     let mut by_idx: HashMap<usize, &(u32, u32, u32, u32, Vec<u8>)> = HashMap::new();
     for t in tiles {
         by_idx.insert((t.0 * tiles_h + t.1) as usize, t);
@@ -296,5 +309,76 @@ mod tests {
         assert_eq!(s.index_of(1, 0), 2);
         assert_eq!(s.descs[2].w, 44, "right-edge tile width clipped");
         assert_eq!(s.descs[2].h, 256);
+    }
+
+    // ── Packed tile store (canonical order / zero-copy) ──
+
+    // Index mapping is tx-outer/ty-inner AND the packed buffer is
+    // contiguous in canonical order (each tile's offset is the cumulative byte
+    // length of the preceding tiles; the last tile ends exactly at packed.len()).
+    #[test]
+    fn tile_store_index_mapping_contiguous_multitile() {
+        let w = 513u32;
+        let h = 300u32;
+        let s = TileStore::new(w, h, &row_major(w, h, 21));
+        assert_eq!((s.tiles_w, s.tiles_h), (3, 2), "513x300 -> 3x2 grid");
+        // index_of is tx-outer/ty-inner: (tx,ty) -> tx*tiles_h + ty.
+        for ty in 0..s.tiles_h {
+            for tx in 0..s.tiles_w {
+                assert_eq!(s.index_of(tx, ty), (tx * s.tiles_h + ty) as usize);
+            }
+        }
+        // Contiguity: offsets are cumulative and never overlap.
+        let mut cur = 0usize;
+        for (i, d) in s.descs.iter().enumerate() {
+            assert_eq!(d.offset, cur, "descs[{i}] offset is cumulative");
+            cur += (d.w * d.h * 4) as usize;
+        }
+        assert_eq!(cur, s.packed.len(), "packed len equals last tile end");
+        assert_eq!(cur, (w * h * 4) as usize, "contiguity yields exactly w*h*4");
+    }
+
+    // `extract_tile` is ZERO-COPY — it returns a slice that ALIASES the
+    // packed buffer (no per-tile allocation, no copy).
+    #[test]
+    fn extract_zero_copy_aliases_packed() {
+        let w = 300u32;
+        let h = 257u32;
+        let s = TileStore::new(w, h, &row_major(w, h, 5));
+        for ty in 0..s.tiles_h {
+            for tx in 0..s.tiles_w {
+                let d = &s.descs[s.index_of(tx, ty)];
+                let t = s.extract_tile(tx, ty);
+                let len = (d.w * d.h * 4) as usize;
+                assert_eq!(t.len(), len);
+                // The returned slice points INTO `packed` (no separate alloc).
+                assert!(
+                    std::ptr::eq(t.as_ptr(), s.packed[d.offset..].as_ptr()),
+                    "tile {tx},{ty} must alias the packed buffer"
+                );
+                assert!(t.as_ptr() == s.packed[d.offset..].as_ptr());
+            }
+        }
+    }
+
+    // Export/upload reconstruction — packed -> row-major must be
+    // byte-equal to the original row-major source (and to the independent
+    // oracle's packed view) at the canonical edge/partial sizes.
+    #[test]
+    fn export_reconstructs_row_major_equal_to_oracle() {
+        for (w, h) in [(100u32, 100u32), (300u32, 300u32), (513u32, 513u32)] {
+            let bytes = row_major(w, h, 13);
+            let s = TileStore::new(w, h, &bytes);
+            // packed tile-major == independent oracle tile-major.
+            let pr = PixelReader::new(w, h, bytes.clone());
+            assert_byte_eq(
+                &s.packed,
+                &pr.to_tile_major().bytes,
+                &format!("{w}x{h} packed"),
+            );
+            // packed -> row-major == original bytes.
+            let row = s.to_packed().to_row_major(TILE);
+            assert_byte_eq(&row, &bytes, &format!("{w}x{h} reconstruct"));
+        }
     }
 }

@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Ticket 1-2 — Protocol for Hybrid Command-Snapshot.
+// Protocol for hybrid command-snapshot history.
 // No persistent TS mirror. Version checks are correctness.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
-// C5.3-A: pixel-history payload references the canonical per-layer tile type.
+// The pixel-history payload references the canonical per-layer tile type.
 use crate::pixel_store::TilePatch;
+// The pixel-history payload stores immutable `Arc<StateNode>` states (the
+// StateNode/arena COW data model, always compiled in `state_node`).
+use crate::state_node::{StateNode, TILE};
 
 /// Schema/protocol version. Bump on breaking envelope change.
 pub const CONTRACT_VERSION: u32 = 1;
@@ -43,7 +48,7 @@ pub struct RenderLayer {
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum RenderLayerChange {
     Upsert { layer: RenderLayer },
-    // ADR 0008 (DeleteLayer ticket): carries resourceId so a future Resource
+    // DeleteLayer: carries resourceId so a future Resource
     // Registry can drive lifecycle (release/retain) WITHOUT re-owning pixels.
     Remove { id: String, resource_id: ResourceId },
 }
@@ -124,7 +129,7 @@ pub enum Command {
     },
     Undo,
     Redo,
-    // ADR 0008 H0: records a legacy TS transition into the canonical stream.
+    // H0: records a legacy TS transition into the canonical stream.
     // Advances DocumentVersion by exactly 1; payload stays behind the EXTERNAL
     // PayloadAdapter (token only) — never re-owned by Rust.
     RecordExternalTransition {
@@ -150,16 +155,16 @@ pub struct CommandEnvelope {
 pub struct CommandResult {
     pub document_version: DocumentVersion,
     pub delta: RenderDelta,
-    // ADR 0008 H0 walker handoff: "external" means the entry at the cursor is
-    // owned by an external PayloadAdapter — the HOST executes it via its
-    // adapter and then calls protocol_history_cursor_commit. Absent = applied.
+    // H0: "external" means the entry at the cursor is owned by an external
+    // PayloadAdapter — the HOST executes it via its adapter and then calls
+    // protocol_history_cursor_commit. Absent = applied.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_seq: Option<u64>,
 }
 
-// ── History stream (ADR 0008) ────────────────────────────────────────────
+// ── History stream ────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum Origin {
@@ -167,7 +172,10 @@ pub enum Origin {
     External { adapter_id: String },
 }
 
-#[derive(Debug, Clone)]
+// `EntryPayload`/`HistoryEntry` intentionally do NOT derive Clone.
+// `Pixel` payloads hold `Arc<StateNode>` (sharing is via `Arc`, never a value
+// clone). They DO derive Debug (ProtocolEngine derives Debug, which requires it).
+#[derive(Debug)]
 pub enum EntryPayload {
     // Built-in native adapter: before/after metadata snapshots (transitional
     // representation; inverse/patch forms come with later tickets).
@@ -178,19 +186,21 @@ pub enum EntryPayload {
     External {
         token: String,
     },
-    /// C5.3-A: native pixel-history entry. Carries before/after tile deltas for
-    /// one layer. The metadata-level `ProtocolEngine` is reused as the SINGLE
-    /// authoritative history cursor; pixel deltas live here, not in `PixelLayer`
-    /// (which keeps only the canonical buffer + epoch). Not serialized — the
-    /// `HistoryEntryView` exposes only a `payload_ref` token.
+    /// Native pixel-history entry. Carries before/after pixel
+    /// states as immutable, byte-free `Arc<StateNode>`s (COW tile blocks
+    /// shared across states). The metadata-level `ProtocolEngine` is reused as
+    /// the SINGLE authoritative history cursor. Not serialized — the
+    /// `HistoryEntryView` exposes only a `payload_ref` token. On undo/redo the
+    /// stored after/before `Arc<StateNode>` is materialized back into the
+    /// tile-patch form the TS surface expects.
     Pixel {
         layer_id: String,
-        before: Vec<TilePatch>,
-        after: Vec<TilePatch>,
+        before: Arc<StateNode>,
+        after: Arc<StateNode>,
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct HistoryEntry {
     pub seq: u64,
     pub group_id: u64,
@@ -202,6 +212,79 @@ pub struct HistoryEntry {
     pub memory_cost_bytes: u64,
     pub payload: EntryPayload,
 }
+
+// Helpers: a `StateNode` is the immutable pixel state for a layer (tile-major
+// order, clipped edge tiles). These translate it to/from the TS-facing
+// `TilePatch` form and to a rough memory cost (tile bytes per state).
+
+/// The delta tile set between two states: the tiles in `src` whose `TileRef`
+/// `Arc<[u8]>` (shared packed subarray) identity differs from the matching tile
+/// in `oth`. This is EXACTLY the set `LayerState::cow_batch` re-tiled (untouched
+/// tiles share the packed `Arc` identity, per I3/I4/I9), so emitting only these
+/// reproduces the dirty-region delta geometry (clipped edge tiles
+/// included) WITHOUT shipping the whole layer over IPC on every undo/redo.
+fn state_node_touched_patches(src: &Arc<StateNode>, oth: &Arc<StateNode>) -> Vec<TilePatch> {
+    let oth_ids: HashMap<(u32, u32), (usize, usize)> = oth
+        .tiles
+        .iter()
+        .map(|t| ((t.grid_x, t.grid_y), t.identity_key()))
+        .collect();
+    src.tiles
+        .iter()
+        .filter(|t| {
+            oth_ids
+                .get(&(t.grid_x, t.grid_y))
+                .map(|key| *key != t.identity_key())
+                .unwrap_or(true)
+        })
+        .map(|t| TilePatch {
+            x: (t.grid_x as i64) * (TILE as i64),
+            y: (t.grid_y as i64) * (TILE as i64),
+            w: t.w as usize,
+            h: t.h as usize,
+            data: t.bytes().to_vec(),
+        })
+        .collect()
+}
+
+/// Sum the byte cost of the delta tiles WITHOUT materializing the per-tile
+/// `Vec<u8>` (`data: t.bytes().to_vec()`) that `state_node_touched_patches`
+/// would copy just to sum `w*h*4`. Iterates the touched tiles' dims directly
+/// (zero buffer copy), so the commit-path memory-cost estimate has no full-tile
+/// memcpy overhead.
+fn touched_delta_tiles_size(src: &Arc<StateNode>, oth: &Arc<StateNode>) -> u64 {
+    let oth_ids: HashMap<(u32, u32), (usize, usize)> = oth
+        .tiles
+        .iter()
+        .map(|t| ((t.grid_x, t.grid_y), t.identity_key()))
+        .collect();
+    src.tiles
+        .iter()
+        .filter(|t| {
+            oth_ids
+                .get(&(t.grid_x, t.grid_y))
+                .map(|key| *key != t.identity_key())
+                .unwrap_or(true)
+        })
+        .map(|t| (t.w * t.h * 4) as u64)
+        .sum()
+}
+
+/// Rough memory-cost estimate for a pixel history entry. Untouched tiles between
+/// before/after are SHARED via `Arc`, so counting every tile in both states
+/// overstates retention; count only the delta (touched) tiles of the transition.
+fn state_node_delta_memory_cost(before: &Arc<StateNode>, after: &Arc<StateNode>) -> u64 {
+    touched_delta_tiles_size(before, after) + touched_delta_tiles_size(after, before)
+}
+
+/// Pixel undo/redo transaction result: `(layer_id, delta TilePatches,
+/// authoritative StateNode Arc)`. The delta is the dirty-region tile set, not the
+/// full layer.
+type PixelTxn = (
+    Option<String>,
+    Option<Vec<TilePatch>>,
+    Option<Arc<StateNode>>,
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -243,22 +326,22 @@ pub struct ProtocolError {
 }
 
 // ── Engine ───────────────────────────────────────────────────────────────
-// HISTORY BOUNDARY (Ticket 2): history/future store Vec<RenderLayer> METADATA snapshots only
+// HISTORY BOUNDARY: history/future store Vec<RenderLayer> METADATA snapshots only
 // (id/name/resourceId/transform/opacity). They do NOT store pixel buffers and must NOT be
-// interpreted as pixel history. ADR 0007 HistoryEntry {command, affectedResources, patch/inverse,
-// memoryCost, transaction} is the target; this Vec is transitional and will be replaced
-// before pixel ownership moves to Rust. Storing full pixel snapshots at 2048²/4K would be GBs.
+// interpreted as pixel history. The underlying `HistoryEntry` schema {command, affectedResources,
+// patch/inverse, memoryCost, transaction} is the target; this Vec is transitional and will be
+// replaced before pixel ownership moves to Rust. Storing full pixel snapshots at 2048²/4K would be GBs.
 #[derive(Debug)]
 pub struct ProtocolEngine {
     version: DocumentVersion,
     next_resource: ResourceId,
     layers: Vec<RenderLayer>,
-    // ADR 0008 H0: canonical stream. cursor = number of APPLIED entries
-    // (0..=entries.len()). Independent from `version` (see ADR C1).
+    // H0 (canonical stream): cursor = number of APPLIED entries
+    // (0..=entries.len()). Independent from `version` (see C1).
     entries: Vec<HistoryEntry>,
     cursor: usize,
     next_seq: u64,
-    max_depth: usize, // C5.3-B: bound the pixel-only history stream (FIFO eviction of oldest entry).
+    max_depth: usize, // Bound the pixel-only history stream (FIFO eviction of the oldest entry).
     adapters: Vec<String>, // "native" is implicit and always available
     // External-pending barrier (H0 invariant): while Some, the host owes a
     // protocol_history_cursor_commit for (seq, direction). EVERY command
@@ -297,7 +380,7 @@ impl ProtocolEngine {
         }
     }
 
-    // ── ADR 0008 H0 stream helpers ────────────────────────────────────────
+    // ── H0 stream helpers ────────────────────────────────────────
     fn estimate_layers_bytes(layers: &[RenderLayer]) -> u64 {
         serde_json::to_string(layers)
             .map(|s| s.len() as u64)
@@ -346,22 +429,24 @@ impl ProtocolEngine {
         self.cursor = self.entries.len();
     }
 
-    // ── C5.3-A: native pixel history (unified cursor) ──────────────────────
+    // ── Native pixel history (unified cursor) ──────────────────────
     // These reuse the SAME `entries`/`cursor`/`next_seq`/`version` as the
     // metadata path, so the `ProtocolEngine` is the single authoritative
-    // history for a document. Pixel deltas are stored inline; `PixelLayer`
-    // keeps only the canonical buffer + epoch. The legacy per-layer
-    // `undo_stack`/`redo_stack` were REMOVED in C5.3-B; the only pixel history
-    // is now this stream, bounded to `max_depth`.
+    // history for a document. The change is stored as immutable
+    // `Arc<StateNode>` (before/after) — NOT tile deltas — so undo/redo can
+    // reconstruct the full state cheaply from the shared tile blocks. The
+    // legacy per-layer `undo_stack`/`redo_stack` were removed; the
+    // only pixel history is now this stream, bounded to `max_depth`.
     pub fn apply_pixel_patch(
         &mut self,
         layer_id: &str,
-        before: Vec<TilePatch>,
-        after: Vec<TilePatch>,
+        before: Arc<StateNode>,
+        after: Arc<StateNode>,
     ) -> u64 {
         self.entries.truncate(self.cursor);
         let seq = self.next_seq;
         self.next_seq += 1;
+        let cost = state_node_delta_memory_cost(&before, &after);
         self.entries.push(HistoryEntry {
             seq,
             group_id: seq,
@@ -370,7 +455,7 @@ impl ProtocolEngine {
             affected_layer_ids: vec![layer_id.to_string()],
             version_before: self.version,
             version_after: self.version + 1,
-            memory_cost_bytes: 0,
+            memory_cost_bytes: cost,
             payload: EntryPayload::Pixel {
                 layer_id: layer_id.to_string(),
                 before,
@@ -378,7 +463,7 @@ impl ProtocolEngine {
             },
         });
         self.cursor = self.entries.len();
-        // C5.3-B eviction: bound the pixel-only stream to `max_depth` entries.
+        // Eviction: bound the pixel-only stream to `max_depth` entries.
         // FIFO remove of the oldest entry; at the tip, cursor tracks `entries.len()`.
         if self.entries.len() > self.max_depth {
             self.entries.remove(0);
@@ -388,13 +473,51 @@ impl ProtocolEngine {
         self.version
     }
 
+    /// Discard ALL pixel history entries for `layer_id` (the layer's dimensions
+    /// changed, so any cached before/after `Arc<StateNode>` has stale tile
+    /// geometry that would panic/desync on replay). The shared stream keeps the
+    /// remaining entries (other layers' history + metadata); the cursor is
+    /// clamped into the survivor range, so undo/redo CANNOT reach a stale-dim
+    /// StateNode for the resized layer. `next_seq`/`version` are left monotonic
+    /// (they never rewind), so no id/version collision.
+    pub fn invalidate_layer(&mut self, layer_id: &str) {
+        // P0 (B2): a layer resize/invalidate removes pixel entries from ANYWHERE
+        // in the shared stream. `cursor` counts APPLIED entries
+        // (`entries[0..cursor]`), so any removed entry whose original index was
+        // BELOW the cursor was an applied entry and MUST decrement the cursor.
+        // Clamping alone would leave a stale cursor pointing into the survivor
+        // region, mis-marking a never-applied entry as applied and letting the
+        // next undo/redo replay a state that was never committed.
+        let old_cursor = self.cursor;
+        let old = std::mem::take(&mut self.entries);
+        let mut removed_below_cursor = 0usize;
+        let mut kept = Vec::with_capacity(old.len());
+        for (idx, entry) in old.into_iter().enumerate() {
+            let is_layer_pixel = matches!(
+                &entry.payload,
+                EntryPayload::Pixel { layer_id: l, .. } if l == layer_id
+            );
+            if is_layer_pixel {
+                if idx < old_cursor {
+                    removed_below_cursor += 1;
+                }
+            } else {
+                kept.push(entry);
+            }
+        }
+        self.entries = kept;
+        self.cursor = old_cursor
+            .saturating_sub(removed_below_cursor)
+            .min(self.entries.len());
+    }
+
     /// Undo the entry just below the cursor. For `Pixel` entries returns the
-    /// affected layer id + `before` tiles (to replay onto `PixelLayer.pixels`).
-    /// Non-pixel entries move the cursor (+1 version) but yield no tiles.
-    /// Rejects while a `pending_external` barrier is set (E_EXTERNAL_PENDING).
-    pub fn undo_pixel(
-        &mut self,
-    ) -> Result<(Option<String>, Option<Vec<TilePatch>>), ProtocolError> {
+    /// affected layer id, the materialized `before` tiles (to replay onto
+    /// `PixelLayer.pixels`), and the `before` `Arc<StateNode>` (so the
+    /// canonical layer state can be re-anchored). Non-pixel entries move the
+    /// cursor (+1 version) but yield no tiles. Rejects while a
+    /// `pending_external` barrier is set (E_EXTERNAL_PENDING).
+    pub fn undo_pixel(&mut self) -> Result<PixelTxn, ProtocolError> {
         if self.pending_external.is_some() {
             return Err(ProtocolError {
                 code: "E_EXTERNAL_PENDING".to_string(),
@@ -402,28 +525,32 @@ impl ProtocolEngine {
             });
         }
         if self.cursor == 0 {
-            return Ok((None, None));
+            return Ok((None, None, None));
         }
         let idx = self.cursor - 1;
         let entry = match self.entries.get(idx) {
             Some(e) => e,
-            None => return Ok((None, None)),
+            None => return Ok((None, None, None)),
         };
-        let (layer, tiles) = match &entry.payload {
+        let (layer, tiles, node) = match &entry.payload {
             EntryPayload::Pixel {
-                layer_id, before, ..
-            } => (Some(layer_id.clone()), Some(before.clone())),
-            _ => (None, None),
+                layer_id,
+                before,
+                after,
+            } => (
+                Some(layer_id.clone()),
+                Some(state_node_touched_patches(before, after)),
+                Some(before.clone()),
+            ),
+            _ => (None, None, None),
         };
         self.cursor -= 1;
         self.version += 1;
-        Ok((layer, tiles))
+        Ok((layer, tiles, node))
     }
 
     /// Redo the entry at the cursor. Symmetric to `undo_pixel` (returns `after`).
-    pub fn redo_pixel(
-        &mut self,
-    ) -> Result<(Option<String>, Option<Vec<TilePatch>>), ProtocolError> {
+    pub fn redo_pixel(&mut self) -> Result<PixelTxn, ProtocolError> {
         if self.pending_external.is_some() {
             return Err(ProtocolError {
                 code: "E_EXTERNAL_PENDING".to_string(),
@@ -431,22 +558,28 @@ impl ProtocolEngine {
             });
         }
         if self.cursor >= self.entries.len() {
-            return Ok((None, None));
+            return Ok((None, None, None));
         }
         let idx = self.cursor;
         let entry = match self.entries.get(idx) {
             Some(e) => e,
-            None => return Ok((None, None)),
+            None => return Ok((None, None, None)),
         };
-        let (layer, tiles) = match &entry.payload {
+        let (layer, tiles, node) = match &entry.payload {
             EntryPayload::Pixel {
-                layer_id, after, ..
-            } => (Some(layer_id.clone()), Some(after.clone())),
-            _ => (None, None),
+                layer_id,
+                before,
+                after,
+            } => (
+                Some(layer_id.clone()),
+                Some(state_node_touched_patches(after, before)),
+                Some(after.clone()),
+            ),
+            _ => (None, None, None),
         };
         self.cursor += 1;
         self.version += 1;
-        Ok((layer, tiles))
+        Ok((layer, tiles, node))
     }
 
     pub fn cursor(&self) -> usize {
@@ -501,7 +634,7 @@ impl ProtocolEngine {
             },
         });
         self.cursor = self.entries.len();
-        // Phase 1: an external (TS) op is a committed logical mutation, so the
+        // An external (TS) op is a committed logical mutation, so the
         // DocumentVersion must advance exactly once — matching apply_pixel_patch.
         self.version += 1;
         Ok(())
@@ -632,7 +765,7 @@ impl ProtocolEngine {
                 });
             }
         }
-        // External-pending barrier (ADR 0008 H0 invariant): a host handoff is
+        // External-pending barrier (H0 invariant): a host handoff is
         // outstanding — no new command may enter until the cursor commit lands.
         if let Some((seq, dir)) = &self.pending_external {
             return Err(ProtocolError {
@@ -644,7 +777,7 @@ impl ProtocolEngine {
             });
         }
         let base = self.version;
-        // ADR 0008 H0: external record is its own transition event.
+        // H0: external record is its own transition event.
         if let Command::RecordExternalTransition {
             label,
             affected_layer_ids,
@@ -961,7 +1094,7 @@ pub fn protocol_snapshot_json() -> String {
     ENGINE.with(|cell| serde_json::to_string(&cell.borrow().snapshot()).unwrap())
 }
 
-// ── ADR 0008 H0: history stream exports ─────────────────────────────────
+// ── H0: history stream exports ─────────────────────────────────
 #[wasm_bindgen]
 pub fn protocol_register_payload_adapter(adapter_id: &str) {
     ENGINE.with(|cell| cell.borrow_mut().register_adapter(adapter_id));
@@ -1305,10 +1438,12 @@ mod tests {
     }
 }
 
-// ── ADR 0008 H0 stream tests ─────────────────────────────────────────────
+// ── H0 stream tests ─────────────────────────────────────────────
 #[cfg(test)]
 mod h0_tests {
     use super::*;
+    use crate::state_node::{StateMeta, TileRef};
+    use std::sync::Arc;
 
     fn env(cmd: Command) -> CommandEnvelope {
         CommandEnvelope {
@@ -1323,6 +1458,16 @@ mod h0_tests {
             expected_version: Some(ev),
             command: cmd,
         }
+    }
+
+    /// Test helper: build a 1x1 `Arc<StateNode>` for the single-tile pixel
+    /// history tests. The payload value `v` fills the single RGBA pixel.
+    fn sn(v: u8) -> Arc<StateNode> {
+        let w = 1u32;
+        let h = 1u32;
+        let data = vec![v; (w * h * 4) as usize];
+        let tile = TileRef::owning(0, 0, w, h, &data);
+        Arc::new(StateNode::new(0, vec![tile], StateMeta::new(w, h, 0, 0)))
     }
 
     #[test]
@@ -1565,29 +1710,22 @@ mod h0_tests {
         assert_eq!(r.unwrap_err().code, "E_EXTERNAL_PENDING");
     }
 
-    // C5.3-B eviction: the pixel-only stream is bounded to `max_depth` (50)
+    // Eviction: the pixel-only stream is bounded to `max_depth` (50)
     // entries. FIFO eviction of the oldest entry; cursor tracks the retained
     // stream; seq/version stay monotonic; canonical pixels are never touched.
     #[test]
     fn pixel_history_eviction_bounds_at_50() {
-        let tp = |v: u8| TilePatch {
-            x: 0,
-            y: 0,
-            w: 1,
-            h: 1,
-            data: vec![v; 4],
-        };
         let mut e = ProtocolEngine::new();
 
         // case 1: single entry
-        e.apply_pixel_patch("L", vec![tp(0)], vec![tp(1)]);
+        e.apply_pixel_patch("L", sn(0), sn(1));
         assert_eq!(e.entries.len(), 1);
         assert_eq!(e.cursor(), 1);
         assert_eq!(e.version(), 1);
 
         // case 2: 50 entries, all retained
         for i in 2..=50 {
-            e.apply_pixel_patch("L", vec![tp(i - 1)], vec![tp(i)]);
+            e.apply_pixel_patch("L", sn(i - 1), sn(i));
         }
         assert_eq!(e.entries.len(), 50);
         assert_eq!(e.cursor(), 50);
@@ -1596,26 +1734,28 @@ mod h0_tests {
         assert!(seqs.windows(2).all(|w| w[0] < w[1]), "seq monotonic");
 
         // case 3: 51st entry evicts the oldest (seq 1); stream stays bounded
-        e.apply_pixel_patch("L", vec![tp(50)], vec![tp(51)]);
+        e.apply_pixel_patch("L", sn(50), sn(51));
         assert_eq!(e.entries.len(), 50, "bounded at 50");
         assert_eq!(e.cursor(), 50, "cursor tracks retained stream");
         assert_eq!(e.version(), 51, "version monotonic");
         assert_eq!(e.entries[0].seq, 2, "oldest entry (seq 1) evicted");
         // retained payloads are intact (not corrupted by eviction)
         match &e.entries[49].payload {
-            EntryPayload::Pixel { after, .. } => assert_eq!(after[0].data[0], 51),
+            EntryPayload::Pixel { before, after, .. } => {
+                assert_eq!(state_node_touched_patches(after, before)[0].data[0], 51)
+            }
             _ => panic!("expected Pixel payload"),
         }
 
         // case 4: undo after eviction
-        let (layer, tiles) = e.undo_pixel().unwrap();
+        let (layer, tiles, _node) = e.undo_pixel().unwrap();
         assert_eq!(layer, Some("L".to_string()));
         assert_eq!(tiles.unwrap()[0].data[0], 50);
         assert_eq!(e.cursor(), 49);
         assert_eq!(e.version(), 52);
 
         // case 5: redo after eviction
-        let (_, tiles) = e.redo_pixel().unwrap();
+        let (_, tiles, _node) = e.redo_pixel().unwrap();
         assert_eq!(tiles.unwrap()[0].data[0], 51);
         assert_eq!(e.cursor(), 50);
 
@@ -1624,12 +1764,67 @@ mod h0_tests {
             e.undo_pixel().unwrap();
         }
         assert_eq!(e.cursor(), 0);
+        let (a, b, c) = e.undo_pixel().unwrap();
         assert!(
-            e.undo_pixel().unwrap() == (None, None),
+            a.is_none() && b.is_none() && c.is_none(),
             "cannot undo past eviction boundary"
         );
-        e.apply_pixel_patch("L", vec![tp(1)], vec![tp(99)]);
+        e.apply_pixel_patch("L", sn(1), sn(99));
         assert_eq!(e.cursor(), 1);
         assert!(e.entries.len() <= 50, "still bounded");
+    }
+
+    // B2 (P0): a layer invalidate that removes a pixel entry BELOW the cursor
+    // (with a surviving non-pixel entry above) must DECREMENT the cursor, not
+    // just clamp it. Before the fix the cursor stayed at the pre-removal value,
+    // mis-marking the surviving metadata entry as "applied" and letting a later
+    // undo/redo replay a state that was never committed.
+    #[test]
+    fn invalidate_layer_mid_cursor_decrements_no_stale_resurrect() {
+        let mut e = ProtocolEngine::new();
+
+        // paint entry at index 0 (cursor 1) -> native metadata op at index 1
+        // (cursor 2). A NATIVE non-pixel op is used (not external) so Undo moves
+        // the cursor directly without creating an external-handoff barrier.
+        e.apply_pixel_patch("L", sn(0), sn(1));
+        e.apply(env(Command::AddLayer {
+            name: "meta".into(),
+        }))
+        .unwrap();
+        assert_eq!(e.cursor(), 2);
+        assert_eq!(e.entries.len(), 2);
+
+        // undo the metadata op -> cursor 1; now index 0 (pixel) is applied,
+        // index 1 (metadata) is the forward/redo region.
+        e.apply(env(Command::Undo)).unwrap();
+        assert_eq!(e.cursor(), 1);
+
+        // invalidate the layer: removes the pixel entry at index 0, which is
+        // BELOW the old cursor (1) -> cursor must drop to 0 (clamping alone
+        // would leave it at 1).
+        e.invalidate_layer("L");
+        assert_eq!(
+            e.cursor(),
+            0,
+            "removed pixel entry below cursor must decrement the cursor"
+        );
+        assert_eq!(e.entries.len(), 1, "surviving metadata entry retained");
+        assert_eq!(
+            e.entries[0].origin,
+            Origin::Native,
+            "non-pixel metadata entry survives the invalidate"
+        );
+
+        // undo/redo must NOT revert a pixel op TS never applied after the resize.
+        let (layer, tiles, _node) = e.undo_pixel().unwrap();
+        assert!(
+            layer.is_none() && tiles.is_none(),
+            "no pixel undo after invalidate"
+        );
+        let (layer2, tiles2, _node2) = e.redo_pixel().unwrap();
+        assert!(
+            layer2.is_none() && tiles2.is_none(),
+            "no pixel redo after invalidate"
+        );
     }
 }
