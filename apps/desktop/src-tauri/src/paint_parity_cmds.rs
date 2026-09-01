@@ -619,6 +619,13 @@ pub fn paint_shadow_export(result_json: String) -> Result<String, String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+// Serializes ALL tests that touch the process-global `registry()` (both test
+// modules: c4 + phase D). The parallel cargo harness lets one test's `reset()`
+// (which sets the global to `None`) wipe another test's documents mid-run, so
+// registry-touching tests must run one-at-a-time to be deterministic.
+#[cfg(test)]
+pub(crate) static TEST_REGISTRY_LOCK: Mutex<()> = Mutex::new(());
+
 // ── C5.1 + C5.2 runtime integration test ────────────────────────────────────
 // Exercises the EXACT command path the frontend invokes (open → init → patch →
 // snapshot → undo → redo → snapshot_layer). This is the real backend code that
@@ -638,6 +645,7 @@ mod c4_runtime_tests {
 
     #[test]
     fn c5_command_pipeline_canonical_undo_redo_and_epoch() {
+        let _g = super::TEST_REGISTRY_LOCK.lock().unwrap();
         reset();
         let doc = "doc1".to_string();
         let layer = "c5rt".to_string();
@@ -711,6 +719,7 @@ mod c4_runtime_tests {
 
     #[test]
     fn c5_command_empty_undo_is_safe() {
+        let _g = super::TEST_REGISTRY_LOCK.lock().unwrap();
         reset();
         let doc = "doc1".to_string();
         let layer = "c5empty".to_string();
@@ -722,6 +731,7 @@ mod c4_runtime_tests {
 
     #[test]
     fn c5_document_close_releases_storage() {
+        let _g = super::TEST_REGISTRY_LOCK.lock().unwrap();
         reset();
         let doc = "docA".to_string();
         let layer = "L".to_string();

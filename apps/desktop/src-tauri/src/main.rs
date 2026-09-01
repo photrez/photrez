@@ -3,6 +3,7 @@
 
 mod alloc_stats;
 mod cursor;
+mod document_snapshot_cmds;
 mod file_io;
 mod fonts;
 mod menu;
@@ -233,6 +234,8 @@ fn main() {
             paint_parity_cmds::rust_pixels_snapshot_tile,
             paint_parity_cmds::rust_pixels_snapshot_layer,
             paint_parity_cmds::rust_pixels_get_epoch,
+            document_snapshot_cmds::document_snapshot,
+            document_snapshot_cmds::document_restore,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");
