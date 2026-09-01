@@ -145,7 +145,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // When a transform session exists, undo is always available:
       // mini undo first (revert individual gesture), then cancel-session fallback.
       if (editor.layerTransformSession()) return true;
-      // Ticket 2.2: facade-owned content keeps its history in Rust.
+      // Facade-owned content keeps its history in Rust.
       if (hasFacadeOwnedLayers()) return true;
       return (editor.activeTool() === "crop" && (editor.canCropUndo() || editor.canModernCropUndo()))
         || editor.workspace.getActiveHistory()?.canUndo() === true;
@@ -253,16 +253,16 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       }
     }
 
-    // ── Ticket 2.2: facade (Rust-owned) history first ────────────────────
+    // ── Facade (Rust-owned) history first ────────────────────
     // Transforms/addLayers created under photrez.facade=1 have NO TS history
-    // entries (Gate A blocks legacy mutation), so their undo/redo can only
-    // come from Rust. Rust Undo on an EMPTY stack is a no-op success, so we
-    // detect that via lastHistoryDeltaWasEmpty and fall through to the legacy
-    // TS history for pre-facade entries. TRANSITIONAL behavior: while any
-    // facade-owned layer exists, Gate A blocks engine.restore() of TS entries
-    // whose snapshots contain facade layers — such entries stay pinned until
-    // facade layers are removed. Documented in AI_HISTORY; not a final
-    // history architecture.
+    // entries (the facade gate blocks legacy mutation), so their undo/redo can
+    // only come from Rust. Rust Undo on an EMPTY stack is a no-op success, so
+    // we detect that via lastHistoryDeltaWasEmpty and fall through to the
+    // legacy TS history for pre-facade entries. TRANSITIONAL behavior: while
+    // any facade-owned layer exists, the gate blocks engine.restore() of TS
+    // entries whose snapshots contain facade layers — such entries stay pinned
+    // until facade layers are removed. This is not a final history
+    // architecture.
     if (hasFacadeOwnedLayers()) {
       const engine = editor.workspace.getActiveEngine();
       if (engine) {
@@ -309,7 +309,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         return;
       }
 
-      // ── Fase 1 tile path: paint entries carry tile patches ──
+      // ── Tile path: paint entries carry tile patches ──
       // Pixels are restored via surface patches + per-tile uploads; the model
       // is identical for pure-paint entries, so engine.restore (and its
       // full-texture re-upload) is intentionally skipped.
@@ -318,7 +318,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         : history.consumeLastRedoPatches();
       if (patches) {
         let tiles = direction === "undo" ? patches.before : patches.after;
-        // ── C4 pilot (R2 flagged active-layer): Rust is authoritative ──
+        // ── When the Rust pixel path is enabled, Rust is authoritative ──
         // When photrez.rustPixels is ON, pull the authoritative tiles from Rust
         // (undo/redo restores the canonical buffer) and sync the derived TS
         // cache from them. Falls back to the local memento if Rust has no entry.
@@ -347,7 +347,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
               if (surf) {
                 applyRustTilesToSurface(surf.context, toSurface);
                 surf.pixelEpoch = rustRes.epoch;
-                // C5.3-A: record which authoritative history cursor these pixels reflect.
+                // Record which authoritative history cursor these pixels reflect.
                 surf.pixelVersion = rustRes.version;
               }
               // Re-map to the renderer's upload shape (width/height) for GPU upload.
@@ -356,7 +356,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
               }));
             }
           } catch (err) {
-            console.warn("[c4] undo/redo sync failed — using local patches:", err);
+            console.warn("[paint] undo/redo sync failed — using local patches:", err);
           }
         }
         editor.renderer.uploadSurfaceTiles?.(patches.layerId, patches.surfaceWidth, patches.surfaceHeight, tiles);
@@ -380,7 +380,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
             engine.notifyVisualChange();
           }
         }
-        // C5.4 Part 2: bitmap sync for imperative undo/redo.  The paint-tile
+        // Bitmap sync for imperative undo/redo.  The paint-tile
         // fast-path skips engine.restore() for performance, but operations like
         // Fill Layer and Adjustment Bake replace layer.imageBitmap.  On undo,
         // the snapshot carries the pre-operation bitmap reference; on redo, the
@@ -393,7 +393,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           if (snapBitmap && snapBitmap !== liveBitmap) {
             liveLayer.imageBitmap = snapBitmap;
           }
-          // C5.4 bitmap sync: after imperative undo/redo, bitmap from snapshot
+          // Bitmap sync: after imperative undo/redo, bitmap from snapshot
           // matches Rust reverted state. Set bitmapEpoch to the new Rust epoch
           // (forward-only: epoch advanced even though pixel state reverted).
           if (rustRes && rustRes.tiles.length > 0) {

@@ -62,7 +62,7 @@ describe("history bridge gating", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("does NOT fire any invoke even in the Tauri runtime when the DEV gate is unset (no split-brain at default)", async () => {
+  it("does NOT fire any invoke even in the Tauri runtime when the DEV gate is unset (histories are independent by default)", async () => {
     // CRITICAL regression guard: previously bridgeEnabled() === isTauriRuntime()
     // fired in Tauri runtime with no gate. Now the gate alone must suppress it.
     vi.mocked(isTauriRuntime).mockReturnValue(true);

@@ -4,15 +4,14 @@ import type { TileUploadLike } from "../renderer/types";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 
 /**
- * Phase 1 (History Unification): route every TS commit into the SAME Rust
- * `ProtocolEngine` cursor so TS and Rust operations share ONE logical history
- * position.
+ * Route every TS commit into the SAME Rust `ProtocolEngine` cursor so TS and Rust
+ * operations share ONE logical history position.
  *
- * Gated: the bridge is OFF by default in production. It is enabled only when
- * the runtime DEV gate `localStorage["photrez.historyBridge"] === "1"` is set
- * AND the app is running in the Tauri runtime. In default production the TS
+ * Gated: the bridge is OFF by default in production. It is enabled only when the
+ * runtime DEV gate `localStorage["photrez.historyBridge"] === "1"` is set AND the
+ * app is running in the Tauri runtime. In default production the TS
  * `CommandHistory` remains the sole undo/redo authority (no Rust cursor append,
- * so no TS/Rust split-brain).
+ * so the two histories never diverge).
  */
 const HISTORY_BRIDGE_GATE = "photrez.historyBridge";
 
@@ -31,7 +30,7 @@ export function historyBridgeEnabled(): boolean {
 }
 
 /**
- * Fase 1 tile store: imperative before/after tile patches for a paint commit.
+ * Imperative before/after tile patches for a paint commit.
  * Data-shaped (not closures) so multi-step history UIs can replay them later.
  */
 export interface HistoryTilePatches {
@@ -70,7 +69,7 @@ interface SnapshotEntry {
   timestamp: number;
   lastPaintCoords: { x: number; y: number } | null;
   label?: string;
-  /** Fase 1 tile patches (paint commits). Presence marks an imperative entry. */
+  /** Tile patches (paint commits). Presence marks an imperative entry. */
   imperative?: HistoryTilePatches;
 }
 
@@ -92,8 +91,8 @@ export class CommandHistory {
   }
 
   /**
-   * Phase 1: supply the active document id so commits can be appended to the
-   * correct Rust history cursor. Called once by the editor shell.
+   * Supply the active document id so commits can be appended to the correct Rust
+   * history cursor. Called once by the editor shell.
    */
   attachDocIdGetter(getter: () => string): void {
     this.docIdGetter = getter;
@@ -125,7 +124,7 @@ export class CommandHistory {
     imperative?: HistoryTilePatches,
     alreadyRecordedInRust = false,
   ): void {
-    // Phase 1: append this commit to the unified Rust history cursor.
+    // Append this commit to the unified Rust history cursor.
     //  - imperative TS pixel op NOT yet in Rust (text/gradient/shape/transform)
     //    -> `apply_tile_patch` (Pixel entry, same command Rust strokes use).
     //  - non-pixel TS (metadata) op -> `rust_pixels_record_external` (External entry).
@@ -220,7 +219,7 @@ export class CommandHistory {
     });
 
     this.currentLastPaintCoords = previousEntry.lastPaintCoords;
-    // Fase 1: patches to execute for THIS undo (pre-stroke tiles of the entry).
+    // Tile patches to execute for THIS undo (pre-stroke tiles of the entry).
     this.lastUndoPatches = previousEntry.imperative;
 
     // NOTE: Rust cursor sync is NOT done here. It is done by useEditorCommands.ts
@@ -231,7 +230,7 @@ export class CommandHistory {
     return previousEntry.snapshot;
   }
 
-  /** Fase 1: tile patches to execute for the just-performed undo (consume-once). */
+  /** Tile patches to execute for the just-performed undo (consume-once). */
   consumeLastUndoPatches(): HistoryTilePatches | undefined {
     const p = this.lastUndoPatches;
     this.lastUndoPatches = undefined;
@@ -256,7 +255,7 @@ export class CommandHistory {
     });
 
     this.currentLastPaintCoords = nextEntry.lastPaintCoords;
-    // Fase 1: patches to execute for THIS redo (post-stroke tiles of the entry).
+    // Tile patches to execute for THIS redo (post-stroke tiles of the entry).
     this.lastRedoPatches = nextEntry.imperative;
 
     // NOTE: Rust cursor sync is NOT done here. See undo() comment.
@@ -264,7 +263,7 @@ export class CommandHistory {
     return nextEntry.snapshot;
   }
 
-  /** Fase 1: tile patches to execute for the just-performed redo (consume-once). */
+  /** Tile patches to execute for the just-performed redo (consume-once). */
   consumeLastRedoPatches(): HistoryTilePatches | undefined {
     const p = this.lastRedoPatches;
     this.lastRedoPatches = undefined;

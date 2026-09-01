@@ -1,7 +1,7 @@
 /**
  * Regression wiring test for the undo/redo cursor-sync gate in useEditorCommands.
  *
- * Coverage gap (adversarial counter): historyBridge.wiring.test.ts only scopes
+ * Coverage gap: historyBridge.wiring.test.ts only scopes
  * history.ts — it CANNOT catch a bypass where useEditorCommands calls
  * rust_pixels_undo/rust_pixels_redo UNGATED on the tile undo/redo path. This
  * file drives the REAL undo/redo path (via the hook's returned `undo`/`redo`)
