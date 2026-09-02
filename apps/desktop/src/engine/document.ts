@@ -1538,6 +1538,15 @@ export class DocumentEngine {
     }
     markFacadeOwned(nextLayers.map((l) => l.id));
     this.facadeProjectedIds = nextIds;
+    // Reconcile per-layer resource maps for layer ids that vanished from the
+    // projection (facade delete / undone add) — mirror legacy deleteLayer cleanup
+    // so a deleted facade layer does not leak its surface/texture handles.
+    for (const prev of existingById.keys()) {
+      if (!nextIds.has(prev)) {
+        this.textureHandles.delete(prev);
+        this.paintSurfaces.delete(prev);
+      }
+    }
     this.dirtyLayerIds.clear();
     for (const l of nextLayers) this.dirtyLayerIds.add(l.id);
     this.notifyVisualChange();

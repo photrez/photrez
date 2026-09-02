@@ -11,6 +11,7 @@ import { cancelLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession } from "../canvas/pointerTools/textTool";
 import { showToast } from "../Toast";
 import { getFacade, isFacadeEnabled, seedFacadeFromEngine, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
+import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 
@@ -587,20 +588,33 @@ export function useLayerActions() {
         return;
       }
       if (engine.getLayers().length <= 1) return;
-      // ADR 0008 DeleteLayer ticket: facade-owned layer deletes through Rust —
-      // ONE DeleteLayer command (expectedVersion enforced), projection
-      // authoritative, NO legacy history.commit, no dangling ownership marker.
-      if (isFacadeEnabled() && isFacadeOwnedLayer(activeId)) {
+      // ADR 0008 DeleteLayer ticket (Phase E pilot): route the migrated delete
+      // through EditorClient. The client owns the dual-read boundary — when the
+      // facade flag is ON and the layer is facade-owned it delegates to the
+      // facade (Rust command -> delta -> snapshot) and projects the snapshot
+      // into the engine. When the flag is OFF / non-owned it returns
+      // {status:"legacy"} and we fall through to the byte-identical legacy TS
+      // path below. A thrown command (Rust Err / version conflict) fails closed.
+      if (isFacadeEnabled()) {
         const facade = getFacade(engine.getId());
-        const snap = facade.deleteLayer(activeId);
-        if (snap) engine.applyFacadeSnapshot(snap as never);
-        renderer.destroyTexture(activeId);
-        setSelectedLayerId(engine.getActiveLayerId());
-        scheduler.requestRender();
-        return;
+        const client = createEditorClient(
+          { applyFacadeSnapshot: (s) => engine.applyFacadeSnapshot(s as never) },
+          facade,
+        );
+        const res = client.deleteLayer(activeId);
+        if (res.status === "facade") {
+          renderer.destroyTexture(activeId);
+          setSelectedLayerId(engine.getActiveLayerId());
+          scheduler.requestRender();
+          return;
+        }
+        if (res.status === "blocked") {
+          showToast(`Cannot delete layer: ${res.error ?? "unknown error"}`, "error");
+          return;
+        }
+        // status === "legacy": fall through to the byte-identical legacy path below.
       }
-      // Snapshot-bridge producer (flag OFF => recordSnapshotHistory pushes ONLY
-      // the pre-action state to the undo stack, identical to the old commit).
+      // status === "legacy": byte-identical legacy TS path (flag OFF / non-owned).
       const before = engine.snapshot();
       engine.deleteLayer(activeId);
       const after = engine.snapshot();
