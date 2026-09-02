@@ -162,7 +162,12 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
       expect(surface.pixelVersion).toBe(1);
       expect(applyCalls.length).toBeGreaterThan(0);
       expect(applyCalls[applyCalls.length - 1].tiles).toBe(writeRes.after);
-      expect(uploadSurfaceTiles).toHaveBeenCalledWith("L1", 8, 8, writeRes.after);
+      expect(uploadSurfaceTiles).toHaveBeenCalledWith(
+        "L1",
+        8,
+        8,
+        writeRes.after.map((t: { x: number; y: number; w: number; h: number; data: number[] }) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+      );
     }, { timeout: 2000 });
   });
 

@@ -323,7 +323,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // [External, Snapshot] stream can leave the cursor pointing at a Snapshot
       // while TS restores an External state. Gating the re-attach on this never
       // lets an External step read the wrong-step Snapshot from Rust.
-      const isSnapshotEntry = history.isLastPoppedSnapshotEntry();
+      const isSnapshotEntry =
+        typeof history.isLastPoppedSnapshotEntry === "function" &&
+        history.isLastPoppedSnapshotEntry();
 
       // ── Tile path: paint entries carry tile patches ──
       // Pixels are restored via surface patches + per-tile uploads; the model
