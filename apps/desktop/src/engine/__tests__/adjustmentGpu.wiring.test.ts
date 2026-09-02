@@ -47,7 +47,7 @@ describe("bakeAdjustmentToBitmapGpu WGSL wiring", () => {
     // Spy on the GPU module to prove the bake actually calls it.
     const adjustSpy = vi.spyOn(gpuCompute, "adjustRgba").mockImplementation(async (data) => {
       expect(Array.from(data.slice(0, 4))).toEqual([100, 150, 200, 255]);
-      return { data: adjusted, usedGpu: false };
+      return { data: adjusted, usedGpu: true };
     });
 
     const bitmap = await bakeAdjustmentToBitmapGpu({} as ImageBitmap, 2, 1, adj);

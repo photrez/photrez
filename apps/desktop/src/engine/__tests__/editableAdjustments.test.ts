@@ -259,10 +259,15 @@ describe("Editable Basic Adjustments", () => {
     const adj = { brightness: 10, contrast: 20, saturation: -30 };
     engine.applyBasicAdjustment(layer.id, adj);
 
-    expect(layer.basicAdjustment).toEqual(adj);
-    expect(layer.hasAdjustments).toBe(true);
+    // setLayerLocked triggers syncLayersFromRust (Rust SSOT) which rebuilds the
+    // layer object, so re-fetch the live layer before asserting — the addLayer
+    // ref is stale. syncLayersFromRust preserves imageBitmap by id, so the live
+    // layer still carries the base bitmap.
+    const liveLayer = engine.getLayer(layer.id)!;
+    expect(liveLayer.basicAdjustment).toEqual(adj);
+    expect(liveLayer.hasAdjustments).toBe(true);
     // Locked layers still benefit from non-destructive GPU adjustment.
-    expect(layer.imageBitmap).toBe(initialBitmap);
+    expect(liveLayer.imageBitmap).toBe(initialBitmap);
   });
 
   it("Edge Case: applyBasicAdjustment immediately returns on empty layers (null bitmap)", () => {
@@ -274,7 +279,7 @@ describe("Editable Basic Adjustments", () => {
     const adj = { brightness: 10, contrast: 20, saturation: -30 };
     engine.applyBasicAdjustment(layer.id, adj);
 
-    expect(layer.baseImageBitmap).toBeUndefined();
+    expect(layer.baseImageBitmap).toBeNull();
     expect(layer.basicAdjustment).toBeUndefined();
   });
 
