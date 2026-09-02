@@ -599,8 +599,12 @@ export function useLayerActions() {
         scheduler.requestRender();
         return;
       }
-      history.commit(engine.snapshot(), "Delete Layer");
+      // Snapshot-bridge producer (flag OFF => recordSnapshotHistory pushes ONLY
+      // the pre-action state to the undo stack, identical to the old commit).
+      const before = engine.snapshot();
       engine.deleteLayer(activeId);
+      const after = engine.snapshot();
+      history.recordSnapshotHistory(before, after, "Delete Layer");
       renderer.destroyTexture(activeId);
       scheduler.requestRender();
     }

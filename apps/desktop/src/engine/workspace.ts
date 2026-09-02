@@ -2,6 +2,7 @@ import type { DocumentId, DocumentTabSummary } from "./types";
 import { MAX_OPEN_DOCUMENTS } from "./types";
 import { DocumentEngine } from "./document";
 import { CommandHistory } from "./history";
+import { releaseBitmapStore } from "./bitmapStore";
 
 export interface DocumentSession {
   engine: DocumentEngine;
@@ -77,6 +78,9 @@ export class WorkspaceManager {
       const index = Array.from(this.sessions.keys()).indexOf(id);
       this.sessions.delete(id);
       this.notifyRustPixelDoc("rust_pixels_close_document", id);
+      // Drop the doc's token registry (does NOT close bitmaps — close ownership
+      // stays with the history disposeSnapshot path / GC; see bitmapStore).
+      releaseBitmapStore(id);
 
       // consecutive assignments to `this.activeDocumentId` where the
       // first (line 53) computed `keys.indexOf(id) + 1` against the

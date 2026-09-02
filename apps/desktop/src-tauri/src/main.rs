@@ -236,6 +236,9 @@ fn main() {
             paint_parity_cmds::rust_pixels_get_epoch,
             document_snapshot_cmds::document_snapshot,
             document_snapshot_cmds::document_restore,
+            document_snapshot_cmds::rust_pixels_record_snapshot,
+            document_snapshot_cmds::rust_pixels_undo_snapshot,
+            document_snapshot_cmds::rust_pixels_redo_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");
