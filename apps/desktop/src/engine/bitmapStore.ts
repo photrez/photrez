@@ -1,5 +1,5 @@
 /**
- * Bitmap-token resource store (Phase C TS slice).
+ * Bitmap-token resource store for the snapshot-history bridge.
  *
  * A token → ImageBitmap registry, keyed per document. Its purpose is the
  * anti-detach invariant: an undo/redo step that restores a snapshot re-attaches

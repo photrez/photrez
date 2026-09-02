@@ -1,0 +1,4 @@
+#!/bin/sh
+# Enforce Conventional Commits on every commit message. The message file path is
+# passed as $1 by husky. See commitlint.config.cjs.
+bunx commitlint --edit "$1"

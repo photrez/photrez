@@ -32,6 +32,8 @@
     "js-yaml": "^4.3.1"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
     "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^26.1.1",
     "@types/pngjs": "^6.0.5",

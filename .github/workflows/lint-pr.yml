@@ -1,0 +1,21 @@
+name: "Lint PR title"
+
+# Standard OSS convention: require pull request titles to follow the Conventional
+# Commits spec (see https://www.conventionalcommits.org). The merged/squash commit
+# is often derived from the PR title, so this is the public commit-message gate.
+# Uses amannn/action-semantic-pull-request — the widely used action for this.
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint-pr-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

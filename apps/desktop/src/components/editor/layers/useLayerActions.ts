@@ -588,7 +588,7 @@ export function useLayerActions() {
         return;
       }
       if (engine.getLayers().length <= 1) return;
-      // ADR 0008 DeleteLayer ticket (Phase E pilot): route the migrated delete
+      // ADR 0008 DeleteLayer ticket: route the migrated delete
       // through EditorClient. The client owns the dual-read boundary — when the
       // facade flag is ON and the layer is facade-owned it delegates to the
       // facade (Rust command -> delta -> snapshot) and projects the snapshot

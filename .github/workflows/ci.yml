@@ -216,3 +216,38 @@ jobs:
       - name: Run component tests
         working-directory: apps/desktop
         run: bun run test:component
+
+  # ─── CONTRIBUTIONS: public-artifact terminology guard ───
+  # Machine-enforced rule: public artifacts (commit/PR messages and source) must
+  # NEVER leak internal plan/milestone terminology that lives in gitignored docs
+  # (e.g. "Phase E pilot", "Option A", "flip-on"). Same logic as the local
+  # pre-commit hook, driven from one shared script (scripts/check-public-terminology.sh)
+  # so it cannot diverge between local and CI. PR titles are additionally
+  # validated against Conventional Commits by .github/workflows/lint-pr.yml.
+  contributions:
+    name: Public-artifact terminology guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Scan changed source for internal terminology
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(ts|tsx|rs)$' | tr '\n' ' ')
+          if [ -n "$FILES" ]; then
+            sh scripts/check-public-terminology.sh --files "$FILES"
+          else
+            echo "No changed source files matched; terminology scan skipped."
+          fi
+
+      - name: Check PR title for internal terminology
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: sh scripts/check-public-terminology.sh --msg "$PR_TITLE"

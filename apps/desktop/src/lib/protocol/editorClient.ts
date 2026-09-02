@@ -1,4 +1,4 @@
-// Phase E pilot — EditorClient: migrated-op delegation with the DUAL-READ invariant.
+// EditorClient: migrated-op delegation with the DUAL-READ invariant.
 //
 // The facade (Rust canonical via the Command/delta contract) is authoritative for
 // a migrated operation. This client is the single seam between the TS editor

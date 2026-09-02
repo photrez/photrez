@@ -26,6 +26,17 @@ if [ -f ".husky/internal-blocklist" ]; then
   fi
 fi
 
+# 0d. Public-artifact terminology guard — commit message (single source of truth)
+if [ -f ".git/COMMIT_EDITMSG" ]; then
+  sh scripts/check-public-terminology.sh --msg "$(cat .git/COMMIT_EDITMSG)" || exit 1
+fi
+
+# 0e. Public-artifact terminology guard — staged source
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(ts|tsx|rs)$'; then
+  FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs)$' | tr '\n' ' ')
+  sh scripts/check-public-terminology.sh --files "$FILES" || exit 1
+fi
+
 # 1. TypeScript type-check only (faster than full build)
 echo ""
 echo "[1/3] Running TypeScript Type Check..."
