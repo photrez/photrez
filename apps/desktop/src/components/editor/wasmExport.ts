@@ -14,6 +14,19 @@ export async function getWasmExportModule(): Promise<any> {
         }
         if (typeof mod.set_panic_hook === "function") mod.set_panic_hook();
         wasmModule = mod;
+        // Wire the facade protocol bridge to the REAL Rust engine. When the wasm
+        // exports protocol_apply_command the bridge's applyCommand runs through
+        // real Rust (serde JSON in/out) instead of the TS emulation fallback.
+        // HONESTLY: the facade protocol is Rust-backed only AFTER this load
+        // completes; before it (or in a non-wasm env where this import fails and
+        // we return null) the bridge falls back to TS emulation. The load-order
+        // robustness (wasm ready before the first facade command) is a FLAG-ON
+        // acceptance criterion — see docs/AI_CURRENT_TASK.md FLAG-ON WASM-WIRING
+        // READINESS checklist (A1).
+        if (typeof mod.protocol_apply_command === "function") {
+          const { setProtocolWasm } = await import("@/lib/protocol/bridge");
+          setProtocolWasm(mod);
+        }
         return mod;
       } catch (err) {
         // Log warning for missing WASM pkg / non-WASM environment
