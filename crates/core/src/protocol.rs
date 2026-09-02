@@ -3,7 +3,7 @@
 // No persistent TS mirror. Version checks are correctness.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
@@ -44,6 +44,67 @@ pub struct RenderLayer {
     pub scale_y: f64,
     pub rotation: f64,
     pub dirty_rect: Option<Rect>,
+}
+
+/// The immutable per-layer metadata value held by the COW layer set. It is the
+/// same data as `RenderLayer` (kept under a distinct name so the structural-
+/// sharing set can carry `Arc<LayerMeta>` without conflating with the serde DTO
+/// that crosses the wasm front). Values are treated as immutable: editing a
+/// layer produces a NEW `LayerMeta` via COW, never an in-place mutation of a
+/// shared one (this mirrors the `StateNode`/`TileBlock` COW convention).
+pub type LayerMeta = RenderLayer;
+
+/// Structural-sharing snapshot of the layer metadata set. The backing `Vec` is
+/// heap-allocated and only ever replaced wholesale (never mutated in place);
+/// each element is an `Arc<LayerMeta>` so layers that did NOT change between a
+/// before/after transition SHARE the same `Arc<LayerMeta>` pointer. Building a
+/// new `LayerSet` after a change is O(changed) deep work + O(n) cheap pointer
+/// copies; undo/redo swap `self.layers = before.clone()` in O(1) because a
+/// `LayerSet` is itself an `Arc` (clone bumps the refcount only).
+#[derive(Debug, Clone)]
+pub(crate) struct LayerSet(Arc<Vec<Arc<LayerMeta>>>);
+
+impl LayerSet {
+    fn empty() -> Self {
+        Self(Arc::new(Vec::new()))
+    }
+
+    /// Immutable access to the layer at `i` (derefs the shared `Arc<LayerMeta>`).
+    fn get(&self, i: usize) -> Option<&LayerMeta> {
+        self.0.get(i).map(|a| a.as_ref())
+    }
+
+    /// Iterate the shared `Arc<LayerMeta>` pointers (unchanged layers are
+    /// identified by pointer identity across two sets).
+    fn iter(&self) -> std::slice::Iter<'_, Arc<LayerMeta>> {
+        self.0.iter()
+    }
+
+    fn position_by_id(&self, id: &str) -> Option<usize> {
+        self.0.iter().position(|l| l.id == id)
+    }
+
+    // ── COW builders ─────────────────────────────────────────────
+    // Each returns a NEW set sharing the untouched `Arc<LayerMeta>` pointers;
+    // only the vector of pointers is copied (O(n) refcount bumps, no deep clone
+    // of unchanged layer data).
+    fn pushed(&self, layer: LayerMeta) -> Self {
+        let mut v = self.0.as_ref().clone();
+        v.push(Arc::new(layer));
+        Self(Arc::new(v))
+    }
+
+    fn replaced(&self, i: usize, layer: LayerMeta) -> Self {
+        let mut v = self.0.as_ref().clone();
+        v[i] = Arc::new(layer);
+        Self(Arc::new(v))
+    }
+
+    fn removed(&self, i: usize) -> Self {
+        let mut v = self.0.as_ref().clone();
+        v.remove(i);
+        Self(Arc::new(v))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -178,12 +239,14 @@ pub enum Origin {
 // `Pixel` payloads hold `Arc<StateNode>` (sharing is via `Arc`, never a value
 // clone). They DO derive Debug (ProtocolEngine derives Debug, which requires it).
 #[derive(Debug)]
-pub enum EntryPayload {
-    // Built-in native adapter: before/after metadata snapshots (transitional
-    // representation; inverse/patch forms come with later tickets).
+pub(crate) enum EntryPayload {
+    // Built-in native adapter: before/after metadata snapshots. Stored as
+    // structural-sharing `LayerSet`s (Arc<Vec<Arc<LayerMeta>>>) so unchanged
+    // layers SHARE pointers and undo/redo is an O(1) Arc swap (mirrors the
+    // `Pixel` path's `Arc<StateNode>` COW).
     Native {
-        before: Vec<RenderLayer>,
-        after: Vec<RenderLayer>,
+        before: LayerSet,
+        after: LayerSet,
     },
     External {
         token: String,
@@ -216,7 +279,7 @@ pub enum EntryPayload {
 }
 
 #[derive(Debug)]
-pub struct HistoryEntry {
+pub(crate) struct HistoryEntry {
     pub seq: u64,
     pub group_id: u64,
     pub origin: Origin,
@@ -380,7 +443,10 @@ pub struct ProtocolError {
 pub struct ProtocolEngine {
     version: DocumentVersion,
     next_resource: ResourceId,
-    layers: Vec<RenderLayer>,
+    // Structural-sharing layer metadata set (Arc<Vec<Arc<LayerMeta>>>). Only the
+    // changed layer gets a new Arc; unchanged layers SHARE Arc pointers across
+    // history before/after. Undo/redo swaps this Arc in O(1).
+    layers: LayerSet,
     // H0 (canonical stream): cursor = number of APPLIED entries
     // (0..=entries.len()). Independent from `version` (see C1).
     entries: Vec<HistoryEntry>,
@@ -400,7 +466,7 @@ impl Default for ProtocolEngine {
         Self {
             version: 0,
             next_resource: 1,
-            layers: Vec::new(),
+            layers: LayerSet::empty(),
             entries: Vec::new(),
             cursor: 0,
             next_seq: 1,
@@ -421,15 +487,61 @@ impl ProtocolEngine {
     pub fn snapshot(&self) -> RenderSnapshot {
         RenderSnapshot {
             version: self.version,
-            layers: self.layers.clone(),
+            layers: self.layers.iter().map(|a| a.as_ref().clone()).collect(),
         }
     }
 
     // ── H0 stream helpers ────────────────────────────────────────
-    fn estimate_layers_bytes(layers: &[RenderLayer]) -> u64 {
-        serde_json::to_string(layers)
-            .map(|s| s.len() as u64)
-            .unwrap_or(0)
+    /// Rough per-`Arc<LayerMeta>` heap-allocation slack folded into the cheap
+    /// byte estimate (the Arc control block + allocator rounding). Kept as a
+    /// named const so the magic number is documented rather than guessed at.
+    const PER_LAYER_SLACK_BYTES: u64 = 64;
+
+    /// Cheap per-layer byte estimate for memory-cost accounting. Replaces the
+    /// old `estimate_layers_bytes` (which ran `serde_json::to_string` on the
+    /// WHOLE layer set twice per forward command, i.e. O(total bytes) +
+    /// allocation). This is O(1) per layer and never allocates/serializes.
+    fn estimate_layer_meta_bytes(layer: &LayerMeta) -> u64 {
+        // Fixed struct size (id/name Strings, resource id, bool, 6 f64s,
+        // Option<Rect>) + the actual string byte lengths + per-arc slack. It
+        // under-counts the exact RSS but is a stable, cheap, allocation-free
+        // upper-ish bound for the history memory model.
+        (std::mem::size_of::<LayerMeta>() as u64)
+            + (layer.id.len() as u64)
+            + (layer.name.len() as u64)
+            + Self::PER_LAYER_SLACK_BYTES
+    }
+
+    /// Estimate the ACTUAL retained byte cost of a native history entry.
+    ///
+    /// `before`/`after` are structural-sharing `LayerSet`s whose unchanged
+    /// layers are the SAME `Arc<LayerMeta>` allocation. Summing the two per-set
+    /// estimates (`cost_before + cost_after`) would DOUBLE-COUNT those shared
+    /// layers and therefore OVERSTATE the retained memory. Instead we count
+    /// each UNIQUE `Arc<LayerMeta>` allocation (by pointer identity) exactly
+    /// once, then add the two `LayerSet` structures (Arc wrapper + backing Vec
+    /// pointer slot) that are genuinely separate per entry. This is a cheap
+    /// O(n) approximation of the retained metadata — NOT a full RSS measurement
+    /// and NOT a pretend-to-be-exact "retained bytes" figure.
+    fn estimate_native_entry_cost(before: &LayerSet, after: &LayerSet) -> u64 {
+        let mut seen: HashSet<usize> = HashSet::with_capacity(after.0.len());
+        let mut layer_bytes: u64 = 0;
+        let mut unique_count: u64 = 0;
+        for set in [before, after] {
+            for arc in set.iter() {
+                // A shared (unchanged) layer appears in BOTH sets as the same
+                // Arc pointer, so the pointer-identity insert counts it once.
+                if seen.insert(Arc::as_ptr(arc) as usize) {
+                    unique_count += 1;
+                    layer_bytes += Self::estimate_layer_meta_bytes(arc.as_ref());
+                }
+            }
+        }
+        // Each unique Arc pointer also occupies a slot in a set's backing Vec
+        // (up to 2 across before/after) plus the two Arc<Vec> wrappers.
+        let ptr_slots = unique_count * 2 * (std::mem::size_of::<Arc<LayerMeta>>() as u64);
+        let wrappers = 2 * (std::mem::size_of::<Arc<Vec<Arc<LayerMeta>>>>() as u64);
+        layer_bytes + ptr_slots + wrappers
     }
 
     // Opens a forward native entry at the cursor. Truncates the forward
@@ -448,8 +560,10 @@ impl ProtocolEngine {
             version_after: self.version + 1,
             memory_cost_bytes: 0, // filled by finish_forward
             payload: EntryPayload::Native {
+                // O(1): `LayerSet` is an `Arc`, so this shares the pre-change
+                // set (with its per-layer Arc pointers) instead of cloning it.
                 before: self.layers.clone(),
-                after: Vec::new(),
+                after: LayerSet::empty(),
             },
         };
         self.entries.push(entry);
@@ -457,17 +571,21 @@ impl ProtocolEngine {
     }
 
     fn finish_forward(&mut self, idx: usize) {
-        let cost_before = match self.entries.get(idx) {
+        // Unique-allocation cost, NOT `before + after` (which double-counts the
+        // shared/unchanged layer Arc pointers across the two LayerSets).
+        let cost = match self.entries.get(idx) {
             Some(e) => match &e.payload {
-                EntryPayload::Native { before, .. } => Self::estimate_layers_bytes(before),
+                EntryPayload::Native { before, .. } => {
+                    Self::estimate_native_entry_cost(before, &self.layers)
+                }
                 _ => 0,
             },
             None => 0,
         };
-        let cost_after = Self::estimate_layers_bytes(&self.layers);
         if let Some(e) = self.entries.get_mut(idx) {
-            e.memory_cost_bytes = cost_before + cost_after;
+            e.memory_cost_bytes = cost;
             if let EntryPayload::Native { after, .. } = &mut e.payload {
+                // O(1): shares the post-change set (Arc bump), no layer clone.
                 *after = self.layers.clone();
             }
         }
@@ -916,16 +1034,38 @@ impl ProtocolEngine {
         }
     }
 
-    fn diff(old: &[RenderLayer], new: &[RenderLayer]) -> Vec<RenderLayerChange> {
+    fn diff(old: &LayerSet, new: &LayerSet) -> Vec<RenderLayerChange> {
         let mut changes = Vec::new();
-        for l in new {
-            match old.iter().find(|o| o.id == l.id) {
-                Some(o) if o == l => {}
-                _ => changes.push(RenderLayerChange::Upsert { layer: l.clone() }),
+        // Index `old` by id once so the per-layer comparison is an O(1) lookup
+        // instead of an O(n) linear scan per new layer (O(n²) total).
+        let mut old_by_id: HashMap<&str, &Arc<LayerMeta>> = HashMap::with_capacity(old.0.len());
+        for arc in old.iter() {
+            old_by_id.insert(arc.id.as_str(), arc);
+        }
+        let new_ids: HashSet<&str> = new.iter().map(|a| a.id.as_str()).collect();
+
+        for arc in new.iter() {
+            let lr = arc.as_ref();
+            match old_by_id.get(lr.id.as_str()) {
+                // Pointer-identical to the before set: UNCHANGED layer (the
+                // common case). The structural-sharing design guarantees this,
+                // so we short-circuit with an O(1) Arc pointer compare instead
+                // of a deep value compare.
+                Some(o) if Arc::ptr_eq(o, arc) => {}
+                // Same id, different allocation. Fall back to the deep value
+                // compare so a re-built-but-value-equal layer does not emit a
+                // spurious Upsert.
+                Some(o) => {
+                    if o.as_ref() != lr {
+                        changes.push(RenderLayerChange::Upsert { layer: lr.clone() });
+                    }
+                }
+                // No matching id: brand-new layer.
+                None => changes.push(RenderLayerChange::Upsert { layer: lr.clone() }),
             }
         }
-        for o in old {
-            if !new.iter().any(|n| n.id == o.id) {
+        for o in old.iter() {
+            if !new_ids.contains(o.id.as_str()) {
                 changes.push(RenderLayerChange::Remove {
                     id: o.id.clone(),
                     resource_id: o.resource_id,
@@ -1020,11 +1160,11 @@ impl ProtocolEngine {
                         height: 1,
                     }),
                 };
-                if let Some(pos) = self.layers.iter().position(|l| l.id == id) {
-                    self.layers[pos] = layer.clone();
+                if let Some(pos) = self.layers.position_by_id(&id) {
+                    self.layers = self.layers.replaced(pos, layer.clone());
                 } else {
                     self.next_resource += 1;
-                    self.layers.push(layer.clone());
+                    self.layers = self.layers.pushed(layer.clone());
                 }
                 vec![RenderLayerChange::Upsert { layer }]
             }
@@ -1050,15 +1190,15 @@ impl ProtocolEngine {
                     }),
                 };
                 self.next_resource += 1;
-                self.layers.push(layer.clone());
+                self.layers = self.layers.pushed(layer.clone());
                 self.finish_forward(_e);
                 vec![RenderLayerChange::Upsert { layer }]
             }
             Command::DeleteLayer { id } => {
-                if let Some(pos) = self.layers.iter().position(|l| l.id == id) {
+                if let Some(pos) = self.layers.position_by_id(&id) {
                     let _e = self.begin_forward("Delete Layer", &[id.clone()]);
-                    let resource_id = self.layers[pos].resource_id;
-                    self.layers.remove(pos);
+                    let resource_id = self.layers.get(pos).expect("layer present").resource_id;
+                    self.layers = self.layers.removed(pos);
                     self.finish_forward(_e);
                     vec![RenderLayerChange::Remove {
                         id: id.clone(),
@@ -1069,9 +1209,9 @@ impl ProtocolEngine {
                 }
             }
             Command::TransformLayer { id, transform } => {
-                if let Some(pos) = self.layers.iter().position(|l| l.id == id) {
+                if let Some(pos) = self.layers.position_by_id(&id) {
                     let _e = self.begin_forward("Transform Layer", &[id.clone()]);
-                    let mut layer = self.layers[pos].clone();
+                    let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.x = transform.x;
                     layer.y = transform.y;
                     layer.scale_x = transform.scale_x;
@@ -1083,7 +1223,7 @@ impl ProtocolEngine {
                         width: 1,
                         height: 1,
                     });
-                    self.layers[pos] = layer.clone();
+                    self.layers = self.layers.replaced(pos, layer.clone());
                     self.finish_forward(_e);
                     vec![RenderLayerChange::Upsert { layer }]
                 } else {
@@ -1092,9 +1232,9 @@ impl ProtocolEngine {
             }
             Command::SetOpacity { id, opacity } => {
                 let clamped = opacity.clamp(0.0, 1.0);
-                if let Some(pos) = self.layers.iter().position(|l| l.id == id) {
+                if let Some(pos) = self.layers.position_by_id(&id) {
                     let _e = self.begin_forward("Set Opacity", &[id.clone()]);
-                    let mut layer = self.layers[pos].clone();
+                    let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.opacity = clamped;
                     layer.dirty_rect = Some(Rect {
                         x: 0,
@@ -1102,7 +1242,7 @@ impl ProtocolEngine {
                         width: 1,
                         height: 1,
                     });
-                    self.layers[pos] = layer.clone();
+                    self.layers = self.layers.replaced(pos, layer.clone());
                     self.finish_forward(_e);
                     vec![RenderLayerChange::Upsert { layer }]
                 } else {
@@ -1116,9 +1256,9 @@ impl ProtocolEngine {
             } => {
                 if points.is_empty() {
                     Vec::new()
-                } else if let Some(pos) = self.layers.iter().position(|l| l.id == layer_id) {
+                } else if let Some(pos) = self.layers.position_by_id(&layer_id) {
                     let _e = self.begin_forward("Brush Stroke", &[layer_id.clone()]);
-                    let mut layer = self.layers[pos].clone();
+                    let mut layer = self.layers.get(pos).expect("layer present").clone();
                     // dirtyRect must account for brush footprint, not just point bbox
                     let mut min_x = f64::INFINITY;
                     let mut max_x = f64::NEG_INFINITY;
@@ -1151,7 +1291,7 @@ impl ProtocolEngine {
                         width: w,
                         height: h,
                     });
-                    self.layers[pos] = layer.clone();
+                    self.layers = self.layers.replaced(pos, layer.clone());
                     self.finish_forward(_e);
                     vec![RenderLayerChange::Upsert { layer }]
                 } else {
@@ -1635,6 +1775,336 @@ mod tests {
             .unwrap();
         assert_eq!(r.delta.base_version, v0);
         assert_eq!(eng.snapshot().layers.len(), 2);
+    }
+
+    // ── Structural-sharing / no-aliasing (reviewer finding) ──────────────
+    fn make_layer_meta(name: &str) -> LayerMeta {
+        RenderLayer {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            visible: true,
+            opacity: 1.0,
+            resource_id: 0,
+            x: 0.0,
+            y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotation: 0.0,
+            dirty_rect: Some(Rect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            }),
+        }
+    }
+
+    fn env(cmd: Command) -> CommandEnvelope {
+        CommandEnvelope {
+            contract_version: CONTRACT_VERSION,
+            expected_version: None,
+            command: cmd,
+        }
+    }
+
+    #[test]
+    fn structural_sharing_unchanged_layer_shares_arc_ptr_across_replace() {
+        let l1 = make_layer_meta("L1");
+        let l2 = make_layer_meta("L2");
+        let set = LayerSet::empty().pushed(l1.clone()).pushed(l2.clone());
+
+        // Build an "after" state that only changes L1 via COW replace.
+        let mut edited_l1 = l1.clone();
+        edited_l1.opacity = 0.5;
+        let after = set.replaced(0, edited_l1);
+
+        // Unchanged L2 keeps the SAME `Arc<LayerMeta>` allocation across before/after.
+        assert!(
+            Arc::ptr_eq(&set.0[1], &after.0[1]),
+            "unchanged layer must share its Arc pointer across before/after",
+        );
+        // And its value is untouched by the L1 edit.
+        assert_eq!(after.0[1].as_ref(), &l2);
+
+        // The changed L1 got a NEW Arc allocation (COW), never an in-place mutation.
+        assert!(
+            !Arc::ptr_eq(&set.0[0], &after.0[0]),
+            "changed layer must get a fresh Arc allocation",
+        );
+        assert_ne!(after.0[0].as_ref(), &l1, "edited value must differ");
+    }
+
+    #[test]
+    fn no_aliasing_editing_one_layer_does_not_mutate_shared_sibling() {
+        let l1 = make_layer_meta("L1");
+        let l2 = make_layer_meta("L2");
+        let set = LayerSet::empty().pushed(l1.clone()).pushed(l2.clone());
+
+        // COW-edit L1 (index 0); L2 (index 1) must be pointer- & value-identical.
+        let mut edited_l1 = l1.clone();
+        edited_l1.x = 42.0;
+        let after = set.replaced(0, edited_l1);
+
+        assert!(Arc::ptr_eq(&set.0[1], &after.0[1]));
+        assert_eq!(after.0[1].as_ref(), &l2, "sibling value must be unchanged");
+        assert_eq!(set.0[0].as_ref().x, 0.0, "original set's L1 untouched");
+        assert_eq!(after.0[0].as_ref().x, 42.0, "edited set's L1 changed");
+    }
+
+    #[test]
+    fn cow_builders_share_untouched_arcs_and_only_changed_layer_is_new() {
+        let base = LayerSet::empty()
+            .pushed(make_layer_meta("L1"))
+            .pushed(make_layer_meta("L2"));
+        let base_l1 = &base.0[0];
+        let base_l2 = &base.0[1];
+
+        // pushed: appends a new layer; existing Arc pointers shared.
+        let pushed = base.pushed(make_layer_meta("L3"));
+        assert_eq!(pushed.0.len(), 3);
+        assert!(Arc::ptr_eq(base_l1, &pushed.0[0]));
+        assert!(Arc::ptr_eq(base_l2, &pushed.0[1]));
+        assert!(!Arc::ptr_eq(base_l1, &pushed.0[2])); // new layer distinct
+
+        // replaced: index 1 becomes a fresh Arc; index 0 shared.
+        let replaced = base.replaced(1, make_layer_meta("L2b"));
+        assert!(Arc::ptr_eq(base_l1, &replaced.0[0]));
+        assert!(!Arc::ptr_eq(base_l2, &replaced.0[1]));
+        assert_eq!(replaced.0[1].as_ref().name, "L2b");
+
+        // removed: index 0 removed; the surviving layer keeps its Arc pointer.
+        let removed = base.removed(0);
+        assert_eq!(removed.0.len(), 1);
+        assert!(Arc::ptr_eq(base_l2, &removed.0[0]));
+    }
+
+    #[test]
+    fn engine_native_entry_before_after_share_unchanged_layer_arcs() {
+        let mut eng = ProtocolEngine::new();
+        eng.apply(env(Command::AddLayer { name: "A".into() }))
+            .unwrap();
+        eng.apply(env(Command::AddLayer { name: "B".into() }))
+            .unwrap();
+        // Transform A (index 0): B must stay a shared Arc across the entry's
+        // before/after LayerSets.
+        let id_a = eng.snapshot().layers[0].id.clone();
+        eng.apply(env(Command::TransformLayer {
+            id: id_a,
+            transform: TransformPatch {
+                x: 5.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+            },
+        }))
+        .unwrap();
+
+        let entry = eng.entries.last().unwrap();
+        match &entry.payload {
+            EntryPayload::Native { before, after } => {
+                assert_eq!(before.0.len(), 2);
+                assert_eq!(after.0.len(), 2);
+                // B (index 1) is unchanged -> same Arc pointer in before & after.
+                assert!(Arc::ptr_eq(&before.0[1], &after.0[1]));
+                // A (index 0) changed -> fresh Arc pointer.
+                assert!(!Arc::ptr_eq(&before.0[0], &after.0[0]));
+                // Undo swaps back via O(1) Arc/clone, so before is the ORIGINAL.
+                assert_eq!(before.0[0].as_ref().x, 0.0);
+                assert_eq!(after.0[0].as_ref().x, 5.0);
+            }
+            _ => panic!("expected Native payload"),
+        }
+    }
+
+    #[test]
+    fn native_entry_memory_cost_does_not_double_count_shared_layers() {
+        let mut eng = ProtocolEngine::new();
+        eng.apply(env(Command::AddLayer { name: "A".into() }))
+            .unwrap();
+        eng.apply(env(Command::AddLayer { name: "B".into() }))
+            .unwrap();
+        let id_a = eng.snapshot().layers[0].id.clone();
+        eng.apply(env(Command::TransformLayer {
+            id: id_a,
+            transform: TransformPatch {
+                x: 5.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+            },
+        }))
+        .unwrap();
+
+        let entry = eng.entries.last().unwrap();
+        let cost = entry.memory_cost_bytes;
+        // Unique-allocation cost must be strictly below the naive before+after
+        // per-set sum, which double-counts the shared B layer.
+        let naive_sum = match &entry.payload {
+            EntryPayload::Native { before, after } => {
+                let b: u64 = before
+                    .iter()
+                    .map(|a| ProtocolEngine::estimate_layer_meta_bytes(a.as_ref()))
+                    .sum();
+                let a: u64 = after
+                    .iter()
+                    .map(|a| ProtocolEngine::estimate_layer_meta_bytes(a.as_ref()))
+                    .sum();
+                b + a
+            }
+            _ => panic!("expected Native payload"),
+        };
+        assert!(cost > 0, "memory cost must be non-zero");
+        assert!(
+            cost < naive_sum,
+            "unique-count cost must be below the double-counting before+after sum",
+        );
+    }
+
+    // -- Wire-format contract (photrez-counter residual 1) ----------------
+    // `#[serde(rename_all = "camelCase", tag = "type")]` on the `Command` enum
+    // renames the VARIANT only - NOT the fields of a struct variant. So the
+    // `BrushStroke` variant carries `layer_id` (snake_case), not `layerId`. The
+    // TS sender in bridge.ts must emit `layer_id` on the wire. This pins that
+    // contract so a future `rename_all_fields` or a TS sender regression is
+    // caught here.
+    #[test]
+    fn brush_stroke_wire_format_expects_snake_case_layer_id() {
+        let ok: CommandEnvelope = serde_json::from_str(
+            r#"{"contractVersion":1,"command":{"type":"brushStroke","layer_id":"L1","points":[{"x":0,"y":0,"pressure":0.5}],"settings":{"size":20,"hardness":0.5,"opacity":1,"flow":1}}}"#,
+        )
+        .unwrap();
+        match ok.command {
+            Command::BrushStroke { layer_id, .. } => assert_eq!(layer_id, "L1"),
+            _ => panic!("expected brushStroke"),
+        }
+
+        // The camelCase `layerId` sender (pre-fix bridge.ts) must be REJECTED.
+        let err = serde_json::from_str::<CommandEnvelope>(
+            r#"{"contractVersion":1,"command":{"type":"brushStroke","layerId":"L1","points":[{"x":0,"y":0,"pressure":0.5}],"settings":{"size":20,"hardness":0.5,"opacity":1,"flow":1}}}"#,
+        );
+        assert!(
+            err.is_err(),
+            "camelCase layerId must be rejected: the enum variant field is snake_case layer_id",
+        );
+    }
+
+    // -- N>=3-step undo/redo restores the EXACT layer-set (photrez-counter residual 3) --
+    // Applies a multi-step forward sequence then walks Undo xN / Redo xN and
+    // asserts the EXACT layer-set (resource_id/opacity/transform/name) is
+    // restored field-by-field at every step - proving the sequence restore is
+    // exact under structural sharing, not just a 1-step happy path.
+    #[test]
+    fn multi_step_undo_redo_restores_exact_field_state() {
+        let mut eng = ProtocolEngine::new();
+        let mut checkpoints: Vec<Vec<RenderLayer>> = Vec::new();
+
+        eng.apply(env(Command::AddLayer {
+            name: "base".into(),
+        }))
+        .unwrap();
+        checkpoints.push(eng.snapshot().layers);
+        eng.apply(env(Command::AddLayer {
+            name: "flip".into(),
+        }))
+        .unwrap();
+        checkpoints.push(eng.snapshot().layers);
+
+        let base_id = checkpoints[0][0].id.clone();
+        let base_res = checkpoints[0][0].resource_id;
+        let flip_id = checkpoints[1][1].id.clone();
+        let flip_res = checkpoints[1][1].resource_id;
+        let base_name = checkpoints[0][0].name.clone();
+        let flip_name = checkpoints[1][1].name.clone();
+
+        eng.apply(env(Command::TransformLayer {
+            id: base_id.clone(),
+            transform: TransformPatch {
+                x: 10.0,
+                y: 5.0,
+                scale_x: 2.0,
+                scale_y: 3.0,
+                rotation: 45.0,
+            },
+        }))
+        .unwrap();
+        checkpoints.push(eng.snapshot().layers); // S3
+
+        eng.apply(env(Command::SetOpacity {
+            id: flip_id.clone(),
+            opacity: 0.25,
+        }))
+        .unwrap();
+        checkpoints.push(eng.snapshot().layers); // S4
+
+        eng.apply(env(Command::DeleteLayer {
+            id: flip_id.clone(),
+        }))
+        .unwrap();
+        checkpoints.push(eng.snapshot().layers); // S5 (tip)
+
+        // Forward tip is field-exact: transformed "base" survives, "flip" gone.
+        assert_eq!(checkpoints.len(), 5);
+        assert_eq!(eng.cursor(), 5);
+        let tip = &checkpoints[4];
+        assert_eq!(tip.len(), 1);
+        assert_eq!(tip[0].id, base_id);
+        assert_eq!(tip[0].name, base_name);
+        assert_eq!(tip[0].resource_id, base_res);
+        assert_eq!(tip[0].x, 10.0);
+        assert_eq!(tip[0].scale_y, 3.0);
+        assert_eq!(tip[0].rotation, 45.0);
+        assert_eq!(tip[0].opacity, 1.0);
+
+        // Undo x5 walks back through every forward state, restoring the EXACT
+        // layer-set (all fields) at each step, ending at the empty start state.
+        for k in (0..5).rev() {
+            eng.apply(env(Command::Undo)).unwrap();
+            let cur = eng.snapshot().layers;
+            let expected: Vec<RenderLayer> = if k == 0 {
+                Vec::new()
+            } else {
+                checkpoints[k - 1].clone()
+            };
+            assert_eq!(
+                cur,
+                expected,
+                "undo step from S{} must restore the exact layer-set of S{}",
+                k + 1,
+                k,
+            );
+        }
+        assert_eq!(eng.snapshot().layers.len(), 0);
+        assert_eq!(eng.cursor(), 0);
+
+        // Redo x5 walks forward, re-materializing the exact field state again.
+        for k in 0..5 {
+            eng.apply(env(Command::Redo)).unwrap();
+            let cur = eng.snapshot().layers;
+            assert_eq!(
+                cur,
+                checkpoints[k],
+                "redo step to S{} must restore the exact layer-set",
+                k + 1,
+            );
+        }
+        assert_eq!(eng.cursor(), 5);
+        // At the redo tip (S5 = deleteLayer) only transformed "base" survives -
+        // flip was deleted by step 5, so field-exact identity of BOTH layers is
+        // verified at the intermediate redo checkpoints (S1..S4) above rather
+        // than at the tip.
+        assert_eq!(eng.snapshot().layers.len(), 1);
+        assert_eq!(eng.snapshot().layers[0].resource_id, base_res);
+        assert_eq!(eng.snapshot().layers[0].name, base_name);
+        assert_eq!(eng.snapshot().layers[0].x, 10.0);
+        assert_eq!(eng.snapshot().layers[0].opacity, 1.0);
+        // flip_res / flip_name / flip opacity 0.25 were each restored exactly at
+        // the S2/S3/S4 redo checkpoints (compare against checkpoints[k]) - the
+        // redo loop above asserts Vec<RenderLayer> equality for every step.
+        assert_eq!(flip_res, checkpoints[1][1].resource_id);
+        assert_eq!(flip_name, checkpoints[1][1].name);
+        assert_eq!(checkpoints[3][1].opacity, 0.25);
     }
 }
 

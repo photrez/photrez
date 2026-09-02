@@ -4,6 +4,7 @@
 import type {
   CommandEnvelope,
   CommandResult,
+  RenderLayer,
   RenderSnapshot,
   HistoryQueryResult,
 } from "./types";
@@ -71,7 +72,7 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
   else if (c.type === "deleteLayer") rustCmd = { type: "deleteLayer", id: c.id };
   else if (c.type === "transformLayer") rustCmd = { type: "transformLayer", id: c.id, transform: c.transform };
   else if (c.type === "setOpacity") rustCmd = { type: "setOpacity", id: c.id, opacity: c.opacity };
-  else if (c.type === "brushStroke") rustCmd = { type: "brushStroke", layerId: c.layerId, points: c.points, settings: c.settings };
+  else if (c.type === "brushStroke") rustCmd = { type: "brushStroke", layer_id: c.layerId, points: c.points, settings: c.settings };
   else if (c.type === "undo") rustCmd = { type: "undo" };
   else if (c.type === "redo") rustCmd = { type: "redo" };
   else if (c.type === "recordExternalTransition")
@@ -117,6 +118,54 @@ const emuAdapters = new Set<string>();
 // rejects with E_EXTERNAL_PENDING until the matching cursor commit lands.
 let emuPendingExternal: { seq: number; direction: "undo" | "redo" } | null = null;
 
+// TS-side stand-ins for the Rust `estimate_*` constants. The per-layer struct
+// base in Rust is `size_of::<RenderLayer>()` (not knowable in TS), so this is a
+// stable approximation that keeps the emulator on the SAME SEMANTICS as the
+// engine (unique layer count + per-layer byte estimate + set buffers) rather
+// than the stale JSON-serialize double-count.
+//
+// CONTRACT NOTE (photrez-counter residual 2): the COUNT SEMANTICS are the
+// contract (each UNIQUE layer object/reference counted exactly once across
+// before/after), NOT the byte VALUE. These byte figures are documented
+// approximations - they are NOT byte-equal to Rust's `estimate_native_entry_cost`
+// (which uses `size_of::<RenderLayer>()` for the per-layer base). A test
+// (`bridgeEmuCost.test.ts`) pins the unique-count semantics so a regression that
+// re-introduces a deep-copy before+after double-count is caught.
+const EMU_PER_LAYER_BASE_BYTES = 128;
+const EMU_PER_LAYER_SLACK_BYTES = 64;
+const EMU_ARC_PTR_BYTES = 8; // size_of::<Arc<T>>() on a 64-bit target
+
+function estimateEmuLayerBytes(l: RenderLayer): number {
+  return EMU_PER_LAYER_BASE_BYTES + l.id.length + l.name.length + EMU_PER_LAYER_SLACK_BYTES;
+}
+
+// Mirrors Rust `estimate_native_entry_cost`: counts UNIQUE layer objects across
+// before/after (unchanged layers are the SAME object reference, so they count
+// once - the before+after double-count is gone), times a cheap per-layer byte
+// estimate, plus the two set buffers. No serde / no JSON.stringify.
+export function estimateEmuNativeBytes(before: RenderSnapshot["layers"], after: RenderSnapshot["layers"]): number {
+  const seen = new Set<RenderLayer>();
+  let layerBytes = 0;
+  let uniqueCount = 0;
+  for (const l of before) {
+    if (!seen.has(l)) {
+      seen.add(l);
+      uniqueCount += 1;
+      layerBytes += estimateEmuLayerBytes(l);
+    }
+  }
+  for (const l of after) {
+    if (!seen.has(l)) {
+      seen.add(l);
+      uniqueCount += 1;
+      layerBytes += estimateEmuLayerBytes(l);
+    }
+  }
+  const ptrSlots = uniqueCount * 2 * EMU_ARC_PTR_BYTES;
+  const wrappers = 2 * EMU_ARC_PTR_BYTES;
+  return layerBytes + ptrSlots + wrappers;
+}
+
 function beginEmu(label: string, affected: string[]): number {
   emuEntries = emuEntries.slice(0, emuCursor);
   const seq = emuNextSeq++;
@@ -127,7 +176,7 @@ function finishEmu(idx: number): void {
   const e = emuEntries[idx];
   if (e) {
     e.after = [...emuLayers];
-    e.bytes = JSON.stringify(e.before).length + JSON.stringify(e.after).length;
+    e.bytes = estimateEmuNativeBytes(e.before, e.after);
   }
   emuCursor = emuEntries.length;
 }

@@ -1,4 +1,4 @@
-// Phase E wiring proof — the facade protocol is Rust-backed AFTER the wasm loads.
+// Structural-sharing wiring proof: the facade protocol is Rust-backed AFTER the wasm loads.
 //
 // getWasmExportModule() wires the bridge to the REAL Rust engine:
 //   wasmExport.ts (getWasmExportModule) -> setProtocolWasm(mod)
@@ -60,7 +60,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("facade is Rust-backed once wasm loads (Phase E wiring)", () => {
+describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", () => {
   it("getWasmExportModule() wired bridge.applyCommand to the REAL Rust engine", () => {
     // Fresh engine: the wired bridge applies through the wasm boundary.
     const res = bridge.applyCommand({
@@ -136,5 +136,44 @@ describe("facade is Rust-backed once wasm loads (Phase E wiring)", () => {
     };
     expect(redo.documentVersion).toBeGreaterThan(undo.documentVersion);
     expect(bridge.getSnapshot().layers.length).toBe(2);
+  });
+
+  it("wired bridge brushStroke uses the snake_case layer_id wire field (serde contract)", () => {
+    // DISCRIMINATOR for the wire-format bug: `#[serde(rename_all="camelCase", tag="type")]`
+    // on the Rust `Command` enum renames the VARIANT only, NOT the struct-variant
+    // fields - so `BrushStroke` expects layer_id (snake_case). The pre-fix sender
+    // emitted `layerId`, which the real Rust engine rejects with
+    // E_ENVELOPE_PARSE (missing field `layer_id`). After the bridge.ts sender fix
+    // (`layer_id`), this must NOT throw and must apply end-to-end.
+    const add = bridge.applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      command: { type: "addLayer", name: "stroke" },
+    }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
+    const id = add.delta.changes[0].layer.id;
+
+    const res = bridge.applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      command: {
+        type: "brushStroke",
+        layerId: id, // production command shape (editorFacade.commitStroke)
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 10, pressure: 0.8 },
+        ],
+        settings: { size: 20, hardness: 0.5, opacity: 1, flow: 1 },
+      },
+    }) as unknown as {
+      documentVersion: number;
+      delta: { changes: Array<{ kind: string; layer: { id: string; dirtyRect?: { width: number } } }> };
+    };
+
+    // NOT throwing is the discriminator - bridge.toRustEnvelope emitted `layer_id`
+    // and the real Rust engine accepted it (wasm boundary, real serde JSON in/out).
+    expect(res.documentVersion).toBeGreaterThan(0);
+    const upsert = res.delta.changes.find((c) => c.kind === "upsert");
+    expect(upsert?.layer.id).toBe(id);
+    expect(upsert?.layer.dirtyRect?.width ?? 0).toBeGreaterThanOrEqual(30);
+    // The real engine snapshot holds exactly the stroked layer.
+    expect(bridge.getSnapshot().layers.length).toBe(1);
   });
 });
