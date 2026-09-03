@@ -22,7 +22,7 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 
 // Facade readiness: photrez.facade=1 opacity tests must run against the REAL
 // Rust engine.
-let wasmModule: { protocol_reset: () => void } | null = null;
+let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
   const m = await getWasmExportModule();
@@ -34,7 +34,7 @@ afterEach(() => {
   localStorage.removeItem("photrez.facade");
   clearOpacityPreview();
   __resetFacadeRegistryForTests();
-  wasmModule?.protocol_reset();
+  wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
 });
 

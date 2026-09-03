@@ -20,8 +20,8 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 
 // Facade readiness: photrez.facade=1 lifecycle tests must run against the REAL
 // Rust engine (the facade is Rust-backed under the flag). Arm the bridge once
-// via the production loader and reset the module-lifetime engine between tests.
-let wasmModule: { protocol_reset: () => void } | null = null;
+// via the production loader and reset the reserved per-document engine between tests.
+let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
   const m = await getWasmExportModule();
@@ -32,7 +32,7 @@ beforeEach(() => localStorage.setItem("photrez.facade", "1"));
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
-  wasmModule?.protocol_reset();
+  wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
 });
 

@@ -31,7 +31,7 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 // facade layer through EditorFacade.addLayer/deleteLayer, which must run on the
 // REAL Rust engine (never silently emulate). Arm the bridge once and reset
 // between tests.
-let wasmModule: { protocol_reset: () => void } | null = null;
+let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
   const m = await getWasmExportModule();
@@ -131,7 +131,7 @@ function snapOf(ids: string[]): RenderSnapshot {
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
-  wasmModule?.protocol_reset();
+  wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
 });
 

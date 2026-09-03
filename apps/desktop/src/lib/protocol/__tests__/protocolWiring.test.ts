@@ -71,13 +71,13 @@ describe("protocol wiring — with wasm (when available)", () => {
       return; // wasm not built in this env — JS emulation already proved the contract
     }
     const mod = wasm as {
-      protocol_apply_command: (s: string) => string;
+      protocol_apply_command: (s: string, docId: string) => string;
       protocol_contract_version: () => number;
     };
     if (typeof mod.protocol_contract_version !== "function") return;
     expect(mod.protocol_contract_version()).toBe(CONTRACT_VERSION);
     const env = JSON.stringify({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "wasm-check" } });
-    const out = JSON.parse(mod.protocol_apply_command(env)) as { documentVersion: number; delta: { baseVersion: number; version: number } };
+    const out = JSON.parse(mod.protocol_apply_command(env, "default")) as { documentVersion: number; delta: { baseVersion: number; version: number } };
     expect(out.delta.version).toBeGreaterThan(out.delta.baseVersion);
   });
 });

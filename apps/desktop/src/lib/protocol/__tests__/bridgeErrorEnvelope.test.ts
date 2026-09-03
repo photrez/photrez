@@ -28,8 +28,11 @@ afterEach(() => {
 function makeWasm(applyImpl: (json: string) => string) {
   return {
     protocol_contract_version: () => CONTRACT_VERSION,
-    protocol_apply_command: applyImpl,
-    protocol_snapshot_json: () => JSON.stringify({ version: 0, layers: [] }),
+    // 2-arg wrapper so the stale-pkg arity guard in setProtocolWasm does not
+    // treat this error-boundary fixture as a stale shared-engine pkg (the real
+    // per-document engine exports a 2-arg protocol_apply_command(json, docId)).
+    protocol_apply_command: (json: string, _docId: string) => applyImpl(json),
+    protocol_snapshot_json: (_docId: string) => JSON.stringify({ version: 0, layers: [] }),
   };
 }
 

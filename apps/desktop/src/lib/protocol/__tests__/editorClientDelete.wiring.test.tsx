@@ -34,7 +34,7 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 // Facade readiness: photrez.facade=1 routing tests run against the REAL Rust
 // engine. Arm the bridge once via the production loader and reset the
 // module-lifetime engine between tests.
-let wasmModule: { protocol_reset: () => void } | null = null;
+let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
   const m = await getWasmExportModule();
@@ -166,7 +166,7 @@ beforeEach(() => {
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
-  wasmModule?.protocol_reset();
+  wasmModule?.protocol_reset("default");
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
 });

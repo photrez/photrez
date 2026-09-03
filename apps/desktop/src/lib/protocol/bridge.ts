@@ -13,17 +13,41 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 
 type WasmProtocol = {
   protocol_contract_version: () => number;
-  protocol_apply_command: (json: string) => string;
-  protocol_snapshot_json: () => string;
+  protocol_apply_command: (json: string, docId: string) => string;
+  protocol_snapshot_json: (docId: string) => string;
+  protocol_reset?: (docId: string) => void;
   // ADR 0008 H0 exports (optional so an older pkg degrades to emulation):
-  protocol_register_payload_adapter?: (id: string) => void;
-  protocol_history_query_json?: () => string;
-  protocol_history_cursor_commit?: (json: string) => string;
+  protocol_register_payload_adapter?: (id: string, docId: string) => void;
+  protocol_history_query_json?: (docId: string) => string;
+  protocol_history_cursor_commit?: (json: string, docId: string) => string;
 };
 
 let wasm: WasmProtocol | null = null;
 
 export function setProtocolWasm(mod: WasmProtocol): void {
+  // Stale-pkg arity guard (document-scoped engine): the per-document protocol
+  // requires a 2-arg protocol_apply_command(json, docId). An older shared-engine
+  // pkg exports a 1-arg wrapper and JS silently drops the extra docId, so per-doc
+  // isolation would collapse into a single "default" engine while every test
+  // stayed green - the "green-but-wrong" anti-pattern this guard stops.
+  //
+  // HONEST SCOPE: this guard throws at arm time, so a DIRECT setProtocolWasm call
+  // with a stale pkg fails the suite loudly (the direct test path). In the
+  // PRODUCTION path the pkg is armed through wasmExport.ts getWasmExportModule(),
+  // whose catch-all downgrades any arm-time throw (including this one) to
+  // console.warn + null. So the real E_STALE_WASM cause lands only in a console
+  // line; the user-visible symptom for a stale pkg under photrez.facade=1 is
+  // E_FACADE_NOT_READY (ensureFacadeReady sees wasm===null), and under flag OFF
+  // it is silent TS emulation. The guard is therefore suite-focused (it also
+  // fails the real-wasm tests via their not.toBeNull / length>=2 guards) and
+  // documents the stale-pkg class at arm time. (CONTRACT_VERSION is deliberately
+  // NOT bumped: this arity probe is the guard, so a stale pkg fails HERE rather
+  // than in every later assertion.)
+  if (mod && typeof mod.protocol_apply_command === "function" && mod.protocol_apply_command.length < 2) {
+    throw new Error(
+      "E_STALE_WASM: protocol_apply_command takes 1 arg -- this wasm pkg predates document-scoped engine routing; rebuild the wasm pkg",
+    );
+  }
   wasm = mod;
 }
 
@@ -83,6 +107,7 @@ export function applyCommand(envelope: CommandEnvelope): CommandResult {
   }
   const rustEnvelope = toRustEnvelope(envelope);
   const json = JSON.stringify(rustEnvelope);
+  const docId = envelope.docId ?? "default";
   if (!wasm) {
     // Under photrez.facade=1 the facade must be Rust-backed — never
     // silently emulate a facade command while the wasm is unarmed (that
@@ -91,10 +116,10 @@ export function applyCommand(envelope: CommandEnvelope): CommandResult {
     if (isFacadeEnabled()) {
       throw facadeReadinessError();
     }
-    return emulateApply(envelope);
+    return emulateApply(envelope, docId);
   }
   try {
-    const outJson = wasm.protocol_apply_command(json);
+    const outJson = wasm.protocol_apply_command(json, docId);
     const parsed = JSON.parse(outJson) as CommandResult;
     return parsed;
   } catch (e) {
@@ -108,9 +133,9 @@ export function applyCommand(envelope: CommandEnvelope): CommandResult {
   }
 }
 
-export function getSnapshot(): RenderSnapshot {
+export function getSnapshot(docId = "default"): RenderSnapshot {
   if (!wasm) return { version: 0, layers: [] };
-  const j = wasm.protocol_snapshot_json();
+  const j = wasm.protocol_snapshot_json(docId);
   return JSON.parse(j) as RenderSnapshot;
 }
 
@@ -232,13 +257,20 @@ function finishEmu(idx: number): void {
   emuCursor = emuEntries.length;
 }
 
-export function registerPayloadAdapter(adapterId: string): void {
-  if (wasm?.protocol_register_payload_adapter) wasm.protocol_register_payload_adapter(adapterId);
+// Per-document adapter registration. The engine owns its adapters, so a fresh
+// per-document engine must be registered before its first external transition.
+// Register unconditionally before EVERY record: Rust `register_adapter` is
+// idempotent (protocol.rs) and the emulator `emuAdapters` is a Set, so a
+// redundant call is free. There is deliberately NO dedup Set here -- a dedup Set
+// would skip re-registration after a per-doc engine is reset (adapter gone) and
+// cause a permanent E_UNKNOWN_ADAPTER -> historyDegraded.
+export function registerPayloadAdapter(adapterId: string, docId = "default"): void {
+  if (wasm?.protocol_register_payload_adapter) wasm.protocol_register_payload_adapter(adapterId, docId);
   else if (adapterId !== "native") emuAdapters.add(adapterId);
 }
 
-export function getHistoryQuery(): HistoryQueryResult {
-  if (wasm?.protocol_history_query_json) return JSON.parse(wasm.protocol_history_query_json()) as HistoryQueryResult;
+export function getHistoryQuery(docId = "default"): HistoryQueryResult {
+  if (wasm?.protocol_history_query_json) return JSON.parse(wasm.protocol_history_query_json(docId)) as HistoryQueryResult;
   return {
     cursor: emuCursor,
     lastSeq: emuEntries.length ? emuEntries[emuEntries.length - 1].seq : 0,
@@ -258,9 +290,9 @@ export function getHistoryQuery(): HistoryQueryResult {
   };
 }
 
-export function historyCursorCommit(seq: number, direction: "undo" | "redo"): CommandResult {
+export function historyCursorCommit(seq: number, direction: "undo" | "redo", docId = "default"): CommandResult {
   if (wasm?.protocol_history_cursor_commit) {
-    return JSON.parse(wasm.protocol_history_cursor_commit(JSON.stringify({ seq, direction }))) as CommandResult;
+    return JSON.parse(wasm.protocol_history_cursor_commit(JSON.stringify({ seq, direction }), docId)) as CommandResult;
   }
   const pendingMatches = emuPendingExternal?.seq === seq && emuPendingExternal.direction === direction;
   const ok = direction === "undo" ? emuCursor === seq : emuCursor + 1 === seq;
@@ -278,6 +310,13 @@ export function historyCursorCommit(seq: number, direction: "undo" | "redo"): Co
     status: "external-confirmed",
     externalSeq: seq,
   };
+}
+
+// Resets the per-document engine backing one doc id (no-op when the wasm is
+// unarmed). Used by the registry reset so engine state does not leak across
+// tests that use real doc ids (e.g. getFacade("doc-a")).
+export function resetWasmDoc(docId = "default"): void {
+  if (wasm?.protocol_reset) wasm.protocol_reset(docId);
 }
 
 export function __resetEmulatedForTests(): void {
@@ -303,7 +342,7 @@ function diffEmu(old: RenderSnapshot["layers"], next: RenderSnapshot["layers"]):
   return changes;
 }
 
-function emulateApply(env: CommandEnvelope): CommandResult {
+function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
   if (env.expectedVersion !== undefined && env.expectedVersion !== emuVersion) {
     throw new Error(`E_VERSION_MISMATCH: expected version ${env.expectedVersion} got ${emuVersion}`);
   }

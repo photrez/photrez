@@ -81,6 +81,9 @@ export type CommandEnvelope = {
   contractVersion: number;
   expectedVersion?: DocumentVersion;
   command: Command;
+  /** Document-scoped engine routing (per-document isolation). Absent routes to
+   *  the reserved "default" engine (legacy / non-facade path). */
+  docId?: string;
 };
 
 export type CommandResult = {

@@ -7,8 +7,8 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 // Facade readiness: photrez.facade=1 tests must run against the REAL Rust
 // engine (the facade is Rust-backed under the flag). Arm the bridge once via
 // the production loader (getWasmExportModule -> setProtocolWasm) and reset the
-// module-lifetime engine between tests so state/version do not leak across cases.
-let wasmModule: { protocol_reset: () => void } | null = null;
+// reserved per-document engine between tests so state/version do not leak across cases.
+let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
   const m = await getWasmExportModule();
@@ -18,13 +18,13 @@ beforeAll(async () => {
 describe("Gate A — facade isolation", () => {
   beforeEach(() => {
     __resetEmulatedForTests();
-    wasmModule?.protocol_reset();
+    wasmModule?.protocol_reset("default");
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
     localStorage.clear();
   });
   afterEach(() => {
     localStorage.clear();
-    wasmModule?.protocol_reset();
+    wasmModule?.protocol_reset("default");
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   });
 

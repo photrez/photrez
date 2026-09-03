@@ -30,12 +30,12 @@ import { __resetEmulatedForTests } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "../types";
 
 type WasmModule = {
-  protocol_apply_command: (json: string) => string;
-  protocol_snapshot_json: () => string;
-  protocol_reset: () => void;
+  protocol_apply_command: (json: string, docId: string) => string;
+  protocol_snapshot_json: (docId: string) => string;
+  protocol_reset: (docId: string) => void;
 };
 
-// The REAL wasm module (module-lifetime ENGINE), loaded + wired by the
+// The REAL wasm module (per-document engine map), loaded + wired by the
 // production `getWasmExportModule()` path. We capture it once in beforeAll and
 // NEVER call `setProtocolWasm` ourselves — so the only thing that can arm the
 // bridge is the production wiring we are trying to prove.
@@ -51,12 +51,11 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
-  // Keep the bridge WIRED across tests (beforeAll armed it once). The shared
-  // Rust ENGINE (module-lifetime global) is reset so tests don't leak state;
-  // the TS emulator globals are cleared defensively too (though unused while
-  // wired).
+  // Keep the bridge WIRED across tests (beforeAll armed it once). The reserved
+  // "default" per-document engine is reset so tests don't leak state; the TS
+  // emulator globals are cleared defensively too (though unused while wired).
   __resetEmulatedForTests();
-  wasmModule?.protocol_reset();
+  wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
 });
 

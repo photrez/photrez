@@ -22,7 +22,7 @@ export class EditorFacade {
   lastHistoryDeltaWasEmpty = false;
   private nextSeq = 1;
 
-  constructor(initial?: RenderSnapshot) {
+  constructor(initial?: RenderSnapshot, readonly docId = "default") {
     if (initial) {
       this.snapshot = initial;
       this.renderedVersion = initial.version;
@@ -55,14 +55,14 @@ export class EditorFacade {
   }
 
   addLayer(name: string): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, command: { type: "addLayer", name } });
+    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "addLayer", name } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) this.refreshSnapshot();
     return this.snapshot;
   }
 
   deleteLayer(id: string): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, command: { type: "deleteLayer", id } });
+    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "deleteLayer", id } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) this.refreshSnapshot();
     return this.snapshot;
@@ -82,6 +82,7 @@ export class EditorFacade {
     const res = applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: this.renderedVersion,
+      docId: this.docId,
       command: { type: "transformLayer", id, transform: live },
     });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
@@ -93,7 +94,7 @@ export class EditorFacade {
   transientTransformActive(): boolean { return this.transientTransform !== null; }
 
   setOpacity(id: string, opacity: number): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, command: { type: "setOpacity", id, opacity } });
+    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setOpacity", id, opacity } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) this.refreshSnapshot();
     return this.snapshot;
@@ -114,6 +115,7 @@ export class EditorFacade {
     const res = applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: this.renderedVersion,
+      docId: this.docId,
       command: { type: "brushStroke", layerId, points, settings },
     });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
@@ -123,7 +125,7 @@ export class EditorFacade {
   cancelStroke(): void { this.transientStroke = null; }
 
   undo(): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, command: { type: "undo" } });
+    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "undo" } });
     // Ticket 2.2 mixed-history routing: Rust Undo on an empty stack is a NO-OP
     // success (empty delta, version still bumps). Callers must treat this flag
     // as "Rust had nothing" and fall through to the legacy TS history store.
@@ -133,7 +135,7 @@ export class EditorFacade {
     return this.snapshot;
   }
   redo(): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, command: { type: "redo" } });
+    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "redo" } });
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) this.refreshSnapshot();
@@ -141,7 +143,7 @@ export class EditorFacade {
   }
 
   private refreshSnapshot(): void {
-    try { const snap = getSnapshot(); this.applySnapshot(snap); } catch {}
+    try { const snap = getSnapshot(this.docId); this.applySnapshot(snap); } catch {}
   }
 
   // ADR 0008 C2: external records advance the authoritative DocumentVersion

@@ -18,6 +18,8 @@ import {
   getHistoryQuery,
   historyCursorCommit,
   isFacadeEnabled,
+  registerPayloadAdapter,
+  resetWasmDoc,
 } from "./bridge";
 import { CONTRACT_VERSION } from "./types";
 export { isFacadeEnabled };
@@ -113,7 +115,7 @@ const facadeByDoc = new Map<string, EditorFacade>();
 export function getFacade(docId: string): EditorFacade {
   let f = facadeByDoc.get(docId);
   if (!f) {
-    f = new EditorFacade();
+    f = new EditorFacade(undefined, docId);
     facadeByDoc.set(docId, f);
   }
   return f;
@@ -254,9 +256,15 @@ export function recordExternalTransitionFor(
   const marker: Marker = { kind: "pendingRecord", token, label: rec.label };
   pendingMarkers.push(marker); // detection marker BEFORE the record call (ADR)
   try {
+    // Per-document engine owns its adapters, so register "ts-external" on this
+    // doc's engine before every external transition. Rust `register_adapter` is
+    // idempotent (protocol.rs) and the emulator Set dedupes, so this is a free
+    // unconditional call that is safe even after a per-doc engine reset.
+    registerPayloadAdapter("ts-external", docId);
     const res = applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: undefined, // mirrors may land after facade ops; engine DV is authority
+      docId,
       command: {
         type: "recordExternalTransition",
         label: rec.label,
@@ -291,7 +299,7 @@ export function confirmExternalCursor(
   const marker: Marker = { kind: "pendingConfirm", seq, direction };
   pendingMarkers.push(marker);
   try {
-    const res = historyCursorCommit(seq, direction);
+    const res = historyCursorCommit(seq, direction, docId);
     pendingMarkers = pendingMarkers.filter((m) => m !== marker);
     syncAuthoritativeVersion(docId, res.documentVersion);
     return { ok: true };
@@ -308,7 +316,7 @@ export function getHistoryProjection(docId: string): HistoryQueryResult & {
   degradeReason?: string;
   unrecordedTokens: string[];
 } {
-  const q = getHistoryQuery();
+  const q = getHistoryQuery(docId);
   const deg = historyDegraded();
   return {
     ...q,
@@ -360,6 +368,9 @@ export function installFacadeCommitShim(providers: {
 }
 
 export function __resetFacadeRegistryForTests(): void {
+  // Reset the per-document wasm engine for each doc id this registry created,
+  // so engine state does not leak across tests using real doc ids.
+  for (const docId of facadeByDoc.keys()) resetWasmDoc(docId);
   facadeByDoc.clear();
   resetFacadeBridgeForTests();
   clearTransformPreview();

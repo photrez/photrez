@@ -24,15 +24,15 @@ export async function getWasmExportModule(): Promise<any> {
         // acceptance criterion — see docs/AI_CURRENT_TASK.md FLAG-ON WASM-WIRING
         // READINESS checklist.
         if (typeof mod.protocol_apply_command === "function") {
-          const { setProtocolWasm, registerPayloadAdapter } = await import("@/lib/protocol/bridge");
+          const { setProtocolWasm } = await import("@/lib/protocol/bridge");
           setProtocolWasm(mod);
-          // The Rust `record_external` rejects an unregistered adapter with
-          // E_UNKNOWN_ADAPTER. Registering "ts-external" after the wasm loads
-          // lets recordExternalTransitionFor (facadeRegistry) record legacy TS
-          // transitions into the canonical Rust stream when photrez.facade=1.
-          // Rust register_adapter is idempotent, so re-registration on reload is
-          // harmless.
-          registerPayloadAdapter("ts-external");
+          // The "ts-external" payload adapter is NOT pre-registered here. With a
+          // document-scoped engine each document owns its adapters, so the
+          // canonical registration point is recordExternalTransitionFor
+          // (facadeRegistry): it registers "ts-external" on the target document's
+          // engine immediately before recording. Registering on "default" here
+          // would be redundant for every path AND would not cover a non-default
+          // document engine.
         }
         return mod;
       } catch (err) {

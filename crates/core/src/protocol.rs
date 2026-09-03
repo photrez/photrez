@@ -1403,9 +1403,25 @@ impl ProtocolEngine {
     }
 }
 
-// ── wasm bridge — single shared ENGINE (module lifetime, survives location.reload() until WASM re-instantiated) ──
+// ── wasm bridge — per-document engines (module lifetime, survives location.reload() until WASM re-instantiated) ──
+// Each document id owns its own ProtocolEngine so multi-document sessions are
+// fully isolated: per-doc documentVersion, per-doc layer set, per-doc history.
+// A reserved "default" key routes every caller that does not supply a document
+// id (legacy / non-facade path) to a single shared engine — byte-identical to
+// the previous module-global engine for those callers.
 thread_local! {
-    static ENGINE: std::cell::RefCell<ProtocolEngine> = std::cell::RefCell::new(ProtocolEngine::new());
+    static ENGINES: std::cell::RefCell<std::collections::HashMap<String, ProtocolEngine>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+// Normalizes a document id: empty/absent maps to the reserved "default" key so
+// callers that do not thread a document id keep the shared-engine behavior.
+fn resolve_doc_key(doc_id: &str) -> &str {
+    if doc_id.is_empty() {
+        "default"
+    } else {
+        doc_id
+    }
 }
 
 #[wasm_bindgen]
@@ -1414,21 +1430,27 @@ pub fn protocol_contract_version() -> u32 {
 }
 
 #[wasm_bindgen]
-pub fn protocol_version() -> DocumentVersion {
-    ENGINE.with(|cell| cell.borrow().version())
+pub fn protocol_version(doc_id: &str) -> DocumentVersion {
+    let key = resolve_doc_key(doc_id).to_string();
+    ENGINES.with(|m| m.borrow().get(&key).map(|e| e.version()).unwrap_or(0))
 }
 
 #[wasm_bindgen]
-pub fn protocol_reset() {
-    ENGINE.with(|cell| *cell.borrow_mut() = ProtocolEngine::new());
+pub fn protocol_reset(doc_id: &str) {
+    let key = resolve_doc_key(doc_id).to_string();
+    ENGINES.with(|m| {
+        m.borrow_mut().insert(key, ProtocolEngine::new());
+    });
 }
 
 #[wasm_bindgen]
-pub fn protocol_apply_command(envelope_json: &str) -> Result<String, JsValue> {
+pub fn protocol_apply_command(envelope_json: &str, doc_id: &str) -> Result<String, JsValue> {
     let env: CommandEnvelope = serde_json::from_str(envelope_json)
         .map_err(|e| JsValue::from_str(&format!("E_ENVELOPE_PARSE: {}", e)))?;
-    ENGINE.with(|cell| {
-        let mut eng = cell.borrow_mut();
+    let key = resolve_doc_key(doc_id).to_string();
+    ENGINES.with(|m| {
+        let mut map = m.borrow_mut();
+        let eng = map.entry(key).or_default();
         eng.apply(env)
             .map(|r| serde_json::to_string(&r).unwrap())
             .map_err(|e| JsValue::from_str(&serde_json::to_string(&e).unwrap()))
@@ -1436,23 +1458,52 @@ pub fn protocol_apply_command(envelope_json: &str) -> Result<String, JsValue> {
 }
 
 #[wasm_bindgen]
-pub fn protocol_snapshot_json() -> String {
-    ENGINE.with(|cell| serde_json::to_string(&cell.borrow().snapshot()).unwrap())
+pub fn protocol_snapshot_json(doc_id: &str) -> String {
+    let key = resolve_doc_key(doc_id).to_string();
+    let snap = ENGINES.with(|m| {
+        m.borrow()
+            .get(&key)
+            .map(|e| e.snapshot())
+            .unwrap_or(RenderSnapshot {
+                version: 0,
+                layers: Vec::new(),
+            })
+    });
+    serde_json::to_string(&snap).unwrap()
 }
 
 // ── H0: history stream exports ─────────────────────────────────
 #[wasm_bindgen]
-pub fn protocol_register_payload_adapter(adapter_id: &str) {
-    ENGINE.with(|cell| cell.borrow_mut().register_adapter(adapter_id));
+pub fn protocol_register_payload_adapter(adapter_id: &str, doc_id: &str) {
+    let key = resolve_doc_key(doc_id).to_string();
+    ENGINES.with(|m| {
+        m.borrow_mut()
+            .entry(key)
+            .or_default()
+            .register_adapter(adapter_id);
+    });
 }
 
 #[wasm_bindgen]
-pub fn protocol_history_query_json() -> String {
-    ENGINE.with(|cell| serde_json::to_string(&cell.borrow().history_query()).unwrap())
+pub fn protocol_history_query_json(doc_id: &str) -> String {
+    let key = resolve_doc_key(doc_id).to_string();
+    let q = ENGINES.with(|m| {
+        m.borrow()
+            .get(&key)
+            .map(|e| e.history_query())
+            .unwrap_or(HistoryQuery {
+                cursor: 0,
+                last_seq: 0,
+                degraded_hint: false,
+                pending_external: None,
+                entries: Vec::new(),
+            })
+    });
+    serde_json::to_string(&q).unwrap()
 }
 
 #[wasm_bindgen]
-pub fn protocol_history_cursor_commit(json: &str) -> Result<String, JsValue> {
+pub fn protocol_history_cursor_commit(json: &str, doc_id: &str) -> Result<String, JsValue> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Req {
@@ -1461,9 +1512,11 @@ pub fn protocol_history_cursor_commit(json: &str) -> Result<String, JsValue> {
     }
     let req: Req = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("E_ENVELOPE_PARSE: {}", e)))?;
-    ENGINE.with(|cell| {
-        cell.borrow_mut()
-            .history_cursor_commit(req.seq, &req.direction)
+    let key = resolve_doc_key(doc_id).to_string();
+    ENGINES.with(|m| {
+        let mut map = m.borrow_mut();
+        let eng = map.entry(key).or_default();
+        eng.history_cursor_commit(req.seq, &req.direction)
             .map(|r| serde_json::to_string(&r).unwrap())
             .map_err(|e| JsValue::from_str(&serde_json::to_string(&e).unwrap()))
     })
