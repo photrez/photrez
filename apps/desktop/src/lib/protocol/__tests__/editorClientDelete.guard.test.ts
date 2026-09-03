@@ -1,4 +1,4 @@
-// Phase E pilot — EditorClient.deleteLayer guard semantics.
+// EditorClient.deleteLayer guard semantics (facade delete pilot).
 //
 // These tests drive EditorClient with a FAKE facade + engine + routing (no DOM,
 // no localStorage) to prove the command/projection split and the ghost-layer
@@ -25,6 +25,18 @@ import {
   seedFacadeFromEngine,
   __resetFacadeRegistryForTests,
 } from "../facadeRegistry";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
+
+// Facade readiness: the leak-cleanup test sets photrez.facade=1 and drives the
+// facade layer through EditorFacade.addLayer/deleteLayer, which must run on the
+// REAL Rust engine (never silently emulate). Arm the bridge once and reset
+// between tests.
+let wasmModule: { protocol_reset: () => void } | null = null;
+
+beforeAll(async () => {
+  const m = await getWasmExportModule();
+  wasmModule = m;
+});
 
 // Minimal OffscreenCanvas stub so PaintTileSurface can exist under test
 // (mirrors the stub in src/engine/__tests__/paintSurface.test.ts).
@@ -119,6 +131,7 @@ function snapOf(ids: string[]): RenderSnapshot {
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
+  wasmModule?.protocol_reset();
   vi.restoreAllMocks();
 });
 

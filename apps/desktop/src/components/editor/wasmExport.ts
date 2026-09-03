@@ -22,7 +22,7 @@ export async function getWasmExportModule(): Promise<any> {
         // we return null) the bridge falls back to TS emulation. The load-order
         // robustness (wasm ready before the first facade command) is a FLAG-ON
         // acceptance criterion — see docs/AI_CURRENT_TASK.md FLAG-ON WASM-WIRING
-        // READINESS checklist (A1).
+        // READINESS checklist.
         if (typeof mod.protocol_apply_command === "function") {
           const { setProtocolWasm, registerPayloadAdapter } = await import("@/lib/protocol/bridge");
           setProtocolWasm(mod);

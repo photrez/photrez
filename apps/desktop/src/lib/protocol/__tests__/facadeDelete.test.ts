@@ -7,7 +7,7 @@
 //   -> applyFacadeSnapshot projection -> renderer-visible model update;
 //   undo/redo walk the H0 stream; no dangling facade-ownership markers.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
 import { DocumentEngine, hasFacadeOwnedLayers, isFacadeOwnedLayer } from "@/engine/document";
 import * as bridge from "@/lib/protocol/bridge";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
@@ -16,11 +16,23 @@ import {
   getFacade,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
+
+// Facade readiness: photrez.facade=1 lifecycle tests must run against the REAL
+// Rust engine (the facade is Rust-backed under the flag). Arm the bridge once
+// via the production loader and reset the module-lifetime engine between tests.
+let wasmModule: { protocol_reset: () => void } | null = null;
+
+beforeAll(async () => {
+  const m = await getWasmExportModule();
+  wasmModule = m;
+});
 
 beforeEach(() => localStorage.setItem("photrez.facade", "1"));
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
+  wasmModule?.protocol_reset();
   vi.restoreAllMocks();
 });
 

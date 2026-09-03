@@ -1,6 +1,10 @@
 // ADR 0008 H0 — history stream infrastructure tests.
 //
-// Covers the 12 required behaviors:
+// These tests exercise the BRIDGE'S TS EMULATOR, i.e. the flag-OFF legacy
+// stream path. Under photrez.facade=1 the facade is Rust-backed and the bridge
+// refuses to silently emulate (E_FACADE_NOT_READY, see the facade-readiness
+// tests), so these stream semantics are pinned against the emulator (the
+// non-facade authority). Covers the 12 required behaviors:
 //  1 native append            (query shape: seq/origin/label)
 //  2 external append          (adapter validation + token payloadRef)
 //  3 seq uniqueness           (monotonic across truncation)
@@ -12,7 +16,7 @@
 //  9 stale expectedVersion rejection on the stream path
 // 10 UNRECORDED_EXTERNAL_TRANSITION detection
 // 11 history-degraded state surfacing in projection
-// 12 facade-off legacy path unchanged (shim inert, zero registry activity)
+// 12 legacy (flag-OFF) path unchanged (shim inert, zero registry activity)
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as bridge from "@/lib/protocol/bridge";
@@ -29,7 +33,11 @@ import {
 import { CommandHistory } from "@/engine/history";
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
+  // The TS emulator is the flag-OFF (legacy) path. These tests exercise
+  // the bridge's H0 stream semantics on the emulator, so run them with the
+  // facade flag OFF. Under flag ON the bridge would require the wasm engine to
+  // be armed (E_FACADE_NOT_READY) and never silently emulate.
+  localStorage.removeItem("photrez.facade");
   bridge.registerPayloadAdapter("ts-external");
 });
 afterEach(() => {

@@ -27,11 +27,22 @@
 //   This is TRANSITIONAL, not the final history architecture. Documented in
 //   AI_HISTORY; single-owner stacks remain fully linear (second test).
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
 import { DocumentEngine, hasFacadeOwnedLayers } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
 import { seedFacadeFromEngine, __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
+
+// Facade readiness: photrez.facade=1 mixed-history tests must run against the
+// REAL Rust engine. Arm the bridge once via the production loader and reset the
+// module-lifetime engine between tests.
+let wasmModule: { protocol_reset: () => void } | null = null;
+
+beforeAll(async () => {
+  const m = await getWasmExportModule();
+  wasmModule = m;
+});
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
@@ -39,6 +50,7 @@ beforeEach(() => {
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
+  wasmModule?.protocol_reset();
 });
 
 // Production routing, replicated verbatim from useEditorCommands (the hook

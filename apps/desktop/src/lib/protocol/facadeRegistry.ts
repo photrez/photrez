@@ -17,8 +17,10 @@ import {
   applyCommand,
   getHistoryQuery,
   historyCursorCommit,
+  isFacadeEnabled,
 } from "./bridge";
 import { CONTRACT_VERSION } from "./types";
+export { isFacadeEnabled };
 
 // ── ADR 0008/Opacity: transient render previews ──────────────────────────
 // Pure merge applied to the OUTGOING RenderState in EditorShell's scheduler.
@@ -115,14 +117,6 @@ export function getFacade(docId: string): EditorFacade {
     facadeByDoc.set(docId, f);
   }
   return f;
-}
-
-export function isFacadeEnabled(): boolean {
-  try {
-    return typeof localStorage !== "undefined" && localStorage.getItem("photrez.facade") === "1";
-  } catch {
-    return false;
-  }
 }
 
 // ── Transient drag preview ────────────────────────────────────────────────

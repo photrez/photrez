@@ -1,4 +1,4 @@
-// Phase E pilot — Delete Layer EditorClient wiring + parity oracle.
+// Delete Layer EditorClient wiring + parity oracle (facade delete pilot).
 //
 // Wiring tests drive the REAL handler (handleDeleteActiveLayer) via a real
 // WorkspaceManager + EditorProvider (the same production funnel the Delete
@@ -29,6 +29,17 @@ import { getFacade, seedFacadeFromEngine, __resetFacadeRegistryForTests } from "
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import * as bridge from "@/lib/protocol/bridge";
 import { showToast } from "@/components/editor/Toast";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
+
+// Facade readiness: photrez.facade=1 routing tests run against the REAL Rust
+// engine. Arm the bridge once via the production loader and reset the
+// module-lifetime engine between tests.
+let wasmModule: { protocol_reset: () => void } | null = null;
+
+beforeAll(async () => {
+  const m = await getWasmExportModule();
+  wasmModule = m;
+});
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -155,6 +166,7 @@ beforeEach(() => {
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
+  wasmModule?.protocol_reset();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
 });

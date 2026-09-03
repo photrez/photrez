@@ -4,7 +4,7 @@
 // empty selection; undo/redo via H0 stream; expectedVersion mandatory;
 // ZERO IPC during transient preview ticks; legacy path unchanged.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
 import { DocumentEngine, hasFacadeOwnedLayers, isFacadeOwnedLayer } from "@/engine/document";
 import * as bridge from "@/lib/protocol/bridge";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
@@ -18,12 +18,23 @@ import {
   applyFacadePreviews,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
+
+// Facade readiness: photrez.facade=1 opacity tests must run against the REAL
+// Rust engine.
+let wasmModule: { protocol_reset: () => void } | null = null;
+
+beforeAll(async () => {
+  const m = await getWasmExportModule();
+  wasmModule = m;
+});
 
 beforeEach(() => localStorage.setItem("photrez.facade", "1"));
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   clearOpacityPreview();
   __resetFacadeRegistryForTests();
+  wasmModule?.protocol_reset();
   vi.restoreAllMocks();
 });
 

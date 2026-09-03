@@ -38,7 +38,8 @@ import { destroySaveWorkerPool } from "../saveWorkerPool";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { prewarmFonts } from "@/lib/fontEnumeration";
 import { useTauriCloseHandler } from "@/lib/desktop/useTauriCloseHandler";
-import { transformPreview, applyFacadePreviews, installFacadeCommitShim } from "@/lib/protocol/facadeRegistry";
+import { transformPreview, applyFacadePreviews, installFacadeCommitShim, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { ensureFacadeReady } from "@/lib/protocol/bridge";
 import { useDialog } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession } from "../transformSession";
 // dev bench helper — window.__benchRealEngine() (no UI, no prod cost)
@@ -127,6 +128,16 @@ export function EditorShell() {
     getEngine: () => workspace.getActiveEngine() as never,
     getDocId: () => (workspace.getActiveEngine() as unknown as { getId(): string } | null)?.getId() ?? "default",
   });
+  // Facade readiness: when photrez.facade=1 the facade must be Rust-backed.
+  // Arm the wasm protocol engine at boot so the first facade command never runs
+  // on the TS emulator before the real Rust engine is wired. Fire-and-forget
+  // (idempotent). If the wasm fails to arm, applyCommand throws
+  // E_FACADE_NOT_READY rather than silently emulating a facade command.
+  if (isFacadeEnabled()) {
+    void ensureFacadeReady().catch(() => {
+      /* fail-closed: applyCommand surfaces E_FACADE_NOT_READY */
+    });
+  }
   // Feature-flag signal owned by this component instance (not module scope):
   // the RenderScheduler callback below reads it via closure, and it is passed
   // into EditorProvider so the context value stays in sync.

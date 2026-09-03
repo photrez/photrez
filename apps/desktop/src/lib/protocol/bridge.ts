@@ -9,6 +9,7 @@ import type {
   HistoryQueryResult,
 } from "./types";
 import { CONTRACT_VERSION } from "./types";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
 
 type WasmProtocol = {
   protocol_contract_version: () => number;
@@ -26,6 +27,49 @@ export function setProtocolWasm(mod: WasmProtocol): void {
   wasm = mod;
 }
 
+// ── Facade readiness (load-order safety) ─────────────────────────────────
+// When photrez.facade=1 the facade MUST be Rust-backed. Before the wasm is
+// armed (setProtocolWasm) a facade command must NOT silently fall through to
+// the TS emulator — the emulator starts at version 0 and is discarded once the
+// real engine arms, so an emu->Rust straddle diverges state/version (there is
+// no atomic reconciliation). The gate below makes that divergence LOUD under
+// flag ON, and only under flag ON. Flag OFF (default) keeps the emulator as the
+// legacy authority path, byte-identical to before.
+const FACADE_NOT_READY = "E_FACADE_NOT_READY";
+
+// Single source of truth for the facade flag. Reads localStorage directly (not
+// via facadeRegistry) to avoid a bridge->facadeRegistry import cycle; facade
+// registry re-exports this so existing consumers are unchanged.
+export function isFacadeEnabled(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("photrez.facade") === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function isFacadeArmed(): boolean {
+  return wasm !== null;
+}
+
+export function facadeReadinessError(): Error {
+  return new Error(
+    `${FACADE_NOT_READY}: facade protocol is enabled (photrez.facade=1) but the wasm engine is not armed yet; wait for ensureFacadeReady()`,
+  );
+}
+
+// Awaits the production wasm loader (which arms the bridge via setProtocolWasm
+// on resolve) and returns the armed module, or throws E_FACADE_NOT_READY if the
+// wasm fails to arm. Idempotent: once armed it returns immediately. Callers
+// should await this at app boot (flag ON) so no facade command runs before the
+// real Rust engine is wired.
+export async function ensureFacadeReady(): Promise<WasmProtocol> {
+  if (wasm) return wasm;
+  await getWasmExportModule();
+  if (!wasm) throw facadeReadinessError();
+  return wasm;
+}
+
 export function getContractVersion(): number {
   if (wasm) return wasm.protocol_contract_version();
   return CONTRACT_VERSION;
@@ -40,6 +84,13 @@ export function applyCommand(envelope: CommandEnvelope): CommandResult {
   const rustEnvelope = toRustEnvelope(envelope);
   const json = JSON.stringify(rustEnvelope);
   if (!wasm) {
+    // Under photrez.facade=1 the facade must be Rust-backed — never
+    // silently emulate a facade command while the wasm is unarmed (that
+    // emu->Rust straddle diverges state/version). Under flag OFF (default)
+    // the emulator is the legacy authority and behaves exactly as before.
+    if (isFacadeEnabled()) {
+      throw facadeReadinessError();
+    }
     return emulateApply(envelope);
   }
   try {
