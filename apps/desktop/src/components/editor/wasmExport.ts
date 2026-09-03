@@ -24,8 +24,15 @@ export async function getWasmExportModule(): Promise<any> {
         // acceptance criterion — see docs/AI_CURRENT_TASK.md FLAG-ON WASM-WIRING
         // READINESS checklist (A1).
         if (typeof mod.protocol_apply_command === "function") {
-          const { setProtocolWasm } = await import("@/lib/protocol/bridge");
+          const { setProtocolWasm, registerPayloadAdapter } = await import("@/lib/protocol/bridge");
           setProtocolWasm(mod);
+          // The Rust `record_external` rejects an unregistered adapter with
+          // E_UNKNOWN_ADAPTER. Registering "ts-external" after the wasm loads
+          // lets recordExternalTransitionFor (facadeRegistry) record legacy TS
+          // transitions into the canonical Rust stream when photrez.facade=1.
+          // Rust register_adapter is idempotent, so re-registration on reload is
+          // harmless.
+          registerPayloadAdapter("ts-external");
         }
         return mod;
       } catch (err) {
