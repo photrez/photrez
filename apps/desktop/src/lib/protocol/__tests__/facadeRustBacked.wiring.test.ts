@@ -86,7 +86,7 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     expect(upsert.layer.resourceId).toBeGreaterThanOrEqual(1);
   });
 
-  it("wired bridge deleteLayer returns the Rust Remove delta shape (kind + id)", () => {
+  it("wired bridge deleteLayer returns the Rust Remove delta shape (kind + id + resourceId)", () => {
     const add = bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "A" },
@@ -105,14 +105,15 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     const rm = del.delta.changes.find((c) => c.kind === "remove");
     expect(rm?.kind).toBe("remove");
     expect(rm?.id).toBe(id);
+    // PIN (outbound Remove wire key): the Rust `Remove` struct-variant of
+    // RenderLayerChange carries `resourceId` (camelCase) via the
+    // `#[serde(rename_all="camelCase")]` on the variant. These assertions FAIL
+    // if that serde attr is removed (serde would emit snake_case
+    // `resource_id`). This is the outbound mirror of the inbound snake_case
+    // `layer_id` pin in the brush-stroke test below.
+    expect(rm?.resourceId).toBeGreaterThanOrEqual(1);
+    expect(rm).not.toHaveProperty("resource_id");
     expect(del.delta.version).toBe(del.documentVersion);
-    // NOTE (honest contract finding): the SHIPPED wasm's `remove` delta is
-    // {kind,id} only — it does NOT carry resourceId (the TS RenderLayerChange
-    // type + the emulator do). This discriminating test (getSnapshot below)
-    // would have hidden that if it had continued to assert resourceId like the
-    // old tautological test. The resource_id field is present in crates/core
-    // source; the shipped wasm binary appears to predate it. Re-check the
-    // resourceId contract after a `bun run build:wasm` rebuild.
     // Discriminator: the real engine snapshot dropped the layer.
     expect(bridge.getSnapshot().layers.length).toBe(0);
   });

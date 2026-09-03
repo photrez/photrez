@@ -40,15 +40,25 @@ import {
 // Locate the .wasm on disk by walking up from cwd. Do NOT derive from
 // import.meta.url: in the component-jsdom project modules are served via
 // http://localhost, so fileURLToPath(new URL(...)) throws ERR_INVALID_URL_SCHEME.
+//
+// Staleness guard: ONLY the apps/desktop wasm pkg is authoritative for the
+// test suite. A repo-root src/wasm/pkg can exist and be STALE (a build
+// artifact from before the last Rust change), so never fall back to it —
+// silently loading a stale binary would let tests pass against an old wire
+// contract. Anchor the search to apps/desktop/src/wasm/pkg and walk up from
+// cwd to reach the repo root (vitest runs with cwd = apps/desktop).
 function findWasmPath(): string {
   let dir = process.cwd();
-  for (let i = 0; i < 5; i++) {
-    const candidate = resolve(dir, "src/wasm/pkg/photrez_core_bg.wasm");
+  for (let i = 0; i < 8; i++) {
+    const candidate = resolve(
+      dir,
+      "apps/desktop/src/wasm/pkg/photrez_core_bg.wasm",
+    );
     if (fs.existsSync(candidate)) return candidate;
     dir = dirname(dir);
   }
   throw new Error(
-    "photrez_core_bg.wasm not found — run `bun run build:wasm` first",
+    "apps/desktop/src/wasm/pkg/photrez_core_bg.wasm not found — run `bun run build:wasm` first",
   );
 }
 const bytes = fs.readFileSync(findWasmPath());

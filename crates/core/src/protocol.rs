@@ -110,10 +110,16 @@ impl LayerSet {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum RenderLayerChange {
-    Upsert { layer: RenderLayer },
+    Upsert {
+        layer: RenderLayer,
+    },
     // DeleteLayer: carries resourceId so a future Resource
     // Registry can drive lifecycle (release/retain) WITHOUT re-owning pixels.
-    Remove { id: String, resource_id: ResourceId },
+    #[serde(rename_all = "camelCase")]
+    Remove {
+        id: String,
+        resource_id: ResourceId,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
