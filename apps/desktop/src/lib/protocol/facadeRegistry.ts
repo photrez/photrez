@@ -337,29 +337,72 @@ export function installFacadeCommitShim(providers: {
   shimInstalled = true;
   const proto = CommandHistory.prototype as unknown as {
     commit: (snap: unknown, label?: string) => void;
+    recordSnapshotHistory: (
+      before: unknown,
+      after: unknown,
+      label?: string,
+    ) => void;
   };
-  const original = proto.commit;
+
+  const originalCommit = proto.commit;
   // Forward ALL arguments — callers may pass a third `imperative` payload
   // (HistoryTilePatches) that the tile-memento undo/redo model requires.
   proto.commit = function (this: unknown, ...args: unknown[]) {
     const [snap, label] = args as [unknown, string | undefined];
-    (original as unknown as (...callArgs: unknown[]) => void).apply(this, args);
+    (originalCommit as unknown as (...callArgs: unknown[]) => void).apply(this, args);
     // Feature gate + zero-cost when OFF:
     if (!isFacadeEnabled()) return;
     try {
       const engine = providers.getEngine();
       if (!engine) return;
+      // conservative superset — intentionally NOT filtered (H0); do not
+      // "optimize" this into an empty set for deletes.
       const affected: string[] = [];
-      const preIds = new Set(
-        ((snap as { layers?: Array<{ id: string }> })?.layers ?? []).map((l) => l.id),
-      );
       for (const l of engine.getLayers()) {
-        if (!preIds.has(l.id) || preIds.has(l.id)) affected.push(l.id); // H0: conservative superset
+        affected.push(l.id);
       }
-      recordExternalTransitionFor(providers.getDocId() || engine.getId(), {
+      // Same docId as the external-cursor handoff (facadeHistoryHandoff) so both
+      // seams address one engine; engine.getId() is that shared expression.
+      recordExternalTransitionFor(engine.getId(), {
         label: label ?? "Legacy Edit",
         affectedLayerIds: affected,
         snapshot: snap,
+      });
+    } catch {
+      // never let instrumentation break the legacy caller
+    }
+  };
+
+  const originalSnapshot = proto.recordSnapshotHistory;
+  // Mirror the single-Delete legacy branch into the WASM engine via the SAME
+  // External path the commit wrapper uses (reused, no new command/method).
+  // A non-owned layer is never in the WASM layer set, so a metadata-only
+  // External marker keeps cursor/ordering unified without a native entry.
+  // Forward ALL args (before/after/label): the undo-point is the PRE-action
+  // `before` state, and that is exactly what the External marker carries. The
+  // commit wrapper does the same — it records the commit's pre-action argument,
+  // not any derived post-state. Both mirrored payloads are the same undo point.
+  proto.recordSnapshotHistory = function (this: unknown, ...args: unknown[]) {
+    const [before, after, label] = args as [unknown, unknown, string | undefined];
+    (originalSnapshot as unknown as (...callArgs: unknown[]) => void).apply(this, args);
+    // Feature gate + zero-cost when OFF:
+    if (!isFacadeEnabled()) return;
+    try {
+      const engine = providers.getEngine();
+      if (!engine) return;
+      // conservative superset — intentionally NOT filtered (H0); do not
+      // "optimize" this into an empty set for deletes.
+      const affected: string[] = [];
+      for (const l of engine.getLayers()) {
+        affected.push(l.id);
+      }
+      // Route the mirror to the SAME engine the external-cursor handoff
+      // (facadeHistoryHandoff) reads/walks: the active engine's id. Both seams
+      // use engine.getId() so they address one engine.
+      recordExternalTransitionFor(engine.getId(), {
+        label: label ?? "Legacy Edit",
+        affectedLayerIds: affected,
+        snapshot: before,
       });
     } catch {
       // never let instrumentation break the legacy caller
