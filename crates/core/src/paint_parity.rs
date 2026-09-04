@@ -294,6 +294,112 @@ mod tests {
         }
     }
 
+    /// Soft round stamp (diameter `size`) — a solid disk of stamp color so the
+    /// raster inner loop does the full `size*size` work per dab (a shrinking
+    /// tip would short-circuit via `txx >= iw || tyy >= ih` and under-report).
+    fn soft_tip(buf: &mut TipBuf, size: usize) -> ParityTip<'_> {
+        buf.data = vec![0u8; size * size * 4];
+        let r = size as f64 / 2.0;
+        for y in 0..size {
+            for x in 0..size {
+                let dx = x as f64 + 0.5 - r;
+                let dy = y as f64 + 0.5 - r;
+                let d = (dx * dx + dy * dy).sqrt();
+                let a = if d <= r { 255u8 } else { 0u8 };
+                let i = (y * size + x) * 4;
+                buf.data[i..i + 4].copy_from_slice(&[225, 90, 23, a]);
+            }
+        }
+        ParityTip {
+            width: size,
+            height: size,
+            data: &buf.data,
+        }
+    }
+
+    /// Perf baseline for Rust dab-semantics commit cost. `#[ignore]`d so normal
+    /// `cargo test` is unaffected. Run with:
+    ///   cargo test -p photrez-core --release raster_shadow_bench -- --ignored --nocapture
+    /// Measures the canonical-commit path (base=Some: composite onto existing
+    /// pixels, so prep is skipped). `raster_us`/`patchgen_us` are self-reported
+    /// by ShadowMeta; wall includes the base Vec clone (allocation overhead).
+    #[test]
+    #[ignore]
+    fn raster_shadow_bench_scale() {
+        let w = 1024usize;
+        let h = 1024usize;
+        let base: Vec<u8> = (0..(w * h * 4))
+            .map(|i| if i % 4 == 3 { 255u8 } else { 120u8 })
+            .collect();
+        let brushes: [f64; 4] = [32.0, 64.0, 128.0, 256.0];
+        let dab_counts: [usize; 4] = [4, 16, 32, 64];
+        let mean = |v: &[u128]| v.iter().sum::<u128>() / v.len() as u128;
+        println!("\nraster_shadow baseline (canonical commit: base=Some, 1024x1024)");
+        println!("brush  dabs   raster_us  patchgen_us  wall_us   p50_rast  p95_rast");
+        for brush in brushes {
+            let bs = brush as usize;
+            let mut tb = TipBuf { data: Vec::new() };
+            let tip = soft_tip(&mut tb, bs);
+            for &ncnt in &dab_counts {
+                let dabs: Vec<ParityDab> = (0..ncnt)
+                    .map(|i| {
+                        let t = i as f64 / (ncnt.max(1) as f64);
+                        ParityDab {
+                            x: 100.0 + t * (w as f64 - 200.0),
+                            y: 512.0,
+                            alpha: 0.75,
+                        }
+                    })
+                    .collect();
+                // warmup
+                let _ = raster_shadow(
+                    w,
+                    h,
+                    true,
+                    Some(base.clone()),
+                    false,
+                    brush,
+                    &dabs,
+                    &tip,
+                    false,
+                );
+                let mut rast = Vec::with_capacity(12);
+                let mut patch = Vec::with_capacity(12);
+                let mut wall = Vec::with_capacity(12);
+                for _ in 0..12 {
+                    let s = std::time::Instant::now();
+                    let (meta, _) = raster_shadow(
+                        w,
+                        h,
+                        true,
+                        Some(base.clone()),
+                        false,
+                        brush,
+                        &dabs,
+                        &tip,
+                        false,
+                    );
+                    wall.push(s.elapsed().as_micros());
+                    rast.push(meta.raster_us);
+                    patch.push(meta.patchgen_us);
+                }
+                rast.sort();
+                patch.sort();
+                wall.sort();
+                println!(
+                    "{:>5} {:<6} {:>10} {:>12} {:>9} {:>9} {:>9}",
+                    bs,
+                    ncnt,
+                    mean(&rast),
+                    mean(&patch),
+                    mean(&wall),
+                    rast[rast.len() / 2],
+                    rast[(rast.len() * 95 / 100).min(rast.len() - 1)]
+                );
+            }
+        }
+    }
+
     #[test]
     fn determinism_same_inputs_same_digest() {
         let mut tb = TipBuf { data: Vec::new() };
