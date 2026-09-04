@@ -1,6 +1,7 @@
 import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
-import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers, mergeSelectedLayers, duplicateMultipleLayers, deleteMultipleLayers } from "../../layers/layerOperations";
+import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers, mergeSelectedLayers, duplicateMultipleLayers } from "../../layers/layerOperations";
+import { commitFacadeOpacity } from "@/lib/protocol/facadeRegistry";
 import { showToast } from "../../Toast";
 import type { KeyboardShortcutContext } from "./context";
 
@@ -144,16 +145,13 @@ export function handleLayerOpsKey(
   }
 
   // Layer: Ctrl+Shift+N - Add new layer
+  // Routes through the migrated add funnel (handleAddLayer), which mirrors the
+  // panel/menu path: flag ON -> seedFacadeFromEngine -> facade.addLayer ->
+  // applyFacadeSnapshot; flag OFF -> byte-identical legacy TS addLayer.
   if (ctrl && e.shiftKey && key === "n") {
     e.preventDefault();
     e.stopPropagation();
-    history.commit(engine.snapshot(), "New Layer");
-    try {
-      engine.addLayer(`Layer ${engine.getLayers().length + 1}`);
-      scheduler.requestRender();
-    } catch (err) {
-      showToast(`Cannot add layer: ${(err as Error).message}`, "error");
-    }
+    ctx.layerActions.handleAddLayer();
     return true;
   }
 
@@ -244,42 +242,44 @@ export function handleLayerOpsKey(
   }
 
   // Layer: Delete / Backspace - Delete active layer(s)
-  // (Selection tool handles this earlier when in selection mode.)
+  // Routes through the shared delete funnel (handleDeleteActiveLayer), which
+  // mirrors the panel/menu Delete path: flag ON + facade-owned -> facade delete
+  // (EditorClient) projected into the engine; flag OFF / non-owned -> the same
+  // legacy TS delete the panel uses. (Selection-tool delete is handled earlier.)
+  //
+  // NOTE - routing the keyboard through this funnel is NOT byte-identical to the
+  // old keyboard-only delete on the flag-OFF shipped path. The four deltas vs
+  // the previous keyboard handler are deliberate consistency improvements that
+  // align keyboard DELETE with the panel Delete:
+  //   (a) history entry now uses recordSnapshotHistory (snapshotType "snapshot")
+  //       instead of history.commit - equivalent TS undo/redo; under the history
+  //       bridge gate the Rust record switches from record_external to
+  //       record_snapshot (the default-OFF path is unaffected).
+  //   (b) one extra engine.snapshot() per delete (before + after capture).
+  //   (c) guard order: deleting the Background in a 1-layer doc now shows the
+  //       "Cannot delete the Background layer" toast where the old keyboard path
+  //       was silent - this makes keyboard DELETE consistent with PANEL delete.
+  //   (d) active-layer source is now the activeLayerId() signal (single source of
+  //       truth) rather than engine.getActiveLayerId().
+  //   (e) the funnel calls cancelActiveTransformSession() first on Delete
+  //       (reachable from keyboard since Delete is not in the transform-guard
+  //       block list) - this matches the panel Delete path.
+  //   (f) the text-session cancel now runs before delete (single + multi). The
+  //       old keyboard path could delete a layer mid-text-session and leave a
+  //       dangling session that Escape could resurrect; the funnel cancels it
+  //       first, matching the panel Delete path.
   if (e.key === "Delete" || e.key === "Backspace") {
     e.preventDefault();
     e.stopPropagation();
-    const activeId = engine.getActiveLayerId();
-    const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
-
-    if (multiIds.length > 1) {
-      if (deleteMultipleLayers(engine, history, renderer, multiIds)) {
-        const nextActive = engine.getActiveLayerId();
-        editor.setSelectedLayerId(nextActive);
-        scheduler.requestRender();
-      }
-      return true;
-    }
-
-    if (!activeId) {
-      showToast("No layer selected", "warn");
-      return true;
-    }
-    if (activeId && engine.getLayers().length > 1) {
-      const layer = engine.getLayer(activeId);
-      if (layer?.isBackground) {
-        showToast("Cannot delete the Background layer", "warn");
-        return true;
-      }
-      history.commit(engine.snapshot(), "Delete Layer");
-      engine.deleteLayer(activeId);
-      renderer.destroyTexture(activeId);
-      scheduler.requestRender();
-    }
+    ctx.layerActions.handleDeleteActiveLayer();
     return true;
   }
 
   // Layer: 0-9 (no modifier) - Set active layer opacity
   // 0 = 100%, 1 = 10%, 2 = 20%, ..., 9 = 90%
+  // Routes through the opacity funnel (commitFacadeOpacity): facade-owned layers
+  // (flag ON) commit via one SetOpacity command + authoritative projection;
+  // otherwise falls through to the byte-identical legacy TS path below.
   if (!ctrl && !e.shiftKey && !e.altKey && e.key.length === 1 && e.key >= "0" && e.key <= "9") {
     const activeId = engine.getActiveLayerId();
     if (activeId) {
@@ -289,7 +289,29 @@ export function handleLayerOpsKey(
         e.stopPropagation();
         const digit = e.key.charCodeAt(0) - 48;
         const opacity = digit === 0 ? 1.0 : digit / 10;
-        if (layer.opacity === opacity) return true;
+        if (layer.opacity === opacity) return true; // no-op guard (matches legacy)
+        try {
+          // Single [activeId]: route is facade (all owned) or legacy (none owned).
+          // mixed-rejected is unreachable for one id, so it is not handled here.
+          const res = commitFacadeOpacity(engine as never, [activeId], opacity);
+          if (res.status === "applied" || res.status === "noop") {
+            scheduler.requestRender();
+            editor.workspace.notifyVisualChange();
+            return true;
+          }
+          // status === "legacy" / "empty": byte-identical legacy TS path.
+        } catch (err) {
+          // A facade-owned opacity commit can throw (Rust Err / version conflict /
+          // facade-not-ready). Match the add/delete funnel error handling: surface a
+          // toast and bail instead of leaving an unhandled rejection.
+          const msg = (err as Error).message;
+          if (msg.includes("E_VERSION_MISMATCH")) {
+            showToast("Version conflict - retrying", "warn");
+          } else {
+            showToast(`Cannot set opacity: ${msg}`, "error");
+          }
+          return true;
+        }
         history.commit(engine.snapshot(), "Layer Opacity");
         engine.setLayerOpacity(activeId, opacity);
         scheduler.requestRender();

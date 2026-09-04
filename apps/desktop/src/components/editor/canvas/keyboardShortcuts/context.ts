@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEditor } from "../../shell/EditorContext";
+import type { useLayerActions } from "../../layers/useLayerActions";
+
+/** Return type of the shared layer-actions hook the panel/menu paths use. */
+export type LayerActions = ReturnType<typeof useLayerActions>;
 
 /**
  * Options for useCanvasKeyboard (extracted so handler modules can type their
@@ -29,4 +33,7 @@ export type EditorAccessors = ReturnType<typeof useEditor>;
 export interface KeyboardShortcutContext {
   editor: EditorAccessors;
   options: CanvasKeyboardOptions;
+  /** Layer action funnels shared with the panel/menu paths (add/delete route
+   *  through these so the facade flag-branch is decided in ONE place). */
+  layerActions: LayerActions;
 }

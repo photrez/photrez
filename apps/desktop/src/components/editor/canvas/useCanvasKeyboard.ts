@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { onMount, onCleanup } from "solid-js";
 import { useEditor } from "../shell/EditorContext";
+import { useLayerActions } from "../layers/useLayerActions";
 import { registerShortcut } from "../keyboardRegistry";
 import type { CanvasKeyboardOptions, KeyboardShortcutContext } from "./keyboardShortcuts/context";
 import { handleLayerFillKey } from "./keyboardShortcuts/layerFill";
@@ -24,7 +25,12 @@ export type { CanvasKeyboardOptions } from "./keyboardShortcuts/context";
  */
 export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
   const editor = useEditor();
-  const ctx: KeyboardShortcutContext = { editor, options };
+  // Same layer-action funnels the panel/menu paths use (handleAddLayer /
+  // handleDeleteActiveLayer). Routing the canvas keyboard shortcuts through
+  // these keeps the facade flag-branch in ONE place instead of re-implemented
+  // in the keyboard path.
+  const layerActions = useLayerActions();
+  const ctx: KeyboardShortcutContext = { editor, options, layerActions };
 
   onMount(() => {
     // ── Register keyboard shortcuts (conflict detection) ──
