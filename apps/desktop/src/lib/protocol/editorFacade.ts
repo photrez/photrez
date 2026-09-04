@@ -20,6 +20,12 @@ export class EditorFacade {
   private pending = new Map<number, DocumentVersion>();
   // Ticket 2.2: set by undo()/redo() — true when Rust had no entry (no-op).
   lastHistoryDeltaWasEmpty = false;
+  // External history handoff (ADR 0008 H0): set by undo()/redo() when the
+  // walker lands on a legacy (external) entry and returns status:"external".
+  // The host must clear the engine's pending-external barrier (via
+  // confirmExternalCursor) before issuing another facade command, or every
+  // subsequent facade command permanently rejects with E_EXTERNAL_PENDING.
+  lastExternalHandoff: { seq: number; direction: "undo" | "redo" } | null = null;
   private nextSeq = 1;
 
   constructor(initial?: RenderSnapshot, readonly docId = "default") {
@@ -125,7 +131,14 @@ export class EditorFacade {
   cancelStroke(): void { this.transientStroke = null; }
 
   undo(): RenderSnapshot {
+    this.lastExternalHandoff = null;
     const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "undo" } });
+    // External history handoff: the walker landed on a legacy (external) entry
+    // and set the engine's pending-external barrier. Surface the handoff so the
+    // production path can clear the barrier via confirmExternalCursor.
+    if (res.status === "external" && res.externalSeq !== undefined) {
+      this.lastExternalHandoff = { seq: res.externalSeq, direction: "undo" };
+    }
     // Ticket 2.2 mixed-history routing: Rust Undo on an empty stack is a NO-OP
     // success (empty delta, version still bumps). Callers must treat this flag
     // as "Rust had nothing" and fall through to the legacy TS history store.
@@ -135,7 +148,11 @@ export class EditorFacade {
     return this.snapshot;
   }
   redo(): RenderSnapshot {
+    this.lastExternalHandoff = null;
     const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "redo" } });
+    if (res.status === "external" && res.externalSeq !== undefined) {
+      this.lastExternalHandoff = { seq: res.externalSeq, direction: "redo" };
+    }
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) this.refreshSnapshot();

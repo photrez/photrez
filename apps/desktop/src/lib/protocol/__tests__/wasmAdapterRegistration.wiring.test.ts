@@ -42,8 +42,11 @@ describe("real-wasm ts-external adapter is registered inline per document", () =
     // "docA4" is a non-default document engine. Without the inline per-document
     // registration this returns ok:false (E_UNKNOWN_ADAPTER caught in
     // facadeRegistry). With it the real engine records the legacy TS transition
-    // and returns ok:true. We deliberately do NOT assert res.seq: the current
-    // shipped wasm binary does not populate externalSeq, a separate concern.
+    // and returns ok:true. The built photrez_core_bg.wasm now populates
+    // externalSeq and exposes protocol_history_cursor_commit, so res.seq is
+    // meaningful; we still avoid asserting it here to keep this test focused on
+    // adapter registration (the externalSeq path is covered by the protocol
+    // tests).
     const res = recordExternalTransitionFor("docA4", {
       label: "Legacy Edit",
       affectedLayerIds: ["bg"],

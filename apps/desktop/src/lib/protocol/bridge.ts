@@ -294,11 +294,14 @@ export function historyCursorCommit(seq: number, direction: "undo" | "redo", doc
   if (wasm?.protocol_history_cursor_commit) {
     return JSON.parse(wasm.protocol_history_cursor_commit(JSON.stringify({ seq, direction }), docId)) as CommandResult;
   }
+  // ADR 0008 C1: HistorySeq (monotonic entry id) != HistoryCursor (position).
+  // On a redo-truncated (non-dense) stream entries[i].seq != i+1, so index
+  // arithmetic (cursor == seq) is wrong. Validation relies on the walker-recorded
+  // barrier (seq, direction) alone, mirroring the Rust predicate in protocol.rs.
   const pendingMatches = emuPendingExternal?.seq === seq && emuPendingExternal.direction === direction;
-  const ok = direction === "undo" ? emuCursor === seq : emuCursor + 1 === seq;
-  if (!ok || !pendingMatches) {
+  if (!pendingMatches) {
     throw new Error(
-      `E_CURSOR_MISMATCH: cursor ${emuCursor} incompatible with seq ${seq} direction ${direction} (pending: ${JSON.stringify(emuPendingExternal)})`,
+      `E_CURSOR_MISMATCH: cursor ${emuCursor} pendingExternal ${JSON.stringify(emuPendingExternal)} incompatible with seq ${seq} direction ${direction}`,
     );
   }
   emuCursor += direction === "undo" ? -1 : 1;

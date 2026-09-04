@@ -20,8 +20,8 @@ import { easeOutCubic } from "@/viewport/easing";
 import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } from "./exportDocument";
 import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss, scheduleSave } from "./saveState";
 import { cancelAutosave } from "./autoSave";
-import { getFacade } from "@/lib/protocol/facadeRegistry";
 import { hasFacadeOwnedLayers } from "@/engine/document";
+import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
 import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
 import { bitmapStoreFor } from "@/engine/bitmapStore";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
@@ -274,22 +274,14 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     // until facade layers are removed. This is not a final history
     // architecture.
     if (hasFacadeOwnedLayers()) {
-      const engine = editor.workspace.getActiveEngine();
-      if (engine) {
-        try {
-          const facade = getFacade(engine.getId());
-          const snap = direction === "undo" ? facade.undo() : facade.redo();
-          if (!facade.lastHistoryDeltaWasEmpty) {
-            engine.applyFacadeSnapshot(snap as never);
-            editor.scheduler.requestRender();
-            editor.workspace.notifyVisualChange();
-            return;
-          }
-          // Rust had nothing — fall through to legacy TS history.
-        } catch {
-          // Rust command rejected — fall through to legacy TS history.
-        }
-      }
+      // Facade (Rust-owned) history handoff. Returns true when this branch fully
+      // handled the step (caller must return); false to fall through to the
+      // legacy TS history store. The branch clears the pending-external barrier
+      // (the wedge) and, for facade-owned layers, does NOT complete the external
+      // step's model restore (engine.restore() throws E_FACADE_OWNED - mixed
+      // history constraint, tracked separately). It must not claim the restore
+      // finished.
+      if (runFacadeExternalHandoff(editor, direction)) return;
     }
 
     try {

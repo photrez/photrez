@@ -612,6 +612,12 @@ impl ProtocolEngine {
         before: Arc<StateNode>,
         after: Arc<StateNode>,
     ) -> u64 {
+        // Barrier (defense-in-depth): no history mutation while a host handoff
+        // (pending_external) is unconfirmed. Unreachable while pending in
+        // production, but the guard makes the invariant locally enforced.
+        if self.pending_external.is_some() {
+            return self.version;
+        }
         self.entries.truncate(self.cursor);
         let seq = self.next_seq;
         self.next_seq += 1;
@@ -650,6 +656,12 @@ impl ProtocolEngine {
     /// StateNode for the resized layer. `next_seq`/`version` are left monotonic
     /// (they never rewind), so no id/version collision.
     pub fn invalidate_layer(&mut self, layer_id: &str) {
+        // Barrier (defense-in-depth): no history mutation while a host handoff
+        // (pending_external) is unconfirmed. Unreachable while pending in
+        // production, but the guard makes the invariant locally enforced.
+        if self.pending_external.is_some() {
+            return;
+        }
         // P0 (B2): a layer resize/invalidate removes pixel entries from ANYWHERE
         // in the shared stream. `cursor` counts APPLIED entries
         // (`entries[0..cursor]`), so any removed entry whose original index was
@@ -813,6 +825,9 @@ impl ProtocolEngine {
         token: &str,
         memory_cost_bytes: u64,
     ) -> Result<(), ProtocolError> {
+        // Barrier: no history mutation while a host handoff (pending_external)
+        // is unconfirmed.
+        self.external_barrier_check()?;
         if adapter_id != "native" && !self.adapters.iter().any(|a| a == adapter_id) {
             return Err(ProtocolError {
                 code: "E_UNKNOWN_ADAPTER".to_string(),
@@ -858,6 +873,9 @@ impl ProtocolEngine {
         before: DocumentSnapshot,
         after: DocumentSnapshot,
     ) -> Result<(), ProtocolError> {
+        // Barrier: no history mutation while a host handoff (pending_external)
+        // is unconfirmed.
+        self.external_barrier_check()?;
         self.entries.truncate(self.cursor);
         let seq = self.next_seq;
         self.next_seq += 1;
@@ -951,8 +969,16 @@ impl ProtocolEngine {
     }
 
     /// Host confirms an EXTERNAL step it executed via its adapter.
-    /// undo: expects cursor == seq (entry just below cursor).
-    /// redo: expects cursor == seq - 1 (entry just above cursor).
+    /// Validates `(seq, direction)` against the pending-external barrier set by
+    /// the walker handoff. ADR 0008 C1 forbids conflating HistorySeq (a monotonic
+    /// entry id) with HistoryCursor (a position), so this uses NO index arithmetic:
+    /// on any redo-truncated (non-dense) stream `entries[i].seq != i+1`, so
+    /// `cursor == seq` is wrong. The cursor provably cannot have moved since the
+    /// walker set the barrier - every cursor-moving path
+    /// (apply_pixel_patch/invalidate_layer/record_external/record_snapshot/
+    /// undo_pixel/redo_pixel/undo_snapshot/redo_snapshot) is barrier-gated - so the recorded
+    /// barrier `(seq, direction)` is authoritative. A genuinely wrong
+    /// `(seq, direction)` fails `pending_matches` and is rejected.
     /// Requires a matching pending_external barrier (set by the walker handoff).
     pub fn history_cursor_commit(
         &mut self,
@@ -963,21 +989,12 @@ impl ProtocolEngine {
             self.pending_external.as_ref(),
             Some((s, d)) if *s == seq && d == direction
         );
-        let ok = match direction {
-            "undo" => self.cursor == seq as usize,
-            "redo" => self.cursor + 1 == seq as usize,
-            _ => false,
-        };
-        if !ok || !pending_matches {
+        if !pending_matches {
             return Err(ProtocolError {
-                code: if self.pending_external.is_some() {
-                    "E_CURSOR_MISMATCH".to_string()
-                } else {
-                    "E_CURSOR_MISMATCH".to_string()
-                },
+                code: "E_CURSOR_MISMATCH".to_string(),
                 message: format!(
-                    "cursor {} incompatible with seq {} direction {} (pending: {:?})",
-                    self.cursor, seq, direction, self.pending_external
+                    "cursor {} pending_external {:?} incompatible with seq {} direction {}",
+                    self.cursor, self.pending_external, seq, direction
                 ),
             });
         }
@@ -2321,6 +2338,84 @@ mod h0_tests {
         // mismatched commit rejected
         let err = eng.history_cursor_commit(5, "undo").unwrap_err();
         assert_eq!(err.code, "E_CURSOR_MISMATCH");
+    }
+
+    #[test]
+    fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
+        // ADR 0008 C1: HistorySeq (monotonic entry id) != HistoryCursor (position).
+        // After a redo-truncation the stream is non-dense (entries[i].seq != i+1).
+        // The old index arithmetic `cursor == seq` evaluated FALSE on such a stream
+        // and retained the pending barrier forever (sticky historyDegraded). The fix
+        // validates only the walker-recorded barrier, so the commit succeeds and the
+        // wedge is cleared. This is the test that would have caught the bug.
+        let mut eng = ProtocolEngine::new();
+        eng.register_adapter("ts-external");
+        // Dense region.
+        eng.apply(env(Command::AddLayer { name: "A".into() }))
+            .unwrap(); // seq 1
+        eng.apply(env(Command::AddLayer { name: "B".into() }))
+            .unwrap(); // seq 2
+        eng.apply(env(Command::Undo)).unwrap(); // cursor=1 (B dropped from redo intent)
+                                                // record_external truncates the redo region (removes seq 2) and appends the
+                                                // next monotonic seq at index 1 -> entries[1].seq == 3 (a GAP).
+        eng.apply(env(Command::RecordExternalTransition {
+            label: "legacy op".into(),
+            affected_layer_ids: vec![],
+            adapter_id: "ts-external".into(),
+            token: "t".into(),
+            memory_cost_bytes: 1,
+        }))
+        .unwrap();
+        let q = eng.history_query();
+        assert_eq!(q.entries.len(), 2);
+        assert_eq!(q.entries[1].seq, 3); // non-dense: position 2 carries seq 3
+
+        // Undo lands on the gapped External entry without moving the cursor.
+        let hand = eng.apply(env(Command::Undo)).unwrap();
+        assert_eq!(hand.status.as_deref(), Some("external"));
+        assert_eq!(hand.external_seq, Some(3));
+        assert_eq!(eng.history_query().cursor, 2); // cursor untouched at handoff
+
+        // Barrier validation (seq, direction) succeeds on the gapped stream.
+        let c = eng.history_cursor_commit(3, "undo").unwrap();
+        assert_eq!(c.document_version, eng.version());
+        assert_eq!(eng.history_query().cursor, 1); // undo from cursor 2 -> cursor 1
+        assert!(eng.pending_external.is_none()); // wedge cleared
+                                                 // A following command is no longer rejected with E_EXTERNAL_PENDING.
+        eng.apply(env(Command::AddLayer { name: "C".into() }))
+            .unwrap();
+    }
+
+    #[test]
+    fn history_cursor_commit_rejects_wrong_seq_on_non_dense_stream() {
+        // Same gapped stream: a wrong seq (or direction) must still be rejected.
+        let mut eng = ProtocolEngine::new();
+        eng.register_adapter("ts-external");
+        eng.apply(env(Command::AddLayer { name: "A".into() }))
+            .unwrap();
+        eng.apply(env(Command::AddLayer { name: "B".into() }))
+            .unwrap();
+        eng.apply(env(Command::Undo)).unwrap();
+        eng.apply(env(Command::RecordExternalTransition {
+            label: "legacy op".into(),
+            affected_layer_ids: vec![],
+            adapter_id: "ts-external".into(),
+            token: "t".into(),
+            memory_cost_bytes: 1,
+        }))
+        .unwrap();
+        let _hand = eng.apply(env(Command::Undo)).unwrap();
+        assert_eq!(eng.history_query().cursor, 2);
+
+        // Wrong seq (the position looks plausible but the id does not match).
+        let e1 = eng.history_cursor_commit(2, "undo").unwrap_err();
+        assert_eq!(e1.code, "E_CURSOR_MISMATCH");
+        assert!(eng.pending_external.is_some()); // barrier retained on failure
+
+        // Wrong direction.
+        let e2 = eng.history_cursor_commit(3, "redo").unwrap_err();
+        assert_eq!(e2.code, "E_CURSOR_MISMATCH");
+        assert!(eng.pending_external.is_some());
     }
 
     #[test]
