@@ -7,13 +7,17 @@ pub mod brush_engine;
 pub mod canonical_tip;
 pub mod document;
 pub mod geometry;
-pub mod history;
 pub mod paint_bench;
 pub mod paint_parity;
 pub mod paint_parity_r15;
 // Rust canonical pixel buffer + delta history (active layer only).
+pub(crate) mod command;
+pub(crate) mod document_core;
+pub(crate) mod history;
+pub(crate) mod model;
 pub mod parallel;
 pub mod pixel_store;
+pub(crate) mod projection;
 pub mod protocol;
 pub mod render_worker;
 pub mod rkyv_bench;
@@ -28,7 +32,9 @@ pub mod webgpu_adjust;
 // `protocol.rs` (Arc<StateNode> pixel history) and `pixel_store.rs` (the
 // canonical packed copy-on-write seam). Their internal logical/parity tests
 // remain `#[cfg(test)]`. The independent-copy `parity_oracle` stays test-only
-// (referenced only by `#[cfg(test)]` helpers).
+// (referenced only by `#[cfg(test)]` helpers). History/command/model/projection
+// types for the protocol engine live in `document_core.rs` / `history.rs` /
+// `command.rs` / `model.rs` / `projection.rs` (the former `protocol.rs`).
 #[cfg(test)]
 mod parity_oracle;
 pub(crate) mod state_node;

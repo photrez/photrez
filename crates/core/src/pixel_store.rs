@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 // Each document owns its authoritative history stream (`ProtocolEngine`). Pixel
 // deltas live in the stream's `Pixel` entries; the `PixelLayer` keeps only the
 // canonical buffer + epoch.
-use crate::protocol::ProtocolEngine;
+use crate::document_core::ProtocolEngine;
 // Bug 1 fix: commit composites the dab onto the EXISTING canonical pixels, so
 // `raster_shadow` needs the base buffer + its dab types.
 use crate::paint_parity::{raster_shadow, ParityDab, ParityTip};

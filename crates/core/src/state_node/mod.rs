@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Production canonical persistent-pixel-ownership data model:
 //! `StateNode -> TileRef -> Arc<[u8]>` (packed, tile-major) + an ARENA index
-//! (Weak, not strong), plus a byte-free `LayerAccess`-style seam (COW) and a
-//! bounded full-snapshot history (before/after `Arc<StateNode>`s, FIFO eviction,
-//! forward truncation).
+//! (Weak, not strong), plus a byte-free `LayerAccess`-style seam (COW).
 //!
 //! PACKED-STORE MODEL: the base/live layer is ONE packed `Arc<[u8]>`
 //! (tile-major, contiguous, edge tiles clipped) — a single allocation, not N
@@ -19,16 +17,16 @@
 //! invalidation releases; I8 per-layer scope (per-layer packed buffer); I9
 //! immutable nodes never edited in place.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
 // `state_node` is now a PRODUCTION module. The independent-copy parity
 // oracle (test-only) is referenced ONLY by the `#[cfg(test)]` helpers below
-// (`to_packed` / `to_row_major` / `real_ptr_map`) — production code keeps zero
+// (`to_packed` / `to_row_major`) — production code keeps zero
 // parity-oracle dependency.
 #[cfg(test)]
-use crate::parity_oracle::{assert_byte_eq, PackedView, PixelReader, ShareOracle};
+use crate::parity_oracle::{assert_byte_eq, PackedView, PixelReader};
 
 /// Canonical tile edge in pixels. Must match the engine value (256).
 pub const TILE: u32 = 256;
@@ -122,25 +120,6 @@ impl TileRef {
         &self.block[self.offset..self.offset + len]
     }
 
-    /// Opaque per-tile identity used to detect whether a tile's byte source
-    /// changed across states. A tile is the (shared packed
-    /// `Arc<[u8]>` data pointer, `offset`) pair: two tiles that share the packed
-    /// buffer differ by `offset`; a fresh COW tile has a unique data pointer.
-    /// Distinct positions must never alias; an untouched position must keep the
-    /// SAME identity across COW.
-    ///
-    /// NOTE: this is a MIXED hash (ptr × offset) for the test-only `ShareOracle`
-    /// — sound in practice but not injective by construction. The production
-    /// touch-detection uses `identity_key()` instead (an exact `(ptr, offset)`
-    /// pair) so there is no collision cliff.
-    #[cfg(test)]
-    pub(crate) fn identity(&self) -> usize {
-        let ptr = self.block.as_ref().as_ptr() as usize;
-        (ptr as u64)
-            .wrapping_mul(0x9E3779B97F4A7C15)
-            .wrapping_add((self.offset as u64).wrapping_mul(0x517CC1B727220A95)) as usize
-    }
-
     /// Exact per-tile identity for the production touch-set: an injective
     /// `(data_ptr, offset)` pair. Two tiles share the same packed `Arc<[u8]>`
     /// subarray iff both the data pointer AND the byte offset are equal — this
@@ -227,19 +206,6 @@ impl Default for Arena {
     }
 }
 
-/// Model-A history entry. Holds the ARCs of its before/after states directly;
-/// dropping the entry releases them (I6 / I7 via Arc, no manual refcount).
-// `seq`/`memory_cost_bytes` are retained per the history model (entry
-// metadata), even though this validation phase doesn't read every field.
-#[allow(dead_code)]
-#[derive(Clone)]
-pub struct HistoryEntry {
-    pub seq: u64,
-    pub before: Arc<StateNode>,
-    pub after: Arc<StateNode>,
-    pub memory_cost_bytes: u64,
-}
-
 /// Byte-free LayerAccess-style seam over the current canonical StateNode.
 /// Owns NO pixel bytes; bytes live in `Arc<[u8]>` (shared packed subarray) via
 /// the current StateNode. The base layer is the ONE packed `Arc<[u8]>`.
@@ -252,16 +218,9 @@ pub struct LayerState {
     /// The layer's permanent anchor state (state[0]); always alive.
     base: Arc<StateNode>,
     /// The STRONG Arc of the live current state, kept in lockstep with
-    /// `current_id`. This is the authoritative "current" regardless of the
-    /// internal `entries`/`cursor` (`cow_batch` advances it without pushing
-    /// a history entry — the caller owns the cursor; `undo`/`redo` re-anchor it).
+    /// `current_id`. `cow_batch` / `set_current` advance it directly (the
+    /// caller owns any cursor / history stream).
     current_arc: Arc<StateNode>,
-    /// FIFO of committed transitions; oldest at front.
-    entries: VecDeque<HistoryEntry>,
-    /// Number of applied (committed) entries; 0 == base is current.
-    cursor: usize,
-    max_entries: usize,
-    next_seq: u64,
 }
 
 /// Build a fully-populated StateNode from row-major bytes (edge tiles clipped).

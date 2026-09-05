@@ -56,16 +56,6 @@ fn bench_packed_tile_store() {
          zero_copy={zero_copy_ok}, total_bytes_scanned={total}"
     );
 
-    // COW per tile: `write_tile_cow` re-tiles one tile into a FRESH block.
-    let meta = StateMeta::new(w, h, 0, 0);
-    let t2 = Instant::now();
-    for tx in 0..8u32 {
-        let buf = vec![(tx + 1) as u8; 256 * 256 * 4];
-        ls.write_tile_cow(tx, 0, &buf, meta.clone());
-    }
-    let cow_ms = t2.elapsed().as_secs_f64() * 1e3;
-    eprintln!("[bench_packed_tile_store] COW 8 tiles (write_tile_cow): {cow_ms:.3} ms");
-
     // COW via `cow_batch`: one 512x512 region re-tiles the tiles it intersects.
     let t3 = Instant::now();
     let region = RegionChange::new(0, 0, 512, 512, vec![7u8; 512 * 512 * 4]);

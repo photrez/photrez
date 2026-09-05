@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// DocumentEngine SSOT — Rust owns layer graph + selection + history (vertical slice: add/select/undo)
+// DocumentEngine SSOT — Rust owns the layer graph + selection (vertical slice: add/select)
 
-use crate::history::History;
 use crate::selection::SelectionState;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -105,7 +104,6 @@ pub struct DocumentModel {
 #[wasm_bindgen]
 pub struct DocumentEngine {
     model: DocumentModel,
-    history: History,
 }
 
 #[wasm_bindgen]
@@ -122,10 +120,7 @@ impl DocumentEngine {
             selection: None,
             dirty: false,
         };
-        Self {
-            model,
-            history: History::new(50),
-        }
+        Self { model }
     }
 
     pub fn add_layer(&mut self, layer_id: String, name: String, width: u32, height: u32) {
@@ -600,36 +595,6 @@ impl DocumentEngine {
         false
     }
 
-    pub fn commit_snapshot(&mut self) {
-        let snap = self.model.clone();
-        self.history.commit(snap);
-    }
-
-    pub fn undo(&mut self) -> bool {
-        let cur = self.model.clone();
-        if let Some(prev) = self.history.undo(cur) {
-            self.model = prev;
-            return true;
-        }
-        false
-    }
-
-    pub fn redo(&mut self) -> bool {
-        let cur = self.model.clone();
-        if let Some(next) = self.history.redo(cur) {
-            self.model = next;
-            return true;
-        }
-        false
-    }
-
-    pub fn has_undo(&self) -> bool {
-        self.history.can_undo()
-    }
-    pub fn has_redo(&self) -> bool {
-        self.history.can_redo()
-    }
-
     pub fn set_selection(
         &mut self,
         x: f64,
@@ -702,19 +667,6 @@ mod tests {
         assert!(e.set_active_layer("l1".into()));
         assert_eq!(e.get_active_layer_id(), Some("l1".into()));
         assert!(!e.set_active_layer("nope".into()));
-    }
-
-    #[test]
-    fn snapshot_undo_redo() {
-        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
-        e.add_layer("l1".into(), "A".into(), 100, 100);
-        e.commit_snapshot();
-        e.add_layer("l2".into(), "B".into(), 100, 100);
-        assert_eq!(e.layer_count(), 2);
-        assert!(e.undo());
-        assert_eq!(e.layer_count(), 1);
-        assert!(e.redo());
-        assert_eq!(e.layer_count(), 2);
     }
 
     #[test]
