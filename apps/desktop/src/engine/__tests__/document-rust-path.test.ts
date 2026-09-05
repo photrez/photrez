@@ -19,6 +19,8 @@ import { DocumentEngine } from "../document";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { DEFAULT_TEXT_DATA } from "../textTypes";
 import { rasterizeText } from "../textRasterizer";
+import { setDeviceMaxTextureSize, MAX_CANVAS_DIM, getEffectiveMaxDim, MAX_LAYERS } from "../types";
+import * as layerOps from "../layerOps";
 
 // jsdom has no OffscreenCanvas; stub it so the engine's composite step produces
 // a non-null bitmap and the merge graph op routes to the Rust mirror (the merge
@@ -78,6 +80,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.removeItem("photrez.facade");
+  // Reset the device-adaptive dimension cap so a test that lowers it does not
+  // leak into siblings (the default is MAX_CANVAS_DIM).
+  setDeviceMaxTextureSize(MAX_CANVAS_DIM);
 });
 
 // Proves the Rust path is actually wired: constructs the TS DocumentEngine with
@@ -185,7 +190,7 @@ it("Rust path: reorder up moves a layer to the top", () => {
   expect(order).toEqual(["Layer 1", "Layer 3", "Layer 2"]);
 });
 
-// Rust-path ORDER assertion: the Background is pinned to the bottom — a reorder
+// Rust-path ORDER assertion: the Background is pinned to the bottom - a reorder
 // that would land a layer beneath it is corrected so the Background stays last.
 it("Rust path: background stays pinned to the bottom after reorder", () => {
   expect(wasmMod?.DocumentEngine).toBeTruthy();
@@ -286,4 +291,89 @@ it("Rust path: text duplicate keeps the 2x raster resolution", () => {
   // Matches what the TS path re-rasters at (2x), so no 1x softening.
   const reRastered = rasterizeText(src.textData!).imageBitmap;
   expect(dup.imageBitmap!.width).toBe(reRastered.width);
+});
+
+// Regression for the hardcoded-dim-cap divergence: a GPU reporting
+// MAX_TEXTURE_SIZE < 16384 clamps the effective dim via setDeviceMaxTextureSize,
+// so an addLayer whose side exceeds the EFFECTIVE limit must be rejected on the
+// Rust path with the same "device limit" error as the baseline. Before the fix
+// the Rust mirror accepted up to its fixed 16384 ceiling (can_accept_layer never
+// saw the device limit), so this call silently added an oversized layer instead
+// of throwing - the test fails before, passes after.
+it("Rust path: addLayer rejects a layer above the effective device dim limit", () => {
+  setDeviceMaxTextureSize(4096); // simulate a <16384 GPU (webgl2 tests mock 3379)
+  expect(getEffectiveMaxDim()).toBe(4096);
+  const engine = new DocumentEngine("doc-rust-devicelimit", "Rust DeviceLimit", 800, 600);
+  expect(() => engine.addLayer("Oversized", 5000, 4000)).toThrow(
+    /Layer dimensions exceed device limit 4096px per side/,
+  );
+  // The rejected layer must not have been added to the Rust mirror.
+  expect(engine.getLayers().length).toBe(0);
+});
+
+// Regression for the opaque-rejection divergence: addLayer past MAX_LAYERS must
+// throw the descriptive "Maximum layer limit" error on the Rust path, not leak
+// the opaque TypeError that the Rust mirror's void return produced (markLayer-
+// Dirty(undefined.id)). Before the fix this threw a TypeError (no message match);
+// the test fails before, passes after.
+it("Rust path: addLayer past MAX_LAYERS throws the descriptive error", () => {
+  const engine = new DocumentEngine("doc-rust-maxlayers", "Rust MaxLayers", 800, 600);
+  for (let i = 0; i < MAX_LAYERS; i++) engine.addLayer(`Layer ${i}`);
+  expect(engine.getLayers().length).toBe(MAX_LAYERS);
+  expect(() => engine.addLayer("Overflow")).toThrow(/Maximum layer limit of 200 reached/);
+  // No layer was added by the rejected call.
+  expect(engine.getLayers().length).toBe(MAX_LAYERS);
+});
+
+// Regression for the duplicate-skips-can_accept_layer divergence: duplicating
+// past MAX_LAYERS must throw the descriptive error on the Rust path. Before the
+// fix the Rust duplicate_layer skipped the check and added a 201st layer (newId
+// truthy -> early return), so the call succeeded instead of throwing - the test
+// fails before, passes after.
+it("Rust path: duplicateLayer past MAX_LAYERS throws the descriptive error", () => {
+  const engine = new DocumentEngine("doc-rust-dupmax", "Rust DupMax", 800, 600);
+  for (let i = 0; i < MAX_LAYERS; i++) engine.addLayer(`Layer ${i}`);
+  const srcId = engine.getLayers()[0].id;
+  expect(() => engine.duplicateLayer(srcId)).toThrow(/Maximum layer limit of 200 reached/);
+  // No layer was added by the rejected duplicate.
+  expect(engine.getLayers().length).toBe(MAX_LAYERS);
+});
+
+// Regression for the budget-guard gap on the armed Rust-delegate path:
+// addLayer must reject with the descriptive E_RESOURCE_LIMIT message when the
+// pixel memory budget is exceeded, and it must do so BEFORE the Rust mirror is
+// mutated. The guard calls canAddLayer (aliased canFitLayer) before
+// rustEngine.add_layer, so forcing that predicate to false trips the rejection
+// deterministically without allocating a large fixture. Without the guard,
+// rustEngine would accept the layer and no error would throw - the test fails
+// before, passes after.
+it("Rust path: addLayer over budget throws E_RESOURCE_LIMIT and does not mutate Rust", () => {
+  const fitSpy = vi.spyOn(layerOps, "canAddLayer").mockReturnValue(false);
+  const engine = new DocumentEngine("doc-rust-addbudget", "Rust AddBudget", 800, 600);
+  expect(() => engine.addLayer("OverBudget")).toThrow(
+    /E_RESOURCE_LIMIT: Adding this layer exceeds maximum pixel memory budget\./,
+  );
+  // The rejected layer must not have been added to the Rust mirror.
+  expect(engine.getLayers().length).toBe(0);
+  fitSpy.mockRestore();
+});
+
+// Regression for the budget-guard gap on the armed Rust-delegate path:
+// duplicateLayer must reject with the descriptive E_RESOURCE_LIMIT message when
+// duplicating would exceed the pixel memory budget, and it must do so BEFORE the
+// Rust mirror is mutated. The guard calls canAddLayer (aliased canFitLayer) with
+// the source dims before rustEngine.duplicate_layer, so forcing that predicate
+// to false trips the rejection deterministically. Without the guard,
+// rustEngine would add the duplicate and no error would throw - the test fails
+// before, passes after.
+it("Rust path: duplicateLayer over budget throws E_RESOURCE_LIMIT and does not mutate Rust", () => {
+  const engine = new DocumentEngine("doc-rust-dupbudget", "Rust DupBudget", 800, 600);
+  const src = engine.addLayer("Layer 1");
+  const fitSpy = vi.spyOn(layerOps, "canAddLayer").mockReturnValue(false);
+  expect(() => engine.duplicateLayer(src.id)).toThrow(
+    /E_RESOURCE_LIMIT: Duplicating this layer exceeds maximum pixel memory budget\./,
+  );
+  // The rejected duplicate must not have been added to the Rust mirror.
+  expect(engine.getLayers().length).toBe(1);
+  fitSpy.mockRestore();
 });

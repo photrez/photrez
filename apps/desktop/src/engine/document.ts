@@ -12,7 +12,7 @@ import type {
   ViewportState, SelectionState, RenderState, BlendMode,
   Transform2D, TextureHandle, RenderLayer
 } from "./types";
-import { MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
+import { MAX_LAYERS, MAX_PIXEL_BUDGET, getEffectiveMaxDim } from "./types";
 
 import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./layerComposite";
 import { getLoadedWasmModule } from "@/components/editor/wasmExport";
@@ -237,11 +237,26 @@ export class DocumentEngine {
   }
 
   addLayer(name: string, width?: number, height?: number): LayerNode {
+    // Guard BEFORE delegating to the Rust mirror so an over-limit / over-budget
+    // layer is rejected with the same descriptive error on the Rust path as on
+    // the baseline path. The Rust mirror's can_accept_layer uses a fixed 16384
+    // ceiling and returns void on rejection, so a rejection would otherwise leak
+    // as an opaque TypeError (markLayerDirty(undefined.id)). The device-aware
+    // effective dimension limit also lives only on the TS side.
+    const w = width ?? this.model.width;
+    const h = height ?? this.model.height;
+    if (this.model.layers.length >= MAX_LAYERS) {
+      throw new Error(`Maximum layer limit of ${MAX_LAYERS} reached`);
+    }
+    if (w > getEffectiveMaxDim() || h > getEffectiveMaxDim()) {
+      throw new Error(`Layer dimensions exceed device limit ${getEffectiveMaxDim()}px per side`);
+    }
+    if (!canFitLayer(this.model, w, h)) {
+      throw new Error("E_RESOURCE_LIMIT: Adding this layer exceeds maximum pixel memory budget.");
+    }
     // Rust SSOT — thin wrapper (fallback kept for headless where wasm not yet loaded)
     if (this.rustEngine) {
       const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
-      const w = width ?? this.model.width;
-      const h = height ?? this.model.height;
       this.rustEngine.add_layer(id, name, w, h);
       this.syncLayersFromRust();
       const newLayer = this.model.layers.find(l => l.id === id)!;
@@ -256,6 +271,17 @@ export class DocumentEngine {
   }
 
   duplicateLayer(id: LayerId): LayerNode {
+    // Guard BEFORE delegating to the Rust mirror. The Rust duplicate_layer does
+    // not run can_accept_layer, so without this guard the mirror could exceed
+    // MAX_LAYERS / the pixel budget where the baseline throws. Keeping the guard
+    // here makes both paths reject with the same descriptive error.
+    if (this.model.layers.length >= MAX_LAYERS) {
+      throw new Error(`Maximum layer limit of ${MAX_LAYERS} reached`);
+    }
+    const srcForBudget = this.getLayer(id);
+    if (srcForBudget && !canFitLayer(this.model, srcForBudget.width, srcForBudget.height)) {
+      throw new Error("E_RESOURCE_LIMIT: Duplicating this layer exceeds maximum pixel memory budget.");
+    }
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const src = this.getLayer(id);
