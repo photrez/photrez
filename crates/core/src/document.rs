@@ -252,9 +252,17 @@ impl DocumentEngine {
                 new_id = format!("{}-copy-{}", orig.id, counter);
                 counter += 1;
             }
+            let new_name = crate::document_dup::next_duplicate_name(&self.model.layers, &orig.name);
             let mut new_layer = orig.clone();
             new_layer.id = new_id.clone();
-            new_layer.name = format!("{} copy", orig.name);
+            new_layer.name = new_name;
+            // Mirror TS duplicateLayerNode: the clone is unlocked and not the
+            // Background, with no position/rotation/transparency locks.
+            new_layer.locked = false;
+            new_layer.is_background = None;
+            new_layer.lock_position = None;
+            new_layer.lock_rotation = None;
+            new_layer.lock_transparency = None;
             self.model.layers.insert(pos, new_layer);
             self.model.active_layer_id = Some(new_id.clone());
             self.model.dirty = true;
@@ -938,5 +946,43 @@ mod tests {
         assert_eq!(e.layer_count(), 200);
         e.add_layer("over".into(), "Over".into(), 10, 10);
         assert_eq!(e.layer_count(), 200, "MAX_LAYERS must cap at 200");
+    }
+
+    // FIX #1: clone must not inherit locked / isBackground (TS duplicateLayerNode
+    // produces an unlocked, non-background clone).
+    #[test]
+    fn duplicate_layer_resets_locked_and_background() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("bg".into(), "Background".into(), 100, 100);
+        assert!(e.set_layer_background("bg".into()));
+        e.add_layer("l1".into(), "Layer 1".into(), 100, 100);
+        assert!(e.set_layer_locked("l1".into(), true));
+        let dup_bg = e.duplicate_layer("bg".into()).expect("dup bg");
+        let bg = e.model.layers.iter().find(|l| l.id == dup_bg).unwrap();
+        assert!(bg.is_background.is_none());
+        assert!(!bg.locked);
+        let bg_count = e
+            .model
+            .layers
+            .iter()
+            .filter(|l| l.is_background == Some(true))
+            .count();
+        assert_eq!(bg_count, 1);
+        let dup_l1 = e.duplicate_layer("l1".into()).expect("dup l1");
+        let l1 = e.model.layers.iter().find(|l| l.id == dup_l1).unwrap();
+        assert!(!l1.locked);
+    }
+
+    // FIX #2: clone name follows the TS numeric-suffix convention, not " <name> copy".
+    #[test]
+    fn duplicate_layer_uses_numeric_suffix() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("l1".into(), "Layer 1".into(), 100, 100);
+        let _d1 = e.duplicate_layer("l1".into()).expect("d1");
+        let _d2 = e.duplicate_layer("l1".into()).expect("d2");
+        let names: Vec<&str> = e.model.layers.iter().map(|l| l.name.as_str()).collect();
+        assert!(names.contains(&"Layer 2"));
+        assert!(names.contains(&"Layer 3"));
+        assert!(!names.contains(&"Layer 1 copy"));
     }
 }

@@ -6,6 +6,7 @@ pub mod kernel;
 pub mod brush_engine;
 pub mod canonical_tip;
 pub mod document;
+pub(crate) mod document_dup;
 pub mod geometry;
 pub mod paint_bench;
 pub mod paint_parity;
