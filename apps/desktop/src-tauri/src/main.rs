@@ -9,6 +9,8 @@ mod fonts;
 mod menu;
 mod paint_parity_cmds;
 mod print_core;
+// Native (Tauri) authority command surface for the per-doc ProtocolEngine.
+mod protocol_native_cmds;
 mod print_geometry;
 mod print_settings;
 mod print_settings_cmds;
@@ -239,6 +241,10 @@ fn main() {
             document_snapshot_cmds::rust_pixels_record_snapshot,
             document_snapshot_cmds::rust_pixels_undo_snapshot,
             document_snapshot_cmds::rust_pixels_redo_snapshot,
+            protocol_native_cmds::protocol_apply_command_native,
+            protocol_native_cmds::protocol_history_query_native,
+            protocol_native_cmds::protocol_history_cursor_commit_native,
+            protocol_native_cmds::protocol_register_adapter_native,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");

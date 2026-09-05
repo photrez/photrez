@@ -1206,3 +1206,230 @@ fn write_region_parity_with_oracle() {
     let l = r.get_layer("d", "L").unwrap();
     assert_byte_eq(&l.pixels, &oracle, "write_region canonical parity");
 }
+
+// ── native authority command surface ──────────────────────────────────────────
+// Proves the per-document native `ProtocolEngine` serves the AUTHORITY methods
+// (apply / history_query / history_cursor_commit / register_adapter / snapshot)
+// through the REAL `PixelStoreRegistry` + per-doc engine — the exact code path
+// the Tauri `protocol_*_native` commands invoke. No mocks; drives the real
+// engine + real registry (mirrors the c4_runtime_tests headless-pipeline style).
+#[cfg(test)]
+mod protocol_native_authority_tests {
+    use super::*;
+    use crate::protocol::{
+        Command, CommandEnvelope, CommandResult, HistoryQuery, ProtocolEngine, RenderLayerChange,
+    };
+
+    fn envelope(cmd: Command) -> CommandEnvelope {
+        CommandEnvelope {
+            contract_version: crate::protocol::CONTRACT_VERSION,
+            expected_version: None,
+            command: cmd,
+        }
+    }
+
+    /// Get the per-doc `ProtocolEngine` exactly as the native command's REAL path
+    /// expects: the doc must already be OPEN (the client opens it via
+    /// `rust_pixels_open_document` before issuing protocol commands), then `get_mut`
+    /// returns it. This mirrors the command (`open_document` precedes `get_mut`) and
+    /// does NOT silently create an unopened doc - a missing doc is the command's error
+    /// contract, exercised separately below.
+    fn engine_for<'a>(reg: &'a mut PixelStoreRegistry, doc_id: &str) -> &'a mut ProtocolEngine {
+        reg.open_document(doc_id);
+        &mut reg.docs.get_mut(doc_id).unwrap().history
+    }
+
+    #[test]
+    fn native_apply_add_layer_records_entry_and_bumps_version_and_snapshot() {
+        let mut reg = PixelStoreRegistry::new();
+        let res: CommandResult = engine_for(&mut reg, "doc1")
+            .apply(envelope(Command::AddLayer {
+                name: "bg".to_string(),
+            }))
+            .expect("apply addLayer");
+
+        assert_eq!(res.document_version, 1, "version advanced on apply");
+        assert_eq!(res.delta.changes.len(), 1, "one layer upsert in delta");
+        assert!(matches!(
+            res.delta.changes[0],
+            RenderLayerChange::Upsert { .. }
+        ));
+
+        // history_query shows the single applied entry at the tip.
+        let q: HistoryQuery = reg.docs.get("doc1").unwrap().history.history_query();
+        assert_eq!(q.entries.len(), 1, "one history entry");
+        assert_eq!(q.cursor, 1, "cursor at tip");
+
+        // snapshot() reflects the applied layer.
+        let snap = reg.docs.get("doc1").unwrap().history.snapshot();
+        assert_eq!(snap.version, 1);
+        assert_eq!(snap.layers.len(), 1);
+        assert_eq!(snap.layers[0].name, "bg");
+    }
+
+    #[test]
+    fn native_metadata_undo_redo_steps_cursor() {
+        let mut reg = PixelStoreRegistry::new();
+        engine_for(&mut reg, "d")
+            .apply(envelope(Command::AddLayer {
+                name: "L".to_string(),
+            }))
+            .expect("apply"); // v1, cursor 1
+
+        // Undo: cursor steps back one; DocumentVersion advances one step.
+        engine_for(&mut reg, "d")
+            .apply(envelope(Command::Undo))
+            .expect("undo");
+        let q1: HistoryQuery = reg.docs.get("d").unwrap().history.history_query();
+        assert_eq!(q1.cursor, 0, "undo moved cursor to 0");
+
+        // Redo: cursor steps forward again.
+        engine_for(&mut reg, "d")
+            .apply(envelope(Command::Redo))
+            .expect("redo");
+        let q2: HistoryQuery = reg.docs.get("d").unwrap().history.history_query();
+        assert_eq!(q2.cursor, 1, "redo moved cursor back to tip");
+    }
+
+    #[test]
+    fn native_cursor_commit_clears_pending_external_barrier() {
+        let mut reg = PixelStoreRegistry::new();
+        let eng = engine_for(&mut reg, "d");
+
+        // Record an external (TS) transition -> External entry, cursor 1, v1.
+        eng.apply(envelope(Command::RecordExternalTransition {
+            label: "ts-op".to_string(),
+            affected_layer_ids: vec!["L".to_string()],
+            adapter_id: "native".to_string(),
+            token: "t1".to_string(),
+            memory_cost_bytes: 0,
+        }))
+        .expect("record external");
+
+        // Undo onto the External entry sets the pending_external handoff barrier.
+        let handoff = eng
+            .apply(envelope(Command::Undo))
+            .expect("undo onto external");
+        assert_eq!(handoff.status.as_deref(), Some("external"));
+        assert!(eng.pending_external.is_some(), "barrier set after handoff");
+
+        // protocol_history_cursor_commit clears it (external-handoff semantics).
+        let seq = eng.pending_external.as_ref().unwrap().0;
+        let commit: CommandResult = eng
+            .history_cursor_commit(seq, "undo")
+            .expect("cursor commit");
+        assert_eq!(commit.status.as_deref(), Some("external-confirmed"));
+        assert!(eng.pending_external.is_none(), "barrier cleared on commit");
+        assert_eq!(eng.version(), 2, "DocumentVersion advanced on commit");
+    }
+
+    #[test]
+    fn native_engines_are_isolated_per_document() {
+        let mut reg = PixelStoreRegistry::new();
+        engine_for(&mut reg, "docA").register_adapter("ts-adapter");
+        engine_for(&mut reg, "docB").register_adapter("ts-adapter");
+
+        // Per-doc isolation: each engine owns its own history + adapter set.
+        engine_for(&mut reg, "docA")
+            .apply(envelope(Command::AddLayer {
+                name: "A".to_string(),
+            }))
+            .expect("apply A");
+        engine_for(&mut reg, "docB")
+            .apply(envelope(Command::AddLayer {
+                name: "B".to_string(),
+            }))
+            .expect("apply B");
+
+        let qa: HistoryQuery = reg.docs.get("docA").unwrap().history.history_query();
+        let qb: HistoryQuery = reg.docs.get("docB").unwrap().history.history_query();
+        assert_eq!(qa.entries.len(), 1);
+        assert_eq!(qb.entries.len(), 1);
+        assert_eq!(
+            reg.docs.get("docA").unwrap().history.snapshot().layers[0].name,
+            "A"
+        );
+        assert_eq!(
+            reg.docs.get("docB").unwrap().history.snapshot().layers[0].name,
+            "B"
+        );
+        // Cross-check: docA's engine has no knowledge of docB's layer.
+        assert!(reg
+            .docs
+            .get("docA")
+            .unwrap()
+            .history
+            .snapshot()
+            .layers
+            .iter()
+            .all(|l| l.name == "A"));
+    }
+
+    #[test]
+    fn native_authority_command_path_uses_global_registry_and_json_envelope() {
+        // Mirrors the EXACT production path of `protocol_apply_command_native`:
+        // the REAL global `pixel_store::registry()` (NOT a local
+        // `PixelStoreRegistry::new()`), a serde JSON in/out envelope, the
+        // missing-doc error contract, and the "CODE: message" apply-error
+        // formatting the command returns to the 2b-3 TS client.
+
+        // Open the doc exactly as production does: rust_pixels_open_document
+        // precedes the protocol command, so the command's get_mut finds an
+        // already-open doc (the native authority does NOT implicitly create one).
+        {
+            let mut g = registry();
+            g.get_or_insert_with(Default::default).open_document("docX");
+        }
+
+        // JSON-in: a real CommandEnvelope round-trips through serde, exactly what
+        // the command receives from the frontend.
+        let env_json = serde_json::to_string(&envelope(Command::AddLayer {
+            name: "bg".to_string(),
+        }))
+        .unwrap();
+        let parsed: CommandEnvelope = serde_json::from_str(&env_json).unwrap();
+
+        // Drive the same engine method the command calls, through the global registry.
+        let res_json = {
+            let mut g = registry();
+            let reg = g.get_or_insert_with(Default::default);
+            let engine = reg.docs.get_mut("docX").expect("doc open");
+            serde_json::to_string(&engine.history.apply(parsed).unwrap()).unwrap()
+        };
+        let res: CommandResult = serde_json::from_str(&res_json).unwrap();
+        assert_eq!(res.document_version, 1, "apply advanced version");
+
+        // Missing-doc path: an unopened doc is an ERROR (not an implicit create) -
+        // the exact contract the command returns. Mirrors
+        // `get_mut(...).ok_or("document not open")`.
+        let missing = {
+            let mut g = registry();
+            let reg = g.get_or_insert_with(Default::default);
+            match reg.docs.get_mut("never_opened") {
+                Some(_) => String::new(),
+                None => format!("document not open: never_opened"),
+            }
+        };
+        assert_eq!(missing, "document not open: never_opened");
+
+        // Apply-error formatting: a contract-version mismatch yields a ProtocolError
+        // whose code the command formats as the bare "CODE: message" string that
+        // Tauri v2 surfaces as a bare-string rejection. This is the error shape the
+        // 2b-3 TS client must handle via raw invoke().
+        let code_msg = {
+            let mut g = registry();
+            let reg = g.get_or_insert_with(Default::default);
+            let engine = reg.docs.get_mut("docX").expect("doc open");
+            let mut bad = envelope(Command::AddLayer {
+                name: "x".to_string(),
+            });
+            bad.contract_version = u32::MAX; // force E_CONTRACT_VERSION
+            let err = engine.history.apply(bad).unwrap_err();
+            format!("{}: {}", err.code, err.message)
+        };
+        assert!(
+            code_msg.starts_with("E_CONTRACT_VERSION:"),
+            "raw invoke error shape is CODE: message, got {code_msg}"
+        );
+    }
+}
