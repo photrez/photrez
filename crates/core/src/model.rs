@@ -86,6 +86,16 @@ impl LayerSet {
         v.remove(i);
         Self(Arc::new(v))
     }
+
+    /// Build a `LayerSet` from an EXPLICIT list of layer metadata. Ids are taken
+    /// verbatim from the input — the caller owns id assignment upstream (e.g. the
+    /// TS model that already has canonical layer ids). This is the initial-layer-
+    /// load path and must NOT mint fresh uuids, unlike the `AddLayer` command arm
+    /// which generates ids. Every layer becomes its own `Arc<LayerMeta>` (COW-
+    /// ready): later edits produce new `Arc`s, unchanged layers are shared.
+    pub(crate) fn from_layers(layers: Vec<LayerMeta>) -> Self {
+        Self(Arc::new(layers.into_iter().map(Arc::new).collect()))
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -747,5 +757,181 @@ mod tests {
         assert_eq!(flip_res, checkpoints[1][1].resource_id);
         assert_eq!(flip_name, checkpoints[1][1].name);
         assert_eq!(checkpoints[3][1].opacity, 0.25);
+    }
+
+    // ── Seed primitive (initial layer load) ───────────────────────────────
+    // Builds a full `RenderLayer` for seed tests with the supplied id/name. Ids are
+    // explicit (the whole point of seeding is id-preservation), everything else is
+    // default so the assertions focus on id + version + history behavior.
+    fn seed_layer(id: &str, name: &str) -> RenderLayer {
+        RenderLayer {
+            id: id.to_string(),
+            name: name.to_string(),
+            visible: true,
+            opacity: 1.0,
+            resource_id: 0,
+            x: 0.0,
+            y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotation: 0.0,
+            dirty_rect: None,
+        }
+    }
+
+    #[test]
+    fn seed_loads_explicit_ids_no_uuid_minting() {
+        let mut eng = ProtocolEngine::new();
+        let layers = vec![seed_layer("L-fixed-1", "A"), seed_layer("L-fixed-2", "B")];
+        eng.seed_layers(layers, 7);
+        // (a) snapshot shows the EXACT supplied ids (no uuid minting).
+        let snap = eng.snapshot();
+        assert_eq!(snap.layers.len(), 2);
+        assert_eq!(snap.layers[0].id, "L-fixed-1");
+        assert_eq!(snap.layers[1].id, "L-fixed-2");
+        // (b) version aligned to the supplied value.
+        assert_eq!(eng.version(), 7);
+        // (e) seed is silent: no history entry.
+        assert_eq!(eng.entries.len(), 0);
+        assert_eq!(eng.history_query().entries.len(), 0);
+    }
+
+    #[test]
+    fn seed_then_add_layer_uses_expected_version_without_mismatch() {
+        let mut eng = ProtocolEngine::new();
+        eng.seed_layers(vec![seed_layer("L-1", "A")], 7);
+        // (c) a subsequent AddLayer with expected_version == seeded version is accepted.
+        let r = eng
+            .apply(CommandEnvelope {
+                contract_version: CONTRACT_VERSION,
+                expected_version: Some(7),
+                command: Command::AddLayer { name: "B".into() },
+            })
+            .unwrap();
+        assert_eq!(r.delta.base_version, 7);
+        assert_eq!(eng.snapshot().layers.len(), 2);
+        // And expected_version 0 (stale vs seeded 7) is rejected as before.
+        let err = eng
+            .apply(CommandEnvelope {
+                contract_version: CONTRACT_VERSION,
+                expected_version: Some(0),
+                command: Command::AddLayer { name: "C".into() },
+            })
+            .unwrap_err();
+        assert_eq!(err.code, "E_VERSION_MISMATCH");
+        assert_eq!(
+            eng.snapshot().layers.len(),
+            2,
+            "rejected command is a no-op"
+        );
+    }
+
+    #[test]
+    fn seed_is_idempotent_and_only_when_empty() {
+        let mut eng = ProtocolEngine::new();
+        eng.seed_layers(vec![seed_layer("L-1", "A")], 5);
+        // (d) second seed on the now-populated engine is a silent no-op.
+        eng.seed_layers(vec![seed_layer("DIFFERENT", "Z")], 99);
+        let snap = eng.snapshot();
+        assert_eq!(snap.layers.len(), 1, "second seed must not clobber");
+        assert_eq!(snap.layers[0].id, "L-1", "original seeded id preserved");
+        assert_eq!(eng.version(), 5, "version unchanged by second seed");
+
+        // (d) seed after a real command (engine non-empty) is also a no-op.
+        eng.apply(env(Command::AddLayer { name: "B".into() }))
+            .unwrap();
+        let before = eng.snapshot().layers.len();
+        eng.seed_layers(vec![seed_layer("X", "Y")], 123);
+        assert_eq!(
+            eng.snapshot().layers.len(),
+            before,
+            "seed on non-empty engine is a no-op"
+        );
+        assert_eq!(eng.version(), 6, "version unchanged by seed on non-empty");
+    }
+
+    #[test]
+    fn seed_creates_no_history_entry_even_after_real_command() {
+        let mut eng = ProtocolEngine::new();
+        let n0 = eng.entries.len();
+        // (e) seed pushes no history entry.
+        eng.seed_layers(vec![seed_layer("L-1", "A")], 3);
+        assert_eq!(eng.entries.len(), n0, "seed pushes no history entry");
+        // A real command afterward creates exactly one entry.
+        eng.apply(env(Command::AddLayer { name: "B".into() }))
+            .unwrap();
+        assert_eq!(
+            eng.entries.len(),
+            n0 + 1,
+            "only the real command is recorded"
+        );
+        // Undo removes JUST the AddLayer; the seeded layer (which had no entry)
+        // remains, proving seed did not create an undo step.
+        eng.apply(env(Command::Undo)).unwrap();
+        let snap = eng.snapshot();
+        assert_eq!(snap.layers.len(), 1, "undo reverts only the AddLayer");
+        assert_eq!(snap.layers[0].id, "L-1", "seeded layer survives undo");
+    }
+
+    // Builds a seeded `RenderLayer` carrying an EXPLICIT resource_id. The default
+    // `seed_layer` helper always uses 0, so without this the next_resource bump
+    // (max seeded resource + 1) is never exercised by any test.
+    fn seed_layer_res(id: &str, name: &str, res: ResourceId) -> RenderLayer {
+        let mut l = seed_layer(id, name);
+        l.resource_id = res;
+        l
+    }
+
+    #[test]
+    fn seed_bumps_next_resource_above_seeded_max() {
+        let mut eng = ProtocolEngine::new();
+        // Seed a layer that already owns resource_id 9.
+        eng.seed_layers(vec![seed_layer_res("L-1", "A", 9)], 7);
+        // A later AddLayer must take resource_id 10 (max+1), not collide with 9.
+        eng.apply(CommandEnvelope {
+            contract_version: CONTRACT_VERSION,
+            expected_version: Some(7),
+            command: Command::AddLayer { name: "B".into() },
+        })
+        .unwrap();
+        let snap = eng.snapshot();
+        let added = snap
+            .layers
+            .iter()
+            .find(|l| l.name == "B")
+            .expect("added layer present");
+        assert_eq!(
+            added.resource_id, 10,
+            "AddLayer must not collide with seeded resource_id 9"
+        );
+        assert_eq!(snap.layers[0].resource_id, 9, "seeded layer preserved at 9");
+    }
+
+    #[test]
+    fn seed_next_resource_is_max_plus_one_not_count() {
+        let mut eng = ProtocolEngine::new();
+        // Two seeded layers with a gap: 3 and 9 (not contiguous, not count-based).
+        eng.seed_layers(
+            vec![seed_layer_res("L-1", "A", 3), seed_layer_res("L-2", "B", 9)],
+            7,
+        );
+        eng.apply(CommandEnvelope {
+            contract_version: CONTRACT_VERSION,
+            expected_version: Some(7),
+            command: Command::AddLayer { name: "C".into() },
+        })
+        .unwrap();
+        let snap = eng.snapshot();
+        let added = snap
+            .layers
+            .iter()
+            .find(|l| l.name == "C")
+            .expect("added layer present");
+        assert_eq!(
+            added.resource_id, 10,
+            "must be max(3,9)+1 = 10, not count-based"
+        );
+        assert!(snap.layers.iter().any(|l| l.resource_id == 3));
+        assert!(snap.layers.iter().any(|l| l.resource_id == 9));
     }
 }

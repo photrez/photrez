@@ -12,7 +12,9 @@
 // rejection. (Tauri v2 `invoke()` rejects with exactly this string on `Err`.)
 
 use photrez_core::pixel_store::registry;
-use photrez_core::protocol::{CommandEnvelope, CommandResult, HistoryQuery, ProtocolError};
+use photrez_core::protocol::{
+    CommandEnvelope, CommandResult, HistoryQuery, ProtocolError, RenderLayer, RenderSnapshot,
+};
 
 /// Normalize an empty/absent `doc_id` to the reserved `"default"` key so the
 /// native surface and the TS client agree on the shared document. The client
@@ -121,4 +123,42 @@ pub fn protocol_register_adapter_native(
         .ok_or_else(|| format!("document not open: {doc_key}"))?;
     engine.history.register_adapter(&adapter_id);
     Ok(serde_json::to_string(&()).unwrap())
+}
+
+/// Seed the native per-doc `ProtocolEngine` with an initial layer load.
+///
+/// ADDITIVE authority command (the native-canonical-engine handoff foundation):
+/// nothing routes through it yet, so production behavior is unchanged. Mirrors the
+/// sibling native protocol commands' authority stance — the doc MUST already be
+/// open. The JSON payload carries `{ version, layers }` where each layer is a
+/// full `RenderLayer` (id preserved verbatim, NO uuid minting). This is
+/// initialization, not a user edit, so it creates NO history entry and no undo
+/// step; the TS client's subsequent `expectedVersion` matches the seeded
+/// `version` on the first real command.
+///
+/// Returns the serialized `RenderSnapshot` of the seeded engine, or the same
+/// `"CODE: message"` error envelope as the sibling commands on failure (missing
+/// doc / malformed json).
+#[tauri::command]
+pub fn protocol_seed_native(payload_json: String, doc_id: String) -> Result<String, String> {
+    // `RenderLayer` already derives serde camelCase, so the payload's `layers`
+    // deserialize directly into the engine's native layer-metadata shape.
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SeedPayload {
+        version: u64,
+        layers: Vec<RenderLayer>,
+    }
+    let payload: SeedPayload =
+        serde_json::from_str(&payload_json).map_err(|e| format!("E_ENVELOPE_PARSE: {e}"))?;
+    let doc_key = resolve_doc_key(&doc_id).to_string();
+    let mut reg_guard = registry();
+    let reg = reg_guard.get_or_insert_with(Default::default);
+    let engine = reg
+        .docs
+        .get_mut(&doc_key)
+        .ok_or_else(|| format!("document not open: {doc_key}"))?;
+    engine.history.seed_layers(payload.layers, payload.version);
+    let snap: RenderSnapshot = engine.history.snapshot();
+    Ok(serde_json::to_string(&snap).unwrap())
 }

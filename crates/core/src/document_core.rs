@@ -68,6 +68,38 @@ impl ProtocolEngine {
         }
     }
 
+    /// Seed the native document engine with an initial layer load.
+    ///
+    /// After the document is opened but before the first real command, the
+    /// authoritative native engine starts with an EMPTY layer set and `version =
+    /// 0`. This method loads an existing document's layers (so the engine becomes
+    /// the canonical authority whose layer ids match the TS model's ids, letting
+    /// later facade commands and TS bitmaps line up) and aligns `version` to the
+    /// supplied value so the TS client's `expectedVersion` matches on the first
+    /// real command.
+    ///
+    /// Id-preserved: the supplied `layers` keep their EXACT ids (no uuid minting —
+    /// that happens only in the `AddLayer` command arm). Version-aligned: `version`
+    /// is set to `version`. Silent: seeding is initialization, NOT a user edit, so
+    /// it creates NO history entry and no undo step (mirrors the facade's
+    /// snapshot-seed semantics, which bypass the monotonic guard rather than
+    /// being a transition). Only-when-empty + idempotent: if the engine already
+    /// has layers, the call is a silent no-op and never clobbers live state.
+    pub fn seed_layers(&mut self, layers: Vec<RenderLayer>, version: DocumentVersion) {
+        // Only-when-empty guard: never overwrite a populated engine. Seeding twice
+        // yields the same result, and seeding onto live state is refused.
+        if !self.layers.0.is_empty() {
+            return;
+        }
+        self.layers = LayerSet::from_layers(layers);
+        self.version = version;
+        // Keep the engine-owned resource counter ahead of any resource ids the
+        // seeded layers carried, so a later AddLayer never collides with them.
+        if let Some(max_res) = self.layers.0.iter().map(|l| l.resource_id).max() {
+            self.next_resource = self.next_resource.max(max_res.saturating_add(1));
+        }
+    }
+
     // ── H0 stream helpers ────────────────────────────────────────
     /// Rough per-`Arc<LayerMeta>` heap-allocation slack folded into the cheap
     /// byte estimate (the Arc control block + allocator rounding). Kept as a
