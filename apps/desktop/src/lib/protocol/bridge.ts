@@ -72,6 +72,19 @@ export function isFacadeEnabled(): boolean {
   }
 }
 
+// Native-authority plumbing (not yet routed): selects which engine backs the
+// protocol command path. Defaults to wasm so production keeps using the wasm
+// engine; this predicate is not yet read by any dispatch branch.
+const FACADE_AUTHORITY_KEY = "photrez.facadeAuthority";
+
+export function isNativeAuthority(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(FACADE_AUTHORITY_KEY) === "native";
+  } catch {
+    return false;
+  }
+}
+
 export function isFacadeArmed(): boolean {
   return wasm !== null;
 }
