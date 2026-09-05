@@ -1296,9 +1296,18 @@ export class DocumentEngine {
         const { imageBitmap: _ib, baseImageBitmap: _bb, ...rest } = l;
         return rest;
       });
-      this.rustEngine.restore_snapshot(
+      const ok = this.rustEngine.restore_snapshot(
         JSON.stringify({ ...this.model, layers }),
       );
+      if (!ok) {
+        // A non-OK result means the Rust SSOT mirror failed to absorb the model
+        // (e.g. a serde reject). The TS model stays authoritative for render, but
+        // the mirror is now stale/frozen — surface it loudly so it is never a
+        // silent data loss. Non-throwing: must not break the TS operation.
+        console.error(
+          `pushModelToRust: Rust SSOT mirror rejected model for doc "${this.model.id}"; mirror is stale (frozen).`,
+        );
+      }
     } catch {
       // Rust resync is best-effort; TS model remains authoritative for render
     } finally {

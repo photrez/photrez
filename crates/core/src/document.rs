@@ -50,6 +50,7 @@ pub struct Layer {
     pub lock_transparency: Option<bool>,
     pub lock_position: Option<bool>,
     pub lock_rotation: Option<bool>,
+    #[serde(default)]
     pub has_adjustments: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub basic_adjustment: Option<serde_json::Value>,
@@ -686,6 +687,16 @@ mod tests {
         assert!(e2.restore_snapshot(&json));
         assert_eq!(e2.layer_count(), 1);
         assert_eq!(e2.get_active_layer_id(), Some("l1".into()));
+    }
+
+    // Regression: TS layer builders omit hasAdjustments (dropped by JSON.stringify); restore_snapshot must default false, not freeze the mirror.
+    #[test]
+    fn restore_snapshot_tolerates_missing_has_adjustments() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        let json = r#"{"id":"d","name":"n","width":100,"height":100,"layers":[{"id":"bg1","name":"Background","type":"raster","visible":true,"locked":false,"opacity":1.0,"blendMode":"normal","transform":{"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0,"flipH":false,"flipV":false},"width":100,"height":100}],"activeLayerId":null,"selection":null,"dirty":false}"#;
+        assert!(e.restore_snapshot(json));
+        assert_eq!(e.layer_count(), 1);
+        assert!(e.snapshot_json().contains("\"hasAdjustments\":false"));
     }
 
     #[test]
