@@ -255,7 +255,7 @@ impl DocumentEngine {
             let mut new_layer = orig.clone();
             new_layer.id = new_id.clone();
             new_layer.name = format!("{} copy", orig.name);
-            self.model.layers.insert(pos + 1, new_layer);
+            self.model.layers.insert(pos, new_layer);
             self.model.active_layer_id = Some(new_id.clone());
             self.model.dirty = true;
             return Some(new_id);
@@ -698,6 +698,39 @@ mod tests {
         let new_id = e.duplicate_layer("l1".into()).expect("duplicate");
         assert_eq!(e.layer_count(), 2);
         assert_eq!(e.get_active_layer_id(), Some(new_id));
+    }
+
+    // Regression: the clone must sit immediately ABOVE the source in the
+    // top-indexed stack (index 0 = top), matching the TS duplicateLayer and
+    // addLayer convention. A port once inserted at pos+1, dropping the clone
+    // BELOW the source (reported as "clone lands at the bottom").
+    #[test]
+    fn duplicate_layer_inserts_above_source() {
+        let mut e = DocumentEngine::new("d".into(), "n".into(), 100, 100);
+        e.add_layer("l1".into(), "A".into(), 100, 100);
+        e.add_layer("l2".into(), "B".into(), 100, 100);
+        e.add_layer("l3".into(), "C".into(), 100, 100);
+        // Stack (top -> bottom): l3, l2, l1
+        let dup = e.duplicate_layer("l2".into()).expect("duplicate");
+
+        let order: Vec<String> = serde_json::from_str(&e.get_layers_json())
+            .map(|v: serde_json::Value| {
+                v.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|l| l["id"].as_str().unwrap().to_string())
+                    .collect()
+            })
+            .unwrap();
+
+        let src_idx = order.iter().position(|id| id == "l2").unwrap();
+        let dup_idx = order.iter().position(|id| id == &dup).unwrap();
+        assert_eq!(
+            dup_idx,
+            src_idx - 1,
+            "clone must be immediately above the source"
+        );
+        assert_eq!(e.get_active_layer_id(), Some(dup.clone()));
     }
 
     #[test]
