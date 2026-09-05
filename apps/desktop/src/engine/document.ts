@@ -226,6 +226,10 @@ export class DocumentEngine {
         baseImageBitmap: prev?.baseImageBitmap ?? null,
         shapeParams: l.shapeParams,
         textData: l.textData,
+        // Preserve the Rust pixel-store epoch across graph ops: surviving layer
+        // ids keep their canonical-buffer freshness, so ensureBitmapCurrent
+        // does not take a redundant full readback after a reorder/opacity/etc.
+        bitmapEpoch: prev?.bitmapEpoch,
       } as LayerNode;
     });
     this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
@@ -262,13 +266,18 @@ export class DocumentEngine {
           // Rust owns the graph only — pixels are cloned TS-side so the
           // duplicate gets its OWN bitmap (editing either never aliases).
           if (src?.imageBitmap) {
-            const off = new OffscreenCanvas(src.width, src.height);
+            // Clone at the SOURCE bitmap resolution, not doc-space layer dims.
+            // A text layer stores a 2x RASTER_SCALE bitmap in a 1x doc-space box,
+            // so sizing the clone to layer.width/height would bake it at 1x and
+            // clip to the top-left quadrant. Drawing the source 1:1 copies the
+            // full-resolution pixels, matching the TS duplicateLayerNode baseline.
+            const off = new OffscreenCanvas(src.imageBitmap.width, src.imageBitmap.height);
             const ctx = off.getContext("2d");
             if (ctx) {
               ctx.drawImage(src.imageBitmap, 0, 0);
               dup.imageBitmap = off.transferToImageBitmap();
               if (src.baseImageBitmap) {
-                const off2 = new OffscreenCanvas(src.width, src.height);
+                const off2 = new OffscreenCanvas(src.baseImageBitmap.width, src.baseImageBitmap.height);
                 const ctx2 = off2.getContext("2d");
                 if (ctx2) {
                   ctx2.drawImage(src.baseImageBitmap, 0, 0);
