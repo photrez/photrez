@@ -6,6 +6,7 @@ import { showToast } from "../../Toast";
 import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 
 /**
  * Paint Bucket: click-to-fill. Runs flood fill on the active layer at the
@@ -131,6 +132,7 @@ export function applyPaintBucketFill(
         applyRustTilesToSurface(surface.context, res.after);
         surface.pixelEpoch = res.epoch;
         surface.pixelVersion = res.version;
+        syncFacadeVersionFromPixel(docId, res.version);
         renderer?.uploadSurfaceTiles?.(layerId, layer.width, layer.height, res.after.map(t => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
         // C5.4 bitmap sync: bitmap was set before Rust write (setLayerImageBitmap).
         // Now that write_region succeeded, bitmap and Rust are proven identical.

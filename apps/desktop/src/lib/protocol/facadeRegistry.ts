@@ -15,9 +15,12 @@ import { EditorFacade } from "./editorFacade";
 import {
   __resetEmulatedForTests as resetFacadeBridgeForTests,
   applyCommand,
+  ensureNativeEngineSeeded,
   getHistoryQuery,
+  getSnapshot,
   historyCursorCommit,
   isFacadeEnabled,
+  isNativeAuthority,
   registerPayloadAdapter,
   resetWasmDoc,
 } from "./bridge";
@@ -112,13 +115,39 @@ export function resolveSelectionRoute(ids: string[]): SelectionRoute {
 
 const facadeByDoc = new Map<string, EditorFacade>();
 
+// Normalize an empty doc id to the reserved "default" key. The native-authority
+// engine (bridge/native client) resolves "" -> "default"; on that path the facade
+// registry must agree so a facade keyed by the native engine's id meets the bridge.
+// On the default (wasm) path this normalization is deliberately NOT applied:
+// getFacade/removeFacade use the raw doc id so the wasm default path is
+// byte-identical to before the native-authority reroute.
+function resolveFacadeDocKey(docId: string): string {
+  return docId === "" ? "default" : docId;
+}
+
+// Resolve the facade map key for the active authority. On the native-authority
+// path empty ids normalize to "default" (matching the native engine); on the
+// default wasm path the raw doc id is used unchanged (byte-identical behavior).
+function facadeKey(docId: string): string {
+  return isNativeAuthority() ? resolveFacadeDocKey(docId) : docId;
+}
+
 export function getFacade(docId: string): EditorFacade {
-  let f = facadeByDoc.get(docId);
+  const key = facadeKey(docId);
+  let f = facadeByDoc.get(key);
   if (!f) {
-    f = new EditorFacade(undefined, docId);
-    facadeByDoc.set(docId, f);
+    f = new EditorFacade(undefined, key);
+    facadeByDoc.set(key, f);
   }
   return f;
+}
+
+// Evict a doc's facade (called on document close, alongside clearNativeSeed) so a
+// reopened doc id gets a FRESH facade seeded from the freshly-reseeded native
+// engine, never a stale one. Gated callers (WorkspaceManager.removeDocument)
+// decide when this runs; the registry itself stays authority-agnostic.
+export function removeFacade(docId: string): void {
+  facadeByDoc.delete(facadeKey(docId));
 }
 
 // ── Transient drag preview ────────────────────────────────────────────────
@@ -174,7 +203,7 @@ export async function facadeCommitNumericTransform(
 // its first full-snapshot projection would CLOBBER them (applyFacadeSnapshot
 // replaces the model with the facade view). Seed once from the engine's
 // current layers as an initial metadata-only snapshot.
-export function seedFacadeFromEngine(
+export async function seedFacadeFromEngine(
   engine: {
     getId(): string;
     getLayers(): Array<{
@@ -186,7 +215,7 @@ export function seedFacadeFromEngine(
     }>;
   },
   facade: EditorFacade
-): void {
+): Promise<void> {
   if (facade.snapshot.layers.length === 0 && engine.getLayers().length > 0) {
     facade.seedSnapshot({
       version: 0,
@@ -203,6 +232,36 @@ export function seedFacadeFromEngine(
         resourceId: 0,
       })),
     } as never);
+  }
+  // Native-authority cutover seed: mirror the live TS/facade state into the
+  // Rust REGISTRY engine so the first rerouted command's expectedVersion matches.
+  // Gated by isNativeAuthority() so the default (wasm) path is byte-identical.
+  // Carries the live renderedVersion (not a hardcoded 0) so the seeded engine
+  // starts at the same document version the facade holds.
+  if (isNativeAuthority()) {
+    await ensureNativeEngineSeeded(
+      facade.docId,
+      facade.renderedVersion,
+      engine.getLayers().map((l) => ({
+        id: l.id,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+        x: l.transform.x,
+        y: l.transform.y,
+        scaleX: l.transform.scaleX,
+        scaleY: l.transform.scaleY,
+        rotation: l.transform.rotation,
+        resourceId: 0,
+      })),
+    );
+    // The native engine is the SINGLE owner of document version. Read its actual
+    // version (protocol_snapshot_native returns RenderSnapshot.version === the
+    // engine's documentVersion) and align the facade up-only, so a subsequent
+    // facade command's expectedVersion matches. Up-only: a raw assign could move
+    // renderedVersion backward if pixel commits had already advanced past the seed.
+    const snap = await getSnapshot(facade.docId);
+    facade.syncRenderedVersionTo(snap.version);
   }
 }
 
@@ -231,12 +290,31 @@ const [historyDegraded, setHistoryDegraded] = createSignal<
 export { historyDegraded };
 
 function peekFacade(docId: string): EditorFacade | undefined {
-  return facadeByDoc.get(docId);
+  return facadeByDoc.get(facadeKey(docId));
 }
 
 function syncAuthoritativeVersion(docId: string, dv: number): void {
-  const f = facadeByDoc.get(docId);
+  const f = facadeByDoc.get(facadeKey(docId));
   if (f) f.syncRenderedVersionTo(dv);
+}
+
+// Native-authority version sync (ADR 0014): when the native engine is the
+// authority, pixel commits and facade commands share ONE ProtocolEngine instance,
+// so a pixel commit between two facade commands advances the same documentVersion
+// the facade reads. Push the pixel commit's returned version into the facade so
+// the next facade command is not rejected with E_VERSION_MISMATCH. No-op unless
+// native authority is active and a facade exists for the doc, so the wasm default
+// path is byte-identical. The native engine is the single owner of document
+// version; this is the only place that mirrors it into the facade, up-only.
+export function syncFacadeVersionFromPixel(docId: string, version: number): void {
+  if (!isNativeAuthority()) return;
+  // Ensure a facade exists before syncing: a pixel commit can advance the native
+  // engine DV before any facade has been lazily created (getFacade is lazy on the
+  // opacity/transform path). Without this the sync no-ops and a later facade
+  // command is rejected with E_VERSION_MISMATCH. Gated by isNativeAuthority above.
+  if (!peekFacade(docId)) getFacade(docId);
+  const f = facadeByDoc.get(facadeKey(docId));
+  if (f) f.syncRenderedVersionTo(version);
 }
 
 export async function recordExternalTransitionFor(

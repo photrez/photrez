@@ -9,8 +9,9 @@
 // so the `"CODE: message"` is always the surfaced error.
 //
 // Method names/args mirror `WasmProtocol` (bridge.ts) so the bridge can dispatch
-// to either engine later. Native-authority plumbing (not yet routed): no
-// production dispatch path calls this client yet.
+// to either engine. The native-authority dispatch branch in bridge.applyCommand
+// (and getSnapshot/getHistoryQuery/historyCursorCommit) calls this client to drive
+// the per-document native ProtocolEngine.
 
 import { invoke } from "@tauri-apps/api/core";
 

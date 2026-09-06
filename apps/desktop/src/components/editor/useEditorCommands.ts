@@ -21,6 +21,7 @@ import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } 
 import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss, scheduleSave } from "./saveState";
 import { cancelAutosave } from "./autoSave";
 import { hasFacadeOwnedLayers } from "@/engine/document";
+import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
 import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
 import { bitmapStoreFor } from "@/engine/bitmapStore";
@@ -359,6 +360,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
                 surf.pixelEpoch = rustRes.epoch;
                 // Record which authoritative history cursor these pixels reflect.
                 surf.pixelVersion = rustRes.version;
+                syncFacadeVersionFromPixel(engine?.getId() ?? "default", rustRes.version);
               }
               // Re-map to the renderer's upload shape (width/height) for GPU upload.
               tiles = rustRes.tiles.map((t) => ({

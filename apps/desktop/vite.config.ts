@@ -66,6 +66,7 @@ const nodeTestFiles = [
   "src/__tests__/history-audit.test.ts",
   "src/__tests__/keyboard-shortcuts.test.ts",
   "src/__tests__/cursor-resolver.test.ts",
+  "src/lib/protocol/__tests__/nativeAuthorityReroute.test.ts",
 ] as const;
 
 const defaultTestExcludes = ["node_modules/**", "dist/**", "e2e/**"];

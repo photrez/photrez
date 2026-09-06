@@ -10,6 +10,7 @@ import {
   PAINT_TILE_SIZE,
   type TileKeyed,
 } from "@/lib/paint/paintTileSurface";
+import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
 import { mapPaintPointToLayerLocal } from "./paintStrokeCoordinates";
@@ -143,6 +144,7 @@ export function useBrushOverlay() {
       applyRustTilesToSurface(sctx, res.after);
       surface.pixelEpoch = res.epoch;
       surface.pixelVersion = res.version;
+      syncFacadeVersionFromPixel(docId, res.version);
       const afterPatches: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
       const rectUploads: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
       for (const t of res.after) {

@@ -8,6 +8,8 @@ import { ViewportCamera } from "@/viewport/viewportCamera";
 import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
 import { OptionBar } from "../../shell/OptionBar";
 import * as Toast from "../../Toast";
+import { applyPaintBucketFill } from "../pointerTools/paintBucket";
+import { getFacade, syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 
 // Mock useViewportRenderer
 const { mockFitToScreenAndRender } = vi.hoisted(() => ({
@@ -67,6 +69,13 @@ vi.mock("../useCanvasDerivedState", () => ({
 // Mock useCanvasKeyboard
 vi.mock("../useCanvasKeyboard", () => ({
   useCanvasKeyboard: vi.fn(),
+}));
+
+// Mock Tauri invoke so the REAL pixel-commit path (rust_pixels_write_region etc.)
+// can run without a live Rust runtime; faithful return shapes are set per-test.
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (cmd: string, args: any) => invokeMock(cmd, args),
 }));
 
 let setTool: (tool: string) => void = () => {};
@@ -3385,5 +3394,185 @@ describe("Text tool Phase 3 contract", () => {
     await tick();
     expect(textLayers().length).toBe(1);
     expect(editorRef.current.textEditSession()).not.toBeNull();
+  });
+});
+
+// jsdom lacks ImageData; mirror the harness used by paintBucket.rustFill.test.ts.
+// floodFill mutates .data in place and computeChangedRegion compares against a copy.
+class FakeImageData {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+  constructor(data: Uint8ClampedArray | number, w?: number, h?: number) {
+    if (typeof data === "number") {
+      this.width = data;
+      this.height = w!;
+      this.data = new Uint8ClampedArray(data * w! * 4);
+    } else {
+      this.width = w!;
+      this.height = h!;
+      this.data = data;
+    }
+  }
+}
+if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
+  (globalThis as { ImageData?: unknown }).ImageData = FakeImageData;
+}
+
+// ---------------------------------------------------------------------------
+// Native-authority pixel-commit facade sync wiring
+// ---------------------------------------------------------------------------
+// Every pixel-commit call site (paint-bucket fill, brush stroke, layer
+// adjustment bake, fill-layer bake, paint undo/redo) ends with
+// syncFacadeVersionFromPixel(docId, res.version); the record-snapshot path
+// (history.ts recordSnapshotHistory) does the same. All five + the snapshot
+// path share ONE sink: when native authority is armed, that sink mirrors the
+// committed Rust document version into the per-doc facade via
+// facade.syncRenderedVersionTo (up-only). When native authority is OFF the wasm
+// default path is byte-identical and the sink is a no-op.
+//
+// Drivable through the component/hook in this env: the paint-bucket fill, which
+// is a standalone production function invoked by CanvasViewport's pointer
+// dispatcher (useCanvasPointerTools -> applyPaintBucketFill) and needs only a
+// mocked paint surface + Tauri invoke. The other four pixel-commit sites are
+// hook closures (brush useBrushOverlay, useLayerActions adjustment,
+// layerOperations fill, useEditorCommands undo/redo) whose real commit requires
+// a live C4Surface / engine.getPaintSurface plus a full component render with a
+// GPU/canvas surface that jsdom/node cannot provide (a node/jsdom canvas limit).
+// Their identical `syncFacadeVersionFromPixel(docId,
+// res.version)` call is exercised through the sink + the paint-bucket path
+// below; see the report for the precise per-site reason each was not driven here.
+describe("Native authority: pixel-commit facade version sync (sink gating)", () => {
+  afterEach(() => {
+    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.removeItem("photrez.rustPixels");
+    vi.restoreAllMocks();
+  });
+
+  it("mirrors the committed version into the facade only when native authority is armed (wasm default is a no-op)", () => {
+    // Real production call-site shape feeding the shared sink:
+    const run = (docId: string, version: number) => syncFacadeVersionFromPixel(docId, version);
+
+    // Native authority ARMED -> facade must advance to the committed version.
+    localStorage.setItem("photrez.facadeAuthority", "native");
+    const f = getFacade("syncSink");
+    const spy = vi.spyOn(f, "syncRenderedVersionTo");
+
+    run("syncSink", 7);
+    expect(spy).toHaveBeenCalledWith(7);
+
+    // Default (wasm) path: byte-identical, the facade is never touched.
+    spy.mockClear();
+    localStorage.removeItem("photrez.facadeAuthority");
+    run("syncSink", 9);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("Native authority: paint-bucket pixel commit syncs facade version (real applyPaintBucketFill)", () => {
+  const DOC = "sync-bucket";
+  let facade: any;
+  let spy: ReturnType<typeof vi.spyOn>;
+
+  // jsdom canvas-less surface: getImageData yields a blank buffer, putImageData is a sink.
+  function makeBucketCtx() {
+    const surface = {
+      context: {
+        putImageData: vi.fn(),
+        getImageData: (_x: number, _y: number, w: number, h: number) => new FakeImageData(w, h),
+      },
+      pixelEpoch: 0,
+      pixelVersion: 0,
+    } as any;
+    const commit = vi.fn();
+    const uploadSurfaceTiles = vi.fn();
+    const layer = {
+      id: "L1", width: 8, height: 8, locked: false, visible: true, lockTransparency: false,
+      transform: { scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false, x: 0, y: 0 },
+    };
+    const engine: any = {
+      getActiveLayerId: () => "L1",
+      getLayer: (id: string) => (id === "L1" ? layer : null),
+      getSelection: () => null,
+      getPaintSurface: (id: string) => (id === "L1" ? surface : null),
+      snapshot: () => ({ __snap: true }),
+      getLayerImageBitmap: vi.fn(),
+      setLayerImageBitmap: vi.fn(),
+    };
+    const workspace: any = {
+      getActiveEngine: () => engine,
+      getActiveHistory: () => ({ commit }),
+      getActiveDocumentId: () => DOC,
+    };
+    const editor: any = {
+      activeTool: () => "paintBucket",
+      workspace,
+      renderer: { uploadSurfaceTiles },
+      scheduler: { requestRender: vi.fn() },
+      fgColor: () => "#ff0000",
+      fillTolerance: () => 0,
+      fillContiguous: () => true,
+    };
+    const ctx: any = {
+      editor,
+      getDocCoords: () => ({ x: 1, y: 1 }),
+      getCanvasRef: () => ({ current: null }),
+    };
+    return { surface, commit, uploadSurfaceTiles, ctx };
+  }
+
+  function armInvoke(version: number) {
+    invokeMock.mockImplementation(async (cmd: string, args: any) => {
+      if (cmd === "rust_pixels_get_epoch") return 0;
+      if (cmd === "rust_pixels_snapshot_layer") {
+        return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
+      }
+      if (cmd === "rust_pixels_write_region") {
+        return {
+          before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
+          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+          epoch: version,
+          version,
+        };
+      }
+      return undefined;
+    });
+  }
+
+  beforeEach(() => {
+    invokeMock.mockReset();
+    localStorage.setItem("photrez.facadeAuthority", "native");
+    localStorage.setItem("photrez.rustPixels", "1");
+    facade = getFacade(DOC);
+    spy = vi.spyOn(facade, "syncRenderedVersionTo");
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.removeItem("photrez.rustPixels");
+    vi.restoreAllMocks();
+  });
+
+  it("a real paint-bucket commit (native authority armed) syncs the facade to the committed version", async () => {
+    armInvoke(1);
+    const { ctx } = makeBucketCtx();
+    const handled = applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+    expect(handled).toBe(true);
+
+    // The canonical fill runs async (fire-and-forget); the sink must fire with version 1.
+    await vi.waitFor(() => {
+      expect(spy).toHaveBeenCalledWith(1);
+    }, { timeout: 3000 });
+  });
+
+  it("the same paint-bucket commit does NOT touch the facade when native authority is off (byte-identical default path)", async () => {
+    localStorage.removeItem("photrez.facadeAuthority");
+    armInvoke(1);
+    const { ctx } = makeBucketCtx();
+
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+
+    // Flush the async fill; the sink must remain a no-op (no sync call).
+    await new Promise((r) => setTimeout(r, 60));
+    expect(spy).not.toHaveBeenCalled();
   });
 });

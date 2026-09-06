@@ -10,6 +10,8 @@ import type {
 } from "./types";
 import { CONTRACT_VERSION } from "./types";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { invoke } from "@tauri-apps/api/core";
+import { nativeProtocol } from "./nativeClient";
 
 type WasmProtocol = {
   protocol_contract_version: () => number;
@@ -72,9 +74,10 @@ export function isFacadeEnabled(): boolean {
   }
 }
 
-// Native-authority plumbing (not yet routed): selects which engine backs the
-// protocol command path. Defaults to wasm so production keeps using the wasm
-// engine; this predicate is not yet read by any dispatch branch.
+// Native-authority dispatch selection: chooses which engine backs the protocol
+// command path. Defaults to wasm so production keeps using the wasm engine; when
+// native authority is active the predicate is read by the dispatch branches in
+// applyCommand, getSnapshot, getHistoryQuery, and historyCursorCommit.
 const FACADE_AUTHORITY_KEY = "photrez.facadeAuthority";
 
 export function isNativeAuthority(): boolean {
@@ -112,6 +115,97 @@ export function getContractVersion(): number {
   return CONTRACT_VERSION;
 }
 
+// ── Native-authority dispatch (gated, OFF by default) ────────────────────────
+// When native authority is active, the protocol command path is rerouted to the
+// per-document native ProtocolEngine in the Rust process-global REGISTRY (reached
+// via rust_pixels_open_document). Production (native authority off) keeps using
+// the wasm engine, byte-identical; no dispatch branch below runs in that case.
+// The single authoritative seed promise per doc. Created exactly ONCE, at the
+// document-open path (workspace.addDocument) with the REAL layers + starting
+// version, so the native engine is never seeded empty. Every bridge command
+// awaits this promise instead of seeding itself; a competing empty seed (the
+// previous behavior) would clobber the TS model with zero layers and lose data.
+const nativeSeedPromiseByDoc = new Map<string, Promise<void>>();
+
+// Native-authority adapter-registration promises (gated, OFF by default).
+// registerPayloadAdapter creates one per (doc, adapterId) chained after the
+// authoritative seed; applyCommand awaits it so the adapter is registered on the
+// native engine BEFORE the command that references it (prevents E_UNKNOWN_ADAPTER).
+const nativeAdapterRegByDoc = new Map<string, Promise<void>>();
+
+// Native-authority cutover seed: drop a doc's seed + adapter state on close so
+// reopening the SAME id re-seeds the engine with the restored model (a stale
+// resolved promise would otherwise skip the re-seed). No-op unless native active.
+export function clearNativeSeed(docId: string): void {
+  if (!isNativeAuthority()) return;
+  const key = docId === "" ? "default" : docId;
+  nativeSeedPromiseByDoc.delete(key);
+  for (const k of nativeAdapterRegByDoc.keys()) {
+    if (k === key || k.startsWith(`${key}::`)) nativeAdapterRegByDoc.delete(k);
+  }
+}
+
+// Authoritative per-doc seed. Created with REAL layers + version at the
+// document-open path before any command runs. Idempotent per doc: the first
+// call's (version, layers) win; later calls return the existing promise (the
+// Rust seed is only-when-empty as well).
+export function createNativeSeed(docId: string, version: number, layers: RenderLayer[]): Promise<void> {
+  if (!isNativeAuthority()) return Promise.resolve();
+  const key = docId === "" ? "default" : docId;
+  const existing = nativeSeedPromiseByDoc.get(key);
+  if (existing) return existing;
+  const p = (async () => {
+    await invoke("rust_pixels_open_document", { docId: key });
+    await nativeProtocol.protocol_seed_native(JSON.stringify({ version, layers }), key);
+  })();
+  nativeSeedPromiseByDoc.set(key, p);
+  return p;
+}
+
+// Awaits the authoritative seed for a doc. The document-open path is responsible
+// for creating it (with real layers) before any command fires; this never seeds
+// empty. If no seed exists the open path did not run first - resolve without
+// seeding so the subsequent native command surfaces that, never a silent
+// zero-layer clobber.
+function awaitNativeSeed(docId: string): Promise<void> {
+  if (!isNativeAuthority()) return Promise.resolve();
+  const key = docId === "" ? "default" : docId;
+  return nativeSeedPromiseByDoc.get(key) ?? Promise.resolve();
+}
+
+// Seed entry point used by seedFacadeFromEngine. Delegates to the single
+// authoritative seed so it can no longer be pre-empted by an empty bridge seed.
+export async function ensureNativeEngineSeeded(
+  docId: string,
+  version: number,
+  layers: RenderLayer[],
+): Promise<void> {
+  if (!isNativeAuthority()) return;
+  await createNativeSeed(docId, version, layers);
+}
+
+// Surface a protocol error uniformly as `CODE: message`. The wasm path rejects
+// with a JSON `{code,message}` envelope; the native path rejects with the bare
+// `"CODE: message"` string (Tauri v2 invoke rejects with that string on a Rust
+// Err(String)). Both normalize to the same Error shape, so a rejection surfaces
+// consistently, never as an unhandled rejection or a mis-parsed `{ok:false}`.
+export function normalizeProtocolError(e: unknown): Error {
+  const msg = e instanceof Error ? e.message : String(e);
+  try {
+    const parsed = JSON.parse(msg) as { code: string; message: string };
+    return new Error(`${parsed.code}: ${parsed.message}`);
+  } catch {
+    return new Error(msg);
+  }
+}
+
+// Test seam: clears native-authority cutover state so tests covering both the
+// default (wasm) and native paths stay isolated. Mirrors __resetEmulatedForTests.
+export function __resetNativeAuthorityForTests(): void {
+  nativeSeedPromiseByDoc.clear();
+  nativeAdapterRegByDoc.clear();
+}
+
 export async function applyCommand(envelope: CommandEnvelope): Promise<CommandResult> {
   if (envelope.contractVersion !== CONTRACT_VERSION) {
     throw new Error(
@@ -121,6 +215,25 @@ export async function applyCommand(envelope: CommandEnvelope): Promise<CommandRe
   const rustEnvelope = toRustEnvelope(envelope);
   const json = JSON.stringify(rustEnvelope);
   const docId = envelope.docId ?? "default";
+  if (isNativeAuthority()) {
+    await awaitNativeSeed(docId);
+    // Guarantee the adapter referenced by this command is registered on the
+    // native engine before applying. The legacy mirror registers it via
+    // registerPayloadAdapter (which resolves this promise after the seed), so
+    // awaiting it prevents Rust record_external from rejecting E_UNKNOWN_ADAPTER.
+    const key = docId === "" ? "default" : docId;
+    const adapterId = (JSON.parse(json) as { command?: { adapter_id?: string } }).command?.adapter_id;
+    if (adapterId) {
+      const reg = nativeAdapterRegByDoc.get(`${key}::${adapterId}`);
+      if (reg) await reg;
+    }
+    try {
+      const outJson = await nativeProtocol.protocol_apply_command_native(json, docId);
+      return JSON.parse(outJson) as CommandResult;
+    } catch (e) {
+      throw normalizeProtocolError(e);
+    }
+  }
   if (!wasm) {
     // Under photrez.facade=1 the facade must be Rust-backed — never
     // silently emulate a facade command while the wasm is unarmed (that
@@ -147,6 +260,15 @@ export async function applyCommand(envelope: CommandEnvelope): Promise<CommandRe
 }
 
 export async function getSnapshot(docId = "default"): Promise<RenderSnapshot> {
+  if (isNativeAuthority()) {
+    await awaitNativeSeed(docId);
+    try {
+      const j = await nativeProtocol.protocol_snapshot_native(docId);
+      return JSON.parse(j) as RenderSnapshot;
+    } catch (e) {
+      throw normalizeProtocolError(e);
+    }
+  }
   if (!wasm) return { version: 0, layers: [] };
   const j = wasm.protocol_snapshot_json(docId);
   return JSON.parse(j) as RenderSnapshot;
@@ -272,17 +394,48 @@ function finishEmu(idx: number): void {
 
 // Per-document adapter registration. The engine owns its adapters, so a fresh
 // per-document engine must be registered before its first external transition.
-// Register unconditionally before EVERY record: Rust `register_adapter` is
-// idempotent (protocol.rs) and the emulator `emuAdapters` is a Set, so a
-// redundant call is free. There is deliberately NO dedup Set here -- a dedup Set
-// would skip re-registration after a per-doc engine is reset (adapter gone) and
-// cause a permanent E_UNKNOWN_ADAPTER -> historyDegraded.
+// Register before EVERY record; dedup via the nativeAdapterRegByDoc key so
+// repeated calls reuse the same promise instead of spawning redundant
+// registrations. A per-doc engine reset evicts the key (clearNativeSeed deletes
+// every `${key}::` entry), so the next record re-registers against the fresh
+// engine: the dedup does NOT block re-registration after a reset.
 export function registerPayloadAdapter(adapterId: string, docId = "default"): void {
+  if (isNativeAuthority()) {
+    // Register the adapter on the per-document native ProtocolEngine so the first
+    // legacy-commit mirror (recordExternalTransitionFor) does not hit Rust
+    // E_UNKNOWN_ADAPTER. Chained after the authoritative seed so the engine exists;
+    // idempotent per (doc, adapter).
+    const key = docId === "" ? "default" : docId;
+    const regKey = `${key}::${adapterId}`;
+    if (!nativeAdapterRegByDoc.has(regKey)) {
+      const seedP = nativeSeedPromiseByDoc.get(key) ?? Promise.resolve();
+      nativeAdapterRegByDoc.set(
+        regKey,
+        seedP.then(async () => {
+          // Surface a failed registration instead of swallowing it: a swallowed
+          // rejection here degrades the ordering guarantee to a downstream
+          // E_UNKNOWN_ADAPTER. (The Rust command is idempotent, so a genuine
+          // failure is a real engine problem that must not be hidden.)
+          await nativeProtocol.protocol_register_adapter_native(key, adapterId);
+        }),
+      );
+    }
+    return;
+  }
   if (wasm?.protocol_register_payload_adapter) wasm.protocol_register_payload_adapter(adapterId, docId);
   else if (adapterId !== "native") emuAdapters.add(adapterId);
 }
 
 export async function getHistoryQuery(docId = "default"): Promise<HistoryQueryResult> {
+  if (isNativeAuthority()) {
+    await awaitNativeSeed(docId);
+    try {
+      const j = await nativeProtocol.protocol_history_query_native(docId);
+      return JSON.parse(j) as HistoryQueryResult;
+    } catch (e) {
+      throw normalizeProtocolError(e);
+    }
+  }
   if (wasm?.protocol_history_query_json) return JSON.parse(wasm.protocol_history_query_json(docId)) as HistoryQueryResult;
   return {
     cursor: emuCursor,
@@ -304,6 +457,15 @@ export async function getHistoryQuery(docId = "default"): Promise<HistoryQueryRe
 }
 
 export async function historyCursorCommit(seq: number, direction: "undo" | "redo", docId = "default"): Promise<CommandResult> {
+  if (isNativeAuthority()) {
+    await awaitNativeSeed(docId);
+    try {
+      const j = await nativeProtocol.protocol_history_cursor_commit_native(docId, seq, direction);
+      return JSON.parse(j) as CommandResult;
+    } catch (e) {
+      throw normalizeProtocolError(e);
+    }
+  }
   if (wasm?.protocol_history_cursor_commit) {
     return JSON.parse(wasm.protocol_history_cursor_commit(JSON.stringify({ seq, direction }), docId)) as CommandResult;
   }

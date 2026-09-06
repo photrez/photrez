@@ -8,6 +8,8 @@ import {
   tokenForBitmap,
   type BitmapField,
 } from "./bitmapStore";
+import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { getSnapshot } from "@/lib/protocol/bridge";
 
 /**
  * Route every TS commit into the SAME Rust `ProtocolEngine` cursor so TS and Rust
@@ -124,10 +126,23 @@ export async function restoreSnapshotBitmapsByToken(
   let snapshot: SnapshotPayload | null = null;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    snapshot = (await invoke<SnapshotPayload | null>(
+    const snap = (await invoke<SnapshotPayload | null>(
       direction === "undo" ? "rust_pixels_undo_snapshot" : "rust_pixels_redo_snapshot",
       { docId },
     )) as SnapshotPayload | null;
+    snapshot = snap;
+    // Native-authority version sync: the snapshot cursor advances the native
+    // engine document version; push it into the facade so a later facade command
+    // is not rejected with E_VERSION_MISMATCH. Gated no-op unless native active.
+    // The snapshot cursor's returned payload carries its STORED `version` field
+    // (TS always records version:0), NOT the engine document version, so reading
+    // `snap.version` here would be a dead up-only no-op. Source the authoritative
+    // engine DV from getSnapshot() (protocol_snapshot_native returns the live
+    // engine documentVersion) instead.
+    if (snap) {
+      const engSnap = await getSnapshot(docId);
+      syncFacadeVersionFromPixel(docId, engSnap.version);
+    }
   } catch {
     // Tauri v2 invoke REJECTS with an error-envelope object on a Rust Err; the
     // snapshot cursor is best-effort — a failure must never break undo/redo.
@@ -500,7 +515,16 @@ export class CommandHistory {
           .then(({ invoke }) => invoke(cmd, args))
           .catch(() => {});
       try {
-        fire("rust_pixels_record_snapshot", { docId, before: beforePayload, after: afterPayload });
+        fire("rust_pixels_record_snapshot", { docId, before: beforePayload, after: afterPayload })
+          .then((res) => {
+            // Native-authority version sync: the snapshot command advances the
+            // native engine document version; push it into the facade so a later
+            // facade command is not rejected with E_VERSION_MISMATCH. Gated no-op
+            // unless native authority is active.
+            const v = (res as { version?: number } | undefined)?.version;
+            if (typeof v === "number") syncFacadeVersionFromPixel(docId, v);
+          })
+          .catch(() => {});
       } catch {
         /* bridge is best-effort; a failure must never break TS history */
       }

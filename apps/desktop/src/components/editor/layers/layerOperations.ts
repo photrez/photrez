@@ -7,6 +7,7 @@ import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import type { SelectionState } from "@/features/selection/SelectionTypes";
 import type { LayerNode } from "@/engine/types";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
 import { showToast } from "../Toast";
 
@@ -289,6 +290,7 @@ export function fillActiveLayerWithColor(
         applyRustTilesToSurface(surface.context, res.after);
         surface.pixelEpoch = res.epoch;
         surface.pixelVersion = res.version;
+        syncFacadeVersionFromPixel(docId, res.version);
         renderer?.uploadSurfaceTiles?.(activeId, layer.width, layer.height, res.after.map(t => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
         // C5.4 bitmap sync: bitmap was set before Rust write (setLayerImageBitmap).
         // Now that write_region succeeded, bitmap and Rust are proven identical.

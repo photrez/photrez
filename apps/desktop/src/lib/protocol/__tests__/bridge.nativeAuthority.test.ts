@@ -1,7 +1,8 @@
 // Native-authority predicate test. `isNativeAuthority()` maps the
 // `photrez.facadeAuthority` flag: absent/unknown/throw -> default wasm (false);
-// true ONLY when the flag is explicitly "native". No dispatch reads this yet
-// (native-authority plumbing, not yet routed).
+// true ONLY when the flag is explicitly "native". The predicate is read by the
+// native-authority dispatch branches (applyCommand, getSnapshot, getHistoryQuery,
+// historyCursorCommit).
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { isNativeAuthority } from "../bridge";

@@ -10,7 +10,7 @@ import {
 import { cancelLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession } from "../canvas/pointerTools/textTool";
 import { showToast } from "../Toast";
-import { getFacade, isFacadeEnabled, seedFacadeFromEngine, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
+import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
@@ -253,6 +253,7 @@ export function useLayerActions() {
             applyRustTilesToSurface(surface.context, res.after);
             surface.pixelEpoch = res.epoch;
             surface.pixelVersion = res.version;
+            syncFacadeVersionFromPixel(docId, res.version);
             renderer?.uploadSurfaceTiles?.(activeId, bakedLayer.width, bakedLayer.height,
               res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
 
@@ -490,8 +491,11 @@ export function useLayerActions() {
     if (isFacadeEnabled()) {
       const docId = workspace.getActiveDocumentId() ?? "default";
       const facade = getFacade(docId);
-      // Seed facade from engine on first use (one-time projection, not dual owner after)
-      seedFacadeFromEngine(engine as never, facade);
+      // Seed facade from engine on first use (one-time projection, not dual owner after).
+      // Await so the native cutover seed (and its version sync via getSnapshot) completes
+      // BEFORE the first facade command builds its expectedVersion envelope. Without the
+      // await the init lands a microtask late and the first command can hit E_VERSION_MISMATCH.
+      await seedFacadeFromEngine(engine as never, facade);
       try {
         const snap = await facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`);
         // Project facade snapshot into engine (engine becomes read-only view, no history)

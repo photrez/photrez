@@ -141,7 +141,7 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
   it("wired bridge brushStroke uses the snake_case layer_id wire field (serde contract)", async () => {
     // DISCRIMINATOR for the wire-format bug: `#[serde(rename_all="camelCase", tag="type")]`
     // on the Rust `Command` enum renames the VARIANT only, NOT the struct-variant
-    // fields - so `BrushStroke` expects layer_id (snake_case). The pre-fix sender
+    // fields - so `BrushStroke` expects layer_id (snake_case). The earlier sender
     // emitted `layerId`, which the real Rust engine rejects with
     // E_ENVELOPE_PARSE (missing field `layer_id`). After the bridge.ts sender fix
     // (`layer_id`), this must NOT throw and must apply end-to-end.

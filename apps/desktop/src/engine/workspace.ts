@@ -3,6 +3,9 @@ import { MAX_OPEN_DOCUMENTS } from "./types";
 import { DocumentEngine } from "./document";
 import { CommandHistory } from "./history";
 import { releaseBitmapStore } from "./bitmapStore";
+import { clearNativeSeed, createNativeSeed, isNativeAuthority } from "@/lib/protocol/bridge";
+import { removeFacade } from "@/lib/protocol/facadeRegistry";
+import type { RenderLayer } from "@/lib/protocol/types";
 
 export interface DocumentSession {
   engine: DocumentEngine;
@@ -41,6 +44,28 @@ export class WorkspaceManager {
     this.sessions.set(id, session);
     this.notifyRustPixelDoc("rust_pixels_open_document", id);
     this.activeDocumentId = id;
+
+    // Native-authority cutover seed: this is the earliest point that holds the
+    // live engine model with its real layers, and it always precedes every
+    // protocol command for the doc. Seed the native engine here with the REAL
+    // layers + starting version so a later bridge command can never seed it
+    // empty (which would clobber the TS model). Gated so the default (wasm)
+    // path is unchanged.
+    if (isNativeAuthority()) {
+      const seededLayers: RenderLayer[] = session.engine.getLayers().map((l) => ({
+        id: l.id,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+        resourceId: 0,
+        x: l.transform.x,
+        y: l.transform.y,
+        scaleX: l.transform.scaleX,
+        scaleY: l.transform.scaleY,
+        rotation: l.transform.rotation,
+      }));
+      createNativeSeed(id, 0, seededLayers).catch(() => {});
+    }
 
     // Connect document engine change triggers back to workspace context updates.
     // Only mark session as dirty if the engine itself reports dirty — this way
@@ -81,6 +106,15 @@ export class WorkspaceManager {
       // Drop the doc's token registry (does NOT close bitmaps — close ownership
       // stays with the history disposeSnapshot path / GC; see bitmapStore).
       releaseBitmapStore(id);
+
+      // Native-authority cutover seed: drop this doc's native seed/adapter state
+      // so reopening the same id re-seeds the engine with the restored model
+      // (a stale resolved promise would otherwise skip the re-seed). Gated: no-op off.
+      if (isNativeAuthority()) clearNativeSeed(id);
+      // Evict the per-doc facade alongside the native seed so a reopened doc id
+      // gets a FRESH facade (not a stale one at an old renderedVersion). Gated by
+      // the same native-authority flag: the default (wasm) path is byte-identical.
+      if (isNativeAuthority()) removeFacade(id);
 
       // consecutive assignments to `this.activeDocumentId` where the
       // first (line 53) computed `keys.indexOf(id) + 1` against the
