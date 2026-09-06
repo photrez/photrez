@@ -2,7 +2,7 @@
 // Holds only: renderedVersion + snapshot cache (read-only projection) + transient interaction.
 // All persistent mutations go via Command -> Rust -> delta. Correctness via expectedVersion + baseVersion.
 
-import { applyCommand, getSnapshot } from "./bridge";
+import { applyCommand, flushExternalTransitions, getSnapshot, isNativeAuthority } from "./bridge";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch } from "./types";
 import { isDeltaApplicable } from "./types";
@@ -66,6 +66,7 @@ export class EditorFacade {
   // in the same synchronous task would read a stale expectedVersion and catch a
   // spurious version-mismatch rejection.
   async addLayer(name: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "addLayer", name } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
@@ -73,6 +74,7 @@ export class EditorFacade {
   }
 
   async deleteLayer(id: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "deleteLayer", id } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
@@ -90,6 +92,7 @@ export class EditorFacade {
     if (!this.transientTransform) return null;
     const { id, live } = this.transientTransform;
     this.transientTransform = null;
+    await this.syncFromEngine();
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: this.renderedVersion,
@@ -105,6 +108,7 @@ export class EditorFacade {
   transientTransformActive(): boolean { return this.transientTransform !== null; }
 
   async setOpacity(id: string, opacity: number): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setOpacity", id, opacity } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
@@ -123,6 +127,7 @@ export class EditorFacade {
     const { layerId, points, settings } = this.transientStroke;
     this.transientStroke = null;
     if (points.length === 0) return this.snapshot;
+    await this.syncFromEngine();
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: this.renderedVersion,
@@ -137,6 +142,7 @@ export class EditorFacade {
 
   async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
+    await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "undo" } });
     // External history handoff: the walker landed on a legacy (external) entry
     // and set the engine's pending-external barrier. Surface the handoff so the
@@ -154,6 +160,7 @@ export class EditorFacade {
   }
   async redo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
+    await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "redo" } });
     if (res.status === "external" && res.externalSeq !== undefined) {
       this.lastExternalHandoff = { seq: res.externalSeq, direction: "redo" };
@@ -166,6 +173,22 @@ export class EditorFacade {
 
   private async refreshSnapshot(): Promise<void> {
     try { const snap = await getSnapshot(this.docId); this.applySnapshot(snap); } catch {}
+  }
+
+  // ADR 0014 native-authority version sync: under native authority the legacy
+  // history mirror bumps the engine documentVersion outside this facade's command
+  // envelope and is fire-and-forget. Await any in-flight mirror, then read the
+  // authoritative engine version, so renderedVersion matches the native engine
+  // before we build expectedVersion. This closes the fill -> setOpacity interleave
+  // that rejected with E_VERSION_MISMATCH. The wasm default path no-ops here, so
+  // behavior is unchanged. The native engine remains the single version owner.
+  private async syncFromEngine(): Promise<void> {
+    if (!isNativeAuthority()) return;
+    await flushExternalTransitions(this.docId);
+    try {
+      const snap = await getSnapshot(this.docId);
+      this.syncRenderedVersionTo(snap.version);
+    } catch {}
   }
 
   // ADR 0008 C2: external records advance the authoritative DocumentVersion

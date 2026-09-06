@@ -184,6 +184,39 @@ export async function ensureNativeEngineSeeded(
   await createNativeSeed(docId, version, layers);
 }
 
+// Native-authority external-transition barrier (ADR 0014): the legacy history
+// mirror (recordExternalTransitionFor) bumps the native engine documentVersion
+// outside the facade's own command envelope, and it is fire-and-forget. A facade
+// command issued while that mirror is still in flight can read a stale
+// renderedVersion and be rejected with E_VERSION_MISMATCH (the fill -> setOpacity
+// interleave). Track the in-flight mirror so a facade command can await it and
+// then read the authoritative version. Gated: only the native path registers and
+// flushes; the wasm default path never touches this map, so flush is a no-op
+// there and behavior is unchanged.
+const externalTransitionPendingByDoc = new Map<string, Promise<void>>();
+
+export function setExternalTransitionPending(docId: string, p: Promise<void>): void {
+  if (!isNativeAuthority()) return;
+  const key = docId === "" ? "default" : docId;
+  const prev = externalTransitionPendingByDoc.get(key);
+  externalTransitionPendingByDoc.set(
+    key,
+    (prev ?? Promise.resolve())
+      .then(() => p)
+      .catch(() => {}),
+  );
+}
+
+export async function flushExternalTransitions(docId: string): Promise<void> {
+  if (!isNativeAuthority()) return;
+  const key = docId === "" ? "default" : docId;
+  const p = externalTransitionPendingByDoc.get(key);
+  if (p) {
+    externalTransitionPendingByDoc.delete(key);
+    await p;
+  }
+}
+
 // Surface a protocol error uniformly as `CODE: message`. The wasm path rejects
 // with a JSON `{code,message}` envelope; the native path rejects with the bare
 // `"CODE: message"` string (Tauri v2 invoke rejects with that string on a Rust

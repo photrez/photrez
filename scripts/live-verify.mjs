@@ -187,6 +187,23 @@ async function waitReady(cdp, timeoutMs) {
   return false;
 }
 
+// The facade must be Rust-backed before any command runs (photrez.facade=1 arms
+// the wasm engine via ensureFacadeReady at EditorShell boot, fire-and-forget).
+// That resolves asynchronously, so wait for it explicitly rather than racing it.
+async function waitFacadeReady(cdp, timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const ok = await cdp.evaluate(
+        "(async () => { try { const m = await import(location.origin + '/src/lib/protocol/bridge.ts'); if (m.isFacadeArmed && m.isFacadeArmed()) return true; try { await m.ensureFacadeReady(); } catch (e) {} return !!(m.isFacadeArmed && m.isFacadeArmed()); } catch (e) { return false; } })()",
+      );
+      if (ok) return true;
+    } catch {}
+    await sleep(300);
+  }
+  return false;
+}
+
 // ── app lifecycle ───────────────────────────────────────────────────────────
 let child = null;
 let childPid = null;
@@ -323,6 +340,66 @@ const STEP_ADD = stepFn(`
   window.__lv.addedId = snap.layers[snap.layers.length - 1].id;
 `);
 
+// Pixel-commit -> facade bridge. Drives the REAL production paint-bucket fill
+// (applyPaintBucketFill) on an existing layer with the canonical pixel flag on,
+// so it routes through rust_pixels_write_region and then
+// syncFacadeVersionFromPixel(docId, res.version) — the wiring under test. Then
+// issues a FOLLOWING facade command (setOpacity): under native authority this
+// would throw E_VERSION_MISMATCH if the pixel-commit version had NOT been carried
+// into facade.renderedVersion. Layer count is unchanged by a pixel commit.
+const STEP_PIXELCOMMIT = stepFn(`
+  const addedId = window.__lv.addedId;
+  const targetId = addedId;
+  const ed = window.__photrezEditor;
+  const layer = engine.getLayer(targetId);
+  if (!layer) throw new Error('pixelCommit: target layer missing');
+  // A paint surface requires a layer imageBitmap; give the added layer one.
+  if (!layer.imageBitmap) {
+    const off = new OffscreenCanvas(layer.width || 200, layer.height || 200);
+    const cx = off.getContext('2d');
+    if (cx) cx.clearRect(0, 0, off.width, off.height);
+    engine.setLayerImageBitmap(targetId, off.transferToImageBitmap());
+  }
+  // The fill operates on the active layer; make it the added layer.
+  engine.setActiveLayer(targetId);
+  // Enable the canonical pixel path so the fill routes through rust_pixels_write_region.
+  localStorage.setItem('photrez.rustPixels', '1');
+  if (typeof ed.setActiveTool === 'function') ed.setActiveTool('paintBucket');
+  const { applyPaintBucketFill } = await import(location.origin + '/src/components/editor/canvas/pointerTools/paintBucket.ts');
+  const ctx = {
+    editor: ed,
+    getDocCoords: () => ({ x: 0, y: 0 }),
+    getCanvasRef: () => ({ current: null }),
+  };
+  const rvBefore = facade.renderedVersion;
+  const surfBefore = engine.getPaintSurface(targetId);
+  const pvBefore = surfBefore ? surfBefore.pixelVersion : 0;
+  applyPaintBucketFill(ctx, { pointerId: 1, clientX: 0, clientY: 0 });
+  let committed = false;
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const s = engine.getPaintSurface(targetId);
+    if (s && s.pixelVersion > pvBefore) { committed = true; break; }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const rvAfterFill = facade.renderedVersion;
+  // Following facade command: the interleave that fails under native if the
+  // pixel-commit version was not propagated into the facade.
+  let followError = null;
+  try {
+    const snap = await facade.setOpacity(targetId, 0.5);
+    if (snap) engine.applyFacadeSnapshot(snap);
+  } catch (e) { followError = String((e && e.message) || e); }
+  const dig = window.__digest();
+  dig.rvBefore = rvBefore;
+  dig.rvAfterFill = rvAfterFill;
+  dig.followOk = !followError;
+  dig.followError = followError;
+  dig.committed = committed;
+  dig.note = 'rvBefore=' + rvBefore + ' rvAfterFill=' + rvAfterFill + ' followOk=' + (!followError) + (followError ? (' err=' + followError) : '') + ' committed=' + committed;
+  return dig;
+`);
+
 const STEP_OPACITY = stepFn(`
   const layers = engine.getLayers();
   const target = layers.find((l) => !l.isBackground) || layers[layers.length - 1];
@@ -359,6 +436,7 @@ const STEP_REDO = stepFn(`
 // Module-scoped so both runSequence() and the main() divergence check share it.
 const FACADE_STEPS = [
   ["addLayer", STEP_ADD],
+  ["pixelCommit", STEP_PIXELCOMMIT],
   ["setOpacity", STEP_OPACITY],
   ["transform", STEP_TRANSFORM],
   ["deleteLayer", STEP_DELETE],
@@ -389,8 +467,13 @@ const STEP_DOCB = `
 `;
 
 // Expected layer-count sequence for doc A across the scripted steps.
-// [docA initial=1, +addLayer=2, setOpacity=2, transform=2, delete=1, undo=2, redo=1]
-const EXPECTED_DOCA_LAYERS = [1, 2, 2, 2, 1, 2, 1];
+// [docA initial=1, +addLayer=2, pixelCommit=2 (no count change), setOpacity=2,
+//  transform=2, delete=1, undo=2, redo=1]
+// pixelCommit exercises the PIXEL-COMMIT -> syncFacadeVersionFromPixel -> facade
+// bridge: a real rust_pixels_write_region bumps the native engine documentVersion,
+// which must be carried into the facade's renderedVersion for the FOLLOWING facade
+// command (setOpacity) to succeed instead of throwing E_VERSION_MISMATCH.
+const EXPECTED_DOCA_LAYERS = [1, 2, 2, 2, 2, 1, 2, 1];
 
 async function runSequence(cdp) {
   const captured = []; // { step, digest }
@@ -503,6 +586,11 @@ async function main() {
           if (!(await waitReady(cdp, 60000))) {
             err("FAIL: app not ready after reload/flag application.");
             exitCode = 1;
+          } else if (!(await waitFacadeReady(cdp, 90000))) {
+            // The wasm engine never armed: a facade command would throw
+            // E_FACADE_NOT_READY. Surface it instead of a misleading command error.
+            err("FAIL: facade/wasm engine never armed after reload (photrez.facade=1).");
+            exitCode = 1;
           } else {
             log("app ready (flags applied). driving facade sequence...");
             const { captured, consoleErrors } = await runSequence(cdp);
@@ -528,10 +616,13 @@ async function main() {
               const s = typeof d === "object" && "layerCount" in d
                 ? `layers=${d.layerCount} active=${String(d.activeLayerId).slice(0, 8)} rv=${d.renderedVersion} facadeLayers=${d.facadeLayerCount} canvas=${d.canvasHash}`
                 : JSON.stringify(d);
-              log(`  ${c.step.padEnd(16)} ${s}`);
+              const note = (typeof d === "object" && d.note) ? `  ${d.note}` : "";
+              log(`  ${c.step.padEnd(16)} ${s}${note}`);
             }
 
-            const pass = consoleErrors.length === 0 && !divergence && isolationOk && tauriErrors.length === 0;
+            const pixelCommit = captured.find((c) => c.step === "pixelCommit");
+            const pixelCommitOk = !pixelCommit || (pixelCommit.digest && pixelCommit.digest.committed !== false);
+            const pass = consoleErrors.length === 0 && !divergence && isolationOk && tauriErrors.length === 0 && pixelCommitOk;
             log("");
             if (pass) {
               log("PASS: no console errors/panics, layer-count sequence matches facade path, per-doc isolation OK.");
@@ -541,6 +632,7 @@ async function main() {
               if (tauriErrors.length) log("  tauri stderr: " + tauriErrors.slice(0, 3).join(" | "));
               if (divergence) log(`  digest divergence at '${divergence.step}': expected layers=${divergence.expected}, got ${divergence.actual}`);
               if (!isolationOk) log(`  per-doc isolation FAILED: docB=${docB.docBLayerCount}, docA-after-B=${docB.docALayerCountAfterB}`);
+              if (!pixelCommitOk) log(`  pixelCommit did not run a real pixel commit (committed=${pixelCommit?.digest?.committed ?? "n/a"}): bridge NOT exercised.`);
             }
             exitCode = pass ? 0 : 1;
           }

@@ -22,6 +22,7 @@ import {
   isFacadeEnabled,
   isNativeAuthority,
   registerPayloadAdapter,
+  setExternalTransitionPending,
   resetWasmDoc,
 } from "./bridge";
 import { CONTRACT_VERSION } from "./types";
@@ -441,11 +442,16 @@ export function installFacadeCommitShim(providers: {
       }
       // Same docId as the external-cursor handoff (facadeHistoryHandoff) so both
       // seams address one engine; engine.getId() is that shared expression.
-      void recordExternalTransitionFor(engine.getId(), {
-        label: label ?? "Legacy Edit",
-        affectedLayerIds: affected,
-        snapshot: snap,
-      });
+      // Register the in-flight mirror so a following facade command can await it
+      // (native-authority version-sync barrier; the wasm default path no-ops).
+      setExternalTransitionPending(
+        engine.getId(),
+        recordExternalTransitionFor(engine.getId(), {
+          label: label ?? "Legacy Edit",
+          affectedLayerIds: affected,
+          snapshot: snap,
+        }).then(() => {}),
+      );
     } catch {
       // never let instrumentation break the legacy caller
     }
@@ -476,12 +482,16 @@ export function installFacadeCommitShim(providers: {
       }
       // Route the mirror to the SAME engine the external-cursor handoff
       // (facadeHistoryHandoff) reads/walks: the active engine's id. Both seams
-      // use engine.getId() so they address one engine.
-      void recordExternalTransitionFor(engine.getId(), {
-        label: label ?? "Legacy Edit",
-        affectedLayerIds: affected,
-        snapshot: before,
-      });
+      // use engine.getId() so they address one engine. Register the in-flight
+      // mirror for the native-authority version-sync barrier; wasm no-ops.
+      setExternalTransitionPending(
+        engine.getId(),
+        recordExternalTransitionFor(engine.getId(), {
+          label: label ?? "Legacy Edit",
+          affectedLayerIds: affected,
+          snapshot: before,
+        }).then(() => {}),
+      );
     } catch {
       // never let instrumentation break the legacy caller
     }
