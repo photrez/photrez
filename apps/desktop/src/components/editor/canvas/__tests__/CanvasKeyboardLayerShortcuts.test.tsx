@@ -889,6 +889,7 @@ describe("canvas layer keyboard shortcuts", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "5" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayer(layer.id)?.opacity).toBeCloseTo(0.5);
     expect(ws.getActiveHistory()?.canUndo()).toBe(true);
@@ -907,6 +908,7 @@ describe("canvas layer keyboard shortcuts", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "0" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayer(layer.id)?.opacity).toBeCloseTo(1.0);
 
@@ -944,6 +946,7 @@ describe("canvas layer keyboard shortcuts", () => {
     expect(ws.getActiveHistory()?.getUndoCount()).toBe(0);
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "7" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.engine.getLayer(layer.id)?.opacity).toBeCloseTo(0.7);
     expect(ws.getActiveHistory()?.getUndoCount()).toBe(1);
 

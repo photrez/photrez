@@ -145,11 +145,11 @@ function canonicalSorted(layers: readonly any[]): string {
 // Seeds a facade from the engine (Background), then adds the named ordinary
 // layers through the facade and projects each snapshot into the engine so the
 // facade owns them. Returns the last projected snapshot.
-function seedFacadeWithLayers(engine: any, facade: any, names: string[]) {
+async function seedFacadeWithLayers(engine: any, facade: any, names: string[]) {
   seedFacadeFromEngine(engine, facade);
   let snap: any = facade.snapshot;
   for (const name of names) {
-    snap = facade.addLayer(name);
+    snap = await facade.addLayer(name);
     engine.applyFacadeSnapshot(snap);
   }
   return snap;
@@ -172,17 +172,17 @@ afterEach(() => {
 });
 
 describe("Delete Layer EditorClient routing", () => {
-  it("facade ON: routes Delete Layer through the facade client -> snapshot projected, no legacy history", () => {
+  it("facade ON: routes Delete Layer through the facade client -> snapshot projected, no legacy history", async () => {
     localStorage.setItem("photrez.facade", "1");
     const { engine, history, renderer, wrapper } = createWrapper();
     const facade = getFacade("doc-a");
-    const snap = seedFacadeWithLayers(engine, facade, ["Victim"]);
+    const snap = await seedFacadeWithLayers(engine, facade, ["Victim"]);
     const victim = snap.layers[snap.layers.length - 1];
     engine.setActiveLayer(victim.id);
 
     const delSpy = vi.spyOn(facade, "deleteLayer");
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleDeleteActiveLayer();
+    await result.handleDeleteActiveLayer();
 
     // routed to facade delete, ONCE, with the right id
     expect(delSpy).toHaveBeenCalledTimes(1);
@@ -194,7 +194,7 @@ describe("Delete Layer EditorClient routing", () => {
     expect(history.getUndoCount()).toBe(0);
   });
 
-  it("facade OFF: routes to the byte-identical legacy TS path (no facade, no applyCommand)", () => {
+  it("facade OFF: routes to the byte-identical legacy TS path (no facade, no applyCommand)", async () => {
     localStorage.setItem("photrez.facade", "0");
     const { engine, history, wrapper } = createWrapper();
     const layer = engine.addLayer("Extra");
@@ -202,18 +202,18 @@ describe("Delete Layer EditorClient routing", () => {
     const facadeSpy = vi.spyOn(bridge, "applyCommand");
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleDeleteActiveLayer();
+    await result.handleDeleteActiveLayer();
 
     expect(engine.getLayer(layer.id)).toBeUndefined();
     expect(history.getUndoCount()).toBe(1);
     expect(facadeSpy).not.toHaveBeenCalled(); // no facade command issued
   });
 
-  it("ERR SAFE: a Rust Err (applyCommand throws) fails closed — no half-mutation, toast shown", () => {
+  it("ERR SAFE: a Rust Err (applyCommand throws) fails closed — no half-mutation, toast shown", async () => {
     localStorage.setItem("photrez.facade", "1");
     const { engine, wrapper } = createWrapper();
     const facade = getFacade("doc-a");
-    const snap = seedFacadeWithLayers(engine, facade, ["Victim"]);
+    const snap = await seedFacadeWithLayers(engine, facade, ["Victim"]);
     const victim = snap.layers[snap.layers.length - 1];
     engine.setActiveLayer(victim.id);
 
@@ -225,7 +225,7 @@ describe("Delete Layer EditorClient routing", () => {
     });
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleDeleteActiveLayer();
+    await result.handleDeleteActiveLayer();
 
     // fail-closed: the layer is NOT deleted, facade snapshot unchanged
     expect(engine.getLayer(victim.id)).toBeTruthy();
@@ -235,11 +235,11 @@ describe("Delete Layer EditorClient routing", () => {
     expect(String(toastMock.mock.calls[0][0])).toContain("Cannot delete layer");
   });
 
-  it("GHOST GUARD: a facade no-op delete (victim left present) is blocked — texture NOT destroyed, toast shown", () => {
+  it("GHOST GUARD: a facade no-op delete (victim left present) is blocked — texture NOT destroyed, toast shown", async () => {
     localStorage.setItem("photrez.facade", "1");
     const { engine, renderer, wrapper } = createWrapper();
     const facade = getFacade("doc-a");
-    const snap = seedFacadeWithLayers(engine, facade, ["Victim"]);
+    const snap = await seedFacadeWithLayers(engine, facade, ["Victim"]);
     const victim = snap.layers[snap.layers.length - 1];
     engine.setActiveLayer(victim.id);
 
@@ -257,7 +257,7 @@ describe("Delete Layer EditorClient routing", () => {
     });
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleDeleteActiveLayer();
+    await result.handleDeleteActiveLayer();
 
     // blocked: layer NOT removed, texture NOT destroyed, failure surfaced.
     expect(engine.getLayer(victim.id)).toBeTruthy();
@@ -269,11 +269,11 @@ describe("Delete Layer EditorClient routing", () => {
 });
 
 describe("Delete Layer parity oracle (independent-copy legacy reference)", () => {
-  it("facade delete projection == independent-copy legacy reference on layer set/metadata", () => {
+  it("facade delete projection == independent-copy legacy reference on layer set/metadata", async () => {
     localStorage.setItem("photrez.facade", "1");
     const { engine } = createWrapper();
     const facade = getFacade("doc-a");
-    seedFacadeWithLayers(engine, facade, ["A", "B"]); // Background + A + B
+    await seedFacadeWithLayers(engine, facade, ["A", "B"]); // Background + A + B
     const victim = engine.getLayers().find((l: any) => l.name === "A");
     const victimId = victim!.id;
 
@@ -291,7 +291,7 @@ describe("Delete Layer parity oracle (independent-copy legacy reference)", () =>
       { applyFacadeSnapshot: (s) => engine.applyFacadeSnapshot(s as never) },
       facade,
     );
-    const res = client.deleteLayer(victimId);
+    const res = await client.deleteLayer(victimId);
     expect(res.status).toBe("facade");
     expect(facade.snapshot.layers.find((l: any) => l.id === victimId)).toBeUndefined();
 

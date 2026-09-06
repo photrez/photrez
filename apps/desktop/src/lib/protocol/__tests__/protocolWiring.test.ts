@@ -12,48 +12,46 @@ import { CONTRACT_VERSION, isDeltaApplicable } from "../types";
 describe("protocol wiring — Ticket 1", () => {
   beforeEach(() => __resetEmulatedForTests());
 
-  it("contractVersion vs documentVersion are distinct numbers", () => {
+  it("contractVersion vs documentVersion are distinct numbers", async () => {
     expect(getContractVersion()).toBe(CONTRACT_VERSION);
-    const r = applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
+    const r = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
     expect(r.documentVersion).toBe(1);
     expect(r.delta.baseVersion).toBe(0);
     expect(r.delta.version).toBe(1);
   });
 
-  it("rejects wrong contractVersion", () => {
-    expect(() =>
-      applyCommand({ contractVersion: 999, command: { type: "noop" } }),
-    ).toThrow(/E_CONTRACT_VERSION/);
+  it("rejects wrong contractVersion", async () => {
+    await expect(applyCommand({ contractVersion: 999, command: { type: "noop" } })).rejects.toThrow(/E_CONTRACT_VERSION/);
   });
 
-  it("snapshot vs delta semantics — baseVersion check", () => {
-    const r1 = applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
+  it("snapshot vs delta semantics — baseVersion check", async () => {
+    const r1 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
     expect(isDeltaApplicable(r1.delta, 0)).toBe(true);
     expect(isDeltaApplicable(r1.delta, 999)).toBe(false);
-    const r2 = applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
+    const r2 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
     expect(r2.delta.baseVersion).toBe(1);
     expect(isDeltaApplicable(r2.delta, 1)).toBe(true);
     expect(isDeltaApplicable(r2.delta, 0)).toBe(false);
   });
 
-  it("delta carries resourceId and dirtyRect (resource registry)", () => {
-    const r = applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "x" } });
+  it("delta carries resourceId and dirtyRect (resource registry)", async () => {
+    const r = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "x" } });
     const ch = r.delta.changes[0] as { kind: "upsert"; layer: { resourceId: number; dirtyRect: unknown } };
     expect(ch.kind).toBe("upsert");
     expect(ch.layer.resourceId).toBeGreaterThanOrEqual(1);
     expect(ch.layer.dirtyRect).toBeTruthy();
   });
 
-  it("core is command -> delta, not mutate then refetch", () => {
-    const r = applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
+  it("core is command -> delta, not mutate then refetch", async () => {
+    const r = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
     // No separate snapshot fetch needed; delta arrives with the result
     expect(r.delta.changes.length).toBe(0);
     expect(r.documentVersion).toBe(r.delta.version);
   });
 
-  it("stale delta is not applicable — renderer must request snapshot", () => {
-    const r1 = applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
-    const r2 = applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
+  it("stale delta is not applicable — renderer must request snapshot", async () => {
+    const r1 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
+    const r2 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
     // renderedVersion = 0, r2 is base 1 -> not applicable
     expect(isDeltaApplicable(r2.delta, 0)).toBe(false);
     // r1 is still applicable to 0

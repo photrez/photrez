@@ -86,26 +86,26 @@ describe("estimateEmuNativeBytes unique layer-reference counting", () => {
 });
 
 describe("emulator history memoryCostBytes is a plausible non-double-counted number", () => {
-  it("a shared-layer op yields memoryCostBytes below the naive before+after sum", () => {
+  it("a shared-layer op yields memoryCostBytes below the naive before+after sum", async () => {
     // Drive the emulator (no wasm wired in this file) through a shared-layer op:
     // addLayer A, addLayer B, then transform A (B is unchanged => shared ref).
-    const addA = bridge.applyCommand({
+    const addA = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "A" },
     }) as unknown as { delta: { changes: Array<{ layer: RenderLayer }> } };
     const idA = addA.delta.changes[0].layer.id;
-    const addB = bridge.applyCommand({
+    const addB = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "B" },
     }) as unknown as { delta: { changes: Array<{ layer: RenderLayer }> } };
     const idB = addB.delta.changes[0].layer.id;
 
-    bridge.applyCommand({
+    await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "transformLayer", id: idA, transform: { x: 5, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } },
     });
 
-    const q = bridge.getHistoryQuery();
+    const q = await bridge.getHistoryQuery();
     const entry = q.entries[q.entries.length - 1]; // the transform entry
     expect(entry.memoryCostBytes).toBeGreaterThan(0);
 

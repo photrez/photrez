@@ -137,10 +137,10 @@ function makeKeyboardHarness(docId = "kb-facade") {
 
 // Seeds a facade from the engine then adds `name` through the facade and projects
 // the snapshot into the engine, leaving that layer facade-owned.
-function seedFacadeOwnedLayer(engine: any, name: string) {
+async function seedFacadeOwnedLayer(engine: any, name: string) {
   const facade = getFacade(engine.getId());
   seedFacadeFromEngine(engine, facade);
-  const snap = facade.addLayer(name);
+  const snap = await facade.addLayer(name);
   engine.applyFacadeSnapshot(snap);
   return engine.getLayers().find((l: any) => l.name === name)!;
 }
@@ -180,6 +180,7 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
     const before = engine.getLayers().length;
 
     fireKey({ key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
+    await new Promise((r) => setTimeout(r, 0));
 
     // Routed through the migrated funnel -> facade owns the add.
     expect(addSpy).toHaveBeenCalledTimes(1);
@@ -198,7 +199,7 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
     const engine = h.session.engine;
-    const victim = seedFacadeOwnedLayer(engine, "Victim");
+    const victim = await seedFacadeOwnedLayer(engine, "Victim");
     engine.setActiveLayer(victim.id);
 
     const facade = getFacade(engine.getId());
@@ -208,6 +209,7 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
     const recordSpy = vi.spyOn(editor.workspace.getActiveHistory()!, "recordSnapshotHistory");
 
     fireKey({ key: "Delete" });
+    await new Promise((r) => setTimeout(r, 0));
 
     // Routed through the migrated funnel -> facade delete, never the raw engine.
     expect(facadeDeleteSpy).toHaveBeenCalledTimes(1);
@@ -230,7 +232,7 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
     const engine = h.session.engine;
-    const victim = seedFacadeOwnedLayer(engine, "Victim2");
+    const victim = await seedFacadeOwnedLayer(engine, "Victim2");
     engine.setActiveLayer(victim.id);
 
     const facade = getFacade(engine.getId());
@@ -238,6 +240,7 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
     const engineDeleteSpy = vi.spyOn(engine, "deleteLayer");
 
     fireKey({ key: "Backspace" });
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(facadeDeleteSpy).toHaveBeenCalledTimes(1);
     expect(engineDeleteSpy).not.toHaveBeenCalled();
@@ -252,18 +255,19 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
     const engine = h.session.engine;
-    const layer = seedFacadeOwnedLayer(engine, "OpacityLayer");
+    const layer = await seedFacadeOwnedLayer(engine, "OpacityLayer");
     engine.setActiveLayer(layer.id);
     // Set opacity via the facade (raw engine.setLayerOpacity throws E_FACADE_OWNED
     // on a facade-owned layer under flag ON, so we cannot use it here).
     const facade = getFacade(engine.getId());
-    engine.applyFacadeSnapshot(facade.setOpacity(layer.id, 0.3));
+    engine.applyFacadeSnapshot(await facade.setOpacity(layer.id, 0.3));
 
     const setOpacitySpy = vi.spyOn(facade, "setOpacity");
     const rawSetOpacitySpy = vi.spyOn(engine, "setLayerOpacity");
     const commitSpy = vi.spyOn(editor.workspace.getActiveHistory()!, "commit");
 
     fireKey({ key: "5" });
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(setOpacitySpy).toHaveBeenCalledTimes(1);
     expect(setOpacitySpy).toHaveBeenCalledWith(layer.id, 0.5);
@@ -365,6 +369,7 @@ describe("canvas keyboard shortcuts legacy routing (flag OFF, byte-identical)", 
     const commitSpy = vi.spyOn(editor.workspace.getActiveHistory()!, "commit");
 
     fireKey({ key: "5" });
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(setOpacitySpy).not.toHaveBeenCalled();
     expect(rawSetOpacitySpy).toHaveBeenCalledTimes(1);
@@ -387,6 +392,7 @@ describe("canvas keyboard shortcuts legacy routing (flag OFF, byte-identical)", 
     fireKey({ key: "5" }); // same opacity -> no-op, no commit
     expect(editor.workspace.getActiveHistory()!.getUndoCount()).toBe(0);
     fireKey({ key: "7" }); // different -> commit
+    await new Promise((r) => setTimeout(r, 0));
     expect(engine.getLayer(layer.id)?.opacity).toBeCloseTo(0.7);
     expect(editor.workspace.getActiveHistory()!.getUndoCount()).toBe(1);
     fireKey({ key: "7" }); // repeat -> no-op
@@ -427,8 +433,8 @@ describe("canvas keyboard delete multi-select routing", () => {
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
     const engine = h.session.engine;
-    const a = seedFacadeOwnedLayer(engine, "A");
-    const b = seedFacadeOwnedLayer(engine, "B");
+    const a = await seedFacadeOwnedLayer(engine, "A");
+    const b = await seedFacadeOwnedLayer(engine, "B");
     engine.setActiveLayer(a.id);
     editor.setSelectedLayerIds([a.id, b.id]);
 
@@ -437,6 +443,7 @@ describe("canvas keyboard delete multi-select routing", () => {
     const engineDeleteSpy = vi.spyOn(engine, "deleteLayer");
 
     fireKey({ key: "Delete" });
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(facadeDeleteSpy).toHaveBeenCalledTimes(2);
     expect(engineDeleteSpy).not.toHaveBeenCalled();
@@ -451,7 +458,7 @@ describe("canvas keyboard delete multi-select routing", () => {
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
     const engine = h.session.engine;
-    const owned = seedFacadeOwnedLayer(engine, "Owned");
+    const owned = await seedFacadeOwnedLayer(engine, "Owned");
     const legacy = engine.addLayer("Legacy");
     editor.setSelectedLayerIds([owned.id, legacy.id]);
 
@@ -512,6 +519,7 @@ describe("canvas keyboard facade routing - add then delete leaves no orphan stat
 
     // Add via keyboard (facade)
     fireKey({ key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
+    await new Promise((r) => setTimeout(r, 0));
     expect(engine.getLayers().length).toBe(initial + 1);
     // The newly-added layer is the one not present before the add (the blank
     // doc's original layer is the Background and cannot be deleted, so we must
@@ -526,6 +534,7 @@ describe("canvas keyboard facade routing - add then delete leaves no orphan stat
     engine.setActiveLayer(added.id);
     const beforeDelete = engine.getLayers().length;
     fireKey({ key: "Delete" });
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(engine.getLayers().length).toBe(beforeDelete - 1);
     expect(engine.getLayer(added.id)).toBeUndefined();

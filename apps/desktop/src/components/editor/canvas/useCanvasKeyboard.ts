@@ -75,7 +75,7 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
     registerShortcut("Enter", "useCanvasKeyboard");
     registerShortcut("Arrow keys", "useCanvasKeyboard");
 
-    const handleKeyDown = async (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement;
       if (
         (active &&

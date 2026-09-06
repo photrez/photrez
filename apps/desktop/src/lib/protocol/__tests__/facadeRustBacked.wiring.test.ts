@@ -60,9 +60,9 @@ afterEach(() => {
 });
 
 describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", () => {
-  it("getWasmExportModule() wired bridge.applyCommand to the REAL Rust engine", () => {
+  it("getWasmExportModule() wired bridge.applyCommand to the REAL Rust engine", async () => {
     // Fresh engine: the wired bridge applies through the wasm boundary.
-    const res = bridge.applyCommand({
+    const res = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "Rust" },
     }) as unknown as { documentVersion: number };
@@ -72,7 +72,7 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     //   * UNWIRED:  getSnapshot() -> { version:0, layers:[] } (bridge.ts) and the
     //              TS emulator (emulateApply) NEVER writes to it.
     // So a NON-EMPTY snapshot after a wired command is PROOF the real wasm ran.
-    const snap = bridge.getSnapshot();
+    const snap = await bridge.getSnapshot();
     expect(snap.layers.length).toBeGreaterThan(0);
     expect(snap.version).toBeGreaterThan(0);
     expect(snap.layers[0].name).toBe("Rust");
@@ -85,16 +85,16 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     expect(upsert.layer.resourceId).toBeGreaterThanOrEqual(1);
   });
 
-  it("wired bridge deleteLayer returns the Rust Remove delta shape (kind + id + resourceId)", () => {
-    const add = bridge.applyCommand({
+  it("wired bridge deleteLayer returns the Rust Remove delta shape (kind + id + resourceId)", async () => {
+    const add = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "A" },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
     const id = add.delta.changes[0].layer.id;
     // Real engine holds exactly the layer it just created.
-    expect(bridge.getSnapshot().layers.length).toBe(1);
+    expect((await bridge.getSnapshot()).layers.length).toBe(1);
 
-    const del = bridge.applyCommand({
+    const del = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "deleteLayer", id },
     }) as unknown as {
@@ -114,44 +114,44 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     expect(rm).not.toHaveProperty("resource_id");
     expect(del.delta.version).toBe(del.documentVersion);
     // Discriminator: the real engine snapshot dropped the layer.
-    expect(bridge.getSnapshot().layers.length).toBe(0);
+    expect((await bridge.getSnapshot()).layers.length).toBe(0);
   });
 
-  it("wired bridge undo/redo walk the real Rust H0 stream", () => {
-    bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", name: "del" } }) as unknown as { documentVersion: number };
-    bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", name: "victim" } });
-    expect(bridge.getSnapshot().layers.length).toBe(2);
+  it("wired bridge undo/redo walk the real Rust H0 stream", async () => {
+    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", name: "del" } }) as unknown as { documentVersion: number };
+    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", name: "victim" } });
+    expect((await bridge.getSnapshot()).layers.length).toBe(2);
 
     // Undo the last native entry -> the real engine rolls back to 1 layer.
-    const undo = bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "undo" } }) as unknown as {
+    const undo = await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "undo" } }) as unknown as {
       documentVersion: number;
       delta: { changes: unknown[] };
     };
     expect(undo.delta.changes.length).toBeGreaterThan(0); // Rust diff produced a change
     expect(undo.documentVersion).toBeGreaterThan(0);
-    expect(bridge.getSnapshot().layers.length).toBe(1);
+    expect((await bridge.getSnapshot()).layers.length).toBe(1);
 
-    const redo = bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "redo" } }) as unknown as {
+    const redo = await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "redo" } }) as unknown as {
       documentVersion: number;
     };
     expect(redo.documentVersion).toBeGreaterThan(undo.documentVersion);
-    expect(bridge.getSnapshot().layers.length).toBe(2);
+    expect((await bridge.getSnapshot()).layers.length).toBe(2);
   });
 
-  it("wired bridge brushStroke uses the snake_case layer_id wire field (serde contract)", () => {
+  it("wired bridge brushStroke uses the snake_case layer_id wire field (serde contract)", async () => {
     // DISCRIMINATOR for the wire-format bug: `#[serde(rename_all="camelCase", tag="type")]`
     // on the Rust `Command` enum renames the VARIANT only, NOT the struct-variant
     // fields - so `BrushStroke` expects layer_id (snake_case). The pre-fix sender
     // emitted `layerId`, which the real Rust engine rejects with
     // E_ENVELOPE_PARSE (missing field `layer_id`). After the bridge.ts sender fix
     // (`layer_id`), this must NOT throw and must apply end-to-end.
-    const add = bridge.applyCommand({
+    const add = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "stroke" },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
     const id = add.delta.changes[0].layer.id;
 
-    const res = bridge.applyCommand({
+    const res = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: {
         type: "brushStroke",
@@ -174,6 +174,6 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     expect(upsert?.layer.id).toBe(id);
     expect(upsert?.layer.dirtyRect?.width ?? 0).toBeGreaterThanOrEqual(30);
     // The real engine snapshot holds exactly the stroked layer.
-    expect(bridge.getSnapshot().layers.length).toBe(1);
+    expect((await bridge.getSnapshot()).layers.length).toBe(1);
   });
 });

@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 describe("snapshot-history mirror (delete funnel producer)", () => {
-  it("FIX: non-owned delete records an External entry in the WASM engine (no cursor drift)", () => {
+  it("FIX: non-owned delete records an External entry in the WASM engine (no cursor drift)", async () => {
     const applySpy = vi.spyOn(bridge, "applyCommand");
 
     const history = new CommandHistory();
@@ -90,21 +90,21 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
 
     // Engine actually received the mirror: projection has exactly one external
     // entry and the cursor advanced by one - TS undo stack (1) aligns with WASM.
-    const proj = getHistoryProjection(DOC_ID);
+    const proj = await getHistoryProjection(DOC_ID);
     const externalEntries = proj.entries.filter((e) => e.origin.startsWith("external:"));
     expect(externalEntries.length).toBe(1);
     expect(proj.cursor).toBe(1);
     expect(history.canUndo()).toBe(true); // TS authority still records the undo-point
   });
 
-  it("alignment holds across multiple deletes (1 mirror per delete, no drift)", () => {
+  it("alignment holds across multiple deletes (1 mirror per delete, no drift)", async () => {
     const history = new CommandHistory();
     for (let i = 0; i < 3; i++) {
       const before = { layers: [{ id: "bg" }, { id: `l${i}` }], width: 1, height: 1 } as never;
       const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
       history.recordSnapshotHistory(before, after, "Delete Layer");
     }
-    const proj = getHistoryProjection(DOC_ID);
+    const proj = await getHistoryProjection(DOC_ID);
     const externalEntries = proj.entries.filter((e) => e.origin.startsWith("external:"));
     expect(externalEntries.length).toBe(3);
     expect(proj.cursor).toBe(3);
@@ -128,7 +128,7 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     expect(history.canUndo()).toBe(true); // TS authority still records
   });
 
-  it("mirror forwards the PRE-action `before` payload (undo point), not `after`", () => {
+  it("mirror forwards the PRE-action `before` payload (undo point), not `after`", async () => {
     const history = new CommandHistory();
     const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
     const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
@@ -143,26 +143,26 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     expect(restored).toBe(before);
 
     // The mirror already fired one External entry for this delete.
-    const proj = getHistoryProjection(DOC_ID);
+    const proj = await getHistoryProjection(DOC_ID);
     const externalEntries = proj.entries.filter((e) => e.origin.startsWith("external:"));
     expect(externalEntries.length).toBe(1);
     expect(proj.cursor).toBe(1);
   });
 
-  it("mirror forwards the `Delete Layer` label into the External entry", () => {
+  it("mirror forwards the `Delete Layer` label into the External entry", async () => {
     const history = new CommandHistory();
     const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
     const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
 
     history.recordSnapshotHistory(before, after, "Delete Layer");
 
-    const proj = getHistoryProjection(DOC_ID);
+    const proj = await getHistoryProjection(DOC_ID);
     const externalEntries = proj.entries.filter((e) => e.origin.startsWith("external:"));
     expect(externalEntries.length).toBe(1);
     expect(externalEntries[0].label).toBe("Delete Layer");
   });
 
-  it("round-trip: mirrored delete lands as External, then undo+confirmExternalCursor clears the barrier and both cursors step back by one", () => {
+  it("round-trip: mirrored delete lands as External, then undo+confirmExternalCursor clears the barrier and both cursors step back by one", async () => {
     const history = new CommandHistory();
     const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
     const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
@@ -171,7 +171,7 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     history.recordSnapshotHistory(before, after, "Delete Layer");
 
     // WASM side: one external entry recorded; cursor sits at 1.
-    const proj = getHistoryProjection(DOC_ID);
+    const proj = await getHistoryProjection(DOC_ID);
     const externalEntries = proj.entries.filter((e) => e.origin.startsWith("external:"));
     expect(externalEntries.length).toBe(1);
     const seq = externalEntries[0].seq;
@@ -183,18 +183,18 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     // Real facade walk: undo lands on the mirrored external entry, so the facade
     // records a pending-external handoff (the wedge) keyed to that seq (no WASM
     // cursor move yet). This is exactly what the external-cursor handoff drives.
-    getFacade(DOC_ID).undo();
+    await getFacade(DOC_ID).undo();
     expect(getFacade(DOC_ID).lastExternalHandoff).toEqual({ seq, direction: "undo" });
     expect(proj.cursor).toBe(1); // barrier does not itself move the cursor
 
     // External-cursor handoff: confirm the external cursor (undo). The real
     // mirror-plus-handoff interaction this change feeds - it clears the barrier
     // and steps the WASM cursor back by one.
-    const res = confirmExternalCursor(DOC_ID, seq, "undo");
+    const res = await confirmExternalCursor(DOC_ID, seq, "undo");
     expect(res.ok).toBe(true);
 
     // WASM cursor stepped back by one.
-    const proj2 = getHistoryProjection(DOC_ID);
+    const proj2 = await getHistoryProjection(DOC_ID);
     expect(proj2.cursor).toBe(0);
 
     // TS side steps back by one too (undo the recorded snapshot).

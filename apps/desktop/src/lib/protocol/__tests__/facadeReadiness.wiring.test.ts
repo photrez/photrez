@@ -49,42 +49,40 @@ afterEach(() => {
 });
 
 describe("Facade readiness gate (flag ON, engine arming)", () => {
-  it("flag ON + wasm NOT armed -> facade command throws E_FACADE_NOT_READY (never emulates)", () => {
+  it("flag ON + wasm NOT armed -> facade command throws E_FACADE_NOT_READY (never emulates)", async () => {
     // Hardening: the discriminator below assumes the bridge starts unarmed, so
     // assert it explicitly (a test that accidentally ran after arming would make
     // the gate's effect invisible and the assertion vacuous).
     expect(isFacadeArmed()).toBe(false);
 
     // Bridge is unarmed (fresh file). A facade command MUST NOT emulate.
-    expect(() =>
-      applyCommand({
-        contractVersion: CONTRACT_VERSION,
-        command: { type: "addLayer", name: "ShouldNotEmulate" },
-      }),
-    ).toThrow(/E_FACADE_NOT_READY/);
+    await expect(applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      command: { type: "addLayer", name: "ShouldNotEmulate" },
+    })).rejects.toThrow(/E_FACADE_NOT_READY/);
 
     // If the gate fell through to the emulator, beginEmu would have pushed a
     // history entry. Since the gate blocks it, the emulator history stays EMPTY
     // — proof the emulator never ran and no emu state/version was produced to
     // diverge from Rust. (getSnapshot() is NOT a usable probe: on an unarmed
     // bridge it hard-codes {version:0,layers:[]} and never reflects emulation.)
-    expect(getHistoryQuery().entries.length).toBe(0);
+    expect((await getHistoryQuery()).entries.length).toBe(0);
   });
 
-  it("flag OFF + wasm NOT armed -> applyCommand STILL emulates (legacy path unchanged)", () => {
+  it("flag OFF + wasm NOT armed -> applyCommand STILL emulates (legacy path unchanged)", async () => {
     // The default (flag OFF) production path must remain byte-identical: the
     // emulator is the legacy authority and must keep running (this is what a
     // non-facade app relies on today). Under flag OFF the gate must NOT fire.
     localStorage.removeItem("photrez.facade");
 
-    const res = applyCommand({
+    const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "Legacy" },
     }) as unknown as { documentVersion: number };
 
     // The emulator applied the command (version bumped to 1, entry recorded).
     expect(res.documentVersion).toBe(1);
-    expect(getHistoryQuery().entries.length).toBe(1);
+    expect((await getHistoryQuery()).entries.length).toBe(1);
   });
 
   it("flag ON + after ensureFacadeReady() -> the SAME command runs on the REAL wasm", async () => {
@@ -93,7 +91,7 @@ describe("Facade readiness gate (flag ON, engine arming)", () => {
     const armed = await ensureFacadeReady();
     expect(typeof armed.protocol_apply_command).toBe("function");
 
-    const res = applyCommand({
+    const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "RealRust" },
     }) as unknown as { documentVersion: number };
@@ -102,7 +100,7 @@ describe("Facade readiness gate (flag ON, engine arming)", () => {
     //   * armed:    getSnapshot() -> wasm.protocol_snapshot_json() (engine state)
     //   * unarmed:  getSnapshot() -> { version:0, layers:[] } (bridge.ts) and the
     //              TS emulator NEVER writes to it.
-    const snap = getSnapshot();
+    const snap = await getSnapshot();
     expect(snap.version).toBeGreaterThan(0);
     expect(snap.layers.length).toBeGreaterThan(0);
     expect(snap.layers[0].name).toBe("RealRust");

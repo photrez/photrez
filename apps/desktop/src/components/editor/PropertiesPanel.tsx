@@ -9,6 +9,7 @@ import { useDialog } from "./dialogs/DialogProvider";
 import { SectionHeader } from "./layers/SectionHeader";
 import { CanvasProperties } from "./canvas/CanvasProperties";
 import { LayerThumb } from "./layers/LayerThumb";
+import { showToast } from "./Toast";
 import { normalizeRotation, getLayerAabb } from "@/viewport/transformGeometry";
 import { getAvailableFonts, getInstantFonts, type FontFamily } from "@/lib/fontEnumeration";
 import type { TextData, TextStrokeAlign } from "@/engine/textTypes";
@@ -322,7 +323,7 @@ export function PropertiesPanel() {
     }
   };
 
-  const finishOpacityEdit = () => {
+  const finishOpacityEdit = async () => {
     const id = opacityEditLayerId();
     const engine = workspace.getActiveEngine();
     // Facade commit boundary: ONE SetOpacity command (expectedVersion enforced)
@@ -334,8 +335,13 @@ export function PropertiesPanel() {
       clearOpacityPreview();
       facadeOpacityStart = null;
       if (final !== null && Math.abs(final - (facadeOpacityStart ?? final)) > 0.0001) {
-        const r = commitFacadeOpacity(engine as never, [id], final);
-        void r;
+        try {
+          await commitFacadeOpacity(engine as never, [id], final);
+        } catch (e) {
+          showToast(`Cannot set opacity: ${(e as Error).message}`, "error");
+          setOpacityEditLayerId(null);
+          return;
+        }
         scheduler.requestRender();
         workspace.notifyVisualChange();
       }
@@ -346,7 +352,7 @@ export function PropertiesPanel() {
     setOpacityEditLayerId(null);
   };
 
-  const commitTransform = (patch: Partial<Transform2D>, label: string) => {
+  const commitTransform = async (patch: Partial<Transform2D>, label: string) => {
     const engine = workspace.getActiveEngine();
     const id = selectedLayerId();
     if (!engine || !id) return false;
@@ -356,7 +362,14 @@ export function PropertiesPanel() {
     // Ticket 2.2: facade-owned layers commit through Rust (one command per
     // committed edit, expectedVersion enforced, projection updates the model).
     if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
-      const ok = facadeCommitNumericTransform(engine, id, patch);
+      let ok = false;
+      try {
+        ok = await facadeCommitNumericTransform(engine, id, patch);
+      } catch (e) {
+        console.error(e);
+        showToast(`Cannot apply transform: ${(e as Error).message}`, "error");
+        return false;
+      }
       if (!ok) return false;
       scheduler.requestRender();
       workspace.notifyVisualChange();

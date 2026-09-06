@@ -45,16 +45,18 @@ function makeDoc(id: string) {
   return { engine, facade };
 }
 
+function ownedViaProjection(): void {}
+
 describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
-  it("single facade-owned edit: ONE SetOpacity command w/ expectedVersion + projection + zero legacy mutation", () => {
+  it("single facade-owned edit: ONE SetOpacity command w/ expectedVersion + projection + zero legacy mutation", async () => {
     const { engine, facade } = makeDoc("docO");
-    facade.addLayer("L");
+    await facade.addLayer("L");
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const id = facade.snapshot.layers.find((l) => l.name === "L")!.id;
     const vBefore = facade.renderedVersion;
     const applySpy = vi.spyOn(bridge, "applyCommand");
 
-    const r = commitFacadeOpacity(engine as never, [id], 0.42);
+    const r = await commitFacadeOpacity(engine as never, [id], 0.42);
 
     expect(r.status).toBe("applied");
     expect(r.count).toBe(1);
@@ -70,15 +72,15 @@ describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
     expect(env.expectedVersion).toBe(vBefore); // mandatory guard
   });
 
-  it("all-owned multi-edit: one command PER layer, sequential expectedVersions", () => {
+  it("all-owned multi-edit: one command PER layer, sequential expectedVersions", async () => {
     const { engine, facade } = makeDoc("docO2");
-    facade.addLayer("A");
-    facade.addLayer("B");
+    await facade.addLayer("A");
+    await facade.addLayer("B");
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const ids = facade.snapshot.layers.map((l) => l.id).slice(-2);
 
     const spy = vi.spyOn(bridge, "applyCommand");
-    const r = commitFacadeOpacity(engine as never, ids, 0.3);
+    const r = await commitFacadeOpacity(engine as never, ids, 0.3);
 
     expect(r.status).toBe("applied");
     expect(r.count).toBe(2);
@@ -89,49 +91,49 @@ describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
     expect(calls[1][0].command.id).toBe(ids[1]);
   });
 
-  it("mixed selection rejected atomically (zero commands)", () => {
+  it("mixed selection rejected atomically (zero commands)", async () => {
     ownedViaProjection();
     const { engine } = makeDoc("docM");
     const facade = getFacade("docM");
-    facade.addLayer("Owned");
+    await facade.addLayer("Owned");
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const ownedId = facade.snapshot.layers[facade.snapshot.layers.length - 1].id;
     expect(isFacadeOwnedLayer(ownedId)).toBe(true);
     void ownedViaProjection;
 
-    const r = commitFacadeOpacity(engine as never, [ownedId, "legacy-bg"], 0.5);
+    const r = await commitFacadeOpacity(engine as never, [ownedId, "legacy-bg"], 0.5);
     expect(r.status).toBe("mixed-rejected");
   });
 
-  it("empty selection -> silent no-op status", () => {
+  it("empty selection -> silent no-op status", async () => {
     const { engine } = makeDoc("docE");
-    const r = commitFacadeOpacity(engine as never, [], 0.5);
+    const r = await commitFacadeOpacity(engine as never, [], 0.5);
     expect(r.status).toBe("empty");
   });
 
-  it("undo/redo walk the H0 stream and restore/reapply opacity", () => {
+  it("undo/redo walk the H0 stream and restore/reapply opacity", async () => {
     const { engine, facade } = makeDoc("docU");
-    facade.addLayer("U");
+    await facade.addLayer("U");
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const id = facade.snapshot.layers[facade.snapshot.layers.length - 1].id;
     const before = facade.snapshot.layers.find((l) => l.id === id)!.opacity;
 
-    facade.setOpacity(id, 0.25);
+    await facade.setOpacity(id, 0.25);
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(facade.snapshot.layers.find((l) => l.id === id)!.opacity).toBeCloseTo(0.25, 6);
 
-    facade.undo(); // H0 native walker
+    await facade.undo(); // H0 native walker
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(id)!.opacity).toBeCloseTo(before, 6);
 
-    facade.redo();
+    await facade.redo();
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(id)!.opacity).toBeCloseTo(0.25, 6);
   });
 
-  it("transient preview ticks send ZERO IPC and preview signal carries the value", () => {
+  it("transient preview ticks send ZERO IPC and preview signal carries the value", async () => {
     const { engine, facade } = makeDoc("docP");
-    facade.addLayer("P");
+    await facade.addLayer("P");
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const id = facade.snapshot.layers[facade.snapshot.layers.length - 1].id;
     const spy = vi.spyOn(bridge, "applyCommand");
@@ -147,29 +149,25 @@ describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
     expect((rs.layers[0] as { opacity?: number }).opacity).toBe(0.6);
   });
 
-  it("expectedVersion stale -> E_VERSION_MISMATCH propagates (mandatory guard)", () => {
+  it("expectedVersion stale -> E_VERSION_MISMATCH propagates (mandatory guard)", async () => {
     const { engine, facade } = makeDoc("docV");
-    facade.addLayer("V");
+    await facade.addLayer("V");
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const id = facade.snapshot.layers[facade.snapshot.layers.length - 1].id;
     // bump version behind a stale caller
-    bridge.applyCommand({ contractVersion: 1, command: { type: "noop" } });
-    expect(() =>
-      bridge.applyCommand({
-        contractVersion: 1,
-        expectedVersion: facade.renderedVersion - 1,
-        command: { type: "setOpacity", id, opacity: 0.5 },
-      }),
-    ).toThrow(/E_VERSION_MISMATCH/);
+    await bridge.applyCommand({ contractVersion: 1, command: { type: "noop" } });
+    await expect(bridge.applyCommand({
+      contractVersion: 1,
+      expectedVersion: facade.renderedVersion - 1,
+      command: { type: "setOpacity", id, opacity: 0.5 },
+    })).rejects.toThrow(/E_VERSION_MISMATCH/);
   });
 
-  it("legacy path unchanged when flag OFF / non-owned (status legacy)", () => {
+  it("legacy path unchanged when flag OFF / non-owned (status legacy)", async () => {
     localStorage.removeItem("photrez.facade");
     const { engine } = makeDoc("docL");
-    const r = commitFacadeOpacity(engine as never, ["any"], 0.5);
+    const r = await commitFacadeOpacity(engine as never, ["any"], 0.5);
     expect(r.status).toBe("legacy"); // caller falls back to untouched legacy code
     expect(hasFacadeOwnedLayers()).toBe(false);
   });
 });
-
-function ownedViaProjection(): void {}

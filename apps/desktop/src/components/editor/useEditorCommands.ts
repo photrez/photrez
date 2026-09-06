@@ -281,7 +281,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // step's model restore (engine.restore() throws E_FACADE_OWNED - mixed
       // history constraint, tracked separately). It must not claim the restore
       // finished.
-      if (runFacadeExternalHandoff(editor, direction)) return;
+      if (await runFacadeExternalHandoff(editor, direction)) return;
     }
 
     try {

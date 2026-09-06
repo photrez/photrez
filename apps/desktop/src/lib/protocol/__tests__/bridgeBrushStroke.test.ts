@@ -21,15 +21,15 @@ afterEach(() => {
 });
 
 describe("emulator brushStroke command consistency (no wasm wired)", () => {
-  it("applies the same brushStroke command the production commitStroke() sends", () => {
-    const add = bridge.applyCommand({
+  it("applies the same brushStroke command the production commitStroke() sends", async () => {
+    const add = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", name: "L" },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
     const id = add.delta.changes[0].layer.id;
 
     // Same command shape as editorFacade.commitStroke() (layerId / points / settings).
-    const res = bridge.applyCommand({
+    const res = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: {
         type: "brushStroke",
@@ -49,8 +49,8 @@ describe("emulator brushStroke command consistency (no wasm wired)", () => {
     expect(upsert.layer.dirtyRect?.width ?? 0).toBeGreaterThanOrEqual(30);
   });
 
-  it("brushStroke on a missing layer produces an empty delta, not a throw", () => {
-    const res = bridge.applyCommand({
+  it("brushStroke on a missing layer produces an empty delta, not a throw", async () => {
+    const res = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: {
         type: "brushStroke",

@@ -12,6 +12,13 @@ import type { KeyboardShortcutContext } from "./context";
  *
  * `key`/`ctrl` are computed once by the caller (shared with tool shortcuts).
  */
+// NOTE: routing is intentionally SYNCHRONOUS. The async facade/opacity work it
+// triggers (handleAddLayer / handleDeleteActiveLayer / commitFacadeOpacity) runs
+// fire-and-forget and completes on a microtask - the same best-effort, non-blocking
+// pattern the history shim uses. Keeping the routing decision synchronous means the
+// keyboard handler behaves byte-identically to before the async facade migration:
+// tool switches and layer-op routing stay immediate, and event consumption is decided
+// before any microtask yield. Tests that assert the *result* of the async work await it.
 export function handleLayerOpsKey(
   ctx: KeyboardShortcutContext,
   e: KeyboardEvent,
@@ -26,7 +33,7 @@ export function handleLayerOpsKey(
   // Block destructive layer operations during an active transform session:
   // they would commit to global history, but Ctrl+Z during a transform only
   // reaches the session's local undo stack, making them un-undoable.
-  // (Flip / Ctrl+G is intentionally allowed — it mutates the transform and
+  // (Flip / Ctrl+G is intentionally allowed - it mutates the transform and
   // is captured by the session's mini undo stack.)
   if (layerTransformSession()) {
     if (
@@ -56,7 +63,7 @@ export function handleLayerOpsKey(
     return true;
   }
 
-  // Free Transform: Ctrl+T — switch to Move tool and enable transform handles
+  // Free Transform: Ctrl+T - switch to Move tool and enable transform handles
   if (ctrl && !e.shiftKey && !e.altKey && (key === "t" || e.code === "KeyT")) {
     e.preventDefault();
     e.stopPropagation();
@@ -66,7 +73,7 @@ export function handleLayerOpsKey(
     return true;
   }
 
-  // Stamp Visible: Ctrl+Shift+Alt+E — composite all visible layers into a new top layer
+  // Stamp Visible: Ctrl+Shift+Alt+E - composite all visible layers into a new top layer
   if (ctrl && e.shiftKey && e.altKey && key === "e") {
     e.preventDefault();
     e.stopPropagation();
@@ -290,31 +297,33 @@ export function handleLayerOpsKey(
         const digit = e.key.charCodeAt(0) - 48;
         const opacity = digit === 0 ? 1.0 : digit / 10;
         if (layer.opacity === opacity) return true; // no-op guard (matches legacy)
-        try {
-          // Single [activeId]: route is facade (all owned) or legacy (none owned).
-          // mixed-rejected is unreachable for one id, so it is not handled here.
-          const res = commitFacadeOpacity(engine as never, [activeId], opacity);
-          if (res.status === "applied" || res.status === "noop") {
-            scheduler.requestRender();
-            editor.workspace.notifyVisualChange();
-            return true;
-          }
-          // status === "legacy" / "empty": byte-identical legacy TS path.
-        } catch (err) {
-          // A facade-owned opacity commit can throw (Rust Err / version conflict /
-          // facade-not-ready). Match the add/delete funnel error handling: surface a
-          // toast and bail instead of leaving an unhandled rejection.
-          const msg = (err as Error).message;
-          if (msg.includes("E_VERSION_MISMATCH")) {
-            showToast("Version conflict - retrying", "warn");
-          } else {
-            showToast(`Cannot set opacity: ${msg}`, "error");
-          }
-          return true;
-        }
-        history.commit(engine.snapshot(), "Layer Opacity");
-        engine.setLayerOpacity(activeId, opacity);
-        scheduler.requestRender();
+        // Single [activeId]: route is facade (all owned) or legacy (none owned).
+        // mixed-rejected is unreachable for one id, so it is not handled here.
+        // Fire-and-forget: routing returns true synchronously; the projection lands
+        // on a microtask (invisible in production, awaited by tests).
+        void commitFacadeOpacity(engine as never, [activeId], opacity)
+          .then((res) => {
+            if (res.status === "applied" || res.status === "noop") {
+              scheduler.requestRender();
+              editor.workspace.notifyVisualChange();
+            } else {
+              // status === "legacy" / "empty": byte-identical legacy TS path.
+              history.commit(engine.snapshot(), "Layer Opacity");
+              engine.setLayerOpacity(activeId, opacity);
+              scheduler.requestRender();
+            }
+          })
+          .catch((err) => {
+            // A facade-owned opacity commit can throw (Rust Err / version conflict /
+            // facade-not-ready). Match the add/delete funnel error handling: surface a
+            // toast and bail instead of leaving an unhandled rejection.
+            const msg = (err as Error).message;
+            if (msg.includes("E_VERSION_MISMATCH")) {
+              showToast("Version conflict - retrying", "warn");
+            } else {
+              showToast(`Cannot set opacity: ${msg}`, "error");
+            }
+          });
         return true;
       }
     }

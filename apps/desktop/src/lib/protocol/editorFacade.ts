@@ -60,17 +60,22 @@ export class EditorFacade {
     this.renderedVersion = snap.version;
   }
 
-  addLayer(name: string): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "addLayer", name } });
+  // Invariant: facade commands must be awaited before issuing another in a
+  // single logical step. expectedVersion reads this.renderedVersion, which is
+  // bumped inside a post-await microtask (applyDelta). A second command issued
+  // in the same synchronous task would read a stale expectedVersion and catch a
+  // spurious version-mismatch rejection.
+  async addLayer(name: string): Promise<RenderSnapshot> {
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "addLayer", name } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
 
-  deleteLayer(id: string): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "deleteLayer", id } });
+  async deleteLayer(id: string): Promise<RenderSnapshot> {
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "deleteLayer", id } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
 
@@ -81,28 +86,28 @@ export class EditorFacade {
     if (!this.transientTransform) return;
     this.transientTransform.live = { ...live };
   }
-  commitTransform(): RenderSnapshot | null {
+  async commitTransform(): Promise<RenderSnapshot | null> {
     if (!this.transientTransform) return null;
     const { id, live } = this.transientTransform;
     this.transientTransform = null;
-    const res = applyCommand({
+    const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: this.renderedVersion,
       docId: this.docId,
       command: { type: "transformLayer", id, transform: live },
     });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
   cancelTransform(): void { this.transientTransform = null; }
   // Test/introspection helper: true while a transient drag session exists.
   transientTransformActive(): boolean { return this.transientTransform !== null; }
 
-  setOpacity(id: string, opacity: number): RenderSnapshot {
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setOpacity", id, opacity } });
+  async setOpacity(id: string, opacity: number): Promise<RenderSnapshot> {
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setOpacity", id, opacity } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
 
@@ -113,26 +118,26 @@ export class EditorFacade {
     if (!this.transientStroke) return;
     this.transientStroke.points.push(p);
   }
-  commitStroke(): RenderSnapshot | null {
+  async commitStroke(): Promise<RenderSnapshot | null> {
     if (!this.transientStroke) return null;
     const { layerId, points, settings } = this.transientStroke;
     this.transientStroke = null;
     if (points.length === 0) return this.snapshot;
-    const res = applyCommand({
+    const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: this.renderedVersion,
       docId: this.docId,
       command: { type: "brushStroke", layerId, points, settings },
     });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
   cancelStroke(): void { this.transientStroke = null; }
 
-  undo(): RenderSnapshot {
+  async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "undo" } });
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "undo" } });
     // External history handoff: the walker landed on a legacy (external) entry
     // and set the engine's pending-external barrier. Surface the handoff so the
     // production path can clear the barrier via confirmExternalCursor.
@@ -144,23 +149,23 @@ export class EditorFacade {
     // as "Rust had nothing" and fall through to the legacy TS history store.
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
-  redo(): RenderSnapshot {
+  async redo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
-    const res = applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "redo" } });
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "redo" } });
     if (res.status === "external" && res.externalSeq !== undefined) {
       this.lastExternalHandoff = { seq: res.externalSeq, direction: "redo" };
     }
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
 
-  private refreshSnapshot(): void {
-    try { const snap = getSnapshot(this.docId); this.applySnapshot(snap); } catch {}
+  private async refreshSnapshot(): Promise<void> {
+    try { const snap = await getSnapshot(this.docId); this.applySnapshot(snap); } catch {}
   }
 
   // ADR 0008 C2: external records advance the authoritative DocumentVersion

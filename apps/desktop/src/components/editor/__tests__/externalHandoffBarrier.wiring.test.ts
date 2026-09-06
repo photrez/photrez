@@ -107,16 +107,16 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 //   record A (seq1) -> addLayer X (seq2) -> undo seq2 -> record B (truncates
 //   redo, so the next monotonic seq is 3) -> entries=[seq1(native), seq3(external)]
 // The cursor ends at 2; entries[1].seq is 3, so entries[i].seq != i+1.
-function buildNonDenseStream(docId: string) {
-  facadeRegistry.recordExternalTransitionFor(docId, {
+async function buildNonDenseStream(docId: string) {
+  await facadeRegistry.recordExternalTransitionFor(docId, {
     label: "Legacy A",
     affectedLayerIds: [],
     snapshot: null,
   });
   const facade = facadeRegistry.getFacade(docId);
-  facade.addLayer("X");
-  facade.undo(); // undo the native addLayer X (no pending)
-  facadeRegistry.recordExternalTransitionFor(docId, {
+  await facade.addLayer("X");
+  await facade.undo(); // undo the native addLayer X (no pending)
+  await facadeRegistry.recordExternalTransitionFor(docId, {
     label: "Legacy B",
     affectedLayerIds: [],
     snapshot: null,
@@ -142,13 +142,13 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
 
   it("dense undo: external handoff clears the barrier so a following facade command succeeds", async () => {
     // Create a legacy (external) history entry for the doc.
-    const rec = facadeRegistry.recordExternalTransitionFor(DOC_ID, {
+    const rec = await facadeRegistry.recordExternalTransitionFor(DOC_ID, {
       label: "Legacy Edit",
       affectedLayerIds: [],
       snapshot: null,
     });
     expect(rec.ok).toBe(true);
-    expect(bridge.getHistoryQuery().pendingExternal ?? null).toBeNull();
+    expect((await bridge.getHistoryQuery()).pendingExternal ?? null).toBeNull();
 
     const facade = facadeRegistry.getFacade(DOC_ID);
     mockUseEditor(makeEngineContext());
@@ -160,9 +160,9 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     await flush();
 
     // Barrier cleared (cursor committed past the external entry).
-    expect(bridge.getHistoryQuery().pendingExternal ?? null).toBeNull();
+    expect((await bridge.getHistoryQuery()).pendingExternal ?? null).toBeNull();
     // A following facade command no longer rejects with E_EXTERNAL_PENDING.
-    expect(() => facade.addLayer("AfterHandoff")).not.toThrow();
+    await expect(facade.addLayer("AfterHandoff")).resolves.not.toThrow();
     expect(facadeRegistry.historyDegraded()).toBeNull();
   });
 
@@ -170,9 +170,9 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     // entries=[seq1(native), seq3(external)]; cursor=2. The old predicate
     // `cursor == seq` (2 == 3) is FALSE here, so it retained the barrier and
     // stuck historyDegraded forever. The fixed barrier-only predicate clears it.
-    const facade = buildNonDenseStream(DOC_ID);
-    expect(bridge.getHistoryQuery().entries[1].seq).toBe(3);
-    expect(bridge.getHistoryQuery().cursor).toBe(2);
+    const facade = await buildNonDenseStream(DOC_ID);
+    expect((await bridge.getHistoryQuery()).entries[1].seq).toBe(3);
+    expect((await bridge.getHistoryQuery()).cursor).toBe(2);
 
     mockUseEditor(makeEngineContext());
     const commands = useEditorCommands(() => {});
@@ -181,21 +181,21 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     await flush();
 
     // Wedge cleared: barrier gone, cursor advanced past the external entry.
-    expect(bridge.getHistoryQuery().pendingExternal ?? null).toBeNull();
-    expect(bridge.getHistoryQuery().cursor).toBe(1);
+    expect((await bridge.getHistoryQuery()).pendingExternal ?? null).toBeNull();
+    expect((await bridge.getHistoryQuery()).cursor).toBe(1);
     // End state changed: a following facade command now succeeds (no wedge).
-    expect(() => facade.addLayer("AfterWedge")).not.toThrow();
+    await expect(facade.addLayer("AfterWedge")).resolves.not.toThrow();
     expect(facadeRegistry.historyDegraded()).toBeNull();
   });
 
   it("non-dense redo (gapped stream): cursor commit succeeds in the redo direction", async () => {
-    const facade = buildNonDenseStream(DOC_ID);
+    const facade = await buildNonDenseStream(DOC_ID);
     // Walk the cursor back onto the gapped external entry, then clear that
     // barrier so the cursor sits just below it for a redo handoff.
-    facade.undo(); // lands on seq3 (undo), pending set
-    facadeRegistry.confirmExternalCursor(DOC_ID, 3, "undo"); // clears, cursor=1
-    expect(bridge.getHistoryQuery().pendingExternal ?? null).toBeNull();
-    expect(bridge.getHistoryQuery().cursor).toBe(1);
+    await facade.undo(); // lands on seq3 (undo), pending set
+    await facadeRegistry.confirmExternalCursor(DOC_ID, 3, "undo"); // clears, cursor=1
+    expect((await bridge.getHistoryQuery()).pendingExternal ?? null).toBeNull();
+    expect((await bridge.getHistoryQuery()).cursor).toBe(1);
 
     mockUseEditor(makeEngineContext());
     const commands = useEditorCommands(() => {});
@@ -204,9 +204,9 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     await flush();
 
     // Redo handoff on the gapped entry: barrier cleared, cursor advanced.
-    expect(bridge.getHistoryQuery().pendingExternal ?? null).toBeNull();
-    expect(bridge.getHistoryQuery().cursor).toBe(2);
-    expect(() => facade.addLayer("AfterRedoWedge")).not.toThrow();
+    expect((await bridge.getHistoryQuery()).pendingExternal ?? null).toBeNull();
+    expect((await bridge.getHistoryQuery()).cursor).toBe(2);
+    await expect(facade.addLayer("AfterRedoWedge")).resolves.not.toThrow();
     expect(facadeRegistry.historyDegraded()).toBeNull();
   });
 
@@ -217,7 +217,7 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
         throw new Error("E_CURSOR_MISMATCH: forced");
       });
 
-    facadeRegistry.recordExternalTransitionFor(DOC_ID, {
+    await facadeRegistry.recordExternalTransitionFor(DOC_ID, {
       label: "Legacy Edit",
       affectedLayerIds: [],
       snapshot: null,

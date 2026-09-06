@@ -28,11 +28,11 @@ describe("Gate A — facade isolation", () => {
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   });
 
-  it("legacy transform blocked on facade-owned layer while flag=1", () => {
+  it("legacy transform blocked on facade-owned layer while flag=1", async () => {
     localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
-    const snap = facade.addLayer("FacadeLayer");
+    const snap = await facade.addLayer("FacadeLayer");
     const id = snap.layers[0].id;
     // project to engine
     engine.applyFacadeSnapshot(snap);
@@ -41,44 +41,44 @@ describe("Gate A — facade isolation", () => {
     expect(() => engine.deleteLayer(id)).toThrow(/E_FACADE_OWNED/);
   });
 
-  it("legacy restore blocked while facade owns layers", () => {
+  it("legacy restore blocked while facade owns layers", async () => {
     localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
-    const snap = facade.addLayer("A");
+    const snap = await facade.addLayer("A");
     engine.applyFacadeSnapshot(snap);
     const legacySnap = engine.snapshot();
     expect(() => engine.restore(legacySnap)).toThrow(/E_FACADE_OWNED/);
   });
 
-  it("legacy ops allowed when flag=0 even on same id", () => {
+  it("legacy ops allowed when flag=0 even on same id", async () => {
     localStorage.setItem("photrez.facade", "0");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
-    const snap = facade.addLayer("A");
+    const snap = await facade.addLayer("A");
     const id = snap.layers[0].id;
     engine.applyFacadeSnapshot(snap);
     // flag off -> not blocked (facadeOwnedIds still has id, but isFacadeEnabled false)
     expect(() => engine.transformLayer(id, { x: 1 } as never)).not.toThrow();
   });
 
-  it("facade addLayer remains sole owner, no history entry in legacy engine", () => {
+  it("facade addLayer remains sole owner, no history entry in legacy engine", async () => {
     localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
     const before = engine.snapshot().layers.length;
-    const snap = facade.addLayer("New");
+    const snap = await facade.addLayer("New");
     engine.applyFacadeSnapshot(snap);
     expect(engine.getLayers().length).toBe(before + 1);
     // no history entry was created via legacy path — undo via legacy would be blocked
     expect(() => engine.restore(engine.snapshot())).toThrow(/E_FACADE_OWNED/);
   });
 
-  it("facade layer + legacy brush -> blocked, no paint surface, no history, no pixel mutation", () => {
+  it("facade layer + legacy brush -> blocked, no paint surface, no history, no pixel mutation", async () => {
     localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
-    const snap = facade.addLayer("FacadeBrushLayer");
+    const snap = await facade.addLayer("FacadeBrushLayer");
     const id = snap.layers[0].id;
     engine.applyFacadeSnapshot(snap);
     expect(isFacadeOwnedLayer(id)).toBe(true);

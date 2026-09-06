@@ -60,7 +60,7 @@ export class EditorClient {
    * legacy TS path when the migrated op does not apply (flag OFF / non-owned).
    * On a thrown command it FAILS CLOSED: no projection, no mutation, no history.
    */
-  deleteLayer(id: string): DeleteRouteResult {
+  async deleteLayer(id: string): Promise<DeleteRouteResult> {
     if (!this.routing.isFacadeEnabled() || !this.routing.isFacadeOwnedLayer(id)) {
       return { status: "legacy", snapshot: null };
     }
@@ -72,7 +72,7 @@ export class EditorClient {
     // failed.
     let snap: RenderSnapshot;
     try {
-      snap = this.facade.deleteLayer(id);
+      snap = await this.facade.deleteLayer(id);
     } catch (e) {
       return {
         status: "blocked",

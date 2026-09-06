@@ -55,9 +55,9 @@ afterEach(() => {
 
 // Production routing, replicated verbatim from useEditorCommands (the hook
 // closure itself is not exported; kept in lockstep — see branch there).
-function routeUndo(engine: DocumentEngine, history: CommandHistory, facade: EditorFacade): "facade" | "legacy" | "blocked" {
+async function routeUndo(engine: DocumentEngine, history: CommandHistory, facade: EditorFacade): Promise<"facade" | "legacy" | "blocked"> {
   if (hasFacadeOwnedLayers()) {
-    const snap = facade.undo();
+    const snap = await facade.undo();
     if (!facade.lastHistoryDeltaWasEmpty) {
       engine.applyFacadeSnapshot(snap as never);
       return "facade";
@@ -75,7 +75,7 @@ function routeUndo(engine: DocumentEngine, history: CommandHistory, facade: Edit
 }
 
 describe("Ticket 2.2 mixed history: legacy A -> facade T -> legacy B(?) -> undo x3", () => {
-  it("documents actual behavior: B blocked at mutation time; undos drain Rust then pin A", () => {
+  it("documents actual behavior: B blocked at mutation time; undos drain Rust then pin A", async () => {
     const engine = new DocumentEngine("docM", "Mixed", 800, 600);
     const history = new CommandHistory();
     const facade = new EditorFacade();
@@ -89,13 +89,13 @@ describe("Ticket 2.2 mixed history: legacy A -> facade T -> legacy B(?) -> undo 
 
     // ── Facade transform T ──
     seedFacadeFromEngine(engine as never, facade);
-    const addSnap = facade.addLayer("Owned") as unknown as { version: number; layers: Array<{ id: string }> };
+    const addSnap = await facade.addLayer("Owned") as unknown as { version: number; layers: Array<{ id: string }> };
     engine.applyFacadeSnapshot(addSnap as never);
     const ownedId = addSnap.layers[addSnap.layers.length - 1].id;
     expect(hasFacadeOwnedLayers()).toBe(true);
     facade.beginTransform(ownedId, { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
     facade.updateTransform({ x: 77, y: 5, scaleX: 1, scaleY: 1, rotation: 0 });
-    const tSnap = facade.commitTransform();
+    const tSnap = await facade.commitTransform();
     engine.applyFacadeSnapshot(tSnap as never);
 
     // ── Legacy op B: IMPOSSIBLE post-projection ──
@@ -105,14 +105,14 @@ describe("Ticket 2.2 mixed history: legacy A -> facade T -> legacy B(?) -> undo 
     const versionAfterOps = facade.renderedVersion;
 
     // ── undo x3 ──
-    const r1 = routeUndo(engine, history, facade);
+    const r1 = await routeUndo(engine, history, facade);
     expect(r1).toBe("facade"); // reverts T
     expect(facade.renderedVersion).toBe(versionAfterOps + 1);
 
-    const r2 = routeUndo(engine, history, facade);
+    const r2 = await routeUndo(engine, history, facade);
     expect(r2).toBe("facade"); // removes the facade-added layer
 
-    const r3 = routeUndo(engine, history, facade);
+    const r3 = await routeUndo(engine, history, facade);
     expect(r3).toBe("blocked"); // Rust exhausted -> legacy fallback pinned by Gate A
 
     // A remains STRANDED: bg keeps its post-A position; no TS undo occurred.
@@ -121,39 +121,39 @@ describe("Ticket 2.2 mixed history: legacy A -> facade T -> legacy B(?) -> undo 
     expect(hasFacadeOwnedLayers()).toBe(true);
   });
 
-  it("single-owner (Rust-only) stack drains fully linearly — sanity contrast", () => {
+  it("single-owner (Rust-only) stack drains fully linearly — sanity contrast", async () => {
     const engine = new DocumentEngine("docM2", "M2", 800, 600);
     const history = new CommandHistory();
     const facade = new EditorFacade();
 
     seedFacadeFromEngine(engine as never, facade);
-    const s1 = facade.addLayer("L1") as unknown as { version: number; layers: Array<{ id: string }> };
+    const s1 = await facade.addLayer("L1") as unknown as { version: number; layers: Array<{ id: string }> };
     engine.applyFacadeSnapshot(s1 as never);
     const id = s1.layers[s1.layers.length - 1].id;
 
-    const gesture = (toX: number) => {
+    const gesture = async (toX: number) => {
       facade.beginTransform(id, { x: facadeSnapshotX(facade, id) ?? 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
       facade.updateTransform({ x: toX, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
-      engine.applyFacadeSnapshot(facade.commitTransform() as never);
+      engine.applyFacadeSnapshot(await facade.commitTransform() as never);
     };
-    gesture(10);
-    gesture(30);
+    await gesture(10);
+    await gesture(30);
     expect(engine.getLayer(id)?.transform.x).toBe(30);
 
     // undo -> x=10 ; undo -> x=0 ; undo -> removes L1 ; undo -> Rust exhausted.
-    facade.undo();
+    await facade.undo();
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(id)?.transform.x).toBe(10);
 
-    facade.undo();
+    await facade.undo();
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(id)?.transform.x).toBe(0);
 
-    facade.undo(); // pops pre-add entry -> layer removed
+    await facade.undo(); // pops pre-add entry -> layer removed
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(id)).toBeUndefined();
 
-    facade.undo(); // Rust stack now truly empty
+    await facade.undo(); // Rust stack now truly empty
     expect(facade.lastHistoryDeltaWasEmpty).toBe(true);
     void history;
   });

@@ -112,7 +112,7 @@ export function getContractVersion(): number {
   return CONTRACT_VERSION;
 }
 
-export function applyCommand(envelope: CommandEnvelope): CommandResult {
+export async function applyCommand(envelope: CommandEnvelope): Promise<CommandResult> {
   if (envelope.contractVersion !== CONTRACT_VERSION) {
     throw new Error(
       `E_CONTRACT_VERSION: expected ${CONTRACT_VERSION} got ${envelope.contractVersion}`,
@@ -146,7 +146,7 @@ export function applyCommand(envelope: CommandEnvelope): CommandResult {
   }
 }
 
-export function getSnapshot(docId = "default"): RenderSnapshot {
+export async function getSnapshot(docId = "default"): Promise<RenderSnapshot> {
   if (!wasm) return { version: 0, layers: [] };
   const j = wasm.protocol_snapshot_json(docId);
   return JSON.parse(j) as RenderSnapshot;
@@ -282,7 +282,7 @@ export function registerPayloadAdapter(adapterId: string, docId = "default"): vo
   else if (adapterId !== "native") emuAdapters.add(adapterId);
 }
 
-export function getHistoryQuery(docId = "default"): HistoryQueryResult {
+export async function getHistoryQuery(docId = "default"): Promise<HistoryQueryResult> {
   if (wasm?.protocol_history_query_json) return JSON.parse(wasm.protocol_history_query_json(docId)) as HistoryQueryResult;
   return {
     cursor: emuCursor,
@@ -303,7 +303,7 @@ export function getHistoryQuery(docId = "default"): HistoryQueryResult {
   };
 }
 
-export function historyCursorCommit(seq: number, direction: "undo" | "redo", docId = "default"): CommandResult {
+export async function historyCursorCommit(seq: number, direction: "undo" | "redo", docId = "default"): Promise<CommandResult> {
   if (wasm?.protocol_history_cursor_commit) {
     return JSON.parse(wasm.protocol_history_cursor_commit(JSON.stringify({ seq, direction }), docId)) as CommandResult;
   }

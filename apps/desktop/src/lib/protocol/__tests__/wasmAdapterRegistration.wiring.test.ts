@@ -38,7 +38,7 @@ beforeAll(async () => {
 });
 
 describe("real-wasm ts-external adapter is registered inline per document", () => {
-  it("recordExternalTransitionFor succeeds on the REAL wasm engine for a NON-default document (no E_UNKNOWN_ADAPTER)", () => {
+  it("recordExternalTransitionFor succeeds on the REAL wasm engine for a NON-default document (no E_UNKNOWN_ADAPTER)", async () => {
     // "docA4" is a non-default document engine. Without the inline per-document
     // registration this returns ok:false (E_UNKNOWN_ADAPTER caught in
     // facadeRegistry). With it the real engine records the legacy TS transition
@@ -47,7 +47,7 @@ describe("real-wasm ts-external adapter is registered inline per document", () =
     // meaningful; we still avoid asserting it here to keep this test focused on
     // adapter registration (the externalSeq path is covered by the protocol
     // tests).
-    const res = recordExternalTransitionFor("docA4", {
+    const res = await recordExternalTransitionFor("docA4", {
       label: "Legacy Edit",
       affectedLayerIds: ["bg"],
       snapshot: { layers: [] },
@@ -55,10 +55,10 @@ describe("real-wasm ts-external adapter is registered inline per document", () =
     expect(res.ok).toBe(true);
   });
 
-  it("recordExternalTransitionFor succeeds for a SECOND document (per-document registration, not default-only)", () => {
+  it("recordExternalTransitionFor succeeds for a SECOND document (per-document registration, not default-only)", async () => {
     // Proves the registration is scoped to each document's own engine, not a
     // one-time "default" registration that would leak from wasmExport.
-    const res = recordExternalTransitionFor("docA4b", {
+    const res = await recordExternalTransitionFor("docA4b", {
       label: "Legacy Edit 2",
       affectedLayerIds: [],
       snapshot: { layers: [] },

@@ -44,12 +44,12 @@ function makeDoc(id: string) {
 }
 
 describe("DeleteLayer lifecycle (facade ON)", () => {
-  it("delete -> Remove delta carries resourceId; ownership marker reconciled (no dangle)", () => {
+  it("delete -> Remove delta carries resourceId; ownership marker reconciled (no dangle)", async () => {
     const { engine, bgId } = makeDoc("docDel");
     const facade = getFacade("docDel");
     seedFacadeFromEngine(engine as never, facade);
 
-    const addSnap = facade.addLayer("Victim") as unknown as { layers: Array<{ id: string; resourceId: number }> };
+    const addSnap = await facade.addLayer("Victim") as unknown as { layers: Array<{ id: string; resourceId: number }> };
     engine.applyFacadeSnapshot(addSnap as never);
     const victim = addSnap.layers[addSnap.layers.length - 1];
     expect(isFacadeOwnedLayer(victim.id)).toBe(true);
@@ -57,7 +57,7 @@ describe("DeleteLayer lifecycle (facade ON)", () => {
     const spy = vi.spyOn(bridge, "applyCommand");
     const vBefore = facade.renderedVersion;
     // act: DELETE through the production funnel (same calls as UI branch)
-    const snap = facade.deleteLayer(victim.id);
+    const snap = await facade.deleteLayer(victim.id);
     engine.applyFacadeSnapshot(snap as never);
 
     // exactly one command, correct type + mandatory expectedVersion
@@ -74,7 +74,7 @@ describe("DeleteLayer lifecycle (facade ON)", () => {
     expect(engine.getLayer(victim.id)).toBeUndefined();
 
     // Remove change carried resourceId for future resource lifecycle
-    const removeChange = (snapDeltaOf(spy, 0));
+    const removeChange = (await snapDeltaOf(spy, 0));
     expect(removeChange?.kind).toBe("remove");
     expect(typeof removeChange?.resourceId).toBe("number");
 
@@ -86,27 +86,27 @@ describe("DeleteLayer lifecycle (facade ON)", () => {
     // NO legacy TS history entry was created for the delete
   });
 
-  it("undo restores the deleted layer via H0 stream; redo deletes again (marker reconciled both ways)", () => {
+  it("undo restores the deleted layer via H0 stream; redo deletes again (marker reconciled both ways)", async () => {
     vi.restoreAllMocks();
     const { engine } = makeDoc("docDel2");
     const facade = getFacade("docDel2");
     seedFacadeFromEngine(engine as never, facade);
-    const addSnap = facade.addLayer("V2") as unknown as { layers: Array<{ id: string }> };
+    const addSnap = await facade.addLayer("V2") as unknown as { layers: Array<{ id: string }> };
     engine.applyFacadeSnapshot(addSnap as never);
     const victim = addSnap.layers[addSnap.layers.length - 1].id;
 
-    facade.deleteLayer(victim);
+    await facade.deleteLayer(victim);
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(victim)).toBeUndefined();
 
     // UNDO walks the H0 native entry -> layer restored in Rust state
-    facade.undo();
+    await facade.undo();
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(victim)).not.toBeUndefined();
     expect(isFacadeOwnedLayer(victim)).toBe(true); // re-projected -> re-marked
 
     // REDO re-deletes; marker reconciled again
-    facade.redo();
+    await facade.redo();
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayer(victim)).toBeUndefined();
     expect(isFacadeOwnedLayer(victim)).toBe(false);
@@ -124,8 +124,8 @@ describe("DeleteLayer lifecycle (facade ON)", () => {
 });
 
 // Extracts the delta of the nth applyCommand call (helper keeps assertions tight)
-function snapDeltaOf(spy: ReturnType<typeof vi.spyOn>, callIndex: number): { kind?: string; resourceId?: number } | null {
-  const res = spy.mock.results[callIndex]?.value as { delta?: { changes: Array<{ kind: string; resourceId?: number }> } } | undefined;
+async function snapDeltaOf(spy: ReturnType<typeof vi.spyOn>, callIndex: number): Promise<{ kind?: string; resourceId?: number } | null> {
+  const res = await (spy.mock.results[callIndex]?.value as Promise<{ delta?: { changes: Array<{ kind: string; resourceId?: number }> } }> | undefined);
   const rm = res?.delta?.changes.find((c) => c.kind === "remove");
   return rm ?? null;
 }

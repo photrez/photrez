@@ -482,7 +482,7 @@ export function useLayerActions() {
     }
   };
 
-  const handleAddLayer = () => {
+  const handleAddLayer = async () => {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
@@ -493,7 +493,7 @@ export function useLayerActions() {
       // Seed facade from engine on first use (one-time projection, not dual owner after)
       seedFacadeFromEngine(engine as never, facade);
       try {
-        const snap = facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`);
+        const snap = await facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`);
         // Project facade snapshot into engine (engine becomes read-only view, no history)
         (engine as unknown as { applyFacadeSnapshot: (s: unknown) => void }).applyFacadeSnapshot(snap);
         scheduler.requestRender();
@@ -517,7 +517,7 @@ export function useLayerActions() {
     }
   };
 
-  const handleDeleteActiveLayer = () => {
+  const handleDeleteActiveLayer = async () => {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
@@ -536,13 +536,17 @@ export function useLayerActions() {
         if (ownedIds.length > 0) {
           const facade = getFacade(engine.getId());
           let lastSnap: unknown = null;
-          for (const id of ownedIds) {
-            const s = facade.deleteLayer(id);
-            if (s) {
-              engine.applyFacadeSnapshot(s as never);
-              lastSnap = s;
-              renderer.destroyTexture(id);
+          try {
+            for (const id of ownedIds) {
+              const s = await facade.deleteLayer(id);
+              if (s) {
+                engine.applyFacadeSnapshot(s as never);
+                lastSnap = s;
+                renderer.destroyTexture(id);
+              }
             }
+          } catch (err) {
+            showToast(`Cannot delete layer: ${(err as Error).message}`, "error");
           }
           setSelectedLayerId(engine.getActiveLayerId());
           scheduler.requestRender();
@@ -601,7 +605,7 @@ export function useLayerActions() {
           { applyFacadeSnapshot: (s) => engine.applyFacadeSnapshot(s as never) },
           facade,
         );
-        const res = client.deleteLayer(activeId);
+        const res = await client.deleteLayer(activeId);
         if (res.status === "facade") {
           renderer.destroyTexture(activeId);
           setSelectedLayerId(engine.getActiveLayerId());

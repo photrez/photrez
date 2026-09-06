@@ -39,18 +39,25 @@ export function TransformOptionBar() {
     return l ? l.locked : false;
   };
 
-  const apply = () => {
+  const apply = async () => {
     const current = engine();
     const currentSession = session();
     // Ticket 2.2: facade-owned layer — one Rust command at apply, projection
     // authoritative; the per-edit preview signal is cleared.
     if (current && currentSession && isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
       const f = getFacade(current.getId());
-      const snap = f.commitTransform();
-      if (snap) current.applyFacadeSnapshot(snap as never);
-      clearTransformPreview();
-      setLayerTransformSession(null);
-      scheduler.requestRender();
+      try {
+        const snap = await f.commitTransform();
+        if (snap) current.applyFacadeSnapshot(snap as never);
+      } catch (err) {
+        // Facade commit rejected: teardown in `finally` must still run so the
+        // transform session never wedges with an unobserved rejection.
+        console.error("[TransformOptionBar] commitTransform rejected; tearing down session", err);
+      } finally {
+        clearTransformPreview();
+        setLayerTransformSession(null);
+        scheduler.requestRender();
+      }
       return;
     }
     const history = workspace.getActiveHistory();

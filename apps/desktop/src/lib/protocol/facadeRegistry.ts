@@ -65,7 +65,7 @@ export type OpacityRouteStatus =
   | "mixed-rejected"
   | "noop";
 
-export function commitFacadeOpacity(
+export async function commitFacadeOpacity(
   engine: {
     getId(): string;
     applyFacadeSnapshot(s: unknown): void;
@@ -73,7 +73,7 @@ export function commitFacadeOpacity(
   ids: string[],
   opacity: number,
   facadeOverride?: EditorFacade
-): { status: OpacityRouteStatus; count?: number } {
+): Promise<{ status: OpacityRouteStatus; count?: number }> {
   const route = resolveSelectionRoute(ids);
   if (route.mode === "empty") return { status: "empty" };
   if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
@@ -81,7 +81,7 @@ export function commitFacadeOpacity(
   const f = facadeOverride ?? getFacade(engine.getId());
   let last: unknown = null;
   for (const id of route.ownedIds) {
-    last = f.setOpacity(id, opacity);
+    last = await f.setOpacity(id, opacity);
   }
   if (last) engine.applyFacadeSnapshot(last);
   return { status: "applied", count: route.ownedIds.length };
@@ -140,7 +140,7 @@ export function clearTransformPreview(): void {
 // One committed numeric edit/group = exactly ONE TransformLayer Rust command
 // with expectedVersion, then authoritative projection. No persistent TS
 // mutation: the TS model only ever receives the Rust RenderDelta snapshot.
-export function facadeCommitNumericTransform(
+export async function facadeCommitNumericTransform(
   engine: {
     getId(): string;
     getLayer(id: string): { id: string; locked: boolean; transform: Transform2D } | null | undefined;
@@ -148,7 +148,7 @@ export function facadeCommitNumericTransform(
   },
   layerId: string,
   patch: Partial<Transform2D>
-): boolean {
+): Promise<boolean> {
   const layer = engine.getLayer(layerId);
   if (!layer || layer.locked) return false;
   const next = { ...layer.transform, ...patch };
@@ -164,7 +164,7 @@ export function facadeCommitNumericTransform(
   const f = getFacade(engine.getId());
   f.beginTransform(layerId, { ...layer.transform });
   f.updateTransform(next);
-  const snap = f.commitTransform();
+  const snap = await f.commitTransform();
   if (snap) engine.applyFacadeSnapshot(snap);
   return true;
 }
@@ -239,10 +239,10 @@ function syncAuthoritativeVersion(docId: string, dv: number): void {
   if (f) f.syncRenderedVersionTo(dv);
 }
 
-export function recordExternalTransitionFor(
+export async function recordExternalTransitionFor(
   docId: string,
   rec: { label: string; affectedLayerIds: string[]; snapshot: unknown }
-): { ok: boolean; seq?: number } {
+): Promise<{ ok: boolean; seq?: number }> {
   // Deterministic degraded behavior (ADR 0008 H0 review): while degraded, no
   // further protocol attempts — fail fast without touching the engine.
   const deg = historyDegraded();
@@ -261,7 +261,7 @@ export function recordExternalTransitionFor(
     // idempotent (protocol.rs) and the emulator Set dedupes, so this is a free
     // unconditional call that is safe even after a per-doc engine reset.
     registerPayloadAdapter("ts-external", docId);
-    const res = applyCommand({
+    const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: undefined, // mirrors may land after facade ops; engine DV is authority
       docId,
@@ -287,11 +287,11 @@ export function recordExternalTransitionFor(
   }
 }
 
-export function confirmExternalCursor(
+export async function confirmExternalCursor(
   docId: string,
   seq: number,
   direction: "undo" | "redo"
-): { ok: boolean } {
+): Promise<{ ok: boolean }> {
   // Deterministic degraded behavior (ADR 0008 H0 review): fail fast, keep the
   // degraded reason, never appear healthy while cursor/state may diverge.
   const deg = historyDegraded();
@@ -299,7 +299,7 @@ export function confirmExternalCursor(
   const marker: Marker = { kind: "pendingConfirm", seq, direction };
   pendingMarkers.push(marker);
   try {
-    const res = historyCursorCommit(seq, direction, docId);
+    const res = await historyCursorCommit(seq, direction, docId);
     pendingMarkers = pendingMarkers.filter((m) => m !== marker);
     syncAuthoritativeVersion(docId, res.documentVersion);
     return { ok: true };
@@ -310,13 +310,13 @@ export function confirmExternalCursor(
   }
 }
 
-export function getHistoryProjection(docId: string): HistoryQueryResult & {
+export async function getHistoryProjection(docId: string): Promise<HistoryQueryResult & {
   docId: string;
   degraded: boolean;
   degradeReason?: string;
   unrecordedTokens: string[];
-} {
-  const q = getHistoryQuery(docId);
+}> {
+  const q = await getHistoryQuery(docId);
   const deg = historyDegraded();
   return {
     ...q,
@@ -363,7 +363,7 @@ export function installFacadeCommitShim(providers: {
       }
       // Same docId as the external-cursor handoff (facadeHistoryHandoff) so both
       // seams address one engine; engine.getId() is that shared expression.
-      recordExternalTransitionFor(engine.getId(), {
+      void recordExternalTransitionFor(engine.getId(), {
         label: label ?? "Legacy Edit",
         affectedLayerIds: affected,
         snapshot: snap,
@@ -399,7 +399,7 @@ export function installFacadeCommitShim(providers: {
       // Route the mirror to the SAME engine the external-cursor handoff
       // (facadeHistoryHandoff) reads/walks: the active engine's id. Both seams
       // use engine.getId() so they address one engine.
-      recordExternalTransitionFor(engine.getId(), {
+      void recordExternalTransitionFor(engine.getId(), {
         label: label ?? "Legacy Edit",
         affectedLayerIds: affected,
         snapshot: before,

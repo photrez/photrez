@@ -454,7 +454,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     scheduler.requestRender();
   };
 
-  const handlePointerUp = (e: PointerEvent) => {
+  const handlePointerUp = async (e: PointerEvent) => {
     const drag = dragState();
     if (!drag || e.pointerId !== drag.pointerId) return;
     const svg = props.getSvgRef();
@@ -469,29 +469,35 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     // Legacy TS history/text-bake are skipped: Rust owns transform history,
     // and facade-owned layers are raster-only today.
     if (drag.facade) {
-      const engine = workspace.getActiveEngine();
-      if (engine) {
-        const facade = getFacade(engine.getId());
-        const live = drag.liveTransform ?? drag.startTransform;
-        const changed =
-          live.x !== drag.startTransform.x ||
-          live.y !== drag.startTransform.y ||
-          live.scaleX !== drag.startTransform.scaleX ||
-          live.scaleY !== drag.startTransform.scaleY ||
-          live.rotation !== drag.startTransform.rotation;
-        if (changed) {
-          const snap = facade.commitTransform();
-          if (snap) engine.applyFacadeSnapshot(snap as never);
-        } else {
-          facade.cancelTransform();
+      try {
+        const engine = workspace.getActiveEngine();
+        if (engine) {
+          const facade = getFacade(engine.getId());
+          const live = drag.liveTransform ?? drag.startTransform;
+          const changed =
+            live.x !== drag.startTransform.x ||
+            live.y !== drag.startTransform.y ||
+            live.scaleX !== drag.startTransform.scaleX ||
+            live.scaleY !== drag.startTransform.scaleY ||
+            live.rotation !== drag.startTransform.rotation;
+          if (changed) {
+            const snap = await facade.commitTransform();
+            if (snap) engine.applyFacadeSnapshot(snap as never);
+          } else {
+            facade.cancelTransform();
+          }
         }
+      } catch {
+        // Facade commit rejected: teardown in `finally` must still run so the
+        // drag state never gets stuck.
+      } finally {
+        clearTransformPreview();
+        scheduler.requestRender();
+        props.onSnapClear?.();
+        props.onHudUpdate?.(null);
+        if (drag.type === "rotate") setHoverPos(null);
+        setDragState(null);
       }
-      clearTransformPreview();
-      scheduler.requestRender();
-      props.onSnapClear?.();
-      props.onHudUpdate?.(null);
-      if (drag.type === "rotate") setHoverPos(null);
-      setDragState(null);
       return;
     }
 

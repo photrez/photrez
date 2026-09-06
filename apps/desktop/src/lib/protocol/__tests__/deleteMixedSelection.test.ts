@@ -122,7 +122,7 @@ describe("DeleteLayer UX guard — mixed ownership selection rejected atomically
     const facade = getFacade("docMx");
     const delSpy = vi.spyOn(facade, "deleteLayer");
 
-    mod.useLayerActions().handleDeleteActiveLayer();
+    await mod.useLayerActions().handleDeleteActiveLayer();
 
     expect(delSpy).not.toHaveBeenCalled();            // zero facade deletes
     expect(engine.applyFacadeSnapshot).not.toHaveBeenCalled(); // zero projection/mutation
@@ -145,7 +145,7 @@ describe("DeleteLayer UX guard — mixed ownership selection rejected atomically
     const facade = getFacade("docMx");
     vi.spyOn(facade, "deleteLayer").mockReturnValue({ version: 5, layers: [] } as never);
 
-    mod.useLayerActions().handleDeleteActiveLayer();
+    await mod.useLayerActions().handleDeleteActiveLayer();
 
     expect(facade.deleteLayer).toHaveBeenCalledTimes(2);
     expect(engine.applyFacadeSnapshot).toHaveBeenCalled();
@@ -164,7 +164,7 @@ describe("DeleteLayer UX guard — mixed ownership selection rejected atomically
     const facade = getFacade("docMx");
     const delSpy = vi.spyOn(facade, "deleteLayer");
 
-    mod.useLayerActions().handleDeleteActiveLayer();
+    await mod.useLayerActions().handleDeleteActiveLayer();
     expect(delSpy).not.toHaveBeenCalled();
     expect(deleteMultipleLayers).toHaveBeenCalled();
     void engine;

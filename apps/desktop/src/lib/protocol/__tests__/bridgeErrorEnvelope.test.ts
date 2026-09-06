@@ -43,7 +43,7 @@ const env = {
 };
 
 describe("bridge.applyCommand error-envelope boundary", () => {
-  it("surfaces a thrown raw error-envelope JSON string as an Error (raw msg today)", () => {
+  it("surfaces a thrown raw error-envelope JSON string as an Error (raw msg today)", async () => {
     // A Rust Err returns an envelope string (e.g. from wasm-bindgen); the wasm
     // call throws it as a string, not an Error. applyCommand wraps it in an Error.
     setProtocolWasm(
@@ -53,7 +53,7 @@ describe("bridge.applyCommand error-envelope boundary", () => {
     );
     let caught: unknown;
     try {
-      applyCommand(env);
+      await applyCommand(env);
     } catch (e) {
       caught = e;
     }
@@ -65,7 +65,7 @@ describe("bridge.applyCommand error-envelope boundary", () => {
     );
   });
 
-  it("surfaces an Error whose message is an envelope JSON as an Error (raw msg today)", () => {
+  it("surfaces an Error whose message is an envelope JSON as an Error (raw msg today)", async () => {
     setProtocolWasm(
       makeWasm(() => {
         throw new Error(JSON.stringify({ code: "E_FOO", message: "bar" }));
@@ -73,7 +73,7 @@ describe("bridge.applyCommand error-envelope boundary", () => {
     );
     let caught: unknown;
     try {
-      applyCommand(env);
+      await applyCommand(env);
     } catch (e) {
       caught = e;
     }
@@ -81,22 +81,22 @@ describe("bridge.applyCommand error-envelope boundary", () => {
     expect((caught as Error).message).toBe(JSON.stringify({ code: "E_FOO", message: "bar" }));
   });
 
-  it("passes a non-envelope Error throw through as its message", () => {
+  it("passes a non-envelope Error throw through as its message", async () => {
     setProtocolWasm(
       makeWasm(() => {
         throw new Error("panicked");
       }),
     );
-    expect(() => applyCommand(env)).toThrow("panicked");
+    await expect(applyCommand(env)).rejects.toThrow("panicked");
   });
 
-  it("passes a non-envelope thrown string through as its raw text", () => {
+  it("passes a non-envelope thrown string through as its raw text", async () => {
     setProtocolWasm(
       makeWasm(() => {
         // eslint-disable-next-line no-throw-literal
         throw "raw boom";
       }),
     );
-    expect(() => applyCommand(env)).toThrow("raw boom");
+    await expect(applyCommand(env)).rejects.toThrow("raw boom");
   });
 });

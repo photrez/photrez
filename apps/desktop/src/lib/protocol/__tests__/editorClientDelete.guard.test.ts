@@ -136,7 +136,7 @@ afterEach(() => {
 });
 
 describe("EditorClient.deleteLayer ghost-layer guard", () => {
-  it("blocks a no-op facade delete (victim left present) as blocked, never facade", () => {
+  it("blocks a no-op facade delete (victim left present) as blocked, never facade", async () => {
     const applied = vi.fn();
     const deleteLayer = vi
       .fn()
@@ -146,7 +146,7 @@ describe("EditorClient.deleteLayer ghost-layer guard", () => {
     const facade = { deleteLayer } as unknown as EditorFacade;
     const client = new EditorClient({ applyFacadeSnapshot: applied }, facade, allOwned());
 
-    const res = client.deleteLayer("Victim");
+    const res = await client.deleteLayer("Victim");
 
     // The caller must treat this as blocked so it does NOT destroyTexture.
     expect(res.status).toBe("blocked");
@@ -162,7 +162,7 @@ describe("EditorClient.deleteLayer ghost-layer guard", () => {
 });
 
 describe("EditorClient.deleteLayer split-brain", () => {
-  it("reports facade (not blocked) when the command succeeds but the projection throws", () => {
+  it("reports facade (not blocked) when the command succeeds but the projection throws", async () => {
     const applied = vi.fn(() => {
       throw new Error("projection boom");
     });
@@ -173,7 +173,7 @@ describe("EditorClient.deleteLayer split-brain", () => {
     const facade = { deleteLayer } as unknown as EditorFacade;
     const client = new EditorClient({ applyFacadeSnapshot: applied }, facade, allOwned());
 
-    const res = client.deleteLayer("Victim");
+    const res = await client.deleteLayer("Victim");
 
     // The facade already mutated: this is NOT a command failure, so status is
     // "facade" (caller must destroy the texture) with the projection error attached.
@@ -188,7 +188,7 @@ describe("EditorClient.deleteLayer split-brain", () => {
 });
 
 describe("applyFacadeSnapshot leak-cleanup", () => {
-  it("reclaims paint surface + texture handle for a layer id that vanished from the projection", () => {
+  it("reclaims paint surface + texture handle for a layer id that vanished from the projection", async () => {
     localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("docLeak", "Leak", 64, 64);
     engine.addLayer("Background");
@@ -197,7 +197,7 @@ describe("applyFacadeSnapshot leak-cleanup", () => {
 
     // Add a victim THROUGH the facade and project it into the engine (the
     // production projection path). The engine now owns the victim metadata.
-    const addSnap = facade.addLayer("Victim");
+    const addSnap = await facade.addLayer("Victim");
     engine.applyFacadeSnapshot(addSnap as never);
     const victim = addSnap.layers[addSnap.layers.length - 1];
 
@@ -209,7 +209,7 @@ describe("applyFacadeSnapshot leak-cleanup", () => {
     expect(engine.getTextureHandle(victim.id)).toBeTruthy();
 
     // Delete via the facade (victim removed) and project the new snapshot.
-    const delSnap = facade.deleteLayer(victim.id);
+    const delSnap = await facade.deleteLayer(victim.id);
     expect(delSnap.layers.some((l) => l.id === victim.id)).toBe(false);
     engine.applyFacadeSnapshot(delSnap as never);
 

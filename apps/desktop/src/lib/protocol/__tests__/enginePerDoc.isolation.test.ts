@@ -64,27 +64,27 @@ afterEach(() => {
   wasmModule?.protocol_reset("default");
 });
 
-function addLayer(docId: string, name: string): { documentVersion: number } {
-  return bridge.applyCommand({
+async function addLayer(docId: string, name: string): Promise<{ documentVersion: number }> {
+  return (await bridge.applyCommand({
     contractVersion: CONTRACT_VERSION,
     docId,
     command: { type: "addLayer", name },
-  }) as unknown as { documentVersion: number };
+  })) as unknown as { documentVersion: number };
 }
 
 describe("document-scoped engine isolation on the REAL wasm", () => {
-  it("addLayer to docX and docY produce independent non-overlapping snapshots", () => {
-    addLayer(DOC_X, "X-North");
+  it("addLayer to docX and docY produce independent non-overlapping snapshots", async () => {
+    await addLayer(DOC_X, "X-North");
 
-    const snapX = bridge.getSnapshot(DOC_X);
+    const snapX = await bridge.getSnapshot(DOC_X);
     expect(snapX.layers.length).toBe(1);
     expect(snapX.layers[0].name).toBe("X-North");
     expect(snapX.version).toBeGreaterThan(0);
 
-    addLayer(DOC_Y, "Y-South");
+    await addLayer(DOC_Y, "Y-South");
 
-    const snapX2 = bridge.getSnapshot(DOC_X);
-    const snapY = bridge.getSnapshot(DOC_Y);
+    const snapX2 = await bridge.getSnapshot(DOC_X);
+    const snapY = await bridge.getSnapshot(DOC_Y);
     expect(snapX2.layers.length).toBe(1); // docX unaffected by docY's add
     expect(snapX2.layers[0].name).toBe("X-North");
     expect(snapY.layers.length).toBe(1); // docY isolated from docX
@@ -95,35 +95,35 @@ describe("document-scoped engine isolation on the REAL wasm", () => {
     expect(snapY.layers.some((l) => xIds.has(l.id))).toBe(false);
   });
 
-  it("undo/redo on docX does NOT change docY's documentVersion or layers", () => {
-    addLayer(DOC_X, "X-1");
-    addLayer(DOC_X, "X-2");
-    const beforeY = bridge.getSnapshot(DOC_Y); // untouched: v0, empty
+  it("undo/redo on docX does NOT change docY's documentVersion or layers", async () => {
+    await addLayer(DOC_X, "X-1");
+    await addLayer(DOC_X, "X-2");
+    const beforeY = await bridge.getSnapshot(DOC_Y); // untouched: v0, empty
     expect(beforeY.layers.length).toBe(0);
-    expect(bridge.getSnapshot(DOC_X).layers.length).toBe(2);
+    expect((await bridge.getSnapshot(DOC_X)).layers.length).toBe(2);
 
-    const undo = bridge.applyCommand({
+    const undo = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       docId: DOC_X,
       command: { type: "undo" },
     }) as unknown as { documentVersion: number };
     expect(undo.documentVersion).toBeGreaterThan(0);
-    expect(bridge.getSnapshot(DOC_X).layers.length).toBe(1);
+    expect((await bridge.getSnapshot(DOC_X)).layers.length).toBe(1);
 
     // docY completely unaffected by docX's undo.
-    const afterYUndo = bridge.getSnapshot(DOC_Y);
+    const afterYUndo = await bridge.getSnapshot(DOC_Y);
     expect(afterYUndo.version).toBe(beforeY.version);
     expect(afterYUndo.layers.length).toBe(beforeY.layers.length);
 
-    const redo = bridge.applyCommand({
+    const redo = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       docId: DOC_X,
       command: { type: "redo" },
     }) as unknown as { documentVersion: number };
     expect(redo.documentVersion).toBeGreaterThan(undo.documentVersion);
-    expect(bridge.getSnapshot(DOC_X).layers.length).toBe(2);
+    expect((await bridge.getSnapshot(DOC_X)).layers.length).toBe(2);
 
-    const afterYRedo = bridge.getSnapshot(DOC_Y);
+    const afterYRedo = await bridge.getSnapshot(DOC_Y);
     expect(afterYRedo.version).toBe(beforeY.version);
     expect(afterYRedo.layers.length).toBe(beforeY.layers.length);
   });

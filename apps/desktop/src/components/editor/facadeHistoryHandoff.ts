@@ -15,15 +15,15 @@
 import { getFacade, confirmExternalCursor } from "@/lib/protocol/facadeRegistry";
 import type { EditorContextValue } from "./shell/EditorContext";
 
-export function runFacadeExternalHandoff(
+export async function runFacadeExternalHandoff(
   editor: EditorContextValue,
   direction: "undo" | "redo",
-): boolean {
+): Promise<boolean> {
   const engine = editor.workspace.getActiveEngine();
   if (!engine) return false;
   try {
     const facade = getFacade(engine.getId());
-    const snap = direction === "undo" ? facade.undo() : facade.redo();
+    const snap = await (direction === "undo" ? facade.undo() : facade.redo());
     // External history handoff: the walker landed on a legacy (external) entry
     // and set the engine's pending-external barrier (the wedge). The ONLY
     // guaranteed effect here is clearing that barrier; we must not claim the
@@ -32,7 +32,7 @@ export function runFacadeExternalHandoff(
     // (mixed-history constraint) - a known pre-existing limitation tracked
     // separately.
     if (facade.lastExternalHandoff) {
-      const committed = confirmExternalCursor(
+      const committed = await confirmExternalCursor(
         engine.getId(),
         facade.lastExternalHandoff.seq,
         facade.lastExternalHandoff.direction,
