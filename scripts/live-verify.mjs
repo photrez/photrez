@@ -277,7 +277,7 @@ const SETUP_FN = `
   ws.addDocument(session);
   const engine = ws.getActiveEngine();
   const facade = mod.getFacade(idA);
-  mod.seedFacadeFromEngine(engine, facade);
+  await mod.seedFacadeFromEngine(engine, facade);
   window.__lv = { mod, engine, facade, ws, docAId: idA };
   return { docAId: idA, layerCount: engine.getLayers().length, activeLayerId: engine.getActiveLayerId() };
 })()
@@ -318,7 +318,7 @@ window.__digest = function () {
 `;
 
 const STEP_ADD = stepFn(`
-  const snap = facade.addLayer('LV Layer');
+  const snap = await facade.addLayer('LV Layer');
   engine.applyFacadeSnapshot(snap);
   window.__lv.addedId = snap.layers[snap.layers.length - 1].id;
 `);
@@ -326,7 +326,7 @@ const STEP_ADD = stepFn(`
 const STEP_OPACITY = stepFn(`
   const layers = engine.getLayers();
   const target = layers.find((l) => !l.isBackground) || layers[layers.length - 1];
-  const snap = facade.setOpacity(target.id, 0.5);
+  const snap = await facade.setOpacity(target.id, 0.5);
   engine.applyFacadeSnapshot(snap);
 `);
 
@@ -336,23 +336,23 @@ const STEP_TRANSFORM = stepFn(`
   const t = engine.getLayer(target.id).transform;
   facade.beginTransform(target.id, t);
   facade.updateTransform({ ...t, x: t.x + 12, y: t.y + 8 });
-  const snap = facade.commitTransform();
+  const snap = await facade.commitTransform();
   if (snap) engine.applyFacadeSnapshot(snap);
 `);
 
 const STEP_DELETE = stepFn(`
   const id = window.__lv.addedId;
-  const snap = facade.deleteLayer(id);
+  const snap = await facade.deleteLayer(id);
   if (snap) engine.applyFacadeSnapshot(snap);
 `);
 
 const STEP_UNDO = stepFn(`
-  const snap = facade.undo();
+  const snap = await facade.undo();
   if (!facade.lastHistoryDeltaWasEmpty && snap) engine.applyFacadeSnapshot(snap);
 `);
 
 const STEP_REDO = stepFn(`
-  const snap = facade.redo();
+  const snap = await facade.redo();
   if (!facade.lastHistoryDeltaWasEmpty && snap) engine.applyFacadeSnapshot(snap);
 `);
 
@@ -374,8 +374,8 @@ const STEP_DOCB = `
   ws.addDocument(session);
   const engineB = ws.getActiveEngine();
   const facadeB = mod.getFacade(idB);
-  mod.seedFacadeFromEngine(engineB, facadeB);
-  const snap = facadeB.addLayer('LV B Layer');
+  await mod.seedFacadeFromEngine(engineB, facadeB);
+  const snap = await facadeB.addLayer('LV B Layer');
   engineB.applyFacadeSnapshot(snap);
   window.__lv.docBId = idB;
   window.__lv.engineB = engineB;
