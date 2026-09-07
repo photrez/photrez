@@ -3,7 +3,8 @@ import { MAX_OPEN_DOCUMENTS } from "./types";
 import { DocumentEngine } from "./document";
 import { CommandHistory } from "./history";
 import { releaseBitmapStore } from "./bitmapStore";
-import { clearNativeSeed, createNativeSeed, isNativeAuthority } from "@/lib/protocol/bridge";
+import { clearNativeSeed, createNativeSeed, isNativeAuthority, seedNativeCanonical } from "@/lib/protocol/bridge";
+import { buildCanonicalDocumentPayload } from "@/lib/protocol/canonicalSeed";
 import { removeFacade } from "@/lib/protocol/facadeRegistry";
 import type { RenderLayer } from "@/lib/protocol/types";
 
@@ -65,6 +66,12 @@ export class WorkspaceManager {
         rotation: l.transform.rotation,
       }));
       createNativeSeed(id, 0, seededLayers).catch(() => {});
+      // Full canonical-document shadow (all layer content + selection) so the native
+      // engine holds a complete typed copy. Fire-and-forget, same as the layer seed;
+      // log a failed push instead of swallowing it so a missing shadow is visible.
+      seedNativeCanonical(id, buildCanonicalDocumentPayload(session.engine)).catch((e) =>
+        console.warn("[canonical-seed] shadow seed failed", e),
+      );
     }
 
     // Connect document engine change triggers back to workspace context updates.

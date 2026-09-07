@@ -136,6 +136,12 @@ function routeNative(): void {
         layers.set(docId, payload.layers ?? []);
         return JSON.stringify({ version: version.get(docId) ?? 0, layers: payload.layers ?? [] });
       }
+      case "protocol_seed_canonical_native": {
+        if (!open.has(docId)) reject(`document not open: ${docId}`);
+        // Mirrors protocol_seed_canonical_native (native client): returns the null
+        // ack; the re-push caller ignores the result.
+        return null;
+      }
       case "protocol_apply_command_native": {
         if (!open.has(docId)) reject(`document not open: ${docId}`);
         const env = JSON.parse((args.envelopeJson as string) ?? "{}");
@@ -267,7 +273,7 @@ describe("native authority reroute", () => {
   });
 
   it("applyCommand reroutes to protocol_apply_command_native with the rust envelope", async () => {
-    const engineStub = { getId: () => "docA", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docA", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     const facade = new EditorFacade(undefined, "docA");
     await seedFacadeFromEngine(engineStub as never, facade); // cutover seed (open + seed)
     const res = await applyCommand({
@@ -286,7 +292,7 @@ describe("native authority reroute", () => {
   });
 
   it("renderedVersion tracks the returned documentVersion through a facade command", async () => {
-    const engineStub = { getId: () => "docB", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docB", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     // Mirror production: obtain the facade via getFacade so it is registered in
     // the per-document registry (seedFacadeFromEngine does not register it).
     const facade = getFacade("docB");
@@ -297,7 +303,7 @@ describe("native authority reroute", () => {
   });
 
   it("getSnapshot reroutes to protocol_snapshot_native", async () => {
-    const engineStub = { getId: () => "docC", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docC", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     await seedFacadeFromEngine(engineStub as never, new EditorFacade(undefined, "docC"));
     const snap = await getSnapshot("docC");
     expect(invokeMock).toHaveBeenCalledWith("protocol_snapshot_native", { docId: "docC" });
@@ -309,7 +315,7 @@ describe("native authority reroute", () => {
   // protocol_snapshot_native. If syncFromEngine is reverted from getVersion back to
   // getSnapshot, this breaks - proving the reroute is enforced by a real test.
   it("setOpacity sync path probes protocol_version_native (not the snapshot)", async () => {
-    const engineStub = { getId: () => "docV", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docV", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     const facade = getFacade("docV");
     await seedFacadeFromEngine(engineStub as never, facade);
     await facade.setOpacity("L1", 0.5);
@@ -317,7 +323,7 @@ describe("native authority reroute", () => {
   });
 
   it("getHistoryQuery reroutes to protocol_history_query_native", async () => {
-    const engineStub = { getId: () => "docD", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docD", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     await seedFacadeFromEngine(engineStub as never, new EditorFacade(undefined, "docD"));
     const q = await getHistoryQuery("docD");
     expect(invokeMock).toHaveBeenCalledWith("protocol_history_query_native", { docId: "docD" });
@@ -325,7 +331,7 @@ describe("native authority reroute", () => {
   });
 
   it("historyCursorCommit reroutes to protocol_history_cursor_commit_native with typed args", async () => {
-    const engineStub = { getId: () => "docE", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docE", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     await seedFacadeFromEngine(engineStub as never, new EditorFacade(undefined, "docE"));
     const res = await historyCursorCommit(2, "redo", "docE");
     expect(invokeMock).toHaveBeenCalledWith("protocol_history_cursor_commit_native", {
@@ -367,7 +373,7 @@ describe("cutover seed (open-before-seed + idempotency)", () => {
   });
 
   it("seedFacadeFromEngine triggers the cutover seed when native authority is on", async () => {
-    const engineStub = { getId: () => "docF", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docF", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     await seedFacadeFromEngine(engineStub as never, new EditorFacade(undefined, "docF"));
     expect(invokeMock).toHaveBeenCalledWith("rust_pixels_open_document", { docId: "docF" });
     expect(invokeMock).toHaveBeenCalledWith("protocol_seed_native", expect.objectContaining({ docId: "docF" }));
@@ -494,7 +500,7 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
   // like real Rust engine.history.apply (E_VERSION_MISMATCH). The earlier mock
   // ignored expectedVersion, so a reroute that desynced versions would pass green.
   it("protocol_apply_command_native rejects a mismatched expectedVersion (E_VERSION_MISMATCH)", async () => {
-    const engineStub = { getId: () => "docEv", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docEv", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     await seedFacadeFromEngine(engineStub as never, new EditorFacade(undefined, "docEv"));
     // Engine seeded at version 0; a command claiming expectedVersion 5 must reject.
     await expect(
@@ -577,7 +583,7 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
   it("an undo snapshot cursor syncs the facade version from the native engine", async () => {
     localStorage.setItem("photrez.historyBridge", "1"); // enable the snapshot bridge
     const facade = getFacade("docSnapSync");
-    await seedFacadeFromEngine({ getId: () => "docSnapSync", getLayers: () => [layer] } as never, facade);
+    await seedFacadeFromEngine({ getId: () => "docSnapSync", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null } as never, facade);
     expect(getFacade("docSnapSync").renderedVersion).toBe(0); // seeded at version 0
     // Record a Snapshot entry (production always has one when restoring an undo).
     // This advances the native engine DV 0 -> 1.
@@ -614,7 +620,7 @@ describe("error path (native rejection normalizes to uniform CODE: message)", ()
   });
 
   it("a bare-string invoke rejection surfaces as CODE: message, not a resolved {ok:false}", async () => {
-    const engineStub = { getId: () => "docG", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docG", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     await seedFacadeFromEngine(engineStub as never, new EditorFacade(undefined, "docG"));
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === "protocol_apply_command_native") {
@@ -644,7 +650,7 @@ describe("error path (native rejection normalizes to uniform CODE: message)", ()
   });
 
   it("a malformed native result is surfaced as an Error, not an unhandled rejection", async () => {
-    const engineStub = { getId: () => "docH", getLayers: () => [layer] };
+    const engineStub = { getId: () => "docH", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null };
     await seedFacadeFromEngine(engineStub as never, new EditorFacade(undefined, "docH"));
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === "protocol_apply_command_native") return "not-json{"; // invalid external input

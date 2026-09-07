@@ -25,6 +25,8 @@ import {
   setExternalTransitionPending,
   resetWasmDoc,
 } from "./bridge";
+import { repushCanonicalDocument } from "./canonicalSeed";
+import type { DocumentEngine } from "@/engine/document";
 import { CONTRACT_VERSION } from "./types";
 export { isFacadeEnabled };
 
@@ -240,6 +242,10 @@ export async function seedFacadeFromEngine(
   // Carries the live renderedVersion (not a hardcoded 0) so the seeded engine
   // starts at the same document version the facade holds.
   if (isNativeAuthority()) {
+    // Bind the TS engine to the facade so addLayer can re-push the full canonical
+    // document after Rust mints a layer (Rust cannot populate the canonical-only
+    // fields). Gated so the default (wasm) path is byte-identical.
+    facade.bindEngine(engine as unknown as DocumentEngine);
     await ensureNativeEngineSeeded(
       facade.docId,
       facade.renderedVersion,
@@ -320,7 +326,8 @@ export function syncFacadeVersionFromPixel(docId: string, version: number): void
 
 export async function recordExternalTransitionFor(
   docId: string,
-  rec: { label: string; affectedLayerIds: string[]; snapshot: unknown }
+  rec: { label: string; affectedLayerIds: string[]; snapshot: unknown },
+  engine?: DocumentEngine
 ): Promise<{ ok: boolean; seq?: number }> {
   // Deterministic degraded behavior (ADR 0008 H0 review): while degraded, no
   // further protocol attempts — fail fast without touching the engine.
@@ -357,6 +364,17 @@ export async function recordExternalTransitionFor(
     // facade calls — every envelope builder must see the new DV.
     if (!peekFacade(docId)) getFacade(docId); // ensure instance exists for future refresh
     syncAuthoritativeVersion(docId, res.documentVersion);
+    // Native-authority shadow re-push (gated, default OFF => no-op). A mirrored
+    // external transition changes the TS model outside the facade command path, so
+    // re-push the full canonical shadow so the native copy stays complete. The
+    // commit shim passes the live engine; direct callers may omit it and skip the
+    // re-push. Fire-and-forget; a rejected re-push is logged, never surfaced as an
+    // unhandled rejection.
+    if (engine) {
+      void repushCanonicalDocument(docId, engine).catch((e) =>
+        console.warn("[canonical-repush] shadow re-push failed", e),
+      );
+    }
     pendingMarkers = pendingMarkers.filter((m) => m !== marker);
     return { ok: true, seq: res.externalSeq ?? undefined };
   } catch (e) {
@@ -371,6 +389,10 @@ export async function confirmExternalCursor(
   seq: number,
   direction: "undo" | "redo"
 ): Promise<{ ok: boolean }> {
+  // No canonical re-push here: the external-handoff route returns an empty delta,
+  // so the TS model is untouched and facadeHistoryHandoff skips projection; facade
+  // undo/redo is already covered by Rust-side reconciliation. Residual: a pure-legacy
+  // doc restored via engine.restore() heals the shadow at the next forward commit.
   // Deterministic degraded behavior (ADR 0008 H0 review): fail fast, keep the
   // degraded reason, never appear healthy while cursor/state may diverge.
   const deg = historyDegraded();
@@ -446,11 +468,11 @@ export function installFacadeCommitShim(providers: {
       // (native-authority version-sync barrier; the wasm default path no-ops).
       setExternalTransitionPending(
         engine.getId(),
-        recordExternalTransitionFor(engine.getId(), {
-          label: label ?? "Legacy Edit",
-          affectedLayerIds: affected,
-          snapshot: snap,
-        }).then(() => {}),
+        recordExternalTransitionFor(
+          engine.getId(),
+          { label: label ?? "Legacy Edit", affectedLayerIds: affected, snapshot: snap },
+          engine as unknown as DocumentEngine,
+        ).then(() => {}),
       );
     } catch {
       // never let instrumentation break the legacy caller
@@ -486,11 +508,11 @@ export function installFacadeCommitShim(providers: {
       // mirror for the native-authority version-sync barrier; wasm no-ops.
       setExternalTransitionPending(
         engine.getId(),
-        recordExternalTransitionFor(engine.getId(), {
-          label: label ?? "Legacy Edit",
-          affectedLayerIds: affected,
-          snapshot: before,
-        }).then(() => {}),
+        recordExternalTransitionFor(
+          engine.getId(),
+          { label: label ?? "Legacy Edit", affectedLayerIds: affected, snapshot: before },
+          engine as unknown as DocumentEngine,
+        ).then(() => {}),
       );
     } catch {
       // never let instrumentation break the legacy caller

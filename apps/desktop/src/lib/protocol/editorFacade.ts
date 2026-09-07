@@ -3,7 +3,9 @@
 // All persistent mutations go via Command -> Rust -> delta. Correctness via expectedVersion + baseVersion.
 
 import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNativeAuthority } from "./bridge";
+import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
+import type { DocumentEngine } from "@/engine/document";
 import type { DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch } from "./types";
 import { isDeltaApplicable } from "./types";
 
@@ -20,6 +22,15 @@ export class EditorFacade {
   private pending = new Map<number, DocumentVersion>();
   // Ticket 2.2: set by undo()/redo() — true when Rust had no entry (no-op).
   lastHistoryDeltaWasEmpty = false;
+  // Native-authority shadow re-push: the TS engine bound during
+  // seedFacadeFromEngine so addLayer can re-push the full canonical document
+  // after Rust mints a layer (Rust cannot populate the canonical-only fields).
+  // Null unless native authority is active; the re-push is itself gated, so an
+  // unset engine is a no-op and production (default authority) is unchanged.
+  private engine: DocumentEngine | null = null;
+  bindEngine(engine: DocumentEngine): void {
+    this.engine = engine;
+  }
   // External history handoff (ADR 0008 H0): set by undo()/redo() when the
   // walker lands on a legacy (external) entry and returns status:"external".
   // The host must clear the engine's pending-external barrier (via
@@ -70,6 +81,7 @@ export class EditorFacade {
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "addLayer", name } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    this.repushCanonicalAfterAddLayer();
     return this.snapshot;
   }
 
@@ -173,6 +185,25 @@ export class EditorFacade {
 
   private async refreshSnapshot(): Promise<void> {
     try { const snap = await getSnapshot(this.docId); this.applySnapshot(snap); } catch {}
+  }
+
+  // Native-authority shadow re-push (gated, default OFF => no-op). After a
+  // successful addLayer the native engine has minted the layer but lacks its
+  // canonical-only fields, and the TS engine has not yet received the layer
+  // (the production caller projects it only after this returns). Project the
+  // facade snapshot into the engine first, then re-push the full canonical
+  // shadow so the native copy is complete. Fire-and-forget: a rejected re-push
+  // is logged, never surfaced as an unhandled rejection.
+  private repushCanonicalAfterAddLayer(): void {
+    if (!isNativeAuthority() || !this.engine) return;
+    try {
+      this.engine.applyFacadeSnapshot(this.snapshot);
+    } catch {
+      // Projection is auxiliary to the command's success; never fail addLayer on it.
+    }
+    void repushCanonicalDocument(this.docId, this.engine).catch((e) =>
+      console.warn("[canonical-repush] shadow re-push failed", e),
+    );
   }
 
   // ADR 0014 native-authority version sync: under native authority the legacy

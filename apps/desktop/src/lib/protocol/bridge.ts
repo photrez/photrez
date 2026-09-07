@@ -162,6 +162,19 @@ export function createNativeSeed(docId: string, version: number, layers: RenderL
   return p;
 }
 
+// Seed the full canonical-document shadow into the native engine for a doc. Runs
+// AFTER the authoritative open-path layer seed (it awaits that seed's promise) so
+// the doc is already open when the canonical copy is pushed. Gated: a no-op under
+// the default (wasm) authority. If the open-path seed was never created, we still
+// invoke so the command surfaces the missing-doc ordering bug rather than silently
+// skipping a seed.
+export async function seedNativeCanonical(docId: string, canonicalJson: string): Promise<void> {
+  if (!isNativeAuthority()) return;
+  const key = docId === "" ? "default" : docId;
+  await (nativeSeedPromiseByDoc.get(key) ?? Promise.resolve());
+  await nativeProtocol.protocol_seed_canonical_native(canonicalJson, key);
+}
+
 // Awaits the authoritative seed for a doc. The document-open path is responsible
 // for creating it (with real layers) before any command fires; this never seeds
 // empty. If no seed exists the open path did not run first - resolve without

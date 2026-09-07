@@ -35,6 +35,7 @@ import {
   protocol_register_payload_adapter,
   protocol_history_query_json,
   protocol_history_cursor_commit,
+  canonical_validate_json,
 } from "../wasm/pkg/photrez_core.js";
 
 // Locate the .wasm on disk by walking up from cwd. Do NOT derive from
@@ -89,4 +90,5 @@ export {
   protocol_register_payload_adapter,
   protocol_history_query_json,
   protocol_history_cursor_commit,
+  canonical_validate_json,
 };
