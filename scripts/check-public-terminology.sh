@@ -13,11 +13,15 @@
 #   scripts/check-public-terminology.sh --files "<path> [path ...]"
 #
 # "Phase A:" / "Phase B:" used as in-method step labels (e.g. useBrushOverlay
-# readback steps) are ALLOWED — the plan-phase reference form is what's blocked.
+# readback steps) are ALLOWED - the plan-phase reference form is what's blocked.
+# Extended 2026-09-07: also blocks internal decision labels (SD-1..), "fork A/B/C",
+# "prove-dead", "Keranjang", "North Star" - all absent from existing shipped code, so
+# this adds no false positives. ADR references are NOT blocked (established convention,
+# 39 existing uses).
 set -u
 
-PLAN_MSG='Phase [A-H]|phase [a-h]|flip-on|Option A[^A-Za-z]|Option B[^A-Za-z]'
-PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transfer|adapter))'
+PLAN_MSG='Phase [A-H]|phase [a-h]|flip-on|Option A[^A-Za-z]|Option B[^A-Za-z]|SD-[0-9]|fork [ABC]|prove-dead|Keranjang|North Star'
+PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transfer|adapter))|SD-[0-9]|fork [ABC]|prove-dead|Keranjang|North Star'
 
 fail() { echo "ERROR: $1" >&2; exit 1; }
 
