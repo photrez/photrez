@@ -20,7 +20,6 @@ pub mod parallel;
 pub mod pixel_store;
 pub(crate) mod projection;
 pub mod protocol;
-pub mod render_worker;
 pub mod rkyv_bench;
 pub mod selection;
 pub mod snapshot;

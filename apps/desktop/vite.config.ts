@@ -15,7 +15,6 @@ const wasmTestShim = fileURLToPath(
 // Keep this list conservative: only tests that do not require browser globals,
 // Solid rendering, canvas APIs, or DOM event wiring belong in the fast project.
 const nodeTestFiles = [
-  "src/engine/__tests__/paintHistoryBudget.test.ts",
   "src/engine/__tests__/blendModes.test.ts",
   "src/engine/__tests__/history.test.ts",
   "src/engine/__tests__/errorResilience.test.ts",
