@@ -452,8 +452,11 @@ describe("C4 Bug 1 — overlapping strokes composite onto canonical (real hook)"
     }
     expect(sim.calls.filter((c) => c.cmd === "paint_parity_shadow").length).toBe(0);
     expect(sim.calls.filter((c) => c.cmd === "apply_tile_patch").length).toBe(0);
-    // scenario "no duplicate rendering": legacy Phase-B drawImage is skipped when C4 applied.
-    expect(surface.context.drawImage).not.toHaveBeenCalled();
+    // scenario "no duplicate rendering": the synchronous legacy Phase-B drawImage is
+    // skipped under C4, but the deferred C4 composite now draws the dabs onto the
+    // surface exactly once per committed stroke (A/B/C -> 3 draws). This is the fix
+    // for the P0 stroke-loss bug: the composite must happen inside c4CoreCommit.
+    expect(surface.context.drawImage).toHaveBeenCalledTimes(3);
     expect(uploadSurfaceTiles).toHaveBeenCalled();
   });
 

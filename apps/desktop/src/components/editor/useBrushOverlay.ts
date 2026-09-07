@@ -103,6 +103,8 @@ interface C4CommitJob {
   requestRender: () => void;
   beforePatches: TileKeyed<ImageData>[];
   effectiveIsEraser: boolean;
+  /** Dirty-rect scratch snapshot captured synchronously at enqueue (aliasing-safe). */
+  scratchSnap: ImageData;
   seq: number;
 }
 
@@ -136,6 +138,17 @@ export function useBrushOverlay() {
         const seed = surface.readRect(0, 0, w, h);
         await invoke("rust_pixels_init", { docId, layerId, width: w, height: h, bytes: new Uint8Array(seed.data.buffer, seed.data.byteOffset, seed.data.byteLength) });
       }
+      // Composite the committed dabs onto the rehydrated surface BEFORE the dirty
+      // readRect. rehydratePaintSurfaceFromRust did an absolute putImageData of the
+      // PRE-stroke canonical, so without this the dirty region carries no dabs and
+      // rust_pixels_write_region performs a no-op byte copy (the stroke is lost).
+      // The snapshot was captured synchronously at enqueue (see the C4 branch), so it
+      // is immune to cachedTileScratch being reused/resized by later strokes. Source-over
+      // preserves existing surface pixels under transparent scratch regions.
+      const snapCanvas = new OffscreenCanvas(dw, dh);
+      const snapCtx = snapCanvas.getContext("2d")!;
+      snapCtx.putImageData(job.scratchSnap, 0, 0);
+      sctx.drawImage(snapCanvas, 0, 0, dw, dh, dx0, dy0, dw, dh);
       const region = surface.readRect(dx0, dy0, dw, dh);
       const res = (await invoke("rust_pixels_write_region", {
         docId, layerId, x: dx0, y: dy0, w: dw, h: dh,
@@ -1107,6 +1120,7 @@ export function useBrushOverlay() {
 
         // ── R2 Canonical C3 (flag-gated, fresh-white-docs only): Rust patches replace TS raster ──
   let c3Applied = false;
+  let c4SkipPhaseB = false; // C4 composites its dabs inside c4CoreCommit after rehydrate, so the synchronous Phase B/C composites are skipped via this flag (kept separate from c3Applied, which is C3-only).
   let c3Flag = false;
         try { c3Flag = localStorage.getItem("photrez.canonicalCommit") === "1"; } catch {}
         if (c3Flag && !effectiveIsEraser && scratchReady && isRustShadowEnabled() && c3Ready) {
@@ -1167,7 +1181,12 @@ export function useBrushOverlay() {
           // (stroke N+1 never overtakes N). Brush surface is Canvas2D, so this is
           // the faithful analog of the WebGL2 PBO readback validated in RESPONSE.md
           // (pointerup block <1ms, no busy-wait, ordered).
-          c3Applied = true;
+          // Capture the dirty-rect scratch NOW (synchronous): cachedTileScratch is a
+          // module singleton reused/resized by later strokes, so the deferred commit must
+          // not read it at flush time (aliasing hazard). c4CoreCommit composites this
+          // snapshot onto the rehydrated surface before the readRect.
+          const c4ScratchSnap = cachedTileScratchCtx!.getImageData(0, 0, dw, dh);
+          c4SkipPhaseB = true;
           c4Deferred = true;
           histCommitted = true;
           const docId = workspace.getActiveDocumentId() ?? "";
@@ -1183,6 +1202,7 @@ export function useBrushOverlay() {
             requestRender: () => scheduler.requestRender(),
             beforePatches,
             effectiveIsEraser,
+            scratchSnap: c4ScratchSnap,
             seq: 0,
           });
           if ((import.meta as any).env?.DEV) {
@@ -1195,12 +1215,12 @@ export function useBrushOverlay() {
         // ~55ms EACH at 300 tiles = 16.9s total; one full-rect draw =
         // 97ms). Transparent scratch regions preserve existing surface
         // pixels under source-over, same as the old clipped stamps.
-        if (!c3Applied && !effectiveIsEraser && scratchReady) {
+        if (!c3Applied && !c4SkipPhaseB && !effectiveIsEraser && scratchReady) {
           sctx.drawImage(cachedTileScratch!, 0, 0, dw, dh, dx0, dy0, dw, dh);
         }
 
         // Phase C: per-rect readback -> per-tile patches + upload entries.
-        if (!c3Applied) {
+        if (!c3Applied && !c4SkipPhaseB) {
         for (let ri = 0; ri < rects.length; ri++) {
           const rect = rects[ri];
           const rt = rect.tiles;
