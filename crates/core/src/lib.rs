@@ -4,6 +4,8 @@ pub mod export;
 pub mod kernel;
 // Rust/WASM owns a WebGPU compute pipeline inside the webview.
 pub mod brush_engine;
+// Typed canonical document model (additive, not yet wired into runtime).
+pub mod canonical_model;
 pub mod canonical_tip;
 pub mod document;
 pub(crate) mod document_dup;
