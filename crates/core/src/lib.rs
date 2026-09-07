@@ -6,6 +6,8 @@ pub mod kernel;
 pub mod brush_engine;
 // Typed canonical document model (additive, not yet wired into runtime).
 pub mod canonical_model;
+// RenderLayer <-> CanonicalLayer value bridge + seed-payload validation (additive, unwired).
+pub mod canonical_bridge;
 pub mod canonical_tip;
 pub mod document;
 pub(crate) mod document_dup;
@@ -37,6 +39,8 @@ pub mod webgpu_adjust;
 // (referenced only by `#[cfg(test)]` helpers). History/command/model/projection
 // types for the protocol engine live in `document_core.rs` / `history.rs` /
 // `command.rs` / `model.rs` / `projection.rs` (the former `protocol.rs`).
+#[cfg(test)]
+mod canonical_shadow_tests;
 #[cfg(test)]
 mod parity_oracle;
 pub(crate) mod state_node;

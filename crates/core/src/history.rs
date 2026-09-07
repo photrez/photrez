@@ -387,6 +387,9 @@ impl ProtocolEngine {
         let dv = self.version + 1;
         self.version = dv;
         self.pending_external = None; // barrier cleared on success only
+                                      // Cursor-commit does not swap the LayerSet (barrier-gated; the host executes
+                                      // the external mutation out-of-band), so this reconcile is defensive/no-op today.
+        self.reconcile_shadow();
         Ok(CommandResult {
             document_version: dv,
             delta: RenderDelta {

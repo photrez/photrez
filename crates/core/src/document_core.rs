@@ -4,6 +4,8 @@
 // model/projection types live in their own modules (history.rs / command.rs /
 // model.rs / projection.rs).
 
+use crate::canonical_bridge::CanonicalShadow;
+use crate::canonical_model::CanonicalDocument;
 use crate::command::*;
 use crate::history::*;
 use crate::model::*;
@@ -38,6 +40,12 @@ pub struct ProtocolEngine {
     // through apply() is rejected with E_EXTERNAL_PENDING until then — the
     // host must not stack a pending external transition with new work.
     pub(crate) pending_external: Option<(u64, String)>,
+    // Per-document canonical shadow, kept in sync with layer edits via
+    // reconciliation (see `CanonicalShadow`). `None` until seeded; wasm engines
+    // are never seeded and the native-authority path is OFF by default, so
+    // production stays byte-identical. `incomplete` flags engine-minted layers
+    // whose canonical-only fields cannot be reconstructed until the next push.
+    pub(crate) canonical: Option<CanonicalShadow>,
 }
 impl Default for ProtocolEngine {
     fn default() -> Self {
@@ -51,6 +59,7 @@ impl Default for ProtocolEngine {
             max_depth: 50,
             adapters: Vec::new(),
             pending_external: None,
+            canonical: None,
         }
     }
 }
@@ -98,6 +107,50 @@ impl ProtocolEngine {
         if let Some(max_res) = self.layers.0.iter().map(|l| l.resource_id).max() {
             self.next_resource = self.next_resource.max(max_res.saturating_add(1));
         }
+        // Keep a seeded canonical shadow consistent with the layer set (ordering
+        // hazard if canonical was seeded before the layers). Zero-cost when no
+        // shadow is seeded; idempotent.
+        self.reconcile_shadow();
+    }
+
+    /// Store a complete `CanonicalDocument` copy and begin reconciling layer
+    /// edits against it. A full push CLEARS tombstones and the `incomplete` flag,
+    /// replacing the entire shadow (a re-open must refresh, not keep stale data).
+    ///
+    /// ADDITIVE / UNWIRED: only populated from the gated native-authority seed
+    /// path. In production `canonical` is `None`, so no reconcile ever runs.
+    pub fn seed_canonical(&mut self, doc: CanonicalDocument) {
+        self.canonical = Some(CanonicalShadow::new(doc));
+    }
+
+    /// Read the seeded canonical document copy, if one has been stored.
+    pub fn canonical(&self) -> Option<&CanonicalDocument> {
+        self.canonical.as_ref().map(|s| &s.doc)
+    }
+
+    /// Whether the shadow is missing layers the engine has minted and cannot yet
+    /// reconstruct (engine-side `AddLayer`). Sticky until the next full push.
+    /// Test-only today; a future TS-side consumer will read it.
+    #[cfg(test)]
+    pub(crate) fn canonical_incomplete(&self) -> bool {
+        self.canonical
+            .as_ref()
+            .map(|s| s.incomplete)
+            .unwrap_or(false)
+    }
+
+    /// Reconcile the shadow against the current engine layer set by reference
+    /// (no per-layer clone). Zero-cost when no shadow is seeded.
+    pub(crate) fn reconcile_shadow(&mut self) {
+        if let Some(shadow) = &mut self.canonical {
+            shadow.reconcile(self.layers.iter().map(|a| a.as_ref()));
+        }
+    }
+
+    /// Mutable access to the shadow for tests that drive `reconcile` directly.
+    #[cfg(test)]
+    pub(crate) fn canonical_shadow_mut(&mut self) -> Option<&mut CanonicalShadow> {
+        self.canonical.as_mut()
     }
 
     // ── H0 stream helpers ────────────────────────────────────────
@@ -445,6 +498,8 @@ impl ProtocolEngine {
                 memory_cost_bytes,
             )?;
             // Note: record_external already bumps version; do not bump again.
+            // Layers unchanged here - reconcile intentionally skipped (host executes
+            // external mutation out-of-band).
             return Ok(CommandResult {
                 document_version: self.version,
                 delta: RenderDelta {
@@ -695,6 +750,8 @@ impl ProtocolEngine {
         };
         if let Some(seq) = external_handoff {
             self.pending_external = Some((seq, handoff_dir.to_string()));
+            // Layers unchanged here - reconcile intentionally skipped (host executes
+            // external mutation out-of-band); the cursor commit lands it separately.
             return Ok(CommandResult {
                 document_version: self.version,
                 delta: RenderDelta {
@@ -707,6 +764,7 @@ impl ProtocolEngine {
             });
         }
         self.version += 1;
+        self.reconcile_shadow();
         Ok(CommandResult {
             document_version: self.version,
             delta: RenderDelta {
@@ -861,5 +919,46 @@ mod version_tests {
         };
         engine.seed_layers(vec![layer], 42);
         assert_eq!(engine.version(), 42);
+    }
+}
+
+#[cfg(test)]
+mod canonical_seed_tests {
+    use super::*;
+    use crate::canonical_model::CanonicalDocument;
+
+    /// Minimal `CanonicalDocument` (no layers) keyed by id, for shadow-copy tests.
+    fn empty_doc(id: &str) -> CanonicalDocument {
+        CanonicalDocument {
+            id: id.to_string(),
+            name: "n".to_string(),
+            width: 10.0,
+            height: 10.0,
+            layers: vec![],
+            selection: None,
+        }
+    }
+
+    #[test]
+    fn canonical_default_is_none() {
+        let engine = ProtocolEngine::new();
+        assert!(engine.canonical().is_none());
+    }
+
+    #[test]
+    fn seed_canonical_stores_copy() {
+        let mut engine = ProtocolEngine::new();
+        engine.seed_canonical(empty_doc("doc-A"));
+        let c = engine.canonical().expect("canonical shadow stored");
+        assert_eq!(c.id, "doc-A");
+    }
+
+    #[test]
+    fn seed_canonical_replaces_existing() {
+        let mut engine = ProtocolEngine::new();
+        engine.seed_canonical(empty_doc("doc-A"));
+        engine.seed_canonical(empty_doc("doc-B"));
+        let c = engine.canonical().expect("canonical shadow stored");
+        assert_eq!(c.id, "doc-B", "second seed must replace the first shadow");
     }
 }

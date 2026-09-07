@@ -300,6 +300,39 @@ impl CanonicalDocument {
     pub fn from_ptz_document_json(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| e.to_string())
     }
+
+    /// Serialize the canonical document to a `.ptz` v4 `document.json` payload.
+    ///
+    /// Emits the v3 header keys (`format: "photrez-ptz"`, `version` bumped to 4)
+    /// plus the canonical content (`id`/`name`/`width`/`height`/`layers`/
+    /// `selection`) in the same camelCase shape the reader (`from_ptz_document_json`)
+    /// consumes, so the round-trip is lossless and the v3 reader stays compatible.
+    ///
+    /// RESOURCE HANDLE STRIPPING: a `ResourceId` is a session-scoped token handle.
+    /// Persisting it would be a lie the next session cannot honor (the handle is
+    /// minted fresh per session), so every layer's `resource_id` is normalized to
+    /// `None` before serialization. The model field keeps its plain
+    /// `Option<ResourceId>` (no `skip_serializing_if`): the read-back contract for
+    /// `resource_id` must stay stable - it deserializes to `None` either way, and
+    /// the explicit `null` keeps the key present and unambiguous on disk.
+    pub fn to_ptz_document_json(&self) -> Result<String, String> {
+        let mut normalized = self.clone();
+        for layer in normalized.layers.iter_mut() {
+            layer.resource_id = None;
+        }
+        let mut value = serde_json::to_value(&normalized).map_err(|e| e.to_string())?;
+        if let serde_json::Value::Object(ref mut map) = value {
+            map.insert(
+                "format".to_string(),
+                serde_json::Value::String("photrez-ptz".to_string()),
+            );
+            map.insert(
+                "version".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(4u64)),
+            );
+        }
+        serde_json::to_string(&value).map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -722,5 +755,213 @@ mod ptz_reader_tests {
         let doc = CanonicalDocument::from_ptz_document_json(json)
             .expect("unknown top-level and layer keys must be ignored");
         assert_eq!(doc.layers.len(), 1);
+    }
+}
+
+/// Write-side tests for `to_ptz_document_json` (v4 `.ptz` `document.json`).
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+
+    fn sample_transform() -> Transform2D {
+        Transform2D {
+            x: 0.0,
+            y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotation: 0.0,
+            flip_h: false,
+            flip_v: false,
+        }
+    }
+
+    fn raster() -> CanonicalLayer {
+        CanonicalLayer {
+            id: "w-raster".to_string(),
+            name: "Bg".to_string(),
+            layer_type: LayerType::Raster,
+            visible: true,
+            opacity: 1.0,
+            locked: false,
+            is_background: Some(true),
+            lock_transparency: None,
+            lock_position: None,
+            lock_rotation: None,
+            has_adjustments: None,
+            basic_adjustment: None,
+            resource_id: None,
+            blend_mode: BlendMode::Normal,
+            transform: sample_transform(),
+            width: 800.0,
+            height: 600.0,
+            shape_params: None,
+            text_data: None,
+        }
+    }
+
+    fn shape() -> CanonicalLayer {
+        CanonicalLayer {
+            id: "w-shape".to_string(),
+            name: "Star".to_string(),
+            layer_type: LayerType::Shape,
+            visible: true,
+            opacity: 0.9,
+            locked: false,
+            is_background: None,
+            lock_transparency: None,
+            lock_position: None,
+            lock_rotation: None,
+            has_adjustments: None,
+            basic_adjustment: None,
+            resource_id: None,
+            blend_mode: BlendMode::Multiply,
+            transform: Transform2D {
+                x: 1.0,
+                y: 2.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                flip_h: false,
+                flip_v: false,
+            },
+            width: 100.0,
+            height: 100.0,
+            shape_params: Some(ShapeParams {
+                kind: ShapeKind::Star,
+                width: 100.0,
+                height: 100.0,
+                radius: 5.0,
+                fill: ShapeFill {
+                    kind: ShapeFillKind::Solid,
+                    color: "#ffffff".to_string(),
+                },
+                stroke: ShapeStroke {
+                    enabled: false,
+                    color: "#000000".to_string(),
+                    width: 1.0,
+                },
+                arrow_head: false,
+            }),
+            text_data: None,
+        }
+    }
+
+    fn text() -> CanonicalLayer {
+        CanonicalLayer {
+            id: "w-text".to_string(),
+            name: "Title".to_string(),
+            layer_type: LayerType::Text,
+            visible: true,
+            opacity: 1.0,
+            locked: false,
+            is_background: None,
+            lock_transparency: None,
+            lock_position: None,
+            lock_rotation: None,
+            has_adjustments: None,
+            basic_adjustment: None,
+            resource_id: None,
+            blend_mode: BlendMode::Normal,
+            transform: sample_transform(),
+            width: 300.0,
+            height: 40.0,
+            shape_params: None,
+            text_data: Some(TextData {
+                content: "Hi".to_string(),
+                font_family: "Arial".to_string(),
+                font_size: 24.0,
+                font_weight: 400.0,
+                font_style: TextFontStyle::Normal,
+                color: "#000000".to_string(),
+                align: TextAlign::Left,
+                line_height: 1.2,
+                letter_spacing: 0.0,
+                box_mode: TextBoxMode::Point,
+                box_width: 0.0,
+                box_height: 0.0,
+                stroke: TextStroke {
+                    width: 0.0,
+                    color: "#000000".to_string(),
+                    align: None,
+                },
+                underline: None,
+                strikethrough: None,
+                uppercase: None,
+            }),
+        }
+    }
+
+    fn doc3() -> CanonicalDocument {
+        CanonicalDocument {
+            id: "doc-w".to_string(),
+            name: "Write".to_string(),
+            width: 800.0,
+            height: 600.0,
+            layers: vec![raster(), shape(), text()],
+            selection: Some(SelectionState {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                angle: 5.0,
+                shape: Some(SelectionShape::Ellipse),
+                inverted: Some(false),
+            }),
+        }
+    }
+
+    #[test]
+    fn to_ptz_round_trips_three_layer_doc() {
+        let doc = doc3();
+        let json = doc.to_ptz_document_json().expect("v4 serialize");
+        let parsed = CanonicalDocument::from_ptz_document_json(&json).expect("v4 parse");
+        assert_eq!(doc, parsed, "to_ptz -> from_ptz must be value-identical");
+    }
+
+    #[test]
+    fn to_ptz_strips_resource_handles() {
+        let mut doc = doc3();
+        doc.layers[0].resource_id = Some(9);
+        let json = doc.to_ptz_document_json().expect("v4 serialize");
+
+        // The written JSON must not carry a session-scoped resource handle.
+        let v: serde_json::Value = serde_json::from_str(&json).expect("written JSON is valid");
+        let layers = v["layers"].as_array().expect("has layers");
+        assert_eq!(
+            layers[0]["resourceId"],
+            serde_json::Value::Null,
+            "resource handle must be null in output"
+        );
+
+        // The reader recovers the layer with resource_id None, rest intact.
+        let parsed = CanonicalDocument::from_ptz_document_json(&json).expect("v4 parse");
+        assert_eq!(parsed.layers[0].resource_id, None);
+        assert_eq!(parsed.layers[0].id, doc.layers[0].id);
+        assert_eq!(parsed.layers[0].name, doc.layers[0].name);
+        assert_eq!(parsed.layers[0].width, doc.layers[0].width);
+        assert_eq!(parsed.layers[1].resource_id, None);
+    }
+
+    #[test]
+    fn to_ptz_emits_v4_and_is_reader_compatible() {
+        let doc = doc3();
+        let json = doc.to_ptz_document_json().expect("v4 serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("written JSON is valid");
+        assert_eq!(
+            v["format"],
+            serde_json::Value::String("photrez-ptz".to_string())
+        );
+        assert_eq!(
+            v["version"],
+            serde_json::Value::Number(serde_json::Number::from(4u64))
+        );
+        assert_eq!(v["layers"].as_array().map(|l| l.len()).unwrap_or(0), 3);
+
+        // The existing reader (which ignores format/version) must accept it.
+        let parsed = CanonicalDocument::from_ptz_document_json(&json);
+        assert!(
+            parsed.is_ok(),
+            "v4 output must be readable by from_ptz_document_json"
+        );
     }
 }
