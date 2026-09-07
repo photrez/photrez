@@ -11,6 +11,7 @@
 // wrapper, which expects `{ ok, error }` and would mis-handle a bare-string
 // rejection. (Tauri v2 `invoke()` rejects with exactly this string on `Err`.)
 
+use photrez_core::canonical_model::CanonicalDocument;
 use photrez_core::pixel_store::registry;
 use photrez_core::protocol::{
     CommandEnvelope, CommandResult, HistoryQuery, ProtocolError, RenderLayer, RenderSnapshot,
@@ -163,6 +164,63 @@ pub fn protocol_seed_native(payload_json: String, doc_id: String) -> Result<Stri
     Ok(serde_json::to_string(&snap).unwrap())
 }
 
+/// Seed a complete `CanonicalDocument` copy into the native per-doc
+/// `ProtocolEngine`, alongside the RenderLayer set the sibling `protocol_seed_native`
+/// seeds. ADDITIVE authority command (native-canonical-authority handoff plumbing):
+/// nothing routes through it yet, so production behavior is unchanged. Mirrors the
+/// sibling native protocol commands' authority stance -- the doc MUST already be
+/// open; a missing doc is an ERROR.
+///
+/// Unlike `protocol_seed_native` (only-when-empty), the canonical copy is a SHADOW
+/// of the authoritative TS push and is replaced unconditionally -- a re-open must
+/// refresh it. Returns the same `"null"` ack as `protocol_register_adapter_native`
+/// so the TS client can `JSON.parse` the register / seed-canonical pair
+/// uniformly. Malformed JSON is rejected with `E_CANONICAL_PARSE`.
+#[tauri::command]
+pub fn protocol_seed_canonical_native(
+    payload_json: String,
+    doc_id: String,
+) -> Result<String, String> {
+    let doc: CanonicalDocument =
+        serde_json::from_str(&payload_json).map_err(|e| format!("E_CANONICAL_PARSE: {e}"))?;
+    let doc_key = resolve_doc_key(&doc_id).to_string();
+    let mut reg_guard = registry();
+    let reg = reg_guard.get_or_insert_with(Default::default);
+    let engine = reg
+        .docs
+        .get_mut(&doc_key)
+        .ok_or_else(|| format!("document not open: {doc_key}"))?;
+    engine.history.seed_canonical(doc);
+    Ok(serde_json::to_string(&()).unwrap())
+}
+
+/// Read back the seeded `CanonicalDocument` copy for the native per-doc
+/// `ProtocolEngine`. ADDITIVE / UNWIRED: no runtime path consumes the result yet.
+///
+/// Reuses the REGISTRY access the sibling read-only native commands use
+/// (`registry()` -> `docs[doc].history`). Same missing-doc error stance as the
+/// siblings (`"document not open: {key}"`, or `"pixel store not initialized"` when
+/// the registry itself is not yet created). If the doc is open but was never
+/// seeded with a canonical copy, rejects with `E_CANONICAL_ABSENT`.
+#[tauri::command]
+pub fn protocol_canonical_native(doc_id: String) -> Result<String, String> {
+    let doc_key = resolve_doc_key(&doc_id).to_string();
+    let reg = registry();
+    let reg = reg
+        .as_ref()
+        .ok_or_else(|| "pixel store not initialized".to_string())?;
+    let engine = reg
+        .docs
+        .get(&doc_key)
+        .ok_or_else(|| format!("document not open: {doc_key}"))?;
+    match engine.history.canonical() {
+        Some(c) => Ok(serde_json::to_string(c).unwrap()),
+        None => Err(format!(
+            "E_CANONICAL_ABSENT: no canonical copy seeded for {doc_key}"
+        )),
+    }
+}
+
 /// Native mirror of wasm `protocol_snapshot_json` (`document_core.rs:774-787`).
 ///
 /// Returns the per-doc native `ProtocolEngine`'s `RenderSnapshot` as JSON,
@@ -292,6 +350,104 @@ mod tests {
         let v = protocol_version_native(missing.to_string());
         assert!(v.is_err(), "missing doc must error");
         let err = v.unwrap_err();
+        assert!(
+            err.starts_with("document not open:") || err.starts_with("pixel store not initialized"),
+            "error must be a valid missing-doc rejection envelope, got: {err}"
+        );
+    }
+
+    const CANON_DOC: &str = "canonical-seed-native-test-doc";
+    const CANON_BAD_DOC: &str = "canonical-bad-native-test-doc";
+    const CANON_ABSENT_DOC: &str = "canonical-absent-native-test-doc";
+    const CANON_MISSING_DOC: &str = "canonical-missing-native-test-doc";
+
+    /// Real-shape `CanonicalDocument` JSON (camelCase keys) with a text layer
+    /// carrying `textData`, `blendMode`, and locks - mirrors the TS builder output.
+    const CANON_FIXTURE: &str = r##"{
+        "id":"canon-doc-1",
+        "name":"Canon",
+        "width":800,
+        "height":600,
+        "selection":{"x":5,"y":5,"width":20,"height":15,"angle":0,"shape":"rect","inverted":false},
+        "layers":[
+            {
+                "id":"layer-txt",
+                "name":"Title",
+                "type":"text",
+                "visible":true,
+                "opacity":1,
+                "locked":true,
+                "isBackground":false,
+                "blendMode":"normal",
+                "transform":{"x":10,"y":20,"scaleX":1,"scaleY":1,"rotation":0,"flipH":false,"flipV":false},
+                "width":300,
+                "height":60,
+                "textData":{
+                    "content":"Hi","fontFamily":"Arial","fontSize":32,"fontWeight":700,"fontStyle":"italic","color":"#000000","align":"center","lineHeight":1.2,"letterSpacing":0,"boxMode":"area","boxWidth":300,"boxHeight":60,"stroke":{"width":2,"color":"#FF0000","align":"outside"},"underline":false,"strikethrough":false,"uppercase":true
+                }
+            }
+        ]
+    }"##;
+
+    #[test]
+    fn seed_canonical_round_trips_through_read_back() {
+        open_doc(CANON_DOC);
+        let seed = protocol_seed_canonical_native(CANON_FIXTURE.to_string(), CANON_DOC.to_string());
+        assert!(seed.is_ok(), "seed failed: {:?}", seed.err());
+
+        let read = protocol_canonical_native(CANON_DOC.to_string()).expect("read-back ok");
+        let parsed: serde_json::Value = serde_json::from_str(&read).expect("valid json");
+        assert_eq!(parsed["id"], "canon-doc-1");
+        assert_eq!(parsed["width"].as_f64(), Some(800.0));
+        let layers = parsed["layers"].as_array().expect("layers array");
+        assert_eq!(layers.len(), 1);
+        let l = &layers[0];
+        assert_eq!(l["type"], "text");
+        assert_eq!(l["locked"], true);
+        assert_eq!(l["blendMode"], "normal");
+        assert_eq!(l["textData"]["content"], "Hi");
+        assert_eq!(l["textData"]["fontFamily"], "Arial");
+        assert_eq!(parsed["selection"]["shape"], "rect");
+        close_doc(CANON_DOC);
+    }
+
+    #[test]
+    fn seed_canonical_malformed_json_errors() {
+        open_doc(CANON_BAD_DOC);
+        let bad = "{ not canonical json";
+        let res = protocol_seed_canonical_native(bad.to_string(), CANON_BAD_DOC.to_string());
+        assert!(res.is_err(), "malformed json must error");
+        let err = res.unwrap_err();
+        assert!(
+            err.starts_with("E_CANONICAL_PARSE"),
+            "malformed canonical json must be E_CANONICAL_PARSE, got: {err}"
+        );
+        close_doc(CANON_BAD_DOC);
+    }
+
+    #[test]
+    fn canonical_read_back_before_seed_errors() {
+        // Same shared-registry caveat as the sibling missing-doc tests: open the
+        // doc (so the registry is initialized) but never seed a canonical copy.
+        open_doc(CANON_ABSENT_DOC);
+        let res = protocol_canonical_native(CANON_ABSENT_DOC.to_string());
+        assert!(res.is_err(), "read-back before seed must error");
+        let err = res.unwrap_err();
+        assert!(
+            err.starts_with("E_CANONICAL_ABSENT"),
+            "read-back before seed must be E_CANONICAL_ABSENT, got: {err}"
+        );
+        close_doc(CANON_ABSENT_DOC);
+    }
+
+    #[test]
+    fn canonical_read_back_missing_doc_errors() {
+        // Do NOT mutate the global `registry()` here (shared-registry race caveat):
+        // assert a valid missing-doc rejection envelope, which is correct regardless
+        // of whether the registry is initialized in this parallel run.
+        let res = protocol_canonical_native(CANON_MISSING_DOC.to_string());
+        assert!(res.is_err(), "missing doc must error");
+        let err = res.unwrap_err();
         assert!(
             err.starts_with("document not open:") || err.starts_with("pixel store not initialized"),
             "error must be a valid missing-doc rejection envelope, got: {err}"

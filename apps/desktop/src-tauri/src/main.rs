@@ -246,7 +246,9 @@ fn main() {
             protocol_native_cmds::protocol_history_cursor_commit_native,
             protocol_native_cmds::protocol_register_adapter_native,
             protocol_native_cmds::protocol_seed_native,
+            protocol_native_cmds::protocol_seed_canonical_native,
             protocol_native_cmds::protocol_snapshot_native,
+            protocol_native_cmds::protocol_canonical_native,
             protocol_native_cmds::protocol_version_native,
         ])
         .run(tauri::generate_context!())
