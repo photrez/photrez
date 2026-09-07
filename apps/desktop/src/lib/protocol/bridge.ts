@@ -307,6 +307,27 @@ export async function getSnapshot(docId = "default"): Promise<RenderSnapshot> {
   return JSON.parse(j) as RenderSnapshot;
 }
 
+// Lightweight native-authority version read (carry-forward optimization): the
+// facade's syncFromEngine path only needs the engine's u64 version, never the
+// full snapshot. Under native authority read it directly via
+// protocol_version_native (no snapshot serialization); fall back to parsing the
+// snapshot's version on the wasm path as a defensive fallback (the only
+// production caller, syncFromEngine, is native-gated, so the wasm branch is a
+// safety net that is rarely hit).
+export async function getVersion(docId = "default"): Promise<number> {
+  if (isNativeAuthority()) {
+    await awaitNativeSeed(docId);
+    try {
+      return await nativeProtocol.protocol_version_native(docId);
+    } catch (e) {
+      throw normalizeProtocolError(e);
+    }
+  }
+  if (!wasm) return 0;
+  const j = wasm.protocol_snapshot_json(docId);
+  return (JSON.parse(j) as RenderSnapshot).version;
+}
+
 function toRustEnvelope(env: CommandEnvelope): unknown {
   const c = env.command as unknown as Record<string, unknown>;
   let rustCmd: unknown;

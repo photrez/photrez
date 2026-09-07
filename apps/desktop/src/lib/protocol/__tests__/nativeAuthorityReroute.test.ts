@@ -18,6 +18,7 @@ import {
   getSnapshot,
   getHistoryQuery,
   historyCursorCommit,
+  getVersion,
   ensureNativeEngineSeeded,
   createNativeSeed,
   clearNativeSeed,
@@ -157,6 +158,10 @@ function routeNative(): void {
         if (!open.has(docId)) reject(`document not open: ${docId}`);
         return JSON.stringify({ version: version.get(docId) ?? 0, layers: layers.get(docId) ?? [] });
       }
+      case "protocol_version_native": {
+        if (!open.has(docId)) reject(`document not open: ${docId}`);
+        return version.get(docId) ?? 0;
+      }
       case "rust_pixels_record_snapshot": {
         if (!open.has(docId)) reject(`document not open: ${docId}`);
         snaps.add(docId);
@@ -239,12 +244,13 @@ describe("default (wasm) path is byte-identical", () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it("getSnapshot/historyQuery/cursorCommit stay on wasm when native authority is off", async () => {
+  it("getSnapshot/historyQuery/cursorCommit/getVersion stay on wasm when native authority is off", async () => {
     localStorage.clear();
     setProtocolWasm(makeWasm({ documentVersion: 3, delta: { baseVersion: 0, version: 3, changes: [] } }));
     await getSnapshot("docA");
     await getHistoryQuery("docA");
     await historyCursorCommit(1, "undo", "docA");
+    await getVersion("docA");
     expect(invokeMock).not.toHaveBeenCalled();
   });
 });
@@ -296,6 +302,18 @@ describe("native authority reroute", () => {
     const snap = await getSnapshot("docC");
     expect(invokeMock).toHaveBeenCalledWith("protocol_snapshot_native", { docId: "docC" });
     expect(snap.version).toBe(0);
+  });
+
+  // PINS the sync wiring: a native-authority facade command (setOpacity) routes its
+  // version-sync through protocol_version_native (the version-only probe), NOT
+  // protocol_snapshot_native. If syncFromEngine is reverted from getVersion back to
+  // getSnapshot, this breaks - proving the reroute is enforced by a real test.
+  it("setOpacity sync path probes protocol_version_native (not the snapshot)", async () => {
+    const engineStub = { getId: () => "docV", getLayers: () => [layer] };
+    const facade = getFacade("docV");
+    await seedFacadeFromEngine(engineStub as never, facade);
+    await facade.setOpacity("L1", 0.5);
+    expect(invokeMock).toHaveBeenCalledWith("protocol_version_native", { docId: "docV" });
   });
 
   it("getHistoryQuery reroutes to protocol_history_query_native", async () => {

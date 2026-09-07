@@ -2,7 +2,7 @@
 // Holds only: renderedVersion + snapshot cache (read-only projection) + transient interaction.
 // All persistent mutations go via Command -> Rust -> delta. Correctness via expectedVersion + baseVersion.
 
-import { applyCommand, flushExternalTransitions, getSnapshot, isNativeAuthority } from "./bridge";
+import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNativeAuthority } from "./bridge";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch } from "./types";
 import { isDeltaApplicable } from "./types";
@@ -186,8 +186,8 @@ export class EditorFacade {
     if (!isNativeAuthority()) return;
     await flushExternalTransitions(this.docId);
     try {
-      const snap = await getSnapshot(this.docId);
-      this.syncRenderedVersionTo(snap.version);
+      const v = await getVersion(this.docId);
+      this.syncRenderedVersionTo(v);
     } catch {}
   }
 

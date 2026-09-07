@@ -26,6 +26,7 @@ export interface NativeProtocol {
   protocol_register_adapter_native: (docId: string, adapterId: string) => Promise<string>;
   protocol_seed_native: (payloadJson: string, docId: string) => Promise<string>;
   protocol_snapshot_native: (docId: string) => Promise<string>;
+  protocol_version_native: (docId: string) => Promise<number>;
 }
 
 // Normalize empty/absent doc id to the reserved "default" key, matching the
@@ -63,5 +64,8 @@ export const nativeProtocol: NativeProtocol = {
   },
   protocol_snapshot_native(docId) {
     return invoke("protocol_snapshot_native", { docId: resolveDocKey(docId) });
+  },
+  protocol_version_native(docId) {
+    return invoke("protocol_version_native", { docId: resolveDocKey(docId) });
   },
 };

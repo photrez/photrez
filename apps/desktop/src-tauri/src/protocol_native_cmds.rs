@@ -187,12 +187,37 @@ pub fn protocol_snapshot_native(doc_id: String) -> Result<String, String> {
     Ok(serde_json::to_string(&snap).unwrap())
 }
 
+/// Native read-only version probe for the native `ProtocolEngine` authority.
+///
+/// Returns the per-doc native `ProtocolEngine`'s `DocumentVersion` (u64) WITHOUT
+/// serializing the full snapshot - the only caller (facade `syncFromEngine`) just
+/// needs the version. There is NO wasm version export: the bridge's wasm fallback
+/// parses `protocol_snapshot_json` instead. Reuses the same REGISTRY access the
+/// sibling native commands use (`registry()` -> `docs[doc].history`). Same
+/// missing-doc error stance as the siblings (`"document not open: {key}"`); native
+/// is the single canonical authority and reports a missing doc as an error. Same
+/// `""->"default"` normalization.
+#[tauri::command]
+pub fn protocol_version_native(doc_id: String) -> Result<u64, String> {
+    let doc_key = resolve_doc_key(&doc_id).to_string();
+    let reg = registry();
+    let reg = reg
+        .as_ref()
+        .ok_or_else(|| "pixel store not initialized".to_string())?;
+    let doc = reg
+        .docs
+        .get(&doc_key)
+        .ok_or_else(|| format!("document not open: {doc_key}"))?;
+    Ok(doc.history.version())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use photrez_core::pixel_store::registry;
 
     const SNAP_DOC: &str = "snapshot-native-test-doc";
+    const VERSION_DOC: &str = "version-native-test-doc";
 
     fn open_doc(key: &str) {
         let mut g = registry();
@@ -240,6 +265,33 @@ mod tests {
         let snap = protocol_snapshot_native(missing.to_string());
         assert!(snap.is_err(), "missing doc must error");
         let err = snap.unwrap_err();
+        assert!(
+            err.starts_with("document not open:") || err.starts_with("pixel store not initialized"),
+            "error must be a valid missing-doc rejection envelope, got: {err}"
+        );
+    }
+
+    #[test]
+    fn version_native_returns_seeded_engine_version() {
+        open_doc(VERSION_DOC);
+        // Seed one layer at version 7 through the sibling native seed command.
+        let payload = r#"{"version":7,"layers":[{"id":"L1","name":"Base","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]}"#;
+        let seed = protocol_seed_native(payload.to_string(), VERSION_DOC.to_string());
+        assert!(seed.is_ok(), "seed failed: {:?}", seed.err());
+        assert_eq!(protocol_version_native(VERSION_DOC.to_string()), Ok(7));
+        close_doc(VERSION_DOC);
+    }
+
+    #[test]
+    fn version_native_missing_doc_errors() {
+        // Same shared-registry caveat as snapshot_native_missing_doc_errors: do
+        // not mutate the global `registry()` here (it races the parallel suite).
+        // Assert a valid rejection envelope - either missing-doc stance is a
+        // correct rejection of a missing doc regardless of execution order.
+        let missing = "version-native-missing-doc-NOPE";
+        let v = protocol_version_native(missing.to_string());
+        assert!(v.is_err(), "missing doc must error");
+        let err = v.unwrap_err();
         assert!(
             err.starts_with("document not open:") || err.starts_with("pixel store not initialized"),
             "error must be a valid missing-doc rejection envelope, got: {err}"

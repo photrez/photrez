@@ -247,6 +247,7 @@ fn main() {
             protocol_native_cmds::protocol_register_adapter_native,
             protocol_native_cmds::protocol_seed_native,
             protocol_native_cmds::protocol_snapshot_native,
+            protocol_native_cmds::protocol_version_native,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Photrez");

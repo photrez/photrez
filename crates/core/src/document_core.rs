@@ -835,3 +835,31 @@ pub fn protocol_history_cursor_commit(json: &str, doc_id: &str) -> Result<String
             .map_err(|e| JsValue::from_str(&serde_json::to_string(&e).unwrap()))
     })
 }
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    // Cheap version getter: returns the seeded engine version without building
+    // the full snapshot. Mirrors the native-version read optimization in the
+    // facade syncFromEngine path.
+    #[test]
+    fn version_returns_seeded_engine_version() {
+        let mut engine = ProtocolEngine::new();
+        let layer = RenderLayer {
+            id: "L1".to_string(),
+            name: "Base".to_string(),
+            visible: true,
+            opacity: 1.0,
+            resource_id: 1,
+            x: 0.0,
+            y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotation: 0.0,
+            dirty_rect: None,
+        };
+        engine.seed_layers(vec![layer], 42);
+        assert_eq!(engine.version(), 42);
+    }
+}
