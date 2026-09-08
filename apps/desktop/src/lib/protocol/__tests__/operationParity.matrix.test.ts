@@ -1019,7 +1019,7 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
       scenario: "(p) applyBasicAdjustment",
       counts: "n/a",
       metadata: "EQUAL (basicAdjustment=clamped input, hasAdjustments=true; derives from non-zero channel)",
-      divergences: "none on adjustment fields",
+      divergences: "none on adjustment fields; TS applyBasicAdjustment has a !imageBitmap no-op guard the arm lacks (latent divergence when a layer has no bitmap - arm applies unconditionally)",
     });
   });
 
@@ -1047,7 +1047,7 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
       scenario: "(q) clearBasicAdjustments",
       counts: "n/a",
       metadata: "EQUAL (basicAdjustment cleared; hasAdjustments=false on both)",
-      divergences: "none on adjustment fields",
+      divergences: "none on adjustment fields; TS applyBasicAdjustment has a !imageBitmap no-op guard the arm lacks (latent divergence when a layer has no bitmap - arm applies unconditionally)",
     });
   });
 
@@ -1062,5 +1062,172 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
     console.log("\n=== OPERATION PARITY MATRIX - typed-add / setLayerParams / setAdjustment (ProtocolEngine) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(typedMatrix, null, 2));
+  });
+});
+
+// -- Section 5: selection command arms (SetSelection/ClearSelection/SelectAll/
+//    InvertSelection) against the REAL wasm ProtocolEngine. Selection projection
+//    rides the snapshot selection field; the delta is empty on every arm. --
+describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command arms, real wasm)", () => {
+  const SEL_DOC = "parity-sel-arm";
+  const selMatrix: Array<Record<string, unknown>> = [];
+
+  beforeEach(() => {
+    bridge.resetWasmDoc(SEL_DOC);
+  });
+
+  function armApply(command: any): Promise<any> {
+    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: SEL_DOC, command });
+  }
+  async function armSnapshot(): Promise<any> {
+    return bridge.getSnapshot(SEL_DOC);
+  }
+  async function getArmSel(): Promise<any> {
+    return (await armSnapshot()).selection;
+  }
+  // Compare the selection geometry fields (x/y/width/height/angle/shape), ignoring
+  // inverted's presence/absence so createSelection (TS omits inverted) and the arm
+  // agree on the geometry that matters for parity.
+  function selEq(a: any, b: any): boolean {
+    return (
+      a && b &&
+      a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height &&
+      (a.angle ?? 0) === (b.angle ?? 0) &&
+      (a.shape ?? undefined) === (b.shape ?? undefined)
+    );
+  }
+
+  it("(s1) setSelection - selection EQUAL via snapshot; delta empty", async () => {
+    requireWasm();
+    const sel = { x: 10, y: 20, width: 30, height: 40, angle: 5, shape: "ellipse" as const };
+    const res = await armApply({ type: "setSelection", selection: sel });
+    const armSel = await getArmSel();
+
+    const ts = new DocumentEngine("arm-ts-s1", "S", 200, 200);
+    ts.createSelection(sel.x, sel.y, sel.width, sel.height, sel.angle, "ellipse");
+    const tsSel = ts.getSelection();
+
+    expect(armSel).not.toBeNull();
+    expect(selEq(armSel, tsSel)).toBe(true);
+    expect(armSel.shape).toBe("ellipse");
+    expect(res.delta.changes).toHaveLength(0);
+
+    selMatrix.push({
+      scenario: "(s1) setSelection",
+      overlap: "EQUAL (x/y/width/height/angle/shape via snapshot selection)",
+      divergences: "none on geometry",
+    });
+  });
+
+  it("(s2) clearSelection - both null via snapshot", async () => {
+    requireWasm();
+    await armApply({ type: "setSelection", selection: { x: 1, y: 2, width: 3, height: 4, angle: 0 } });
+    await armApply({ type: "clearSelection" });
+    const armSel = await getArmSel();
+
+    const ts = new DocumentEngine("arm-ts-s2", "S", 200, 200);
+    ts.createSelection(1, 2, 3, 4, 0);
+    ts.clearSelection();
+    const tsSel = ts.getSelection();
+
+    expect(armSel).toBeUndefined();
+    expect(tsSel).toBeNull();
+
+    selMatrix.push({
+      scenario: "(s2) clearSelection",
+      overlap: "EQUAL (both null via snapshot selection)",
+      divergences: "none",
+    });
+  });
+
+  it("(s3) selectAll - full-canvas rect EQUAL (arm reads seeded canonical dims)", async () => {
+    requireWasm();
+    // Drive the REAL wasm arm: seed the per-doc canonical shadow with known dims.
+    // The emulator's dims hook is NOT used here (the arm reads the canonical shadow).
+    const canon = JSON.stringify({ id: "sel-doc", name: "S", width: 200, height: 200, layers: [] });
+    wasmMod.protocol_seed_canonical(canon, SEL_DOC);
+    await armApply({ type: "selectAll" });
+    const armSel = await getArmSel();
+
+    const ts = new DocumentEngine("arm-ts-s3", "S", 200, 200);
+    ts.selectAll();
+    const tsSel = ts.getSelection();
+
+    expect(armSel).not.toBeNull();
+    expect(selEq(armSel, tsSel)).toBe(true);
+    expect(armSel.width).toBe(200);
+    expect(armSel.height).toBe(200);
+
+    selMatrix.push({
+      scenario: "(s3) selectAll",
+      overlap: "EQUAL (full-canvas rect x:0 y:0 width:200 height:200 via snapshot selection)",
+      divergences: "none (arm reads seeded canonical dims)",
+    });
+  });
+
+  it("(s4) invertSelection with selection - inverted EQUAL; version bumps no entry", async () => {
+    requireWasm();
+    await armApply({ type: "setSelection", selection: { x: 1, y: 2, width: 3, height: 4, angle: 0, inverted: false } });
+    const vBefore = (await armSnapshot()).version;
+    const qBefore = await bridge.getHistoryQuery();
+    await armApply({ type: "invertSelection" });
+    const armSel = await getArmSel();
+    const snap = await armSnapshot();
+
+    const ts = new DocumentEngine("arm-ts-s4", "S", 200, 200);
+    ts.createSelection(1, 2, 3, 4, 0);
+    ts.invertSelection();
+    const tsSel = ts.getSelection();
+    if (!tsSel) throw new Error("tsSel null");
+
+    expect(armSel.inverted).toBe(true);
+    expect(tsSel.inverted).toBe(true);
+    expect(snap.version).toBe(vBefore + 1);
+    expect((await bridge.getHistoryQuery()).entries.length).toBe(qBefore.entries.length);
+
+    selMatrix.push({
+      scenario: "(s4) invertSelection (with selection)",
+      overlap: "EQUAL (inverted=true on both via snapshot selection)",
+      divergences: "none",
+    });
+  });
+
+  it("(s5) invertSelection without selection - falls back to full-canvas (arm == TS)", async () => {
+    requireWasm();
+    // Seed the per-doc canonical shadow with known dims so the arm's select-all
+    // fallback (which reads the canonical shadow) has dims to fill.
+    const canon = JSON.stringify({ id: "sel-doc", name: "S", width: 200, height: 200, layers: [] });
+    wasmMod.protocol_seed_canonical(canon, SEL_DOC);
+    const qBefore = await bridge.getHistoryQuery();
+    const res = await armApply({ type: "invertSelection" });
+    const armSel = await getArmSel();
+    const snap = await armSnapshot();
+    // Arm falls back to full-canvas select-all (mirrors the host op); DV bumps, no entry.
+    expect(armSel).not.toBeNull();
+    expect(selEq(armSel, { x: 0, y: 0, width: 200, height: 200, angle: 0 })).toBe(true);
+    expect(snap.version).toBe(qBefore.cursor + 1);
+    expect((await bridge.getHistoryQuery()).entries.length).toBe(qBefore.entries.length);
+
+    // TS oracle does the SAME fallback: invert-without-selection selects the full
+    // canvas. The two agree (no divergence) — the fallback is intentional inherited
+    // host behavior, and the arm mirrors it.
+    const ts = new DocumentEngine("arm-ts-s5", "S", 200, 200);
+    ts.invertSelection();
+    const tsSel = ts.getSelection();
+    if (!tsSel) throw new Error("tsSel null");
+    expect(selEq(armSel, tsSel)).toBe(true);
+
+    selMatrix.push({
+      scenario: "(s5) invertSelection (no selection)",
+      overlap: "EQUAL (arm and TS both fall back to full-canvas x:0 y:0 width:200 height:200 via snapshot selection)",
+      divergences: "none (fallback to select-all is intentional inherited host behavior, mirrored by the arm)",
+    });
+  });
+
+  afterAll(() => {
+    // eslint-disable-next-line no-console
+    console.log("\n=== OPERATION PARITY MATRIX - SELECTION ARM PATH (ProtocolEngine) ===");
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(selMatrix, null, 2));
   });
 });

@@ -3,9 +3,20 @@
 // document_core.rs so that module stays under the 1000-line guard; this is a
 // sibling impl ProtocolEngine block (method visibility is per-impl, not per module).
 use super::*;
-use crate::canonical_model::{BasicAdjustment, BlendMode, LayerType};
+use crate::canonical_model::{BasicAdjustment, BlendMode, LayerType, SelectionState};
 
 impl ProtocolEngine {
+    // Selection is engine-local UI state, not an undoable transition. Set the
+    // engine field AND mirror it onto the canonical shadow (when seeded) so the
+    // protocol_canonical_native read-back stays truthful. No history entry, empty
+    // delta — the caller's apply() tail bumps the version and reconciles.
+    fn set_engine_selection(&mut self, sel: Option<SelectionState>) {
+        self.selection = sel.clone();
+        if let Some(shadow) = &mut self.canonical {
+            shadow.doc.selection = sel;
+        }
+    }
+
     pub fn apply(&mut self, envelope: CommandEnvelope) -> Result<CommandResult, ProtocolError> {
         if envelope.contract_version != CONTRACT_VERSION {
             return Err(ProtocolError {
@@ -455,6 +466,91 @@ impl ProtocolEngine {
                 } else {
                     Vec::new()
                 }
+            }
+            // ── Selection arms ──
+            // Selection rides Model-A snapshots; it commits NO history entry and
+            // produces an empty delta. The apply() tail still bumps the document
+            // version (accepted transition) and reconciles the shadow.
+            Command::SetSelection { selection } => {
+                // Trust boundary: reject non-finite or negative-dimension geometry
+                // before any mutation (selection is host-driven; garbage in must
+                // not reach the engine state).
+                let bad = !selection.x.is_finite()
+                    || !selection.y.is_finite()
+                    || !selection.width.is_finite()
+                    || !selection.height.is_finite()
+                    || !selection.angle.is_finite()
+                    || selection.width < 0.0
+                    || selection.height < 0.0;
+                if bad {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: "setSelection requires finite x/y/width/height/angle and width/height >= 0".to_string(),
+                    });
+                }
+                self.set_engine_selection(Some(selection));
+                Vec::new()
+            }
+            Command::ClearSelection => {
+                self.set_engine_selection(None);
+                Vec::new()
+            }
+            Command::SelectAll => {
+                // Engine has no document dims; the canonical shadow does. Host must
+                // seed the document before select-all — reject with an E_INVALID-
+                // shaped error before any mutation if the shadow is absent.
+                let (w, h) = match &self.canonical {
+                    Some(sh) => (sh.doc.width, sh.doc.height),
+                    None => {
+                        return Err(ProtocolError {
+                            code: "E_INVALID".to_string(),
+                            message: "selectAll requires a seeded canonical document (host must seed before select-all)".to_string(),
+                        });
+                    }
+                };
+                self.set_engine_selection(Some(SelectionState {
+                    x: 0.0,
+                    y: 0.0,
+                    width: w,
+                    height: h,
+                    angle: 0.0,
+                    shape: None,
+                    inverted: None,
+                }));
+                Vec::new()
+            }
+            Command::InvertSelection => {
+                // Mirrors the host op, which falls back to select-all when nothing
+                // is selected: no engine selection -> build the same full-canvas
+                // rect the SelectAll arm builds from the canonical shadow dims
+                // (canonical absent -> same E_INVALID-shaped error as SelectAll).
+                // With a selection present, toggle the inverted flag as before.
+                // DV still bumps via the tail; no history entry; shadow mirrored;
+                // delta empty.
+                if let Some(mut sel) = self.selection.clone() {
+                    sel.inverted = Some(!sel.inverted.unwrap_or(false));
+                    self.set_engine_selection(Some(sel));
+                } else {
+                    let (w, h) = match &self.canonical {
+                        Some(sh) => (sh.doc.width, sh.doc.height),
+                        None => {
+                            return Err(ProtocolError {
+                                code: "E_INVALID".to_string(),
+                                message: "invertSelection with no selection falls back to select-all, which requires a seeded canonical document (host must seed before select-all)".to_string(),
+                            });
+                        }
+                    };
+                    self.set_engine_selection(Some(SelectionState {
+                        x: 0.0,
+                        y: 0.0,
+                        width: w,
+                        height: h,
+                        angle: 0.0,
+                        shape: None,
+                        inverted: None,
+                    }));
+                }
+                Vec::new()
             }
             Command::TransformLayer { id, transform } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {

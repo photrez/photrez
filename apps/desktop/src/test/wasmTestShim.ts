@@ -35,6 +35,7 @@ import {
   protocol_register_payload_adapter,
   protocol_history_query_json,
   protocol_history_cursor_commit,
+  protocol_seed_canonical,
   canonical_validate_json,
 } from "../wasm/pkg/photrez_core.js";
 
@@ -90,5 +91,6 @@ export {
   protocol_register_payload_adapter,
   protocol_history_query_json,
   protocol_history_cursor_commit,
+  protocol_seed_canonical,
   canonical_validate_json,
 };

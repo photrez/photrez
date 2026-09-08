@@ -8,7 +8,7 @@
 // metadata fields live top-level (flipH/flipV included).
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as bridge from "@/lib/protocol/bridge";
-import { __resetEmulatedForTests } from "@/lib/protocol/bridge";
+import { __resetEmulatedForTests, setEmuDocumentDims, getEmuSelection } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "../types";
 import type { RenderLayer } from "../types";
 
@@ -290,5 +290,73 @@ describe("emulator typed-add / setLayerParams / setAdjustment arms", () => {
   it("setAdjustment unknown id is a silent no-op", async () => {
     const res = await apply({ type: "setAdjustment", id: "ghost", adjustment: { brightness: 5, contrast: 0, saturation: 0 } });
     expect(res.delta.changes).toHaveLength(0);
+  });
+});
+
+describe("emulator selection arms", () => {
+  beforeEach(() => {
+    __resetEmulatedForTests();
+  });
+  afterEach(() => {
+    __resetEmulatedForTests();
+  });
+
+  it("setSelection stores selection, bumps DV, commits no history entry", async () => {
+    const before = await bridge.getHistoryQuery();
+    const res = await apply({ type: "setSelection", selection: { x: 10, y: 20, width: 30, height: 40, angle: 5, shape: "ellipse", inverted: false } });
+    // selection surfaces via the emu state hook (CommandResult has no selection field)
+    expect(getEmuSelection()).toEqual({ x: 10, y: 20, width: 30, height: 40, angle: 5, shape: "ellipse", inverted: false });
+    expect(res.delta.changes).toHaveLength(0);
+    const after = await bridge.getHistoryQuery();
+    expect(after.entries.length).toBe(before.entries.length);
+    expect(res.documentVersion).toBe(before.cursor + 1);
+  });
+
+  it("clearSelection resets the emulator selection", async () => {
+    await apply({ type: "setSelection", selection: { x: 1, y: 2, width: 3, height: 4, angle: 0 } });
+    expect(getEmuSelection()).not.toBeNull();
+    const res = await apply({ type: "clearSelection" });
+    expect(getEmuSelection()).toBeNull();
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("selectAll fills the full canvas from the emu doc dims hook", async () => {
+    setEmuDocumentDims(200, 150);
+    const res = await apply({ type: "selectAll" });
+    expect(getEmuSelection()).toEqual({ x: 0, y: 0, width: 200, height: 150, angle: 0, shape: undefined, inverted: undefined });
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("invertSelection toggles inverted and bumps DV without an entry", async () => {
+    const before = await bridge.getHistoryQuery();
+    await apply({ type: "setSelection", selection: { x: 1, y: 2, width: 3, height: 4, angle: 0, inverted: false } });
+    const res = await apply({ type: "invertSelection" });
+    expect(getEmuSelection().inverted).toBe(true);
+    const after = await bridge.getHistoryQuery();
+    expect(after.entries.length).toBe(before.entries.length);
+    expect(res.documentVersion).toBe(before.cursor + 2);
+  });
+
+  it("invertSelection without a selection falls back to full-canvas selection", async () => {
+    // Dims hook set + no selection -> falls back to the same full-canvas rect
+    // selectAll builds (mirrors the host op). DV bumps, no history entry.
+    setEmuDocumentDims(200, 150);
+    const before = await bridge.getHistoryQuery();
+    const res = await apply({ type: "invertSelection" });
+    expect(getEmuSelection()).toEqual({ x: 0, y: 0, width: 200, height: 150, angle: 0, shape: undefined, inverted: undefined });
+    const after = await bridge.getHistoryQuery();
+    expect(after.entries.length).toBe(before.entries.length);
+    expect(res.documentVersion).toBe(before.cursor + 1);
+
+    // No hook + no selection -> E_INVALID (mirrors host select-all requirement).
+    __resetEmulatedForTests();
+    let threw: any = null;
+    try {
+      await apply({ type: "invertSelection" });
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).not.toBeNull();
+    expect(threw.code).toBe("E_INVALID");
   });
 });

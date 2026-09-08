@@ -3,6 +3,7 @@
 // delta helpers that translate Arc<StateNode> states to the TS-facing TilePatch
 // form, and the history query/error DTOs.
 
+use crate::canonical_model::SelectionState;
 use crate::command::DocumentVersion;
 use crate::history::PayloadKind;
 use crate::model::{RenderLayer, RenderLayerChange};
@@ -17,6 +18,10 @@ use std::sync::Arc;
 pub struct RenderSnapshot {
     pub version: DocumentVersion,
     pub layers: Vec<RenderLayer>,
+    // Additive: selection rides the Model-A snapshot (host-side undo history).
+    // Optional so pre-selection envelopes still parse; skip when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionState>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -126,4 +131,39 @@ pub struct PendingExternalView {
 pub struct ProtocolError {
     pub code: String,
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canonical_model::SelectionShape;
+
+    // Additive field: a snapshot JSON that predates the `selection` field must still
+    // parse (selection defaults to None). Guards the wire-compat contract.
+    #[test]
+    fn render_snapshot_parses_without_selection_key() {
+        let json = r#"{"version":3,"layers":[{"id":"L1","name":"A","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]}"#;
+        let snap: RenderSnapshot = serde_json::from_str(json).expect("legacy snapshot must parse");
+        assert_eq!(snap.version, 3);
+        assert_eq!(snap.selection, None);
+    }
+
+    #[test]
+    fn render_snapshot_parses_with_selection() {
+        let json = r#"{"version":1,"layers":[],"selection":{"x":1,"y":2,"width":3,"height":4,"angle":5,"shape":"ellipse","inverted":true}}"#;
+        let snap: RenderSnapshot =
+            serde_json::from_str(json).expect("snapshot with selection must parse");
+        assert_eq!(
+            snap.selection,
+            Some(SelectionState {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                angle: 5.0,
+                shape: Some(SelectionShape::Ellipse),
+                inverted: Some(true),
+            })
+        );
+    }
 }

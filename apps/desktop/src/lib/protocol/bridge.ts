@@ -425,6 +425,21 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
         memory_cost_bytes: c.memoryCostBytes,
       };
       break;
+    // Selection arms: selection is engine-local; the nested SelectionState is a
+    // camelCase struct (its serde rename_all matches the TS field names), so it
+    // passes through unchanged. No snake_case field remap needed.
+    case "setSelection":
+      rustCmd = { type: "setSelection", selection: c.selection };
+      break;
+    case "clearSelection":
+      rustCmd = { type: "clearSelection" };
+      break;
+    case "selectAll":
+      rustCmd = { type: "selectAll" };
+      break;
+    case "invertSelection":
+      rustCmd = { type: "invertSelection" };
+      break;
     default: {
       // Exhaustiveness guard: every Command variant is handled above. A new
       // variant that forgets its wire mapping fails the type-check here instead
@@ -465,6 +480,13 @@ const emuAdapters = new Set<string>();
 // External-pending barrier (H0 invariant): while set, EVERY emulated command
 // rejects with E_EXTERNAL_PENDING until the matching cursor commit lands.
 let emuPendingExternal: { seq: number; direction: "undo" | "redo" } | null = null;
+// Engine-local selection mirror. The emulator has no
+// canonical shadow, so selectAll dims come from an explicit test hook
+// (setEmuDocumentDims). Native reads the canonical shadow seeded at open; the
+// emulator approximates via the hook.
+let emuSelection: any = null;
+let emuDocWidth = 0;
+let emuDocHeight = 0;
 
 // TS-side stand-ins for the Rust `estimate_*` constants. The per-layer struct
 // base in Rust is `size_of::<RenderLayer>()` (not knowable in TS), so this is a
@@ -645,6 +667,23 @@ export function __resetEmulatedForTests(): void {
   emuNextSeq = 1;
   emuAdapters.clear();
   emuPendingExternal = null;
+  emuSelection = null;
+  emuDocWidth = 0;
+  emuDocHeight = 0;
+}
+
+// Test hook: the emulator has no canonical shadow, so selectAll needs explicit
+// document dims. Native reads the canonical shadow seeded at open; the emulator
+// approximates via this hook.
+export function setEmuDocumentDims(width: number, height: number): void {
+  emuDocWidth = width;
+  emuDocHeight = height;
+}
+
+// Test hook: the emulated CommandResult has no selection surface, so read the
+// emulator's selection state directly to assert selection-arm behavior.
+export function getEmuSelection(): any {
+  return emuSelection;
 }
 
 function diffEmu(old: RenderSnapshot["layers"], next: RenderSnapshot["layers"]): CommandResult["delta"]["changes"] {
@@ -681,6 +720,28 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
     else { emuNextResource += 1; emuLayers.push(layer); }
     changes = [{ kind: "upsert", layer }];
   } else if (cmd.type === "noop") {
+  } else if (cmd.type === "setSelection") {
+    // Mirror the Rust SetSelection arm: no history entry, empty delta, DV bump.
+    // The Rust arm validates finite/non-negative geometry; the emulator trusts the
+    // host-supplied selection and mirrors the same no-entry semantics.
+    emuSelection = cmd.selection;
+  } else if (cmd.type === "clearSelection") {
+    emuSelection = null;
+  } else if (cmd.type === "selectAll") {
+    // Emulator has no canonical shadow; dims come from the explicit test hook.
+    emuSelection = { x: 0, y: 0, width: emuDocWidth, height: emuDocHeight, angle: 0, shape: undefined, inverted: undefined };
+  } else if (cmd.type === "invertSelection") {
+    // Mirrors the host op, which falls back to select-all when nothing is
+    // selected: with no emuSelection, build the same full-canvas rect selectAll
+    // builds from the emu doc-dims hook. No hook + no selection rejects with
+    // E_INVALID, matching the Rust arm / selectAll. With a selection, toggle.
+    if (emuSelection) {
+      emuSelection = { ...emuSelection, inverted: !emuSelection.inverted };
+    } else if (emuDocWidth > 0 && emuDocHeight > 0) {
+      emuSelection = { x: 0, y: 0, width: emuDocWidth, height: emuDocHeight, angle: 0, shape: undefined, inverted: undefined };
+    } else {
+      throw { code: "E_INVALID", message: "invertSelection with no selection falls back to select-all, which requires seeded document dims (call setEmuDocumentDims)" };
+    }
   } else if (cmd.type === "recordExternalTransition") {
     const adapterId = cmd.adapterId as string;
     if (adapterId !== "native" && !emuAdapters.has(adapterId)) {

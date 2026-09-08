@@ -2,7 +2,9 @@
 // Command wire types (ADR 0008 C1: version-stable envelope). These cross the
 // wasm boundary and must not change their serialized shape.
 
-use crate::canonical_model::{BasicAdjustment, BlendMode, LayerType, ShapeParams, TextData};
+use crate::canonical_model::{
+    BasicAdjustment, BlendMode, LayerType, SelectionState, ShapeParams, TextData,
+};
 use crate::projection::RenderDelta;
 use serde::{Deserialize, Serialize};
 /// Schema/protocol version. Bump on breaking envelope change.
@@ -142,6 +144,20 @@ pub enum Command {
     },
     Undo,
     Redo,
+    // Selection arms: selection is engine-local UI state that rides Model-A
+    // snapshots (snapshot() includes it; snapshot/restore stay host-side by
+    // design). These arms mutate the engine selection but commit NO history entry
+    // (no begin_forward/finish_forward) and produce an empty delta — selection is
+    // not an undoable transition in the command stream.
+    SetSelection {
+        selection: SelectionState,
+    },
+    ClearSelection,
+    SelectAll,
+    // Invert toggles the inverted flag when a selection exists; with none it mirrors
+    // the host op, which falls back to select-all (full canvas from seeded canonical
+    // dims; canonical absent rejects with E_INVALID like SelectAll). No history entry.
+    InvertSelection,
     // H0: records a legacy TS transition into the canonical stream.
     // Advances DocumentVersion by exactly 1; payload stays behind the EXTERNAL
     // PayloadAdapter (token only) — never re-owned by Rust.

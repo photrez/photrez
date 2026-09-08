@@ -58,6 +58,9 @@ export type RenderLayerChange =
 export type RenderSnapshot = {
   version: DocumentVersion;
   layers: RenderLayer[];
+  // Additive: selection rides the Model-A snapshot (host-side undo history).
+  // Optional so pre-selection snapshots still parse.
+  selection?: SelectionState | null;
 };
 
 export type RenderDelta = {
@@ -78,6 +81,20 @@ export type TransformPatch = {
 
 export type StrokePoint = { x: number; y: number; pressure: number };
 export type BrushSettings = { size: number; hardness: number; opacity: number; flow: number };
+
+// Engine-local selection state (mirror the Rust canonical_model SelectionState
+// serde shape — camelCase fields: x/y/width/height/angle/shape/inverted).
+export type SelectionState = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  angle: number;
+  /** Marquee shape. "rect" = default; "ellipse" = ellipse marquee. */
+  shape?: "rect" | "ellipse";
+  /** When true, the selected pixels are everything outside these bounds. */
+  inverted?: boolean;
+};
 
 // ── Parametric layer payloads (mirror the Rust canonical_model serde types) ──
 // Field names match the Rust serde camelCase exactly (arrowHead, fontFamily,
@@ -185,6 +202,14 @@ export type Command =
   // values), undefined clears it and sets hasAdjustments false. Unknown id is a
   // silent no-op. Mirror TS applyBasicAdjustment/clearBasicAdjustments.
   | { type: "setAdjustment"; id: string; adjustment?: BasicAdjustment }
+  // Selection arms: selection is engine-local UI state that rides Model-A
+  // snapshots; it commits NO history entry and produces an empty delta. Mirror the
+  // TS engine selection ops (selectionOps.ts) — but invertSelection is a strict
+  // no-op when no selection exists (no selectAll fallback).
+  | { type: "setSelection"; selection: SelectionState }
+  | { type: "clearSelection" }
+  | { type: "selectAll" }
+  | { type: "invertSelection" }
   // ADR 0008 H0: records a legacy TS transition into the canonical stream.
   // Advances DocumentVersion exactly once; payload stays behind the EXTERNAL
   // PayloadAdapter (token only).

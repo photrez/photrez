@@ -534,6 +534,56 @@ mod tests {
     }
 
     #[test]
+    fn merge_takes_render_layer_text_data_and_basic_adjustment_when_present() {
+        // Some-takes assertions for text_data AND basic_adjustment
+        // (the sibling test above only covers shape_params). A Some on the render
+        // layer overrides the canonical base; a None on the render layer preserves it.
+        let base = shape_layer();
+        let mut r = render_layer_from_canonical(&base);
+        let td = TextData {
+            content: "sel-fix".to_string(),
+            font_family: "Arial".to_string(),
+            font_size: 32.0,
+            font_weight: 400.0,
+            font_style: TextFontStyle::Normal,
+            color: "#000000".to_string(),
+            align: TextAlign::Left,
+            line_height: 1.2,
+            letter_spacing: 0.0,
+            box_mode: TextBoxMode::Point,
+            box_width: 0.0,
+            box_height: 0.0,
+            stroke: TextStroke {
+                width: 0.0,
+                color: "#000000".to_string(),
+                align: None,
+            },
+            underline: Some(false),
+            strikethrough: Some(false),
+            uppercase: Some(false),
+        };
+        let ba = BasicAdjustment {
+            brightness: 1.0,
+            contrast: 2.0,
+            saturation: 3.0,
+        };
+        r.text_data = Some(td.clone());
+        r.basic_adjustment = Some(ba.clone());
+        // shape_params left None -> base preserved.
+        let m = merge_render_layer_into_canonical(&base, &r);
+        assert_eq!(m.text_data, Some(td), "render text_data Some must take");
+        assert_eq!(
+            m.basic_adjustment,
+            Some(ba),
+            "render basic_adjustment Some must take"
+        );
+        assert_eq!(
+            m.shape_params, base.shape_params,
+            "render None preserves base"
+        );
+    }
+
+    #[test]
     fn dirty_rect_does_not_leak_into_canonical() {
         let base = raster_layer();
         let r_with = RenderLayer {

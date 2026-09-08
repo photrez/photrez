@@ -5,7 +5,7 @@
 // model.rs / projection.rs).
 
 use crate::canonical_bridge::CanonicalShadow;
-use crate::canonical_model::CanonicalDocument;
+use crate::canonical_model::{CanonicalDocument, SelectionState};
 use crate::command::*;
 use crate::history::*;
 use crate::model::*;
@@ -40,6 +40,10 @@ pub struct ProtocolEngine {
     // through apply() is rejected with E_EXTERNAL_PENDING until then — the
     // host must not stack a pending external transition with new work.
     pub(crate) pending_external: Option<(u64, String)>,
+    // Engine-local selection state (selection is core document state). Selection is NOT an
+    // undoable transition in the command stream; it rides Model-A snapshots and is
+    // reconciled onto the canonical shadow when one is seeded.
+    pub(crate) selection: Option<SelectionState>,
     // Per-document canonical shadow, kept in sync with layer edits via
     // reconciliation (see `CanonicalShadow`). `None` until seeded; wasm engines
     // are never seeded and the native-authority path is OFF by default, so
@@ -60,6 +64,7 @@ impl Default for ProtocolEngine {
             adapters: Vec::new(),
             pending_external: None,
             canonical: None,
+            selection: None,
         }
     }
 }
@@ -74,7 +79,13 @@ impl ProtocolEngine {
         RenderSnapshot {
             version: self.version,
             layers: self.layers.iter().map(|a| a.as_ref().clone()).collect(),
+            selection: self.selection.clone(),
         }
+    }
+
+    /// Read the current engine selection state, if any.
+    pub fn selection(&self) -> Option<&SelectionState> {
+        self.selection.as_ref()
     }
 
     /// Seed the native document engine with an initial layer load.
@@ -518,9 +529,27 @@ pub fn protocol_snapshot_json(doc_id: &str) -> String {
             .unwrap_or(RenderSnapshot {
                 version: 0,
                 layers: Vec::new(),
+                selection: None,
             })
     });
     serde_json::to_string(&snap).unwrap()
+}
+
+// ADDITIVE: seed the canonical shadow into a per-document wasm ProtocolEngine so
+// the selection arms (selectAll reads doc dims from the shadow) can be exercised
+// through the production bridge. Production defaults to `None` canonical, so this
+// is never called in the default path; it exists for the parity matrix harness.
+#[wasm_bindgen]
+pub fn protocol_seed_canonical(canonical_json: &str, doc_id: &str) -> Result<String, JsValue> {
+    let doc: CanonicalDocument = serde_json::from_str(canonical_json)
+        .map_err(|e| JsValue::from_str(&format!("E_CANONICAL_PARSE: {}", e)))?;
+    let key = resolve_doc_key(doc_id).to_string();
+    ENGINES.with(|m| {
+        let mut map = m.borrow_mut();
+        let eng = map.entry(key).or_default();
+        eng.seed_canonical(doc);
+        Ok(serde_json::to_string(&()).unwrap())
+    })
 }
 
 // ── H0: history stream exports ─────────────────────────────────
