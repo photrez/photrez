@@ -9,7 +9,7 @@ use crate::canonical_model::{
 };
 use crate::command::*;
 use crate::document_core::ProtocolEngine;
-use crate::model::RenderLayer;
+use crate::model::{RenderLayer, RenderLayerChange};
 
 fn env(cmd: Command) -> CommandEnvelope {
     CommandEnvelope {
@@ -147,14 +147,84 @@ fn reorder_moves_layer_to_clamped_target_index() {
         0,
     );
     // move L1 (index 0) to index 1
-    e.apply(env(Command::Reorder {
-        id: "L1".into(),
-        to: 1,
-    }))
-    .unwrap();
+    let res = e
+        .apply(env(Command::Reorder {
+            id: "L1".into(),
+            to: 1,
+        }))
+        .unwrap();
     let snap = e.snapshot();
     let ids: Vec<&str> = snap.layers.iter().map(|l| l.id.as_str()).collect();
     assert_eq!(ids, vec!["L2", "L1"], "L1 must move after L2");
+    // The delta must carry every layer (not just the moved one) as an Upsert in
+    // engine order, so the host reconciles the new stacking from one delta.
+    let changes = res.delta.changes;
+    assert_eq!(changes.len(), 2, "delta must upsert every layer");
+    let order: Vec<&str> = changes
+        .iter()
+        .map(|c| match c {
+            RenderLayerChange::Upsert { layer } => layer.id.as_str(),
+            _ => panic!("reorder delta must contain only upserts"),
+        })
+        .collect();
+    assert_eq!(
+        order,
+        vec!["L2", "L1"],
+        "delta order must follow engine order"
+    );
+}
+
+#[test]
+fn reorder_rejects_out_of_range_target_index_with_e_invalid() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(
+        vec![
+            RenderLayer {
+                id: "L1".into(),
+                name: "A".into(),
+                visible: true,
+                opacity: 1.0,
+                resource_id: 1,
+                x: 0.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                dirty_rect: None,
+                ..Default::default()
+            },
+            RenderLayer {
+                id: "L2".into(),
+                name: "B".into(),
+                visible: true,
+                opacity: 1.0,
+                resource_id: 2,
+                x: 0.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                dirty_rect: None,
+                ..Default::default()
+            },
+        ],
+        0,
+    );
+    let before_version = e.version;
+    let before = e.snapshot();
+    // to == len (2) is out of range; must reject before mutating state.
+    let res = e.apply(env(Command::Reorder {
+        id: "L1".into(),
+        to: 2,
+    }));
+    assert!(res.is_err(), "out-of-range reorder target must be rejected");
+    assert_eq!(res.unwrap_err().code, "E_INVALID");
+    // State and document version (DV) must be unchanged.
+    assert_eq!(e.snapshot(), before, "reorder must not mutate on rejection");
+    assert_eq!(
+        e.version, before_version,
+        "reorder must not bump DV on rejection"
+    );
 }
 
 #[test]
@@ -326,4 +396,43 @@ fn shadow_reconcile_picks_up_extended_field_from_arm() {
         .find(|l| l.id == "L1")
         .expect("layer in shadow");
     assert_eq!(layer.blend_mode, BlendMode::Multiply);
+}
+
+// Second engine layer (id "L2") for the reorder-ordering shadow check.
+fn layer_two() -> RenderLayer {
+    let mut l = layer();
+    l.id = "L2".into();
+    l.name = "B".into();
+    l.resource_id = 2;
+    l
+}
+
+// Two-layer canonical shadow (L1 + L2) for the reorder-ordering check.
+fn canonical_doc_two() -> CanonicalDocument {
+    let mut doc = canonical_doc();
+    let mut l2 = doc.layers[0].clone();
+    l2.id = "L2".into();
+    l2.name = "B".into();
+    doc.layers.push(l2);
+    doc
+}
+
+#[test]
+fn shadow_reconcile_follows_engine_order_after_reorder() {
+    let mut e = ProtocolEngine::new();
+    e.seed_canonical(canonical_doc_two());
+    e.seed_layers(vec![layer(), layer_two()], 0);
+    // Move L1 (index 0) after L2 (index 1): engine order becomes [L2, L1].
+    e.apply(env(Command::Reorder {
+        id: "L1".into(),
+        to: 1,
+    }))
+    .unwrap();
+    let c = e.canonical().expect("shadow seeded");
+    let ids: Vec<&str> = c.layers.iter().map(|l| l.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["L2", "L1"],
+        "canonical layer order must follow engine order after reorder"
+    );
 }

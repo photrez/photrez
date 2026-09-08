@@ -667,6 +667,37 @@ describe("operation parity matrix - METADATA ARM PATH (ProtocolEngine command ar
     });
   });
 
+  it("(f2) setLocked transparency-only leaves other lock kinds unchanged (arm path)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    const ts = new DocumentEngine("arm-ts-f2", "F2", 200, 200);
+    const l = ts.addLayer("Layer");
+
+    // Only transparency is set; the other three lock kinds stay false/absent.
+    await armApply({ type: "setLocked", id: armId, kind: "transparency", locked: true });
+    ts.setLayerLockTransparency(l.id, true);
+
+    const armSnap = await armSnapshot();
+    const tsLayersF2 = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayersF2, "(f2) transparency-only");
+    expectByNameMeta(armSnap.layers, tsLayersF2, "(f2) transparency-only");
+    // Asymmetric isolation: only transparency is set - a locked/position/rotation
+    // swap would be caught here even though arm==ts on the symmetric case.
+    const armLayer = armSnap.layers.find((x: any) => x.name === "Layer");
+    expect(armLayer.lockTransparency).toBe(true);
+    expect(armLayer.locked).not.toBe(true);
+    expect(armLayer.lockPosition).not.toBe(true);
+    expect(armLayer.lockRotation).not.toBe(true);
+
+    metaMatrix.push({
+      scenario: "(f2) setLocked transparency-only",
+      counts: "n/a",
+      overlap: "EQUAL (only lockTransparency set, by name)",
+      divergences: "none on overlap fields",
+    });
+  });
+
   it("(g) rename - name EQUAL by index (arm path)", async () => {
     requireWasm();
     const { id: armId } = await armAdd("Layer");
@@ -712,6 +743,9 @@ describe("operation parity matrix - METADATA ARM PATH (ProtocolEngine command ar
     // HARD: order (by name) must match after the mid-stack reorder.
     expect(armSnap.layers.map((l: any) => l.name)).toEqual(["B", "C", "A"]);
     expect(tsLayersH.map((l: any) => l.name)).toEqual(["B", "C", "A"]);
+    // Overlap + metadata must also match (parity beyond mere ordering).
+    expectByNameOverlap(armSnap.layers, tsLayersH, "(h) reorder overlap");
+    expectByNameMeta(armSnap.layers, tsLayersH, "(h) reorder metadata");
 
     metaMatrix.push({
       scenario: "(h) reorder mid-stack",

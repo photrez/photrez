@@ -141,4 +141,38 @@ describe("emulator metadata arms mirror the Rust arms", () => {
       apply({ type: "addLayer", id: "dup", name: "B", width: 10, height: 10, index: 0 }),
     ).rejects.toThrow(/E_INVALID/);
   });
+
+  it("background-layer reorder records no history entry but still bumps DV", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    const bg = await apply({ type: "setBackgroundFlag", id: "A" });
+    const before = await bridge.getHistoryQuery();
+    const beforeDv = bg.documentVersion;
+    // The Background is pinned to the bottom and never reordered (no-op for state).
+    const res = await apply({ type: "reorder", id: "A", to: 0 });
+    const after = await bridge.getHistoryQuery();
+    expect(after.entries.length).toBe(before.entries.length);
+    expect(res.documentVersion).toBe(beforeDv + 1);
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("reorder rejects an out-of-range target index with E_INVALID (no mutation)", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    await apply({ type: "addLayer", id: "B", name: "B", width: 10, height: 10, index: 0 }); // [B, A]
+    const before = await bridge.getHistoryQuery();
+    await expect(apply({ type: "reorder", id: "A", to: 2 })).rejects.toThrow(/E_INVALID/); // to == len
+    await expect(apply({ type: "reorder", id: "A", to: -1 })).rejects.toThrow(/E_INVALID/); // to == -1
+    const after = await bridge.getHistoryQuery();
+    expect(after).toEqual(before); // no new entry, no DV bump, state unchanged
+  });
+
+  it("setLocked transparency-only leaves the other lock kinds unchanged", async () => {
+    const add = await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    const res = await apply({ type: "setLocked", id, kind: "transparency", locked: true });
+    const l = addedLayer(res);
+    expect(l.lockTransparency).toBe(true);
+    expect(l.locked).not.toBe(true);
+    expect(l.lockPosition).not.toBe(true);
+    expect(l.lockRotation).not.toBe(true);
+  });
 });

@@ -251,6 +251,19 @@ impl ProtocolEngine {
                 }
             }
             Command::Reorder { id, to } => {
+                // Reject an out-of-range target before any mutation, history entry,
+                // or DV bump - mirrors the TS graph-mirror reorder_layer guard. The
+                // index is host-supplied and absolute; only [0, len) is valid.
+                if to >= self.layers.0.len() {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: format!(
+                            "reorder target index {} out of range [0, {})",
+                            to,
+                            self.layers.0.len()
+                        ),
+                    });
+                }
                 if let Some(pos) = self.layers.position_by_id(&id) {
                     // Mirror TS applyReorderLayer: the Background is pinned to the bottom
                     // and is never reordered (a layer beneath it would be unreachable).
@@ -283,7 +296,15 @@ impl ProtocolEngine {
                             }
                         }
                         self.finish_forward(_e);
-                        vec![RenderLayerChange::Upsert { layer }]
+                        // Emit every layer as an Upsert in engine order so the host
+                        // reconciles the new stacking from a single delta.
+                        self.layers
+                            .0
+                            .iter()
+                            .map(|l| RenderLayerChange::Upsert {
+                                layer: l.as_ref().clone(),
+                            })
+                            .collect()
                     }
                 } else {
                     Vec::new()

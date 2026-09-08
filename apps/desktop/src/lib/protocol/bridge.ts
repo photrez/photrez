@@ -732,7 +732,7 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
     const id = cmd.id as string;
     const idx = emuLayers.findIndex((l) => l.id === id);
     if (idx >= 0) {
-      const _e = beginEmu("Set Locked", [id]);
+      const _e = beginEmu("Set Lock", [id]);
       const layer = { ...emuLayers[idx], dirtyRect: { x: 0, y: 0, width: 1, height: 1 } };
       const kind = cmd.kind as string;
       const locked = cmd.locked as boolean;
@@ -750,12 +750,19 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
     const id = cmd.id as string;
     const idx = emuLayers.findIndex((l) => l.id === id);
     if (idx >= 0) {
-      const _e = beginEmu("Reorder", [id]);
       const to = cmd.to as number;
+      // Mirror the TS graph-mirror reorder_layer guard: an out-of-range target is
+      // invalid. Reject before any mutation, history entry, or DV bump.
+      if (to < 0 || to >= emuLayers.length) {
+        throw new Error(
+          `E_INVALID: reorder target index ${to} out of range [0, ${emuLayers.length - 1}]`,
+        );
+      }
       // Mirror TS applyReorderLayer: Background pinned to bottom, never reordered.
       if (emuLayers[idx].isBackground) {
-        // no-op reorder (Background)
+        // no-op reorder (Background) - no history entry; the DV still bumps below.
       } else {
+        const _e = beginEmu("Reorder", [id]);
         const clampedTo = Math.max(0, Math.min(to, emuLayers.length - 1));
         const [moved] = emuLayers.splice(idx, 1);
         emuLayers.splice(clampedTo, 0, moved);
@@ -764,9 +771,9 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
           const [bg] = emuLayers.splice(bgIdx, 1);
           emuLayers.push(bg);
         }
+        finishEmu(_e);
+        changes = emuLayers.map((l) => ({ kind: "upsert", layer: l }));
       }
-      finishEmu(_e);
-      changes = emuLayers.map((l) => ({ kind: "upsert", layer: l }));
     }
   } else if (cmd.type === "setBackgroundFlag") {
     const id = cmd.id as string;
