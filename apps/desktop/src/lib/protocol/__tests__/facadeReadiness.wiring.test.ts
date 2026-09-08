@@ -58,7 +58,7 @@ describe("Facade readiness gate (flag ON, engine arming)", () => {
     // Bridge is unarmed (fresh file). A facade command MUST NOT emulate.
     await expect(applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "ShouldNotEmulate" },
+      command: { type: "addLayer", id: "ShouldNotEmulate-id", name: "ShouldNotEmulate", width: 100, height: 100, index: 0 },
     })).rejects.toThrow(/E_FACADE_NOT_READY/);
 
     // If the gate fell through to the emulator, beginEmu would have pushed a
@@ -77,7 +77,7 @@ describe("Facade readiness gate (flag ON, engine arming)", () => {
 
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "Legacy" },
+      command: { type: "addLayer", id: "Legacy-id", name: "Legacy", width: 100, height: 100, index: 0 },
     }) as unknown as { documentVersion: number };
 
     // The emulator applied the command (version bumped to 1, entry recorded).
@@ -93,7 +93,7 @@ describe("Facade readiness gate (flag ON, engine arming)", () => {
 
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "RealRust" },
+      command: { type: "addLayer", id: "RealRust-id", name: "RealRust", width: 100, height: 100, index: 0 },
     }) as unknown as { documentVersion: number };
 
     // DISCRIMINATOR — only real Rust populates the bridge snapshot:

@@ -91,12 +91,12 @@ describe("emulator history memoryCostBytes is a plausible non-double-counted num
     // addLayer A, addLayer B, then transform A (B is unchanged => shared ref).
     const addA = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "A" },
+      command: { type: "addLayer", id: "A-id", name: "A", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: RenderLayer }> } };
     const idA = addA.delta.changes[0].layer.id;
     const addB = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "B" },
+      command: { type: "addLayer", id: "B-id", name: "B", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: RenderLayer }> } };
     const idB = addB.delta.changes[0].layer.id;
 

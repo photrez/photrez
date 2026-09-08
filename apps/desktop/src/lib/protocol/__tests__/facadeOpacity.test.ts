@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vite
 import { DocumentEngine, hasFacadeOwnedLayers, isFacadeOwnedLayer } from "@/engine/document";
 import * as bridge from "@/lib/protocol/bridge";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
+import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import {
   commitFacadeOpacity,
   getFacade,
@@ -155,9 +156,9 @@ describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const id = facade.snapshot.layers[facade.snapshot.layers.length - 1].id;
     // bump version behind a stale caller
-    await bridge.applyCommand({ contractVersion: 1, command: { type: "noop" } });
+    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
     await expect(bridge.applyCommand({
-      contractVersion: 1,
+      contractVersion: CONTRACT_VERSION,
       expectedVersion: facade.renderedVersion - 1,
       command: { type: "setOpacity", id, opacity: 0.5 },
     })).rejects.toThrow(/E_VERSION_MISMATCH/);

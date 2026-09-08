@@ -5,7 +5,7 @@
 use crate::projection::RenderDelta;
 use serde::{Deserialize, Serialize};
 /// Schema/protocol version. Bump on breaking envelope change.
-pub const CONTRACT_VERSION: u32 = 1;
+pub const CONTRACT_VERSION: u32 = 2;
 
 pub type DocumentVersion = u64;
 pub type ResourceId = u32;
@@ -40,8 +40,16 @@ pub enum Command {
     Ping {
         echo: String,
     },
+    // Host owns identity + placement: active-layer is UI state the engine must
+    // not assume, so the id (TS-minted) and insertion index (clamped to the
+    // current layer count) travel with the command. `width`/`height` seed the
+    // new layer's dimensions.
     AddLayer {
+        id: String,
         name: String,
+        width: f64,
+        height: f64,
+        index: usize,
     },
     DeleteLayer {
         id: String,

@@ -5,7 +5,7 @@
 // model.rs / projection.rs).
 
 use crate::canonical_bridge::CanonicalShadow;
-use crate::canonical_model::CanonicalDocument;
+use crate::canonical_model::{BlendMode, CanonicalDocument, LayerType};
 use crate::command::*;
 use crate::history::*;
 use crate::model::*;
@@ -537,6 +537,16 @@ impl ProtocolEngine {
                         width: 1,
                         height: 1,
                     }),
+                    layer_type: None,
+                    blend_mode: None,
+                    locked: None,
+                    lock_transparency: None,
+                    lock_position: None,
+                    lock_rotation: None,
+                    is_background: None,
+                    has_adjustments: None,
+                    width: None,
+                    height: None,
                 };
                 if let Some(pos) = self.layers.position_by_id(&id) {
                     self.layers = self.layers.replaced(pos, layer.clone());
@@ -546,9 +556,24 @@ impl ProtocolEngine {
                 }
                 vec![RenderLayerChange::Upsert { layer }]
             }
-            Command::AddLayer { name } => {
-                let _e = self.begin_forward("Add Layer", &[]);
-                let id = uuid::Uuid::new_v4().to_string();
+            Command::AddLayer {
+                id,
+                name,
+                width,
+                height,
+                index,
+            } => {
+                // Host owns identity + placement: the active layer is UI state the
+                // engine must not assume, so the id (TS-minted) and insertion
+                // index (above the active layer) travel with the command. Reject a
+                // duplicate id so the host's id space stays unambiguous.
+                if self.layers.position_by_id(&id).is_some() {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: format!("addLayer id already present: {}", id),
+                    });
+                }
+                let _e = self.begin_forward("Add Layer", &[id.clone()]);
                 let layer = RenderLayer {
                     id: id.clone(),
                     name: name.clone(),
@@ -566,9 +591,20 @@ impl ProtocolEngine {
                         width: 1,
                         height: 1,
                     }),
+                    layer_type: Some(LayerType::Raster),
+                    blend_mode: Some(BlendMode::Normal),
+                    locked: None,
+                    lock_transparency: None,
+                    lock_position: None,
+                    lock_rotation: None,
+                    is_background: None,
+                    has_adjustments: None,
+                    width: Some(width),
+                    height: Some(height),
                 };
                 self.next_resource += 1;
-                self.layers = self.layers.pushed(layer.clone());
+                // Insert at the host-supplied index (clamped), not pushed at end.
+                self.layers = self.layers.insert_at(layer.clone(), index);
                 self.finish_forward(_e);
                 vec![RenderLayerChange::Upsert { layer }]
             }
@@ -916,6 +952,7 @@ mod version_tests {
             scale_y: 1.0,
             rotation: 0.0,
             dirty_rect: None,
+            ..Default::default()
         };
         engine.seed_layers(vec![layer], 42);
         assert_eq!(engine.version(), 42);
@@ -923,42 +960,5 @@ mod version_tests {
 }
 
 #[cfg(test)]
-mod canonical_seed_tests {
-    use super::*;
-    use crate::canonical_model::CanonicalDocument;
-
-    /// Minimal `CanonicalDocument` (no layers) keyed by id, for shadow-copy tests.
-    fn empty_doc(id: &str) -> CanonicalDocument {
-        CanonicalDocument {
-            id: id.to_string(),
-            name: "n".to_string(),
-            width: 10.0,
-            height: 10.0,
-            layers: vec![],
-            selection: None,
-        }
-    }
-
-    #[test]
-    fn canonical_default_is_none() {
-        let engine = ProtocolEngine::new();
-        assert!(engine.canonical().is_none());
-    }
-
-    #[test]
-    fn seed_canonical_stores_copy() {
-        let mut engine = ProtocolEngine::new();
-        engine.seed_canonical(empty_doc("doc-A"));
-        let c = engine.canonical().expect("canonical shadow stored");
-        assert_eq!(c.id, "doc-A");
-    }
-
-    #[test]
-    fn seed_canonical_replaces_existing() {
-        let mut engine = ProtocolEngine::new();
-        engine.seed_canonical(empty_doc("doc-A"));
-        engine.seed_canonical(empty_doc("doc-B"));
-        let c = engine.canonical().expect("canonical shadow stored");
-        assert_eq!(c.id, "doc-B", "second seed must replace the first shadow");
-    }
-}
+#[path = "document_core_canonical_seed_tests.rs"]
+mod canonical_seed_tests;

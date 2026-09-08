@@ -1089,7 +1089,7 @@ fn row_major_default_patches_byte_identical() {
     );
 }
 
-// B4 (P1): malformed input at the registry seam MUST be gracefully skipped —
+// Malformed input at the registry seam MUST be gracefully skipped —
 // no panic, no cursor move, no history entry. `cow_batch`'s internal asserts
 // are now a safety net only, because this boundary validates first.
 #[test]
@@ -1244,7 +1244,11 @@ mod protocol_native_authority_tests {
         let mut reg = PixelStoreRegistry::new();
         let res: CommandResult = engine_for(&mut reg, "doc1")
             .apply(envelope(Command::AddLayer {
+                id: "bg-id".to_string(),
                 name: "bg".to_string(),
+                width: 100.0,
+                height: 100.0,
+                index: 0,
             }))
             .expect("apply addLayer");
 
@@ -1272,7 +1276,11 @@ mod protocol_native_authority_tests {
         let mut reg = PixelStoreRegistry::new();
         engine_for(&mut reg, "d")
             .apply(envelope(Command::AddLayer {
+                id: "L-id".to_string(),
                 name: "L".to_string(),
+                width: 100.0,
+                height: 100.0,
+                index: 0,
             }))
             .expect("apply"); // v1, cursor 1
 
@@ -1332,12 +1340,20 @@ mod protocol_native_authority_tests {
         // Per-doc isolation: each engine owns its own history + adapter set.
         engine_for(&mut reg, "docA")
             .apply(envelope(Command::AddLayer {
+                id: "A-id".to_string(),
                 name: "A".to_string(),
+                width: 100.0,
+                height: 100.0,
+                index: 0,
             }))
             .expect("apply A");
         engine_for(&mut reg, "docB")
             .apply(envelope(Command::AddLayer {
+                id: "B-id".to_string(),
                 name: "B".to_string(),
+                width: 100.0,
+                height: 100.0,
+                index: 0,
             }))
             .expect("apply B");
 
@@ -1384,7 +1400,11 @@ mod protocol_native_authority_tests {
         // JSON-in: a real CommandEnvelope round-trips through serde, exactly what
         // the command receives from the frontend.
         let env_json = serde_json::to_string(&envelope(Command::AddLayer {
+            id: "bg-id".to_string(),
             name: "bg".to_string(),
+            width: 100.0,
+            height: 100.0,
+            index: 0,
         }))
         .unwrap();
         let parsed: CommandEnvelope = serde_json::from_str(&env_json).unwrap();
@@ -1421,7 +1441,11 @@ mod protocol_native_authority_tests {
             let reg = g.get_or_insert_with(Default::default);
             let engine = reg.docs.get_mut("docX").expect("doc open");
             let mut bad = envelope(Command::AddLayer {
+                id: "x-id".to_string(),
                 name: "x".to_string(),
+                width: 100.0,
+                height: 100.0,
+                index: 0,
             });
             bad.contract_version = u32::MAX; // force E_CONTRACT_VERSION
             let err = engine.history.apply(bad).unwrap_err();

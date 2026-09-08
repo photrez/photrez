@@ -24,7 +24,7 @@ describe("emulator brushStroke command consistency (no wasm wired)", () => {
   it("applies the same brushStroke command the production commitStroke() sends", async () => {
     const add = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "L" },
+      command: { type: "addLayer", id: "L-id", name: "L", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
     const id = add.delta.changes[0].layer.id;
 

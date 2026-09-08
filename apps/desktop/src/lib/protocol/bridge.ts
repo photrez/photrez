@@ -342,27 +342,54 @@ export async function getVersion(docId = "default"): Promise<number> {
 }
 
 function toRustEnvelope(env: CommandEnvelope): unknown {
-  const c = env.command as unknown as Record<string, unknown>;
+  const c = env.command;
   let rustCmd: unknown;
-  if (c.type === "noop") rustCmd = { type: "noop" };
-  else if (c.type === "ping") rustCmd = { type: "ping", echo: c.echo };
-  else if (c.type === "addLayer") rustCmd = { type: "addLayer", name: c.name };
-  else if (c.type === "deleteLayer") rustCmd = { type: "deleteLayer", id: c.id };
-  else if (c.type === "transformLayer") rustCmd = { type: "transformLayer", id: c.id, transform: c.transform };
-  else if (c.type === "setOpacity") rustCmd = { type: "setOpacity", id: c.id, opacity: c.opacity };
-  else if (c.type === "brushStroke") rustCmd = { type: "brushStroke", layer_id: c.layerId, points: c.points, settings: c.settings };
-  else if (c.type === "undo") rustCmd = { type: "undo" };
-  else if (c.type === "redo") rustCmd = { type: "redo" };
-  else if (c.type === "recordExternalTransition")
-    rustCmd = {
-      type: "recordExternalTransition",
-      label: c.label,
-      affected_layer_ids: c.affectedLayerIds,
-      adapter_id: c.adapterId,
-      token: c.token,
-      memory_cost_bytes: c.memoryCostBytes,
-    };
-  else rustCmd = c;
+  switch (c.type) {
+    case "noop":
+      rustCmd = { type: "noop" };
+      break;
+    case "ping":
+      rustCmd = { type: "ping", echo: c.echo };
+      break;
+    case "addLayer":
+      rustCmd = { type: "addLayer", id: c.id, name: c.name, width: c.width, height: c.height, index: c.index };
+      break;
+    case "deleteLayer":
+      rustCmd = { type: "deleteLayer", id: c.id };
+      break;
+    case "transformLayer":
+      rustCmd = { type: "transformLayer", id: c.id, transform: c.transform };
+      break;
+    case "setOpacity":
+      rustCmd = { type: "setOpacity", id: c.id, opacity: c.opacity };
+      break;
+    case "brushStroke":
+      rustCmd = { type: "brushStroke", layer_id: c.layerId, points: c.points, settings: c.settings };
+      break;
+    case "undo":
+      rustCmd = { type: "undo" };
+      break;
+    case "redo":
+      rustCmd = { type: "redo" };
+      break;
+    case "recordExternalTransition":
+      rustCmd = {
+        type: "recordExternalTransition",
+        label: c.label,
+        affected_layer_ids: c.affectedLayerIds,
+        adapter_id: c.adapterId,
+        token: c.token,
+        memory_cost_bytes: c.memoryCostBytes,
+      };
+      break;
+    default: {
+      // Exhaustiveness guard: every Command variant is handled above. A new
+      // variant that forgets its wire mapping fails the type-check here instead
+      // of silently dropping a mutation (data-loss class).
+      const _exhaustive: never = c;
+      throw new Error(`E_UNKNOWN_COMMAND: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
   return { contractVersion: env.contractVersion, expectedVersion: env.expectedVersion, command: rustCmd };
 }
 
@@ -627,10 +654,34 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
       status: "external-recorded",
     };
   } else if (cmd.type === "addLayer") {
-    const _e = beginEmu("Add Layer", []);
-    const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const layer = { id, name: cmd.name as string, visible: true, opacity: 1, resourceId: emuNextResource, x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } };
-    emuNextResource += 1; emuLayers.push(layer); finishEmu(_e); changes = [{ kind: "upsert", layer }];
+    // Host owns identity + placement: use the payload id (TS-minted) and insert
+    // at the supplied index (clamped), mirroring the Rust AddLayer arm. The
+    // emulator no longer mints its own id (divergence #3 resolved).
+    const id = (cmd.id as string) ?? `layer-${Math.random().toString(36).slice(2, 10)}`;
+    const width = (cmd.width as number) ?? 100;
+    const height = (cmd.height as number) ?? 100;
+    const index = (cmd.index as number) ?? 0;
+    const _e = beginEmu("Add Layer", [id]);
+    const layer = {
+      id,
+      name: cmd.name as string,
+      visible: true,
+      opacity: 1,
+      resourceId: emuNextResource,
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      dirtyRect: { x: 0, y: 0, width: 1, height: 1 },
+      width,
+      height,
+    };
+    emuNextResource += 1;
+    const idx = index < 0 ? 0 : Math.min(index, emuLayers.length);
+    emuLayers.splice(idx, 0, layer);
+    finishEmu(_e);
+    changes = [{ kind: "upsert", layer }];
   } else if (cmd.type === "deleteLayer") {
     const id = cmd.id as string;
     const idx = emuLayers.findIndex((l) => l.id === id);
@@ -690,6 +741,11 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
         emuPendingExternal = { seq: e.seq, direction: "redo" };
       }
     }
+  } else {
+    // Exhaustiveness guard: every Command variant is handled above. An unknown
+    // command type must fail loud, never silently fall through to an empty delta
+    // (data-loss class per the protocol design).
+    throw new Error(`E_UNKNOWN_COMMAND: ${String((cmd as { type?: string }).type)}`);
   }
   if (externalSeq !== null) {
     return {

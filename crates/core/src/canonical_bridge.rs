@@ -26,6 +26,18 @@ pub fn render_layer_from_canonical(c: &CanonicalLayer) -> RenderLayer {
         scale_y: c.transform.scale_y,
         rotation: c.transform.rotation,
         dirty_rect: None,
+        // Down-projection: the renderer drives only transform/opacity/visibility,
+        // so the canonical-only metadata subset is deliberately left unset.
+        layer_type: None,
+        blend_mode: None,
+        locked: None,
+        lock_transparency: None,
+        lock_position: None,
+        lock_rotation: None,
+        is_background: None,
+        has_adjustments: None,
+        width: None,
+        height: None,
     }
 }
 
@@ -44,22 +56,31 @@ pub fn merge_render_layer_into_canonical(base: &CanonicalLayer, r: &RenderLayer)
     CanonicalLayer {
         id: r.id.clone(),
         name: r.name.clone(),
-        layer_type: base.layer_type.clone(),
+        // Extended fields: a Some on the render layer (set by an add/upsert op)
+        // overrides the canonical base; None preserves it. Enums use the
+        // match-and-clone pattern so a missing value falls back to `base`.
+        layer_type: r
+            .layer_type
+            .clone()
+            .unwrap_or_else(|| base.layer_type.clone()),
         visible: r.visible,
         opacity: r.opacity,
-        locked: base.locked,
-        is_background: base.is_background,
-        lock_transparency: base.lock_transparency,
-        lock_position: base.lock_position,
-        lock_rotation: base.lock_rotation,
-        has_adjustments: base.has_adjustments,
+        locked: r.locked.unwrap_or(base.locked),
+        is_background: r.is_background.or(base.is_background),
+        lock_transparency: r.lock_transparency.or(base.lock_transparency),
+        lock_position: r.lock_position.or(base.lock_position),
+        lock_rotation: r.lock_rotation.or(base.lock_rotation),
+        has_adjustments: r.has_adjustments.or(base.has_adjustments),
         basic_adjustment: base.basic_adjustment.clone(),
         resource_id: if r.resource_id == 0 {
             None
         } else {
             Some(r.resource_id)
         },
-        blend_mode: base.blend_mode.clone(),
+        blend_mode: r
+            .blend_mode
+            .clone()
+            .unwrap_or_else(|| base.blend_mode.clone()),
         transform: Transform2D {
             x: r.x,
             y: r.y,
@@ -69,8 +90,8 @@ pub fn merge_render_layer_into_canonical(base: &CanonicalLayer, r: &RenderLayer)
             flip_h: base.transform.flip_h,
             flip_v: base.transform.flip_v,
         },
-        width: base.width,
-        height: base.height,
+        width: r.width.unwrap_or(base.width),
+        height: r.height.unwrap_or(base.height),
         shape_params: base.shape_params.clone(),
         text_data: base.text_data.clone(),
     }
@@ -340,6 +361,7 @@ mod tests {
                 width: 2,
                 height: 2,
             }),
+            ..Default::default()
         }
     }
 
@@ -485,6 +507,7 @@ mod tests {
                 width: 10,
                 height: 10,
             }),
+            ..Default::default()
         };
         let r_without = RenderLayer {
             id: "r1".to_string(),
@@ -498,6 +521,7 @@ mod tests {
             scale_y: 2.0,
             rotation: 9.0,
             dirty_rect: None,
+            ..Default::default()
         };
 
         let m_with = merge_render_layer_into_canonical(&base, &r_with);

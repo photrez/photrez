@@ -497,7 +497,15 @@ export function useLayerActions() {
       // await the init lands a microtask late and the first command can hit E_VERSION_MISMATCH.
       await seedFacadeFromEngine(engine as never, facade);
       try {
-        const snap = await facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`);
+        // Seed the new layer with the document dimensions and insert it above the
+        // active layer (mirrors the TS engine's "add above active" placement).
+        const docW = engine.getWidth();
+        const docH = engine.getHeight();
+        const activeId = engine.getActiveLayerId();
+        const layers = engine.getLayers();
+        const activeIdx = activeId ? layers.findIndex((l) => l.id === activeId) : -1;
+        const insertIdx = activeIdx < 0 ? 0 : activeIdx;
+        const snap = await facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`, docW, docH, insertIdx);
         // Project facade snapshot into engine (engine becomes read-only view, no history)
         (engine as unknown as { applyFacadeSnapshot: (s: unknown) => void }).applyFacadeSnapshot(snap);
         scheduler.requestRender();

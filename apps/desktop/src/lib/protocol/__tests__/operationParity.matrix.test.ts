@@ -18,8 +18,9 @@
 //  Drives the REAL native authority (the per-document ProtocolEngine behind
 //  `protocol_apply_command(env, docId)`, document_core.rs) through the
 //  production bridge. Side A is the TS `DocumentEngine` as the independent
-//  oracle; layers are compared by NAME (the arm mints uuid v4 ids, the TS
-//  engine mints its own - ids are never compared across engines).
+//  oracle; layers are compared by NAME (the arm uses the TS-minted id supplied
+//  by the test, so it is no longer a uuid - ids still differ from the TS engine's
+//  own mint, so they are not compared across engines).
 //
 //  NO hand-written expected values: the two engines are each other's oracle. If
 //  the wasm module is unavailable, tests fail LOUD (requireWasm / bridge arity
@@ -304,12 +305,15 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
   function armSnapshot(): Promise<any> {
     return bridge.getSnapshot(ARM_DOC);
   }
-  // Arm mints a uuid v4 id; read it back from the snapshot by name.
+  // Host-owned identity + placement: mint a TS-style id and insert above active
+  // (index 0), so the arm now mirrors the TS engine (uuid-mint + append divergences
+  // resolved). Read the result back by the id we control.
   async function armAdd(name: string): Promise<{ id: string; snapshot: any }> {
-    await armApply({ type: "addLayer", name });
+    const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id, name, width: 200, height: 200, index: 0 });
     const snap = await armSnapshot();
-    const layer = snap.layers.find((l: any) => l.name === name) as any;
-    return { id: layer.id, snapshot: snap };
+    const layer = snap.layers.find((l: any) => l.id === id) as any;
+    return { id, snapshot: snap };
   }
 
   // Compare two layer sets by NAME on the overlap fields (ids/index excluded).
@@ -339,7 +343,7 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     }
   }
 
-  it("(a) addLayer x2 then deleteLayer - counts EQUAL; placement + addLayer impoverishment + uuid mint DIVERGENT", async () => {
+  it("(a) addLayer x2 then deleteLayer - counts EQUAL; placement + impoverishment + uuid mint FIXED (MEASURED-EQUAL)", async () => {
     requireWasm();
     const north = await armAdd("North");
     const preDelete = await armAdd("South"); // [North, South] (arm appends at end)
@@ -366,25 +370,27 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     // HARD: matched-by-name overlap (surviving "South") must be equal.
     expectByNameOverlap(postDelete.layers, tsPostDelete, "(a) delete");
 
-    // DIVERGENCE 1 - placement: arm appends at END, TS inserts above active.
-    expect(preDeleteSnap.layers.map((l: any) => l.name)).not.toEqual(tsPreDelete);
+    // FIXED (layer placement): arm now inserts above active layer, so order
+    // matches the TS engine exactly.
+    expect(preDeleteSnap.layers.map((l: any) => l.name)).toEqual(tsPreDelete);
 
-    // DIVERGENCE 2 - addLayer impoverishment: arm carries name only; the
-    // resulting RenderLayer has no type/blend/width/height the TS layer carries
-    // (command.rs AddLayer{name}; model.rs RenderLayer has no such fields).
+    // FIXED (layer metadata): the arm now carries layerType/blendMode/width/height.
     const armLayer = preDeleteSnap.layers.find((l: any) => l.name === "North");
-    expect(armLayer.type).toBeUndefined();
-    expect(armLayer.blendMode).toBeUndefined();
-    expect(armLayer.width).toBeUndefined();
-    expect(armLayer.height).toBeUndefined();
-    // TS side carries the full layer; the arm has no field for these.
+    expect(armLayer.layerType).toBeDefined();
+    expect(armLayer.blendMode).toBeDefined();
+    expect(armLayer.width).toBe(200);
+    expect(armLayer.height).toBe(200);
+    // TS side carries the full layer too.
     expect(tsNorth.width).toBe(200);
     expect(tsNorth.height).toBe(200);
     expect(tsNorth.type).toBe("raster");
     expect(tsNorth.blendMode).toBeDefined();
 
-    // DIVERGENCE 3 - uuid minting: arm id is uuid v4; TS id is layer-<rand>.
-    expect(north.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    // FIXED (host-minted id): the arm uses the TS-minted (layer-<rand>) id we
+    // passed, not a uuid v4. Ids still differ from the TS oracle (which mints its
+    // own), but both are now TS-style rather than a uuid.
+    expect(north.id).toMatch(/^layer-[a-z0-9]+$/);
+    expect(north.id).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(north.id).not.toEqual(nL.id);
 
     armMatrix.push({
@@ -392,7 +398,7 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
       counts: "EQUAL (2 -> 1 on both engines)",
       overlapAfterDelete: "EQUAL (by name)",
       divergences:
-        "placement (arm appends at END vs TS above-active); addLayer impoverishment (arm name-only; no type/blend/width/height); uuid mint differs from TS id",
+        "none (arm inserts above active; carries full layer shape; uses TS-minted id - divergences #1/#2/#3 resolved)",
     });
   });
 
@@ -477,14 +483,14 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     expectByNameOverlap(armUndo.layers, tsUndo, "(d1) undo");
     expectByNameOverlap(armRedo.layers, tsRedo, "(d1) redo");
 
-    // DIVERGENCE - placement on redo: arm [A,B] vs TS [B,A].
-    expect(armRedo.layers.map((l: any) => l.name)).not.toEqual(tsRedo.map((l: any) => l.name));
+    // FIXED (layer placement): arm now inserts above active layer, so redo order matches TS.
+    expect(armRedo.layers.map((l: any) => l.name)).toEqual(tsRedo.map((l: any) => l.name));
 
     armMatrix.push({
       scenario: "(d1) undo/redo after-add",
       counts: "EQUAL (undo->1, redo->2 on both)",
       overlap: "EQUAL (by name) after undo and redo",
-      divergences: "placement DIVERGENT on redo (arm [A,B] vs TS [B,A]); uuid ids differ",
+      divergences: "none (placement matches TS on redo; ids TS-style)",
     });
   });
 
@@ -519,14 +525,14 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     expectByNameOverlap(armUndo.layers, tsUndo, "(d2) undo");
     expectByNameOverlap(armRedo.layers, tsRedo, "(d2) redo");
 
-    // DIVERGENCE - placement on undo: arm [A,B] vs TS [B,A].
-    expect(armUndo.layers.map((l: any) => l.name)).not.toEqual(tsUndo.map((l: any) => l.name));
+    // FIXED (layer placement): arm now inserts above active layer, so undo order matches TS.
+    expect(armUndo.layers.map((l: any) => l.name)).toEqual(tsUndo.map((l: any) => l.name));
 
     armMatrix.push({
       scenario: "(d2) undo/redo after-delete",
       counts: "EQUAL (undo->2, redo->1 on both)",
       overlap: "EQUAL (by name) after undo and redo",
-      divergences: "placement DIVERGENT on undo (arm [A,B] vs TS [B,A]); uuid ids differ",
+      divergences: "none (placement matches TS on undo; ids TS-style)",
     });
   });
 

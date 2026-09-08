@@ -280,7 +280,7 @@ describe("native authority reroute", () => {
       contractVersion: CONTRACT_VERSION,
       expectedVersion: 0,
       docId: "docA",
-      command: { type: "addLayer", name: "N" },
+      command: { type: "addLayer", id: "N-id", name: "N", width: 100, height: 100, index: 0 },
     });
     const call = invokeMock.mock.calls.find((c) => c[0] === "protocol_apply_command_native");
     expect(call).toBeDefined();
@@ -491,7 +491,7 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
         contractVersion: CONTRACT_VERSION,
         expectedVersion: 0,
         docId: "docNeverOpened",
-        command: { type: "addLayer", name: "N" },
+        command: { type: "addLayer", id: "N-id", name: "N", width: 100, height: 100, index: 0 },
       }),
     ).rejects.toThrow(/document not open/);
   });
@@ -508,7 +508,7 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
         contractVersion: CONTRACT_VERSION,
         expectedVersion: 5,
         docId: "docEv",
-        command: { type: "addLayer", name: "N" },
+        command: { type: "addLayer", id: "N-id", name: "N", width: 100, height: 100, index: 0 },
       }),
     ).rejects.toThrow(/E_VERSION_MISMATCH/);
     // A command with the correct expectedVersion (0) succeeds and advances to 1.
@@ -516,7 +516,7 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
       contractVersion: CONTRACT_VERSION,
       expectedVersion: 0,
       docId: "docEv",
-      command: { type: "addLayer", name: "N" },
+      command: { type: "addLayer", id: "N-id", name: "N", width: 100, height: 100, index: 0 },
     });
     expect(res.documentVersion).toBe(1);
   });
@@ -634,7 +634,7 @@ describe("error path (native rejection normalizes to uniform CODE: message)", ()
         contractVersion: CONTRACT_VERSION,
         expectedVersion: 1,
         docId: "docG",
-        command: { type: "addLayer", name: "N" },
+        command: { type: "addLayer", id: "N-id", name: "N", width: 100, height: 100, index: 0 },
       });
     } catch (e) {
       caught = e;
@@ -661,7 +661,7 @@ describe("error path (native rejection normalizes to uniform CODE: message)", ()
         contractVersion: CONTRACT_VERSION,
         expectedVersion: 0,
         docId: "docH",
-        command: { type: "addLayer", name: "N" },
+        command: { type: "addLayer", id: "N-id", name: "N", width: 100, height: 100, index: 0 },
       }),
     ).rejects.toBeInstanceOf(Error);
   });

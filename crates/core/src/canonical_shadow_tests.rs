@@ -109,6 +109,7 @@ fn render_layer(i: usize) -> RenderLayer {
         scale_y: c.transform.scale_y,
         rotation: c.transform.rotation,
         dirty_rect: None,
+        ..Default::default()
     }
 }
 
@@ -301,7 +302,11 @@ fn redo_removes_restored_layer_again() {
 fn add_layer_marks_incomplete_and_does_not_insert() {
     let mut e = seeded_engine();
     e.apply(env(Command::AddLayer {
+        id: "Minted-id".to_string(),
         name: "Minted".to_string(),
+        width: 100.0,
+        height: 100.0,
+        index: 0,
     }))
     .unwrap();
     let shadow = e.canonical().unwrap();
@@ -317,7 +322,11 @@ fn full_reseed_clears_incomplete_and_tombstones() {
     }))
     .unwrap();
     e.apply(env(Command::AddLayer {
+        id: "Minted-id".to_string(),
         name: "Minted".to_string(),
+        width: 100.0,
+        height: 100.0,
+        index: 0,
     }))
     .unwrap();
     assert!(e.canonical_incomplete());

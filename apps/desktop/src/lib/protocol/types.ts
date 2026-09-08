@@ -1,7 +1,7 @@
 // Ticket 1 — Minimal protocol types mirrors crates/core/src/protocol.rs
 // contractVersion (schema) vs documentVersion (state) are distinct.
 
-export const CONTRACT_VERSION = 1 as const;
+export const CONTRACT_VERSION = 2 as const;
 
 export type DocumentVersion = number; // u64 in Rust, safe integer for now
 export type ResourceId = number;
@@ -25,6 +25,19 @@ export type RenderLayer = {
   scaleY: number;
   rotation: number;
   dirtyRect?: Rect | null;
+  // Canonical metadata subset mirrored from the Rust RenderLayer (serde Option
+  // fields, omitted when absent). Carried on add/upsert so the native engine
+  // holds the full TS layer shape.
+  layerType?: string;
+  blendMode?: string;
+  locked?: boolean;
+  lockTransparency?: boolean;
+  lockPosition?: boolean;
+  lockRotation?: boolean;
+  isBackground?: boolean;
+  hasAdjustments?: boolean;
+  width?: number;
+  height?: number;
 };
 
 export type RenderLayerChange =
@@ -58,7 +71,10 @@ export type BrushSettings = { size: number; hardness: number; opacity: number; f
 export type Command =
   | { type: "noop" }
   | { type: "ping"; echo: string }
-  | { type: "addLayer"; name: string }
+  // Host owns identity + placement: the id (TS-minted) and insertion index
+  // (above the active layer) travel with the command. width/height seed the new
+  // layer's dimensions. Mirrors the Rust AddLayer arm (command.rs).
+  | { type: "addLayer"; id: string; name: string; width: number; height: number; index: number }
   | { type: "deleteLayer"; id: string }
   | { type: "transformLayer"; id: string; transform: TransformPatch }
   | { type: "setOpacity"; id: string; opacity: number }

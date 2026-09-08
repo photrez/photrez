@@ -68,7 +68,7 @@ async function addLayer(docId: string, name: string): Promise<{ documentVersion:
   return (await bridge.applyCommand({
     contractVersion: CONTRACT_VERSION,
     docId,
-    command: { type: "addLayer", name },
+    command: { type: "addLayer", id: `${name}-id`, name, width: 100, height: 100, index: 0 },
   })) as unknown as { documentVersion: number };
 }
 

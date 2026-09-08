@@ -76,9 +76,17 @@ export class EditorFacade {
   // bumped inside a post-await microtask (applyDelta). A second command issued
   // in the same synchronous task would read a stale expectedVersion and catch a
   // spurious version-mismatch rejection.
-  async addLayer(name: string): Promise<RenderSnapshot> {
+  async addLayer(name: string, width = 100, height = 100, index = 0): Promise<RenderSnapshot> {
     await this.syncFromEngine();
-    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "addLayer", name } });
+    // Host-owned identity: mint the layer id in TS (layer-<rand>) so it matches
+    // the TS engine's id space; the native AddLayer arm no longer mints its own.
+    const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    const res = await applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: this.renderedVersion,
+      docId: this.docId,
+      command: { type: "addLayer", id, name, width, height, index },
+    });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     this.repushCanonicalAfterAddLayer();

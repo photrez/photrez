@@ -64,7 +64,7 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     // Fresh engine: the wired bridge applies through the wasm boundary.
     const res = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "Rust" },
+      command: { type: "addLayer", id: "Rust-id", name: "Rust", width: 100, height: 100, index: 0 },
     }) as unknown as { documentVersion: number };
 
     // DISCRIMINATOR — only real Rust populates the bridge snapshot:
@@ -88,7 +88,7 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
   it("wired bridge deleteLayer returns the Rust Remove delta shape (kind + id + resourceId)", async () => {
     const add = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "A" },
+      command: { type: "addLayer", id: "A-id", name: "A", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
     const id = add.delta.changes[0].layer.id;
     // Real engine holds exactly the layer it just created.
@@ -118,8 +118,8 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
   });
 
   it("wired bridge undo/redo walk the real Rust H0 stream", async () => {
-    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", name: "del" } }) as unknown as { documentVersion: number };
-    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", name: "victim" } });
+    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", id: "del-id", name: "del", width: 100, height: 100, index: 0 } }) as unknown as { documentVersion: number };
+    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", id: "victim-id", name: "victim", width: 100, height: 100, index: 0 } });
     expect((await bridge.getSnapshot()).layers.length).toBe(2);
 
     // Undo the last native entry -> the real engine rolls back to 1 layer.
@@ -147,7 +147,7 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
     // (`layer_id`), this must NOT throw and must apply end-to-end.
     const add = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
-      command: { type: "addLayer", name: "stroke" },
+      command: { type: "addLayer", id: "stroke-id", name: "stroke", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
     const id = add.delta.changes[0].layer.id;
 
