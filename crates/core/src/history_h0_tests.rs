@@ -392,6 +392,8 @@ fn stale_expected_version_still_rejected_on_stream_path() {
                     scale_x: 1.0,
                     scale_y: 1.0,
                     rotation: 0.0,
+                    flip_h: None,
+                    flip_v: None,
                 },
             },
             999,

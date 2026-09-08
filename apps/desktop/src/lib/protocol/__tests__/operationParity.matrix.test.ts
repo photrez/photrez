@@ -110,6 +110,77 @@ function newMirror(docId: string): any {
   return new wasmMod.DocumentEngine(docId, docId, 200, 200);
 }
 
+// -- Shared comparison helpers (used by both ARM-PATH and METADATA-ARM-PATH) --
+
+// Compare two layer sets by NAME on the overlap fields (ids/index excluded).
+function byName(layers: any[]): Map<string, any> {
+  const m = new Map<string, any>();
+  for (const l of layers) m.set(l.name, overlap(l));
+  return m;
+}
+function overlapEqual(a: any, b: any): boolean {
+  return (
+    a.visible === b.visible &&
+    a.opacity === b.opacity &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.scaleX === b.scaleX &&
+    a.scaleY === b.scaleY &&
+    a.rotation === b.rotation
+  );
+}
+// Assert same layer-name set with equal overlap fields (order/ids ignored).
+function expectByNameOverlap(arm: any[], ts: any[], label: string): void {
+  const a = byName(arm);
+  const t = byName(ts);
+  expect([...a.keys()].sort(), `${label}: same layer-name set`).toEqual([...t.keys()].sort());
+  for (const name of a.keys()) {
+    expect(overlapEqual(a.get(name), t.get(name)), `${label}: overlap equal for '${name}'`).toBe(true);
+  }
+}
+
+// Metadata overlap (blend/lock/background/flip) for the metadata command arms.
+// Reads BOTH the arm's flat RenderLayer and the TS LayerNode (transform.flipH/V)
+// so the same helper works for either engine's layer shape.
+function metaFields(layer: any): any {
+  const t = layer.transform ?? {};
+  return {
+    blendMode: layer.blendMode ?? null,
+    isBackground: layer.isBackground ?? false,
+    locked: layer.locked ?? false,
+    lockTransparency: layer.lockTransparency ?? false,
+    lockPosition: layer.lockPosition ?? false,
+    lockRotation: layer.lockRotation ?? false,
+    flipH: layer.flipH ?? t.flipH ?? false,
+    flipV: layer.flipV ?? t.flipV ?? false,
+  };
+}
+function byMeta(layers: any[]): Map<string, any> {
+  const m = new Map<string, any>();
+  for (const l of layers) m.set(l.name, metaFields(l));
+  return m;
+}
+function metaEqual(a: any, b: any): boolean {
+  return (
+    a.blendMode === b.blendMode &&
+    a.isBackground === b.isBackground &&
+    a.locked === b.locked &&
+    a.lockTransparency === b.lockTransparency &&
+    a.lockPosition === b.lockPosition &&
+    a.lockRotation === b.lockRotation &&
+    a.flipH === b.flipH &&
+    a.flipV === b.flipV
+  );
+}
+function expectByNameMeta(arm: any[], ts: any[], label: string): void {
+  const a = byMeta(arm);
+  const t = byMeta(ts);
+  expect([...a.keys()].sort(), `${label}: same layer-name set`).toEqual([...t.keys()].sort());
+  for (const name of a.keys()) {
+    expect(metaEqual(a.get(name), t.get(name)), `${label}: metadata equal for '${name}'`).toBe(true);
+  }
+}
+
 // -- Section 1 helpers: compare by layer index (ids match; mirror mints both) --
 describe("operation parity matrix - MIRROR PATH (document.rs graph mirror; same mirror code on both sides)", () => {
   it("addLayer: TS-delegated graph equals direct-wasm graph", () => {
@@ -316,37 +387,14 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     return { id, snapshot: snap };
   }
 
-  // Compare two layer sets by NAME on the overlap fields (ids/index excluded).
-  function byName(layers: any[]): Map<string, any> {
-    const m = new Map<string, any>();
-    for (const l of layers) m.set(l.name, overlap(l));
-    return m;
-  }
-  function overlapEqual(a: any, b: any): boolean {
-    return (
-      a.visible === b.visible &&
-      a.opacity === b.opacity &&
-      a.x === b.x &&
-      a.y === b.y &&
-      a.scaleX === b.scaleX &&
-      a.scaleY === b.scaleY &&
-      a.rotation === b.rotation
-    );
-  }
-  // Assert same layer-name set with equal overlap fields (order/ids ignored).
-  function expectByNameOverlap(arm: any[], ts: any[], label: string): void {
-    const a = byName(arm);
-    const t = byName(ts);
-    expect([...a.keys()].sort(), `${label}: same layer-name set`).toEqual([...t.keys()].sort());
-    for (const name of a.keys()) {
-      expect(overlapEqual(a.get(name), t.get(name)), `${label}: overlap equal for '${name}'`).toBe(true);
-    }
-  }
+  // Comparison helpers (byName / overlapEqual / expectByNameOverlap / metaFields /
+  // byMeta / metaEqual / expectByNameMeta) are defined at module top-level so both
+  // the ARM-PATH and METADATA-ARM-PATH sections can use them.
 
   it("(a) addLayer x2 then deleteLayer - counts EQUAL; placement + impoverishment + uuid mint FIXED (MEASURED-EQUAL)", async () => {
     requireWasm();
     const north = await armAdd("North");
-    const preDelete = await armAdd("South"); // [North, South] (arm appends at end)
+    const preDelete = await armAdd("South"); // [South, North] (arm inserts above active at host index 0)
     const preDeleteSnap = preDelete.snapshot;
     await armApply({ type: "deleteLayer", id: north.id });
     const postDelete = await armSnapshot();
@@ -541,5 +589,208 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     console.log("\n=== OPERATION PARITY MATRIX - ARM PATH (ProtocolEngine) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(armMatrix, null, 2));
+  });
+});
+
+// -- Section 3: metadata command arms (setVisible/setLocked/rename/reorder/
+//    setBackgroundFlag/setBlendMode/transform-flip via the real wasm ProtocolEngine) --
+describe("operation parity matrix - METADATA ARM PATH (ProtocolEngine command arms, real wasm)", () => {
+  const META_DOC = "parity-meta-arm";
+  const metaMatrix: Array<Record<string, unknown>> = [];
+
+  beforeEach(() => {
+    bridge.resetWasmDoc(META_DOC);
+  });
+
+  function armApply(command: any): Promise<any> {
+    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: META_DOC, command });
+  }
+  function armSnapshot(): Promise<any> {
+    return bridge.getSnapshot(META_DOC);
+  }
+  async function armAdd(name: string): Promise<{ id: string; snapshot: any }> {
+    const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id, name, width: 200, height: 200, index: 0 });
+    const snap = await armSnapshot();
+    const layer = snap.layers.find((l: any) => l.id === id) as any;
+    return { id, snapshot: snap };
+  }
+
+  it("(e) setVisible - visible EQUAL (arm path)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    await armApply({ type: "setVisible", id: armId, visible: false });
+    const armSnap = await armSnapshot();
+
+    const ts = new DocumentEngine("arm-ts-e", "E", 200, 200);
+    const l = ts.addLayer("Layer");
+    ts.setLayerVisibility(l.id, false);
+    const tsLayersE = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayersE, "(e) visible");
+    expectByNameMeta(armSnap.layers, tsLayersE, "(e) visible");
+
+    metaMatrix.push({
+      scenario: "(e) setVisible",
+      counts: "n/a",
+      overlap: "EQUAL (visible=false, by name)",
+      divergences: "none on overlap fields",
+    });
+  });
+
+  it("(f) setLocked (4 kinds) - locks EQUAL (arm path)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    const ts = new DocumentEngine("arm-ts-f", "F", 200, 200);
+    const l = ts.addLayer("Layer");
+
+    await armApply({ type: "setLocked", id: armId, kind: "base", locked: true });
+    ts.setLayerLocked(l.id, true);
+    await armApply({ type: "setLocked", id: armId, kind: "transparency", locked: true });
+    ts.setLayerLockTransparency(l.id, true);
+    await armApply({ type: "setLocked", id: armId, kind: "position", locked: true });
+    ts.setLayerLockPosition(l.id, true);
+    await armApply({ type: "setLocked", id: armId, kind: "rotation", locked: true });
+    ts.setLayerLockRotation(l.id, true);
+
+    const armSnap = await armSnapshot();
+    const tsLayersF = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayersF, "(f) locked");
+    expectByNameMeta(armSnap.layers, tsLayersF, "(f) locked");
+
+    metaMatrix.push({
+      scenario: "(f) setLocked (4 kinds)",
+      counts: "n/a",
+      overlap: "EQUAL (locked/lockTransparency/lockPosition/lockRotation, by name)",
+      divergences: "none on overlap fields",
+    });
+  });
+
+  it("(g) rename - name EQUAL by index (arm path)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    await armApply({ type: "rename", id: armId, name: "Renamed" });
+    const armSnap = await armSnapshot();
+
+    const ts = new DocumentEngine("arm-ts-g", "G", 200, 200);
+    const l = ts.addLayer("Layer");
+    ts.setLayerName(l.id, "Renamed");
+    const tsLayersG = ts.getLayers() as unknown as any[];
+
+    // Rename changes the name, so compare by index (both engines keep the same order).
+    expect(armSnap.layers.length).toBe(tsLayersG.length);
+    for (let i = 0; i < armSnap.layers.length; i++) {
+      expect(overlap(armSnap.layers[i]), `(g) overlap equal at index ${i}`).toEqual(overlap(tsLayersG[i]));
+    }
+
+    metaMatrix.push({
+      scenario: "(g) rename",
+      counts: "n/a",
+      overlap: "EQUAL (name 'Renamed', by index)",
+      divergences: "none on overlap fields",
+    });
+  });
+
+  it("(h) reorder mid-stack - order EQUAL (arm path)", async () => {
+    requireWasm();
+    await armAdd("A");
+    const bAdd = await armAdd("B");
+    await armAdd("C"); // arm inserts above active => [C, B, A]
+    // Move "B" (index 1) to the top (index 0): arm mirrors TS applyReorderLayer.
+    await armApply({ type: "reorder", id: bAdd.id, to: 0 });
+    const armSnap = await armSnapshot();
+
+    const ts = new DocumentEngine("arm-ts-h", "H", 200, 200);
+    ts.addLayer("A"); // [A]
+    const lb = ts.addLayer("B"); // [B, A]
+    ts.addLayer("C"); // [C, B, A]
+    const from = (ts.getLayers() as unknown as any[]).findIndex((x: any) => x.id === lb.id);
+    ts.reorderLayer(from, 0);
+    const tsLayersH = ts.getLayers() as unknown as any[];
+
+    // HARD: order (by name) must match after the mid-stack reorder.
+    expect(armSnap.layers.map((l: any) => l.name)).toEqual(["B", "C", "A"]);
+    expect(tsLayersH.map((l: any) => l.name)).toEqual(["B", "C", "A"]);
+
+    metaMatrix.push({
+      scenario: "(h) reorder mid-stack",
+      counts: "n/a",
+      overlap: "EQUAL (order [B,C,A] by name)",
+      divergences: "none on overlap fields",
+    });
+  });
+
+  it("(i) setBackgroundFlag - isBackground + locks EQUAL (arm path)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    await armApply({ type: "setBackgroundFlag", id: armId });
+    const armSnap = await armSnapshot();
+
+    const ts = new DocumentEngine("arm-ts-i", "I", 200, 200);
+    const l = ts.addLayer("Layer");
+    ts.markLayerAsBackground(l.id);
+    const tsLayersI = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayersI, "(i) background");
+    expectByNameMeta(armSnap.layers, tsLayersI, "(i) background");
+
+    metaMatrix.push({
+      scenario: "(i) setBackgroundFlag",
+      counts: "n/a",
+      overlap: "EQUAL (isBackground + lockPosition + lockRotation, by name)",
+      divergences: "none on overlap fields",
+    });
+  });
+
+  it("(j) setBlendMode - blendMode EQUAL (arm path)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    await armApply({ type: "setBlendMode", id: armId, mode: "multiply" });
+    const armSnap = await armSnapshot();
+
+    const ts = new DocumentEngine("arm-ts-j", "J", 200, 200);
+    const l = ts.addLayer("Layer");
+    ts.setLayerBlendMode(l.id, "multiply");
+    const tsLayersJ = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayersJ, "(j) blend");
+    expectByNameMeta(armSnap.layers, tsLayersJ, "(j) blend");
+
+    metaMatrix.push({
+      scenario: "(j) setBlendMode",
+      counts: "n/a",
+      overlap: "EQUAL (blendMode=multiply, by name)",
+      divergences: "none on overlap fields",
+    });
+  });
+
+  it("(k) transform flip - flipH/flipV EQUAL (arm path)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    await armApply({ type: "transformLayer", id: armId, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: true } });
+    const armSnap = await armSnapshot();
+
+    const ts = new DocumentEngine("arm-ts-k", "K", 200, 200);
+    const l = ts.addLayer("Layer");
+    ts.transformLayer(l.id, { flipH: true });
+    const tsLayersK = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayersK, "(k) flip");
+    expectByNameMeta(armSnap.layers, tsLayersK, "(k) flip");
+
+    metaMatrix.push({
+      scenario: "(k) transform flip (flipH/flipV)",
+      counts: "n/a",
+      overlap: "EQUAL (flipH=true, by name)",
+      divergences: "none on overlap fields",
+    });
+  });
+
+  afterAll(() => {
+    // eslint-disable-next-line no-console
+    console.log("\n=== OPERATION PARITY MATRIX - METADATA ARM PATH (ProtocolEngine) ===");
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(metaMatrix, null, 2));
   });
 });

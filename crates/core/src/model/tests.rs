@@ -81,6 +81,8 @@ fn add_delete_transform_opacity_single_owner() {
                     scale_x: 2.0,
                     scale_y: 2.0,
                     rotation: 15.0,
+                    flip_h: None,
+                    flip_v: None,
                 },
             },
         })
@@ -520,6 +522,8 @@ fn engine_native_entry_before_after_share_unchanged_layer_arcs() {
             scale_x: 1.0,
             scale_y: 1.0,
             rotation: 0.0,
+            flip_h: None,
+            flip_v: None,
         },
     }))
     .unwrap();
@@ -569,6 +573,8 @@ fn native_entry_memory_cost_does_not_double_count_shared_layers() {
             scale_x: 1.0,
             scale_y: 1.0,
             rotation: 0.0,
+            flip_h: None,
+            flip_v: None,
         },
     }))
     .unwrap();
@@ -670,6 +676,8 @@ fn multi_step_undo_redo_restores_exact_field_state() {
             scale_x: 2.0,
             scale_y: 3.0,
             rotation: 45.0,
+            flip_h: None,
+            flip_v: None,
         },
     }))
     .unwrap();

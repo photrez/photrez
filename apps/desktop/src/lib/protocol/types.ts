@@ -36,6 +36,8 @@ export type RenderLayer = {
   lockRotation?: boolean;
   isBackground?: boolean;
   hasAdjustments?: boolean;
+  flipH?: boolean;
+  flipV?: boolean;
   width?: number;
   height?: number;
 };
@@ -63,6 +65,8 @@ export type TransformPatch = {
   scaleX: number;
   scaleY: number;
   rotation: number;
+  flipH?: boolean;
+  flipV?: boolean;
 };
 
 export type StrokePoint = { x: number; y: number; pressure: number };
@@ -81,6 +85,16 @@ export type Command =
   | { type: "brushStroke"; layerId: string; points: StrokePoint[]; settings: BrushSettings }
   | { type: "undo" }
   | { type: "redo" }
+  // Metadata command arms (mirror the TS layer mutation ops so the native
+  // ProtocolEngine owns them). Unknown id is a silent no-op on every arm,
+  // matching the DeleteLayer arm and the TS apply ops (which guard on a missing
+  // id) for bug-compatibility with the legacy engine.
+  | { type: "setVisible"; id: string; visible: boolean }
+  | { type: "setLocked"; id: string; kind: LockKind; locked: boolean }
+  | { type: "rename"; id: string; name: string }
+  | { type: "reorder"; id: string; to: number }
+  | { type: "setBackgroundFlag"; id: string }
+  | { type: "setBlendMode"; id: string; mode: string }
   // ADR 0008 H0: records a legacy TS transition into the canonical stream.
   // Advances DocumentVersion exactly once; payload stays behind the EXTERNAL
   // PayloadAdapter (token only).
@@ -92,6 +106,11 @@ export type Command =
       token: string;
       memoryCostBytes: number;
     };
+
+// The four TS layer-lock kinds (setLayerLocked + setLayerLock{Transparency,
+// Position,Rotation}). `base` maps to RenderLayer.locked; the other three map to
+// their named lock fields.
+export type LockKind = "base" | "transparency" | "position" | "rotation";
 
 export type CommandEnvelope = {
   contractVersion: number;

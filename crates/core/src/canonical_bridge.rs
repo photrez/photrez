@@ -38,6 +38,8 @@ pub fn render_layer_from_canonical(c: &CanonicalLayer) -> RenderLayer {
         has_adjustments: None,
         width: None,
         height: None,
+        flip_h: None,
+        flip_v: None,
     }
 }
 
@@ -87,8 +89,8 @@ pub fn merge_render_layer_into_canonical(base: &CanonicalLayer, r: &RenderLayer)
             scale_x: r.scale_x,
             scale_y: r.scale_y,
             rotation: r.rotation,
-            flip_h: base.transform.flip_h,
-            flip_v: base.transform.flip_v,
+            flip_h: r.flip_h.unwrap_or(base.transform.flip_h),
+            flip_v: r.flip_v.unwrap_or(base.transform.flip_v),
         },
         width: r.width.unwrap_or(base.width),
         height: r.height.unwrap_or(base.height),
@@ -143,9 +145,10 @@ impl CanonicalShadow {
             if let Some(base) = existing.remove(&r.id) {
                 rebuilt.push(merge_render_layer_into_canonical(&base, r));
             } else if let Some(tomb) = self.removed.remove(&r.id) {
-                // Engine ids are uuid4-minted and never reused, so a restored
-                // tombstone cannot collide with a fresh TS-side layer of the same id.
-                // Revisit if id provenance ever changes.
+                // Ids are host-minted random values; a restored tombstone reuses
+                // its original id, which is benign-by-design (the restored layer is
+                // the same logical layer the engine deleted). Id collision with an
+                // unrelated fresh layer is negligible.
                 rebuilt.push(merge_render_layer_into_canonical(&tomb, r));
             } else {
                 // Engine-minted layer: cannot reconstruct canonical-only fields.

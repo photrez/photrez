@@ -360,6 +360,24 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
     case "transformLayer":
       rustCmd = { type: "transformLayer", id: c.id, transform: c.transform };
       break;
+    case "setVisible":
+      rustCmd = { type: "setVisible", id: c.id, visible: c.visible };
+      break;
+    case "setLocked":
+      rustCmd = { type: "setLocked", id: c.id, kind: c.kind, locked: c.locked };
+      break;
+    case "rename":
+      rustCmd = { type: "rename", id: c.id, name: c.name };
+      break;
+    case "reorder":
+      rustCmd = { type: "reorder", id: c.id, to: c.to };
+      break;
+    case "setBackgroundFlag":
+      rustCmd = { type: "setBackgroundFlag", id: c.id };
+      break;
+    case "setBlendMode":
+      rustCmd = { type: "setBlendMode", id: c.id, mode: c.mode };
+      break;
     case "setOpacity":
       rustCmd = { type: "setOpacity", id: c.id, opacity: c.opacity };
       break;
@@ -656,8 +674,12 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
   } else if (cmd.type === "addLayer") {
     // Host owns identity + placement: use the payload id (TS-minted) and insert
     // at the supplied index (clamped), mirroring the Rust AddLayer arm. The
-    // emulator no longer mints its own id (divergence #3 resolved).
-    const id = (cmd.id as string) ?? `layer-${Math.random().toString(36).slice(2, 10)}`;
+    // emulator no longer mints its own id (divergence #3 resolved). A non-empty
+    // id is required and must be unique - the arm rejects an empty or duplicate
+    // id with E_INVALID, so the emulator mirrors that instead of minting.
+    const id = cmd.id as string | undefined;
+    if (!id || id.length === 0) throw new Error("E_INVALID: addLayer requires a non-empty id");
+    if (emuLayers.some((l) => l.id === id)) throw new Error(`E_INVALID: addLayer id '${id}' already exists`);
     const width = (cmd.width as number) ?? 100;
     const height = (cmd.height as number) ?? 100;
     const index = (cmd.index as number) ?? 0;
@@ -689,7 +711,71 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
   } else if (cmd.type === "transformLayer") {
     const id = cmd.id as string;
     const idx = emuLayers.findIndex((l) => l.id === id);
-    if (idx >= 0) { const _e = beginEmu("Transform Layer", [id]); const t = cmd.transform as { x:number;y:number;scaleX:number;scaleY:number;rotation:number }; const layer = { ...emuLayers[idx], x: t.x, y: t.y, scaleX: t.scaleX, scaleY: t.scaleY, rotation: t.rotation, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } }; emuLayers[idx]=layer; finishEmu(_e); changes=[{kind:"upsert", layer}]; }
+    if (idx >= 0) {
+      const _e = beginEmu("Transform Layer", [id]);
+      const t = cmd.transform as { x?:number;y?:number;scaleX?:number;scaleY?:number;rotation?:number;flipH?:boolean;flipV?:boolean };
+      const layer = { ...emuLayers[idx], dirtyRect: { x: 0, y: 0, width: 1, height: 1 } };
+      if (t.x !== undefined) layer.x = t.x;
+      if (t.y !== undefined) layer.y = t.y;
+      if (t.scaleX !== undefined) layer.scaleX = t.scaleX;
+      if (t.scaleY !== undefined) layer.scaleY = t.scaleY;
+      if (t.rotation !== undefined) layer.rotation = t.rotation;
+      if (t.flipH !== undefined) layer.flipH = t.flipH;
+      if (t.flipV !== undefined) layer.flipV = t.flipV;
+      emuLayers[idx] = layer; finishEmu(_e); changes = [{ kind: "upsert", layer }];
+    }
+  } else if (cmd.type === "setVisible") {
+    const id = cmd.id as string;
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) { const _e = beginEmu("Set Visible", [id]); const layer = { ...emuLayers[idx], visible: cmd.visible as boolean, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } }; emuLayers[idx]=layer; finishEmu(_e); changes=[{kind:"upsert", layer}]; }
+  } else if (cmd.type === "setLocked") {
+    const id = cmd.id as string;
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) {
+      const _e = beginEmu("Set Locked", [id]);
+      const layer = { ...emuLayers[idx], dirtyRect: { x: 0, y: 0, width: 1, height: 1 } };
+      const kind = cmd.kind as string;
+      const locked = cmd.locked as boolean;
+      if (kind === "base") layer.locked = locked;
+      else if (kind === "transparency") layer.lockTransparency = locked;
+      else if (kind === "position") layer.lockPosition = locked;
+      else if (kind === "rotation") layer.lockRotation = locked;
+      emuLayers[idx] = layer; finishEmu(_e); changes = [{ kind: "upsert", layer }];
+    }
+  } else if (cmd.type === "rename") {
+    const id = cmd.id as string;
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) { const _e = beginEmu("Rename", [id]); const layer = { ...emuLayers[idx], name: cmd.name as string, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } }; emuLayers[idx]=layer; finishEmu(_e); changes=[{kind:"upsert", layer}]; }
+  } else if (cmd.type === "reorder") {
+    const id = cmd.id as string;
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) {
+      const _e = beginEmu("Reorder", [id]);
+      const to = cmd.to as number;
+      // Mirror TS applyReorderLayer: Background pinned to bottom, never reordered.
+      if (emuLayers[idx].isBackground) {
+        // no-op reorder (Background)
+      } else {
+        const clampedTo = Math.max(0, Math.min(to, emuLayers.length - 1));
+        const [moved] = emuLayers.splice(idx, 1);
+        emuLayers.splice(clampedTo, 0, moved);
+        const bgIdx = emuLayers.findIndex((l) => l.isBackground);
+        if (bgIdx >= 0 && bgIdx !== emuLayers.length - 1) {
+          const [bg] = emuLayers.splice(bgIdx, 1);
+          emuLayers.push(bg);
+        }
+      }
+      finishEmu(_e);
+      changes = emuLayers.map((l) => ({ kind: "upsert", layer: l }));
+    }
+  } else if (cmd.type === "setBackgroundFlag") {
+    const id = cmd.id as string;
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) { const _e = beginEmu("Set Background Flag", [id]); const layer = { ...emuLayers[idx], isBackground: true, lockPosition: true, lockRotation: true, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } }; emuLayers[idx]=layer; finishEmu(_e); changes=[{kind:"upsert", layer}]; }
+  } else if (cmd.type === "setBlendMode") {
+    const id = cmd.id as string;
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) { const _e = beginEmu("Set Blend Mode", [id]); const layer = { ...emuLayers[idx], blendMode: cmd.mode as string, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } }; emuLayers[idx]=layer; finishEmu(_e); changes=[{kind:"upsert", layer}]; }
   } else if (cmd.type === "setOpacity") {
     const id = cmd.id as string;
     const idx = emuLayers.findIndex((l) => l.id === id);

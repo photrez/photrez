@@ -197,6 +197,8 @@ fn transform_layer_updates_transform_keeps_other_fields() {
             scale_x: 2.0,
             scale_y: 3.0,
             rotation: 9.0,
+            flip_h: None,
+            flip_v: None,
         },
     }))
     .unwrap();

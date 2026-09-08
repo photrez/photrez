@@ -2,6 +2,7 @@
 // Command wire types (ADR 0008 C1: version-stable envelope). These cross the
 // wasm boundary and must not change their serialized shape.
 
+use crate::canonical_model::BlendMode;
 use crate::projection::RenderDelta;
 use serde::{Deserialize, Serialize};
 /// Schema/protocol version. Bump on breaking envelope change.
@@ -17,6 +18,13 @@ pub struct TransformPatch {
     pub scale_x: f64,
     pub scale_y: f64,
     pub rotation: f64,
+    // Additive flip fields (mirror of Transform2D.flipH/flipV). Optional so a
+    // pre-flip transform envelope (no flip keys) still deserializes; when present
+    // the TransformLayer arm projects them onto the render layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flip_h: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flip_v: Option<bool>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +41,18 @@ pub struct BrushSettings {
     pub opacity: f64,
     pub flow: f64,
 }
+/// The four TS layer-lock kinds (document.ts setLayerLocked +
+/// setLayerLock{Transparency,Position,Rotation}). `base` maps to
+/// `RenderLayer.locked`; the other three map to their named lock fields.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum LockKind {
+    Base,
+    Transparency,
+    Position,
+    Rotation,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum Command {
@@ -61,6 +81,30 @@ pub enum Command {
     SetOpacity {
         id: String,
         opacity: f64,
+    },
+    SetVisible {
+        id: String,
+        visible: bool,
+    },
+    SetLocked {
+        id: String,
+        kind: LockKind,
+        locked: bool,
+    },
+    Rename {
+        id: String,
+        name: String,
+    },
+    Reorder {
+        id: String,
+        to: usize,
+    },
+    SetBackgroundFlag {
+        id: String,
+    },
+    SetBlendMode {
+        id: String,
+        mode: BlendMode,
     },
     BrushStroke {
         layer_id: String,
