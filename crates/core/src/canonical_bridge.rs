@@ -40,6 +40,9 @@ pub fn render_layer_from_canonical(c: &CanonicalLayer) -> RenderLayer {
         height: None,
         flip_h: None,
         flip_v: None,
+        shape_params: None,
+        text_data: None,
+        basic_adjustment: None,
     }
 }
 
@@ -73,7 +76,13 @@ pub fn merge_render_layer_into_canonical(base: &CanonicalLayer, r: &RenderLayer)
         lock_position: r.lock_position.or(base.lock_position),
         lock_rotation: r.lock_rotation.or(base.lock_rotation),
         has_adjustments: r.has_adjustments.or(base.has_adjustments),
-        basic_adjustment: base.basic_adjustment.clone(),
+        // Nested parametric payloads: a Some on the render layer (set by the typed
+        // AddLayer / SetLayerParams / SetAdjustment arm) overrides the canonical
+        // base; None preserves it (D-b: Some(v) takes, None preserves).
+        basic_adjustment: r
+            .basic_adjustment
+            .clone()
+            .or_else(|| base.basic_adjustment.clone()),
         resource_id: if r.resource_id == 0 {
             None
         } else {
@@ -94,8 +103,8 @@ pub fn merge_render_layer_into_canonical(base: &CanonicalLayer, r: &RenderLayer)
         },
         width: r.width.unwrap_or(base.width),
         height: r.height.unwrap_or(base.height),
-        shape_params: base.shape_params.clone(),
-        text_data: base.text_data.clone(),
+        shape_params: r.shape_params.clone().or_else(|| base.shape_params.clone()),
+        text_data: r.text_data.clone().or_else(|| base.text_data.clone()),
     }
 }
 
@@ -488,6 +497,40 @@ mod tests {
         assert_eq!(m.height, c.height);
         assert_eq!(m.shape_params, c.shape_params);
         assert_eq!(m.text_data, c.text_data);
+    }
+
+    #[test]
+    fn merge_takes_render_layer_nested_params_when_present() {
+        // D-b ratchet: an extended Some on the render layer (set by the typed
+        // AddLayer / SetLayerParams / SetAdjustment arms) overrides the canonical
+        // base; a None on the render layer preserves the base value.
+        let base = shape_layer();
+        let mut r = render_layer_from_canonical(&base);
+        let new_params = ShapeParams {
+            kind: ShapeKind::Heart,
+            width: 90.0,
+            height: 80.0,
+            radius: 5.0,
+            fill: ShapeFill {
+                kind: ShapeFillKind::Solid,
+                color: "#ABCDEF".to_string(),
+            },
+            stroke: ShapeStroke {
+                enabled: false,
+                color: "#000000".to_string(),
+                width: 0.0,
+            },
+            arrow_head: true,
+        };
+        r.shape_params = Some(new_params.clone());
+        // text_data / basic_adjustment left None on the render layer -> base preserved.
+        let m = merge_render_layer_into_canonical(&base, &r);
+        assert_eq!(m.shape_params, Some(new_params), "render Some must take");
+        assert_eq!(m.text_data, base.text_data, "render None preserves base");
+        assert_eq!(
+            m.basic_adjustment, base.basic_adjustment,
+            "render None preserves base"
+        );
     }
 
     #[test]

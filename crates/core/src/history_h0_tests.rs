@@ -37,6 +37,9 @@ fn native_append_records_seq_and_cursor_advances() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     eng.apply(env(Command::AddLayer {
@@ -45,6 +48,9 @@ fn native_append_records_seq_and_cursor_advances() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     let q = eng.history_query();
@@ -65,6 +71,9 @@ fn cursor_walks_back_and_forward_with_native_payload() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     let dv_after_add = eng.version();
@@ -101,6 +110,9 @@ fn redo_region_truncated_by_new_forward_command() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     eng.apply(env(Command::Undo)).unwrap(); // cursor=0
@@ -110,6 +122,9 @@ fn redo_region_truncated_by_new_forward_command() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap(); // truncates forward
     let q = eng.history_query();
@@ -199,6 +214,9 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap(); // seq 1
     eng.apply(env(Command::AddLayer {
@@ -207,6 +225,9 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap(); // seq 2
     eng.apply(env(Command::Undo)).unwrap(); // cursor=1 (B dropped from redo intent)
@@ -242,6 +263,9 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
 }
@@ -257,6 +281,9 @@ fn history_cursor_commit_rejects_wrong_seq_on_non_dense_stream() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     eng.apply(env(Command::AddLayer {
@@ -265,6 +292,9 @@ fn history_cursor_commit_rejects_wrong_seq_on_non_dense_stream() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     eng.apply(env(Command::Undo)).unwrap();
@@ -314,6 +344,9 @@ fn external_pending_barrier_blocks_forward_and_history_commands() {
             width: 100.0,
             height: 100.0,
             index: 0,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         }))
         .unwrap_err();
     assert_eq!(e1.code, "E_EXTERNAL_PENDING");
@@ -336,6 +369,9 @@ fn external_pending_barrier_blocks_forward_and_history_commands() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap(); // must not throw
 }
@@ -380,6 +416,9 @@ fn stale_expected_version_still_rejected_on_stream_path() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     let err = eng
@@ -570,6 +609,9 @@ fn invalidate_layer_mid_cursor_decrements_no_stale_resurrect() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     assert_eq!(e.cursor(), 2);

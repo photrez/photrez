@@ -40,6 +40,13 @@ export type RenderLayer = {
   flipV?: boolean;
   width?: number;
   height?: number;
+  // Nested parametric payloads (mirror Rust RenderLayer shape_params /
+  // text_data / basic_adjustment). Omitted when absent so a v2 envelope without
+  // them still parses. The typed-add / setLayerParams / setAdjustment arms set
+  // these; the merge bridge takes a Some (Some(v) overrides the canonical base).
+  shapeParams?: ShapeParams;
+  textData?: TextData;
+  basicAdjustment?: BasicAdjustment;
 };
 
 export type RenderLayerChange =
@@ -72,13 +79,88 @@ export type TransformPatch = {
 export type StrokePoint = { x: number; y: number; pressure: number };
 export type BrushSettings = { size: number; hardness: number; opacity: number; flow: number };
 
+// ── Parametric layer payloads (mirror the Rust canonical_model serde types) ──
+// Field names match the Rust serde camelCase exactly (arrowHead, fontFamily,
+// fontSize, fontWeight, fontStyle, lineHeight, letterSpacing, boxMode, boxWidth,
+// boxHeight) so the wire JSON round-trips without remapping.
+export type BasicAdjustment = {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+};
+
+export type ShapeKind =
+  | "rect"
+  | "ellipse"
+  | "line"
+  | "triangle"
+  | "star"
+  | "block-arrow"
+  | "heart"
+  | "diamond"
+  | "speech-bubble"
+  | "hexagon";
+
+export type ShapeFillKind = "none" | "solid";
+export type ShapeFill = { kind: ShapeFillKind; color: string };
+export type ShapeStroke = { enabled: boolean; color: string; width: number };
+export type ShapeParams = {
+  kind: ShapeKind;
+  width: number;
+  height: number;
+  radius: number;
+  fill: ShapeFill;
+  stroke: ShapeStroke;
+  arrowHead: boolean;
+};
+
+export type TextStrokeAlign = "outside" | "center" | "inside";
+export type TextStroke = { width: number; color: string; align?: TextStrokeAlign };
+export type TextFontStyle = "normal" | "italic";
+export type TextAlign = "left" | "center" | "right";
+export type TextBoxMode = "point" | "area";
+export type TextData = {
+  content: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  fontStyle: TextFontStyle;
+  color: string;
+  align: TextAlign;
+  lineHeight: number;
+  letterSpacing: number;
+  boxMode: TextBoxMode;
+  boxWidth: number;
+  boxHeight: number;
+  stroke: TextStroke;
+  underline?: boolean;
+  strikethrough?: boolean;
+  uppercase?: boolean;
+};
+
 export type Command =
   | { type: "noop" }
   | { type: "ping"; echo: string }
   // Host owns identity + placement: the id (TS-minted) and insertion index
   // (above the active layer) travel with the command. width/height seed the new
   // layer's dimensions. Mirrors the Rust AddLayer arm (command.rs).
-  | { type: "addLayer"; id: string; name: string; width: number; height: number; index: number }
+  // Host owns identity + placement: the id (TS-minted) and insertion index
+  // (above the active layer) travel with the command. width/height seed the new
+  // layer's dimensions. Optional typed-add fields mirror the Rust AddLayer arm:
+  // when present they project the real shape/text layer (blendMode stays Normal,
+  // the matching nested payload rides verbatim); when absent the layer stays a
+  // raster/normal layer (backward-compatible with v2 envelopes).
+  | {
+      type: "addLayer";
+      id: string;
+      name: string;
+      width: number;
+      height: number;
+      index: number;
+      layerType?: string;
+      shapeParams?: ShapeParams;
+      textData?: TextData;
+    }
   | { type: "deleteLayer"; id: string }
   | { type: "transformLayer"; id: string; transform: TransformPatch }
   | { type: "setOpacity"; id: string; opacity: number }
@@ -95,6 +177,14 @@ export type Command =
   | { type: "reorder"; id: string; to: number }
   | { type: "setBackgroundFlag"; id: string }
   | { type: "setBlendMode"; id: string; mode: string }
+  // Typed parametric layer payload: mirror TS updateShapeParams/updateTextData.
+  // Whichever of shapeParams/textData is present is written; both absent is an
+  // invalid no-op (E_INVALID). Unknown id is a silent no-op.
+  | { type: "setLayerParams"; id: string; shapeParams?: ShapeParams; textData?: TextData }
+  // Non-destructive basic adjustment: Some sets it (hasAdjustments derived from the
+  // values), undefined clears it and sets hasAdjustments false. Unknown id is a
+  // silent no-op. Mirror TS applyBasicAdjustment/clearBasicAdjustments.
+  | { type: "setAdjustment"; id: string; adjustment?: BasicAdjustment }
   // ADR 0008 H0: records a legacy TS transition into the canonical stream.
   // Advances DocumentVersion exactly once; payload stays behind the EXTERNAL
   // PayloadAdapter (token only).

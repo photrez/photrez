@@ -52,3 +52,73 @@ fn extended_fields_round_trip_when_present() {
     let back: RenderLayer = serde_json::from_str(&json).expect("parses back");
     assert_eq!(back, layer, "value-identical round trip");
 }
+
+#[test]
+fn nested_params_serialize_and_skip_when_none() {
+    use crate::canonical_model::{BasicAdjustment, LayerType, ShapeKind, ShapeParams};
+
+    // Present nested payloads serialize with camelCase keys.
+    let layer = RenderLayer {
+        id: "L3".into(),
+        name: "Nested".into(),
+        visible: true,
+        opacity: 1.0,
+        resource_id: 1,
+        x: 0.0,
+        y: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        rotation: 0.0,
+        dirty_rect: None,
+        layer_type: Some(LayerType::Shape),
+        blend_mode: None,
+        locked: None,
+        lock_transparency: None,
+        lock_position: None,
+        lock_rotation: None,
+        is_background: None,
+        has_adjustments: Some(true),
+        width: Some(120.0),
+        height: Some(80.0),
+        flip_h: None,
+        flip_v: None,
+        shape_params: Some(ShapeParams {
+            kind: ShapeKind::Star,
+            width: 120.0,
+            height: 80.0,
+            radius: 6.0,
+            fill: crate::canonical_model::ShapeFill {
+                kind: crate::canonical_model::ShapeFillKind::Solid,
+                color: "#E15A17".into(),
+            },
+            stroke: crate::canonical_model::ShapeStroke {
+                enabled: true,
+                color: "#000000".into(),
+                width: 2.0,
+            },
+            arrow_head: false,
+        }),
+        text_data: None,
+        basic_adjustment: Some(BasicAdjustment {
+            brightness: 10.0,
+            contrast: 0.0,
+            saturation: 0.0,
+        }),
+    };
+    let json = serde_json::to_string(&layer).expect("serializes");
+    assert!(json.contains("\"shapeParams\""));
+    assert!(json.contains("\"basicAdjustment\""));
+    assert!(
+        !json.contains("\"textData\""),
+        "absent Option must be skipped"
+    );
+    let back: RenderLayer = serde_json::from_str(&json).expect("parses back");
+    assert_eq!(back, layer);
+
+    // A payload WITHOUT the nested keys still parses (None fields).
+    let legacy = r#"{"id":"L4","name":"Legacy","visible":true,"opacity":1,"resourceId":2,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0,"dirtyRect":null,"layerType":"raster","width":10,"height":10}"#;
+    let parsed: RenderLayer = serde_json::from_str(legacy).expect("legacy parses");
+    assert!(parsed.shape_params.is_none());
+    assert!(parsed.text_data.is_none());
+    assert!(parsed.basic_adjustment.is_none());
+}

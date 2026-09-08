@@ -2,7 +2,7 @@
 // Command wire types (ADR 0008 C1: version-stable envelope). These cross the
 // wasm boundary and must not change their serialized shape.
 
-use crate::canonical_model::BlendMode;
+use crate::canonical_model::{BasicAdjustment, BlendMode, LayerType, ShapeParams, TextData};
 use crate::projection::RenderDelta;
 use serde::{Deserialize, Serialize};
 /// Schema/protocol version. Bump on breaking envelope change.
@@ -63,13 +63,21 @@ pub enum Command {
     // Host owns identity + placement: active-layer is UI state the engine must
     // not assume, so the id (TS-minted) and insertion index (clamped to the
     // current layer count) travel with the command. `width`/`height` seed the
-    // new layer's dimensions.
+    // new layer's dimensions. Typed adds carry `layer_type` + the nested payload
+    // (shape_params / text_data); all three are serde-defaulted so a v2 envelope
+    // without them still parses and falls back to the raster/normal behavior.
     AddLayer {
         id: String,
         name: String,
         width: f64,
         height: f64,
         index: usize,
+        #[serde(default)]
+        layer_type: Option<LayerType>,
+        #[serde(default)]
+        shape_params: Option<ShapeParams>,
+        #[serde(default)]
+        text_data: Option<TextData>,
     },
     DeleteLayer {
         id: String,
@@ -105,6 +113,27 @@ pub enum Command {
     SetBlendMode {
         id: String,
         mode: BlendMode,
+    },
+    // Set the parametric source-of-truth for an existing layer (shape/text).
+    // Mirrors TS updateShapeParams / updateTextData: whichever of `shape_params` /
+    // `text_data` is Some is written; the other is left untouched. Both None is an
+    // invalid no-op (rejected with E_INVALID before any mutation). An unknown id is
+    // a silent no-op (mirrors DeleteLayer + the TS guarded apply ops).
+    SetLayerParams {
+        id: String,
+        #[serde(default)]
+        shape_params: Option<ShapeParams>,
+        #[serde(default)]
+        text_data: Option<TextData>,
+    },
+    // Set or clear the non-destructive basic adjustment for an existing layer.
+    // `adjustment: Some(...)` sets it (and derives has_adjustments from the values,
+    // mirroring TS applyBasicAdjustment); `None` clears it and sets has_adjustments
+    // to false (mirroring TS clearBasicAdjustments). Unknown id is a silent no-op.
+    SetAdjustment {
+        id: String,
+        #[serde(default)]
+        adjustment: Option<BasicAdjustment>,
     },
     BrushStroke {
         layer_id: String,

@@ -3,7 +3,7 @@
 // document_core.rs so that module stays under the 1000-line guard; this is a
 // sibling impl ProtocolEngine block (method visibility is per-impl, not per module).
 use super::*;
-use crate::canonical_model::{BlendMode, LayerType};
+use crate::canonical_model::{BasicAdjustment, BlendMode, LayerType};
 
 impl ProtocolEngine {
     pub fn apply(&mut self, envelope: CommandEnvelope) -> Result<CommandResult, ProtocolError> {
@@ -104,6 +104,9 @@ impl ProtocolEngine {
                     height: None,
                     flip_h: None,
                     flip_v: None,
+                    shape_params: None,
+                    text_data: None,
+                    basic_adjustment: None,
                 };
                 if let Some(pos) = self.layers.position_by_id(&id) {
                     self.layers = self.layers.replaced(pos, layer.clone());
@@ -119,6 +122,9 @@ impl ProtocolEngine {
                 width,
                 height,
                 index,
+                layer_type,
+                shape_params,
+                text_data,
             } => {
                 // Host owns identity + placement: the active layer is UI state the
                 // engine must not assume, so the id (TS-minted) and insertion
@@ -137,7 +143,7 @@ impl ProtocolEngine {
                     });
                 }
                 let _e = self.begin_forward("Add Layer", &[id.clone()]);
-                let layer = RenderLayer {
+                let mut layer = RenderLayer {
                     id: id.clone(),
                     name: name.clone(),
                     visible: true,
@@ -166,7 +172,31 @@ impl ProtocolEngine {
                     height: Some(height),
                     flip_h: None,
                     flip_v: None,
+                    shape_params: None,
+                    text_data: None,
+                    basic_adjustment: None,
                 };
+                // Typed add (metadata only; rasterization stays host-side): when the
+                // envelope carries a layer type, project the true value. Mirrors the
+                // TS createShapeLayerNode / createTextLayerNode defaults — type is
+                // taken from the command, blendMode stays Normal, and the matching
+                // nested payload (shape_params / text_data) is carried verbatim.
+                if let Some(lt) = layer_type {
+                    layer.layer_type = Some(lt.clone());
+                    match lt {
+                        LayerType::Shape => {
+                            if let Some(p) = shape_params.clone() {
+                                layer.shape_params = Some(p);
+                            }
+                        }
+                        LayerType::Text => {
+                            if let Some(t) = text_data.clone() {
+                                layer.text_data = Some(t);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 self.next_resource += 1;
                 // Insert at the host-supplied index (clamped), not pushed at end.
                 self.layers = self.layers.insert_at(layer.clone(), index);
@@ -336,6 +366,83 @@ impl ProtocolEngine {
                     let _e = self.begin_forward("Set Blend Mode", &[id.clone()]);
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.blend_mode = Some(mode);
+                    layer.dirty_rect = Some(Rect {
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1,
+                    });
+                    self.layers = self.layers.replaced(pos, layer.clone());
+                    self.finish_forward(_e);
+                    vec![RenderLayerChange::Upsert { layer }]
+                } else {
+                    Vec::new()
+                }
+            }
+            Command::SetLayerParams {
+                id,
+                shape_params,
+                text_data,
+            } => {
+                // Both None is an invalid no-op (mirrors TS: a params update always
+                // carries the payload). Reject before any mutation so no history
+                // entry / DV bump is produced for a meaningless command.
+                if shape_params.is_none() && text_data.is_none() {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: "setLayerParams requires shapeParams or textData".to_string(),
+                    });
+                }
+                if let Some(pos) = self.layers.position_by_id(&id) {
+                    let _e = self.begin_forward("Set Layer Params", &[id.clone()]);
+                    let mut layer = self.layers.get(pos).expect("layer present").clone();
+                    if let Some(p) = shape_params.clone() {
+                        layer.shape_params = Some(p);
+                    }
+                    if let Some(t) = text_data.clone() {
+                        layer.text_data = Some(t);
+                    }
+                    layer.dirty_rect = Some(Rect {
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1,
+                    });
+                    self.layers = self.layers.replaced(pos, layer.clone());
+                    self.finish_forward(_e);
+                    vec![RenderLayerChange::Upsert { layer }]
+                } else {
+                    Vec::new()
+                }
+            }
+            Command::SetAdjustment { id, adjustment } => {
+                // Mirrors TS applyBasicAdjustment / clearBasicAdjustments: Some sets
+                // the adjustment (basic_adjustment Some + has_adjustments derived from
+                // whether any channel is non-zero), None clears it (basic_adjustment
+                // None + has_adjustments false). Unknown id is a silent no-op.
+                if let Some(pos) = self.layers.position_by_id(&id) {
+                    let _e = self.begin_forward("Set Adjustment", &[id.clone()]);
+                    let mut layer = self.layers.get(pos).expect("layer present").clone();
+                    match adjustment {
+                        Some(adj) => {
+                            // Mirror TS normalizeBasicAdjustment: clamp each channel
+                            // to [-100, 100]. has_adjustments follows TS exactly
+                            // (true only when a channel is non-zero), not always true.
+                            let b = adj.brightness.clamp(-100.0, 100.0);
+                            let c = adj.contrast.clamp(-100.0, 100.0);
+                            let s = adj.saturation.clamp(-100.0, 100.0);
+                            layer.basic_adjustment = Some(BasicAdjustment {
+                                brightness: b,
+                                contrast: c,
+                                saturation: s,
+                            });
+                            layer.has_adjustments = Some(b != 0.0 || c != 0.0 || s != 0.0);
+                        }
+                        None => {
+                            layer.basic_adjustment = None;
+                            layer.has_adjustments = Some(false);
+                        }
+                    }
                     layer.dirty_rect = Some(Rect {
                         x: 0,
                         y: 0,

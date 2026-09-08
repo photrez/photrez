@@ -2,7 +2,7 @@
 // Layer metadata model: RenderLayer / LayerMeta / LayerSet (a structural-sharing
 // snapshot of the layer-metadata set) + RenderLayerChange.
 
-use crate::canonical_model::{BlendMode, LayerType};
+use crate::canonical_model::{BasicAdjustment, BlendMode, LayerType, ShapeParams, TextData};
 use crate::command::ResourceId;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -59,6 +59,16 @@ pub struct RenderLayer {
     pub flip_h: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flip_v: Option<bool>,
+    // Nested parametric payloads (mirror of CanonicalLayer.shapeParams/textData/
+    // basicAdjustment). Optional so v2 envelopes without them still parse. The
+    // typed-add / SetLayerParams / SetAdjustment arms set these; the merge bridge
+    // takes a Some (Some(v) overrides the canonical base, None preserves it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape_params: Option<ShapeParams>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_data: Option<TextData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basic_adjustment: Option<BasicAdjustment>,
 }
 /// The immutable per-layer metadata value held by the COW layer set. It is the
 /// same data as `RenderLayer` (kept under a distinct name so the structural-

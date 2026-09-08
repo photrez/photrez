@@ -309,6 +309,9 @@ fn add_layer_marks_incomplete_and_does_not_insert() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     let shadow = e.canonical().unwrap();
@@ -329,6 +332,9 @@ fn full_reseed_clears_incomplete_and_tombstones() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     assert!(e.canonical_incomplete());

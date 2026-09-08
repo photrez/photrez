@@ -1249,6 +1249,9 @@ mod protocol_native_authority_tests {
                 width: 100.0,
                 height: 100.0,
                 index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             }))
             .expect("apply addLayer");
 
@@ -1281,6 +1284,9 @@ mod protocol_native_authority_tests {
                 width: 100.0,
                 height: 100.0,
                 index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             }))
             .expect("apply"); // v1, cursor 1
 
@@ -1345,6 +1351,9 @@ mod protocol_native_authority_tests {
                 width: 100.0,
                 height: 100.0,
                 index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             }))
             .expect("apply A");
         engine_for(&mut reg, "docB")
@@ -1354,6 +1363,9 @@ mod protocol_native_authority_tests {
                 width: 100.0,
                 height: 100.0,
                 index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             }))
             .expect("apply B");
 
@@ -1405,6 +1417,9 @@ mod protocol_native_authority_tests {
             width: 100.0,
             height: 100.0,
             index: 0,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         }))
         .unwrap();
         let parsed: CommandEnvelope = serde_json::from_str(&env_json).unwrap();
@@ -1446,6 +1461,9 @@ mod protocol_native_authority_tests {
                 width: 100.0,
                 height: 100.0,
                 index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             });
             bad.contract_version = u32::MAX; // force E_CONTRACT_VERSION
             let err = engine.history.apply(bad).unwrap_err();

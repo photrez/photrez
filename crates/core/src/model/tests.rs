@@ -63,6 +63,9 @@ fn add_delete_transform_opacity_single_owner() {
                 width: 100.0,
                 height: 100.0,
                 index: 999,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             },
         })
         .unwrap();
@@ -137,6 +140,9 @@ fn undo_redo_via_delta() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();
@@ -183,6 +189,9 @@ fn brush_stroke_is_single_command() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();
@@ -239,6 +248,9 @@ fn expected_version_matches_accepted() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();
@@ -253,6 +265,9 @@ fn expected_version_matches_accepted() {
                 width: 100.0,
                 height: 100.0,
                 index: 999,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             },
         })
         .unwrap();
@@ -272,6 +287,9 @@ fn expected_version_stale_rejected_document_unchanged() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();
@@ -287,6 +305,9 @@ fn expected_version_stale_rejected_document_unchanged() {
                 width: 100.0,
                 height: 100.0,
                 index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             },
         })
         .unwrap_err();
@@ -307,6 +328,9 @@ fn two_concurrent_same_expected_version_exactly_one_accepted() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();
@@ -321,6 +345,9 @@ fn two_concurrent_same_expected_version_exactly_one_accepted() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     });
     assert!(r1.is_ok());
@@ -333,6 +360,9 @@ fn two_concurrent_same_expected_version_exactly_one_accepted() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     });
     assert!(r2.is_err());
@@ -353,6 +383,9 @@ fn retry_after_snapshot_succeeds_against_new_version() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();
@@ -368,6 +401,9 @@ fn retry_after_snapshot_succeeds_against_new_version() {
                 width: 100.0,
                 height: 100.0,
                 index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             },
         })
         .unwrap_err();
@@ -383,6 +419,9 @@ fn retry_after_snapshot_succeeds_against_new_version() {
                 width: 100.0,
                 height: 100.0,
                 index: 999,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             },
         })
         .unwrap();
@@ -501,6 +540,9 @@ fn engine_native_entry_before_after_share_unchanged_layer_arcs() {
         width: 100.0,
         height: 100.0,
         index: 999,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     eng.apply(env(Command::AddLayer {
@@ -509,6 +551,9 @@ fn engine_native_entry_before_after_share_unchanged_layer_arcs() {
         width: 100.0,
         height: 100.0,
         index: 999,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     // Transform A (index 0): B must stay a shared Arc across the entry's
@@ -554,6 +599,9 @@ fn native_entry_memory_cost_does_not_double_count_shared_layers() {
         width: 100.0,
         height: 100.0,
         index: 999,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     eng.apply(env(Command::AddLayer {
@@ -562,6 +610,9 @@ fn native_entry_memory_cost_does_not_double_count_shared_layers() {
         width: 100.0,
         height: 100.0,
         index: 999,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     let id_a = eng.snapshot().layers[0].id.clone();
@@ -648,6 +699,9 @@ fn multi_step_undo_redo_restores_exact_field_state() {
         width: 100.0,
         height: 100.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     checkpoints.push(eng.snapshot().layers);
@@ -657,6 +711,9 @@ fn multi_step_undo_redo_restores_exact_field_state() {
         width: 100.0,
         height: 100.0,
         index: 1,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     checkpoints.push(eng.snapshot().layers);
@@ -812,6 +869,9 @@ fn seed_then_add_layer_uses_expected_version_without_mismatch() {
                 width: 100.0,
                 height: 100.0,
                 index: 999,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             },
         })
         .unwrap();
@@ -828,6 +888,9 @@ fn seed_then_add_layer_uses_expected_version_without_mismatch() {
                 width: 100.0,
                 height: 100.0,
                 index: 999,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
             },
         })
         .unwrap_err();
@@ -857,6 +920,9 @@ fn seed_is_idempotent_and_only_when_empty() {
         width: 100.0,
         height: 100.0,
         index: 999,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     let before = eng.snapshot().layers.len();
@@ -883,6 +949,9 @@ fn seed_creates_no_history_entry_even_after_real_command() {
         width: 100.0,
         height: 100.0,
         index: 999,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }))
     .unwrap();
     assert_eq!(
@@ -922,6 +991,9 @@ fn seed_bumps_next_resource_above_seeded_max() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();
@@ -955,6 +1027,9 @@ fn seed_next_resource_is_max_plus_one_not_count() {
             width: 100.0,
             height: 100.0,
             index: 999,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
         },
     })
     .unwrap();

@@ -352,7 +352,21 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
       rustCmd = { type: "ping", echo: c.echo };
       break;
     case "addLayer":
-      rustCmd = { type: "addLayer", id: c.id, name: c.name, width: c.width, height: c.height, index: c.index };
+      rustCmd = {
+        type: "addLayer",
+        id: c.id,
+        name: c.name,
+        width: c.width,
+        height: c.height,
+        index: c.index,
+        // Command variant fields serialize snake_case on the wire (the enum
+        // rename_all only renames variant names, not their fields — matching the
+        // existing brushStroke layer_id convention). Translate the TS camelCase
+        // command fields to the wire keys.
+        layer_type: c.layerType,
+        shape_params: c.shapeParams,
+        text_data: c.textData,
+      };
       break;
     case "deleteLayer":
       rustCmd = { type: "deleteLayer", id: c.id };
@@ -377,6 +391,17 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
       break;
     case "setBlendMode":
       rustCmd = { type: "setBlendMode", id: c.id, mode: c.mode };
+      break;
+    case "setLayerParams":
+      rustCmd = {
+        type: "setLayerParams",
+        id: c.id,
+        shape_params: c.shapeParams,
+        text_data: c.textData,
+      };
+      break;
+    case "setAdjustment":
+      rustCmd = { type: "setAdjustment", id: c.id, adjustment: c.adjustment };
       break;
     case "setOpacity":
       rustCmd = { type: "setOpacity", id: c.id, opacity: c.opacity };
@@ -684,6 +709,10 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
     const height = (cmd.height as number) ?? 100;
     const index = (cmd.index as number) ?? 0;
     const _e = beginEmu("Add Layer", [id]);
+    // Mirror the Rust AddLayer arm: an absent layer type yields a raster/normal
+    // layer; a present type projects the real layer (blendMode stays "normal",
+    // the matching nested payload rides verbatim).
+    const layerType = (cmd.layerType as string | undefined) ?? "raster";
     const layer = {
       id,
       name: cmd.name as string,
@@ -698,6 +727,10 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
       dirtyRect: { x: 0, y: 0, width: 1, height: 1 },
       width,
       height,
+      layerType,
+      blendMode: "normal",
+      shapeParams: (cmd.shapeParams as any) ?? undefined,
+      textData: (cmd.textData as any) ?? undefined,
     };
     emuNextResource += 1;
     const idx = index < 0 ? 0 : Math.min(index, emuLayers.length);
@@ -783,6 +816,47 @@ function emulateApply(env: CommandEnvelope, _docId?: string): CommandResult {
     const id = cmd.id as string;
     const idx = emuLayers.findIndex((l) => l.id === id);
     if (idx >= 0) { const _e = beginEmu("Set Blend Mode", [id]); const layer = { ...emuLayers[idx], blendMode: cmd.mode as string, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } }; emuLayers[idx]=layer; finishEmu(_e); changes=[{kind:"upsert", layer}]; }
+  } else if (cmd.type === "setLayerParams") {
+    // Mirror the Rust SetLayerParams arm: both absent is an invalid no-op
+    // (reject before any mutation); whichever is present is written; an unknown
+    // id is a silent no-op (no delta).
+    const id = cmd.id as string;
+    const sp = cmd.shapeParams as any;
+    const td = cmd.textData as any;
+    if (!sp && !td) throw new Error("E_INVALID: setLayerParams requires shapeParams or textData");
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) {
+      const _e = beginEmu("Set Layer Params", [id]);
+      const layer = { ...emuLayers[idx], dirtyRect: { x: 0, y: 0, width: 1, height: 1 } };
+      if (sp) layer.shapeParams = sp;
+      if (td) layer.textData = td;
+      emuLayers[idx] = layer; finishEmu(_e); changes = [{ kind: "upsert", layer }];
+    }
+  } else if (cmd.type === "setAdjustment") {
+    // Mirror the Rust SetAdjustment arm (and TS applyBasicAdjustment /
+    // clearBasicAdjustments): Some clamps each channel to [-100, 100] and derives
+    // hasAdjustments from whether any channel is non-zero; None clears and sets
+    // hasAdjustments false. Unknown id is a silent no-op.
+    const id = cmd.id as string;
+    const adj = cmd.adjustment as { brightness: number; contrast: number; saturation: number } | undefined;
+    const idx = emuLayers.findIndex((l) => l.id === id);
+    if (idx >= 0) {
+      const _e = beginEmu("Set Adjustment", [id]);
+      const layer = { ...emuLayers[idx], dirtyRect: { x: 0, y: 0, width: 1, height: 1 } };
+      if (adj) {
+        const clamp = (v: number) => Math.max(-100, Math.min(100, v));
+        layer.basicAdjustment = {
+          brightness: clamp(adj.brightness),
+          contrast: clamp(adj.contrast),
+          saturation: clamp(adj.saturation),
+        };
+        layer.hasAdjustments = adj.brightness !== 0 || adj.contrast !== 0 || adj.saturation !== 0;
+      } else {
+        layer.basicAdjustment = undefined;
+        layer.hasAdjustments = false;
+      }
+      emuLayers[idx] = layer; finishEmu(_e); changes = [{ kind: "upsert", layer }];
+    }
   } else if (cmd.type === "setOpacity") {
     const id = cmd.id as string;
     const idx = emuLayers.findIndex((l) => l.id === id);

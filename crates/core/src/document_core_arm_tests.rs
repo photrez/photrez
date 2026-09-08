@@ -5,7 +5,9 @@
 // is the shadow-reconcile spot check (one representative is enough; the merge
 // logic is shared across all extended fields).
 use crate::canonical_model::{
-    BlendMode, CanonicalDocument, CanonicalLayer, LayerType, Transform2D,
+    BasicAdjustment, BlendMode, CanonicalDocument, CanonicalLayer, LayerType, ShapeFill,
+    ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextAlign, TextBoxMode, TextData,
+    TextFontStyle, TextStroke, Transform2D,
 };
 use crate::command::*;
 use crate::document_core::ProtocolEngine;
@@ -318,6 +320,9 @@ fn add_layer_rejects_empty_id_with_e_invalid() {
         width: 10.0,
         height: 10.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }));
     assert!(res.is_err());
     assert_eq!(res.unwrap_err().code, "E_INVALID");
@@ -332,6 +337,9 @@ fn add_layer_rejects_duplicate_id_with_e_invalid() {
         width: 10.0,
         height: 10.0,
         index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
     }));
     assert!(res.is_err());
     assert_eq!(res.unwrap_err().code, "E_INVALID");
@@ -435,4 +443,311 @@ fn shadow_reconcile_follows_engine_order_after_reorder() {
         vec!["L2", "L1"],
         "canonical layer order must follow engine order after reorder"
     );
+}
+
+// typed-add / setLayerParams / SetAdjustment arms
+
+fn shape_params() -> ShapeParams {
+    ShapeParams {
+        kind: ShapeKind::Star,
+        width: 120.0,
+        height: 80.0,
+        radius: 6.0,
+        fill: ShapeFill {
+            kind: ShapeFillKind::Solid,
+            color: "#E15A17".into(),
+        },
+        stroke: ShapeStroke {
+            enabled: true,
+            color: "#000000".into(),
+            width: 2.0,
+        },
+        arrow_head: false,
+    }
+}
+
+fn text_data() -> TextData {
+    TextData {
+        content: "Hi".into(),
+        font_family: "Arial".into(),
+        font_size: 32.0,
+        font_weight: 400.0,
+        font_style: TextFontStyle::Normal,
+        color: "#000000".into(),
+        align: TextAlign::Left,
+        line_height: 1.2,
+        letter_spacing: 0.0,
+        box_mode: TextBoxMode::Point,
+        box_width: 0.0,
+        box_height: 0.0,
+        stroke: TextStroke {
+            width: 0.0,
+            color: "#000000".into(),
+            align: None,
+        },
+        underline: Some(false),
+        strikethrough: Some(false),
+        uppercase: Some(false),
+    }
+}
+
+#[test]
+fn add_layer_typed_shape_projects_type_and_params() {
+    let mut e = ProtocolEngine::new();
+    e.apply(env(Command::AddLayer {
+        id: "S".into(),
+        name: "Star".into(),
+        width: 120.0,
+        height: 80.0,
+        index: 0,
+        layer_type: Some(LayerType::Shape),
+        shape_params: Some(shape_params()),
+        text_data: None,
+    }))
+    .unwrap();
+    let l = find(&e, "S");
+    assert_eq!(l.layer_type, Some(LayerType::Shape));
+    assert_eq!(l.shape_params, Some(shape_params()));
+    // TS createShapeLayerNode keeps blendMode Normal, visible true, opacity 1.0.
+    assert_eq!(l.blend_mode, Some(BlendMode::Normal));
+    assert!(l.visible);
+    assert_eq!(l.opacity, 1.0);
+    assert!(l.text_data.is_none());
+}
+
+#[test]
+fn add_layer_typed_text_projects_type_and_text_data() {
+    let mut e = ProtocolEngine::new();
+    e.apply(env(Command::AddLayer {
+        id: "T".into(),
+        name: "Text".into(),
+        width: 100.0,
+        height: 20.0,
+        index: 0,
+        layer_type: Some(LayerType::Text),
+        shape_params: None,
+        text_data: Some(text_data()),
+    }))
+    .unwrap();
+    let l = find(&e, "T");
+    assert_eq!(l.layer_type, Some(LayerType::Text));
+    assert_eq!(l.text_data, Some(text_data()));
+    assert!(l.shape_params.is_none());
+}
+
+#[test]
+fn add_layer_without_type_stays_raster_backward_compatible() {
+    // A v2 envelope missing the optional typed fields must still produce a raster
+    // layer (the pre-Wave-2 behavior) so existing envelopes keep working.
+    let mut e = ProtocolEngine::new();
+    e.apply(env(Command::AddLayer {
+        id: "R".into(),
+        name: "R".into(),
+        width: 10.0,
+        height: 10.0,
+        index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
+    }))
+    .unwrap();
+    let l = find(&e, "R");
+    assert_eq!(l.layer_type, Some(LayerType::Raster));
+    assert_eq!(l.blend_mode, Some(BlendMode::Normal));
+    assert!(l.shape_params.is_none());
+    assert!(l.text_data.is_none());
+}
+
+#[test]
+fn set_layer_params_sets_shape_params_only() {
+    let mut e = engine();
+    e.apply(env(Command::SetLayerParams {
+        id: "L1".into(),
+        shape_params: Some(shape_params()),
+        text_data: None,
+    }))
+    .unwrap();
+    let l = find(&e, "L1");
+    assert_eq!(l.shape_params, Some(shape_params()));
+    assert!(l.text_data.is_none());
+}
+
+#[test]
+fn set_layer_params_sets_text_data_only() {
+    let mut e = engine();
+    e.apply(env(Command::SetLayerParams {
+        id: "L1".into(),
+        shape_params: None,
+        text_data: Some(text_data()),
+    }))
+    .unwrap();
+    let l = find(&e, "L1");
+    assert_eq!(l.text_data, Some(text_data()));
+    assert!(l.shape_params.is_none());
+}
+
+#[test]
+fn set_layer_params_both_none_rejects_with_e_invalid() {
+    let mut e = engine();
+    let before = e.snapshot();
+    let res = e.apply(env(Command::SetLayerParams {
+        id: "L1".into(),
+        shape_params: None,
+        text_data: None,
+    }));
+    assert!(res.is_err(), "both-None params must be rejected");
+    assert_eq!(res.unwrap_err().code, "E_INVALID");
+    // No mutation, no DV bump, no history entry.
+    assert_eq!(e.snapshot(), before);
+}
+
+#[test]
+fn set_layer_params_unknown_id_is_noop() {
+    let mut e = engine();
+    let before = e.snapshot().layers.clone();
+    e.apply(env(Command::SetLayerParams {
+        id: "ghost".into(),
+        shape_params: Some(shape_params()),
+        text_data: None,
+    }))
+    .expect("unknown id is a silent no-op");
+    // The layer set is untouched (mirrors DeleteLayer: unknown id is a no-op).
+    // The document version still bumps (apply() walks the same path), so compare
+    // layers, not the whole snapshot.
+    assert_eq!(e.snapshot().layers, before);
+}
+
+#[test]
+fn set_adjustment_sets_adjustment_and_derives_has_adjustments() {
+    let mut e = engine();
+    e.apply(env(Command::SetAdjustment {
+        id: "L1".into(),
+        adjustment: Some(BasicAdjustment {
+            brightness: 10.0,
+            contrast: 0.0,
+            saturation: 0.0,
+        }),
+    }))
+    .unwrap();
+    let l = find(&e, "L1");
+    assert_eq!(
+        l.basic_adjustment,
+        Some(BasicAdjustment {
+            brightness: 10.0,
+            contrast: 0.0,
+            saturation: 0.0,
+        })
+    );
+    // has_adjustments mirrors TS: true only when a channel is non-zero.
+    assert_eq!(l.has_adjustments, Some(true));
+}
+
+#[test]
+fn set_adjustment_all_zero_derives_has_adjustments_false() {
+    let mut e = engine();
+    e.apply(env(Command::SetAdjustment {
+        id: "L1".into(),
+        adjustment: Some(BasicAdjustment {
+            brightness: 0.0,
+            contrast: 0.0,
+            saturation: 0.0,
+        }),
+    }))
+    .unwrap();
+    let l = find(&e, "L1");
+    assert_eq!(
+        l.basic_adjustment,
+        Some(BasicAdjustment {
+            brightness: 0.0,
+            contrast: 0.0,
+            saturation: 0.0,
+        })
+    );
+    assert_eq!(l.has_adjustments, Some(false));
+}
+
+#[test]
+fn set_adjustment_clamps_channels_to_range() {
+    let mut e = engine();
+    e.apply(env(Command::SetAdjustment {
+        id: "L1".into(),
+        adjustment: Some(BasicAdjustment {
+            brightness: 500.0,
+            contrast: -500.0,
+            saturation: 50.0,
+        }),
+    }))
+    .unwrap();
+    let l = find(&e, "L1");
+    assert_eq!(
+        l.basic_adjustment,
+        Some(BasicAdjustment {
+            brightness: 100.0,
+            contrast: -100.0,
+            saturation: 50.0,
+        })
+    );
+}
+
+#[test]
+fn set_adjustment_none_clears_and_sets_has_adjustments_false() {
+    let mut e = engine();
+    e.apply(env(Command::SetAdjustment {
+        id: "L1".into(),
+        adjustment: Some(BasicAdjustment {
+            brightness: 10.0,
+            contrast: 0.0,
+            saturation: 0.0,
+        }),
+    }))
+    .unwrap();
+    e.apply(env(Command::SetAdjustment {
+        id: "L1".into(),
+        adjustment: None,
+    }))
+    .unwrap();
+    let l = find(&e, "L1");
+    assert!(
+        l.basic_adjustment.is_none(),
+        "None must clear basicAdjustment"
+    );
+    assert_eq!(l.has_adjustments, Some(false));
+}
+
+#[test]
+fn set_adjustment_unknown_id_is_noop() {
+    let mut e = engine();
+    let before = e.snapshot().layers.clone();
+    e.apply(env(Command::SetAdjustment {
+        id: "ghost".into(),
+        adjustment: Some(BasicAdjustment {
+            brightness: 5.0,
+            contrast: 0.0,
+            saturation: 0.0,
+        }),
+    }))
+    .expect("unknown id is a silent no-op");
+    assert_eq!(e.snapshot().layers, before);
+}
+
+#[test]
+fn shadow_reconcile_picks_up_typed_params_from_set_layer_params() {
+    // D6 dependency: a SetLayerParams Some on the render layer must merge onto the
+    // canonical shadow (Some takes), so a future native-read path sees the params.
+    let mut e = ProtocolEngine::new();
+    e.seed_canonical(canonical_doc());
+    e.seed_layers(vec![layer()], 0);
+    e.apply(env(Command::SetLayerParams {
+        id: "L1".into(),
+        shape_params: Some(shape_params()),
+        text_data: None,
+    }))
+    .unwrap();
+    let c = e.canonical().expect("shadow seeded");
+    let cl = c
+        .layers
+        .iter()
+        .find(|l| l.id == "L1")
+        .expect("layer in shadow");
+    assert_eq!(cl.shape_params, Some(shape_params()));
 }

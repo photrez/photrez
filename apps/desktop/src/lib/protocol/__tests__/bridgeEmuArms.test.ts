@@ -176,3 +176,119 @@ describe("emulator metadata arms mirror the Rust arms", () => {
     expect(l.lockRotation).not.toBe(true);
   });
 });
+
+describe("emulator typed-add / setLayerParams / setAdjustment arms", () => {
+  const shape = {
+    kind: "star" as const, width: 120, height: 80, radius: 6,
+    fill: { kind: "solid" as const, color: "#E15A17" },
+    stroke: { enabled: true, color: "#000000", width: 2 },
+    arrowHead: false,
+  };
+  const text = {
+    content: "Hi", fontFamily: "Arial", fontSize: 32, fontWeight: 400, fontStyle: "normal" as const,
+    color: "#000000", align: "left" as const, lineHeight: 1.2, letterSpacing: 0,
+    boxMode: "point" as const, boxWidth: 0, boxHeight: 0,
+    stroke: { width: 0, color: "#000000" },
+  };
+
+  it("typed addLayer (shape) projects layerType + blendMode + shapeParams", async () => {
+    const res = await apply({ type: "addLayer", id: "S", name: "Star", width: 120, height: 80, index: 0, layerType: "shape", shapeParams: shape });
+    const l = addedLayer(res);
+    expect(l.layerType).toBe("shape");
+    expect(l.blendMode).toBe("normal");
+    expect(l.shapeParams).toEqual(shape);
+    expect(l.textData).toBeUndefined();
+    expect(l.visible).toBe(true);
+    expect(l.opacity).toBe(1);
+  });
+
+  it("typed addLayer (text) projects layerType + textData", async () => {
+    const res = await apply({ type: "addLayer", id: "T", name: "Text", width: 100, height: 20, index: 0, layerType: "text", textData: text });
+    const l = addedLayer(res);
+    expect(l.layerType).toBe("text");
+    expect(l.textData).toEqual(text);
+    expect(l.shapeParams).toBeUndefined();
+  });
+
+  it("addLayer without typed fields stays raster/normal (backward compatible)", async () => {
+    const res = await apply({ type: "addLayer", id: "R", name: "R", width: 10, height: 10, index: 0 });
+    const l = addedLayer(res);
+    expect(l.layerType).toBe("raster");
+    expect(l.blendMode).toBe("normal");
+    expect(l.shapeParams).toBeUndefined();
+    expect(l.textData).toBeUndefined();
+  });
+
+  it("setLayerParams sets shapeParams only (delta reflects it)", async () => {
+    const add = await apply({ type: "addLayer", id: "L1", name: "L1", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    const res = await apply({ type: "setLayerParams", id, shapeParams: shape });
+    const l = addedLayer(res);
+    expect(l.shapeParams).toEqual(shape);
+    expect(l.textData).toBeUndefined();
+  });
+
+  it("setLayerParams sets textData only", async () => {
+    const add = await apply({ type: "addLayer", id: "L1", name: "L1", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    const res = await apply({ type: "setLayerParams", id, textData: text });
+    const l = addedLayer(res);
+    expect(l.textData).toEqual(text);
+    expect(l.shapeParams).toBeUndefined();
+  });
+
+  it("setLayerParams with both absent rejects E_INVALID (no mutation, no DV bump)", async () => {
+    const add = await apply({ type: "addLayer", id: "L1", name: "L1", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    const before = await bridge.getHistoryQuery();
+    await expect(apply({ type: "setLayerParams", id })).rejects.toThrow(/E_INVALID/);
+    const after = await bridge.getHistoryQuery();
+    expect(after).toEqual(before);
+  });
+
+  it("setLayerParams unknown id is a silent no-op", async () => {
+    const res = await apply({ type: "setLayerParams", id: "ghost", shapeParams: shape });
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("setAdjustment sets basicAdjustment + derives hasAdjustments true", async () => {
+    const add = await apply({ type: "addLayer", id: "L1", name: "L1", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    const res = await apply({ type: "setAdjustment", id, adjustment: { brightness: 10, contrast: 0, saturation: 0 } });
+    const l = addedLayer(res);
+    expect(l.basicAdjustment).toEqual({ brightness: 10, contrast: 0, saturation: 0 });
+    expect(l.hasAdjustments).toBe(true);
+  });
+
+  it("setAdjustment all-zero derives hasAdjustments false (still set)", async () => {
+    const add = await apply({ type: "addLayer", id: "L1", name: "L1", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    const res = await apply({ type: "setAdjustment", id, adjustment: { brightness: 0, contrast: 0, saturation: 0 } });
+    const l = addedLayer(res);
+    expect(l.basicAdjustment).toEqual({ brightness: 0, contrast: 0, saturation: 0 });
+    expect(l.hasAdjustments).toBe(false);
+  });
+
+  it("setAdjustment clamps channels to [-100,100]", async () => {
+    const add = await apply({ type: "addLayer", id: "L1", name: "L1", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    const res = await apply({ type: "setAdjustment", id, adjustment: { brightness: 500, contrast: -500, saturation: 50 } });
+    const l = addedLayer(res);
+    expect(l.basicAdjustment).toEqual({ brightness: 100, contrast: -100, saturation: 50 });
+  });
+
+  it("setAdjustment with undefined clears and sets hasAdjustments false", async () => {
+    const add = await apply({ type: "addLayer", id: "L1", name: "L1", width: 10, height: 10, index: 0 });
+    const id = addedId(add);
+    await apply({ type: "setAdjustment", id, adjustment: { brightness: 10, contrast: 0, saturation: 0 } });
+    const res = await apply({ type: "setAdjustment", id });
+    const l = addedLayer(res);
+    expect(l.basicAdjustment).toBeUndefined();
+    expect(l.hasAdjustments).toBe(false);
+  });
+
+  it("setAdjustment unknown id is a silent no-op", async () => {
+    const res = await apply({ type: "setAdjustment", id: "ghost", adjustment: { brightness: 5, contrast: 0, saturation: 0 } });
+    expect(res.delta.changes).toHaveLength(0);
+  });
+});

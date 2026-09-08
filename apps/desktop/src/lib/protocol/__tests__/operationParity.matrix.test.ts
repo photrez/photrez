@@ -828,3 +828,239 @@ describe("operation parity matrix - METADATA ARM PATH (ProtocolEngine command ar
     console.log(JSON.stringify(metaMatrix, null, 2));
   });
 });
+
+// -- Section 4: typed-add / setLayerParams / setAdjustment command arms --
+// Drives the REAL ProtocolEngine (document_core.rs) AddLayer-with-type,
+// SetLayerParams, and SetAdjustment arms via the production bridge, and compares
+// the produced metadata against the TS engine's equivalent op (DocumentEngine
+// addShapeLayer/addTextLayer/updateShapeParams/updateTextData/applyBasicAdjustment/
+// clearBasicAdjustments). Bitmap RASTERIZATION stays host-side — width/height of a
+// shape/text layer are derived from the host rasterizer, not the metadata arm, so
+// those are recorded as divergences (the arm seeds width/height from the command).
+describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (ProtocolEngine arms, real wasm)", () => {
+  const TYPED_DOC = "parity-typed-arm";
+  const typedMatrix: Array<Record<string, unknown>> = [];
+
+  // jsdom provides no OffscreenCanvas; the TS engine rasterizes shape/text on
+  // add/update (host-side). Mirror shapeRaster.test.ts's stub so the oracle can
+  // run the real TS ops. Bitmap pixels are irrelevant to metadata parity.
+  beforeEach(() => {
+    bridge.resetWasmDoc(TYPED_DOC);
+    const MockOffscreenCanvas = function (this: any, w: number, h: number) {
+      this.width = w;
+      this.height = h;
+      const ctx = {
+        translate() {}, fillStyle: undefined, strokeStyle: undefined, lineWidth: undefined, lineCap: undefined,
+        beginPath() {}, rect() {}, roundRect() {}, ellipse() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, stroke() {},
+        measureText() { return { width: 0 }; },
+        fillText() {}, strokeText() {}, fillRect() {}, clearRect() {}, save() {}, restore() {},
+        setTransform() {}, scale() {}, rotate() {}, clip() {}, arc() {}, quadraticCurveTo() {}, bezierCurveTo() {}, setLineDash() {},
+        createLinearGradient() { return { addColorStop() {} }; },
+        getImageData(_x: number, _y: number, gw: number, gh: number) { return { data: new Uint8ClampedArray(Math.max(4, gw * gh * 4)) }; },
+        putImageData() {}, drawImage() {},
+      };
+      this.getContext = () => ctx;
+      this.transferToImageBitmap = () => ({ width: w, height: h });
+    } as any;
+    vi.stubGlobal("OffscreenCanvas", MockOffscreenCanvas);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function armApply(command: any): Promise<any> {
+    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: TYPED_DOC, command });
+  }
+  function armSnapshot(): Promise<any> {
+    return bridge.getSnapshot(TYPED_DOC);
+  }
+
+  const shape = {
+    kind: "star" as const, width: 120, height: 80, radius: 6,
+    fill: { kind: "solid" as const, color: "#E15A17" },
+    stroke: { enabled: true, color: "#000000", width: 2 },
+    arrowHead: false,
+  };
+  // Already normalized so TS normalizeTextData does not change its shape.
+  const text = {
+    content: "Hi", fontFamily: "Arial", fontSize: 32, fontWeight: 400, fontStyle: "normal" as const,
+    color: "#000000", align: "left" as const, lineHeight: 1.2, letterSpacing: 0,
+    boxMode: "point" as const, boxWidth: 0, boxHeight: 0,
+    stroke: { width: 0, color: "#000000" },
+  };
+  const adj = { brightness: 10, contrast: 0, saturation: 0 }; // already within [-100,100]
+
+  it("(l) addShapeLayer - type/blendMode/shapeParams EQUAL; width/height + locked DIVERGENT (host rasterization)", async () => {
+    requireWasm();
+    const armId = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id: armId, name: "Star", width: 120, height: 80, index: 0, layerType: "shape", shapeParams: shape });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId) as any;
+
+    const ts = new DocumentEngine("arm-ts-l", "L", 200, 200);
+    const tsL = ts.addShapeLayer("Star", shape) as unknown as any;
+
+    expect(armL.layerType).toBe("shape");
+    expect(tsL.type).toBe("shape");
+    expect(armL.blendMode).toBe("normal");
+    expect(tsL.blendMode).toBe("normal");
+    // shapeParams ride verbatim on both sides (no host normalization for shapes).
+    expect(armL.shapeParams).toEqual(shape);
+    expect(armL.shapeParams).toEqual(tsL.shapeParams);
+    // DIVERGENCE: width/height come from the host rasterizer (TS) vs the command
+    // dims (arm) — bitmap rasterization is host-owned. locked TS=false vs arm=None
+    // (pre-existing convention). These are recorded, not asserted equal.
+
+    typedMatrix.push({
+      scenario: "(l) addShapeLayer",
+      counts: "n/a",
+      metadata: "EQUAL (layerType=shape, blendMode=normal, shapeParams verbatim)",
+      divergences: "width/height: host rasterizer vs command dims; locked: ts false vs arm None (pre-existing)",
+    });
+  });
+
+  it("(m) addTextLayer - type/blendMode EQUAL; textData DIVERGENT (TS normalizes on host)", async () => {
+    requireWasm();
+    const armId = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id: armId, name: "Text", width: 200, height: 20, index: 0, layerType: "text", textData: text });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId) as any;
+
+    const ts = new DocumentEngine("arm-ts-m", "M", 200, 200);
+    const tsL = ts.addTextLayer("Text", text) as unknown as any;
+
+    expect(armL.layerType).toBe("text");
+    expect(tsL.type).toBe("text");
+    expect(armL.blendMode).toBe("normal");
+    expect(tsL.blendMode).toBe("normal");
+    // DIVERGENCE: the arm stores the verbatim payload; the TS engine normalizes
+    // textData on add (host concern), so the two are not byte-identical. Type and
+    // blendMode match; textData normalization is a host-side step.
+    expect(armL.textData).toBeTruthy();
+    expect(tsL.textData).toBeTruthy();
+
+    typedMatrix.push({
+      scenario: "(m) addTextLayer",
+      counts: "n/a",
+      metadata: "EQUAL (layerType=text, blendMode=normal)",
+      divergences: "textData: arm stores verbatim payload; TS normalizes textData on host add (not byte-identical)",
+    });
+  });
+
+  it("(n) updateShapeParams - shapeParams EQUAL; width/height DIVERGENT", async () => {
+    requireWasm();
+    const armId = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id: armId, name: "Star", width: 120, height: 80, index: 0, layerType: "shape", shapeParams: shape });
+    await armApply({ type: "setLayerParams", id: armId, shapeParams: shape });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId) as any;
+
+    const ts = new DocumentEngine("arm-ts-n", "N", 200, 200);
+    const tsL = ts.addShapeLayer("Star", shape) as unknown as any;
+    ts.updateShapeParams(tsL.id, shape);
+    const tsAfter = (ts.getLayers() as unknown as any[]).find((l) => l.id === tsL.id);
+
+    expect(armL.shapeParams).toEqual(shape);
+    expect(armL.shapeParams).toEqual(tsAfter.shapeParams);
+
+    typedMatrix.push({
+      scenario: "(n) updateShapeParams",
+      counts: "n/a",
+      metadata: "EQUAL (shapeParams verbatim)",
+      divergences: "width/height: host rasterizer vs unchanged (arm does not touch dims)",
+    });
+  });
+
+  it("(o) updateTextData - type/blendMode EQUAL; textData DIVERGENT (TS normalizes)", async () => {
+    requireWasm();
+    const armId = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id: armId, name: "Text", width: 200, height: 20, index: 0, layerType: "text", textData: text });
+    await armApply({ type: "setLayerParams", id: armId, textData: text });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId) as any;
+
+    const ts = new DocumentEngine("arm-ts-o", "O", 200, 200);
+    const tsL = ts.addTextLayer("Text", text) as unknown as any;
+    ts.updateTextData(tsL.id, text);
+    const tsAfter = (ts.getLayers() as unknown as any[]).find((l) => l.id === tsL.id);
+
+    expect(armL.layerType).toBe("text");
+    expect(tsAfter.type).toBe("text");
+    expect(armL.textData).toBeTruthy();
+    expect(tsAfter.textData).toBeTruthy();
+
+    typedMatrix.push({
+      scenario: "(o) updateTextData",
+      counts: "n/a",
+      metadata: "EQUAL (layerType=text, blendMode=normal)",
+      divergences: "textData: arm verbatim vs TS normalized on host update",
+    });
+  });
+
+  it("(p) applyBasicAdjustment - basicAdjustment + hasAdjustments EQUAL", async () => {
+    requireWasm();
+    const armId = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armAddBase(armId);
+    await armApply({ type: "setAdjustment", id: armId, adjustment: adj });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId) as any;
+
+    const ts = new DocumentEngine("arm-ts-p", "P", 200, 200);
+    const tsL = ts.addShapeLayer("Star", shape) as unknown as any;
+    ts.applyBasicAdjustment(tsL.id, adj);
+    const tsL2 = ts.getLayer(tsL.id) as unknown as any;
+
+    expect(armL.basicAdjustment).toEqual(adj);
+    expect(armL.hasAdjustments).toBe(true);
+    expect(tsL2.basicAdjustment).toEqual(adj);
+    expect(tsL2.hasAdjustments).toBe(true);
+
+    typedMatrix.push({
+      scenario: "(p) applyBasicAdjustment",
+      counts: "n/a",
+      metadata: "EQUAL (basicAdjustment=clamped input, hasAdjustments=true; derives from non-zero channel)",
+      divergences: "none on adjustment fields",
+    });
+  });
+
+  it("(q) clearBasicAdjustments - clears basicAdjustment + hasAdjustments false", async () => {
+    requireWasm();
+    const armId = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armAddBase(armId);
+    await armApply({ type: "setAdjustment", id: armId, adjustment: adj });
+    await armApply({ type: "setAdjustment", id: armId, adjustment: undefined });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId) as any;
+
+    const ts = new DocumentEngine("arm-ts-q", "Q", 200, 200);
+    const tsL = ts.addShapeLayer("Star", shape) as unknown as any;
+    ts.applyBasicAdjustment(tsL.id, adj);
+    ts.clearBasicAdjustments(tsL.id);
+    const tsL2 = ts.getLayer(tsL.id) as unknown as any;
+
+    expect(armL.basicAdjustment).toBeUndefined();
+    expect(armL.hasAdjustments).toBe(false);
+    expect(tsL2.basicAdjustment).toBeUndefined();
+    expect(tsL2.hasAdjustments).toBe(false);
+
+    typedMatrix.push({
+      scenario: "(q) clearBasicAdjustments",
+      counts: "n/a",
+      metadata: "EQUAL (basicAdjustment cleared; hasAdjustments=false on both)",
+      divergences: "none on adjustment fields",
+    });
+  });
+
+  // Host-minted id helper shared by the adjustment rows (a plain raster add, used
+  // only as the adjustment target — the arm has no typed requirement here).
+  async function armAddBase(id: string): Promise<void> {
+    await armApply({ type: "addLayer", id, name: "Base", width: 200, height: 200, index: 0 });
+  }
+
+  afterAll(() => {
+    // eslint-disable-next-line no-console
+    console.log("\n=== OPERATION PARITY MATRIX - typed-add / setLayerParams / setAdjustment (ProtocolEngine) ===");
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(typedMatrix, null, 2));
+  });
+});
