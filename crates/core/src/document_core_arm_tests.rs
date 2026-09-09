@@ -12,8 +12,9 @@ use crate::canonical_model::{
 use crate::command::*;
 use crate::document_core::ProtocolEngine;
 use crate::model::{RenderLayer, RenderLayerChange};
+use crate::pixel_store::registry as pixel_registry;
 
-fn env(cmd: Command) -> CommandEnvelope {
+pub(crate) fn env(cmd: Command) -> CommandEnvelope {
     CommandEnvelope {
         contract_version: CONTRACT_VERSION,
         expected_version: None,
@@ -21,7 +22,7 @@ fn env(cmd: Command) -> CommandEnvelope {
     }
 }
 
-fn layer() -> RenderLayer {
+pub(crate) fn layer() -> RenderLayer {
     RenderLayer {
         id: "L1".into(),
         name: "A".into(),
@@ -447,7 +448,7 @@ fn shadow_reconcile_follows_engine_order_after_reorder() {
 
 // typed-add / setLayerParams / SetAdjustment arms
 
-fn shape_params() -> ShapeParams {
+pub(crate) fn shape_params() -> ShapeParams {
     ShapeParams {
         kind: ShapeKind::Star,
         width: 120.0,
@@ -466,7 +467,7 @@ fn shape_params() -> ShapeParams {
     }
 }
 
-fn text_data() -> TextData {
+pub(crate) fn text_data() -> TextData {
     TextData {
         content: "Hi".into(),
         font_family: "Arial".into(),
@@ -964,6 +965,17 @@ fn set_selection_rejects_nonfinite_or_negative_dims_with_e_invalid() {
         width: 1.0,
         height: f64::NAN,
         angle: 0.0,
+        shape: None,
+        inverted: None,
+    });
+    // The arm rejects NaN angle too - it is stricter than the TS host createSelection,
+    // which validates none of the five numeric fields.
+    bad(SelectionState {
+        x: 0.0,
+        y: 0.0,
+        width: 1.0,
+        height: 1.0,
+        angle: f64::NAN,
         shape: None,
         inverted: None,
     });

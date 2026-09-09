@@ -466,6 +466,10 @@ impl ProtocolEngine {
 // the 1000-line guard; it is a sibling `impl ProtocolEngine` block.
 #[path = "document_core_apply.rs"]
 mod document_core_apply;
+// Structural-command-arm bodies (duplicate / merge / flatten / rasterize) live in
+// a sibling `impl ProtocolEngine` block to keep this module under the 1000-line guard.
+#[path = "document_core_structural.rs"]
+mod document_core_structural;
 
 // ── wasm bridge — per-document engines (module lifetime, survives location.reload() until WASM re-instantiated) ──
 // Each document id owns its own ProtocolEngine so multi-document sessions are
@@ -638,3 +642,7 @@ mod canonical_seed_tests;
 #[cfg(test)]
 #[path = "document_core_arm_tests.rs"]
 mod arm_tests;
+
+#[cfg(test)]
+#[path = "document_core_arm_structural_tests.rs"]
+mod arm_structural_tests;

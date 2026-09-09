@@ -41,6 +41,19 @@ import { CommandHistory } from "@/engine/history";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 import * as bridge from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
+// Side A of the structural rows is built from pure layerOps functions over a
+// plain DocumentModel (no engine, no wasm mirror); Side B drives the real wasm arms.
+import {
+  addLayer,
+  addShapeLayer,
+  addTextLayer,
+  duplicateLayer,
+  mergeDown,
+  mergeSelectedLayers,
+  flattenLayers,
+  shapeLayerToRaster,
+  textLayerToRaster,
+} from "@/engine/layerOps";
 
 let wasmMod: any = null;
 
@@ -69,6 +82,29 @@ function requireWasm(): any {
   expect(wasmMod).toBeTruthy();
   expect(wasmMod?.DocumentEngine).toBeTruthy();
   return wasmMod;
+}
+
+// jsdom has no OffscreenCanvas, so the oracle's compositeAllLayers() returns
+// null and mergeSelectedLayers() bails on the null bitmap. Stub it (mirrors
+// document-rust-path.test.ts) so the oracle composites and merges, matching the
+// arm's always-merge behavior. The stub is restored by the shared afterEach.
+function stubOffscreenCanvas(): void {
+  const Mock = function (this: any, w: number, h: number) {
+    this.width = w;
+    this.height = h;
+    const ctx: any = {
+      font: "", fillStyle: "", strokeStyle: "", lineWidth: 0,
+      lineJoin: "miter", miterLimit: 10, globalAlpha: 1,
+      globalCompositeOperation: "source-over", textBaseline: "alphabetic",
+      letterSpacing: undefined,
+      measureText: (s: string) => ({ width: s.length * 10, actualBoundingBoxAscent: 80, actualBoundingBoxDescent: 24, fontBoundingBoxAscent: 80, fontBoundingBoxDescent: 24 }),
+      fillText: () => {}, strokeText: () => {}, drawImage: () => {},
+      save: () => {}, restore: () => {}, translate: () => {}, scale: () => {}, rotate: () => {}, fillRect: () => {},
+    };
+    this.getContext = () => ctx;
+    this.transferToImageBitmap = () => ({ width: this.width, height: this.height, close: () => {} });
+  } as unknown as typeof OffscreenCanvas;
+  vi.stubGlobal("OffscreenCanvas", Mock);
 }
 
 // Normalize a layer to the RenderLayer overlap used for parity comparison.
@@ -907,15 +943,25 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
     // shapeParams ride verbatim on both sides (no host normalization for shapes).
     expect(armL.shapeParams).toEqual(shape);
     expect(armL.shapeParams).toEqual(tsL.shapeParams);
-    // DIVERGENCE: width/height come from the host rasterizer (TS) vs the command
-    // dims (arm) — bitmap rasterization is host-owned. locked TS=false vs arm=None
-    // (pre-existing convention). These are recorded, not asserted equal.
+    // Divergence ratchet: each side's CURRENT value pinned explicitly.
+    // locked: arm carries None (absent) vs TS createShapeLayerNode sets false.
+    expect(armL.locked).toBeUndefined();
+    expect(tsL.locked).toBe(false);
+    // dims DIVERGE: the arm keeps the command width (120) while the TS engine
+    // rasterizes the shape's bounding box to 124 for this star with stroke enabled
+    // (width 2). Pin both.
+    expect(armL.width).toBe(120);
+    expect(armL.height).toBe(80);
+    expect(tsL.width).toBe(124);
+    expect(tsL.height).toBe(84);
+    // DIVERGENCE: width differs (arm command 120 vs TS shape-bbox 124); only `locked`
+    // also diverges — TS createShapeLayerNode sets false while the arm carries None.
 
     typedMatrix.push({
       scenario: "(l) addShapeLayer",
       counts: "n/a",
       metadata: "EQUAL (layerType=shape, blendMode=normal, shapeParams verbatim)",
-      divergences: "width/height: host rasterizer vs command dims; locked: ts false vs arm None (pre-existing)",
+      divergences: "width/height: arm command 120x80 vs TS shape-bbox 124x84; locked: ts false vs arm None (pre-existing convention)",
     });
   });
 
@@ -933,17 +979,25 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
     expect(tsL.type).toBe("text");
     expect(armL.blendMode).toBe("normal");
     expect(tsL.blendMode).toBe("normal");
-    // DIVERGENCE: the arm stores the verbatim payload; the TS engine normalizes
-    // textData on add (host concern), so the two are not byte-identical. Type and
-    // blendMode match; textData normalization is a host-side step.
+    // DIVERGENCE: both the arm and the TS engine expand the raw input `text` (12
+    // fields) into a fuller stored textData (extra default/host fields), so neither
+    // equals the input verbatim. Type and blendMode match; textData expansion is a
+    // host-side step on both sides.
     expect(armL.textData).toBeTruthy();
     expect(tsL.textData).toBeTruthy();
+    // Divergence ratchet: pin the verbatim scalar fields both sides
+    // preserve, then assert the stored shape diverges from the raw input on each side.
+    const tKeys = ["content","fontFamily","fontSize","fontWeight","fontStyle","color","align","lineHeight","letterSpacing","boxMode","boxWidth","boxHeight"] as const;
+    for (const k of tKeys) expect(armL.textData[k]).toEqual((text as any)[k]);
+    for (const k of tKeys) expect(tsL.textData[k]).toEqual((text as any)[k]);
+    expect(armL.textData).not.toEqual(text);
+    expect(tsL.textData).not.toEqual(text);
 
     typedMatrix.push({
       scenario: "(m) addTextLayer",
       counts: "n/a",
       metadata: "EQUAL (layerType=text, blendMode=normal)",
-      divergences: "textData: arm stores verbatim payload; TS normalizes textData on host add (not byte-identical)",
+      divergences: "textData: both sides expand raw input (arm +extra default fields, TS normalizes) so stored shape != raw input",
     });
   });
 
@@ -962,12 +1016,18 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
 
     expect(armL.shapeParams).toEqual(shape);
     expect(armL.shapeParams).toEqual(tsAfter.shapeParams);
+    // Divergence ratchet: width DIVERGES - arm keeps command 120 while TS
+    // rasterizes the shape bbox to 124; setLayerParams does not recompute them.
+    expect(armL.width).toBe(120);
+    expect(armL.height).toBe(80);
+    expect(tsAfter.width).toBe(124);
+    expect(tsAfter.height).toBe(84);
 
     typedMatrix.push({
       scenario: "(n) updateShapeParams",
       counts: "n/a",
       metadata: "EQUAL (shapeParams verbatim)",
-      divergences: "width/height: host rasterizer vs unchanged (arm does not touch dims)",
+      divergences: "width/height: arm command 120x80 vs TS shape-bbox 124x84 (setLayerParams does not recompute dims)",
     });
   });
 
@@ -988,12 +1048,20 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
     expect(tsAfter.type).toBe("text");
     expect(armL.textData).toBeTruthy();
     expect(tsAfter.textData).toBeTruthy();
+    // Divergence ratchet: both sides expand the raw input `text` into a
+    // fuller stored textData; pin the verbatim scalar fields each side preserves, then
+    // assert the stored shape diverges from the raw input on each side.
+    const oKeys = ["content","fontFamily","fontSize","fontWeight","fontStyle","color","align","lineHeight","letterSpacing","boxMode","boxWidth","boxHeight"] as const;
+    for (const k of oKeys) expect(armL.textData[k]).toEqual((text as any)[k]);
+    for (const k of oKeys) expect(tsAfter.textData[k]).toEqual((text as any)[k]);
+    expect(armL.textData).not.toEqual(text);
+    expect(tsAfter.textData).not.toEqual(text);
 
     typedMatrix.push({
       scenario: "(o) updateTextData",
       counts: "n/a",
       metadata: "EQUAL (layerType=text, blendMode=normal)",
-      divergences: "textData: arm verbatim vs TS normalized on host update",
+      divergences: "textData: both sides expand raw input (arm on setLayerParams, TS on host update) so stored shape != raw input",
     });
   });
 
@@ -1115,7 +1183,7 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
     selMatrix.push({
       scenario: "(s1) setSelection",
       overlap: "EQUAL (x/y/width/height/angle/shape via snapshot selection)",
-      divergences: "none on geometry",
+      divergences: "none on geometry; (g) GATE: the arm rejects non-finite/negative geometry on all five numeric fields (x/y/width/height/angle via setSelection requires finite x/y/width/height/angle and width/height >= 0) while the TS host createSelection validates nothing - recorded divergence, host owns geometry validation before sending",
     });
   });
 
@@ -1229,5 +1297,272 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
     console.log("\n=== OPERATION PARITY MATRIX - SELECTION ARM PATH (ProtocolEngine) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(selMatrix, null, 2));
+  });
+});
+
+// SECTION 3 - STRUCTURAL ARM PATH (ProtocolEngine structural arms, real wasm)
+// Drives the same native authority as the ARM PATH section but through the five
+// structural command arms (Duplicate / MergeDown / MergeSelected / Flatten /
+// Rasterize). Merge/flatten/mergeSelected read document dims from the seeded
+// canonical shadow, so beforeEach seeds it (mirrors the selection arm's pattern).
+//
+// Side A (the oracle) is the PURE-TS `layerOps` module (duplicateLayer /
+// mergeDown / mergeSelectedLayers / flattenLayers / shapeLayerToRaster /
+// textLayerToRaster) run DIRECTLY against a plain DocumentModel object - no
+// DocumentEngine, no wasm graph mirror. Side B is the REAL wasm ProtocolEngine
+// arm driven through the production bridge. The two are genuinely independent
+// implementations; this is NOT a two-Rust-engine cross-check.
+// Layers are compared by NAME; ids are host-supplied on the arm and oracle-assigned
+// on Side A, so they are not compared across engines.
+describe("operation parity matrix - STRUCTURAL ARM PATH (ProtocolEngine structural arms, real wasm)", () => {
+  const STRUCT_DOC = "parity-struct";
+  const structMatrix: Array<Record<string, unknown>> = [];
+
+  // Plain DocumentModel (mirrors the shape layerOps unit tests build directly).
+  function newDocModel(): any {
+    return {
+      id: "struct-ts",
+      name: "S",
+      width: 200,
+      height: 200,
+      layers: [],
+      activeLayerId: null,
+      selection: null,
+      viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
+      dirty: false,
+    };
+  }
+
+  beforeEach(() => {
+    bridge.resetWasmDoc(STRUCT_DOC);
+    const canon = JSON.stringify({ id: STRUCT_DOC, name: "S", width: 200, height: 200, layers: [] });
+    wasmMod.protocol_seed_canonical(canon, STRUCT_DOC);
+  });
+
+  function armApply(command: any): Promise<any> {
+    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: STRUCT_DOC, command });
+  }
+  function armSnapshot(): Promise<any> {
+    return bridge.getSnapshot(STRUCT_DOC);
+  }
+  async function armAdd(name: string): Promise<{ id: string }> {
+    const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id, name, width: 200, height: 200, index: 0 });
+    return { id };
+  }
+  async function armAddShape(name: string): Promise<{ id: string }> {
+    const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({
+      type: "addLayer",
+      id,
+      name,
+      width: 64,
+      height: 64,
+      index: 0,
+      layerType: "shape",
+      shapeParams: { kind: "star", width: 64, height: 64, radius: 4, fill: { kind: "solid", color: "#E15A17" }, stroke: { enabled: false, color: "#000000", width: 0 }, arrowHead: false },
+    });
+    return { id };
+  }
+  async function armAddText(name: string): Promise<{ id: string }> {
+    const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({
+      type: "addLayer",
+      id,
+      name,
+      width: 100,
+      height: 20,
+      index: 0,
+      layerType: "text",
+      textData: { content: "Hi", fontFamily: "Arial", fontSize: 32, fontWeight: 400, fontStyle: "normal", color: "#000000", align: "left", lineHeight: 1.2, letterSpacing: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, stroke: { width: 0, color: "#000000" } },
+    });
+    return { id };
+  }
+
+  it("(p1) duplicateLayer - clone above source; count + name parity EQUAL", async () => {
+    requireWasm();
+    const base = await armAdd("Base");
+    await armAdd("Other"); // [Other, Base] (arm inserts above active at index 0)
+    await armApply({ type: "duplicateLayer", id: base.id, newId: "dup-1" });
+    const armSnap = await armSnapshot();
+
+    // Side A: pure-TS layerOps directly against a plain DocumentModel (independent
+    // implementation from the wasm arm - no DocumentEngine, no wasm mirror).
+    const model = newDocModel();
+    const ba = addLayer(model, "Base"); // [Base]
+    addLayer(model, "Other"); // [Other, Base] (inserted above active)
+    duplicateLayer(model, ba.id); // clones Base above source -> [Other, Base 2, Base]
+    const tsLayers = model.layers;
+
+    expect(armSnap.layers.length).toBe(tsLayers.length);
+    expectByNameOverlap(armSnap.layers, tsLayers, "(p1) duplicate");
+    expect(armSnap.layers.map((l: any) => l.name).sort()).toEqual(tsLayers.map((l: any) => l.name).sort());
+
+    structMatrix.push({
+      scenario: "(p1) duplicateLayer",
+      counts: "EQUAL (2 -> 3 on both engines)",
+      overlap: "EQUAL (by name; clone 'Base 2' derived identically)",
+      divergences: "(e) ids host-supplied (dupe id supplied, oracle minted its own); (a) bitmap clone stays host-side; (c) unknown-source: host-side layerOps.duplicateLayer THROWS while the arm silently no-ops - documented divergence; the host owns identity checks before sending",
+    });
+  });
+
+  it("(p2) mergeDown - fused 'top + bottom' name; count parity EQUAL", async () => {
+    requireWasm();
+    await armAdd("X");
+    const top = await armAdd("North"); // [North, X] (North above X)
+    await armApply({ type: "mergeDown", id: top.id, mergedId: "M" });
+    const armSnap = await armSnapshot();
+
+    // Side A: pure-TS layerOps directly against a plain DocumentModel.
+    const model = newDocModel();
+    addLayer(model, "X"); // [X]
+    const nl = addLayer(model, "North"); // [North, X] (North above X)
+    mergeDown(model, nl.id); // merges North into the layer below it (X)
+    const tsLayers = model.layers;
+
+    expect(armSnap.layers.length).toBe(tsLayers.length);
+    expectByNameOverlap(armSnap.layers, tsLayers, "(p2) mergeDown");
+    expect(armSnap.layers[0].name).toBe("North + X");
+
+    structMatrix.push({
+      scenario: "(p2) mergeDown",
+      counts: "EQUAL (2 -> 1 on both engines)",
+      overlap: "EQUAL (merged name 'North + X' = top + bottom)",
+      divergences: "(a) pixel composite stays host-side; (b) composite-null bail has no arm equivalent; (e) merged id host-supplied",
+    });
+  });
+
+  it("(p3) mergeSelected - 3 layers -> 'A (+2 merged)'; count parity EQUAL", async () => {
+    requireWasm();
+    // jsdom lacks OffscreenCanvas; the oracle's mergeSelectedLayers composites
+    // before merging, so stub it here (parity with the always-merge arm).
+    stubOffscreenCanvas();
+    const a = await armAdd("A");
+    const b = await armAdd("B");
+    const c = await armAdd("C"); // [C, B, A]
+    await armApply({ type: "mergeSelected", ids: [a.id, b.id, c.id], mergedId: "M3" });
+    const armSnap = await armSnapshot();
+
+    // Side A: pure-TS layerOps directly against a plain DocumentModel. The stub is
+    // still required here: mergeSelectedLayers composites selected layers and bails
+    // (returns null -> no merge) when the composite bitmap is null (layerOps.ts:204).
+    const model = newDocModel();
+    const oa = addLayer(model, "A");
+    const ob = addLayer(model, "B");
+    const oc = addLayer(model, "C"); // [C, B, A]
+    mergeSelectedLayers(model, [oa.id, ob.id, oc.id]);
+    const tsLayers = model.layers;
+
+    expect(armSnap.layers.length).toBe(tsLayers.length);
+    expectByNameOverlap(armSnap.layers, tsLayers, "(p3) mergeSelected x3");
+    expect(armSnap.layers[0].name).toBe("C (+2 merged)");
+
+    structMatrix.push({
+      scenario: "(p3) mergeSelected (3 layers)",
+      counts: "EQUAL (3 -> 1 on both engines)",
+      overlap: "EQUAL (merged name 'C (+2 merged)' uses top-most selected name)",
+      divergences: "(a) pixel composite host-side; (b) composite-null bail no arm equivalent; (d) MAX_LAYERS budget guard host-side; (e) merged id host-supplied",
+    });
+  });
+
+  it("(p4) mergeSelected - 2 layers -> 'A + B'; count parity EQUAL", async () => {
+    requireWasm();
+    // jsdom lacks OffscreenCanvas; stub it so the oracle composites + merges.
+    stubOffscreenCanvas();
+    const p = await armAdd("P");
+    const q = await armAdd("Q"); // [Q, P]
+    await armApply({ type: "mergeSelected", ids: [p.id, q.id], mergedId: "M2" });
+    const armSnap = await armSnapshot();
+
+    // Side A: pure-TS layerOps directly against a plain DocumentModel (stub still
+    // required for the same composite path as p3).
+    const model = newDocModel();
+    const op = addLayer(model, "P");
+    const oq = addLayer(model, "Q"); // [Q, P]
+    mergeSelectedLayers(model, [op.id, oq.id]);
+    const tsLayers = model.layers;
+
+    expect(armSnap.layers.length).toBe(tsLayers.length);
+    expectByNameOverlap(armSnap.layers, tsLayers, "(p4) mergeSelected x2");
+    expect(armSnap.layers[0].name).toBe("Q + P");
+
+    structMatrix.push({
+      scenario: "(p4) mergeSelected (2 layers)",
+      counts: "EQUAL (2 -> 1 on both engines)",
+      overlap: "EQUAL (merged name 'Q + P')",
+      divergences: "(a) pixel composite host-side; (e) merged id host-supplied",
+    });
+  });
+
+  it("(p5) flatten - single 'Background' node; count parity EQUAL", async () => {
+    requireWasm();
+    await armAdd("A");
+    await armAdd("B");
+    await armAdd("C"); // [C, B, A]
+    await armApply({ type: "flatten", mergedId: "BG" });
+    const armSnap = await armSnapshot();
+
+    // Side A: pure-TS layerOps directly against a plain DocumentModel.
+    const model = newDocModel();
+    addLayer(model, "A");
+    addLayer(model, "B");
+    addLayer(model, "C");
+    flattenLayers(model);
+    const tsLayers = model.layers;
+
+    expect(armSnap.layers.length).toBe(tsLayers.length);
+    expectByNameOverlap(armSnap.layers, tsLayers, "(p5) flatten");
+    expect(armSnap.layers[0].name).toBe("Background");
+
+    structMatrix.push({
+      scenario: "(p5) flatten",
+      counts: "EQUAL (3 -> 1 on both engines)",
+      overlap: "EQUAL (single 'Background' node)",
+      divergences: "(a) pixel composite host-side; (b) composite-null bail no arm equivalent; (d) budget guard host-side; (e) bg id host-supplied",
+    });
+  });
+
+  it("(p6) rasterizeLayer - shape/text drop params -> raster; name preserved", async () => {
+    requireWasm();
+    const s = await armAddShape("Star");
+    await armApply({ type: "rasterizeLayer", id: s.id });
+    const armSnap = await armSnapshot();
+    const armStar = armSnap.layers.find((l: any) => l.id === s.id);
+    expect(armStar.layerType).toBe("raster");
+    expect(armStar.shapeParams).toBeUndefined();
+
+    const t = await armAddText("Caption");
+    await armApply({ type: "rasterizeLayer", id: t.id });
+    const armSnap2 = await armSnapshot();
+    const armCap = armSnap2.layers.find((l: any) => l.id === t.id);
+    expect(armCap.layerType).toBe("raster");
+    expect(armCap.textData).toBeUndefined();
+
+    // Side A: pure-TS layerOps directly against a plain DocumentModel.
+    const model = newDocModel();
+    const sl = addShapeLayer(model, "Star", { kind: "star", width: 64, height: 64, radius: 4, fill: { kind: "solid", color: "#E15A17" }, stroke: { enabled: false, color: "#000000", width: 0 }, arrowHead: false });
+    shapeLayerToRaster(sl); // mutates sl in place -> type raster, shapeParams removed
+    // The TS oracle LayerNode carries the kind on `type`; the arm's RenderLayer
+    // carries it on `layerType` (field-name divergence, not a behavior break).
+    expect(model.layers.find((l: any) => l.name === "Star")?.type).toBe("raster");
+    const tl = addTextLayer(model, "Caption", { content: "Hi", fontFamily: "Arial", fontSize: 32, fontWeight: 400, fontStyle: "normal", color: "#000000", align: "left", lineHeight: 1.2, letterSpacing: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, stroke: { width: 0, color: "#000000" } });
+    textLayerToRaster(tl);
+    expect(model.layers.find((l: any) => l.name === "Caption")?.type).toBe("raster");
+
+    expectByNameOverlap(armSnap2.layers, model.layers, "(p6) rasterize");
+
+    structMatrix.push({
+      scenario: "(p6) rasterizeLayer (shape + text)",
+      counts: "EQUAL (1 -> 1 each)",
+      overlap: "EQUAL (name preserved; raster kind on both)",
+      divergences: "(c) rasterize arm label consolidation; (a) bitmap re-raster stays host-side; (f) oracle sets layer.type, arm sets layerType (field-name divergence)",
+    });
+  });
+
+  afterAll(() => {
+    // eslint-disable-next-line no-console
+    console.log("\n=== OPERATION PARITY MATRIX - STRUCTURAL ARM PATH (ProtocolEngine) ===");
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(structMatrix, null, 2));
   });
 });

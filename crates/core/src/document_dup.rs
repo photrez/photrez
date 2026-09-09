@@ -2,8 +2,6 @@
 // Duplicate-name planning for the Rust graph mirror. Parity with the TS
 // layerOps.nextDuplicateName / layerFactory.duplicateLayerNode contract.
 
-use crate::document::Layer;
-
 /// Strip a trailing numeric suffix so "Layer 1" -> "Layer", "Background 2"
 /// -> "Background", and a pure number "123" -> "". Mirrors layerOps.baseName.
 pub(crate) fn base_name(name: &str) -> String {
@@ -70,12 +68,15 @@ fn js_parse_int(s: &str) -> Option<i128> {
 
 /// Next duplicate name: increment a numeric suffix past any existing sibling.
 /// "Layer 1" -> "Layer 2" -> "Layer 3". Mirrors layerOps.nextDuplicateName.
-pub(crate) fn next_duplicate_name(layers: &[Layer], layer_name: &str) -> String {
+// Accepts borrowed name slices so BOTH the document graph mirror (document.rs)
+// and the engine structural arms (document_core_structural.rs) share one
+// algorithm - no fork of the numeric-suffix rule.
+pub(crate) fn next_duplicate_name(layers: &[&str], layer_name: &str) -> String {
     let base = base_name(layer_name);
     let prefix = format!("{} ", base);
     let mut max_num: i128 = 1;
-    for l in layers {
-        if let Some(rest) = l.name.strip_prefix(&prefix) {
+    for name in layers {
+        if let Some(rest) = name.strip_prefix(&prefix) {
             if let Some(num) = js_parse_int(rest) {
                 if num > max_num {
                     max_num = num;
@@ -89,7 +90,7 @@ pub(crate) fn next_duplicate_name(layers: &[Layer], layer_name: &str) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::Transform2D;
+    use crate::document::{Layer, Transform2D};
 
     fn mk(n: &str) -> Layer {
         Layer {
@@ -135,8 +136,14 @@ mod tests {
     #[test]
     fn next_duplicate_name_sequence() {
         let layers = layers(&["Layer 1", "Layer 2"]);
-        assert_eq!(next_duplicate_name(&layers, "Layer 1"), "Layer 3");
-        assert_eq!(next_duplicate_name(&layers, "Layer 2"), "Layer 3");
+        assert_eq!(
+            next_duplicate_name(&["Layer 1", "Layer 2"], "Layer 1"),
+            "Layer 3"
+        );
+        assert_eq!(
+            next_duplicate_name(&["Layer 1", "Layer 2"], "Layer 2"),
+            "Layer 3"
+        );
     }
 
     #[test]
@@ -144,14 +151,14 @@ mod tests {
         // TS nextDuplicateName uses parseInt(suffix, 10) which parses leading
         // digits and ignores trailing garbage ("2x" -> 2). Rust must match.
         let layers = layers(&["Layer 2x"]);
-        assert_eq!(next_duplicate_name(&layers, "Layer"), "Layer 3");
+        assert_eq!(next_duplicate_name(&["Layer 2x"], "Layer"), "Layer 3");
     }
 
     #[test]
     fn next_duplicate_name_accepts_sign_like_js_parseint() {
         // JS parseInt accepts a leading '+'/'-' sign.
         let layers = layers(&["Layer +2"]);
-        assert_eq!(next_duplicate_name(&layers, "Layer"), "Layer 3");
+        assert_eq!(next_duplicate_name(&["Layer +2"], "Layer"), "Layer 3");
     }
 
     #[test]
@@ -159,8 +166,7 @@ mod tests {
         // i64::parse overflows on 20-digit numbers; Rust must not silently
         // fall back to "Layer 2" like the old parse::<i64> path did. Mirrors
         // JS parseInt leading-digit parse (Rust is exact via i128 saturating).
-        let layers = layers(&["Layer 99999999999999999999"]);
-        let dup = next_duplicate_name(&layers, "Layer");
+        let dup = next_duplicate_name(&["Layer 99999999999999999999"], "Layer");
         assert_ne!(dup, "Layer 2");
         let suffix = dup.strip_prefix("Layer ").unwrap();
         assert_eq!(suffix, "100000000000000000000");

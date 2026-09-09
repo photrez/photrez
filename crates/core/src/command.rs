@@ -137,6 +137,46 @@ pub enum Command {
         #[serde(default)]
         adjustment: Option<BasicAdjustment>,
     },
+    // Duplicate a layer verbatim, inserting the clone directly above the source.
+    // Mirrors TS duplicateLayer / document.duplicate_layer on the happy path: clones
+    // the source RenderLayer, derives a numeric-suffix name from the engine layer
+    // set, mints a fresh resource id (the clone owns an independent bitmap), and
+    // clears the background / bottom flags. Unknown id is a silent no-op (engine
+    // no-ops like DeleteLayer); the host-side TS duplicateLayer THROWS on unknown id
+    // - a documented divergence. The host owns identity checks before sending, so the
+    // engine's no-op is safe. An empty or already present new_id is rejected with
+    // E_INVALID before any mutation or history entry.
+    DuplicateLayer {
+        id: String,
+        new_id: String,
+    },
+    // Merge a layer down into the one below it. The merged node inherits the bottom
+    // layer's blend mode, is locked when either source is locked, and is named
+    // "top + bottom". Document dims come from the seeded canonical shadow (absent ->
+    // E_INVALID). Unknown id or a bottom-most layer is a silent no-op.
+    MergeDown {
+        id: String,
+        merged_id: String,
+    },
+    // Merge multiple selected layers into one raster node at the highest stack
+    // position among them. Blend mode is always Normal; locked when ANY selected
+    // layer is locked. Fewer than two matched ids is a silent no-op.
+    MergeSelected {
+        ids: Vec<String>,
+        merged_id: String,
+    },
+    // Flatten every layer into a single Background node (bottom flag + position/
+    // rotation locks). Document dims come from the seeded canonical shadow (absent
+    // -> E_INVALID). A single-layer document is a silent no-op.
+    Flatten {
+        merged_id: String,
+    },
+    // Rasterize a parametric (shape/text) layer to a plain raster layer: drop the
+    // shape/text params, keep bitmap/dims/transform/adjustments. A non-parametric
+    // layer is a silent no-op (mirrors shapeLayerToRaster/textLayerToRaster guard).
+    RasterizeLayer {
+        id: String,
+    },
     BrushStroke {
         layer_id: String,
         points: Vec<StrokePoint>,

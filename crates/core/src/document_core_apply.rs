@@ -650,6 +650,35 @@ impl ProtocolEngine {
                     Vec::new()
                 }
             }
+            // -- Structural command arms (duplicate / merge-down / merge-selected /
+            //    flatten / rasterize) --
+            // Each arm delegates to a private helper in document_core_structural.rs
+            // that performs the full begin_forward -> mutate -> finish_forward
+            // sequence and returns the delta. The helpers reject E_INVALID before
+            // mutation and treat unknown / not-mergeable ids as silent no-ops
+            // (empty delta), matching the TS oracle apply ops.
+            Command::DuplicateLayer { id, new_id } => match self.apply_duplicate(&id, &new_id) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            },
+            Command::MergeDown { id, merged_id } => match self.apply_merge_down(&id, &merged_id) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            },
+            Command::MergeSelected { ids, merged_id } => {
+                match self.apply_merge_selected(&ids, &merged_id) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                }
+            }
+            Command::Flatten { merged_id } => match self.apply_flatten(&merged_id) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            },
+            Command::RasterizeLayer { id } => match self.apply_rasterize(&id) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            },
             // Handled by the early-return above (kept for exhaustiveness).
             Command::RecordExternalTransition { .. } => Vec::new(),
             Command::Undo => {

@@ -220,7 +220,19 @@ export type Command =
       adapterId: string;
       token: string;
       memoryCostBytes: number;
-    };
+    }
+  // Structural command arms (mirror the TS graph-mirror layer ops so the native
+  // ProtocolEngine owns duplicate/merge/flatten/rasterize). Host owns identity:
+  // the new/merged ids travel with the command (TS-minted), matching the
+  // host-owned-id convention of addLayer. Unknown id is a silent no-op on every
+  // arm, mirroring DeleteLayer + the TS apply ops, for bug-compatibility with the
+  // legacy engine. Merge/flatten read seeded document dims (the engine keeps no
+  // doc dims of its own); the emulator reads the same dims via setEmuDocumentDims.
+  | { type: "duplicateLayer"; id: string; newId: string }
+  | { type: "mergeDown"; id: string; mergedId: string }
+  | { type: "mergeSelected"; ids: string[]; mergedId: string }
+  | { type: "flatten"; mergedId: string }
+  | { type: "rasterizeLayer"; id: string };
 
 // The four TS layer-lock kinds (setLayerLocked + setLayerLock{Transparency,
 // Position,Rotation}). `base` maps to RenderLayer.locked; the other three map to

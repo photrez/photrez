@@ -253,7 +253,8 @@ impl DocumentEngine {
                 new_id = format!("{}-copy-{}", orig.id, counter);
                 counter += 1;
             }
-            let new_name = crate::document_dup::next_duplicate_name(&self.model.layers, &orig.name);
+            let names: Vec<&str> = self.model.layers.iter().map(|l| l.name.as_str()).collect();
+            let new_name = crate::document_dup::next_duplicate_name(&names, &orig.name);
             let mut new_layer = orig.clone();
             new_layer.id = new_id.clone();
             new_layer.name = new_name;

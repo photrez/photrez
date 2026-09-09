@@ -360,3 +360,238 @@ describe("emulator selection arms", () => {
     expect(threw.code).toBe("E_INVALID");
   });
 });
+
+// --- Structural arms (Duplicate / MergeDown / MergeSelected / Flatten / Rasterize) ---
+// Each arm is metadata-only in the emulator (no pixel work). The delta after an
+// arm carries every remaining layer as an upsert plus removes for vanished ids,
+// so the final ordered layer set is readable straight from the delta.
+async function addTop(id: string, opts: any = {}): Promise<any> {
+  return apply({ type: "addLayer", id, name: id, width: 10, height: 10, index: 0, ...opts });
+}
+// ids[0] is the TOP of stack. addLayer inserts at index 0 (newest on top), so we
+// add in reverse to land in the requested order.
+async function stack(ids: string[]): Promise<void> {
+  for (let i = ids.length - 1; i >= 0; i--) await addTop(ids[i]);
+}
+function upsertedIds(res: any): string[] {
+  return res.delta.changes.filter((c: any) => c.kind === "upsert").map((c: any) => c.layer.id);
+}
+function removedIds(res: any): string[] {
+  return res.delta.changes.filter((c: any) => c.kind === "remove").map((c: any) => c.id);
+}
+async function entryCount(): Promise<number> {
+  return (await bridge.getHistoryQuery()).entries.length;
+}
+
+describe("emulator structural arms mirror the Rust arms", () => {
+  it("duplicateLayer clones above source, mints a fresh resource id, and clears locks/bg", async () => {
+    await stack(["A", "B"]); // [A, B] (A top)
+    const before = await entryCount();
+    const res = await apply({ type: "duplicateLayer", id: "A", newId: "A2" });
+    const clone = res.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "A2").layer;
+    expect(clone).toBeDefined();
+    expect(clone.id).toBe("A2");
+    expect(clone.name).toBe("A 2"); // nextDuplicateName bumps the numeric suffix
+    expect(clone.resourceId).not.toBe(2); // fresh resource id, not the source's (A = rid 2)
+    expect(clone.locked).toBe(false);
+    expect(clone.isBackground).toBeUndefined();
+    expect(clone.lockPosition).toBeUndefined();
+    expect(clone.lockRotation).toBeUndefined();
+    // Clone placed above the source (A2 at top, source A below it).
+    expect(upsertedIds(res)).toEqual(["A2", "A", "B"]);
+    expect(res.documentVersion).toBe(3);
+    expect(await entryCount()).toBe(before + 1);
+  });
+
+  it("duplicateLayer unknown id is a silent no-op", async () => {
+    await stack(["A", "B"]);
+    const res = await apply({ type: "duplicateLayer", id: "ghost", newId: "G" });
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("duplicateLayer rejects an empty newId with E_INVALID", async () => {
+    await stack(["A", "B"]);
+    await expect(apply({ type: "duplicateLayer", id: "A", newId: "" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("duplicateLayer rejects a duplicate newId with E_INVALID", async () => {
+    await stack(["A", "B"]);
+    await expect(apply({ type: "duplicateLayer", id: "A", newId: "B" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("duplicateLayer undo removes the clone, redo re-adds it", async () => {
+    await stack(["A", "B"]);
+    await apply({ type: "duplicateLayer", id: "A", newId: "A2" });
+    const u = await apply({ type: "undo" });
+    expect(removedIds(u)).toEqual(["A2"]);
+    const r = await apply({ type: "redo" });
+    expect(upsertedIds(r)).toEqual(["A2"]);
+  });
+
+  it("mergeDown fuses top+bottom into 'top + bottom', inheriting bottom blend + either-lock", async () => {
+    await stack(["A", "B"]); // [A, B] (A top, B below)
+    await apply({ type: "setBlendMode", id: "B", mode: "multiply" });
+    await apply({ type: "setLocked", id: "B", kind: "base", locked: true });
+    setEmuDocumentDims(100, 100);
+    const before = await entryCount();
+    const res = await apply({ type: "mergeDown", id: "A", mergedId: "M" });
+    expect(removedIds(res)).toEqual(["A", "B"]);
+    const merged = upsertedIds(res);
+    expect(merged).toEqual(["M"]);
+    const m = res.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "M").layer;
+    expect(m.name).toBe("A + B");
+    expect(m.blendMode).toBe("multiply"); // inherited from bottom (B)
+    expect(m.locked).toBe(true); // either source locked
+    expect(m.layerType).toBe("raster");
+    expect(m.width).toBe(100);
+    expect(m.height).toBe(100);
+    expect(res.documentVersion).toBe(5);
+    expect(await entryCount()).toBe(before + 1);
+  });
+
+  it("mergeDown merged node mints a fresh resource id distinct from both sources", async () => {
+    await stack(["A", "B"]); // [A, B] (A top, B below)
+    setEmuDocumentDims(100, 100);
+    const snapBefore = await bridge.getSnapshot();
+    const srcRids = snapBefore.layers.map((l: any) => l.resourceId);
+    const res = await apply({ type: "mergeDown", id: "A", mergedId: "M" });
+    const m = res.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "M").layer;
+    // The merged node must own an independent resource id - not any source's.
+    expect(srcRids.includes(m.resourceId)).toBe(false);
+  });
+
+  it("mergeDown on the bottom-most layer is a silent no-op", async () => {
+    await stack(["A", "B"]); // B is bottom
+    setEmuDocumentDims(100, 100);
+    const res = await apply({ type: "mergeDown", id: "B", mergedId: "M" });
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("mergeDown unknown id is a silent no-op", async () => {
+    await stack(["A", "B"]);
+    setEmuDocumentDims(100, 100);
+    const res = await apply({ type: "mergeDown", id: "ghost", mergedId: "M" });
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("mergeDown rejects empty / present mergedId with E_INVALID", async () => {
+    await stack(["A", "B"]);
+    setEmuDocumentDims(100, 100);
+    await expect(apply({ type: "mergeDown", id: "A", mergedId: "" })).rejects.toThrow(/E_INVALID/);
+    await expect(apply({ type: "mergeDown", id: "A", mergedId: "B" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("mergeDown requires seeded document dims (E_INVALID otherwise)", async () => {
+    await stack(["A", "B"]);
+    await expect(apply({ type: "mergeDown", id: "A", mergedId: "M" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("mergeDown undo restores the pair, redo re-merges", async () => {
+    await stack(["A", "B"]);
+    setEmuDocumentDims(100, 100);
+    await apply({ type: "mergeDown", id: "A", mergedId: "M" });
+    const u = await apply({ type: "undo" });
+    expect(upsertedIds(u).sort()).toEqual(["A", "B"]);
+    expect(removedIds(u)).toEqual(["M"]);
+    const r = await apply({ type: "redo" });
+    expect(removedIds(r).sort()).toEqual(["A", "B"]);
+    expect(upsertedIds(r)).toEqual(["M"]);
+  });
+
+  it("mergeSelected fuses 2 into 'A + B' and 3 into 'A (+2 merged)', locked = any", async () => {
+    await stack(["A", "B", "C"]); // [A, B, C]
+    await apply({ type: "setLocked", id: "C", kind: "base", locked: true });
+    setEmuDocumentDims(50, 50);
+    const two = await apply({ type: "mergeSelected", ids: ["A", "B"], mergedId: "M2" });
+    const m2 = two.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "M2").layer;
+    expect(m2.name).toBe("A + B");
+    expect(m2.locked).toBe(false); // neither A nor B locked
+    expect(upsertedIds(two)).toEqual(["M2", "C"]); // placed at A's (top) index
+
+    await apply({ type: "undo" });
+    setEmuDocumentDims(50, 50);
+    const three = await apply({ type: "mergeSelected", ids: ["A", "B", "C"], mergedId: "M3" });
+    const m3 = three.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "M3").layer;
+    expect(m3.name).toBe("A (+2 merged)");
+    expect(m3.locked).toBe(true); // C was locked
+    expect(m3.blendMode).toBe("normal");
+  });
+
+  it("mergeSelected with <2 matched ids is a silent no-op", async () => {
+    await stack(["A", "B"]);
+    setEmuDocumentDims(50, 50);
+    const one = await apply({ type: "mergeSelected", ids: ["A"], mergedId: "M" });
+    expect(one.delta.changes).toHaveLength(0);
+    const none = await apply({ type: "mergeSelected", ids: ["ghost", "phantom"], mergedId: "M" });
+    expect(none.delta.changes).toHaveLength(0);
+  });
+
+  it("mergeSelected rejects empty / present mergedId with E_INVALID", async () => {
+    await stack(["A", "B"]);
+    setEmuDocumentDims(50, 50);
+    await expect(apply({ type: "mergeSelected", ids: ["A", "B"], mergedId: "" })).rejects.toThrow(/E_INVALID/);
+    await expect(apply({ type: "mergeSelected", ids: ["A", "B"], mergedId: "A" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("mergeSelected requires seeded document dims (E_INVALID otherwise)", async () => {
+    await stack(["A", "B"]);
+    await expect(apply({ type: "mergeSelected", ids: ["A", "B"], mergedId: "M" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("flatten collapses >1 layer into one Background node (bg flag + pos/rot locks, not locked)", async () => {
+    await stack(["A", "B", "C"]);
+    setEmuDocumentDims(80, 60);
+    const before = await entryCount();
+    const res = await apply({ type: "flatten", mergedId: "BG" });
+    expect(removedIds(res).sort()).toEqual(["A", "B", "C"]);
+    expect(upsertedIds(res)).toEqual(["BG"]);
+    const bg = res.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "BG").layer;
+    expect(bg.name).toBe("Background");
+    expect(bg.isBackground).toBe(true);
+    expect(bg.lockPosition).toBe(true);
+    expect(bg.lockRotation).toBe(true);
+    expect(bg.locked).toBe(false);
+    expect(bg.layerType).toBe("raster");
+    expect(bg.width).toBe(80);
+    expect(bg.height).toBe(60);
+    expect(res.documentVersion).toBe(4);
+    expect(await entryCount()).toBe(before + 1);
+  });
+
+  it("flatten on a single layer is a silent no-op", async () => {
+    await stack(["A"]);
+    setEmuDocumentDims(80, 60);
+    const res = await apply({ type: "flatten", mergedId: "BG" });
+    expect(res.delta.changes).toHaveLength(0);
+  });
+
+  it("flatten rejects empty / present mergedId with E_INVALID", async () => {
+    await stack(["A", "B"]);
+    setEmuDocumentDims(80, 60);
+    await expect(apply({ type: "flatten", mergedId: "" })).rejects.toThrow(/E_INVALID/);
+    await expect(apply({ type: "flatten", mergedId: "A" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("flatten requires seeded document dims (E_INVALID otherwise)", async () => {
+    await stack(["A", "B"]);
+    await expect(apply({ type: "flatten", mergedId: "BG" })).rejects.toThrow(/E_INVALID/);
+  });
+
+  it("rasterizeLayer drops shape/text params; non-parametric and unknown ids no-op", async () => {
+    await addTop("S", { layerType: "shape", shapeParams: { kind: "star" } });
+    await addTop("T", { layerType: "text", textData: { content: "x" } });
+    await addTop("R"); // raster by default
+    const s = await apply({ type: "rasterizeLayer", id: "S" });
+    const sl = s.delta.changes.find((c: any) => c.layer.id === "S").layer;
+    expect(sl.layerType).toBe("raster");
+    expect(sl.shapeParams).toBeUndefined();
+    const t = await apply({ type: "rasterizeLayer", id: "T" });
+    const tl = t.delta.changes.find((c: any) => c.layer.id === "T").layer;
+    expect(tl.layerType).toBe("raster");
+    expect(tl.textData).toBeUndefined();
+    const r = await apply({ type: "rasterizeLayer", id: "R" });
+    expect(r.delta.changes).toHaveLength(0); // non-parametric: no-op
+    const g = await apply({ type: "rasterizeLayer", id: "ghost" });
+    expect(g.delta.changes).toHaveLength(0); // unknown id: no-op
+  });
+});
