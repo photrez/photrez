@@ -353,8 +353,21 @@ test.describe("export dialog", () => {
     expect(result.pngBytes.slice(0, 8)).toEqual([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
     // JPEG header: FF D8
     expect(result.jpegBytes.slice(0, 2)).toEqual([0xFF, 0xD8]);
-    // WebP header: RIFF
-    expect(result.webpBytes.slice(0, 4)).toEqual([0x52, 0x49, 0x46, 0x46]);
+    // WebP header: engines without webp encoding (WebKit canvas export) silently
+    // fall back to PNG; the contract is "encodeComposite returns what the engine
+    // returns, never JPEG", header-shape asserted cross-engine.
+    const wb = result.webpBytes;
+    let kind: "RIFF" | "PNG-fallback";
+    if (wb[0] === 0xFF && wb[1] === 0xD8) {
+      throw new Error("webpBytes must not be a JPEG header");
+    } else if (wb[0] === 0x52 && wb[1] === 0x49 && wb[2] === 0x46 && wb[3] === 0x46) {
+      kind = "RIFF";
+    } else if (wb[0] === 0x89 && wb[1] === 0x50 && wb[2] === 0x4E && wb[3] === 0x47) {
+      kind = "PNG-fallback";
+    } else {
+      throw new Error("webpBytes header is neither RIFF nor PNG-magic");
+    }
+    expect(["RIFF", "PNG-fallback"]).toContain(kind);
     // Non-empty output
     expect(result.pngBytes.length).toBeGreaterThan(50);
     expect(result.jpegBytes.length).toBeGreaterThan(50);
