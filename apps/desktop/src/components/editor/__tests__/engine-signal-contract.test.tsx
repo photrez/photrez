@@ -3,9 +3,9 @@
 // Engine ↔ Signal contract tests.
 //
 // What this catches: P0-1 class bugs (signal desync) where engine mutations
-// don't propagate to the corresponding Solid signal. See AI_HISTORY.md
-// P0-1: "selectedLayerId desync from activeLayerId after undo/redo" and
-// similar past bugs.
+// don't propagate to the corresponding Solid signal. Regression (P0-1):
+// selectedLayerId desynced from activeLayerId after undo/redo, and similar
+// past bugs.
 //
 // Pattern: "setiap mutasi engine X → signal Y update di frame berikut".
 // For each test:
@@ -14,8 +14,7 @@
 //   3. Await tick for Solid effects to propagate
 //   4. Assert signal value matches engine state
 //
-// Reference: docs/plans/2026-06-14-test-overhaul-reference.md (out of scope
-// for Phase 1-4, but in scope for this contract strengthening).
+// (Out of scope for Phase 1-4, but in scope for this contract strengthening).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "solid-js/web";

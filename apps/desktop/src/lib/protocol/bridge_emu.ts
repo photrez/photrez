@@ -70,7 +70,7 @@ let emuDocHeight = 0;
 // engine (unique layer count + per-layer byte estimate + set buffers) rather
 // than the stale JSON-serialize double-count.
 //
-// CONTRACT NOTE (photrez-counter residual 2): the COUNT SEMANTICS are the
+// Contract note: the COUNT SEMANTICS are the
 // contract (each UNIQUE layer object/reference counted exactly once across
 // before/after), NOT the byte VALUE. These byte figures are documented
 // approximations - they are NOT byte-equal to Rust's `estimate_native_entry_cost`

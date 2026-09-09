@@ -21,7 +21,7 @@
 set -u
 
 PLAN_MSG='Phase [A-H]|phase [a-h]|flip-on|Option A[^A-Za-z]|Option B[^A-Za-z]|SD-[0-9]|fork [ABC]|prove-dead|Keranjang|North Star'
-PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transfer|adapter))|SD-[0-9]|fork [ABC]|prove-dead|Keranjang|North Star'
+PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transfer|adapter))|SD-[0-9]|fork [ABC]|prove-dead|Keranjang|North Star|RESPONSE\.md|AI_HISTORY|AI_CURRENT_TASK|AI_CONTEXT|docs/plans|photrez-(counter|coder|reviewer|verifier|orchestrator)|pre-Wave|Wave [0-9]'
 
 fail() { echo "ERROR: $1" >&2; exit 1; }
 

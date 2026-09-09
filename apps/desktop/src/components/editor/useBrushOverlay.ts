@@ -30,7 +30,7 @@ import {
 } from "./brushTipMask";
 import { createDabProducer, type DabProducer } from "./brushDabProducer";
 
-// ── C4 pilot (R2 flagged active-layer): Rust owns the canonical pixel buffer ──
+// ── Rust-owned canonical pixel path: Rust owns the canonical pixel buffer ──
 // Bug 2 fix: there is no TS-side "seeded" flag. Each layer is seeded into Rust
 // ONCE via `rust_pixels_init` (idempotent, namespaced by docId+layerId), then
 // every committed stroke sends ONLY its dirty region via `rust_pixels_write_region`
@@ -78,8 +78,8 @@ interface PaintStrokeSession {
   dirtyRect: DirtyRect;
 }
 
-// ── Strategy D: async-deferred C4 canonical commit (production analog of the
-// WebGL2 PBO readback validated in RESPONSE.md). Brush surface is Canvas2D, so
+// ── Async-deferred Rust canonical commit (production analog of the
+// WebGL2 PBO readback). Brush surface is Canvas2D, so
 // the literal PBO readback is replaced by an async `surface.readRect` + Tauri IPC
 // + `history.commit`. A per-document queue serializes commits so stroke N+1 never
 // overtakes stroke N (canonical state + history ordering preserved). The pointerup
@@ -108,7 +108,7 @@ interface C4CommitJob {
   seq: number;
 }
 
-/** Test-only: await all in-flight C4 deferred commits (validation flush). */
+/** Test-only: await all in-flight deferred commits (validation flush). */
 export async function flushC4Commits(): Promise<void> {
   await Promise.allSettled([...c4CommitQueues.values()]);
 }
@@ -142,7 +142,7 @@ export function useBrushOverlay() {
       // readRect. rehydratePaintSurfaceFromRust did an absolute putImageData of the
       // PRE-stroke canonical, so without this the dirty region carries no dabs and
       // rust_pixels_write_region performs a no-op byte copy (the stroke is lost).
-      // The snapshot was captured synchronously at enqueue (see the C4 branch), so it
+      // The snapshot was captured synchronously at enqueue (see the deferred-commit branch), so it
       // is immune to cachedTileScratch being reused/resized by later strokes. Source-over
       // preserves existing surface pixels under transparent scratch regions.
       const snapCanvas = new OffscreenCanvas(dw, dh);
@@ -177,7 +177,7 @@ export function useBrushOverlay() {
         if (localStorage.getItem("photrez.c4Audit") === "1") {
           const dirtyRectBytes = dw * dh * 4;
           const responseBytes = res.after.reduce((s, t) => s + t.w * t.h * 4, 0);
-          console.info(`[c4-audit] dirtyRectBytes=${dirtyRectBytes} tileCount=${res.after.length} responseBytes=${responseBytes}`);
+          console.info(`[paint-commit] dirtyRectBytes=${dirtyRectBytes} tileCount=${res.after.length} responseBytes=${responseBytes}`);
         }
       } catch { /* audit never breaks commit */ }
     };
@@ -186,7 +186,7 @@ export function useBrushOverlay() {
     } catch (err) {
       // surface already holds the composited after-pixels; mirror them to TS via
       // history.commit + tile upload (no cachedTileScratch dependency).
-      console.warn("[c4] async deferred commit failed — synchronous fallback:", err);
+      console.warn("[paint] async deferred commit failed — synchronous fallback:", err);
       try {
         const region = surface.readRect(dx0, dy0, dw, dh);
         const afterData = new Uint8ClampedArray(region.data);
@@ -201,7 +201,7 @@ export function useBrushOverlay() {
         queueOrUploadTiles(layerId, w, h, rectUploads);
         requestRender();
       } catch (err2) {
-        console.error("[c4] fallback also failed — pixels may be dropped for", docId, layerId, err2);
+        console.error("[paint] fallback also failed — pixels may be dropped for", docId, layerId, err2);
       }
     } finally {
       // DEV-only: async-queue ordering probe (gate verification — tree-shaken in prod).
@@ -1020,7 +1020,7 @@ export function useBrushOverlay() {
         // ~7ms of commit work instead of one blocking mega-upload. History
         // patches stay per-tile so undo/redo remain sub-3ms at every brush
         // size (display granularity != history granularity).
-        //   docs/plans/2026-08-23-dirty-region-research.md
+        //   (per-tile patches keep display and history granularities independent).
         tP0 = performance.now();
         const sctx = surface.context;
         const gen = strokeGen;
@@ -1110,7 +1110,7 @@ export function useBrushOverlay() {
         let yields = 0;
         let frameStart = performance.now();
 
-        // Phase A: capture ALL before-patches FIRST - the single-crossing
+        // 1) capture ALL before-patches FIRST - the single-crossing
         // stamp below paints the ENTIRE dirty rect at once, so any snapshot
         // taken after it would capture painted pixels (2026-08-23 undo
         // corruption bug: rect 2's "before" contained rect 1's paint).
@@ -1120,7 +1120,7 @@ export function useBrushOverlay() {
 
         // ── R2 Canonical C3 (flag-gated, fresh-white-docs only): Rust patches replace TS raster ──
   let c3Applied = false;
-  let c4SkipPhaseB = false; // C4 composites its dabs inside c4CoreCommit after rehydrate, so the synchronous Phase B/C composites are skipped via this flag (kept separate from c3Applied, which is C3-only).
+  let c4SkipPhaseB = false; // the deferred Rust commit composites its dabs after rehydrate, so the synchronous scratch->surface composite is skipped via this flag (kept separate from c3Applied, which is C3-only).
   let c3Flag = false;
         try { c3Flag = localStorage.getItem("photrez.canonicalCommit") === "1"; } catch {}
         if (c3Flag && !effectiveIsEraser && scratchReady && isRustShadowEnabled() && c3Ready) {
@@ -1160,7 +1160,7 @@ export function useBrushOverlay() {
           }
         }
 
-        // ── C4 pilot (R2 flagged active-layer): Rust owns canonical pixels ──
+        // ── Rust-owned canonical pixel path: Rust owns canonical pixels ──
         // Every eligible committed stroke sends ONLY its dirty region via
         // `rust_pixels_write_region`, which replaces those canonical pixels in Rust
         // (no dab re-composite: the surface already holds the composited after-pixels)
@@ -1169,17 +1169,17 @@ export function useBrushOverlay() {
         // OFF unless photrez.rustPixels === "1". Mutually exclusive with
         // the C3 canonical path by *mode* — gated on c3Flag (photrez.canonicalCommit),
         // not on c3Applied — so the two modes never both apply to the same stroke.
-        // c3Applied is set true by C4's own commit below; that must NOT disable
-        // later C4 strokes, so the C4 entry guard uses c3Flag, not c3Applied.
+        // c3Applied is set true by the deferred Rust commit below; that must NOT disable
+        // later strokes on the Rust path, so the entry guard uses c3Flag, not c3Applied.
         const rustPixelsFlag = (() => {
           try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
         })();
         if (rustPixelsFlag && !c3Flag && !effectiveIsEraser && scratchReady) {
-          // C4 (Strategy D): async-deferred dirty-region commit. The pointerup
+          // Async-deferred Rust dirty-region commit. The pointerup
           // handler returns immediately after enqueue; the canonical write, tile
           // rehydration, and history.commit run off-path via a per-document queue
           // (stroke N+1 never overtakes N). Brush surface is Canvas2D, so this is
-          // the faithful analog of the WebGL2 PBO readback validated in RESPONSE.md
+          // the faithful analog of the WebGL2 PBO readback
           // (pointerup block <1ms, no busy-wait, ordered).
           // Capture the dirty-rect scratch NOW (synchronous): cachedTileScratch is a
           // module singleton reused/resized by later strokes, so the deferred commit must
@@ -1210,7 +1210,7 @@ export function useBrushOverlay() {
           }
         }
 
-        // Phase B: ONE GPU->CPU crossing for the whole dirty rect (benchmarked
+        // 2) ONE GPU->CPU crossing for the whole dirty rect (benchmarked
         // 2026-08-23 via agent-browser Chrome: per-tile crossings cost
         // ~55ms EACH at 300 tiles = 16.9s total; one full-rect draw =
         // 97ms). Transparent scratch regions preserve existing surface
@@ -1219,7 +1219,7 @@ export function useBrushOverlay() {
           sctx.drawImage(cachedTileScratch!, 0, 0, dw, dh, dx0, dy0, dw, dh);
         }
 
-        // Phase C: per-rect readback -> per-tile patches + upload entries.
+        // 3) per-rect readback -> per-tile patches + upload entries.
         if (!c3Applied && !c4SkipPhaseB) {
         for (let ri = 0; ri < rects.length; ri++) {
           const rect = rects[ri];
@@ -1227,7 +1227,7 @@ export function useBrushOverlay() {
           if (effectiveIsEraser) {
             // Overlay holds the erased result — replace-copy the rect's tiles.
             // (Software->software draws, disjoint per rect - safe after all
-            // snapshots were taken in Phase A.)
+            // snapshots were taken in step 1.)
             sctx.save();
             sctx.globalCompositeOperation = "source-over";
             for (const t of rt) {
@@ -1263,7 +1263,7 @@ export function useBrushOverlay() {
             frameStart = performance.now();
           }
         }
-        } // end !c3Applied (Phase C skipped when canonical patches were applied)
+        } // end !c3Applied (step 3 skipped when canonical patches were applied)
         perfYields = yields;
 
         const _p2 = performance.now();

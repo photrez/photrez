@@ -154,7 +154,7 @@ export function performApplyCrop(
         // School A1: bake the fill into the Background layer instead of
         // creating a separate layer below it. A separate layer below the
         // Background fights the Background-order invariant on undo/redo
-        // (see docs/AI_HISTORY.md 2026-07-15). The Background is composited
+        // (the Background-order invariant on undo/redo). The Background is composited
         // over the fill using the engine's own transform convention, so the
         // baked result aligns exactly with the other layers.
         let bgLayer = layers.find((l) => l.isBackground);

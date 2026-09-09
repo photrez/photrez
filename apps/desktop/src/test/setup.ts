@@ -4,7 +4,7 @@
 // and per-test DOM isolation. Per-test mocks added in individual
 // test files as needed.
 //
-// Reference: docs/plans/2026-06-14-test-overhaul-reference.md §Phase 1
+// (Global setup follows the project test-overhaul conventions.)
 //
 // ── Experimental findings (2026-06-14) ─────────────────────────
 // The following global mocks were tried and REVERTED because they

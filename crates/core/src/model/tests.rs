@@ -655,7 +655,7 @@ fn native_entry_memory_cost_does_not_double_count_shared_layers() {
     );
 }
 
-// -- Wire-format contract (photrez-counter residual 1) ----------------
+// -- Wire-format contract -------------------------------------------
 // `#[serde(rename_all = "camelCase", tag = "type")]` on the `Command` enum
 // renames the VARIANT only - NOT the fields of a struct variant. So the
 // `BrushStroke` variant carries `layer_id` (snake_case), not `layerId`. The
@@ -683,7 +683,7 @@ fn brush_stroke_wire_format_expects_snake_case_layer_id() {
     );
 }
 
-// -- N>=3-step undo/redo restores the EXACT layer-set (photrez-counter residual 3) --
+// -- N>=3-step undo/redo restores the EXACT layer-set --------------
 // Applies a multi-step forward sequence then walks Undo xN / Redo xN and
 // asserts the EXACT layer-set (resource_id/opacity/transform/name) is
 // restored field-by-field at every step - proving the sequence restore is

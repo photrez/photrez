@@ -232,7 +232,7 @@ impl ProtocolEngine {
                     Vec::new()
                 }
             }
-            // ── Metadata arms (Wave 1 / arm convergence) ──
+            // ── Metadata arms ──
             // Unknown id mirrors DeleteLayer: no-op (the TS engine's apply ops are
             // guarded the same way), so the native-authority path stays bug-compatible
             // with the TS engine until the flip.

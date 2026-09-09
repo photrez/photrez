@@ -1,4 +1,4 @@
-// Emulator memory-cost semantics (photrez-counter residual 2).
+// Contract note: emulator memory-cost semantics.
 //
 // `estimateEmuNativeBytes` mirrors Rust `estimate_native_entry_cost`: it counts
 // UNIQUE layer references across before/after (an unchanged/shared layer is the

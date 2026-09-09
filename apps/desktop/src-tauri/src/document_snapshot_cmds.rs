@@ -1,4 +1,4 @@
-// Phase D: Tauri document metadata snapshot/restore commands (adapter layer).
+// Tauri document metadata snapshot/restore commands (adapter layer).
 // METADATA ONLY — no pixel bytes cross the IPC. Drives the REAL `registry()`
 // (process-global Mutex) like the frontend does: no mocks — these commands run
 // in the actual Tauri command layer.
@@ -45,7 +45,7 @@ pub struct SnapshotRecordResult {
     pub epoch: u64,
 }
 
-/// Phase D: take a document-level metadata snapshot (NO pixel bytes). Returns
+/// Take a document-level metadata snapshot (NO pixel bytes). Returns
 /// the document `DocumentVersion` + per-layer `{ layer_id, width, height,
 /// epoch, pixel_version }`. Errors when the document (or the registry) is absent.
 #[tauri::command]
@@ -83,7 +83,7 @@ pub fn document_snapshot(doc_id: String) -> Result<DocumentSnapshotDto, String> 
     })
 }
 
-/// Phase D: re-apply document METADATA (NO pixel bytes) for the given snapshot.
+/// Re-apply document METADATA (NO pixel bytes) for the given snapshot.
 /// Metadata-only reconciliation: a layer that exists matches (no-op — restore
 /// carries no pixels, so its canonical epoch is already correct); a layer that is
 /// missing is a no-op (pixel buffers are NEVER created from metadata). Records
@@ -136,7 +136,7 @@ pub fn document_restore(
     })
 }
 
-// ── Phase C: bitmap-token snapshot history (adapter layer) ────────────────
+// --- Document metadata snapshot/restore: bitmap-token snapshot history (adapter layer) ---
 // Drives the REAL `registry()` (process-global Mutex) like the frontend does: no
 // mocks — these commands run in the actual Tauri command layer. Records an
 // atomic metadata+bitmap-token `Snapshot` entry (storing BOTH before + after) and
@@ -185,7 +185,7 @@ fn max_layer_epoch(reg: &photrez_core::pixel_store::PixelStoreRegistry, doc_id: 
         .unwrap_or(0)
 }
 
-/// Phase C: record an atomic metadata+bitmap-token snapshot entry (before/after)
+/// Record an atomic metadata+bitmap-token snapshot entry (before/after)
 /// into the document's unified `ProtocolEngine` cursor. Bumps `DocumentVersion`
 /// exactly once and truncates the redo branch, like `record_external` — but stores
 /// BOTH directions so a later undo returns the `before` snapshot and redo re-applies
@@ -209,7 +209,7 @@ pub fn rust_pixels_record_snapshot(
     Ok(SnapshotRecordResult { version, epoch })
 }
 
-/// Phase C: undo the entry just below the cursor IF it is a `Snapshot` entry,
+/// Undo the entry just below the cursor IF it is a `Snapshot` entry,
 /// returning the `before` snapshot (with its per-layer bitmap tokens) so the TS
 /// side can re-attach the exact ImageBitmap by token. Non-snapshot tips/invalid
 /// docs are handled: invalid doc -> Err; non-snapshot tip -> Ok(None) (cursor not
@@ -224,7 +224,7 @@ pub fn rust_pixels_undo_snapshot(doc_id: String) -> Result<Option<DocumentSnapsh
     Ok(reg.undo_snapshot(&doc_id).map(core_to_dto))
 }
 
-/// Phase C: redo the entry at the cursor IF it is a `Snapshot` entry, returning
+/// Redo the entry at the cursor IF it is a `Snapshot` entry, returning
 /// the `after` snapshot (with its per-layer bitmap tokens). Symmetric to
 /// `rust_pixels_undo_snapshot`.
 #[tauri::command]
@@ -237,7 +237,7 @@ pub fn rust_pixels_redo_snapshot(doc_id: String) -> Result<Option<DocumentSnapsh
     Ok(reg.redo_snapshot(&doc_id).map(core_to_dto))
 }
 
-// ── Phase D: document snapshot/restore IPC contract (adapter layer) ──────────
+// --- Document metadata snapshot/restore IPC contract (adapter layer) ---
 // Drives the REAL `registry()` (process-global Mutex) like the frontend does: no
 // mocks — these commands run in the actual Tauri command layer.
 #[cfg(test)]
@@ -522,7 +522,7 @@ mod phase_d_tests {
     }
 }
 
-// ── Phase C: bitmap-token snapshot history command tests ──────────────────
+// --- Document metadata snapshot/restore: bitmap-token snapshot history command tests ---
 // Mirrors the C-core snapshot.rs tests but through the REAL Tauri command layer
 // (drives the process-global `registry()`, no mocks). Covers: record bump once,
 // undo returns before (with token), redo returns after (with token), invalid doc

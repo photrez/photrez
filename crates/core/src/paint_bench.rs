@@ -2,7 +2,7 @@
 // Fase 2 decision benchmarks: micro-costs of the proposed Rust tile store.
 // Bench-only module - no product logic lives here. Mirrors the methodology of
 // scripts/bench-zero-copy.ts (pinned wasm-owned buffers, ms per op).
-// Rationale + results: docs/plans/2026-08-22-fase2-rust-tile-store-plan.md
+// Rationale + results are tracked in the project decision log.
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;

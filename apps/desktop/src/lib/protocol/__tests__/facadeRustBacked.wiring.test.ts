@@ -6,7 +6,7 @@
 // Until that load (or in a non-wasm env) the bridge falls back to the TS
 // emulator (emulateApply). The facade becomes Rust-backed only once the wasm
 // module is wired; the load-order robustness is a FLAG-ON acceptance criterion
-// (see docs/AI_CURRENT_TASK.md FLAG-ON WASM-WIRING READINESS checklist).
+// (acceptance criterion: the WASM module must be wired before the first facade command).
 //
 // WHY THIS FILE IS DISCRIMINATING (vs the OLD tautological assertions):
 // The previous version asserted `applyCommand({addLayer}).delta.resourceId>=1`,

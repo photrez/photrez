@@ -7,7 +7,7 @@ import type { CommandHistory } from "@/engine/history";
 
 // T-BRUSH-TILECOMMIT-GRAD (2026-08-24): flag graduation + failure recovery +
 // context-loss upload handling + stroke cancellation contracts from
-// docs/plans/2026-08-24-brush-ux-production-path-design.md.
+// contracts drafted for the 2026-08-24 tile-commit graduation work.
 
 const { showToast } = vi.hoisted(() => ({ showToast: vi.fn() }));
 vi.mock("../Toast", () => ({ showToast }));

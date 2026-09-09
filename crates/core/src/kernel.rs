@@ -476,7 +476,7 @@ pub fn apply_basic_adjustment_wasm(
 
 // ── Round-2 porting candidates ────────────────────────────────────────────────
 // Benchmarked against TS mirrors in apps/desktop/scripts/bench-cpu-pixel-round2.ts
-// (see docs/plans/2026-08-21-rust-gpu-benchmark-matrix.md, R2/R3).
+// Benchmarked against TS mirrors in apps/desktop/scripts/bench-cpu-pixel-round2.ts.
 
 /// R2: bounding box of non-transparent pixels (alpha > 0).
 /// Returns [min_x, min_y, max_x, max_y] (inclusive), or empty when the image is

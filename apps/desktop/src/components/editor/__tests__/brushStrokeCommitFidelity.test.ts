@@ -1,4 +1,4 @@
-// C4 scratch-composite faithful regression (P0 bug: C4 silently drops the
+// Scratch-composite faithful regression (deferred Rust commit: the stroke must not be dropped)
 // stroke). Drives the REAL production commit path via the hook, with
 // @tauri-apps/api/core invoke mocked by an in-test Rust store emulator.
 //
@@ -189,7 +189,7 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
       initCount += 1;
       return;
     }
-    // C4 dirty-region write: region replace, one history step.
+    // Deferred dirty-region write: region replace, one history step.
     if (cmd === "rust_pixels_write_region") {
       commitCount += 1;
       if (commitCount === failCommitOnCall) throw new Error("simulated commit failure");
@@ -254,7 +254,7 @@ function makeSurface() {
         }
       }
     },
-    // Source-over composite (mirrors Phase B + the deferred C4 composite).
+    // Source-over composite (mirrors the synchronous composite plus the deferred Rust composite).
     drawImage: (src: any, _sx: number, _sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number) => {
       const sctx = src.getContext("2d");
       const img = sctx.getImageData(0, 0, sw, sh);
@@ -367,7 +367,7 @@ function regionIsSolid(rgba: Uint8ClampedArray, seed: number[]): boolean {
   return true;
 }
 
-describe("C4 scratch composite (P0) - faithful dab-pixel proof", () => {
+describe("Scratch composite faithful dab-pixel proof", () => {
   beforeAll(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
   });

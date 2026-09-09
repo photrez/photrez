@@ -235,7 +235,7 @@ pub fn extraction_variants(
     use rayon::prelude::*;
     let tiles = tiles_for_bbox(x0, y0, x1, y1, w as i64, h as i64);
 
-    // Baseline: identical algorithm to raster_shadow's Phase C.
+    // Baseline: identical algorithm to raster_shadow's readback stage.
     let t = Instant::now();
     let baseline: Vec<TilePatchOut> = tiles
         .iter()

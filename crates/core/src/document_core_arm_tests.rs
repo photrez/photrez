@@ -539,7 +539,7 @@ fn add_layer_typed_text_projects_type_and_text_data() {
 #[test]
 fn add_layer_without_type_stays_raster_backward_compatible() {
     // A v2 envelope missing the optional typed fields must still produce a raster
-    // layer (the pre-Wave-2 behavior) so existing envelopes keep working.
+    // layer (the previous behavior) so existing envelopes keep working.
     let mut e = ProtocolEngine::new();
     e.apply(env(Command::AddLayer {
         id: "R".into(),

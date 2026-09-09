@@ -1,4 +1,4 @@
-﻿// C4 pilot (R2 flagged active-layer) — frontend contract test (C5.1 doc-scoped).
+// Rust-owned canonical pixel buffers - TS<->Rust ownership contract (doc-scoped).
 // Verifies the TS<->Rust data contract WITHOUT a live backend:
 //  - TS cache bytes == Rust canonical regions (gates 5/6/7)
 //  - only affected dirty tiles cross Rust->TS (gate 8 transport bounded)
@@ -157,7 +157,7 @@ function tileKeyed(tx: number, ty: number, data: Uint8ClampedArray) {
 const PAINT_TILE_SIZE = 256;
 const DOC = "doc1";
 
-describe("C4 pilot — TS<->Rust pixel ownership contract (C5.1 doc-scoped)", () => {
+describe("Rust-owned canonical pixel buffers - TS<->Rust ownership contract (doc-scoped)", () => {
   beforeEach(() => {
     localStorage.clear();
   });

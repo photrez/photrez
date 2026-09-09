@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 // ── C5.1: document-namespaced canonical pixel store ──
 // Ownership lives in `photrez_core::pixel_store::PixelStoreRegistry`, keyed by
-// (document_id, layer_id). The flat C4-pilot `PIXEL_STORE: HashMap<layerId, PixelLayer>`
+// (document_id, layer_id). The flat process-global `PIXEL_STORE: HashMap<layerId, PixelLayer>` (no lifecycle)
 // is gone. Lifecycle (open/close/add/remove/resize) is driven from TS via the
 // rust_pixels_* commands. No TileStore/Rayon/SAB/WebGPU.
 
@@ -103,7 +103,7 @@ pub fn rust_pixels_close_document(doc_id: String) {
 }
 
 /// Seed the authoritative buffer for `layer_id` within `doc_id` from the existing
-/// layer bytes (one-time; called by TS before the first C4 commit on that layer).
+/// layer bytes (one-time; called by TS before the first Rust-owned commit on that layer).
 /// Auto-creates the document namespace. Replacement is intentional (failed-commit recovery).
 #[tauri::command]
 pub fn rust_pixels_init(
@@ -620,7 +620,7 @@ pub fn paint_shadow_export(result_json: String) -> Result<String, String> {
 }
 
 // Serializes ALL tests that touch the process-global `registry()` (both test
-// modules: c4 + phase D). The parallel cargo harness lets one test's `reset()`
+// both the Rust pixel-path tests and the document snapshot/restore tests). The parallel cargo harness lets one test's `reset()`
 // (which sets the global to `None`) wipe another test's documents mid-run, so
 // registry-touching tests must run one-at-a-time to be deterministic.
 #[cfg(test)]

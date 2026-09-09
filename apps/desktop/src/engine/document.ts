@@ -92,7 +92,7 @@ export class DocumentEngine {
   private textureHandles: Map<LayerId, TextureHandle>;
   private dirtyLayerIds: Set<LayerId>;
   /**
-   * Fase 1 tile store (docs/plans/2026-08-21-brush-engine-research.md):
+   * Tile-store seam (disabled):
    * persistent software-backed pixel surface for layers currently being
    * PAINTED. Created lazily via getPaintSurface; invalidated whenever the
    * layer bitmap changes through any non-paint path (replaceLayerBitmap,
@@ -1074,7 +1074,7 @@ export class DocumentEngine {
   }
 
   /**
-   * Fase 1 tile store (docs/plans/2026-08-21-brush-engine-research.md):
+   * Tile-store seam (disabled):
    * persistent software-backed pixel surface for a painted layer, created
    * lazily from the current bitmap. The paint commit path goes THROUGH this
    * surface (tile-keyed patches); any non-paint bitmap replacement invalidates

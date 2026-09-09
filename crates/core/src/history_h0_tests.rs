@@ -500,7 +500,7 @@ fn snapshot_undo_redo_rejected_while_external_pending() {
     assert_eq!(eng.cursor(), 1, "snapshot ops must not move the cursor");
 }
 
-// C4: the metadata walker's `Command::Undo` on a Snapshot tip must NOT
+// Contract: the metadata walker's `Command::Undo` on a Snapshot tip must NOT
 // consume the atomic snapshot entry (no cursor move + empty changes) —
 // snapshot undo/redo is owned by `undo_snapshot`/`redo_snapshot`; the typed
 // `tip_payload_kind()` exposes the routing discriminant.

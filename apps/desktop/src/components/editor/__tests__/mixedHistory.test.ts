@@ -24,8 +24,8 @@
 //
 //   Net: user-linear order would be B,T,A reversed = T,B,A. Actual drained
 //   order = T, (remove layer), then A PINNED forever while owned-ids persist.
-//   This is TRANSITIONAL, not the final history architecture. Documented in
-//   AI_HISTORY; single-owner stacks remain fully linear (second test).
+//   This is TRANSITIONAL, not the final history architecture; single-owner
+//   stacks remain fully linear (second test).
 
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
 import { DocumentEngine, hasFacadeOwnedLayers } from "@/engine/document";

@@ -1,4 +1,4 @@
-// Emulator-side brushStroke consistency (photrez-counter residual 1).
+// Emulator-side brushStroke consistency.
 //
 // The wasm-backed discriminating test in facadeRustBacked.wiring.test.ts proves
 // the wire format matches Rust (`toRustEnvelope` emits snake_case `layer_id`).

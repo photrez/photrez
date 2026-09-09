@@ -1,22 +1,22 @@
-// C4 multi-stroke correctness regression (Bug 1 overlap composite + Bug 2
-// cross-document seed scope). Drives the REAL production commit path via the
+// Multi-stroke correctness regression (overlapping strokes composite onto the
+// canonical buffer; a fresh document must not inherit another's seeded state). Drives the REAL production commit path via the
 // hook, with `@tauri-apps/api/core` invoke mocked by an in-test Rust store
 // emulator.
 //
 // Covers:
-//   Bug 1 — every committed stroke composites onto the EXISTING canonical
+//   Overlap — every committed stroke composites onto the EXISTING canonical
 //           pixels (overlapping strokes accumulate; no wipe). Verified at the
 //           Rust unit level (commit_pixels_composites_onto_canonical_overlapping)
 //           AND here via the emulator's faithful region-composite emulation.
-//   Bug 2 — seeding state lives entirely in Rust, namespaced by (docId, layerId).
+//   Seed scope — seeding state lives entirely in Rust, namespaced by (docId, layerId).
 //           TS never emits rust_pixels_init; a fresh document/layer inits
 //           independently and cannot inherit another doc's seeded state.
-//   Plus the gating/contract scenarios from the original C4 fix:
+//   Plus the gating/contract scenarios from the original fix:
 //   1-3  fresh layer stroke A/B/C -> Rust version 1/2/3, init once
 //   4    each Rust canonical state matches the applied stroke
 //   5-8  unified stream undo/redo + redo truncation (sim contract)
 //   9    no second init after the first seed (now: ensure-if-absent only)
-//   10   a later commit failure does NOT permanently disable C4
+//   - a later commit failure does NOT permanently disable the deferred commit
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
@@ -158,7 +158,7 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
         };
         store.set(k, layer);
       }
-      // Emulate composite onto EXISTING canonical pixels (Bug 1 semantics).
+      // Emulate composite onto EXISTING canonical pixels (overlap semantics).
       const w = layer.w;
       const h = layer.h;
       const b = args.req.brush as number;
@@ -201,7 +201,7 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
         version: layer.version,
       };
     }
-    // C4 dirty-region migration: mirror write_region (region replace, one history step).
+    // Deferred dirty-region migration: mirror write_region (region replace, one history step).
     if (cmd === "rust_pixels_write_region") {
       commitCount += 1;
       if (commitCount === failCommitOnCall) throw new Error("simulated commit failure");
@@ -387,7 +387,7 @@ const settings = { size: 20, hardness: 1, opacity: 1, flow: 1, smoothing: 0.5 };
 const DOC = "doc-test";
 const LAYER = "layer-1";
 
-describe("C4 Bug 1 — overlapping strokes composite onto canonical (real hook)", () => {
+describe("Overlapping strokes composite onto canonical (real hook)", () => {
   beforeAll(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
   });
@@ -398,7 +398,7 @@ describe("C4 Bug 1 — overlapping strokes composite onto canonical (real hook)"
     vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation((l: any, e: any) => null);
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation((id: string) => false);
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1"); // C4 ON
+    localStorage.setItem("photrez.rustPixels", "1"); // Rust pixel path ON
     localStorage.removeItem("photrez.canonicalCommit"); // C3 OFF (separate mode)
   });
   afterEach(() => {
@@ -442,7 +442,7 @@ describe("C4 Bug 1 — overlapping strokes composite onto canonical (real hook)"
     expect(sim.initCount).toBe(1);
     expect(sim.calls.filter((c) => c.cmd === "rust_pixels_write_region").length).toBe(3);
     expect(sim.calls.filter((c) => c.cmd === "rust_pixels_init").length).toBe(1);
-    // Phase 3 audit: C4 sends the DIRTY REGION, never the full layer.
+    // Dirty-region audit: the deferred commit sends the DIRTY REGION, never the full layer.
     const initCall = sim.calls.find((c) => c.cmd === "rust_pixels_init");
     const fullBytes = (initCall ? initCall.args.width * initCall.args.height : 256 * 256) * 4;
     const wrCalls = sim.calls.filter((c) => c.cmd === "rust_pixels_write_region");
@@ -453,14 +453,14 @@ describe("C4 Bug 1 — overlapping strokes composite onto canonical (real hook)"
     expect(sim.calls.filter((c) => c.cmd === "paint_parity_shadow").length).toBe(0);
     expect(sim.calls.filter((c) => c.cmd === "apply_tile_patch").length).toBe(0);
     // scenario "no duplicate rendering": the synchronous legacy Phase-B drawImage is
-    // skipped under C4, but the deferred C4 composite now draws the dabs onto the
+    // skipped under the Rust path, but the deferred Rust composite now draws the dabs onto the
     // surface exactly once per committed stroke (A/B/C -> 3 draws). This is the fix
-    // for the P0 stroke-loss bug: the composite must happen inside c4CoreCommit.
+    // for the stroke-loss bug: the composite must happen inside c4CoreCommit.
     expect(surface.context.drawImage).toHaveBeenCalledTimes(3);
     expect(uploadSurfaceTiles).toHaveBeenCalled();
   });
 
-  it("Bug 1 — overlapping stroke B does NOT wipe A's pixels (both accumulate)", async () => {
+  it("Overlapping stroke B does NOT wipe A's pixels (both accumulate)", async () => {
     const surface = makeSurface();
     const { overlay, engine, history } = makeHarness(surface);
     const sim = hoist.getSim();
@@ -483,7 +483,7 @@ describe("C4 Bug 1 — overlapping strokes composite onto canonical (real hook)"
     expect(entry.version).toBe(2);
   });
 
-  it("scenario 10: a later commit failure does NOT permanently disable C4 (idempotent retry, no re-seed)", async () => {
+  it("a later commit failure does NOT permanently disable the deferred commit (idempotent retry, no re-seed)", async () => {
     const LAYER10 = "layer-10";
     hoist.setSim(makeSim({ failCommitOnCall: 2 })); // 2nd commit throws
     const surface = makeSurface();
@@ -503,16 +503,16 @@ describe("C4 Bug 1 — overlapping strokes composite onto canonical (real hook)"
     await stroke(60, 60); // commit #2 FAILS -> caught, no flag to clear, legacy fallback
     expect(sim.calls.filter((c) => c.cmd === "rust_pixels_write_region").length).toBe(2);
 
-    await stroke(90, 90); // C4 retries: commit #3 SUCCEEDS (idempotent, no re-seed)
+    await stroke(90, 90); // the deferred commit retries: commit #3 SUCCEEDS (idempotent, no re-seed)
     expect(sim.calls.filter((c) => c.cmd === "rust_pixels_write_region").length).toBe(3);
-    expect(sim.initCount).toBe(1); // no re-seed after failure (Bug 2 design)
+    expect(sim.initCount).toBe(1); // no re-seed after failure (seed-scope design)
     expect(pixel(sim.store.get(`${DOC}|${LAYER10}`)!, 90, 90)).toBeTruthy() /* jsdom surface cannot rasterize; pixel exactness covered by Rust write_region unit test */;
     expect(sim.store.get(`${DOC}|${LAYER10}`)!.version).toBe(2); // no reset -> 2
     expect(surf.pixelVersion).toBe(2);
   });
 });
 
-describe("C4 Bug 2 — cross-document seed scope (no stale seeded state)", () => {
+describe("Cross-document seed scope (no stale seeded state)", () => {
   beforeAll(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
   });
@@ -558,7 +558,7 @@ describe("C4 Bug 2 — cross-document seed scope (no stale seeded state)", () =>
     expect(b.version).toBe(1); // fresh, not carried over from doc A
     expect(pixel(b, 30, 30)).toBeTruthy() /* jsdom surface cannot rasterize; pixel exactness covered by Rust write_region unit test */;
 
-    // TS never emits rust_pixels_init (Bug 2: no TS seeded flag at all).
+    // TS never emits rust_pixels_init (seed scope: no TS seeded flag at all).
     expect(sim.calls.filter((c) => c.cmd === "rust_pixels_init").length).toBe(2);
     // exactly one ensure-if-absent per document.
     expect(sim.initCount).toBe(2);
@@ -567,7 +567,7 @@ describe("C4 Bug 2 — cross-document seed scope (no stale seeded state)", () =>
   });
 });
 
-describe("C4 unified-stream undo/redo contract (sim)", () => {
+describe("Unified-stream undo/redo contract (sim)", () => {
   beforeEach(() => {
     hoist.setSim(makeSim());
     localStorage.clear();
@@ -616,7 +616,7 @@ describe("C4 unified-stream undo/redo contract (sim)", () => {
   });
 });
 
-describe("C4 Strategy D — async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
+describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
   beforeAll(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
   });

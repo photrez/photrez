@@ -1,4 +1,4 @@
-// R5 re-verification: fair decode benchmark (docs/plans/2026-08-21-rust-gpu-benchmark-matrix.md).
+// Fair decode benchmark across competing decoders.
 // Contenders for the SAME bytes:
 //   - image 0.25 load_from_memory   (the OLD bench's technique)
 //   - zune-png / zune-jpeg          (modern SIMD-accelerated decoders)

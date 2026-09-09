@@ -702,7 +702,7 @@ if (import.meta.env.DEV && isTauriEnv()) {
   void (async () => {
     // Opt-in only: run the one-shot real T0→T8 measurement ONLY when the dev
     // autorun is explicitly enabled via PHOTREZ_SHADOW_AUTO / PHOTREZ_PARITY_AUTO.
-    // Plain `bun tauri dev` stays clean so C4 runtime validation is deterministic.
+    // Plain `bun tauri dev` stays clean so Rust-pixel runtime validation is deterministic.
     try {
       const invoke = await getInvoke();
       const shadowOn = await invoke("paint_shadow_autorun_enabled") as boolean;
@@ -783,7 +783,7 @@ export interface PaintCacheLike {
 }
 
 /** Current canonical epoch for (docId, layerId), or null when Rust has no pixel
- *  storage for that layer yet (e.g. before the C4 init path has seeded it). */
+ *  storage for that layer yet (e.g. before the Rust init path has seeded it). */
 export async function getRustEpoch(docId: string, layerId: string): Promise<number | null> {
   try {
     const invoke = await getInvoke();

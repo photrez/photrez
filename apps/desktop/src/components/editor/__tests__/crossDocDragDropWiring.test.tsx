@@ -15,7 +15,8 @@
 //     read e.dataTransfer.files and call addFilesAsLayersFromFileDrop
 //
 // If any of these wirings break, the feature silently no-ops in the real app.
-// See AI_HISTORY [2026-06-16] BUG FIX - Cross-Doc Drag-Drop Wiring.
+// Regression: the OS drop listener was mounted only in a subcomponent that
+// unmounts when a document opens, so it must live on a global host.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "solid-js/web";

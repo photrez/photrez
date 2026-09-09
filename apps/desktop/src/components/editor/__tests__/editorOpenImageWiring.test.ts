@@ -4,8 +4,8 @@
 //
 // What this catches: the "tests pass but app fails" pattern where .ptz project
 // files are silently dropped because the dialog handler never routes them to
-// loadProjectFile. See docs/AI_HISTORY.md §[2026-07-28] BUG FIX — .ptz File
-// Tidak Bisa Dibuka via File → Open (Regresi).
+// loadProjectFile. Regression: .ptz project files were silently dropped
+// because the open dialog handler never routed them to loadProjectFile.
 //
 // These tests verify the wiring that connects:
 //   - showOpenImageDialog → openImage → decodeSessionFromFile (non-.ptz)
