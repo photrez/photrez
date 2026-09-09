@@ -260,6 +260,18 @@ export class PaintTileSurface {
     return this.ctx.getImageData(r.x, r.y, r.w, r.h);
   }
 
+  /**
+   * Snapshot the current surface pixels into a fresh ImageBitmap. The paint
+   * surface is a DERIVED cache (copy of layer.imageBitmap on creation); the
+   * canonical model bitmap is `layer.imageBitmap`, which is what
+   * engine.snapshot()/undo/redo read. After a commit paints dabs onto this
+   * surface, callers MUST write this back into the model so subsequent
+   * snapshots aren't taken against stale pre-stroke pixels.
+   */
+  toImageBitmap(): Promise<ImageBitmap> {
+    return createImageBitmap(this.canvas);
+  }
+
   /** C5.2: mark the derived cache stale so the next commit forces rehydration. */
   markStale(): void {
     this.pixelEpoch = -1;

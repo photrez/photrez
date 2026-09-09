@@ -89,6 +89,7 @@ const c4CommitQueues = new Map<string, Promise<void>>();
 interface C4SurfaceLike {
   context: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
   readRect: (x: number, y: number, w: number, h: number) => ImageData;
+  toImageBitmap?: () => Promise<ImageBitmap>;
   pixelEpoch: number;
   pixelVersion: number;
 }
@@ -165,6 +166,18 @@ export function useBrushOverlay() {
         data.set(t.data);
         afterPatches.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
         rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) });
+      }
+      // Deferred path: the surface now holds the final post-stroke pixels. Sync
+      // them into the canonical model bitmap BEFORE history.commit so the
+      // committed snapshot isn't taken against stale pre-stroke pixels (same
+      // regression class as the synchronous tile path).
+      try {
+        if (surface.toImageBitmap) {
+          const newBitmap = await surface.toImageBitmap();
+          engine.setLayerImageBitmap(layerId, newBitmap);
+        }
+      } catch (err) {
+        console.warn("[paint] c4 model bitmap sync failed - committed snapshot may be stale:", err);
       }
       history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", {
         layerId, surfaceWidth: w, surfaceHeight: h,
@@ -993,6 +1006,7 @@ export function useBrushOverlay() {
           snapshotTile: (tile: { x: number; y: number; w: number; h: number }) => TileKeyed<ImageData>;
           restoreTile: (patch: TileKeyed<ImageData>) => void;
           readRect: (x: number, y: number, w: number, h: number) => ImageData;
+          toImageBitmap: () => Promise<ImageBitmap>;
           pixelEpoch: number;
           pixelVersion: number;
         } | null;
@@ -1280,8 +1294,34 @@ export function useBrushOverlay() {
         // Imperative is entry-owned (tile-memento model): history stores it
         // with this commit and replays its before/after tiles on undo/redo.
         if (!c4Deferred) {
-          history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative, true);
-          histCommitted = true;
+          // --- Model sync (regression fix for f48f5b6) ---
+          // The tile-commit path painted the dabs onto this surface (a DERIVED
+          // copy of layer.imageBitmap), never into the canonical model bitmap.
+          // engine.snapshot() / undo / redo / selection-delete all read
+          // layer.imageBitmap, so without this the committed snapshot and every
+          // later op see the stale pre-stroke pixels (the 2026-06-14 undo broke
+          // because undo restored a stale-background snapshot). The surface now
+          // holds the full post-stroke layer, so write it back into the model
+          // BEFORE history.commit. One createImageBitmap is the same cost as the
+          // legacy commit path this branch replaced - no extra full-layer copy.
+          const syncGen = strokeGen;
+          try {
+            const newBitmap = await surface.toImageBitmap();
+            if (syncGen !== strokeGen) {
+              newBitmap.close();
+            } else {
+              engine.setLayerImageBitmap(layerId, newBitmap);
+            }
+          } catch (err) {
+            console.warn("[paint] model bitmap sync failed - committed snapshot may be stale:", err);
+          }
+          // A newer stroke may have started while we awaited the bitmap copy
+          // (same gen-guard as the legacy commitPaintBitmap path): skip this
+          // commit and let the newer stroke's own snapshot capture both changes.
+          if (syncGen === strokeGen) {
+            history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative, true);
+            histCommitted = true;
+          }
         }
         tP3 = performance.now();
         // ── R2 Step2 DEV forensics assembly (inside try scope): scratch / surface / tsAfter boundaries ──

@@ -92,6 +92,7 @@ function makeSurface() {
       if (readRectShouldThrow) throw new Error("readRect exploded");
       return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
     }),
+    toImageBitmap: vi.fn(async () => makeMockImageBitmap()),
     failReadRect: () => { readRectShouldThrow = true; },
   };
   return surface;
@@ -106,11 +107,15 @@ function makeHarness(surface: ReturnType<typeof makeSurface> | null, uploadSurfa
     setLastPaintCoords: (c: { x: number; y: number } | null) => { _lpc = c; },
     getLastPaintCoords: () => _lpc,
   };
+  let lastSetBitmap: unknown = null;
   const engine = {
     getActiveLayerId: () => layer.id,
     getLayer: () => layer,
-    snapshot: vi.fn(() => ({ model: true })),
-    setLayerImageBitmap: vi.fn(),
+    // Mirror the real engine: setLayerImageBitmap mutates the model bitmap, and
+    // snapshot() reads it back. Lets a test assert the committed snapshot carries
+    // the painted bitmap.
+    snapshot: vi.fn(() => ({ layers: [{ id: "layer-1", imageBitmap: lastSetBitmap }] })),
+    setLayerImageBitmap: vi.fn((_id: string, b: unknown) => { lastSetBitmap = b; }),
     getPaintSurface: surface ? () => surface : () => null,
   };
   const uploadImage = vi.fn();
@@ -245,5 +250,37 @@ describe("stroke cancellation (pointercancel / Escape contract)", () => {
     const { overlay } = makeHarness(surface);
     expect(overlay.isStrokeActive()).toBe(false);
     expect(overlay.cancelActiveStroke()).toBe(false);
+  });
+});
+
+describe("tile-path model-sync invariant (regression f48f5b6)", () => {
+  beforeEach(() => { localStorage.removeItem("photrez.tileCommit"); });
+  afterEach(() => { localStorage.removeItem("photrez.tileCommit"); });
+
+  // The tile-commit path paints the derived PaintTileSurface, not layer.imageBitmap.
+  // It MUST write the painted bitmap back into the model BEFORE history.commit so
+  // the committed snapshot (and any later delete/undo) sees the real pixels. A
+  // reorder here is exactly the bug that made selection-delete undo restore a
+  // stale background, so the ordering is pinned, not left to chance.
+  it("calls setLayerImageBitmap BEFORE history.commit, and the committed snapshot carries the painted bitmap", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history, commit } = makeHarness(surface);
+
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    await overlay.commitBrushStroke(engine, history, "layer-1", false);
+
+    // Model sync happened with the painted bitmap.
+    expect(engine.setLayerImageBitmap).toHaveBeenCalledTimes(1);
+    const paintedBitmap = (engine.setLayerImageBitmap as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(paintedBitmap).toBeTruthy();
+
+    // Ordering: the model write precedes the history commit.
+    expect((engine.setLayerImageBitmap as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]).toBeLessThan(
+      (commit as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
+    );
+
+    // The snapshot handed to history.commit reflects the freshly-set bitmap.
+    const committedSnapshot = (commit as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(committedSnapshot.layers[0].imageBitmap).toBe(paintedBitmap);
   });
 });
