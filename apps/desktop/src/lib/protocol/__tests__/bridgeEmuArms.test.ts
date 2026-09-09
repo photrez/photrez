@@ -8,7 +8,7 @@
 // metadata fields live top-level (flipH/flipV included).
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as bridge from "@/lib/protocol/bridge";
-import { __resetEmulatedForTests, setEmuDocumentDims, getEmuSelection } from "@/lib/protocol/bridge";
+import { __resetEmulatedForTests, setEmuDocumentDims, getEmuSelection, getEmuDocumentDims } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "../types";
 import type { RenderLayer } from "../types";
 
@@ -595,3 +595,221 @@ describe("emulator structural arms mirror the Rust arms", () => {
     expect(g.delta.changes).toHaveLength(0); // unknown id: no-op
   });
 });
+
+// --- Canvas-size arms (cropCanvas / applyCrop / resizeCanvas) ---
+// Drives the TS emulator through each canvas arm and asserts it mirrors the Rust
+// ProtocolEngine semantics end-to-end (the metadata/structural arms above are
+// covered elsewhere; these paths had ZERO emulator coverage before this block).
+// The emulator is the unarmed fallback for the wasm runtime, so these run the
+// same emulateApply code the production fallback executes.
+function refApplyCrop(
+  x: number, y: number, width: number, height: number,
+  rotation: number, targetW: number, targetH: number,
+  lx: number, ly: number, lw: number, lh: number, lr: number,
+): { x: number; y: number; scaleX: number; scaleY: number; rotation: number } {
+  const cropCenterX = x + width / 2;
+  const cropCenterY = y + height / 2;
+  const rad = (-rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const exportSx = targetW / width;
+  const exportSy = targetH / height;
+  const lcx = lx + (lw * 1) / 2;
+  const lcy = ly + (lh * 1) / 2;
+  const vx = lcx - cropCenterX;
+  const vy = lcy - cropCenterY;
+  const rvx = vx * cos - vy * sin;
+  const rvy = vx * sin + vy * cos;
+  const nlcx = width / 2 + rvx;
+  const nlcy = height / 2 + rvy;
+  const finalCx = nlcx * exportSx;
+  const finalCy = nlcy * exportSy;
+  const finalSx = 1 * exportSx;
+  const finalSy = 1 * exportSy;
+  let ra = (lr - rotation) % 360;
+  if (ra > 180) ra -= 360;
+  if (ra < -180) ra += 360;
+  const newX = finalCx - (lw * finalSx) / 2;
+  const newY = finalCy - (lh * finalSy) / 2;
+  return { x: newX, y: newY, scaleX: finalSx, scaleY: finalSy, rotation: ra };
+}
+
+async function expectRejects(code: string, fn: () => Promise<unknown>): Promise<void> {
+  let err: any = null;
+  try {
+    await fn();
+  } catch (e) {
+    err = e;
+  }
+  expect(err, `expected rejection with code ${code}`).not.toBeNull();
+  expect(err?.code).toBe(code);
+}
+
+async function histLen(): Promise<number> {
+  return (await bridge.getHistoryQuery()).entries.length;
+}
+async function histCursor(): Promise<number> {
+  return (await bridge.getHistoryQuery()).cursor;
+}
+
+describe("emulator canvas-size arms mirror the Rust arms", () => {
+  beforeEach(() => {
+    __resetEmulatedForTests();
+  });
+  afterEach(() => {
+    __resetEmulatedForTests();
+  });
+
+  it("cropCanvas happy path: unlocked offset, locked skip, dims + selection + ordered delta + label", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    await apply({ type: "addLayer", id: "B", name: "B", width: 10, height: 10, index: 0 });
+    await apply({ type: "setLocked", id: "B", kind: "base", locked: true });
+
+    const before = await histLen();
+    const res = await apply({ type: "cropCanvas", x: 5, y: 5, width: 100, height: 100 });
+
+    const a = res.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "A").layer;
+    const b = res.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "B").layer;
+    expect(a.x).toBe(-5);
+    expect(a.y).toBe(-5);
+    expect(b.x).toBe(0); // locked: untouched
+    expect(b.y).toBe(0);
+    // Document size rides the snapshot; the emulator exposes it via the dim hook.
+    expect(getEmuDocumentDims()).toEqual({ width: 100, height: 100 });
+    // Selection cleared on crop.
+    expect(getEmuSelection()).toBeNull();
+    // Ordered Upserts of ALL layers (addLayer inserts above active => [B, A]).
+    expect(res.delta.changes.map((c: any) => c.layer.id)).toEqual(["B", "A"]);
+    // Entry recorded with the crop label and a DV bump.
+    const after = await bridge.getHistoryQuery();
+    expect(after.entries.length).toBe(before + 1);
+    expect(after.entries[after.entries.length - 1].label).toBe("Crop Canvas");
+    expect(res.documentVersion).toBe(after.cursor);
+  });
+
+  it("applyCrop with rotation: subtract-then-normalize matches the Rust arm (distinguishable from the buggy grouping)", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 200, height: 100, index: 0 });
+    await apply({ type: "transformLayer", id: "A", transform: { rotation: 179 } });
+
+    const res = await apply({ type: "applyCrop", x: 10, y: 10, width: 50, height: 50, rotation: 5 });
+    const a = res.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "A").layer;
+    const ref = refApplyCrop(10, 10, 50, 50, 5, 50, 50, 0, 0, 200, 100, 179);
+    expect(a.x).toBeCloseTo(ref.x, 6);
+    expect(a.y).toBeCloseTo(ref.y, 6);
+    expect(a.scaleX).toBeCloseTo(ref.scaleX, 6);
+    expect(a.scaleY).toBeCloseTo(ref.scaleY, 6);
+    // (179) - 5 = 174 after subtract-then-normalize. The incorrect
+    // `l.rotation ?? (0 - rot)` grouping would yield 179.
+    expect(a.rotation).toBeCloseTo(ref.rotation, 6);
+    expect(a.rotation).toBe(174);
+    expect(getEmuDocumentDims()).toEqual({ width: 50, height: 50 });
+  });
+
+  it("applyCrop half target pair rejects E_INVALID before any mutation", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    setEmuDocumentDims(100, 100);
+    const beforeLen = await histLen();
+    const beforeCursor = await histCursor();
+    const beforeDims = getEmuDocumentDims();
+
+    await expectRejects("E_INVALID", () =>
+      apply({ type: "applyCrop", x: 0, y: 0, width: 100, height: 100, targetWidth: 200 }),
+    );
+
+    // Nothing mutated: dims, layers, and history are all unchanged.
+    expect(getEmuDocumentDims()).toEqual(beforeDims);
+    expect(await histLen()).toBe(beforeLen);
+    expect(await histCursor()).toBe(beforeCursor);
+  });
+
+  it("resizeCanvas: empty layer delta + dims change + label + DV", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    const before = await histLen();
+
+    const res = await apply({ type: "resizeCanvas", width: 800, height: 600 });
+
+    expect(res.delta.changes).toHaveLength(0); // only the document size changed
+    expect(getEmuDocumentDims()).toEqual({ width: 800, height: 600 });
+    const after = await bridge.getHistoryQuery();
+    expect(after.entries.length).toBe(before + 1);
+    expect(after.entries[after.entries.length - 1].label).toBe("Resize Canvas");
+  });
+
+  it("non-positive size is a silent no-op on every canvas arm (no entry, DV or dims change)", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    setEmuDocumentDims(50, 50);
+
+    let beforeLen = await histLen();
+    let beforeCursor = await histCursor();
+    await apply({ type: "cropCanvas", x: 0, y: 0, width: 0, height: 100 });
+    expect(await histLen()).toBe(beforeLen);
+    expect(await histCursor()).toBe(beforeCursor);
+    expect(getEmuDocumentDims()).toEqual({ width: 50, height: 50 });
+
+    beforeLen = await histLen();
+    beforeCursor = await histCursor();
+    await apply({ type: "applyCrop", x: 0, y: 0, width: 0, height: 100, rotation: 5 });
+    expect(await histLen()).toBe(beforeLen);
+    expect(await histCursor()).toBe(beforeCursor);
+    expect(getEmuDocumentDims()).toEqual({ width: 50, height: 50 });
+
+    beforeLen = await histLen();
+    beforeCursor = await histCursor();
+    await apply({ type: "resizeCanvas", width: -1, height: 600 });
+    expect(await histLen()).toBe(beforeLen);
+    expect(await histCursor()).toBe(beforeCursor);
+    expect(getEmuDocumentDims()).toEqual({ width: 50, height: 50 });
+  });
+
+  it("non-finite required field rejects E_INVALID before mutation (and on the optional rotation / dims paths)", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 10, height: 10, index: 0 });
+    setEmuDocumentDims(50, 50);
+    const beforeLen = await histLen();
+    const beforeCursor = await histCursor();
+    const beforeDims = getEmuDocumentDims();
+
+    await expectRejects("E_INVALID", () =>
+      apply({ type: "cropCanvas", x: NaN, y: 0, width: 100, height: 100 }),
+    );
+    await expectRejects("E_INVALID", () =>
+      apply({ type: "applyCrop", x: 0, y: 0, width: 100, height: 100, rotation: NaN }),
+    );
+    await expectRejects("E_INVALID", () =>
+      apply({ type: "resizeCanvas", width: Infinity, height: 600 }),
+    );
+
+    expect(getEmuDocumentDims()).toEqual(beforeDims);
+    expect(await histLen()).toBe(beforeLen);
+    expect(await histCursor()).toBe(beforeCursor);
+  });
+
+  it("undo/redo across a crop restores emulator dims AND layer transforms (pins doc-size fields)", async () => {
+    await apply({ type: "addLayer", id: "A", name: "A", width: 200, height: 200, index: 0 });
+
+    await apply({ type: "cropCanvas", x: 10, y: 20, width: 500, height: 400 });
+    expect(getEmuDocumentDims()).toEqual({ width: 500, height: 400 });
+
+    await apply({ type: "applyCrop", x: 0, y: 0, width: 100, height: 100, targetWidth: 800, targetHeight: 600 });
+    expect(getEmuDocumentDims()).toEqual({ width: 800, height: 600 });
+
+    // undo applyCrop -> dims back to the cropCanvas entry's pre-image (500x400).
+    await apply({ type: "undo" });
+    expect(getEmuDocumentDims()).toEqual({ width: 500, height: 400 });
+
+    // redo applyCrop -> dims restored from the entry's post-image (800x600).
+    await apply({ type: "redo" });
+    expect(getEmuDocumentDims()).toEqual({ width: 800, height: 600 });
+
+    // undo applyCrop again, then undo cropCanvas -> original state (0x0).
+    await apply({ type: "undo" });
+    expect(getEmuDocumentDims()).toEqual({ width: 500, height: 400 });
+    const u2 = await apply({ type: "undo" });
+    expect(getEmuDocumentDims()).toEqual({ width: 0, height: 0 });
+    // getSnapshot() returns empty in emu mode, so read the restored layer from the
+    // undo delta (the cropCanvas entry's pre-image: layer A back at (0,0)).
+    const a = u2.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "A").layer;
+    expect(a.x).toBe(0);
+    expect(a.y).toBe(0);
+  });
+});
+

@@ -22,6 +22,15 @@ pub struct RenderSnapshot {
     // Optional so pre-selection envelopes still parse; skip when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection: Option<SelectionState>,
+    // Additive: document size rides the snapshot so document-dimension commands
+    // (Crop Canvas / Apply Crop / Resize Canvas) can surface the new canvas size
+    // without a dedicated delta channel. Optional so pre-dims envelopes still
+    // parse; skip when the engine has no document size (e.g. an unseeded wasm
+    // engine running only layer arms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -165,5 +174,34 @@ mod tests {
                 inverted: Some(true),
             })
         );
+    }
+
+    // Additive field: a snapshot JSON that predates the `width`/`height` document
+    // size fields must still parse (both default to None). Guards the wire-compat
+    // contract for the Crop Canvas / Apply Crop / Resize Canvas arms.
+    #[test]
+    fn render_snapshot_parses_without_dims_keys() {
+        let json = r#"{"version":3,"layers":[]}"#;
+        let snap: RenderSnapshot =
+            serde_json::from_str(json).expect("legacy snapshot without dims must parse");
+        assert_eq!(snap.width, None);
+        assert_eq!(snap.height, None);
+    }
+
+    #[test]
+    fn render_snapshot_parses_with_dims_and_emits_both_keys() {
+        let snap = RenderSnapshot {
+            version: 7,
+            layers: vec![],
+            selection: None,
+            width: Some(1024.0),
+            height: Some(768.0),
+        };
+        let json = serde_json::to_string(&snap).expect("snapshot with dims serializes");
+        let parsed: RenderSnapshot = serde_json::from_str(&json).expect("round-trips with dims");
+        assert_eq!(parsed.width, Some(1024.0));
+        assert_eq!(parsed.height, Some(768.0));
+        assert!(json.contains("\"width\":1024"));
+        assert!(json.contains("\"height\":768"));
     }
 }

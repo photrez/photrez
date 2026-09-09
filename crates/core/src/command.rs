@@ -177,6 +177,73 @@ pub enum Command {
     RasterizeLayer {
         id: String,
     },
+    // Crop the canvas: offset every unlocked layer by (-x, -y) and set the document
+    // size to (width, height). Mirror of DocumentEngine.cropCanvas / performCropCanvas
+    // (unlocked layers move, document resizes; locked layers are untouched, selection
+    // is cleared). Non-positive width/height is a silent no-op; non-finite inputs
+    // reject with E_INVALID (stricter than the host, which would let NaN slip
+    // through its comparisons).
+    //
+    // Divergence (host-side guard must survive at routing time): the host oracle also
+    // silently rejects dimensions above its device-adaptive effective maximum
+    // (document.ts cropCanvas/applyCrop/resizeCanvas max-dim checks), whereas this arm
+    // accepts any finite size. The host guard must remain in place before this command
+    // reaches the arm. JSON-wire nuance: a non-finite value inside an OPTIONAL field
+    // (rotation / target dims) arrives on the wire as null -> absent, so the arm treats
+    // it as no rotation / no target; the arm's non-finite E_INVALID gate therefore
+    // applies to the REQUIRED numeric fields (x/y/width/height). The host oracle would
+    // instead perform NaN math on the optional field.
+    CropCanvas {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
+    // Apply a non-destructive crop: recenter every unlocked layer into the crop
+    // region, rotate around the crop center, scale to the (optional) target size, and
+    // re-derive its transform. Mirror of DocumentEngine.applyCrop's non-destructive
+    // branch (the pixel-baking delete/fill variants remain host-side). `rotation`
+    // defaults to 0; `target_width`/`target_height` are an optional pair (a half-pair
+    // rejects with E_INVALID). Non-positive width/height is a silent no-op;
+    // non-finite inputs reject with E_INVALID.
+    //
+    // Divergence (host-side guard must survive at routing time): the host oracle also
+    // silently rejects final dimensions above its device-adaptive effective maximum
+    // (document.ts applyCrop max-dim check), whereas this arm accepts any finite size.
+    // JSON-wire nuance: `rotation` and `target_width`/`target_height` are OPTIONAL; a
+    // non-finite value inside either arrives on the wire as null -> absent, so the arm
+    // treats it as no rotation / no target. The arm's non-finite E_INVALID gate
+    // therefore applies to the REQUIRED fields (x/y/width/height/rotation when present);
+    // the host oracle would perform NaN math on the absent-but-parsed optional field.
+    ApplyCrop {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        #[serde(default)]
+        rotation: Option<f64>,
+        #[serde(default)]
+        target_width: Option<f64>,
+        #[serde(default)]
+        target_height: Option<f64>,
+    },
+    // Resize the canvas to (width, height). Mirror of DocumentEngine.resizeCanvas:
+    // only the document size changes, no layer is touched. Non-positive dims are a
+    // silent no-op; non-finite inputs reject with E_INVALID. The document size is
+    // undoable and rides the snapshot (no layer delta is emitted).
+    //
+    // Divergence (host-side guard must survive at routing time): the host
+    // DocumentEngine.resizeCanvas THROWS E_RESOURCE_LIMIT when the new dimensions
+    // exceed its memory-budget projection (document.ts resizeCanvas budget check),
+    // whereas this arm has no notion of a pixel-memory budget and accepts any finite
+    // size. The host guard must remain in place before this command reaches the arm.
+    // JSON-wire nuance: width/height are REQUIRED fields, so a non-finite value on the
+    // wire serializes to null and is rejected at envelope parse (E_ENVELOPE_PARSE)
+    // before this arm's explicit E_INVALID gate runs.
+    ResizeCanvas {
+        width: f64,
+        height: f64,
+    },
     BrushStroke {
         layer_id: String,
         points: Vec<StrokePoint>,

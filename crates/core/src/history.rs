@@ -29,6 +29,19 @@ pub(crate) enum EntryPayload {
     Native {
         before: LayerSet,
         after: LayerSet,
+        // Document-size (canvas width/height) undo state for the Crop Canvas /
+        // Apply Crop / Resize Canvas arms. The engine keeps `doc_size` as separate
+        // state from the LayerSet, so a plain LayerSet swap does NOT restore it;
+        // these capture the pre/post document size so undo/redo of a canvas arm
+        // restores both the layer transforms AND the document dimensions. Core-
+        // local (no serde) — never crosses the wire. All other arms leave both
+        // `begin_forward` captures the then-current `doc_size` for EVERY `Native`
+        // entry (not just the canvas arms), and the apply() walker unconditionally
+        // writes it back on undo/redo. Non-canvas arms never mutate `doc_size`, so
+        // restoring the captured (unchanged) value is a harmless no-op rather than
+        // a special case.
+        doc_size_before: Option<(f64, f64)>,
+        doc_size_after: Option<(f64, f64)>,
     },
     External {
         token: String,

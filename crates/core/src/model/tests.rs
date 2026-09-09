@@ -575,7 +575,7 @@ fn engine_native_entry_before_after_share_unchanged_layer_arcs() {
 
     let entry = eng.entries.last().unwrap();
     match &entry.payload {
-        EntryPayload::Native { before, after } => {
+        EntryPayload::Native { before, after, .. } => {
             assert_eq!(before.0.len(), 2);
             assert_eq!(after.0.len(), 2);
             // B (index 1) is unchanged -> same Arc pointer in before & after.
@@ -635,7 +635,7 @@ fn native_entry_memory_cost_does_not_double_count_shared_layers() {
     // Unique-allocation cost must be strictly below the naive before+after
     // per-set sum, which double-counts the shared B layer.
     let naive_sum = match &entry.payload {
-        EntryPayload::Native { before, after } => {
+        EntryPayload::Native { before, after, .. } => {
             let b: u64 = before
                 .iter()
                 .map(|a| ProtocolEngine::estimate_layer_meta_bytes(a.as_ref()))

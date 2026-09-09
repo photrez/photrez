@@ -61,6 +61,12 @@ export type RenderSnapshot = {
   // Additive: selection rides the Model-A snapshot (host-side undo history).
   // Optional so pre-selection snapshots still parse.
   selection?: SelectionState | null;
+  // Document canvas size. Additive (mirrors RenderSnapshot.width/height from
+  // crates/core/src/projection.rs): the canvas-size command arms (cropCanvas /
+  // applyCrop / resizeCanvas) carry the new canvas dims here because they are not
+  // expressible as a layer delta. Optional so pre-dims snapshots still parse.
+  width?: number;
+  height?: number;
 };
 
 export type RenderDelta = {
@@ -232,7 +238,27 @@ export type Command =
   | { type: "mergeDown"; id: string; mergedId: string }
   | { type: "mergeSelected"; ids: string[]; mergedId: string }
   | { type: "flatten"; mergedId: string }
-  | { type: "rasterizeLayer"; id: string };
+  | { type: "rasterizeLayer"; id: string }
+  // Canvas-size command arms (mirror the TS DocumentEngine.cropCanvas /
+  // applyCrop / resizeCanvas ops so the native ProtocolEngine owns them). Crops
+  // offset every unlocked layer by (-x, -y) and resize the document; applyCrop
+  // recenters + optionally rotates/scales each unlocked layer (non-destructive
+  // branch only - the pixel-baking variants stay host-side); resizeCanvas only
+  // changes the document size. Non-positive width/height is a silent no-op;
+  // non-finite inputs reject with E_INVALID (stricter than the host). The
+  // rotation/target-size fields are optional and camelCase on the wire.
+  | { type: "cropCanvas"; x: number; y: number; width: number; height: number }
+  | {
+      type: "applyCrop";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation?: number;
+      targetWidth?: number;
+      targetHeight?: number;
+    }
+  | { type: "resizeCanvas"; width: number; height: number };
 
 // The four TS layer-lock kinds (setLayerLocked + setLayerLock{Transparency,
 // Position,Rotation}). `base` maps to RenderLayer.locked; the other three map to

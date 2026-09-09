@@ -44,6 +44,13 @@ pub struct ProtocolEngine {
     // undoable transition in the command stream; it rides Model-A snapshots and is
     // reconciled onto the canonical shadow when one is seeded.
     pub(crate) selection: Option<SelectionState>,
+    // Engine document size (canvas width/height). The native ProtocolEngine keeps
+    // its own document dims (the TS oracle reads model.width/height directly; the
+    // structural arms instead read the seeded canonical shadow). `None` until a
+    // canvas-size command (Crop Canvas / Apply Crop / Resize Canvas) sets it or a
+    // canonical shadow is seeded. Unlike the LayerSet, this is undoable state for
+    // the canvas arms, so each such entry snapshots it (see history.rs).
+    pub(crate) doc_size: Option<(f64, f64)>,
     // Per-document canonical shadow, kept in sync with layer edits via
     // reconciliation (see `CanonicalShadow`). `None` until seeded; wasm engines
     // are never seeded and the native-authority path is OFF by default, so
@@ -65,6 +72,7 @@ impl Default for ProtocolEngine {
             pending_external: None,
             canonical: None,
             selection: None,
+            doc_size: None,
         }
     }
 }
@@ -80,7 +88,15 @@ impl ProtocolEngine {
             version: self.version,
             layers: self.layers.iter().map(|a| a.as_ref().clone()).collect(),
             selection: self.selection.clone(),
+            width: self.doc_size.map(|(w, _)| w),
+            height: self.doc_size.map(|(_, h)| h),
         }
+    }
+
+    /// Read the engine document size, if a canvas-size command (or a canonical
+    /// shadow seed) has set it.
+    pub fn doc_size(&self) -> Option<(f64, f64)> {
+        self.doc_size
     }
 
     /// Read the current engine selection state, if any.
@@ -131,6 +147,7 @@ impl ProtocolEngine {
     /// ADDITIVE / UNWIRED: only populated from the gated native-authority seed
     /// path. In production `canonical` is `None`, so no reconcile ever runs.
     pub fn seed_canonical(&mut self, doc: CanonicalDocument) {
+        self.doc_size = Some((doc.width, doc.height));
         self.canonical = Some(CanonicalShadow::new(doc));
     }
 
@@ -237,6 +254,11 @@ impl ProtocolEngine {
                 // set (with its per-layer Arc pointers) instead of cloning it.
                 before: self.layers.clone(),
                 after: LayerSet::empty(),
+                // Document size as observed BEFORE the forward command mutates it.
+                // Canvas arms set `self.doc_size` after this, so `doc_size_after`
+                // is filled in by finish_forward.
+                doc_size_before: self.doc_size,
+                doc_size_after: None,
             },
         };
         self.entries.push(entry);
@@ -257,9 +279,16 @@ impl ProtocolEngine {
         };
         if let Some(e) = self.entries.get_mut(idx) {
             e.memory_cost_bytes = cost;
-            if let EntryPayload::Native { after, .. } = &mut e.payload {
+            if let EntryPayload::Native {
+                after,
+                doc_size_after,
+                ..
+            } = &mut e.payload
+            {
                 // O(1): shares the post-change set (Arc bump), no layer clone.
                 *after = self.layers.clone();
+                // Document size as observed AFTER the forward command mutates it.
+                *doc_size_after = self.doc_size;
             }
         }
         self.cursor = self.entries.len();
@@ -470,6 +499,10 @@ mod document_core_apply;
 // a sibling `impl ProtocolEngine` block to keep this module under the 1000-line guard.
 #[path = "document_core_structural.rs"]
 mod document_core_structural;
+// Canvas-size command-arm bodies (Crop Canvas / Apply Crop / Resize Canvas) live in
+// a sibling `impl ProtocolEngine` block to keep this module under the 1000-line guard.
+#[path = "document_core_canvas.rs"]
+mod document_core_canvas;
 
 // ── wasm bridge — per-document engines (module lifetime, survives location.reload() until WASM re-instantiated) ──
 // Each document id owns its own ProtocolEngine so multi-document sessions are
@@ -534,6 +567,8 @@ pub fn protocol_snapshot_json(doc_id: &str) -> String {
                 version: 0,
                 layers: Vec::new(),
                 selection: None,
+                width: None,
+                height: None,
             })
     });
     serde_json::to_string(&snap).unwrap()
@@ -646,3 +681,7 @@ mod arm_tests;
 #[cfg(test)]
 #[path = "document_core_arm_structural_tests.rs"]
 mod arm_structural_tests;
+
+#[cfg(test)]
+#[path = "document_core_canvas_tests.rs"]
+mod canvas_tests;

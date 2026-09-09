@@ -1566,3 +1566,264 @@ describe("operation parity matrix - STRUCTURAL ARM PATH (ProtocolEngine structur
     console.log(JSON.stringify(structMatrix, null, 2));
   });
 });
+
+// -- Section 6: canvas-size command arms (CropCanvas / ApplyCrop / ResizeCanvas)
+//    against the REAL wasm ProtocolEngine. Side A is the TS DocumentEngine crop/
+//    resize ops as the independent oracle; Side B drives the real wasm arm via the
+//    production bridge. Layer geometry is compared by NAME (the arm uses the
+//    TS-minted id we supply; the TS engine mints its own, so ids differ). Document
+//    size rides the snapshot width/height (canvas-size arms emit no/empty layer
+//    delta) and is compared directly for both sides.
+//    Design boundary: the pixel-baking crop variants (delete-cropped-pixels bake
+//    and fill-background bake) are deliberately NOT represented by this command set
+//    and remain host-side.
+describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/applyCrop/resize, real wasm)", () => {
+  const CANVAS_DOC = "parity-canvas-arm";
+  const canvasMatrix: Array<Record<string, unknown>> = [];
+
+  beforeEach(() => {
+    bridge.resetWasmDoc(CANVAS_DOC);
+  });
+
+  function armApply(command: any): Promise<any> {
+    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: CANVAS_DOC, command });
+  }
+  function armSnapshot(): Promise<any> {
+    return bridge.getSnapshot(CANVAS_DOC);
+  }
+  async function armAdd(name: string): Promise<{ id: string; snapshot: any }> {
+    const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    await armApply({ type: "addLayer", id, name, width: 200, height: 200, index: 0 });
+    const snap = await armSnapshot();
+    return { id, snapshot: snap };
+  }
+
+  // The canvas arms read NO document dims from the seeded canonical shadow (unlike
+  // merge/flatten), so no canonical seed is needed — doc_size starts None and the
+  // arm sets it on first crop/resize.
+
+  it("(c1) cropCanvas: offsets unlocked layers + resizes doc; overlap + dims EQUAL; selection cleared", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    await armApply({ type: "cropCanvas", x: 10, y: 20, width: 100, height: 100 });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId);
+
+    const ts = new DocumentEngine("arm-ts-c1", "C", 200, 200);
+    const tl = ts.addLayer("Layer"); // 200x200 at (0,0)
+    ts.cropCanvas(10, 20, 100, 100); // unlocks (default) -> offset (-10,-20)
+    const tsLayers = ts.getLayers() as unknown as any[];
+
+    // HARD: matched-by-name overlap (the single Layer shifted by (-10,-20)).
+    expectByNameOverlap(armSnap.layers, tsLayers, "(c1) crop offset");
+    expect(armL.x).toBe(-10);
+    expect(armL.y).toBe(-20);
+    // HARD: document size rides the snapshot; both sides are 100x100.
+    expect(armSnap.width).toBe(100);
+    expect(armSnap.height).toBe(100);
+    expect(ts.getWidth()).toBe(100);
+    expect(ts.getHeight()).toBe(100);
+    // Selection is cleared on crop by both the arm and the host op.
+    expect(armSnap.selection).toBeFalsy();
+    expect(ts.getSelection()).toBeNull();
+
+    canvasMatrix.push({
+      scenario: "(c1) cropCanvas (offset + resize)",
+      overlap: "EQUAL (unlocked layer shifted by -x,-y, by name)",
+      dims: "EQUAL (100x100 on both via snapshot width/height)",
+      selection: "EQUAL (both cleared on crop)",
+      divergences: "none on overlap/dims/selection",
+    });
+  });
+
+  it("(c2) cropCanvas: locked layer untouched, unlocked shifted; dims EQUAL", async () => {
+    requireWasm();
+    await armAdd("A");
+    const b = await armAdd("B");
+    await armApply({ type: "setLocked", id: b.id, kind: "base", locked: true });
+    await armApply({ type: "cropCanvas", x: 5, y: 5, width: 100, height: 100 });
+    const armSnap = await armSnapshot();
+    const armA = armSnap.layers.find((l: any) => l.name === "A");
+    const armB = armSnap.layers.find((l: any) => l.name === "B");
+
+    const ts = new DocumentEngine("arm-ts-c2", "C", 200, 200);
+    const al = ts.addLayer("A"); // 200x200 at (0,0)
+    const bl = ts.addLayer("B");
+    ts.setLayerLocked(bl.id, true);
+    ts.cropCanvas(5, 5, 100, 100);
+    const tsLayers = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayers, "(c2) locked-untouched");
+    // A shifted, B (locked) stays put on BOTH engines.
+    expect(armA.x).toBe(-5);
+    expect(armB.x).toBe(0);
+    expect(armSnap.width).toBe(100);
+    expect(ts.getWidth()).toBe(100);
+
+    canvasMatrix.push({
+      scenario: "(c2) cropCanvas (locked layer untouched)",
+      overlap: "EQUAL (unlocked shifted -5,-5; locked A/B names preserved; by name)",
+      dims: "EQUAL (100x100 on both)",
+      divergences: "none on overlap/dims",
+    });
+  });
+
+  it("(c3) applyCrop: plain rect recenters layer; overlap + dims EQUAL", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    await armApply({ type: "applyCrop", x: 50, y: 50, width: 100, height: 100 });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId);
+
+    const ts = new DocumentEngine("arm-ts-c3", "C", 200, 200);
+    const tl = ts.addLayer("Layer"); // 200x200 at (0,0), rotation 0
+    ts.applyCrop(50, 50, 100, 100); // non-destructive recenter into the 100x100 crop
+    const tsLayers = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayers, "(c3) applyCrop recenter");
+    // 200x200 layer centered at (100,100); 100x100 crop centered at (100,100) ->
+    // final center (50,50) -> top-left (-50,-50) (uniform scale 1).
+    expect(armL.x).toBe(-50);
+    expect(armL.y).toBe(-50);
+    expect(armL.scaleX).toBe(1);
+    expect(armL.scaleY).toBe(1);
+    expect(armL.rotation).toBe(0);
+    expect(armSnap.width).toBe(100);
+    expect(armSnap.height).toBe(100);
+    expect(ts.getWidth()).toBe(100);
+    expect(ts.getHeight()).toBe(100);
+
+    canvasMatrix.push({
+      scenario: "(c3) applyCrop (plain rect)",
+      overlap: "EQUAL (recenter + uniform scale 1, by name)",
+      dims: "EQUAL (100x100 on both via snapshot)",
+      divergences: "none on overlap/dims",
+    });
+  });
+
+  it("(c4) applyCrop: rotation + target size; overlap + scaled dims EQUAL (WRAP branch exercised)", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    // Pre-rotate the layer to 179 so the crop subtraction (179 - (-5) = 184) exceeds
+    // 180 and forces the normalizeRotation WRAP branch (>180 -> -360) on both engines.
+    await armApply({ type: "transformLayer", id: armId, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 179 } });
+    await armApply({ type: "applyCrop", x: 10, y: 10, width: 50, height: 50, rotation: -5, targetWidth: 100, targetHeight: 200 });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId);
+
+    const ts = new DocumentEngine("arm-ts-c4", "C", 200, 200);
+    const tl = ts.addLayer("Layer"); // 200x200 at (0,0), rotation 0
+    ts.transformLayer(tl.id, { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 179 });
+    ts.applyCrop(10, 10, 50, 50, { rotation: -5, targetSize: { w: 100, h: 200 } });
+    const tsLayers = ts.getLayers() as unknown as any[];
+
+    expectByNameOverlap(armSnap.layers, tsLayers, "(c4) applyCrop rotate+target");
+    // rotation: normalize(179 - (-5)) = normalize(184) = -176 on both (WRAP branch).
+    expect(armL.rotation).toBeCloseTo(-176, 6);
+    expect(armL.scaleX).toBeCloseTo(2, 6); // 100/50
+    expect(armL.scaleY).toBeCloseTo(4, 6); // 200/50
+    expect(armSnap.width).toBe(100);
+    expect(armSnap.height).toBe(200);
+    expect(ts.getWidth()).toBe(100);
+    expect(ts.getHeight()).toBe(200);
+
+    canvasMatrix.push({
+      scenario: "(c4) applyCrop (layer rotation 179 + crop rotation -5 + target 100x200)",
+      overlap: "EQUAL (rotate -176 via WRAP branch, scaleX=2 scaleY=4, by name)",
+      dims: "EQUAL (100x200 target on both via snapshot)",
+      divergences: "none on overlap/dims (WRAP branch of normalizeRotation exercised on both engines)",
+    });
+  });
+
+  it("(c4b) applyCrop half target pair rejected (arm-pair gate, distinct from wire envelope-parse)", async () => {
+    requireWasm();
+    await armAdd("Layer");
+    let rejected = false;
+    let code = "";
+    try {
+      await armApply({ type: "applyCrop", x: 0, y: 0, width: 100, height: 100, targetWidth: 200 });
+    } catch (e: any) {
+      rejected = true;
+      code = String(e?.message ?? e);
+    }
+    expect(rejected).toBe(true);
+    // This is the arm's explicit half-pair gate (targetWidth without targetHeight),
+    // NOT the JSON-wire envelope-parse rejection: both target dims are OPTIONAL, so a
+    // single present dim parses cleanly and the arm enforces the pair-completeness rule.
+    expect(code).toMatch(/E_INVALID/);
+
+    canvasMatrix.push({
+      scenario: "(c4b) applyCrop (targetWidth only) rejection",
+      overlap: "n/a",
+      dims: "n/a",
+      divergences: "half target-size pair rejected (E_INVALID). Optional-field wire nuance: a non-finite target dim arrives on the wire as null -> absent (treated as no target); the arm's non-finite E_INVALID gate therefore guards REQUIRED fields, while the optional-pair completeness gate here rejects an explicitly-present single target dim.",
+    });
+  });
+
+  it("(c5) resizeCanvas: layers untouched; dims EQUAL; empty delta", async () => {
+    requireWasm();
+    const { id: armId } = await armAdd("Layer");
+    const pre = await armSnapshot();
+    const res = await armApply({ type: "resizeCanvas", width: 800, height: 600 });
+    const armSnap = await armSnapshot();
+    const armL = armSnap.layers.find((l: any) => l.id === armId);
+
+    const ts = new DocumentEngine("arm-ts-c5", "C", 200, 200);
+    const tl = ts.addLayer("Layer");
+    ts.resizeCanvas(800, 600);
+    const tsLayers = ts.getLayers() as unknown as any[];
+
+    // Layers are NOT moved by resize; only the document size changes.
+    expectByNameOverlap(armSnap.layers, tsLayers, "(c5) resize leaves layers");
+    expect(armL.x).toBe(pre.layers.find((l: any) => l.id === armId).x);
+    // Resize emits an EMPTY layer delta (the doc size rides the snapshot).
+    expect(res.delta.changes).toHaveLength(0);
+    expect(armSnap.width).toBe(800);
+    expect(armSnap.height).toBe(600);
+    expect(ts.getWidth()).toBe(800);
+    expect(ts.getHeight()).toBe(600);
+
+    canvasMatrix.push({
+      scenario: "(c5) resizeCanvas (800x600)",
+      overlap: "EQUAL (layers untouched, by name)",
+      dims: "EQUAL (800x600 on both via snapshot)",
+      delta: "empty layer delta on the arm (size rides snapshot)",
+      divergences: "none on overlap/dims",
+    });
+  });
+
+  it("(c6) non-finite cropCanvas rejected (arm STRICTER than host)", async () => {
+    requireWasm();
+    await armAdd("Layer");
+    let rejected = false;
+    let code = "";
+    try {
+      await armApply({ type: "cropCanvas", x: NaN, y: 0, width: 100, height: 100 });
+    } catch (e: any) {
+      rejected = true;
+      code = String(e?.message ?? e);
+    }
+    // The command is rejected (the arm is stricter than the host). On the JSON wire
+    // a non-finite REQUIRED field (x) serializes to `null`, so the wasm rejects at
+    // *envelope-parse* (E_ENVELOPE_PARSE) before the arm's explicit E_INVALID guard
+    // runs; the arm's own E_INVALID non-finite gate (for finite-but-present required
+    // fields) is the separate code path, covered by the Rust unit suite. The wildcard
+    // matches either rejection code; the divergence statement below records the reason.
+    expect(rejected).toBe(true);
+    expect(code).toMatch(/E_INVALID|E_ENVELOPE_PARSE/);
+
+    canvasMatrix.push({
+      scenario: "(c6) cropCanvas(NaN) rejection",
+      overlap: "n/a",
+      dims: "n/a",
+      divergences: "non-finite input rejected (arm stricter than host). On the JSON wire NaN serializes to null, so the wasm rejects at envelope-parse (E_ENVELOPE_PARSE) before the arm's explicit E_INVALID guard; the host oracle lets NaN slip through its `<= 0` comparisons and proceeds. The arm's own E_INVALID non-finite gate is covered by the Rust unit suite.",
+    });
+  });
+
+  afterAll(() => {
+    // eslint-disable-next-line no-console
+    console.log("\n=== OPERATION PARITY MATRIX - CANVAS SIZE ARM PATH (ProtocolEngine crop/applyCrop/resize) ===");
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(canvasMatrix, null, 2));
+  });
+});

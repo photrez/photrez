@@ -254,5 +254,8 @@ function applyDeltaToSnapshot(snap: RenderSnapshot, delta: RenderDelta): RenderS
       if (idx >= 0) layers.splice(idx, 1);
     }
   }
-  return { version: delta.version, layers };
+  // Carry canvas dims + selection forward: ResizeCanvas/CropCanvas/ApplyCrop emit
+  // an empty (or layer-only) delta but change the document size, which rides the
+  // snapshot's width/height. Selection is engine-local UI state on the snapshot.
+  return { version: delta.version, layers, width: snap.width, height: snap.height, selection: snap.selection };
 }

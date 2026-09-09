@@ -459,6 +459,28 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
     case "rasterizeLayer":
       rustCmd = { type: "rasterizeLayer", id: c.id };
       break;
+    // Canvas-size arms: the wasm command enum is camelCase (serde rename_all),
+    // so the variant type stays camelCase; only the optional nested fields
+    // serialize snake_case on the wire (matching target_width/target_height on the
+    // Rust ApplyCrop variant), so translate the TS camelCase command fields.
+    case "cropCanvas":
+      rustCmd = { type: "cropCanvas", x: c.x, y: c.y, width: c.width, height: c.height };
+      break;
+    case "applyCrop":
+      rustCmd = {
+        type: "applyCrop",
+        x: c.x,
+        y: c.y,
+        width: c.width,
+        height: c.height,
+        rotation: c.rotation,
+        target_width: c.targetWidth,
+        target_height: c.targetHeight,
+      };
+      break;
+    case "resizeCanvas":
+      rustCmd = { type: "resizeCanvas", width: c.width, height: c.height };
+      break;
     default: {
       // Exhaustiveness guard: every Command variant is handled above. A new
       // variant that forgets its wire mapping fails the type-check here instead

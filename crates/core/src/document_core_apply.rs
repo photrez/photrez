@@ -10,7 +10,11 @@ impl ProtocolEngine {
     // engine field AND mirror it onto the canonical shadow (when seeded) so the
     // protocol_canonical_native read-back stays truthful. No history entry, empty
     // delta — the caller's apply() tail bumps the version and reconciles.
-    fn set_engine_selection(&mut self, sel: Option<SelectionState>) {
+    // Selection is engine-local UI state, not an undoable transition. Set the
+    // engine field AND mirror it onto the canonical shadow (when seeded) so the
+    // protocol_canonical_native read-back stays truthful. No history entry, empty
+    // delta — the caller's apply() tail bumps the version and reconciles.
+    pub(crate) fn set_engine_selection(&mut self, sel: Option<SelectionState>) {
         self.selection = sel.clone();
         if let Some(shadow) = &mut self.canonical {
             shadow.doc.selection = sel;
@@ -679,6 +683,50 @@ impl ProtocolEngine {
                 Ok(c) => c,
                 Err(e) => return Err(e),
             },
+            // -- Canvas-size command arms (Crop Canvas / Apply Crop / Resize Canvas) --
+            // Each delegates to a private helper in document_core_canvas.rs that
+            // performs begin_forward -> mutate doc_size + (optional) layers ->
+            // finish_forward and returns the delta (ordered all-layer Upserts for
+            // the crop arms; an empty delta for resize, whose only effect is the
+            // document size). Helpers reject E_INVALID before mutation and treat
+            // non-positive dims as a silent no-op (matching the TS oracle).
+            Command::CropCanvas {
+                x,
+                y,
+                width,
+                height,
+            } => match self.apply_crop_canvas(x, y, width, height) {
+                Ok(c) => c,
+                Err(e) => return Err(e),
+            },
+            Command::ApplyCrop {
+                x,
+                y,
+                width,
+                height,
+                rotation,
+                target_width,
+                target_height,
+            } => {
+                match self.apply_apply_crop(
+                    x,
+                    y,
+                    width,
+                    height,
+                    rotation,
+                    target_width,
+                    target_height,
+                ) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                }
+            }
+            Command::ResizeCanvas { width, height } => {
+                match self.apply_resize_canvas(width, height) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                }
+            }
             // Handled by the early-return above (kept for exhaustiveness).
             Command::RecordExternalTransition { .. } => Vec::new(),
             Command::Undo => {
@@ -688,10 +736,32 @@ impl ProtocolEngine {
                 } else {
                     let e = &self.entries[self.cursor - 1];
                     match &e.payload {
-                        EntryPayload::Native { before, .. } => {
+                        EntryPayload::Native {
+                            before,
+                            doc_size_before,
+                            ..
+                        } => {
                             let new_layers = before.clone();
                             let changes = Self::diff(&self.layers, &new_layers);
                             self.layers = new_layers;
+                            // Restore the document size for canvas arms. This is
+                            // always written (Some or None) so a None->Some crop
+                            // undoes back to None; metadata arms leave the value
+                            // unchanged, so restoring it is a no-op for them.
+                            self.doc_size = *doc_size_before;
+                            if let Some(d) = doc_size_before {
+                                if let Some(sh) = &mut self.canonical {
+                                    sh.doc.width = d.0;
+                                    sh.doc.height = d.1;
+                                }
+                            }
+                            // Hazard: a full canonical re-seed replaces the history
+                            // stream wholesale (gated path), so this walker never
+                            // runs against re-seeded shadow dims in production. If
+                            // that gating is ever relaxed, a subsequent undo/redo
+                            // would overwrite the re-seeded shadow dimensions with
+                            // this entry's captured pair. Resolve before native
+                            // authority cutover.
                             self.cursor -= 1;
                             changes
                         }
@@ -725,10 +795,30 @@ impl ProtocolEngine {
                 } else {
                     let e = &self.entries[self.cursor];
                     match &e.payload {
-                        EntryPayload::Native { after, .. } => {
+                        EntryPayload::Native {
+                            after,
+                            doc_size_after,
+                            ..
+                        } => {
                             let new_layers = after.clone();
                             let changes = Self::diff(&self.layers, &new_layers);
                             self.layers = new_layers;
+                            // Restore the document size for canvas arms (see undo
+                            // branch: always written, Some or None).
+                            self.doc_size = *doc_size_after;
+                            if let Some(d) = doc_size_after {
+                                if let Some(sh) = &mut self.canonical {
+                                    sh.doc.width = d.0;
+                                    sh.doc.height = d.1;
+                                }
+                            }
+                            // Hazard: a full canonical re-seed replaces the history
+                            // stream wholesale (gated path), so this walker never
+                            // runs against re-seeded shadow dims in production. If
+                            // that gating is ever relaxed, a subsequent undo/redo
+                            // would overwrite the re-seeded shadow dimensions with
+                            // this entry's captured pair. Resolve before native
+                            // authority cutover.
                             self.cursor += 1;
                             changes
                         }

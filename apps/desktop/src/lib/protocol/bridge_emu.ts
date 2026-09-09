@@ -40,6 +40,13 @@ type EmuEntry = {
   bytes: number;
   before: RenderSnapshot["layers"];
   after: RenderSnapshot["layers"];
+  // Canvas size before/after this entry (the crop/resize arms mutate it). Stored
+  // so undo/redo restores the document size, mirroring the Rust EntryPayload doc
+  // size swap in document_core_apply.rs.
+  docWBefore: number;
+  docHBefore: number;
+  docWAfter: number;
+  docHAfter: number;
   token?: string;
 };
 let emuEntries: EmuEntry[] = [];
@@ -105,16 +112,30 @@ export function estimateEmuNativeBytes(before: RenderSnapshot["layers"], after: 
   return layerBytes + ptrSlots + wrappers;
 }
 
+// Normalize a rotation angle in degrees to the canonical (-180, 180] range,
+// mirroring the Rust apply_crop_canvas normalize_rotation (and the TS
+// normalizeRotation in viewport/transformGeometry.ts): a = angle % 360, then
+// > 180 -> -360, then < -180 -> +360. JS % on a negative dividend matches Rust
+// (e.g. -270 % 360 === -270 -> +360 === 90).
+function normalizeRotation(angleDeg: number): number {
+  let a = angleDeg % 360;
+  if (a > 180) a -= 360;
+  if (a < -180) a += 360;
+  return a;
+}
+
 function beginEmu(label: string, affected: string[]): number {
   emuEntries = emuEntries.slice(0, emuCursor);
   const seq = emuNextSeq++;
-  emuEntries.push({ seq, groupId: seq, origin: "native", label, affected, vb: emuVersion, va: emuVersion + 1, bytes: 0, before: [...emuLayers], after: [] });
+  emuEntries.push({ seq, groupId: seq, origin: "native", label, affected, vb: emuVersion, va: emuVersion + 1, bytes: 0, before: [...emuLayers], after: [], docWBefore: emuDocWidth, docHBefore: emuDocHeight, docWAfter: emuDocWidth, docHAfter: emuDocHeight });
   return emuEntries.length - 1;
 }
 function finishEmu(idx: number): void {
   const e = emuEntries[idx];
   if (e) {
     e.after = [...emuLayers];
+    e.docWAfter = emuDocWidth;
+    e.docHAfter = emuDocHeight;
     e.bytes = estimateEmuNativeBytes(e.before, e.after);
   }
   emuCursor = emuEntries.length;
@@ -255,6 +276,12 @@ export function getEmuSelection(): any {
   return emuSelection;
 }
 
+// Test hook: read the emulator's current document (canvas) size, set by the
+// cropCanvas / applyCrop / resizeCanvas arms and restored on undo/redo.
+export function getEmuDocumentDims(): { width: number; height: number } {
+  return { width: emuDocWidth, height: emuDocHeight };
+}
+
 function diffEmu(old: RenderSnapshot["layers"], next: RenderSnapshot["layers"]): CommandResult["delta"]["changes"] {
   const changes: CommandResult["delta"]["changes"] = [];
   for (const l of next) {
@@ -335,7 +362,7 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
     }
     emuEntries = emuEntries.slice(0, emuCursor);
     const seq = emuNextSeq++;
-    emuEntries.push({ seq, groupId: seq, origin: { external: adapterId }, label: cmd.label as string, affected: (cmd.affectedLayerIds as string[]) ?? [], vb: emuVersion, va: emuVersion + 1, bytes: (cmd.memoryCostBytes as number) ?? 0, before: [...emuLayers], after: [...emuLayers], token: cmd.token as string });
+    emuEntries.push({ seq, groupId: seq, origin: { external: adapterId }, label: cmd.label as string, affected: (cmd.affectedLayerIds as string[]) ?? [], vb: emuVersion, va: emuVersion + 1, bytes: (cmd.memoryCostBytes as number) ?? 0, before: [...emuLayers], after: [...emuLayers], docWBefore: emuDocWidth, docHBefore: emuDocHeight, docWAfter: emuDocWidth, docHAfter: emuDocHeight, token: cmd.token as string });
     emuCursor = emuEntries.length;
     emuVersion += 1;
     return {
@@ -801,6 +828,128 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
         changes = [{ kind: "upsert", layer: nl }];
       }
     }
+  } else if (cmd.type === "cropCanvas") {
+    // Mirror Rust apply_crop_canvas (command.rs CropCanvas): offset every unlocked
+    // layer by (-x, -y) and set the document size to (width, height). Locked layers
+    // (RenderLayer.locked === true) are untouched; selection is cleared. Trust
+    // boundary: non-finite inputs reject E_INVALID before mutation (stricter than
+    // the host, which lets NaN slip through its <= 0 comparisons). Non-positive
+    // width/height is a SILENT no-op (no entry; DV bumps below).
+    const x = cmd.x as number;
+    const y = cmd.y as number;
+    const width = cmd.width as number;
+    const height = cmd.height as number;
+    if (![x, y, width, height].every((v) => Number.isFinite(v))) {
+      throw { code: "E_INVALID", message: "cropCanvas requires finite x/y/width/height" };
+    }
+    if (width <= 0 || height <= 0) {
+      // silent no-op: no entry, snapshot unchanged
+    } else {
+      const _e = beginEmu("Crop Canvas", emuLayers.map((l) => l.id));
+      for (let i = 0; i < emuLayers.length; i++) {
+        const l = emuLayers[i];
+        if (l.locked === true) continue;
+        const nl = { ...l, x: l.x - x, y: l.y - y, dirtyRect: { x: 0, y: 0, width: 1, height: 1 } };
+        emuLayers[i] = nl;
+      }
+      emuDocWidth = width;
+      emuDocHeight = height;
+      emuSelection = null;
+      finishEmu(_e);
+      changes = emuLayers.map((l) => ({ kind: "upsert" as const, layer: l }));
+    }
+  } else if (cmd.type === "applyCrop") {
+    // Mirror Rust apply_apply_crop (command.rs ApplyCrop) non-destructive branch:
+    // recenter + optionally rotate/scale every unlocked layer into the crop region
+    // and set the document size to the (optional) target size. Trust boundary:
+    // reject non-finite x/y/width/height/rotation with E_INVALID; a half
+    // target-size pair (one of targetWidth/targetHeight without the other) rejects
+    // E_INVALID; non-positive width/height is a silent no-op.
+    const x = cmd.x as number;
+    const y = cmd.y as number;
+    const width = cmd.width as number;
+    const height = cmd.height as number;
+    const rot = (cmd.rotation as number | undefined) ?? 0;
+    const tw = cmd.targetWidth as number | undefined;
+    const th = cmd.targetHeight as number | undefined;
+    if (![x, y, width, height, rot].every((v) => Number.isFinite(v))) {
+      throw { code: "E_INVALID", message: "applyCrop requires finite x/y/width/height/rotation" };
+    }
+    if ((tw === undefined) !== (th === undefined)) {
+      throw { code: "E_INVALID", message: "applyCrop target size requires both targetWidth and targetHeight" };
+    }
+    if (width <= 0 || height <= 0) {
+      // silent no-op
+    } else {
+      const finalW = tw ?? width;
+      const finalH = th ?? height;
+      const cropCenterX = x + width / 2;
+      const cropCenterY = y + height / 2;
+      const r = (-rot * Math.PI) / 180;
+      const cos = Math.cos(r);
+      const sin = Math.sin(r);
+      const exportSx = finalW / width;
+      const exportSy = finalH / height;
+      const _e = beginEmu("Crop Canvas", emuLayers.map((l) => l.id));
+      for (let i = 0; i < emuLayers.length; i++) {
+        const l = emuLayers[i];
+        if (l.locked === true) continue;
+        const lw = l.width ?? 0;
+        const lh = l.height ?? 0;
+        const lsx = l.scaleX ?? 1;
+        const lsy = l.scaleY ?? 1;
+        const lcx = l.x + (lw * Math.abs(lsx)) / 2;
+        const lcy = l.y + (lh * Math.abs(lsy)) / 2;
+        const vx = lcx - cropCenterX;
+        const vy = lcy - cropCenterY;
+        const rvx = vx * cos - vy * sin;
+        const rvy = vx * sin + vy * cos;
+        const nlcx = width / 2 + rvx;
+        const nlcy = height / 2 + rvy;
+        const finalCx = nlcx * exportSx;
+        const finalCy = nlcy * exportSy;
+        const finalSx = lsx * exportSx;
+        const finalSy = lsy * exportSy;
+        const finalRot = normalizeRotation((l.rotation ?? 0) - rot);
+        const newX = finalCx - (lw * Math.abs(finalSx)) / 2;
+        const newY = finalCy - (lh * Math.abs(finalSy)) / 2;
+        const nl = {
+          ...l,
+          x: newX,
+          y: newY,
+          scaleX: finalSx,
+          scaleY: finalSy,
+          rotation: finalRot,
+          dirtyRect: { x: 0, y: 0, width: 1, height: 1 },
+        };
+        emuLayers[i] = nl;
+      }
+      emuDocWidth = finalW;
+      emuDocHeight = finalH;
+      emuSelection = null;
+      finishEmu(_e);
+      changes = emuLayers.map((l) => ({ kind: "upsert" as const, layer: l }));
+    }
+  } else if (cmd.type === "resizeCanvas") {
+    // Mirror Rust apply_resize_canvas (command.rs ResizeCanvas): only the document
+    // size changes, no layer is touched. Trust boundary: non-finite dims reject
+    // E_INVALID before mutation; non-positive dims are a silent no-op. Emits an
+    // empty layer delta (the document size rides the snapshot); the entry records
+    // the size so undo/redo restores it.
+    const width = cmd.width as number;
+    const height = cmd.height as number;
+    if (![width, height].every((v) => Number.isFinite(v))) {
+      throw { code: "E_INVALID", message: "resizeCanvas requires finite width/height" };
+    }
+    if (width <= 0 || height <= 0) {
+      // silent no-op: no entry
+    } else {
+      const _e = beginEmu("Resize Canvas", []);
+      emuDocWidth = width;
+      emuDocHeight = height;
+      finishEmu(_e);
+      changes = [];
+    }
   } else if (cmd.type === "undo") {
     if (emuCursor === 0) {
       // no-op undo: DV still bumps below
@@ -810,6 +959,8 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
         const cur = [...emuLayers];
         changes = diffEmu(cur, e.before);
         emuLayers = [...e.before];
+        emuDocWidth = e.docWBefore;
+        emuDocHeight = e.docHBefore;
         emuCursor -= 1;
       } else {
         externalSeq = e.seq; // host handoff - no cursor move, no DV bump here
@@ -823,6 +974,8 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
         const cur = [...emuLayers];
         changes = diffEmu(cur, e.after);
         emuLayers = [...e.after];
+        emuDocWidth = e.docWAfter;
+        emuDocHeight = e.docHAfter;
         emuCursor += 1;
       } else {
         externalSeq = e.seq;

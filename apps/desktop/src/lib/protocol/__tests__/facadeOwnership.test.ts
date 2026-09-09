@@ -132,4 +132,34 @@ describe("facade ownership — Ticket 2 invariants", () => {
     await f.commitTransform();
     expect(f.snapshot.layers[0].x).toBe(50);
   });
+
+  it("applyDeltaToSnapshot carries canvas dims + selection forward; applySnapshot converges fresh dims", async () => {
+    const f = new EditorFacade();
+    const seed = {
+      version: 5,
+      layers: [],
+      width: 800,
+      height: 600,
+      selection: { x: 1, y: 2, width: 3, height: 4, angle: 0 },
+    } as any;
+    f.seedSnapshot(seed);
+    const layer = {
+      id: "L", name: "L", visible: true, opacity: 1, resourceId: 1,
+      x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
+      dirtyRect: { x: 0, y: 0, width: 1, height: 1 },
+    };
+    // A layer-only Upsert delta must NOT drop the seeded canvas dims/selection.
+    const delta = { baseVersion: 5, version: 6, changes: [{ kind: "upsert", layer }] } as any;
+    expect(f.applyDelta(delta)).toBe(true);
+    expect(f.snapshot.width).toBe(800);
+    expect(f.snapshot.height).toBe(600);
+    expect(f.snapshot.selection).toEqual(seed.selection);
+    expect(f.snapshot.layers).toHaveLength(1);
+    // A full snapshot apply with fresh dims converges them.
+    const full = { version: 7, layers: [{ ...layer, x: 10 }], width: 400, height: 300, selection: null } as any;
+    expect(f.applySnapshot(full)).toBe(true);
+    expect(f.snapshot.width).toBe(400);
+    expect(f.snapshot.height).toBe(300);
+    expect(f.snapshot.selection).toBeNull();
+  });
 });
