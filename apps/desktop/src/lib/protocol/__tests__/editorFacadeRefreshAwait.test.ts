@@ -1,6 +1,6 @@
 // Regression coverage for the async facade refreshSnapshot migration leak (#4).
-// EditorFacade.addLayer/deleteLayer/setOpacity/commitTransform/commitStroke/
-// undo/redo return `this.snapshot` AFTER `if (!applyDelta) this.refreshSnapshot()`.
+// EditorFacade.addLayer/deleteLayer/setOpacity/commitTransform/undo/redo return
+// `this.snapshot` AFTER `if (!applyDelta) this.refreshSnapshot()`.
 // refreshSnapshot() is async; without the `await`, the method returns the STALE
 // snapshot and the later microtask then silently replaces this.snapshot (the
 // handed-back reference never heals). With the fix, the returned snapshot is the

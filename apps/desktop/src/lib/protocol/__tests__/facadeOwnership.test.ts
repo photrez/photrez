@@ -50,20 +50,25 @@ describe("facade ownership — Ticket 2 invariants", () => {
     spy.mockRestore();
   });
 
-  it("brush: activeStroke lives in transient, stroke command only on pointerup", async () => {
+  it("facade-owned op issues exactly one command, bumps version once, mirrors into snapshot", async () => {
     const f = new EditorFacade();
     await f.addLayer("L");
     const id = f.snapshot.layers[0].id;
     const spy = vi.spyOn(bridge, "applyCommand");
-    f.beginStroke(id);
-    for (let i = 0; i < 30; i++) f.addStrokePoint({ x: i, y: i, pressure: 0.5 });
-    expect(spy).not.toHaveBeenCalled();
-    expect(f.transientStroke?.points.length).toBe(30);
-    expect(f.snapshot.version).toBe(1); // not bumped during stroke
-    await f.commitStroke();
+    const v0 = f.renderedVersion;
+    // Construction + read-only snapshot query issue zero commands (no eager sync).
+    expect(f.snapshot.layers.length).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(0);
+    await f.setOpacity(id, 0.5);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(f.transientStroke).toBeNull();
-    expect(f.renderedVersion).toBe(2);
+    expect(f.snapshot.layers[0].opacity).toBe(0.5);
+    expect(f.renderedVersion).toBe(v0 + 1);
+    // Two ops issue exactly two commands, each +1 version: no batch/coalescing in
+    // the facade (pins the ownership contract per op).
+    await f.setOpacity(id, 0.8);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(f.snapshot.layers[0].opacity).toBe(0.8);
+    expect(f.renderedVersion).toBe(v0 + 2);
     spy.mockRestore();
   });
 

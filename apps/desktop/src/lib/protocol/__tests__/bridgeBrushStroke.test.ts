@@ -21,14 +21,15 @@ afterEach(() => {
 });
 
 describe("emulator brushStroke command consistency (no wasm wired)", () => {
-  it("applies the same brushStroke command the production commitStroke() sends", async () => {
+  it("applies the brushStroke wire contract the emulator and wasm both accept", async () => {
     const add = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", id: "L-id", name: "L", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
     const id = add.delta.changes[0].layer.id;
 
-    // Same command shape as editorFacade.commitStroke() (layerId / points / settings).
+    // Command shape is the wire contract accepted by both the emulator and the
+    // Rust/wasm backend (layerId / points / settings).
     const res = await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
       command: {

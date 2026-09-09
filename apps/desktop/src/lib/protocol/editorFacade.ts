@@ -10,14 +10,12 @@ import type { DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch } fro
 import { isDeltaApplicable } from "./types";
 
 export type TransientTransform = { id: string; start: TransformPatch; live: TransformPatch } | null;
-export type TransientStroke = { layerId: string; points: { x: number; y: number; pressure: number }[]; settings: { size: number; hardness: number; opacity: number; flow: number } } | null;
 
 export class EditorFacade {
   renderedVersion: DocumentVersion = 0;
   snapshot: RenderSnapshot = { version: 0, layers: [] };
 
   transientTransform: TransientTransform = null;
-  transientStroke: TransientStroke = null;
 
   private pending = new Map<number, DocumentVersion>();
   // Ticket 2.2: set by undo()/redo() — true when Rust had no entry (no-op).
@@ -134,31 +132,6 @@ export class EditorFacade {
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
-
-  beginStroke(layerId: string, settings = { size: 20, hardness: 0.5, opacity: 1, flow: 1 }): void {
-    this.transientStroke = { layerId, points: [], settings };
-  }
-  addStrokePoint(p: { x: number; y: number; pressure: number }): void {
-    if (!this.transientStroke) return;
-    this.transientStroke.points.push(p);
-  }
-  async commitStroke(): Promise<RenderSnapshot | null> {
-    if (!this.transientStroke) return null;
-    const { layerId, points, settings } = this.transientStroke;
-    this.transientStroke = null;
-    if (points.length === 0) return this.snapshot;
-    await this.syncFromEngine();
-    const res = await applyCommand({
-      contractVersion: CONTRACT_VERSION,
-      expectedVersion: this.renderedVersion,
-      docId: this.docId,
-      command: { type: "brushStroke", layerId, points, settings },
-    });
-    this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
-    return this.snapshot;
-  }
-  cancelStroke(): void { this.transientStroke = null; }
 
   async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;

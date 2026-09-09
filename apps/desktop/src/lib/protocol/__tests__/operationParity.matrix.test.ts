@@ -1827,3 +1827,93 @@ describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/ap
     console.log(JSON.stringify(canvasMatrix, null, 2));
   });
 });
+
+// -- Section 6: pixel-path operations routed as COMPOSITIONS through the pixel
+//    store path, NOT as new command arms --
+// Under native authority the command engine IS DocumentPixelStore.history (the
+// shared ProtocolEngine). A bake converges as a COMPOSITION on that engine: the
+// host bakes pixels via rust_pixels_write_region (one Pixel history entry, unified
+// cursor) and then clears the layer metadata with the EXISTING SetAdjustment
+// {adjustment: None} arm (one Native entry). invertLayerPixels / fill are the same
+// shape - a full-layer write_region composition - and have NO command equivalent
+// by design. No compute-arm can reach the registry from inside apply() (ownership
+// inversion), and a metadata-only Bake arm would merely duplicate SetAdjustment
+// None, so no new command variants were added. The two-entry engine contract is
+// proven end-to-end in the Rust composition test (pixel_store_composition_tests).
+describe("operation parity matrix - PIXEL-PATH COMPOSITION (pixel store path, not command arms)", () => {
+  const pixelMatrix: Array<Record<string, unknown>> = [];
+
+  beforeEach(() => {
+    // Force the emulator path: with wasm null, applyCommand falls through to
+    // emulateApply. The matrix beforeAll arms wasm for the other sections; this
+    // section measures the emulator SetAdjustment arm (the metadata half of the
+    // bake) against the pure-TS oracle.
+    bridge.setProtocolWasm(null as unknown as Parameters<typeof bridge.setProtocolWasm>[0]);
+    bridge.__resetEmulatedForTests();
+    stubOffscreenCanvas(); // so the oracle's applyBasicAdjustment has a bitmap
+  });
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    // Defensive restore: re-arm wasm for any later section (getWasmExportModule is cached).
+    await getWasmExportModule();
+  });
+
+  it("(r1) adjustment-bake metadata: emulator SetAdjustment None == pure-TS clearBasicAdjustments", async () => {
+    const adj = { brightness: 10, contrast: 0, saturation: 0 };
+
+    // Emulator side: set an adjustment, then clear it (the metadata half of the
+    // bake composition) through the emulator command.
+    const add = await bridge.applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      command: { type: "addLayer", id: "px-bake-1", name: "L", width: 10, height: 10, index: 0 },
+    });
+    const emuId = (add.delta.changes[0] as any).layer.id as string;
+    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "setAdjustment", id: emuId, adjustment: adj } });
+    const clear = await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "setAdjustment", id: emuId } });
+    const emuLayer = (clear.delta.changes[0] as any).layer;
+
+    // Pure-TS oracle: a raster layer with a bitmap so applyBasicAdjustment takes
+    // effect, then clearBasicAdjustments.
+    const ts = new DocumentEngine("px-ts", "P", 200, 200);
+    const tsL = ts.addLayer("L");
+    ts.setLayerImageBitmap(tsL.id, { width: 10, height: 10, close: vi.fn() } as unknown as ImageBitmap);
+    ts.applyBasicAdjustment(tsL.id, adj);
+    ts.clearBasicAdjustments(tsL.id);
+    const tsLayer = ts.getLayer(tsL.id) as unknown as any;
+
+    // Final metadata state must match. This row compares METADATA ONLY - the baked
+    // pixel bytes are proven host-side in the document-bake tests, not here.
+    expect(emuLayer.basicAdjustment).toBe(tsLayer.basicAdjustment);
+    expect(emuLayer.hasAdjustments).toBe(tsLayer.hasAdjustments);
+    expect(emuLayer.basicAdjustment).toBeUndefined();
+    expect(emuLayer.hasAdjustments).toBe(false);
+
+    pixelMatrix.push({
+      scenario: "(r1) adjustment-bake (metadata half)",
+      composition: "host write_region (Pixel entry) + SetAdjustment{adjustment:None} arm (Native entry)",
+      comparable: "BY METADATA STATE ONLY",
+      overlap: "EQUAL (basicAdjustment undefined, hasAdjustments false; emulator SetAdjustment None == TS clearBasicAdjustments)",
+      note: "baked pixel-byte equivalence is host-proven in document-bake tests; this row deliberately does not measure pixels",
+    });
+  });
+
+  it("(r2) invertLayerPixels: NOT-COMPARABLE - no command equivalent by design", () => {
+    // Prose-only row. invertLayerPixels has zero production callers and no command
+    // equivalent (it is a full-layer write_region composition when wired). There is
+    // nothing to compare against a command arm, so it is marked NOT-COMPARABLE.
+    expect(true).toBe(true);
+
+    pixelMatrix.push({
+      scenario: "(r2) invertLayerPixels",
+      comparable: "NOT-COMPARABLE",
+      reason: "no command equivalent by design; zero production callers; converges as a full-layer write_region composition when wired - nothing to compare against a command arm",
+    });
+  });
+
+  afterAll(() => {
+    // eslint-disable-next-line no-console
+    console.log("\n=== OPERATION PARITY MATRIX - PIXEL-PATH COMPOSITION ===");
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(pixelMatrix, null, 2));
+  });
+});

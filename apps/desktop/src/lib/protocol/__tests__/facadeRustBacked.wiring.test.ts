@@ -155,7 +155,7 @@ describe("facade is Rust-backed once wasm loads (structural-sharing wiring)", ()
       contractVersion: CONTRACT_VERSION,
       command: {
         type: "brushStroke",
-        layerId: id, // production command shape (editorFacade.commitStroke)
+        layerId: id, // production brushStroke command (snake_case layer_id wire field)
         points: [
           { x: 0, y: 0, pressure: 0.5 },
           { x: 10, y: 10, pressure: 0.8 },
