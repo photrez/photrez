@@ -6,8 +6,6 @@
 //! byte-match it exactly. NEVER use the new tile-major store as its own oracle.
 //! Compiled ONLY under `#[cfg(test)]`; zero production dependency.
 
-use std::collections::HashMap;
-
 /// Canonical tile edge in pixels. Must match the engine value (256).
 pub const TILE: u32 = 256;
 
@@ -29,8 +27,8 @@ impl PackedView {
     pub fn to_row_major(&self, tile: u32) -> Vec<u8> {
         assert!(tile > 0);
         let mut row = vec![0u8; (self.w * self.h * 4) as usize];
-        let tiles_w = (self.w + tile - 1) / tile;
-        let tiles_h = (self.h + tile - 1) / tile;
+        let tiles_w = self.w.div_ceil(tile);
+        let tiles_h = self.h.div_ceil(tile);
         let mut off = 0usize;
         for tx in 0..tiles_w {
             for ty in 0..tiles_h {
@@ -73,10 +71,10 @@ impl PixelReader {
     }
 
     pub fn tiles_w(&self) -> u32 {
-        (self.w + TILE - 1) / TILE
+        self.w.div_ceil(TILE)
     }
     pub fn tiles_h(&self) -> u32 {
-        (self.h + TILE - 1) / TILE
+        self.h.div_ceil(TILE)
     }
 
     /// Pixel-space bounds `(x0, y0, w_eff, h_eff)` of the tile at `(tx, ty)`,
@@ -165,7 +163,7 @@ mod tests {
     fn oracle_roundtrip_tile_major_matches_row_major() {
         let w = 300u32;
         let h = 257u32;
-        let bytes: Vec<u8> = (0..(w * h * 4) as u32).map(|i| (i % 251) as u8).collect();
+        let bytes: Vec<u8> = (0..(w * h * 4)).map(|i| (i % 251) as u8).collect();
         let pr = PixelReader::new(w, h, bytes.clone());
         let packed = pr.to_tile_major();
         assert_eq!(packed.w, w);

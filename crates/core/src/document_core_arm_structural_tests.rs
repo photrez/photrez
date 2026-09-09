@@ -8,9 +8,7 @@
 // current contract so a regression in any arm is caught.
 use super::arm_tests::{env, layer, shape_params, text_data};
 use crate::canonical_model::{
-    BasicAdjustment, BlendMode, CanonicalDocument, CanonicalLayer, LayerType, SelectionShape,
-    SelectionState, ShapeFill, ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextAlign,
-    TextBoxMode, TextData, TextFontStyle, TextStroke, Transform2D,
+    BlendMode, CanonicalDocument, CanonicalLayer, LayerType, Transform2D,
 };
 use crate::command::*;
 use crate::document_core::ProtocolEngine;
@@ -145,7 +143,7 @@ fn duplicate_layer_clones_full_surface_and_resets_locks() {
     assert_eq!(clone.layer_type, Some(LayerType::Shape));
     assert_eq!(clone.shape_params, Some(shape_params()));
     assert_eq!(clone.text_data, Some(text_data()));
-    assert_eq!(clone.visible, false);
+    assert!(!clone.visible);
     assert_eq!(clone.opacity, 0.5);
     // locks / background are reset
     assert_eq!(clone.is_background, None);
@@ -767,7 +765,7 @@ fn structural_arms_never_drop_pixel_store_buffers() {
     // Open both documents and seed two tiny 2x2 RGBA buffers each.
     {
         let mut g = pixel_registry();
-        let mut reg = g.get_or_insert_with(Default::default);
+        let reg = g.get_or_insert_with(Default::default);
         reg.open_document(doc_merge);
         reg.open_document(doc_flatten);
         reg.add_layer(doc_merge, "A", 2, 2, vec![0u8; 2 * 2 * 4])
@@ -825,7 +823,7 @@ fn structural_arms_never_drop_pixel_store_buffers() {
     // Cleanup mirrors sibling global-registry tests: close releases the storage.
     {
         let mut g = pixel_registry();
-        let mut reg = g.get_or_insert_with(Default::default);
+        let reg = g.get_or_insert_with(Default::default);
         reg.close_document(doc_merge);
         reg.close_document(doc_flatten);
     }

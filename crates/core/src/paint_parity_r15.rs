@@ -87,7 +87,7 @@ pub fn blend_par_row_bands(
                             }
                         } else {
                             for ch in 0..3usize {
-                                let sc = ((tip.data[ti + ch] as u64 * sa + 127) / 255) as u64;
+                                let sc = (tip.data[ti + ch] as u64 * sa + 127) / 255;
                                 let dc = chunk[di + ch] as u64;
                                 chunk[di + ch] = (sc + (dc * inv + 127) / 255).min(255) as u8;
                             }
@@ -161,7 +161,7 @@ pub fn blend_only(
                     }
                 } else {
                     for ch in 0..3usize {
-                        let sc = ((tip.data[ti + ch] as u64 * sa + 127) / 255) as u64;
+                        let sc = (tip.data[ti + ch] as u64 * sa + 127) / 255;
                         let dc = buf[di + ch] as u64;
                         buf[di + ch] = (sc + (dc * inv + 127) / 255).min(255) as u8;
                     }

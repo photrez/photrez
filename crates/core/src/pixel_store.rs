@@ -132,8 +132,8 @@ impl PixelLayer {
     /// Used by cache rehydration to refresh a derived TS cache from Rust.
     pub fn all_tiles(&self) -> Vec<TilePatch> {
         const TW: usize = 256;
-        let cols = (self.width as usize + TW - 1) / TW;
-        let rows = (self.height as usize + TW - 1) / TW;
+        let cols = (self.width as usize).div_ceil(TW);
+        let rows = (self.height as usize).div_ceil(TW);
         let mut out = Vec::new();
         for ty in 0..rows {
             for tx in 0..cols {
@@ -325,9 +325,7 @@ impl PixelStoreRegistry {
     /// Document created/opened: ensure a (possibly empty) namespace exists so a
     /// later close can release it deterministically.
     pub fn open_document(&mut self, doc_id: &str) {
-        self.docs
-            .entry(doc_id.to_string())
-            .or_insert_with(DocumentPixelStore::new);
+        self.docs.entry(doc_id.to_string()).or_default();
     }
 
     /// Document closed: release ALL of its pixel storage.
@@ -344,10 +342,7 @@ impl PixelStoreRegistry {
         h: u32,
         bytes: Vec<u8>,
     ) -> Result<(), String> {
-        let doc = self
-            .docs
-            .entry(doc_id.to_string())
-            .or_insert_with(DocumentPixelStore::new);
+        let doc = self.docs.entry(doc_id.to_string()).or_default();
         doc.init_layer(layer_id, w, h, bytes);
         Ok(())
     }
@@ -366,10 +361,7 @@ impl PixelStoreRegistry {
         h: u32,
         bytes: Vec<u8>,
     ) -> Result<(), String> {
-        let doc = self
-            .docs
-            .entry(doc_id.to_string())
-            .or_insert_with(DocumentPixelStore::new);
+        let doc = self.docs.entry(doc_id.to_string()).or_default();
         doc.resize_layer(layer_id, w, h, bytes);
         Ok(())
     }
@@ -437,6 +429,7 @@ impl PixelStoreRegistry {
     /// exactly once; the unified history cursor advances one step. The Rust entry
     /// is subordinate to the TS `history.commit` that drives undo/redo — there is
     /// NO separate TS-visible step, so an undo is exactly ONE user action.
+    #[allow(clippy::too_many_arguments)] // flat args mirror the pixel-write command struct
     pub fn write_region(
         &mut self,
         doc_id: &str,
@@ -465,8 +458,8 @@ impl PixelStoreRegistry {
         }
 
         const TW: usize = 256;
-        let cols = ((lw as usize) + TW - 1) / TW;
-        let rows = ((lh as usize) + TW - 1) / TW;
+        let cols = (lw as usize).div_ceil(TW);
+        let rows = (lh as usize).div_ceil(TW);
         let tx0 = (x as usize) / TW;
         let ty0 = (y as usize) / TW;
         let tx1 = ((x as usize + w - 1) / TW).min(cols - 1);
@@ -530,6 +523,7 @@ impl PixelStoreRegistry {
     /// mutating the canonical buffer. The caller applies `after` via
     /// `apply_pixel_patch`. `before` is the history pre-image; `after` is the
     /// final canonical tile state after compositing (not dab-on-white).
+    #[allow(clippy::too_many_arguments)] // flat args mirror the compute-commit command struct
     pub fn compute_commit(
         &self,
         doc_id: &str,
@@ -602,6 +596,7 @@ impl PixelStoreRegistry {
     /// has no store entry — lifecycle-safe, never goes stale), compute the
     /// composite, then apply it through the unified history. Returns
     /// `(before, after, epoch, version)`.
+    #[allow(clippy::too_many_arguments)] // flat args mirror the commit-pixels command struct
     pub fn commit_pixels(
         &mut self,
         doc_id: &str,

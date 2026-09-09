@@ -81,12 +81,12 @@ impl MonotoneCubic {
 }
 
 fn clamp01(x: f64) -> f64 {
-    x.max(0.0).min(1.0)
+    x.clamp(0.0, 1.0)
 }
 
 fn clamp_hardness(h: f64) -> f64 {
     if h.is_finite() {
-        h.max(0.0).min(1.0)
+        h.clamp(0.0, 1.0)
     } else {
         0.0
     }
@@ -202,11 +202,11 @@ fn rasterize_mask(
     data_cap: u32,
 ) -> (u32, u32, Vec<f32>) {
     let _t0 = std::time::Instant::now();
-    let h = hardness.max(0.0).min(1.0);
+    let h = hardness.clamp(0.0, 1.0);
     let r_nominal = diameter_nominal / 2.0;
-    let support_norm = if diameter_nominal < MIN_RELIABLE_BRUSH_DIAMETER_PX {
-        1.0
-    } else if curve == Curve::Soft && h >= BRUSH_HARD_EDGE_THRESHOLD {
+    let support_norm = if diameter_nominal < MIN_RELIABLE_BRUSH_DIAMETER_PX
+        || (curve == Curve::Soft && h >= BRUSH_HARD_EDGE_THRESHOLD)
+    {
         1.0
     } else if curve == Curve::Soft {
         get_brush_profile_support_norm(h)
@@ -295,8 +295,8 @@ fn premul_to_straight_in_place(buf: &mut [u8]) {
             px[3] = 0;
         } else {
             let half = (a / 2) as u32;
-            for c in 0..3 {
-                px[c] = (((px[c] as u32) * 255 + half) / a as u32) as u8;
+            for slot in px.iter_mut().take(3) {
+                *slot = (((*slot as u32) * 255 + half) / a as u32) as u8;
             }
         }
     }
@@ -322,8 +322,8 @@ pub fn build_canonical_tip(spec: &TipSpec) -> CanonicalTip {
     let mut pm_src = rgba_data_size.clone();
     for px in pm_src.chunks_exact_mut(4) {
         let a = px[3] as u32;
-        for c in 0..3 {
-            px[c] = (((px[c] as u32) * a + 127) / 255) as u8;
+        for slot in px.iter_mut().take(3) {
+            *slot = (((*slot as u32) * a + 127) / 255) as u8;
         }
     }
     let up_pm = bilinear_resize_premul(&pm_src, data_size, data_size, diameter, diameter);
@@ -369,8 +369,8 @@ fn c1_identity_resize_is_copy() {
     let mut pm = src_straight.clone();
     for px in pm.chunks_exact_mut(4) {
         let a = px[3] as u32;
-        for c in 0..3 {
-            px[c] = (((px[c] as u32) * a + 127) / 255) as u8;
+        for slot in px.iter_mut().take(3) {
+            *slot = (((*slot as u32) * a + 127) / 255) as u8;
         }
     }
     let mut out = bilinear_resize_premul(&pm, 2, 1, 2, 1);
@@ -484,6 +484,7 @@ fn c1_golden_interior_and_rim_tolerance() {
     );
 }
 
+#[cfg(test)]
 fn fs_read(path: String) -> Vec<u8> {
     use std::io::Read;
     let mut f = std::fs::File::open(path).expect("cannot open golden file");

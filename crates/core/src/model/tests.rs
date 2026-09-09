@@ -788,12 +788,12 @@ fn multi_step_undo_redo_restores_exact_field_state() {
     assert_eq!(eng.cursor(), 0);
 
     // Redo x5 walks forward, re-materializing the exact field state again.
-    for k in 0..5 {
+    for (k, expected) in checkpoints.iter().enumerate().take(5) {
         eng.apply(env(Command::Redo)).unwrap();
         let cur = eng.snapshot().layers;
         assert_eq!(
-            cur,
-            checkpoints[k],
+            &cur,
+            expected,
             "redo step to S{} must restore the exact layer-set",
             k + 1,
         );

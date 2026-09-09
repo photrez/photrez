@@ -77,6 +77,7 @@ fn matches_source(
 /// `features/fill/fillOperations.ts` exactly (tolerance = squared RGBA distance,
 /// optional rect/ellipse mask, contiguous queue BFS vs global replace).
 /// Returns true if any pixel changed. private — tests live in-module.
+#[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
 fn flood_fill_impl(
     data: &mut [u8],
     width: usize,
@@ -169,6 +170,7 @@ fn flood_fill_impl(
 /// WASM entry point for flood fill. Copies the input RGBA buffer, runs the pure
 /// kernel, returns the filled copy (same buffer-out contract as the other pointwise kernels).
 /// scalar queue BFS; SIMD not applicable to 4-connected flood.
+#[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
 #[wasm_bindgen]
 pub fn flood_fill_wasm(
     buffer: &[u8],
@@ -286,6 +288,7 @@ fn radial_gradient_coord(
 
 /// Pure gradient fill. `stops` are (offset, r, g, b, a), sorted by offset here.
 /// private — tests live in-module.
+#[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
 fn gradient_fill_impl(
     data: &mut [u8],
     width: usize,
@@ -318,7 +321,7 @@ fn gradient_fill_impl(
             } else {
                 radial_gradient_coord(px as f64, py as f64, ax, ay, dx, dy, len_sq)
             };
-            let tc = t.max(0.0).min(1.0);
+            let tc = t.clamp(0.0, 1.0);
             let (cr, cg, cb, ca) = lerp_stops(&sorted, tc);
             let idx = ((py as usize) * width + (px as usize)) * 4;
             data[idx] = cr;
@@ -331,6 +334,7 @@ fn gradient_fill_impl(
     changed
 }
 
+#[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
 #[wasm_bindgen]
 pub fn gradient_fill_wasm(
     buffer: &[u8],
@@ -517,6 +521,7 @@ pub fn trim_bbox_wasm(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
 /// R3: brush dab stamp — bilinear resample of the precomputed tip into the
 /// mask with saturating accumulation `cur + (255-cur)*a`. Mirrors
 /// brushTipMask.stampBrushTip exactly (same bounds/clamp semantics).
+#[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
 #[wasm_bindgen]
 pub fn brush_stamp_wasm(
     mask: &mut [u8],
@@ -543,6 +548,7 @@ pub fn brush_stamp_wasm(
 }
 
 /// Shared stamp body (used by both the copy and zero-copy entry points).
+#[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
 fn stamp_into(
     mask: &mut [u8],
     mask_width: u32,
@@ -667,6 +673,7 @@ pub fn composite_mask_wasm(
 }
 
 /// Shared composite body (used by both the copy and zero-copy entry points).
+#[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
 fn compose_over(
     dst: &mut [u8],
     dst_width: u32,
@@ -1100,7 +1107,7 @@ mod tests {
     fn trim_bbox_finds_bounds_and_handles_empty() {
         // 4x2 image: opaque pixel only at (2,1)
         let mut px = vec![0u8; 4 * 2 * 4];
-        px[(1 * 4 + 2) * 4 + 3] = 255;
+        px[27] = 255;
         assert_eq!(trim_bbox_wasm(&px, 4, 2), vec![2, 1, 2, 1]);
         // fully transparent -> empty
         assert!(trim_bbox_wasm(&[0u8; 4 * 2 * 4], 4, 2).is_empty());

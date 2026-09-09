@@ -561,17 +561,14 @@ mod tests {
         let v: Value = serde_json::from_str(&json).unwrap();
         let obj = v.as_object().unwrap();
         assert!(
-            obj.contains_key("activeLayerId") == false,
+            !obj.contains_key("activeLayerId"),
             "activeLayerId must NOT be present"
         );
         assert!(
-            obj.contains_key("viewport") == false,
+            !obj.contains_key("viewport"),
             "viewport must NOT be present"
         );
-        assert!(
-            obj.contains_key("dirty") == false,
-            "dirty must NOT be present"
-        );
+        assert!(!obj.contains_key("dirty"), "dirty must NOT be present");
         assert!(obj.contains_key("layers"));
         assert!(obj.contains_key("selection"));
     }

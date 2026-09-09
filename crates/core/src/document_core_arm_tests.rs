@@ -12,7 +12,6 @@ use crate::canonical_model::{
 use crate::command::*;
 use crate::document_core::ProtocolEngine;
 use crate::model::{RenderLayer, RenderLayerChange};
-use crate::pixel_store::registry as pixel_registry;
 
 pub(crate) fn env(cmd: Command) -> CommandEnvelope {
     CommandEnvelope {
@@ -62,7 +61,7 @@ fn set_visible_applies_and_preserves_other_fields() {
     }))
     .unwrap();
     let l = find(&e, "L1");
-    assert_eq!(l.visible, false);
+    assert!(!l.visible);
     // untouched fields unchanged
     assert_eq!(l.opacity, 1.0);
     assert_eq!(l.rotation, 0.0);
@@ -109,7 +108,7 @@ fn rename_changes_only_name() {
     .unwrap();
     let l = find(&e, "L1");
     assert_eq!(l.name, "Renamed");
-    assert_eq!(l.visible, true);
+    assert!(l.visible);
     assert_eq!(l.opacity, 1.0);
 }
 
@@ -309,7 +308,7 @@ fn unknown_id_is_noop_for_metadata_arms() {
     }
     // No layer added/removed; the seeded layer is untouched.
     assert_eq!(e.snapshot().layers.len(), before);
-    assert_eq!(find(&e, "L1").visible, true);
+    assert!(find(&e, "L1").visible);
 }
 
 #[test]

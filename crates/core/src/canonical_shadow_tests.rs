@@ -18,7 +18,7 @@ fn canon_layer(i: usize) -> CanonicalLayer {
         },
         visible: i % 2 == 1,
         opacity: 0.1 * f,
-        locked: i % 2 == 0,
+        locked: i.is_multiple_of(2),
         is_background: Some(i == 1),
         lock_transparency: Some(i == 2),
         lock_position: Some(i == 3),

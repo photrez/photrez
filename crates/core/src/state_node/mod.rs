@@ -194,10 +194,6 @@ impl Arena {
         self.map.insert(id, Arc::downgrade(&arc));
         arc
     }
-
-    pub fn get(&self, id: StateNodeId) -> Option<Arc<StateNode>> {
-        self.map.get(&id).and_then(|w| w.upgrade())
-    }
 }
 
 impl Default for Arena {

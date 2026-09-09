@@ -115,6 +115,7 @@ fn unpremul(buf: &[u8], i: usize) -> [u8; 4] {
 /// `base`: when `Some`, the raster composites the dab batch onto these EXISTING
 /// pixels (the canonical-commit path). When `None`, the buffer is initialized from
 /// `prep_white` (white) or the blue sentinel (diagnostic parity shadow).
+#[allow(clippy::too_many_arguments)] // flat args mirror the shadow-raster command struct
 pub fn raster_shadow(
     w: usize,
     h: usize,
@@ -260,6 +261,7 @@ pub fn raster_shadow(
 }
 
 /// Deterministic re-run returning ONLY the requested keys' patches (diff diagnostics).
+#[allow(clippy::too_many_arguments)] // flat args mirror the tile-key query command struct
 pub fn tiles_for_keys(
     w: usize,
     h: usize,

@@ -157,7 +157,7 @@ impl ProtocolEngine {
                         message: format!("addLayer id already present: {}", id),
                     });
                 }
-                let _e = self.begin_forward("Add Layer", &[id.clone()]);
+                let _e = self.begin_forward("Add Layer", std::slice::from_ref(&id));
                 let mut layer = RenderLayer {
                     id: id.clone(),
                     name: name.clone(),
@@ -220,7 +220,7 @@ impl ProtocolEngine {
             }
             Command::DeleteLayer { id } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Delete Layer", &[id.clone()]);
+                    let _e = self.begin_forward("Delete Layer", std::slice::from_ref(&id));
                     let resource_id = self.layers.get(pos).expect("layer present").resource_id;
                     self.layers = self.layers.removed(pos);
                     self.finish_forward(_e);
@@ -238,7 +238,7 @@ impl ProtocolEngine {
             // with the TS engine until the flip.
             Command::SetVisible { id, visible } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Set Visible", &[id.clone()]);
+                    let _e = self.begin_forward("Set Visible", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.visible = visible;
                     layer.dirty_rect = Some(Rect {
@@ -256,7 +256,7 @@ impl ProtocolEngine {
             }
             Command::SetLocked { id, kind, locked } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Set Lock", &[id.clone()]);
+                    let _e = self.begin_forward("Set Lock", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     match kind {
                         LockKind::Base => layer.locked = Some(locked),
@@ -279,7 +279,7 @@ impl ProtocolEngine {
             }
             Command::Rename { id, name } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Rename", &[id.clone()]);
+                    let _e = self.begin_forward("Rename", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.name = name.clone();
                     layer.dirty_rect = Some(Rect {
@@ -320,7 +320,7 @@ impl ProtocolEngine {
                     {
                         Vec::new()
                     } else {
-                        let _e = self.begin_forward("Reorder", &[id.clone()]);
+                        let _e = self.begin_forward("Reorder", std::slice::from_ref(&id));
                         let layer = self.layers.get(pos).expect("layer present").clone();
                         // Remove at the current index, then insert at the clamped target
                         // (LayerSet::insert_at clamps to len, mirroring TS' splice).
@@ -357,7 +357,7 @@ impl ProtocolEngine {
             }
             Command::SetBackgroundFlag { id } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Set Background Flag", &[id.clone()]);
+                    let _e = self.begin_forward("Set Background Flag", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     // Mirror document.ts markLayerAsBackground: flag + lock position/rotation.
                     layer.is_background = Some(true);
@@ -378,7 +378,7 @@ impl ProtocolEngine {
             }
             Command::SetBlendMode { id, mode } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Set Blend Mode", &[id.clone()]);
+                    let _e = self.begin_forward("Set Blend Mode", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.blend_mode = Some(mode);
                     layer.dirty_rect = Some(Rect {
@@ -409,7 +409,7 @@ impl ProtocolEngine {
                     });
                 }
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Set Layer Params", &[id.clone()]);
+                    let _e = self.begin_forward("Set Layer Params", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     if let Some(p) = shape_params.clone() {
                         layer.shape_params = Some(p);
@@ -436,7 +436,7 @@ impl ProtocolEngine {
                 // whether any channel is non-zero), None clears it (basic_adjustment
                 // None + has_adjustments false). Unknown id is a silent no-op.
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Set Adjustment", &[id.clone()]);
+                    let _e = self.begin_forward("Set Adjustment", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     match adjustment {
                         Some(adj) => {
@@ -558,7 +558,7 @@ impl ProtocolEngine {
             }
             Command::TransformLayer { id, transform } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Transform Layer", &[id.clone()]);
+                    let _e = self.begin_forward("Transform Layer", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.x = transform.x;
                     layer.y = transform.y;
@@ -589,7 +589,7 @@ impl ProtocolEngine {
             Command::SetOpacity { id, opacity } => {
                 let clamped = opacity.clamp(0.0, 1.0);
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    let _e = self.begin_forward("Set Opacity", &[id.clone()]);
+                    let _e = self.begin_forward("Set Opacity", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.opacity = clamped;
                     layer.dirty_rect = Some(Rect {
@@ -613,7 +613,7 @@ impl ProtocolEngine {
                 if points.is_empty() {
                     Vec::new()
                 } else if let Some(pos) = self.layers.position_by_id(&layer_id) {
-                    let _e = self.begin_forward("Brush Stroke", &[layer_id.clone()]);
+                    let _e = self.begin_forward("Brush Stroke", std::slice::from_ref(&layer_id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     // dirtyRect must account for brush footprint, not just point bbox
                     let mut min_x = f64::INFINITY;
@@ -661,28 +661,13 @@ impl ProtocolEngine {
             // sequence and returns the delta. The helpers reject E_INVALID before
             // mutation and treat unknown / not-mergeable ids as silent no-ops
             // (empty delta), matching the TS oracle apply ops.
-            Command::DuplicateLayer { id, new_id } => match self.apply_duplicate(&id, &new_id) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            },
-            Command::MergeDown { id, merged_id } => match self.apply_merge_down(&id, &merged_id) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            },
+            Command::DuplicateLayer { id, new_id } => self.apply_duplicate(&id, &new_id)?,
+            Command::MergeDown { id, merged_id } => self.apply_merge_down(&id, &merged_id)?,
             Command::MergeSelected { ids, merged_id } => {
-                match self.apply_merge_selected(&ids, &merged_id) {
-                    Ok(c) => c,
-                    Err(e) => return Err(e),
-                }
+                self.apply_merge_selected(&ids, &merged_id)?
             }
-            Command::Flatten { merged_id } => match self.apply_flatten(&merged_id) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            },
-            Command::RasterizeLayer { id } => match self.apply_rasterize(&id) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            },
+            Command::Flatten { merged_id } => self.apply_flatten(&merged_id)?,
+            Command::RasterizeLayer { id } => self.apply_rasterize(&id)?,
             // -- Canvas-size command arms (Crop Canvas / Apply Crop / Resize Canvas) --
             // Each delegates to a private helper in document_core_canvas.rs that
             // performs begin_forward -> mutate doc_size + (optional) layers ->
@@ -695,10 +680,7 @@ impl ProtocolEngine {
                 y,
                 width,
                 height,
-            } => match self.apply_crop_canvas(x, y, width, height) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            },
+            } => self.apply_crop_canvas(x, y, width, height)?,
             Command::ApplyCrop {
                 x,
                 y,
@@ -708,25 +690,9 @@ impl ProtocolEngine {
                 target_width,
                 target_height,
             } => {
-                match self.apply_apply_crop(
-                    x,
-                    y,
-                    width,
-                    height,
-                    rotation,
-                    target_width,
-                    target_height,
-                ) {
-                    Ok(c) => c,
-                    Err(e) => return Err(e),
-                }
+                self.apply_apply_crop(x, y, width, height, rotation, target_width, target_height)?
             }
-            Command::ResizeCanvas { width, height } => {
-                match self.apply_resize_canvas(width, height) {
-                    Ok(c) => c,
-                    Err(e) => return Err(e),
-                }
-            }
+            Command::ResizeCanvas { width, height } => self.apply_resize_canvas(width, height)?,
             // Handled by the early-return above (kept for exhaustiveness).
             Command::RecordExternalTransition { .. } => Vec::new(),
             Command::Undo => {

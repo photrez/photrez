@@ -8,6 +8,7 @@
 //!      `Pixel` entry, unified cursor),
 //!   2. the existing `SetAdjustment { id, adjustment: None }` arm clears the
 //!      metadata (one `Native` entry).
+//!
 //! A compute-arm cannot reach the registry from inside `apply()` (ownership
 //! inversion), and a metadata-only `Bake` arm would merely duplicate
 //! `SetAdjustment None`. This drives that two-step sequence end-to-end on the
@@ -17,7 +18,6 @@ use super::*;
 use crate::canonical_model::{
     BasicAdjustment, BlendMode, CanonicalDocument, CanonicalLayer, LayerType, Transform2D,
 };
-use crate::document_core::ProtocolEngine;
 use crate::model::RenderLayer;
 use crate::protocol::{Command, CommandEnvelope, CommandResult, PayloadKind};
 

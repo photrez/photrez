@@ -409,7 +409,7 @@ impl DocumentEngine {
             if l.locked {
                 return false;
             }
-            l.opacity = opacity.max(0.0).min(1.0);
+            l.opacity = opacity.clamp(0.0, 1.0);
             self.model.dirty = true;
             return true;
         }
@@ -506,6 +506,7 @@ impl DocumentEngine {
 
     /// Partial transform merge. `None` fields are left unchanged; position
     /// respects lockPosition, rotation respects lockRotation (TS parity).
+    #[allow(clippy::too_many_arguments)] // flat args mirror the transform-layer command struct
     pub fn transform_layer(
         &mut self,
         id: String,
@@ -605,6 +606,7 @@ impl DocumentEngine {
         false
     }
 
+    #[allow(clippy::too_many_arguments)] // flat args mirror the set-selection command struct
     pub fn set_selection(
         &mut self,
         x: f64,

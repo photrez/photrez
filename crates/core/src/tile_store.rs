@@ -227,7 +227,7 @@ mod tests {
         let idx11 = s.index_of(1, 1);
         assert_eq!((s.descs[idx11].w, s.descs[idx11].h), (44, 1));
         // offsets are cumulative and never overlap.
-        let end = s.descs[idx11].offset + (44 * 1 * 4) as usize;
+        let end = s.descs[idx11].offset + 44 * 4;
         assert_eq!(end, s.packed.len(), "packed len equals last tile end");
     }
 
@@ -237,8 +237,8 @@ mod tests {
         let w = 300u32;
         let h = 257u32;
         let mut bytes = vec![0u8; (w * h * 4) as usize];
-        for i in 0..(w * h * 4) as usize {
-            bytes[i] = (i % 251) as u8;
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = (i % 251) as u8;
         }
         let s = TileStore::new(w, h, &bytes.clone());
         for ty in 0..s.tiles_h {

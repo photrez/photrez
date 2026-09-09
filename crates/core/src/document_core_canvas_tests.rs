@@ -50,6 +50,7 @@ fn close(a: f64, b: f64) -> bool {
 
 // Clean-room reference of the TS performApplyCrop non-destructive math, used to
 // assert the Rust arm matches the oracle (independent of the arm's own code).
+#[allow(clippy::too_many_arguments)] // test fixture mirrors the apply-crop command struct
 fn ref_apply_crop(
     x: f64,
     y: f64,

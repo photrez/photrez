@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn next_duplicate_name_sequence() {
-        let layers = layers(&["Layer 1", "Layer 2"]);
+        let _layers = layers(&["Layer 1", "Layer 2"]);
         assert_eq!(
             next_duplicate_name(&["Layer 1", "Layer 2"], "Layer 1"),
             "Layer 3"
@@ -150,14 +150,14 @@ mod tests {
     fn next_duplicate_name_trailing_garbage_counts_as_js_parseint() {
         // TS nextDuplicateName uses parseInt(suffix, 10) which parses leading
         // digits and ignores trailing garbage ("2x" -> 2). Rust must match.
-        let layers = layers(&["Layer 2x"]);
+        let _layers = layers(&["Layer 2x"]);
         assert_eq!(next_duplicate_name(&["Layer 2x"], "Layer"), "Layer 3");
     }
 
     #[test]
     fn next_duplicate_name_accepts_sign_like_js_parseint() {
         // JS parseInt accepts a leading '+'/'-' sign.
-        let layers = layers(&["Layer +2"]);
+        let _layers = layers(&["Layer +2"]);
         assert_eq!(next_duplicate_name(&["Layer +2"], "Layer"), "Layer 3");
     }
 

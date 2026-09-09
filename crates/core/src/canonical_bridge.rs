@@ -138,6 +138,7 @@ impl CanonicalShadow {
     ///  - id in `doc.layers` -> merge render edits onto the existing layer,
     ///  - id in a tombstone -> restore it (merged with current render state),
     ///  - id in neither -> engine-minted layer: skipped, `incomplete` is set.
+    ///
     /// After the pass, any `doc.layers` entry whose id is absent from `current`
     /// (deleted) is moved to a tombstone so an undo-of-delete restores it with all
     /// fields intact. O(layers), metadata-only, no serialization.
@@ -429,7 +430,7 @@ mod tests {
         let r = render_layer_from_canonical(&c);
         assert_eq!(r.id, "c-id");
         assert_eq!(r.name, "c-name");
-        assert_eq!(r.visible, false);
+        assert!(!r.visible);
         assert_eq!(r.opacity, 0.42);
         assert_eq!(r.resource_id, 7);
         assert_eq!(r.x, 1.0);
@@ -472,7 +473,7 @@ mod tests {
         // Overlap fields come from the render layer.
         assert_eq!(m.id, "render-id");
         assert_eq!(m.name, "render-name");
-        assert_eq!(m.visible, false);
+        assert!(!m.visible);
         assert_eq!(m.opacity, 0.12);
         assert_eq!(m.resource_id, Some(99));
         assert_eq!(m.transform.x, 100.0);

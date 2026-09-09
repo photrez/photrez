@@ -3,7 +3,7 @@
 
 use super::*;
 
-fn fill(bytes: &mut Vec<u8>, v: u8) {
+fn fill(bytes: &mut [u8], v: u8) {
     bytes.iter_mut().for_each(|b| *b = v);
 }
 

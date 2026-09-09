@@ -31,7 +31,7 @@ fn snapshot_region_matches_canonical() {
 fn all_tiles_covers_full_layer() {
     let w = 512u32;
     let h = 256u32;
-    let mut layer = PixelLayer::new(w, h, vec![0u8; w as usize * h as usize * 4]);
+    let layer = PixelLayer::new(w, h, vec![0u8; w as usize * h as usize * 4]);
     let tiles = layer.all_tiles();
     // 512/256 = 2 cols x 1 row = 2 tiles of 256x256.
     assert_eq!(tiles.len(), 2);
@@ -368,8 +368,8 @@ fn deep_history_cursor_unchanged_across_many_entries() {
 fn commit_pixels_composites_onto_canonical_overlapping() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
-    r.add_layer("d", "L", 4, 4, vec![255; 4 * 4 * 4]); // white 4x4
-                                                       // stroke A: 2x2 red opaque dab at (1,1) ΓÇö covers (0,0) within tile (0,0).
+    let _ = r.add_layer("d", "L", 4, 4, vec![255; 4 * 4 * 4]); // white 4x4
+                                                               // stroke A: 2x2 red opaque dab at (1,1) ΓÇö covers (0,0) within tile (0,0).
     let mut tip_a_data = Vec::new();
     for _ in 0..4 {
         tip_a_data.extend_from_slice(&[255u8, 0, 0, 255]);
@@ -430,8 +430,8 @@ fn commit_pixels_composites_onto_canonical_overlapping() {
         l2.pixels[1], 0,
         "A's pixel wiped by overlapping B tile REPLACE"
     );
-    assert_eq!(l2.pixels[(1 * 4 + 1) * 4], 0); // overlap (1,1) now blue R==0
-    assert_eq!(l2.pixels[(1 * 4 + 1) * 4 + 2], 255); // blue B==255
+    assert_eq!(l2.pixels[20], 0); // overlap (1,1) now blue R==0
+    assert_eq!(l2.pixels[22], 255); // blue B==255
     assert_eq!(l2.pixels[(3 * 4 + 3) * 4 + 1], 255); // far corner still white
 }
 
@@ -439,7 +439,7 @@ fn commit_pixels_composites_onto_canonical_overlapping() {
 fn commit_pixels_reinit_after_close_is_idempotent() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
-    r.add_layer("d", "L", 2, 2, vec![255; 16]);
+    let _ = r.add_layer("d", "L", 2, 2, vec![255; 16]);
     let tip = ParityTip {
         width: 1,
         height: 1,
@@ -470,8 +470,8 @@ fn commit_pixels_doc_namespace_independent() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("A");
     r.open_document("B");
-    r.add_layer("A", "L", 2, 2, vec![255; 16]);
-    r.add_layer("B", "L", 2, 2, vec![255; 16]); // same layerId, different doc
+    let _ = r.add_layer("A", "L", 2, 2, vec![255; 16]);
+    let _ = r.add_layer("B", "L", 2, 2, vec![255; 16]); // same layerId, different doc
     let tip = ParityTip {
         width: 1,
         height: 1,
@@ -509,8 +509,8 @@ fn c5_4_write_region_writes_canonical_and_advances_history_once() {
     }
     let (b, a, epoch, version) = r.write_region("d", "L", 2, 2, 4, 4, rgba).expect("write");
     let px = r.get_layer("d", "L").unwrap().pixels.clone();
-    assert_eq!(px[(3 * 8 + 3) * 4 + 0], 255, "inside region ΓåÆ filled");
-    assert_eq!(px[(0 * 8 + 0) * 4 + 0], 0, "outside region ΓåÆ untouched");
+    assert_eq!(px[108], 255, "inside region ΓåÆ filled");
+    assert_eq!(px[0], 0, "outside region ΓåÆ untouched");
     // Exactly ONE history step + ONE epoch bump.
     assert_eq!(version, before_ver + 1, "version +1");
     assert_eq!(epoch, before_epoch + 1, "epoch +1");
@@ -553,16 +553,13 @@ fn c5_4_write_region_undo_redo_roundtrip() {
         c.copy_from_slice(&[1, 2, 3, 255]);
     }
     r.write_region("d", "L", 2, 2, 4, 4, rgba).unwrap();
-    assert_eq!(
-        r.get_layer("d", "L").unwrap().pixels[(3 * 8 + 3) * 4 + 0],
-        1
-    );
+    assert_eq!(r.get_layer("d", "L").unwrap().pixels[108], 1);
     let (_lid, _tiles, _e, _v) = r.undo_pixel("d").expect("undo");
     let after_undo = r.get_layer("d", "L").unwrap().snapshot_region(0, 0, 8, 8);
     assert_eq!(after_undo, before, "undo restores pre-fill canonical");
     let _ = r.redo_pixel("d").expect("redo");
     assert_eq!(
-        r.get_layer("d", "L").unwrap().pixels[(3 * 8 + 3) * 4 + 0],
+        r.get_layer("d", "L").unwrap().pixels[108],
         1,
         "redo re-applies fill"
     );
@@ -669,8 +666,7 @@ fn c4_dirty_region_brush_contract() {
         vec![255, 0, 0, 255],
         "stroke 1 region painted red in canonical"
     );
-    let untouched =
-        r.get_layer("d", "L").unwrap().pixels[(0 * 256 + 0) * 4..(0 * 256 + 0) * 4 + 4].to_vec();
+    let untouched = r.get_layer("d", "L").unwrap().pixels[0..4].to_vec();
     assert_eq!(untouched, vec![0, 0, 0, 0], "outside dirty rect stays zero");
     // stroke 2: DISCONNECTED region (200,200,30,30) painted blue -> both accumulate
     let mut blue = vec![0u8; 30 * 30 * 4];
@@ -733,9 +729,9 @@ fn run_single_cursor(ops: &[Op]) -> bool {
 
     let mut oracle: Vec<u8> = seed.clone();
     let mut cursor: usize = 0; // applied entries == Rust cursor
-    let mut tip: usize = 0; // total committed (redo branch truncated on new op)
-    let mut last_was_undo = false;
+
     let mut prev_version: u64 = 0;
+    let mut tip: usize = 0; // total committed (redo branch truncated on new op)
 
     for op in ops {
         match op {
@@ -760,24 +756,17 @@ fn run_single_cursor(ops: &[Op]) -> bool {
                     .apply_pixel_patch("docA", "L", vec![before_patch], vec![after_patch])
                     .expect("apply_pixel_patch");
                 oracle = after_data;
-                if last_was_undo {
-                    tip = cursor;
-                }
                 cursor += 1;
                 tip = cursor;
                 if ver != prev_version + 1 {
                     return false; // version must advance exactly once per commit
                 }
                 prev_version = ver;
-                last_was_undo = false;
             }
             Op::TsMeta => {
                 // TS non-pixel op joins the SAME cursor as an External entry.
                 r.record_external("docA", "ts-meta", &["L".to_string()], "ts", "tok", 0)
                     .expect("record_external");
-                if last_was_undo {
-                    tip = cursor;
-                }
                 cursor += 1;
                 tip = cursor;
                 let v = r.get_history_version("docA").unwrap();
@@ -785,7 +774,6 @@ fn run_single_cursor(ops: &[Op]) -> bool {
                     return false; // record_external bumps version once
                 }
                 prev_version = v;
-                last_was_undo = false;
             }
             Op::Undo => {
                 if cursor == 0 {
@@ -801,7 +789,6 @@ fn run_single_cursor(ops: &[Op]) -> bool {
                     None => { /* external entry: oracle unchanged, cursor already decremented */ }
                 }
                 cursor -= 1;
-                last_was_undo = true;
                 let v = r.get_history_version("docA").unwrap();
                 if v < prev_version {
                     return false;
@@ -821,7 +808,6 @@ fn run_single_cursor(ops: &[Op]) -> bool {
                     None => { /* external entry: oracle unchanged */ }
                 }
                 cursor += 1;
-                last_was_undo = false;
                 let v = r.get_history_version("docA").unwrap();
                 if v < prev_version {
                     return false;
@@ -1442,7 +1428,7 @@ mod protocol_native_authority_tests {
             let reg = g.get_or_insert_with(Default::default);
             match reg.docs.get_mut("never_opened") {
                 Some(_) => String::new(),
-                None => format!("document not open: never_opened"),
+                None => "document not open: never_opened".to_string(),
             }
         };
         assert_eq!(missing, "document not open: never_opened");

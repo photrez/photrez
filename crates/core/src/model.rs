@@ -152,6 +152,7 @@ impl LayerSet {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
+#[allow(clippy::large_enum_variant)] // Upsert carries the full RenderLayer by value for O(1) history swap
 pub enum RenderLayerChange {
     Upsert {
         layer: RenderLayer,

@@ -121,6 +121,7 @@ impl ProtocolEngine {
     /// invalid (the oracle takes targetSize as a complete {w,h} pair). Non-positive
     /// width/height is a SILENT no-op (the oracle's first guard, before reading the
     /// target size).
+    #[allow(clippy::too_many_arguments)] // flat args mirror the apply-crop command struct
     pub(crate) fn apply_apply_crop(
         &mut self,
         x: f64,

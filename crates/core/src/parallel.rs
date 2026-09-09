@@ -33,24 +33,24 @@ pub fn batch_snap_parallel(points: &[[f64; 2]], targets: &[[f64; 2]]) -> Vec<[f6
         .par_iter()
         .map(|p| {
             let (mut x, mut y) = (p[0], p[1]);
-            let (mut bdX, mut bdY) = (9.0, 9.0);
+            let (mut bd_x, mut bd_y) = (9.0, 9.0);
             let (mut sx, mut sy) = (x, y);
             for t in targets {
                 let dx = (x - t[0]).abs();
                 let dy = (y - t[1]).abs();
-                if dx < bdX && dx <= 8.0 {
-                    bdX = dx;
+                if dx < bd_x && dx <= 8.0 {
+                    bd_x = dx;
                     sx = t[0];
                 }
-                if dy < bdY && dy <= 8.0 {
-                    bdY = dy;
+                if dy < bd_y && dy <= 8.0 {
+                    bd_y = dy;
                     sy = t[1];
                 }
             }
-            if bdX <= 8.0 {
+            if bd_x <= 8.0 {
                 x = sx;
             }
-            if bdY <= 8.0 {
+            if bd_y <= 8.0 {
                 y = sy;
             }
             [x, y]
