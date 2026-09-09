@@ -32,9 +32,15 @@ export function DesktopDialog(props: DesktopDialogProps) {
     if (!props.manageFocus) return;
     restoreFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     queueMicrotask(() => {
-      const initial = dialogElement.querySelector<HTMLElement>(
-        "[data-dialog-initial-focus], button:not([aria-label='Close']):not(:disabled), input:not(:disabled), select:not(:disabled)",
-      );
+      // An explicit [data-dialog-initial-focus] target wins over the generic
+      // fallback. querySelector with a comma list returns the first match in
+      // DOM order (not selector order), so a body button could otherwise steal
+      // focus from the intended primary action in the footer.
+      const initial =
+        dialogElement.querySelector<HTMLElement>("[data-dialog-initial-focus]") ??
+        dialogElement.querySelector<HTMLElement>(
+          "button:not([aria-label='Close']):not(:disabled), input:not(:disabled), select:not(:disabled)",
+        );
       initial?.focus();
     });
   });

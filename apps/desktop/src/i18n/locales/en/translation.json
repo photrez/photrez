@@ -77,6 +77,7 @@
       "toggleSidePanels": "Toggle Side Panels",
       "hideSidePanels": "Hide Side Panels",
       "showSidePanels": "Show Side Panels",
+      "closeSidePanels": "Close Side Panels",
       "useStackedSideDock": "Use Stacked Side Dock",
       "useSideBySideSideDock": "Use Side-by-Side Side Dock",
       "minimize": "Minimize",

@@ -1,4 +1,4 @@
-import { createSignal, onMount } from "solid-js";
+import { createSignal, onMount, type JSX } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
 import { DesktopDialog, DesktopDialogButton } from "./DesktopDialog";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -21,17 +21,25 @@ export function AboutDialog(props: AboutDialogProps) {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  const aboutActions = (
+    <DesktopDialogButton
+      variant="primary"
+      data-dialog-confirm
+      data-dialog-initial-focus
+      onClick={() => props.onDismiss()}
+    >
+      {t("common.close", "Close")}
+    </DesktopDialogButton>
+  );
+
   return (
     <DesktopDialog
       title={t("dialogs.about.title", "About Photrez")}
       kind="about"
       widthClass="w-[min(400px,calc(100vw-24px))]"
       onDismiss={props.onDismiss}
-      actions={
-        <DesktopDialogButton variant="primary" onClick={props.onDismiss}>
-          {t("common.close", "Close")}
-        </DesktopDialogButton>
-      }
+      manageFocus
+      actions={aboutActions}
     >
       <div class="flex flex-col gap-4 py-1">
         {/* Header & Logo */}

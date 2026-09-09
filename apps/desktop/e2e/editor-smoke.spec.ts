@@ -89,9 +89,9 @@ test.describe("editor browser smoke", () => {
     await page.getByRole("button", { name: "Crop Tool" }).click();
     // At this option-bar width the advanced controls collapse into More.
     await page.getByRole("button", { name: "More Options" }).click();
-    await page.locator(".relative.hidden").getByText("Classic", { exact: true }).click();
+    await page.locator(".relative.hidden").getByText("Classic Crop", { exact: true }).click();
 
-    await expect(page.locator(".relative.hidden").getByText("Classic", { exact: true })).toBeVisible();
+    await expect(page.locator(".relative.hidden").getByText("Classic Crop", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Apply" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
     await expect(cropOverlay(page)).toBeVisible();

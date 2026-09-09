@@ -174,6 +174,7 @@ export function ExportDialog() {
                 class="flex h-[30px] w-full items-center justify-between rounded-[4px] border border-editor-field-border bg-editor-field px-2.5 hover:bg-editor-field-border/60 focus:border-editor-accent focus:ring-1 focus:ring-editor-accent/30 transition-colors cursor-pointer outline-none"
                 aria-haspopup="listbox"
                 aria-expanded={isOpen()}
+                data-dialog-initial-focus
               >
                 <div class="flex items-center gap-2">
                   <span class="flex items-center justify-center text-[9px] font-bold px-1.5 py-0.5 rounded bg-editor-canvas border border-editor-field-border/40 text-editor-text-dim leading-none">
@@ -196,7 +197,6 @@ export function ExportDialog() {
                 value={format()}
                 onChange={(e) => setFormat(e.currentTarget.value as ExportFormat)}
                 class="absolute opacity-0 pointer-events-none size-0"
-                data-dialog-initial-focus
               >
                 <For each={FORMATS}>{(f) => (
                   <option value={f.id}>{f.label}</option>

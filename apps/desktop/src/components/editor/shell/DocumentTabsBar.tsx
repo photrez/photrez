@@ -126,7 +126,7 @@ function CloseDockButton() {
   return (
     <button
       class="flex size-7 items-center justify-center rounded-[4px] text-editor-icon hover:bg-white/[0.045] hover:text-editor-text lg:hidden"
-      aria-label={t("menus.items.hideSidePanels", "Close side panels")}
+      aria-label={t("menus.items.closeSidePanels", "Close side panels")}
       onClick={() => setRightDockOpen(false)}
     >
       <Icon name="x" class="size-4" strokeWidth={1.75} />
