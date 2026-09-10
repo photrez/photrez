@@ -181,6 +181,26 @@ export class EditorFacade {
     return this.snapshot;
   }
 
+  // Structural command arm: a reorder cannot be expressed as an in-place delta
+  // upsert (applyDeltaToSnapshot replaces found ids in place, never moves them),
+  // so consume it via the full-snapshot refresh path (re-reads authoritative
+  // order from the engine) — same call addLayer uses under native authority.
+  async reorderLayer(id: string, to: number): Promise<RenderSnapshot> {
+    return this.applyCommandWithRefresh({ type: "reorder", id, to });
+  }
+
+  // Metadata command arm — mirror setLayerVisibility exactly: expectedVersion-
+  // enforced envelope + applyDelta, with refreshSnapshot fallback on an
+  // inapplicable delta. setBackgroundFlag emits a single upsert (isBackground +
+  // lockPosition + lockRotation), which applyDelta carries forward in place.
+  async markLayerAsBackground(id: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setBackgroundFlag", id } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
   async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
     await this.syncFromEngine();
@@ -196,7 +216,24 @@ export class EditorFacade {
     // as "Rust had nothing" and fall through to the legacy TS history store.
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    // Under NATIVE authority every layer is seeded into the engine
+    // (ensureNativeEngineSeeded), so re-reading the authoritative snapshot
+    // restores layer ORDER - which applyDelta cannot express (it upserts in
+    // place; a reorder move is lost otherwise). Under WASM authority the engine
+    // only ever knows facade-created layers (legacy TS layers are never seeded),
+    // so a full re-read would DROP them; keep the in-place delta there exactly
+    // as before.
+    if (isNativeAuthority()) {
+      try {
+        const snap = await getSnapshot(this.docId);
+        this.snapshot = snap;
+        this.renderedVersion = snap.version;
+      } catch {
+        this.applyDelta(res.delta);
+      }
+    } else if (!this.applyDelta(res.delta)) {
+      await this.refreshSnapshot();
+    }
     return this.snapshot;
   }
   async redo(): Promise<RenderSnapshot> {
@@ -208,7 +245,19 @@ export class EditorFacade {
     }
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    // Native-authority-only full re-read (see undo() for the seeded-engine
+    // rationale): restores layer ORDER for undo/redo of routed reorder moves.
+    if (isNativeAuthority()) {
+      try {
+        const snap = await getSnapshot(this.docId);
+        this.snapshot = snap;
+        this.renderedVersion = snap.version;
+      } catch {
+        this.applyDelta(res.delta);
+      }
+    } else if (!this.applyDelta(res.delta)) {
+      await this.refreshSnapshot();
+    }
     return this.snapshot;
   }
 

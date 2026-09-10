@@ -999,3 +999,11 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
   emuVersion += 1;
   return { documentVersion: emuVersion, delta: { baseVersion: base, version: emuVersion, changes } };
 }
+
+// Mirror the real engine's snapshot read: the emulator tracks the authoritative
+// layer set + document version, so getSnapshot must return them. A hard-coded
+// empty stub would desync the facade on any path that re-reads the snapshot
+// (undo/redo/refresh), since the facade would force-apply an empty projection.
+export function emulateGetSnapshot(): RenderSnapshot {
+  return { version: emuVersion, layers: emuLayers.map((l) => ({ ...l })) };
+}

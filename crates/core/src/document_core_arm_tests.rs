@@ -230,6 +230,103 @@ fn reorder_rejects_out_of_range_target_index_with_e_invalid() {
 }
 
 #[test]
+fn reorder_undo_restores_layer_order() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(
+        vec![
+            RenderLayer {
+                id: "L1".into(),
+                name: "A".into(),
+                visible: true,
+                opacity: 1.0,
+                resource_id: 1,
+                x: 0.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                dirty_rect: None,
+                ..Default::default()
+            },
+            RenderLayer {
+                id: "L2".into(),
+                name: "B".into(),
+                visible: true,
+                opacity: 1.0,
+                resource_id: 2,
+                x: 0.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                dirty_rect: None,
+                ..Default::default()
+            },
+        ],
+        0,
+    );
+    // move L1 (index 0) to index 1 -> [L2, L1]
+    e.apply(env(Command::Reorder {
+        id: "L1".into(),
+        to: 1,
+    }))
+    .unwrap();
+    let snap = e.snapshot();
+    let after: Vec<&str> = snap.layers.iter().map(|l| l.id.as_str()).collect();
+    assert_eq!(after, vec!["L2", "L1"], "forward reorder");
+    // undo -> must restore [L1, L2]
+    e.apply(env(Command::Undo)).unwrap();
+    let snap2 = e.snapshot();
+    let undone: Vec<&str> = snap2.layers.iter().map(|l| l.id.as_str()).collect();
+    assert_eq!(undone, vec!["L1", "L2"], "undo must restore order");
+}
+
+#[test]
+fn reorder_undo_after_addlayer_restores_order() {
+    let mut e = ProtocolEngine::new();
+    e.apply(env(Command::AddLayer {
+        id: "L1".into(),
+        name: "A".into(),
+        width: 100.0,
+        height: 100.0,
+        index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
+    }))
+    .unwrap();
+    e.apply(env(Command::AddLayer {
+        id: "L2".into(),
+        name: "B".into(),
+        width: 100.0,
+        height: 100.0,
+        index: 0,
+        layer_type: None,
+        shape_params: None,
+        text_data: None,
+    }))
+    .unwrap();
+    let sb = e.snapshot();
+    let before: Vec<&str> = sb.layers.iter().map(|l| l.id.as_str()).collect();
+    // move the top layer (index 0) to the bottom -> other layer on top
+    let top = before[0].to_string();
+    let bottom = before.len() - 1;
+    e.apply(env(Command::Reorder {
+        id: top.clone(),
+        to: bottom,
+    }))
+    .unwrap();
+    let sa = e.snapshot();
+    let after: Vec<&str> = sa.layers.iter().map(|l| l.id.as_str()).collect();
+    assert_ne!(after, before, "reorder must change order");
+    // undo -> must restore the exact pre-reorder order
+    e.apply(env(Command::Undo)).unwrap();
+    let su = e.snapshot();
+    let undone: Vec<&str> = su.layers.iter().map(|l| l.id.as_str()).collect();
+    assert_eq!(undone, before, "undo after addlayer must restore order");
+}
+
+#[test]
 fn set_background_flag_sets_flag_and_locks_position_rotation() {
     let mut e = engine();
     e.apply(env(Command::SetBackgroundFlag { id: "L1".into() }))

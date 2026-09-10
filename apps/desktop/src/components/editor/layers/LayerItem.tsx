@@ -297,6 +297,7 @@ export function LayerItem(props: LayerItemProps) {
         <Tooltip content={t("layers.moveLayerUp", "Move Layer Up")}>
           <button
             disabled={!canMoveUp}
+            data-layer-move-up
             onClick={(e) => props.onMoveUp(e, props.idx)}
             class="size-[22px] flex items-center justify-center hover:bg-white/10 rounded disabled:opacity-20 disabled:hover:bg-transparent"
           >
@@ -306,6 +307,7 @@ export function LayerItem(props: LayerItemProps) {
         <Tooltip content={t("layers.moveLayerDown", "Move Layer Down")}>
           <button
             disabled={!canMoveDown}
+            data-layer-move-down
             onClick={(e) => props.onMoveDown(e, props.idx)}
             class="size-[22px] flex items-center justify-center hover:bg-white/10 rounded disabled:opacity-20 disabled:hover:bg-transparent"
           >

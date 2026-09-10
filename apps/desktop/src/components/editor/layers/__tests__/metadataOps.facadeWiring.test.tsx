@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   commitFacadeRename: vi.fn(() => Promise.resolve({ status: "applied", count: 1 })),
   commitFacadeLock: vi.fn(() => Promise.resolve({ status: "applied", count: 1 })),
   commitFacadeBlendMode: vi.fn(() => Promise.resolve({ status: "applied", count: 1 })),
+  commitFacadeReorder: vi.fn(() => Promise.resolve({ status: "applied", count: 1 })),
 }));
 
 vi.mock("@/lib/protocol/facadeRegistry", async (importOriginal) => ({
@@ -34,6 +35,7 @@ vi.mock("@/lib/protocol/facadeRegistry", async (importOriginal) => ({
   commitFacadeRename: h.commitFacadeRename,
   commitFacadeLock: h.commitFacadeLock,
   commitFacadeBlendMode: h.commitFacadeBlendMode,
+  commitFacadeReorder: h.commitFacadeReorder,
   MIXED_OWNERSHIP_MESSAGE: "mixed-selection",
 }));
 
@@ -71,6 +73,7 @@ describe("metadata op call-site routing (facade dispatch)", () => {
     h.commitFacadeRename.mockClear();
     h.commitFacadeLock.mockClear();
     h.commitFacadeBlendMode.mockClear();
+    h.commitFacadeReorder.mockClear();
   });
 
   it("visibility toggle: flag ON routes to commitFacadeVisibility, legacy engine untouched", async () => {
@@ -225,6 +228,47 @@ describe("metadata op call-site routing (facade dispatch)", () => {
     await tick();
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("E_EXTERNAL_PENDING"), "error");
     expect(spy).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("reorder move-down: flag ON routes to commitFacadeReorder with id + toIndex, legacy untouched", async () => {
+    // Two non-background layers so Top can move down (Background is pinned to the bottom).
+    const session = WorkspaceManager.createBlankDocument("w-reorder", "W", 800, 600);
+    session.engine.addLayer("Mid");
+    const top = session.engine.addLayer("Top");
+    const { container, dispose } = mount(session);
+    await tick();
+    const spy = vi.spyOn(session.engine, "reorderLayer");
+    const topRow = Array.from(container.querySelectorAll<HTMLElement>("[data-layer-idx]")).find((r) =>
+      r.textContent?.includes("Top"),
+    )!;
+    const downBtn = topRow.querySelector<HTMLButtonElement>("[data-layer-move-down]")!;
+    downBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    expect(h.commitFacadeReorder).toHaveBeenCalledTimes(1);
+    expect(h.commitFacadeReorder).toHaveBeenCalledWith(expect.any(Object), top.id, 1);
+    expect(spy).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("reorder move-down: flag OFF uses legacy engine.reorderLayer, no facade commit", async () => {
+    h.facadeOn = false;
+    // Two non-background layers so Top can move down (Background is pinned to the bottom).
+    const session = WorkspaceManager.createBlankDocument("w-reorder-off", "W", 800, 600);
+    session.engine.addLayer("Mid");
+    const top = session.engine.addLayer("Top");
+    const { container, dispose } = mount(session);
+    await tick();
+    const spy = vi.spyOn(session.engine, "reorderLayer");
+    const topRow = Array.from(container.querySelectorAll<HTMLElement>("[data-layer-idx]")).find((r) =>
+      r.textContent?.includes("Top"),
+    )!;
+    const downBtn = topRow.querySelector<HTMLButtonElement>("[data-layer-move-down]")!;
+    downBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(0, 1);
+    expect(h.commitFacadeReorder).not.toHaveBeenCalled();
     dispose();
   });
 });

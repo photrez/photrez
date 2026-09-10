@@ -335,7 +335,7 @@ export async function getSnapshot(docId = "default"): Promise<RenderSnapshot> {
       throw normalizeProtocolError(e);
     }
   }
-  if (!wasm) return { version: 0, layers: [] };
+  if (!wasm) return emulateGetSnapshot();
   const j = wasm.protocol_snapshot_json(docId);
   return JSON.parse(j) as RenderSnapshot;
 }
@@ -516,5 +516,5 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
 // The in-memory emulator now lives in bridge_emu.ts to keep this module under the
 // 1000-line guard. applyCommand dispatches to it when the wasm runtime is unarmed;
 // every emulator symbol is re-exported so existing import paths stay valid.
-import { emulateApply } from "./bridge_emu";
+import { emulateApply, emulateGetSnapshot } from "./bridge_emu";
 export * from "./bridge_emu";

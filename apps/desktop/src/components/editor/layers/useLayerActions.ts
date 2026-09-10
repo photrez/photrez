@@ -10,7 +10,7 @@ import {
 import { cancelLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession } from "../canvas/pointerTools/textTool";
 import { showToast } from "../Toast";
-import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests, commitFacadeVisibility, commitFacadeLock } from "@/lib/protocol/facadeRegistry";
+import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests, commitFacadeVisibility, commitFacadeLock, commitFacadeReorder } from "@/lib/protocol/facadeRegistry";
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
@@ -541,31 +541,72 @@ export function useLayerActions() {
     scheduler.requestRender();
   };
 
-  const handleMoveUp = (e: MouseEvent, index: number) => {
+  const handleMoveUp = async (e: MouseEvent, index: number) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     if (index > 0) {
       const engine = workspace.getActiveEngine();
       const history = workspace.getActiveHistory();
-      if (engine && history) {
-        history.commit(engine.snapshot(), "Reorder Layer");
-        engine.reorderLayer(index, index - 1);
-        scheduler.requestRender();
+      if (!engine || !history) return;
+      const id = engine.getLayers()[index]?.id;
+      if (!id) return;
+      // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate):
+      // a facade-owned layer reorders via ONE Reorder command (full-snapshot
+      // refresh so the projection order matches the authoritative engine). The
+      // destination index is the legacy toIndex (post-removal insertion index).
+      if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+        try {
+          const r = await commitFacadeReorder(engine as never, id, index - 1);
+          if (r.status === "mixed-rejected") {
+            showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+            return;
+          }
+          if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+            scheduler.requestRender();
+            return;
+          }
+          // status === "legacy" -> fall through to the untouched legacy path
+        } catch (err) {
+          showToast(`Cannot reorder layer: ${(err as Error).message}`, "error");
+          return;
+        }
       }
+      history.commit(engine.snapshot(), "Reorder Layer");
+      engine.reorderLayer(index, index - 1);
+      scheduler.requestRender();
     }
   };
 
-  const handleMoveDown = (e: MouseEvent, index: number) => {
+  const handleMoveDown = async (e: MouseEvent, index: number) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     if (index < layers().length - 1) {
       const engine = workspace.getActiveEngine();
       const history = workspace.getActiveHistory();
-      if (engine && history) {
-        history.commit(engine.snapshot(), "Reorder Layer");
-        engine.reorderLayer(index, index + 1);
-        scheduler.requestRender();
+      if (!engine || !history) return;
+      const id = engine.getLayers()[index]?.id;
+      if (!id) return;
+      // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
+      if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+        try {
+          const r = await commitFacadeReorder(engine as never, id, index + 1);
+          if (r.status === "mixed-rejected") {
+            showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+            return;
+          }
+          if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+            scheduler.requestRender();
+            return;
+          }
+          // status === "legacy" -> fall through to the untouched legacy path
+        } catch (err) {
+          showToast(`Cannot reorder layer: ${(err as Error).message}`, "error");
+          return;
+        }
       }
+      history.commit(engine.snapshot(), "Reorder Layer");
+      engine.reorderLayer(index, index + 1);
+      scheduler.requestRender();
     }
   };
 

@@ -468,6 +468,8 @@ export class DocumentEngine {
   }
 
   reorderLayer(fromIndex: number, toIndex: number): void {
+    const fromLayer = this.model.layers[fromIndex];
+    if (fromLayer && isFacadeOwned(fromLayer.id)) throw new Error(`E_FACADE_OWNED: layer ${fromLayer.id} owned by Rust facade - legacy reorder blocked`);
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const ok: boolean = this.rustEngine.reorder_layer(fromIndex, toIndex);
@@ -553,6 +555,7 @@ export class DocumentEngine {
    * Used by document factories (blank/open/flatten).
    */
   markLayerAsBackground(id: LayerId): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy set-background blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_background(id)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -1533,7 +1536,7 @@ export class DocumentEngine {
   }
 
   // ─── Facade Projection (Ticket 2.1) ───
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; blendMode?: string }> }): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }> }): void {
     const existingById = new Map(this.model.layers.map((l) => [l.id, l] as const));
     const nextLayers: typeof this.model.layers = [];
     for (const rl of snapshot.layers) {
@@ -1557,6 +1560,10 @@ export class DocumentEngine {
         existing.lockTransparency = rl.lockTransparency ?? false;
         existing.lockPosition = rl.lockPosition ?? false;
         existing.lockRotation = rl.lockRotation ?? false;
+        // Mirror the lock/blend handling: isBackground rides the facade serde
+        // field; when omitted the authoritative state is default (not background)
+        // so an undo that restores a before-snapshot without the field reverts.
+        existing.isBackground = rl.isBackground ?? false;
         existing.blendMode = (rl.blendMode as BlendMode) ?? "normal";
         nextLayers.push(existing);
       } else {
@@ -1567,7 +1574,7 @@ export class DocumentEngine {
           visible: rl.visible,
           locked: rl.locked ?? false,
           opacity: rl.opacity,
-          isBackground: false,
+          isBackground: rl.isBackground ?? false,
           lockTransparency: rl.lockTransparency ?? false,
           lockPosition: rl.lockPosition ?? false,
           lockRotation: rl.lockRotation ?? false,
