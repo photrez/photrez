@@ -195,7 +195,7 @@ export class EditorFacade {
   // Structural command arm: a reorder cannot be expressed as an in-place delta
   // upsert (applyDeltaToSnapshot replaces found ids in place, never moves them),
   // so consume it via the full-snapshot refresh path (re-reads authoritative
-  // order from the engine) — same call addLayer uses under native authority.
+  // order from the engine) - same call addLayer uses under native authority.
   async reorderLayer(id: string, to: number): Promise<RenderSnapshot> {
     // Delta path by design; the ordered full restatement the Reorder arm emits
     // carries the new order, which applyDeltaToSnapshot adopts (see its

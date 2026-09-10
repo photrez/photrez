@@ -80,10 +80,11 @@ const cmdResultJson = (dv: number, changes: unknown[] = []) =>
     status: "ok",
   });
 
-// Minimal faithful inverse between two layer vectors (what the real Rust
-// history entries carry): identical id-sets -> ordered full restatement (the
-// Reorder class); otherwise Removes for vanished ids + single Upserts for
-// re-appearing ids, matching arm semantics change-for-change.
+// Minimal faithful inverse between two layer vectors, mirroring the fixed
+// ProtocolEngine::diff contract (document_core.rs, pinned by
+// document_core::reorder_tests): identical id-sets -> ordered full restatement
+// ONLY when the order differs (true no-op stays empty); otherwise Removes for
+// vanished ids + single Upserts for re-appearing ids.
 function diffChanges(
   from: Array<Record<string, unknown>>,
   to: Array<Record<string, unknown>>,
@@ -93,7 +94,8 @@ function diffChanges(
   const changes: unknown[] = [];
   for (const l of from) if (!toIds.has(l.id as string)) changes.push({ kind: "remove", id: l.id as string, resourceId: (l.resourceId as number) ?? 0 });
   if (changes.length === 0 && to.length === from.length) {
-    return to.map((l) => ({ kind: "upsert", layer: { ...l } }));
+    const moved = to.some((l, i) => l.id !== from[i]?.id);
+    return moved ? to.map((l) => ({ kind: "upsert", layer: { ...l } })) : [];
   }
   for (const l of to) if (!fromIds.has(l.id as string)) changes.push({ kind: "upsert", layer: { ...l } });
   return changes;
@@ -514,7 +516,7 @@ describe("commitFacadeBlendMode (SetBlendMode arm)", () => {
   });
 });
 
-describe("commitFacadeReorder (Reorder arm) — wasm authority (legacy route)", () => {
+describe("commitFacadeReorder (Reorder arm) - wasm authority (legacy route)", () => {
   // Under wasm authority the reorder arm never routes to native: commitFacadeReorder
   // returns {status:"legacy"} before any selection resolve, so applyCommand is never
   // called (the production routing decision: reorder is gated to native authority).

@@ -523,6 +523,25 @@ impl ProtocolEngine {
                 });
             }
         }
+        // Pure-order changes (the Reorder command class) mutate no layer
+        // VALUES: every Arc is pointer-identical across the transition, so the
+        // loop above emits nothing even though the engine order moved. Hosts
+        // that apply deltas reconstruct the sequence from the restatement, so
+        // report every layer of `new` as an ordered Upsert. Value-change or
+        // id-change diffs keep the existing behavior verbatim. The guard stays
+        // empty for a true no-op (order identical) and only fires when
+        // `changes` is still empty, so partial+move keeps current semantics
+        // (documented as a pre-A0.5 gap for external entries).
+        if changes.is_empty() && old.0.len() == new.0.len() {
+            let same_order = old.iter().zip(new.iter()).all(|(a, b)| Arc::ptr_eq(a, b));
+            if !same_order {
+                for arc in new.iter() {
+                    changes.push(RenderLayerChange::Upsert {
+                        layer: arc.as_ref().clone(),
+                    });
+                }
+            }
+        }
         changes
     }
 }
@@ -712,6 +731,10 @@ mod canonical_seed_tests;
 #[cfg(test)]
 #[path = "document_core_arm_tests.rs"]
 mod arm_tests;
+
+#[cfg(test)]
+#[path = "document_core_reorder_tests.rs"]
+mod reorder_tests;
 
 #[cfg(test)]
 #[path = "document_core_arm_structural_tests.rs"]
