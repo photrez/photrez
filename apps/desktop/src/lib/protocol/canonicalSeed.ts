@@ -29,7 +29,7 @@
 
 import type { DocumentEngine } from "@/engine/document";
 import type { LayerNode } from "@/engine/types";
-import { isNativeAuthority, seedNativeCanonical } from "./bridge";
+import { isNativeAuthority, seedNativeCanonical, setExternalTransitionPending } from "./bridge";
 
 type JsonObject = Record<string, unknown>;
 
@@ -85,7 +85,17 @@ export function buildCanonicalDocumentPayload(engine: DocumentEngine): string {
 // Gated by native authority (default OFF => no-op, production unchanged). The
 // native seed replaces the shadow unconditionally, so a re-push is idempotent
 // and safe to fire after every such event.
+//
+// Ordering: the re-push's invoke promise is registered in the per-doc
+// external-transition barrier (flushExternalTransitions, awaited by syncFromEngine
+// before every facade command) so a re-push for command 1 is guaranteed to land
+// before command 2 dispatches — otherwise a stale native doc_size could be read
+// by the next command. The barrier chain swallows a rejected re-push so it never
+// wedges the barrier.
 export async function repushCanonicalDocument(docId: string, engine: DocumentEngine): Promise<void> {
   if (!isNativeAuthority()) return;
-  await seedNativeCanonical(docId, buildCanonicalDocumentPayload(engine));
+  const key = docId === "" ? "default" : docId;
+  const p = seedNativeCanonical(docId, buildCanonicalDocumentPayload(engine));
+  setExternalTransitionPending(key, p);
+  await p;
 }

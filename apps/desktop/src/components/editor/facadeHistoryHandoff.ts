@@ -32,6 +32,13 @@ export async function runFacadeExternalHandoff(
     // (mixed-history constraint) - a known pre-existing limitation tracked
     // separately.
     if (facade.lastExternalHandoff) {
+      // Heal source: this branch does NOT re-push. The native-authority heal
+      // re-push runs AFTER the legacy TS restore in useEditorCommands
+      // (restoreHistorySnapshot, handoff-fallthrough branch) so it carries the
+      // post-restore engine state. Here we only project the facade-restored
+      // snapshot onto the engine so it is not left stale before the barrier is
+      // cleared (confirmExternalCursor no longer takes an engine).
+      engine.applyFacadeSnapshot(snap as never);
       const committed = await confirmExternalCursor(
         engine.getId(),
         facade.lastExternalHandoff.seq,

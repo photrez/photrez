@@ -6,7 +6,7 @@ import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNati
 import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentEngine } from "@/engine/document";
-import type { DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch } from "./types";
+import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch } from "./types";
 import { isDeltaApplicable } from "./types";
 
 export type TransientTransform = { id: string; start: TransformPatch; live: TransformPatch } | null;
@@ -75,15 +75,29 @@ export class EditorFacade {
   // in the same synchronous task would read a stale expectedVersion and catch a
   // spurious version-mismatch rejection.
   async addLayer(name: string, width = 100, height = 100, index = 0): Promise<RenderSnapshot> {
-    await this.syncFromEngine();
     // Host-owned identity: mint the layer id in TS (layer-<rand>) so it matches
     // the TS engine's id space; the native AddLayer arm no longer mints its own.
     const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
+    const command: Command = { type: "addLayer", id, name, width, height, index };
+    if (isNativeAuthority()) {
+      // Native-authority path: the Rust engine mints the layer at its OWN host
+      // index, so the bridged delta order can disagree with TS tail-append. Issue
+      // the command via the authoritative-snapshot path (re-reads the full
+      // snapshot) so the facade PROJECTION matches native order, then re-push the
+      // canonical (native-order) state. This kills the projection-order artifact at
+      // its source for routed ops: the re-push carries the engine's real layer
+      // order, not the delta's tail order, so the canonical payload never diverges
+      // from native order.
+      await this.applyCommandWithRefresh(command);
+      this.repushCanonicalAfterAddLayer();
+      return this.snapshot;
+    }
+    await this.syncFromEngine();
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: this.renderedVersion,
       docId: this.docId,
-      command: { type: "addLayer", id, name, width, height, index },
+      command,
     });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
@@ -161,6 +175,38 @@ export class EditorFacade {
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  // Refresh-based command path. For commands whose Rust arms emit a FULL ORDERED
+  // restatement of all layers plus Removes (the structural/canvas arms — see
+  // crates/core/src/document_core_structural.rs), the delta cannot be reconstructed
+  // by the production consumer. This issues the command once and then UNCONDITIONALLY
+  // re-reads the authoritative snapshot, so the layer ORDER and canvas DIMS come
+  // from the engine rather than being carried forward from previous local state.
+  // The method is authority-agnostic: the bridge selects the engine (wasm or native).
+  // On applyCommand rejection it propagates the error and performs NO refresh, so the
+  // host never clobbers local state with a stale snapshot after a failed command.
+  async applyCommandWithRefresh(command: Command): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: this.renderedVersion,
+      docId: this.docId,
+      command,
+    });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    // Refresh the full authoritative snapshot directly (do NOT swallow failures).
+    // A swallowed getSnapshot error would leave the local snapshot at its pre-command
+    // state while reporting the command as success — silent staleness. On rejection,
+    // throw a distinct REFRESH_FAILED error so callers see "command applied, refresh
+    // failed" instead of a stale-success.
+    try {
+      const snap = await getSnapshot(this.docId);
+      this.applySnapshot(snap);
+    } catch (e) {
+      throw new Error("REFRESH_FAILED:" + (e instanceof Error ? e.message : String(e)));
+    }
     return this.snapshot;
   }
 

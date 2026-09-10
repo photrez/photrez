@@ -146,8 +146,42 @@ impl ProtocolEngine {
     ///
     /// ADDITIVE / UNWIRED: only populated from the gated native-authority seed
     /// path. In production `canonical` is `None`, so no reconcile ever runs.
+    ///
+    /// Seed the canonical shadow copy for a document.
+    ///
+    /// This is the TS re-push path. The shadow dims are what the SelectAll /
+    /// Invert arms read (apply.rs:529-530); the snapshot width/height has no
+    /// production consumer today, and any stale-shadow dims heal on the next
+    /// re-push, so the shadow is the ONLY thing a re-push is allowed to touch.
+    ///
+    /// `doc_size` has exactly three owners, all native:
+    ///   1. the initial baseline set here, ONCE, only when the engine has no dims
+    ///      yet (document open; the native engine is evicted on close so a reopen
+    ///      starts at `doc_size: None` again - pixel_store.rs:332 removes the
+    ///      `DocumentPixelStore` that owns the `ProtocolEngine`);
+    ///   2. the canvas arms (crop at document_core_canvas.rs:90, apply-crop at
+    ///      :207, resize at :246) which set `doc_size` AND capture its before /
+    ///      after pair via `begin_forward`;
+    ///   3. the undo/redo walker (apply.rs:717 / :785) which restores the
+    ///      captured pair.
+    /// Because only native arms ever produce a `doc_size` pair, the walker always
+    /// restores a value consistent with the native dims timeline by construction.
+    ///
+    /// A re-push therefore NEVER mutates `doc_size` and NEVER invalidates history:
+    /// order divergence between the shadow (TS order) and native is a non-event
+    /// (SelectAll / Invert read the shadow only), and any stale shadow dims heal
+    /// via a later re-push. There is intentionally NO truncation / cursor reset
+    /// here - that was the old heuristic that wiped native history on a mere order
+    /// mismatch, and it is removed. Single-owner contract pinned by
+    /// `repush_never_mutates_native_doc_size` and `audit_sequence_repush_is_inert`
+    /// in document_core_canonical_seed_tests.rs.
     pub fn seed_canonical(&mut self, doc: CanonicalDocument) {
-        self.doc_size = Some((doc.width, doc.height));
+        let pushed_dims = (doc.width, doc.height);
+        // Owner (1): baseline only at document open (engine has no dims yet).
+        if self.doc_size.is_none() {
+            self.doc_size = Some(pushed_dims);
+        }
+        // Owner shadow: unconditional refresh so SelectAll / Invert read fresh dims.
         self.canonical = Some(CanonicalShadow::new(doc));
     }
 

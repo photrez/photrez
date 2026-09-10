@@ -143,6 +143,9 @@ export function clearNativeSeed(docId: string): void {
   for (const k of nativeAdapterRegByDoc.keys()) {
     if (k === key || k.startsWith(`${key}::`)) nativeAdapterRegByDoc.delete(k);
   }
+  // Mirror the layer/adapter eviction: a stale canonical-seed promise would otherwise
+  // skip the re-seed on reopen and keep a divergent shadow alive.
+  nativeCanonicalSeedPromiseByDoc.delete(key);
 }
 
 // Authoritative per-doc seed. Created with REAL layers + version at the
@@ -162,28 +165,44 @@ export function createNativeSeed(docId: string, version: number, layers: RenderL
   return p;
 }
 
+// Native-authority canonical-document seed promises (gated, OFF by default).
+// Like nativeSeedPromiseByDoc but for the full canonical-document shadow seed
+// (seedNativeCanonical). applyCommand awaits BOTH the layer seed and this seed,
+// so a facade command cannot apply natively before the canonical open-seed lands
+// and (if it arrived late) overwrite doc_size with open-time dims.
+export const nativeCanonicalSeedPromiseByDoc = new Map<string, Promise<void>>();
+
 // Seed the full canonical-document shadow into the native engine for a doc. Runs
 // AFTER the authoritative open-path layer seed (it awaits that seed's promise) so
 // the doc is already open when the canonical copy is pushed. Gated: a no-op under
 // the default (wasm) authority. If the open-path seed was never created, we still
 // invoke so the command surfaces the missing-doc ordering bug rather than silently
-// skipping a seed.
-export async function seedNativeCanonical(docId: string, canonicalJson: string): Promise<void> {
-  if (!isNativeAuthority()) return;
+// skipping a seed. The seed's promise is recorded in nativeCanonicalSeedPromiseByDoc
+// so applyCommand's seed barrier can await it.
+export function seedNativeCanonical(docId: string, canonicalJson: string): Promise<void> {
+  if (!isNativeAuthority()) return Promise.resolve();
   const key = docId === "" ? "default" : docId;
-  await (nativeSeedPromiseByDoc.get(key) ?? Promise.resolve());
-  await nativeProtocol.protocol_seed_canonical_native(canonicalJson, key);
+  const p = (async () => {
+    await (nativeSeedPromiseByDoc.get(key) ?? Promise.resolve());
+    await nativeProtocol.protocol_seed_canonical_native(canonicalJson, key);
+  })();
+  nativeCanonicalSeedPromiseByDoc.set(key, p);
+  return p;
 }
 
 // Awaits the authoritative seed for a doc. The document-open path is responsible
 // for creating it (with real layers) before any command fires; this never seeds
 // empty. If no seed exists the open path did not run first - resolve without
 // seeding so the subsequent native command surfaces that, never a silent
-// zero-layer clobber.
+// zero-layer clobber. Awaits BOTH the layer seed AND the canonical-document seed,
+// so a late canonical open-seed can never overwrite doc_size after a command has
+// already applied natively.
 export async function awaitNativeSeed(docId: string): Promise<void> {
   if (!isNativeAuthority()) return Promise.resolve();
   const key = docId === "" ? "default" : docId;
-  return nativeSeedPromiseByDoc.get(key) ?? Promise.resolve();
+  const layer = nativeSeedPromiseByDoc.get(key) ?? Promise.resolve();
+  const canonical = nativeCanonicalSeedPromiseByDoc.get(key) ?? Promise.resolve();
+  await Promise.all([layer, canonical]);
 }
 
 // Seed entry point used by seedFacadeFromEngine. Delegates to the single
@@ -250,6 +269,7 @@ export function normalizeProtocolError(e: unknown): Error {
 export function __resetNativeAuthorityForTests(): void {
   nativeSeedPromiseByDoc.clear();
   nativeAdapterRegByDoc.clear();
+  nativeCanonicalSeedPromiseByDoc.clear();
 }
 
 export async function applyCommand(envelope: CommandEnvelope): Promise<CommandResult> {

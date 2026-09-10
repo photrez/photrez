@@ -721,13 +721,20 @@ impl ProtocolEngine {
                                     sh.doc.height = d.1;
                                 }
                             }
-                            // Hazard: a full canonical re-seed replaces the history
-                            // stream wholesale (gated path), so this walker never
-                            // runs against re-seeded shadow dims in production. If
-                            // that gating is ever relaxed, a subsequent undo/redo
-                            // would overwrite the re-seeded shadow dimensions with
-                            // this entry's captured pair. Resolve before native
-                            // authority cutover.
+                            // doc_size single-owner invariant (enforced by construction,
+                            // never by seed_canonical): doc_size has exactly three owners -
+                            // (1) the baseline set in seed_canonical only when engine
+                            // doc_size is None (document open), (2) the canvas arms
+                            // (document_core_canvas.rs:90/207/246) which set doc_size AND
+                            // capture its before/after pair via begin_forward, (3) this
+                            // walker, which restores the captured pair. A canonical
+                            // re-push refreshes ONLY the shadow (SelectAll/Invert read it)
+                            // and can NEVER mutate doc_size or wipe history, so the
+                            // captured pair below always restores a value consistent with
+                            // the native dims timeline. Pinned by
+                            // repush_never_mutates_native_doc_size and
+                            // audit_sequence_repush_is_inert in
+                            // document_core_canonical_seed_tests.rs.
                             self.cursor -= 1;
                             changes
                         }
@@ -778,13 +785,20 @@ impl ProtocolEngine {
                                     sh.doc.height = d.1;
                                 }
                             }
-                            // Hazard: a full canonical re-seed replaces the history
-                            // stream wholesale (gated path), so this walker never
-                            // runs against re-seeded shadow dims in production. If
-                            // that gating is ever relaxed, a subsequent undo/redo
-                            // would overwrite the re-seeded shadow dimensions with
-                            // this entry's captured pair. Resolve before native
-                            // authority cutover.
+                            // doc_size single-owner invariant (enforced by construction,
+                            // never by seed_canonical): doc_size has exactly three owners -
+                            // (1) the baseline set in seed_canonical only when engine
+                            // doc_size is None (document open), (2) the canvas arms
+                            // (document_core_canvas.rs:90/207/246) which set doc_size AND
+                            // capture its before/after pair via begin_forward, (3) this
+                            // walker, which restores the captured pair. A canonical
+                            // re-push refreshes ONLY the shadow (SelectAll/Invert read it)
+                            // and can NEVER mutate doc_size or wipe history, so the
+                            // captured pair below always restores a value consistent with
+                            // the native dims timeline. Pinned by
+                            // repush_never_mutates_native_doc_size and
+                            // audit_sequence_repush_is_inert in
+                            // document_core_canonical_seed_tests.rs.
                             self.cursor += 1;
                             changes
                         }

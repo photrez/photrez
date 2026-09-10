@@ -22,6 +22,8 @@ import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDi
 import { cancelAutosave } from "./autoSave";
 import { hasFacadeOwnedLayers } from "@/engine/document";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { isNativeAuthority } from "@/lib/protocol/bridge";
+import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
 import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
 import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
 import { bitmapStoreFor } from "@/engine/bitmapStore";
@@ -274,6 +276,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     // entries whose snapshots contain facade layers — such entries stay pinned
     // until facade layers are removed. This is not a final history
     // architecture.
+    let handoffFellThrough = false;
     if (hasFacadeOwnedLayers()) {
       // Facade (Rust-owned) history handoff. Returns true when this branch fully
       // handled the step (caller must return); false to fall through to the
@@ -283,6 +286,10 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // history constraint, tracked separately). It must not claim the restore
       // finished.
       if (await runFacadeExternalHandoff(editor, direction)) return;
+      // Handoff attempted but fell through (Rust had no entry; TS does the restore).
+      // The native heal re-push below fires only in this case, AFTER engine.restore,
+      // so the re-pushed canonical shadow reflects the post-restore state.
+      handoffFellThrough = true;
     }
 
     try {
@@ -446,6 +453,20 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       }
 
       engine.restore(snapshot);
+
+      // Native-authority heal re-push: the handoff fell through to the legacy TS
+      // restore, so the native engine was NOT updated by a Rust undo/redo this step.
+      // Re-push the FULL canonical document now (AFTER restore) so the native shadow
+      // reflects the post-restore state - that timing is the point: firing it inside
+      // confirmExternalCursor would carry the PRE-restore snapshot. Barrier-registered
+      // (repushCanonicalDocument) so the next facade command's syncFromEngine flushes
+      // it before dispatch. Gated by native authority; flag off => no-op.
+      if (handoffFellThrough && isNativeAuthority()) {
+        const docId = editor.workspace.getActiveDocumentId() ?? "";
+        void repushCanonicalDocument(docId, engine).catch((e) =>
+          console.warn("[canonical-repush] restore-history heal re-push failed", e),
+        );
+      }
 
       // ── Snapshot-token re-attach (bridge-ON only, Snapshot-typed entries) ──
       // The Rust snapshot cursor is the single undo/redo authority when the

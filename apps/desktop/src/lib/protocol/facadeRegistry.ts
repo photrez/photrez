@@ -387,12 +387,16 @@ export async function recordExternalTransitionFor(
 export async function confirmExternalCursor(
   docId: string,
   seq: number,
-  direction: "undo" | "redo"
+  direction: "undo" | "redo",
 ): Promise<{ ok: boolean }> {
-  // No canonical re-push here: the external-handoff route returns an empty delta,
-  // so the TS model is untouched and facadeHistoryHandoff skips projection; facade
-  // undo/redo is already covered by Rust-side reconciliation. Residual: a pure-legacy
-  // doc restored via engine.restore() heals the shadow at the next forward commit.
+  // External-handoff undo/redo: the walker landed on a legacy (external) entry and
+  // set the engine's pending-external barrier. This function clears the barrier via
+  // the cursor commit; it does NOT re-push the canonical shadow. The native-authority
+  // heal re-push is intentionally OUT of this path: it runs AFTER the legacy TS
+  // restore completes (useEditorCommands.restoreHistorySnapshot, handoff-fallthrough
+  // branch), so the re-pushed payload reflects the post-restore state. Keeping it
+  // here would carry the pre-restore snapshot and fire even when the facade branch
+  // returns early. Gated: historyDegraded => no-op, production unchanged.
   // Deterministic degraded behavior (ADR 0008 H0 review): fail fast, keep the
   // degraded reason, never appear healthy while cursor/state may diverge.
   const deg = historyDegraded();
