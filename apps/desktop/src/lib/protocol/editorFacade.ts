@@ -6,7 +6,7 @@ import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNati
 import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentEngine } from "@/engine/document";
-import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch } from "./types";
+import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch, LockKind } from "./types";
 import { isDeltaApplicable } from "./types";
 
 export type TransientTransform = { id: string; start: TransformPatch; live: TransformPatch } | null;
@@ -142,6 +142,40 @@ export class EditorFacade {
   async setOpacity(id: string, opacity: number): Promise<RenderSnapshot> {
     await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setOpacity", id, opacity } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  // Metadata command arms — mirror setOpacity exactly: expectedVersion-enforced
+  // envelope + applyDelta, with refreshSnapshot fallback on an inapplicable delta.
+  async setLayerVisibility(id: string, visible: boolean): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setVisible", id, visible } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async setLayerName(id: string, name: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "rename", id, name } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async setLayerLocked(id: string, kind: LockKind, locked: boolean): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setLocked", id, kind, locked } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async setLayerBlendMode(id: string, mode: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setBlendMode", id, mode } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;

@@ -17,6 +17,8 @@ import { cancelLayerTransformSession } from "../transformSession";
 import { ContextMenu, type ContextMenuEntry } from "../ContextMenu";
 import { Slider } from "../primitives";
 import { useI18n } from "@/i18n/I18nProvider";
+import { showToast } from "../Toast";
+import { commitFacadeBlendMode, isFacadeEnabled, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
 
 export function LayersPanel() {
   const { t } = useI18n();
@@ -366,7 +368,7 @@ export function LayersPanel() {
         <select
           disabled={!activeLayer() || activeLayer()!.locked}
           value={activeLayer()?.blendMode || "normal"}
-          onChange={(e) => {
+          onChange={async (e) => {
             const engine = workspace.getActiveEngine();
             const id = activeLayerId();
             const mode = e.currentTarget.value;
@@ -375,20 +377,51 @@ export function LayersPanel() {
             const multi = selectedLayerIds();
             const targetIds = multi.length > 1 ? multi : (id ? [id] : []);
 
-            if (engine && targetIds.length > 0) {
-              if (layerTransformSession()) {
-                cancelActiveTransformSession();
-              }
-              const history = workspace.getActiveHistory();
-              history?.commit(engine.snapshot(), targetIds.length > 1 ? "Set Layer Blend Mode (Multiple)" : "Layer Blend Mode");
-              for (const tid of targetIds) {
-                const l = engine.getLayer(tid);
-                if (l && !l.locked) {
-                  engine.setLayerBlendMode(tid, mode);
-                }
-              }
-              scheduler.requestRender();
+            if (!engine || targetIds.length === 0) return;
+            if (layerTransformSession()) {
+              cancelActiveTransformSession();
             }
+            // Mirror the legacy loop below: a locked layer is not editable.
+            const editableIds = targetIds.filter((tid) => {
+              const l = engine.getLayer(tid);
+              return l && !l.locked;
+            });
+            if (editableIds.length === 0) {
+              // Facade mode may skip the no-op history entry; the flag-off path
+              // must stay byte-identical to the legacy behavior below (commit
+              // first, then the locked-target loop no-ops).
+              if (isFacadeEnabled()) {
+                scheduler.requestRender();
+                return;
+              }
+            }
+            // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
+            if (isFacadeEnabled()) {
+              try {
+                const r = await commitFacadeBlendMode(engine as never, editableIds, mode);
+                if (r.status === "mixed-rejected") {
+                  showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+                  return;
+                }
+                if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+                  scheduler.requestRender();
+                  return;
+                }
+                // status === "legacy" -> fall through to the untouched legacy path
+              } catch (err) {
+                showToast(`Cannot set blend mode: ${(err as Error).message}`, "error");
+                return;
+              }
+            }
+            const history = workspace.getActiveHistory();
+            history?.commit(engine.snapshot(), targetIds.length > 1 ? "Set Layer Blend Mode (Multiple)" : "Layer Blend Mode");
+            for (const tid of targetIds) {
+              const l = engine.getLayer(tid);
+              if (l && !l.locked) {
+                engine.setLayerBlendMode(tid, mode);
+              }
+            }
+            scheduler.requestRender();
           }}
           class="h-[26px] w-[120px] rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] font-semibold text-editor-text focus:outline-none focus-visible:border-editor-accent cursor-pointer hover:border-[#4B515D] transition-colors"
         >

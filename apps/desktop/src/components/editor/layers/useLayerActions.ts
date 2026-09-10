@@ -10,7 +10,7 @@ import {
 import { cancelLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession } from "../canvas/pointerTools/textTool";
 import { showToast } from "../Toast";
-import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
+import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests, commitFacadeVisibility, commitFacadeLock } from "@/lib/protocol/facadeRegistry";
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
@@ -355,104 +355,190 @@ export function useLayerActions() {
     }
   };
 
-  const handleToggleVisibility = (e: MouseEvent, id: string) => {
+  const handleToggleVisibility = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const multi = selectedLayerIds();
     const isMulti = multi.length > 1 && multi.includes(id);
     const targetIds = isMulti ? multi : [id];
-    if (engine && targetIds.length > 0) {
-      const clickedLayer = engine.getLayer(id);
-      if (!clickedLayer) return;
-      const nextVisible = !clickedLayer.visible;
-      const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Visibility (Multiple)" : "Toggle Visibility");
-      for (const tid of targetIds) {
-        engine.setLayerVisibility(tid, nextVisible);
+    if (!engine || targetIds.length === 0) return;
+    const clickedLayer = engine.getLayer(id);
+    if (!clickedLayer) return;
+    const nextVisible = !clickedLayer.visible;
+    // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate):
+    // facade-owned layers commit through ONE SetVisible command each.
+    if (isFacadeEnabled()) {
+      try {
+        const r = await commitFacadeVisibility(engine as never, targetIds, nextVisible);
+        if (r.status === "mixed-rejected") {
+          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+          return;
+        }
+        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+          scheduler.requestRender();
+          return;
+        }
+        // status === "legacy" -> fall through to the untouched legacy path
+      } catch (err) {
+        showToast(`Cannot set visibility: ${(err as Error).message}`, "error");
+        return;
       }
-      scheduler.requestRender();
     }
+    const history = workspace.getActiveHistory();
+    history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Visibility (Multiple)" : "Toggle Visibility");
+    for (const tid of targetIds) {
+      engine.setLayerVisibility(tid, nextVisible);
+    }
+    scheduler.requestRender();
   };
 
-  const handleToggleLock = (e: MouseEvent, id: string) => {
+  const handleToggleLock = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const multi = selectedLayerIds();
     const isMulti = multi.length > 1 && multi.includes(id);
     const targetIds = isMulti ? multi : [id];
-    if (engine && targetIds.length > 0) {
-      const clickedLayer = engine.getLayer(id);
-      if (!clickedLayer) return;
-      const nextLocked = !clickedLayer.locked;
-      const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock (Multiple)" : "Toggle Lock");
-      for (const tid of targetIds) {
-        engine.setLayerLocked(tid, nextLocked);
+    if (!engine || targetIds.length === 0) return;
+    const clickedLayer = engine.getLayer(id);
+    if (!clickedLayer) return;
+    const nextLocked = !clickedLayer.locked;
+    // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
+    if (isFacadeEnabled()) {
+      try {
+        const r = await commitFacadeLock(engine as never, targetIds, "base", nextLocked);
+        if (r.status === "mixed-rejected") {
+          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+          return;
+        }
+        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+          scheduler.requestRender();
+          return;
+        }
+        // status === "legacy" -> fall through to the untouched legacy path
+      } catch (err) {
+        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+        return;
       }
-      scheduler.requestRender();
     }
+    const history = workspace.getActiveHistory();
+    history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock (Multiple)" : "Toggle Lock");
+    for (const tid of targetIds) {
+      engine.setLayerLocked(tid, nextLocked);
+    }
+    scheduler.requestRender();
   };
 
-  const handleToggleLockTransparency = (e: MouseEvent, id: string) => {
+  const handleToggleLockTransparency = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const multi = selectedLayerIds();
     const isMulti = multi.length > 1 && multi.includes(id);
     const targetIds = isMulti ? multi : [id];
-    if (engine && targetIds.length > 0) {
-      const clickedLayer = engine.getLayer(id);
-      if (!clickedLayer) return;
-      const nextVal = !clickedLayer.lockTransparency;
-      const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Transparency (Multiple)" : "Toggle Lock");
-      for (const tid of targetIds) {
-        engine.setLayerLockTransparency(tid, nextVal);
+    if (!engine || targetIds.length === 0) return;
+    const clickedLayer = engine.getLayer(id);
+    if (!clickedLayer) return;
+    const nextVal = !clickedLayer.lockTransparency;
+    // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
+    if (isFacadeEnabled()) {
+      try {
+        const r = await commitFacadeLock(engine as never, targetIds, "transparency", nextVal);
+        if (r.status === "mixed-rejected") {
+          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+          return;
+        }
+        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+          scheduler.requestRender();
+          return;
+        }
+        // status === "legacy" -> fall through to the untouched legacy path
+      } catch (err) {
+        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+        return;
       }
-      scheduler.requestRender();
     }
+    const history = workspace.getActiveHistory();
+    history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Transparency (Multiple)" : "Toggle Lock");
+    for (const tid of targetIds) {
+      engine.setLayerLockTransparency(tid, nextVal);
+    }
+    scheduler.requestRender();
   };
 
-  const handleToggleLockPosition = (e: MouseEvent, id: string) => {
+  const handleToggleLockPosition = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const multi = selectedLayerIds();
     const isMulti = multi.length > 1 && multi.includes(id);
     const targetIds = isMulti ? multi : [id];
-    if (engine && targetIds.length > 0) {
-      const clickedLayer = engine.getLayer(id);
-      if (!clickedLayer) return;
-      const nextVal = !clickedLayer.lockPosition;
-      const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Position (Multiple)" : "Toggle Lock");
-      for (const tid of targetIds) {
-        engine.setLayerLockPosition(tid, nextVal);
+    if (!engine || targetIds.length === 0) return;
+    const clickedLayer = engine.getLayer(id);
+    if (!clickedLayer) return;
+    const nextVal = !clickedLayer.lockPosition;
+    // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
+    if (isFacadeEnabled()) {
+      try {
+        const r = await commitFacadeLock(engine as never, targetIds, "position", nextVal);
+        if (r.status === "mixed-rejected") {
+          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+          return;
+        }
+        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+          scheduler.requestRender();
+          return;
+        }
+        // status === "legacy" -> fall through to the untouched legacy path
+      } catch (err) {
+        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+        return;
       }
-      scheduler.requestRender();
     }
+    const history = workspace.getActiveHistory();
+    history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Position (Multiple)" : "Toggle Lock");
+    for (const tid of targetIds) {
+      engine.setLayerLockPosition(tid, nextVal);
+    }
+    scheduler.requestRender();
   };
 
-  const handleToggleLockRotation = (e: MouseEvent, id: string) => {
+  const handleToggleLockRotation = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const multi = selectedLayerIds();
     const isMulti = multi.length > 1 && multi.includes(id);
     const targetIds = isMulti ? multi : [id];
-    if (engine && targetIds.length > 0) {
-      const clickedLayer = engine.getLayer(id);
-      if (!clickedLayer) return;
-      const nextVal = !clickedLayer.lockRotation;
-      const history = workspace.getActiveHistory();
-      history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Rotation (Multiple)" : "Toggle Lock");
-      for (const tid of targetIds) {
-        engine.setLayerLockRotation(tid, nextVal);
+    if (!engine || targetIds.length === 0) return;
+    const clickedLayer = engine.getLayer(id);
+    if (!clickedLayer) return;
+    const nextVal = !clickedLayer.lockRotation;
+    // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
+    if (isFacadeEnabled()) {
+      try {
+        const r = await commitFacadeLock(engine as never, targetIds, "rotation", nextVal);
+        if (r.status === "mixed-rejected") {
+          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+          return;
+        }
+        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+          scheduler.requestRender();
+          return;
+        }
+        // status === "legacy" -> fall through to the untouched legacy path
+      } catch (err) {
+        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+        return;
       }
-      scheduler.requestRender();
     }
+    const history = workspace.getActiveHistory();
+    history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Rotation (Multiple)" : "Toggle Lock");
+    for (const tid of targetIds) {
+      engine.setLayerLockRotation(tid, nextVal);
+    }
+    scheduler.requestRender();
   };
 
   const handleMoveUp = (e: MouseEvent, index: number) => {

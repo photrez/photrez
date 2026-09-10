@@ -8,6 +8,8 @@ import { LayerThumb } from "./LayerThumb";
 import { LAYER_DRAG_MIME, LayerDragPayload } from "../dragTypes";
 import { useDragController } from "../DragController";
 import { useI18n } from "@/i18n/I18nProvider";
+import { isFacadeOwnedLayer } from "@/engine/document";
+import { commitFacadeRename, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
 
 // actually touches. Avoids the production `any` while staying decoupled
 // from the full WorkspaceManager/Scheduler types →LayerItem only needs
@@ -62,7 +64,7 @@ export function LayerItem(props: LayerItemProps) {
   const canMoveUp = props.canMoveUp ?? (props.idx > 0 && !props.layer.isBackground);
   const canMoveDown = props.canMoveDown ?? props.idx < props.layersLength - 1;
 
-  const commitRename = () => {
+  const commitRename = async () => {
     const nextName = props.editName.trim();
     if (!nextName || nextName === props.layer.name) {
       props.setEditingLayerId(null);
@@ -71,6 +73,20 @@ export function LayerItem(props: LayerItemProps) {
 
     const engine = props.workspace.getActiveEngine();
     if (engine) {
+      // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate):
+      // a facade-owned layer renames through ONE Rename command.
+      if (isFacadeEnabled() && isFacadeOwnedLayer(props.layer.id)) {
+        try {
+          await commitFacadeRename(engine as never, [props.layer.id], nextName);
+        } catch (err) {
+          showToast(`Cannot rename layer: ${(err as Error).message}`, "error");
+          props.setEditingLayerId(null);
+          return;
+        }
+        props.scheduler.requestRender();
+        props.setEditingLayerId(null);
+        return;
+      }
       const history = props.workspace.getActiveHistory();
       history?.commit(engine.snapshot(), "Rename Layer");
       engine.setLayerName(props.layer.id, nextName);

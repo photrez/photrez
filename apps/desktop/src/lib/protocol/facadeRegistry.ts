@@ -28,6 +28,7 @@ import {
 import { repushCanonicalDocument } from "./canonicalSeed";
 import type { DocumentEngine } from "@/engine/document";
 import { CONTRACT_VERSION } from "./types";
+import type { LockKind } from "./types";
 export { isFacadeEnabled };
 
 // ── ADR 0008/Opacity: transient render previews ──────────────────────────
@@ -92,6 +93,101 @@ export async function commitFacadeOpacity(
   if (last) engine.applyFacadeSnapshot(last);
   return { status: "applied", count: route.ownedIds.length };
 }
+
+// ── Metadata commit funnels (mirror commitFacadeOpacity / ADR 0008) ───────
+// Route a possibly-multi target metadata edit through the shared selection
+// policy. Facade ids get ONE command each (expectedVersion enforced inside the
+// EditorFacade metadata method) + authoritative projection; legacy callers
+// fall back to their untouched path when status==="legacy". Same ownership
+// resolution, version bookkeeping, error propagation, and TS projection as
+// commitFacadeOpacity — the only difference is the facade method + command
+// shape (see editorFacade.ts setLayerVisibility / setLayerName /
+// setLayerLocked / setLayerBlendMode, already wired to the native Rust arms
+// SetVisible / Rename / SetLocked / SetBlendMode).
+export type FacadeRouteStatus =
+  | "applied"
+  | "legacy"
+  | "empty"
+  | "mixed-rejected"
+  | "noop";
+
+export async function commitFacadeVisibility(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  ids: string[],
+  visible: boolean,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  const route = resolveSelectionRoute(ids);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  let last: unknown = null;
+  for (const id of route.ownedIds) {
+    last = await f.setLayerVisibility(id, visible);
+  }
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: route.ownedIds.length };
+}
+
+export async function commitFacadeRename(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  ids: string[],
+  name: string,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  const route = resolveSelectionRoute(ids);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  let last: unknown = null;
+  for (const id of route.ownedIds) {
+    last = await f.setLayerName(id, name);
+  }
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: route.ownedIds.length };
+}
+
+export async function commitFacadeLock(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  ids: string[],
+  kind: LockKind,
+  locked: boolean,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  const route = resolveSelectionRoute(ids);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  let last: unknown = null;
+  for (const id of route.ownedIds) {
+    last = await f.setLayerLocked(id, kind, locked);
+  }
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: route.ownedIds.length };
+}
+
+export async function commitFacadeBlendMode(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  ids: string[],
+  mode: string,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  const route = resolveSelectionRoute(ids);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  let last: unknown = null;
+  for (const id of route.ownedIds) {
+    last = await f.setLayerBlendMode(id, mode);
+  }
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: route.ownedIds.length };
+}
+
 // ── ADR 0009: mixed-selection policy helper ─────────────────────────────
 // Single source of truth for routing a batch target set during the migration
 // window. PURE with respect to editor state: reads the ownership set + flag,

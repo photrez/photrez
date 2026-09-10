@@ -646,6 +646,7 @@ export class DocumentEngine {
   }
 
   setLayerLocked(id: LayerId, locked: boolean): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy lock blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_locked(id, locked)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -657,6 +658,7 @@ export class DocumentEngine {
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockTransparency(id: LayerId, locked: boolean): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy lock-transparency blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_lock_transparency(id, locked)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -668,6 +670,7 @@ export class DocumentEngine {
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockPosition(id: LayerId, locked: boolean): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy lock-position blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_lock_position(id, locked)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -679,6 +682,7 @@ export class DocumentEngine {
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerLockRotation(id: LayerId, locked: boolean): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy lock-rotation blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_lock_rotation(id, locked)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -690,6 +694,7 @@ export class DocumentEngine {
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerName(id: LayerId, name: string): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy rename blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_name(id, name)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -701,6 +706,7 @@ export class DocumentEngine {
 
   // NOTE: caller MUST call history.commit() BEFORE this method
   setLayerBlendMode(id: LayerId, mode: BlendMode): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy blend-mode blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_blend_mode(id, mode)) {
       this.syncLayersFromRust();
       this.notifyChange();
@@ -1527,7 +1533,7 @@ export class DocumentEngine {
   }
 
   // ─── Facade Projection (Ticket 2.1) ───
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number }> }): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; blendMode?: string }> }): void {
     const existingById = new Map(this.model.layers.map((l) => [l.id, l] as const));
     const nextLayers: typeof this.model.layers = [];
     for (const rl of snapshot.layers) {
@@ -1541,6 +1547,17 @@ export class DocumentEngine {
         existing.transform.scaleX = rl.scaleX;
         existing.transform.scaleY = rl.scaleY;
         existing.transform.rotation = rl.rotation;
+        // Facade protocol carries lock kinds + blendMode as optional serde fields
+        // (None is omitted on the wire). When omitted the authoritative facade state
+        // is the default (unlocked / normal), so fall back to the default rather than
+        // keeping the engine's prior value — otherwise a routed op's undo (which
+        // restores a before-snapshot without the lock field) would silently keep the
+        // post-op lock instead of reverting it.
+        existing.locked = rl.locked ?? false;
+        existing.lockTransparency = rl.lockTransparency ?? false;
+        existing.lockPosition = rl.lockPosition ?? false;
+        existing.lockRotation = rl.lockRotation ?? false;
+        existing.blendMode = (rl.blendMode as BlendMode) ?? "normal";
         nextLayers.push(existing);
       } else {
         const newLayer: (typeof this.model.layers)[number] = {
@@ -1548,15 +1565,15 @@ export class DocumentEngine {
           name: rl.name,
           type: "raster",
           visible: rl.visible,
-          locked: false,
+          locked: rl.locked ?? false,
           opacity: rl.opacity,
           isBackground: false,
-          lockTransparency: false,
-          lockPosition: false,
-          lockRotation: false,
+          lockTransparency: rl.lockTransparency ?? false,
+          lockPosition: rl.lockPosition ?? false,
+          lockRotation: rl.lockRotation ?? false,
           hasAdjustments: false,
           basicAdjustment: undefined,
-          blendMode: "normal",
+          blendMode: (rl.blendMode as BlendMode) ?? "normal",
           transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: false, flipV: false },
           width: this.model.width,
           height: this.model.height,
