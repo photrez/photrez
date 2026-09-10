@@ -468,8 +468,12 @@ export class DocumentEngine {
   }
 
   reorderLayer(fromIndex: number, toIndex: number): void {
-    const fromLayer = this.model.layers[fromIndex];
-    if (fromLayer && isFacadeOwned(fromLayer.id)) throw new Error(`E_FACADE_OWNED: layer ${fromLayer.id} owned by Rust facade - legacy reorder blocked`);
+    // No E_FACADE_OWNED guard here (unlike the pure-metadata setters): the
+    // same-doc drag-and-drop caller (crossDocLayerOps) is not facade-routed
+    // yet, so a guard would crash a working path instead of protecting state.
+    // Under native authority an unrouted reorder diverges from the engine the
+    // same way unrouted duplicate/merge already do - a known gap closed by the
+    // engine-completeness sync rung, tracked in the cutover plan, not by a throw.
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const ok: boolean = this.rustEngine.reorder_layer(fromIndex, toIndex);
@@ -555,7 +559,6 @@ export class DocumentEngine {
    * Used by document factories (blank/open/flatten).
    */
   markLayerAsBackground(id: LayerId): void {
-    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade - legacy set-background blocked`);
     if (USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_background(id)) {
       this.syncLayersFromRust();
       this.notifyChange();

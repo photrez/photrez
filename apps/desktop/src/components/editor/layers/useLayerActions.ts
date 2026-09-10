@@ -551,9 +551,10 @@ export function useLayerActions() {
       const id = engine.getLayers()[index]?.id;
       if (!id) return;
       // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate):
-      // a facade-owned layer reorders via ONE Reorder command (full-snapshot
-      // refresh so the projection order matches the authoritative engine). The
-      // destination index is the legacy toIndex (post-removal insertion index).
+      // a facade-owned layer reorders via ONE Reorder command whose ordered
+      // restatement delta makes the projection match the authoritative engine
+      // (no snapshot re-read). The destination index is the legacy toIndex
+      // (post-removal insertion index).
       if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
         try {
           const r = await commitFacadeReorder(engine as never, id, index - 1);

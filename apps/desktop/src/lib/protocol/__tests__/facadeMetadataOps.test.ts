@@ -23,7 +23,6 @@ import {
   commitFacadeLock,
   commitFacadeBlendMode,
   commitFacadeReorder,
-  commitFacadeBackground,
   getFacade,
   seedFacadeFromEngine,
   __resetFacadeRegistryForTests,
@@ -71,15 +70,34 @@ function lastOwnedId(facade: ReturnType<typeof getFacade>): string {
 // proven harness in canonicalSeedBarrier.wiring.test.ts / nativeAuthorityReroute.test.ts:
 // nativeClient delegates to raw `invoke`, which is mocked above, and this local router
 // plays the role of the per-document native engine. It keeps a FULLY-ORDERED layer set
-// keyed by doc id, so reorder/undo round-trip through the authoritative snapshot path
-// (applyCommandWithRefresh re-reads protocol_snapshot_native) — the only place ORDER
-// survives under native authority.
-const cmdResultJson = (dv: number) =>
+// keyed by doc id and returns FAITHFUL DELTAS (single Upsert for add, ordered full
+// restatement for the Reorder class, minimal inverse on undo/redo) so production's
+// delta-only consumer sees exactly what the real Rust arms emit.
+const cmdResultJson = (dv: number, changes: unknown[] = []) =>
   JSON.stringify({
     documentVersion: dv,
-    delta: { baseVersion: Math.max(0, dv - 1), version: dv, changes: [] },
+    delta: { baseVersion: Math.max(0, dv - 1), version: dv, changes },
     status: "ok",
   });
+
+// Minimal faithful inverse between two layer vectors (what the real Rust
+// history entries carry): identical id-sets -> ordered full restatement (the
+// Reorder class); otherwise Removes for vanished ids + single Upserts for
+// re-appearing ids, matching arm semantics change-for-change.
+function diffChanges(
+  from: Array<Record<string, unknown>>,
+  to: Array<Record<string, unknown>>,
+): unknown[] {
+  const toIds = new Set(to.map((l) => l.id as string));
+  const fromIds = new Set(from.map((l) => l.id as string));
+  const changes: unknown[] = [];
+  for (const l of from) if (!toIds.has(l.id as string)) changes.push({ kind: "remove", id: l.id as string, resourceId: (l.resourceId as number) ?? 0 });
+  if (changes.length === 0 && to.length === from.length) {
+    return to.map((l) => ({ kind: "upsert", layer: { ...l } }));
+  }
+  for (const l of to) if (!fromIds.has(l.id as string)) changes.push({ kind: "upsert", layer: { ...l } });
+  return changes;
+}
 
 function routeNative(): void {
   const open = new Set<string>();
@@ -124,7 +142,7 @@ function routeNative(): void {
         if (c.type === "addLayer") {
           pushHistory();
           const arr = layers.get(docId) ?? [];
-          arr.push({
+          const layer: Record<string, unknown> = {
             id: c.id,
             name: c.name,
             visible: true,
@@ -136,10 +154,14 @@ function routeNative(): void {
             scaleY: 1,
             rotation: 0,
             isBackground: false,
-          });
+          };
+          // Faithful to the real AddLayer arm: insert at the clamped host index
+          // and emit a single Upsert.
+          const at = Number(c.index) < 0 ? 0 : Math.min(Number(c.index ?? 0), arr.length);
+          arr.splice(at, 0, layer);
           layers.set(docId, arr);
           version.set(docId, cur() + 1);
-          return cmdResultJson(cur());
+          return cmdResultJson(cur(), [{ kind: "upsert", layer: { ...layer } }]);
         }
         if (c.type === "reorder") {
           pushHistory();
@@ -152,29 +174,34 @@ function routeNative(): void {
           }
           layers.set(docId, arr);
           version.set(docId, cur() + 1);
-          return cmdResultJson(cur());
+          // Faithful to the real Reorder arm: ordered full restatement.
+          return cmdResultJson(cur(), arr.map((l) => ({ kind: "upsert", layer: { ...l } })));
         }
         if (c.type === "undo") {
           const h = history.get(docId) ?? [];
+          let changes: unknown[] = [];
           if (h.length > 0) {
             const prev = h.pop()!;
             if (!redo.has(docId)) redo.set(docId, []);
             redo.get(docId)!.push({ layers: (layers.get(docId) ?? []).map((l) => ({ ...l })), version: cur() });
+            changes = diffChanges(layers.get(docId) ?? [], prev.layers);
             layers.set(docId, prev.layers.map((l) => ({ ...l })));
           }
           version.set(docId, cur() + 1);
-          return cmdResultJson(cur());
+          return cmdResultJson(cur(), changes);
         }
         if (c.type === "redo") {
           const r = redo.get(docId) ?? [];
+          let changes: unknown[] = [];
           if (r.length > 0) {
             const nx = r.pop()!;
             if (!history.has(docId)) history.set(docId, []);
             history.get(docId)!.push({ layers: (layers.get(docId) ?? []).map((l) => ({ ...l })), version: cur() });
+            changes = diffChanges(layers.get(docId) ?? [], nx.layers);
             layers.set(docId, nx.layers.map((l) => ({ ...l })));
           }
           version.set(docId, cur() + 1);
-          return cmdResultJson(cur());
+          return cmdResultJson(cur(), changes);
         }
         // Generic OK (e.g. setOpacity/setVisible): bump version, no layer mutation.
         version.set(docId, cur() + 1);
@@ -530,12 +557,13 @@ describe("commitFacadeReorder (Reorder arm) — wasm authority (legacy route)", 
   });
 });
 
-// Native-authority reorder contract. Under native authority the full-snapshot refresh
-// path (editorFacade.reorderLayer -> applyCommandWithRefresh) is the ONLY place ORDER can
-// round-trip: the engine holds the COMPLETE layer set here (the wasm path would reorder
-// a partial set and lose TS layers). The emulated native engine (routeNative) returns a
-// fully-ordered snapshot after every command, so these exercise the real production routing.
-describe("commitFacadeReorder (Reorder arm) — native authority", () => {
+// Native-authority reorder contract. Under native authority the routed Reorder
+// command carries an ordered full restatement which the delta consumer applies
+// (editorFacade.reorderLayer -> applyDeltaToSnapshot restatement branch) - ORDER
+// round-trips with NO snapshot re-read anywhere. The wasm path defers to legacy
+// (the engine there only holds facade-created layers). routeNative emits faithful
+// arm deltas so these exercise the real production routing.
+describe("commitFacadeReorder (Reorder arm) - native authority", () => {
   beforeEach(() => {
     localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetNativeAuthorityForTests();
@@ -574,12 +602,12 @@ describe("commitFacadeReorder (Reorder arm) — native authority", () => {
     const expected = [...before.slice(1), movingId];
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayers().map((l) => l.id)).toEqual(expected);
-    // Native refresh re-reads the authoritative snapshot, so the facade projection
-    // carries the FULL rounded-trip order (not a TS-side delta).
+    // The reorder delta is an ordered full restatement; the consumer adopts it,
+    // so the facade projection carries the engine's exact order.
     expect(facade.snapshot.layers.map((l) => l.id)).toEqual(expected);
   });
 
-  it("ORDER PROOF: TS projection order matches authoritative engine order (applyCommandWithRefresh re-read)", async () => {
+  it("ORDER PROOF: TS projection order matches authoritative engine order (delta restatement, no re-read)", async () => {
     const { engine, facade } = makeDoc("re2");
     for (const n of ["A", "B"]) {
       await facade.addLayer(n);
@@ -590,10 +618,10 @@ describe("commitFacadeReorder (Reorder arm) — native authority", () => {
     const to = before.length - 1;
     const expected = [...before.slice(1), movingId];
     await commitFacadeReorder(engine as never, movingId, to);
-    // applyCommandWithRefresh re-reads the authoritative snapshot, so the facade
-    // projection order must equal the engine's native order (the whole point of
-    // the refresh path for a non-delta-expressible move). Against a COMPLETE
-    // emulated engine the projection, the live getSnapshot, and the projected
+    // The Reorder arm's ordered full restatement flows through the delta
+    // consumer, so the facade projection order equals the engine's native
+    // order with no re-read. Against a COMPLETE emulated engine the
+    // projection, the live getSnapshot (test oracle only), and the projected
     // engine all agree exactly.
     expect(facade.snapshot.layers.map((l) => l.id)).toEqual(expected);
     expect((await bridge.getSnapshot("re2")).layers.map((l) => l.id)).toEqual(expected);
@@ -607,20 +635,23 @@ describe("commitFacadeReorder (Reorder arm) — native authority", () => {
       await facade.addLayer(n);
       engine.applyFacadeSnapshot(facade.snapshot as never);
     }
-    // Capture the AUTHORITATIVE engine order from the emulated native engine: the
-    // emulated applyCommand appends layers in command order, so facade.snapshot
-    // already matches the authoritative order (no wasm top-insert divergence).
+    // The restatement delta reorders the facade snapshot exactly as the engine
+    // did; the live engine snapshot is read ONLY as the test's oracle here,
+    // never as a projection source (asserted separately by the no-re-read test).
     const beforeSnap = await bridge.getSnapshot("reU");
     const before = beforeSnap.layers.map((l) => l.id);
     const movingId = before[0];
     const to = before.length - 1;
     const expected = [...before.slice(1), movingId];
+    const noRead = vi.spyOn(bridge, "getSnapshot");
     await commitFacadeReorder(engine as never, movingId, to);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayers().map((l) => l.id)).toEqual(expected);
     await facade.undo();
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayers().map((l) => l.id)).toEqual(before);
+    // Falsification pin: ORDER round-tripped entirely through delta restatements -
+    // no snapshot re-read happened during the routed reorder OR its undo.
+    expect(noRead).not.toHaveBeenCalled();
   });
 
   it("after undo, next routed command envelope expectedVersion matches post-undo engine version (no double-drift)", async () => {
@@ -628,8 +659,11 @@ describe("commitFacadeReorder (Reorder arm) — native authority", () => {
     await facade.addLayer("X");
     engine.applyFacadeSnapshot(facade.snapshot as never);
     const id = lastOwnedId(facade);
-    // One routed op creates a native-history entry; undo moves the engine cursor
-    // DOWN, so the post-undo authoritative version is lower than the pre-undo one.
+    // One routed op creates a native-history entry; undo bumps the engine
+    // document version while moving the cursor, and the delta the consumer
+    // applies carries that new version - renderedVersion must track it exactly
+    // so the NEXT routed command's expectedVersion matches the engine (no
+    // double-drift).
     await commitFacadeReorder(engine as never, id, 0);
     await facade.undo();
     const postUndoVersion = (await bridge.getSnapshot("reV")).version;
@@ -656,79 +690,5 @@ describe("commitFacadeReorder (Reorder arm) — native authority", () => {
     vi.spyOn(bridge, "applyCommand").mockRejectedValueOnce(new Error("E_EXTERNAL_PENDING"));
     await expect(commitFacadeReorder(engine as never, id, 1)).rejects.toThrow(/E_EXTERNAL_PENDING/);
     expect(engine.getLayers().map((l) => l.id)).toEqual([id]);
-  });
-});
-
-describe("commitFacadeBackground (SetBackgroundFlag arm)", () => {
-  it("flag ON + facade-owned: ONE setBackgroundFlag command w/ expectedVersion + projection (isBackground + both locks)", async () => {
-    const { engine, facade } = makeDoc("bg1");
-    await facade.addLayer("L");
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    const id = lastOwnedId(facade);
-    const vBefore = facade.renderedVersion;
-    const spy = vi.spyOn(bridge, "applyCommand");
-
-    const r = await commitFacadeBackground(engine as never, [id]);
-
-    expect(r.status).toBe("applied");
-    expect(r.count).toBe(1);
-    expect(spy).toHaveBeenCalledTimes(1);
-    const env = spy.mock.calls[0][0] as { expectedVersion?: number; command: { type: string; id: string } };
-    expect(env.command.type).toBe("setBackgroundFlag");
-    expect(env.command.id).toBe(id);
-    expect(env.expectedVersion).toBe(vBefore);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    const layer = engine.getLayer(id)!;
-    expect(layer.isBackground).toBe(true);
-    expect(layer.lockPosition).toBe(true);
-    expect(layer.lockRotation).toBe(true);
-  });
-
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
-    const { engine } = makeDoc("bgL");
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const r = await commitFacadeBackground(engine as never, ["any"]);
-    expect(r.status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it("mixed selection rejected atomically (zero commands)", async () => {
-    const { engine } = makeDoc("bgM");
-    const facade = getFacade("bgM");
-    await facade.addLayer("Owned");
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    const ownedId = lastOwnedId(facade);
-    expect(isFacadeOwnedLayer(ownedId)).toBe(true);
-    const r = await commitFacadeBackground(engine as never, [ownedId, "legacy-bg"]);
-    expect(r.status).toBe("mixed-rejected");
-  });
-
-  it("routed op reverts via native-history undo (isBackground + both locks restored)", async () => {
-    const { engine, facade } = makeDoc("bgU");
-    await facade.addLayer("U");
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    const id = lastOwnedId(facade);
-    await commitFacadeBackground(engine as never, [id]);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    const layer = engine.getLayer(id)!;
-    expect(layer.isBackground).toBe(true);
-    expect(layer.lockPosition).toBe(true);
-    expect(layer.lockRotation).toBe(true);
-    await facade.undo();
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    expect(engine.getLayer(id)!.isBackground).toBe(false);
-    expect(engine.getLayer(id)!.lockPosition).toBe(false);
-    expect(engine.getLayer(id)!.lockRotation).toBe(false);
-  });
-
-  it("rejection propagates (no silent TS mutation)", async () => {
-    const { engine, facade } = makeDoc("bgR");
-    await facade.addLayer("R");
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    const id = lastOwnedId(facade);
-    vi.spyOn(bridge, "applyCommand").mockRejectedValueOnce(new Error("E_EXTERNAL_PENDING"));
-    await expect(commitFacadeBackground(engine as never, [id])).rejects.toThrow(/E_EXTERNAL_PENDING/);
-    expect(engine.getLayer(id)!.isBackground).toBe(false);
   });
 });

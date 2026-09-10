@@ -192,9 +192,10 @@ export async function commitFacadeBlendMode(
 // funnel takes a single id rather than a batch. The destination index comes from
 // the production caller's existing toIndex (the legacy reorderLayer(from,to)
 // contract); the command arm uses the same post-removal insertion index, so the
-// value passes through unchanged. Consumes the command via applyCommandWithRefresh
-// (reorder cannot be expressed as an in-place delta) then projects the refreshed
-// snapshot into the engine so its layer ORDER matches the authoritative engine.
+// value passes through unchanged. Consumes the command through the delta path:
+// the Reorder arm emits an ordered FULL RESTATEMENT which applyDeltaToSnapshot
+// adopts, so the projection order matches the authoritative engine WITHOUT any
+// snapshot re-read.
 export async function commitFacadeReorder(
   engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
   id: string,
@@ -205,41 +206,20 @@ export async function commitFacadeReorder(
   if (route.mode === "empty") return { status: "empty" };
   if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
   if (route.mode !== "facade") return { status: "legacy" };
-  // Reorder is a structural move that cannot round-trip through the wasm engine:
-  // under wasm authority the engine only ever knows facade-created layers (legacy
-  // TS layers are never seeded into it), so a reorder command would reorder a
-  // PARTIAL layer set and leave the TS model stale, and applyDelta's in-place
-  // upsert cannot express a move at all. The legacy TS reorder still preserves
-  // order in TS-only state, so defer to it. Under native authority the engine
-  // holds the FULL layer set (ensureNativeEngineSeeded), so the routed command +
-  // full-snapshot refresh path is authoritative (see editorFacade reorderLayer /
-  // undo / redo, which re-read the snapshot to restore order).
+  // Reorder is a structural move that must not round-trip through the wasm
+  // engine: under wasm authority the engine only ever knows facade-created
+  // layers (legacy TS layers are never seeded into it), so the command would
+  // reorder a PARTIAL set and the restated order would contradict the TS
+  // model. The legacy TS reorder still preserves order in TS-only state, so
+  // defer to it. Under native authority the engine
+  // holds the FULL layer set (ensureNativeEngineSeeded), and the routed command
+  // restores order through its ordered restatement delta (see editorFacade
+  // reorderLayer + applyDeltaToSnapshot - no snapshot re-read anywhere).
   if (!isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.reorderLayer(id, toIndex);
   if (last) engine.applyFacadeSnapshot(last);
   return { status: "applied", count: 1 };
-}
-
-// SetBackgroundFlag is a single-layer metadata upsert (isBackground + lockPosition
-// + lockRotation). Mirror commitFacadeVisibility: resolve ownership, ONE command
-// per owned id, then project. Single-target by symmetry with the other metadata ops.
-export async function commitFacadeBackground(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
-  ids: string[],
-  facadeOverride?: EditorFacade,
-): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  const route = resolveSelectionRoute(ids);
-  if (route.mode === "empty") return { status: "empty" };
-  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
-  if (route.mode !== "facade") return { status: "legacy" };
-  const f = facadeOverride ?? getFacade(engine.getId());
-  let last: unknown = null;
-  for (const id of route.ownedIds) {
-    last = await f.markLayerAsBackground(id);
-  }
-  if (last) engine.applyFacadeSnapshot(last);
-  return { status: "applied", count: route.ownedIds.length };
 }
 
 // ── ADR 0009: mixed-selection policy helper ─────────────────────────────

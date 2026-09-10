@@ -79,19 +79,6 @@ export class EditorFacade {
     // the TS engine's id space; the native AddLayer arm no longer mints its own.
     const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
     const command: Command = { type: "addLayer", id, name, width, height, index };
-    if (isNativeAuthority()) {
-      // Native-authority path: the Rust engine mints the layer at its OWN host
-      // index, so the bridged delta order can disagree with TS tail-append. Issue
-      // the command via the authoritative-snapshot path (re-reads the full
-      // snapshot) so the facade PROJECTION matches native order, then re-push the
-      // canonical (native-order) state. This kills the projection-order artifact at
-      // its source for routed ops: the re-push carries the engine's real layer
-      // order, not the delta's tail order, so the canonical payload never diverges
-      // from native order.
-      await this.applyCommandWithRefresh(command);
-      this.repushCanonicalAfterAddLayer();
-      return this.snapshot;
-    }
     await this.syncFromEngine();
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
@@ -100,9 +87,33 @@ export class EditorFacade {
       command,
     });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    if (!this.applyDelta(res.delta)) {
+      await this.refreshSnapshot();
+    } else if (isNativeAuthority()) {
+      // NATIVE only: the Rust engine inserts at the clamped host index while
+      // applyDelta tail-appends, so reposition locally to keep the projection
+      // order equal to the engine order (and the canonical re-push below
+      // faithful to it) WITHOUT any snapshot re-read. Clamp mirrors the
+      // engine's insert_at: max(0, min(index, length-before-insert)), matching
+      // bridge_emu and document_core_apply AddLayer. Under wasm authority the
+      // facade keeps its historical tail-append (the mirror is retired with
+      // the wasm path; no native consumers exist there).
+      this.repositionAppended(id, index);
+    }
     this.repushCanonicalAfterAddLayer();
     return this.snapshot;
+  }
+
+  // Move a just-appended layer id to the engine-equivalent insert position.
+  // Same clamp the engines use at insertion time, applied to the pre-insert
+  // vector (which is what remains after removing the appended id).
+  private repositionAppended(id: string, index: number): void {
+    const layers = this.snapshot.layers;
+    const at = layers.findIndex((l) => l.id === id);
+    if (at < 0) return;
+    const [layer] = layers.splice(at, 1);
+    const target = Math.max(0, Math.min(index, layers.length));
+    layers.splice(target, 0, layer);
   }
 
   async deleteLayer(id: string): Promise<RenderSnapshot> {
@@ -186,16 +197,11 @@ export class EditorFacade {
   // so consume it via the full-snapshot refresh path (re-reads authoritative
   // order from the engine) — same call addLayer uses under native authority.
   async reorderLayer(id: string, to: number): Promise<RenderSnapshot> {
-    return this.applyCommandWithRefresh({ type: "reorder", id, to });
-  }
-
-  // Metadata command arm — mirror setLayerVisibility exactly: expectedVersion-
-  // enforced envelope + applyDelta, with refreshSnapshot fallback on an
-  // inapplicable delta. setBackgroundFlag emits a single upsert (isBackground +
-  // lockPosition + lockRotation), which applyDelta carries forward in place.
-  async markLayerAsBackground(id: string): Promise<RenderSnapshot> {
+    // Delta path by design; the ordered full restatement the Reorder arm emits
+    // carries the new order, which applyDeltaToSnapshot adopts (see its
+    // full-restatement branch). No snapshot re-read, no refresh read.
     await this.syncFromEngine();
-    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setBackgroundFlag", id } });
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "reorder", id, to } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
@@ -216,24 +222,13 @@ export class EditorFacade {
     // as "Rust had nothing" and fall through to the legacy TS history store.
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    // Under NATIVE authority every layer is seeded into the engine
-    // (ensureNativeEngineSeeded), so re-reading the authoritative snapshot
-    // restores layer ORDER - which applyDelta cannot express (it upserts in
-    // place; a reorder move is lost otherwise). Under WASM authority the engine
-    // only ever knows facade-created layers (legacy TS layers are never seeded),
-    // so a full re-read would DROP them; keep the in-place delta there exactly
-    // as before.
-    if (isNativeAuthority()) {
-      try {
-        const snap = await getSnapshot(this.docId);
-        this.snapshot = snap;
-        this.renderedVersion = snap.version;
-      } catch {
-        this.applyDelta(res.delta);
-      }
-    } else if (!this.applyDelta(res.delta)) {
-      await this.refreshSnapshot();
-    }
+    // Delta-only projection by design: a full-snapshot re-read would drop layers
+    // the engine never learned (unrouted structural mutations live in TS only).
+    // Layer ORDER from a routed reorder arrives through the delta itself - the
+    // Reorder arm emits an ordered full restatement the consumer applies (see
+    // applyDeltaToSnapshot). Undo bumps the version; the delta bookkeeping keeps
+    // renderedVersion aligned with it (pending.set above + applyDelta).
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
   async redo(): Promise<RenderSnapshot> {
@@ -245,51 +240,7 @@ export class EditorFacade {
     }
     this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    // Native-authority-only full re-read (see undo() for the seeded-engine
-    // rationale): restores layer ORDER for undo/redo of routed reorder moves.
-    if (isNativeAuthority()) {
-      try {
-        const snap = await getSnapshot(this.docId);
-        this.snapshot = snap;
-        this.renderedVersion = snap.version;
-      } catch {
-        this.applyDelta(res.delta);
-      }
-    } else if (!this.applyDelta(res.delta)) {
-      await this.refreshSnapshot();
-    }
-    return this.snapshot;
-  }
-
-  // Refresh-based command path. For commands whose Rust arms emit a FULL ORDERED
-  // restatement of all layers plus Removes (the structural/canvas arms — see
-  // crates/core/src/document_core_structural.rs), the delta cannot be reconstructed
-  // by the production consumer. This issues the command once and then UNCONDITIONALLY
-  // re-reads the authoritative snapshot, so the layer ORDER and canvas DIMS come
-  // from the engine rather than being carried forward from previous local state.
-  // The method is authority-agnostic: the bridge selects the engine (wasm or native).
-  // On applyCommand rejection it propagates the error and performs NO refresh, so the
-  // host never clobbers local state with a stale snapshot after a failed command.
-  async applyCommandWithRefresh(command: Command): Promise<RenderSnapshot> {
-    await this.syncFromEngine();
-    const res = await applyCommand({
-      contractVersion: CONTRACT_VERSION,
-      expectedVersion: this.renderedVersion,
-      docId: this.docId,
-      command,
-    });
-    this.pending.set(this.nextSeq++, res.delta.baseVersion);
-    // Refresh the full authoritative snapshot directly (do NOT swallow failures).
-    // A swallowed getSnapshot error would leave the local snapshot at its pre-command
-    // state while reporting the command as success — silent staleness. On rejection,
-    // throw a distinct REFRESH_FAILED error so callers see "command applied, refresh
-    // failed" instead of a stale-success.
-    try {
-      const snap = await getSnapshot(this.docId);
-      this.applySnapshot(snap);
-    } catch (e) {
-      throw new Error("REFRESH_FAILED:" + (e instanceof Error ? e.message : String(e)));
-    }
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
   }
 
@@ -345,6 +296,19 @@ export class EditorFacade {
 }
 
 function applyDeltaToSnapshot(snap: RenderSnapshot, delta: RenderDelta): RenderSnapshot {
+  // Full-restatement branch: the Reorder arm (and the undo/redo entries walking
+  // it) emit an ordered Upsert of EVERY layer - the delta sequence IS the
+  // authoritative order. Adopt it directly so a move round-trips WITHOUT any
+  // snapshot re-read (a re-read could drop layers the engine never learned;
+  // this branch only rearranges ids both sides already share).
+  const ups = delta.changes;
+  if (ups.length > 0 && ups.every((c) => c.kind === "upsert")) {
+    const restated = ups.flatMap((c) => (c.kind === "upsert" ? [c.layer] : []));
+    const ids = new Set(restated.map((l) => l.id));
+    if (restated.length === snap.layers.length && snap.layers.every((l) => ids.has(l.id))) {
+      return { version: delta.version, layers: restated, width: snap.width, height: snap.height, selection: snap.selection };
+    }
+  }
   const layers = [...snap.layers];
   for (const ch of delta.changes) {
     if (ch.kind === "upsert") {
