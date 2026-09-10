@@ -164,6 +164,7 @@ impl ProtocolEngine {
     ///      after pair via `begin_forward`;
     ///   3. the undo/redo walker (apply.rs:717 / :785) which restores the
     ///      captured pair.
+    ///
     /// Because only native arms ever produce a `doc_size` pair, the walker always
     /// restores a value consistent with the native dims timeline by construction.
     ///
