@@ -685,6 +685,97 @@ describe('DocumentEngine', () => {
     });
   });
 
+  // Native-authority delete -> undo relies on applyFacadeSnapshot reusing the
+  // engine's dropped-node cache so a restored layer keeps its pixel bitmap and
+  // lands at its snapshot position instead of the stack bottom. These pin that.
+  describe('Facade dropped-node retention (native-authority delete->undo)', () => {
+    function makeBitmap(): ImageBitmap {
+      return { width: 10, height: 10, close: vi.fn() } as unknown as ImageBitmap;
+    }
+    function desc(l: { id: string; name: string; visible: boolean; opacity: number; transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number } }): Record<string, unknown> {
+      return { id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, x: l.transform.x, y: l.transform.y, scaleX: l.transform.scaleX, scaleY: l.transform.scaleY, rotation: l.transform.rotation, resourceId: 0 };
+    }
+
+    it('reuses the pixel bitmap when a deleted layer reappears (not nulled)', () => {
+      const engine = new DocumentEngine('docRetain', 'D', 800, 600);
+      const bg = engine.addLayer('Background', 100, 100);
+      const bgDesc = desc(bg);
+      const l = engine.addLayer('L', 100, 100);
+      const lDesc = desc(l);
+      const bitmap = makeBitmap();
+      engine.setLayerImageBitmap(l.id, bitmap);
+      // Layer disappears from a later projection -> recorded in the dropped cache.
+      engine.applyFacadeSnapshot({ version: 1, layers: [bgDesc] } as never);
+      // Reappearance -> bitmap must survive from the dropped cache, not be nulled.
+      engine.applyFacadeSnapshot({ version: 2, layers: [bgDesc, lDesc] } as never);
+      const restored = engine.getLayer(l.id)!;
+      expect(restored).toBeDefined();
+      expect(restored.imageBitmap).toBe(bitmap); // identity retained, not nulled
+    });
+
+    it('restores a reappeared layer at its snapshot position, not the stack bottom', () => {
+      const engine = new DocumentEngine('docPos', 'D', 800, 600);
+      const bg = engine.addLayer('Background', 100, 100);
+      const a = engine.addLayer('A', 100, 100);
+      const b = engine.addLayer('B', 100, 100);
+      // Drop B, then reappear B AT THE TOP of the snapshot. A bottom-append path
+      // would place B last; the projection must honor the snapshot order.
+      engine.applyFacadeSnapshot({ version: 1, layers: [desc(a), desc(bg)] } as never);
+      engine.applyFacadeSnapshot({ version: 2, layers: [desc(b), desc(a), desc(bg)] } as never);
+      expect(engine.getLayers().map((l) => l.id)).toEqual([b.id, a.id, bg.id]);
+    });
+
+    it('records merge victims so a later reappearance restores their bitmaps', () => {
+      const engine = new DocumentEngine('docMergeRetain', 'D', 100, 100);
+      const bg = engine.addLayer('Background', 100, 100);
+      const a = engine.addLayer('A', 100, 100);
+      const b = engine.addLayer('B', 100, 100);
+      const aBmp = makeBitmap();
+      const bBmp = makeBitmap();
+      engine.setLayerImageBitmap(a.id, aBmp);
+      engine.setLayerImageBitmap(b.id, bBmp);
+      const bDesc = desc(b);
+      // Merge B down into A: BOTH victim nodes must enter the dropped cache
+      // before the model mutation (an undo of this step re-adds them).
+      engine.mergeDown(b.id);
+      const ref = engine as unknown as { droppedNodes: Map<string, unknown> };
+      expect(ref.droppedNodes.has(b.id)).toBe(true);
+      expect(ref.droppedNodes.has(a.id)).toBe(true);
+      // A later projection re-adding B restores it WITH its original bitmap.
+      engine.applyFacadeSnapshot({ version: 9, layers: [bDesc, desc(bg)] } as never);
+      expect(engine.getLayer(b.id)!.imageBitmap).toBe(bBmp);
+    });
+
+    it('caps the dropped-node cache at 512 entries (FIFO eviction of oldest)', () => {
+      const engine = new DocumentEngine('docCap', 'D', 800, 600);
+      // MAX_LAYERS caps real layers at 200, so the 512 FIFO eviction branch is
+      // only reachable white-box. Drive recordDroppedNode directly to prove the
+      // cap + oldest-eviction behavior.
+      const ref = engine as unknown as {
+        droppedNodes: Map<string, unknown>;
+        recordDroppedNode: (n: { id: string }) => void;
+      };
+      for (let i = 0; i < 600; i++) ref.recordDroppedNode({ id: `n${i}` });
+      expect(ref.droppedNodes.size).toBe(512);
+      expect(ref.droppedNodes.has('n0')).toBe(false); // oldest evicted
+      expect(ref.droppedNodes.has('n599')).toBe(true); // newest retained
+    });
+
+    it('clears the dropped-node cache on clearCallbacks()', () => {
+      const engine = new DocumentEngine('docClear', 'D', 800, 600);
+      const bgDesc = desc(engine.addLayer('Background', 100, 100));
+      const l = engine.addLayer('L', 100, 100);
+      const lDesc = desc(l);
+      const bitmap = makeBitmap();
+      engine.setLayerImageBitmap(l.id, bitmap);
+      engine.applyFacadeSnapshot({ version: 1, layers: [bgDesc] } as never);
+      engine.clearCallbacks();
+      // After clear, the dropped node is gone -> reappeared layer has no bitmap.
+      engine.applyFacadeSnapshot({ version: 2, layers: [bgDesc, lDesc] } as never);
+      expect(engine.getLayer(l.id)!.imageBitmap).toBeNull();
+    });
+  });
+
   describe('Dimension bounds', () => {
     afterEach(() => {
       setDeviceMaxTextureSize(MAX_CANVAS_DIM); // reset

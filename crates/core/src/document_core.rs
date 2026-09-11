@@ -11,7 +11,7 @@ use crate::history::*;
 use crate::model::*;
 use crate::projection::*;
 use crate::state_node::StateNode;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 // ── Engine ───────────────────────────────────────────────────────────────
@@ -494,79 +494,51 @@ impl ProtocolEngine {
         }
     }
 
-    /// Walker-only variant of `diff` used by the undo/redo arms. Identical to
-    /// `diff`, except the Remove pass is SCOPED to `removable`: a layer present in
-    /// `old` but absent from `new` is only removed when its id appears in
-    /// `removable`. This is the walker guard's soundness core - it stops an older entry
-    /// from deleting layers that a LATER external (TS-originated, mirror-legacy)
-    /// sync introduced. `None` = unrestricted (original `diff` behavior). Value
-    /// upserts and the order-aware restatement guard are unchanged.
-    fn diff_walker(
-        old: &LayerSet,
-        new: &LayerSet,
-        removable: Option<&HashSet<String>>,
-    ) -> Vec<RenderLayerChange> {
-        let mut changes = Vec::new();
-        // Index `old` by id once so the per-layer comparison is an O(1) lookup
-        // instead of an O(n) linear scan per new layer (O(n²) total).
-        let mut old_by_id: HashMap<&str, &Arc<LayerMeta>> = HashMap::with_capacity(old.0.len());
-        for arc in old.iter() {
-            old_by_id.insert(arc.id.as_str(), arc);
+    /// Walker-only delta used by the undo/redo arms. The undo/redo walker passes
+    /// `new` as the MERGED vector produced by `restore_with_foreign` - i.e. the
+    /// exact desired end state (captured entry vector + foreign survivors appended).
+    /// The delta is therefore the authoritative final layer vector:
+    ///
+    /// - FAST PATH: identical membership AND order (pointer-identical Arcs) => empty
+    ///   delta. Structural sharing makes this O(n) zip the cheap no-op check.
+    /// - otherwise: Remove every layer present in `old` but absent from `new`
+    ///   (these are the ids this entry itself introduced; foreign survivors are
+    ///   already present in `new` via `restore_with_foreign`, so they are never
+    ///   removed - membership safety), then Upsert EVERY layer of `new` in `new`'s
+    ///   order. Because the upserts carry `new`'s exact sequence, the host
+    ///   reconstructs order from the delta alone - no snapshot re-read, no
+    ///   tail-append ambiguity, and a restored/merged layer lands at its SNAPSHOT
+    ///   position (not the stack bottom).
+    fn diff_walker(old: &LayerSet, new: &LayerSet) -> Vec<RenderLayerChange> {
+        // FAST PATH: same membership + same order (Arc-pointer identical) => genuine
+        // no-op. A value change (fresh Arc) or a move makes the zip differ, so the
+        // full restatement below fires instead.
+        if old.0.len() == new.0.len() && old.iter().zip(new.iter()).all(|(a, b)| Arc::ptr_eq(a, b))
+        {
+            return Vec::new();
         }
+        // AUTHORITATIVE FULL-VECTOR DELTA. `new` is the merged end state, so it
+        // lists every layer exactly once in final order.
         let new_ids: HashSet<&str> = new.iter().map(|a| a.id.as_str()).collect();
-
-        for arc in new.iter() {
-            let lr = arc.as_ref();
-            match old_by_id.get(lr.id.as_str()) {
-                // Pointer-identical to the before set: UNCHANGED layer (the
-                // common case). The structural-sharing design guarantees this,
-                // so we short-circuit with an O(1) Arc pointer compare instead
-                // of a deep value compare.
-                Some(o) if Arc::ptr_eq(o, arc) => {}
-                // Same id, different allocation. Fall back to the deep value
-                // compare so a re-built-but-value-equal layer does not emit a
-                // spurious Upsert.
-                Some(o) => {
-                    if o.as_ref() != lr {
-                        changes.push(RenderLayerChange::Upsert { layer: lr.clone() });
-                    }
-                }
-                // No matching id: brand-new layer.
-                None => changes.push(RenderLayerChange::Upsert { layer: lr.clone() }),
-            }
-        }
-        // The per-layer (Upsert) branch above only touches ids present in `new`, so
-        // foreign ids in `old` are never upserted; here they are removed ONLY when
-        // whitelisted. With an empty whitelist (no ids this entry introduced) every
-        // foreign layer is preserved regardless of the restatement guard below.
+        let mut changes = Vec::new();
+        // Remove layers the entry introduced: present in `old` (current) but gone
+        // from the merged `new`. Foreign survivors live in `new` already, so they
+        // are never removed here (data-loss class dead).
         for o in old.iter() {
-            if !new_ids.contains(o.id.as_str())
-                && removable.is_none_or(|s| s.contains(o.id.as_str()))
-            {
+            if !new_ids.contains(o.id.as_str()) {
                 changes.push(RenderLayerChange::Remove {
                     id: o.id.clone(),
                     resource_id: o.resource_id,
                 });
             }
         }
-        // Pure-order changes (the Reorder command class) mutate no layer
-        // VALUES: every Arc is pointer-identical across the transition, so the
-        // loop above emits nothing even though the engine order moved. Hosts
-        // that apply deltas reconstruct the sequence from the restatement, so
-        // report every layer of `new` as an ordered Upsert. Value-change or
-        // id-change diffs keep the existing behavior verbatim. The guard stays
-        // empty for a true no-op (order identical) and only fires when
-        // `changes` is still empty, so partial+move keeps current semantics
-        // (a recorded follow-up gap for external entries).
-        if changes.is_empty() && old.0.len() == new.0.len() {
-            let same_order = old.iter().zip(new.iter()).all(|(a, b)| Arc::ptr_eq(a, b));
-            if !same_order {
-                for arc in new.iter() {
-                    changes.push(RenderLayerChange::Upsert {
-                        layer: arc.as_ref().clone(),
-                    });
-                }
-            }
+        // Upsert EVERY merged layer in `new`'s order. This restates the full
+        // sequence: a reorder, a value undo, a delete-undo, and a merge all carry
+        // an ordered upsert of the entire stack, so the host adopts it verbatim.
+        for arc in new.iter() {
+            changes.push(RenderLayerChange::Upsert {
+                layer: arc.as_ref().clone(),
+            });
         }
         changes
     }
@@ -577,7 +549,7 @@ impl ProtocolEngine {
     /// `document_core_reorder_tests`; production uses `diff_walker` directly.
     #[cfg(test)]
     pub(crate) fn diff(old: &LayerSet, new: &LayerSet) -> Vec<RenderLayerChange> {
-        Self::diff_walker(old, new, None)
+        Self::diff_walker(old, new)
     }
 
     /// Walker-state restore that PRESERVES foreign layers. Undo/redo restores

@@ -6,7 +6,7 @@ import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNati
 import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentEngine } from "@/engine/document";
-import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, TransformPatch, LockKind } from "./types";
+import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, RenderLayer, TransformPatch, LockKind } from "./types";
 import { isDeltaApplicable } from "./types";
 
 export type TransientTransform = { id: string; start: TransformPatch; live: TransformPatch } | null;
@@ -296,29 +296,43 @@ export class EditorFacade {
   }
 }
 
-function applyDeltaToSnapshot(snap: RenderSnapshot, delta: RenderDelta): RenderSnapshot {
-  // Full-restatement branch: the Reorder arm (and the undo/redo entries walking
-  // it) emit an ordered Upsert of EVERY layer - the delta sequence IS the
-  // authoritative order. Adopt it directly so a move round-trips WITHOUT any
-  // snapshot re-read (a re-read could drop layers the engine never learned;
-  // this branch only rearranges ids both sides already share).
-  const ups = delta.changes;
-  if (ups.length > 0 && ups.every((c) => c.kind === "upsert")) {
-    const restated = ups.flatMap((c) => (c.kind === "upsert" ? [c.layer] : []));
-    const ids = new Set(restated.map((l) => l.id));
-    if (restated.length === snap.layers.length && snap.layers.every((l) => ids.has(l.id))) {
-      return { version: delta.version, layers: restated, width: snap.width, height: snap.height, selection: snap.selection };
+export function applyDeltaToSnapshot(snap: RenderSnapshot, delta: RenderDelta): RenderSnapshot {
+  // TWO-PASS order-aware consumer.
+  //
+  // Pass 1: apply every Remove against a copy. This drops removed ids (delete,
+  // merge-down source) BEFORE we decide whether the upserts restate order - so a
+  // Remove-bearing delta is treated on its remaining set, not the pre-remove one.
+  const layers = [...snap.layers];
+  for (const ch of delta.changes) {
+    if (ch.kind === "remove") {
+      const idx = layers.findIndex((l) => l.id === ch.id);
+      if (idx >= 0) layers.splice(idx, 1);
     }
   }
-  const layers = [...snap.layers];
+  // Pass 2: if the upserts cover the entire remaining id set (every surviving
+  // layer is restated, so membership is either unchanged or a deleted layer
+  // reappears), adopt the upsert SEQUENCE as the new order. The walker emits an
+  // ordered Upsert of EVERY layer for undo/redo and the structural arms emit
+  // ordered-full restatements, so this reconstructs the exact snapshot order
+  // from the delta alone - no snapshot re-read, and a restored/merged layer
+  // lands at its SNAPSHOT position instead of the stack bottom.
+  const restated = delta.changes
+    .filter((c): c is { kind: "upsert"; layer: RenderLayer } => c.kind === "upsert")
+    .map((c) => c.layer);
+  const restatedIds = new Set(restated.map((l) => l.id));
+  const adoptsSequence = restated.length > 0 && layers.every((l) => restatedIds.has(l.id));
+  if (adoptsSequence) {
+    // Carry canvas dims + selection forward (see below).
+    return { version: delta.version, layers: restated, width: snap.width, height: snap.height, selection: snap.selection };
+  }
+  // Fallback: in-place upsert (replace by id) + append unknown ids. Covers
+  // count-changing-but-not-restatement deltas such as a single addLayer upsert
+  // (which must append, not reorder).
   for (const ch of delta.changes) {
     if (ch.kind === "upsert") {
       const idx = layers.findIndex((l) => l.id === ch.layer.id);
       if (idx >= 0) layers[idx] = ch.layer;
       else layers.push(ch.layer);
-    } else if (ch.kind === "remove") {
-      const idx = layers.findIndex((l) => l.id === ch.id);
-      if (idx >= 0) layers.splice(idx, 1);
     }
   }
   // Carry canvas dims + selection forward: ResizeCanvas/CropCanvas/ApplyCrop emit

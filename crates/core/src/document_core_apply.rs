@@ -710,16 +710,13 @@ impl ProtocolEngine {
                         } => {
                             let new_layers =
                                 Self::restore_with_foreign(&self.layers, before, after);
-                            // walker Remove-guard: only remove ids THIS entry
-                            // introduced (after \ before); foreign (TS-sync) ids
-                            // present in current are never removed by an older entry.
-                            let removable: HashSet<String> = after
-                                .iter()
-                                .map(|a| a.id.clone())
-                                .filter(|id| !before.iter().any(|b| b.id == *id))
-                                .collect();
-                            let changes =
-                                Self::diff_walker(&self.layers, &new_layers, Some(&removable));
+                            // `new_layers` is the merged end state (captured entry
+                            // vector + foreign survivors). `diff_walker` emits Remove
+                            // for ids the entry introduced (current \ merged) and an
+                            // ordered Upsert of EVERY merged layer - so the delta is
+                            // the authoritative final vector and a restored/merged
+                            // layer lands at its snapshot position.
+                            let changes = Self::diff_walker(&self.layers, &new_layers);
                             self.layers = new_layers;
                             // Restore the document size for canvas arms. This is
                             // always written (Some or None) so a None->Some crop
@@ -787,15 +784,9 @@ impl ProtocolEngine {
                         } => {
                             let new_layers =
                                 Self::restore_with_foreign(&self.layers, after, before);
-                            // walker Remove-guard: only remove ids THIS entry
-                            // introduced (before \ after) on the redo direction.
-                            let removable: HashSet<String> = before
-                                .iter()
-                                .map(|b| b.id.clone())
-                                .filter(|id| !after.iter().any(|a| a.id == *id))
-                                .collect();
-                            let changes =
-                                Self::diff_walker(&self.layers, &new_layers, Some(&removable));
+                            // `new_layers` is the merged end state; `diff_walker`
+                            // emits the authoritative full-vector delta (see undo arm).
+                            let changes = Self::diff_walker(&self.layers, &new_layers);
                             self.layers = new_layers;
                             // Restore the document size for canvas arms (see undo
                             // branch: always written, Some or None).

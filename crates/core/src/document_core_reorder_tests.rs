@@ -239,10 +239,12 @@ fn diff_order_identical_is_empty() {
     );
 }
 
-// A value change (SetOpacity) undo emits a per-layer value Upsert, NOT a
-// full-order restatement: the guard must not fire when changes is non-empty.
+// A value change (SetOpacity) undo emits a FULL-ORDER restatement (every layer
+// upserted in snapshot order), NOT a per-layer value Upsert. The walker delta is
+// the authoritative final vector, so the host adopts it verbatim - the changed
+// layer's pre-op value is carried by its Upsert in the restated sequence.
 #[test]
-fn set_opacity_undo_is_value_upsert_not_restatement() {
+fn set_opacity_undo_is_full_restatement() {
     let mut e = two_layer_engine();
     e.apply(env(Command::SetOpacity {
         id: "L1".into(),
@@ -253,15 +255,30 @@ fn set_opacity_undo_is_value_upsert_not_restatement() {
     let changes = res.delta.changes;
     assert_eq!(
         changes.len(),
-        1,
-        "value-change undo must upsert only the changed layer"
+        2,
+        "value-change undo restates every layer (full restatement)"
     );
+    assert!(
+        changes
+            .iter()
+            .all(|c| matches!(c, RenderLayerChange::Upsert { .. })),
+        "value-change undo delta must be all upserts"
+    );
+    // Order must match the snapshot order; the changed layer carries its pre-op (1.0) value.
+    let order: Vec<&str> = changes
+        .iter()
+        .map(|c| match c {
+            RenderLayerChange::Upsert { layer } => layer.id.as_str(),
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(order, vec!["L1", "L2"], "undo restates snapshot order");
     match &changes[0] {
         RenderLayerChange::Upsert { layer } => {
             assert_eq!(layer.id, "L1");
             assert_eq!(layer.opacity, 1.0, "undo restores pre-set opacity");
         }
-        _ => panic!("expected single value upsert, got {:?}", changes[0]),
+        _ => panic!("expected upsert, got {:?}", changes[0]),
     }
 }
 
@@ -587,14 +604,21 @@ fn reorder_undo_across_membership_change_restores_order_with_provisional_foreign
         vec!["A".to_string(), "B".to_string(), "d1".to_string()],
         "engine restores captured order and keeps the foreign survivor (provisionally last)"
     );
-    // (3) Delta shape: value Upserts present, and NO ordered full restatement
-    // (guard suppressed by the value diffs, as designed).
-    let upserts = changes
+    // (3) Delta shape: the merged restate now carries the FULL ordered
+    // restatement - every merged layer upserted in merged order [A, B, d1].
+    // The foreign survivor d1 is appended after the captured [A, B] (provisional
+    // end placement), which happens to equal its push position here, so the
+    // provisional-last claim still holds truthfully.
+    let upserts: Vec<&str> = changes
         .iter()
-        .filter(|c| matches!(c, RenderLayerChange::Upsert { .. }))
-        .count();
-    assert!(
-        upserts > 0 && upserts < 3,
-        "delta carries per-layer value upserts, not a 3-layer restatement (got {upserts})"
+        .filter_map(|c| match c {
+            RenderLayerChange::Upsert { layer } => Some(layer.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        upserts,
+        vec!["A", "B", "d1"],
+        "merged restate upserts every layer in merged order (got {upserts:?})"
     );
 }

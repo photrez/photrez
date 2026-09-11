@@ -120,6 +120,20 @@ export class DocumentEngine {
   // projected id disappears — no dangling markers after delete/undone-add.
   private facadeProjectedIds: Set<string> | null = null;
 
+  // Retained full LayerNode objects keyed by id, captured on every layer
+  // DISAPPEARANCE (facade delete / undone-add, and legacy deleteLayer). When the
+  // same id REAPPEARS through a facade snapshot (undo of delete, undo of merge),
+  // we reuse the retained node so its pixel/non-text metadata (imageBitmap,
+  // baseImageBitmap, type, shapeParams, textData, basicAdjustment, width, height,
+  // bitmapEpoch) survives the projection. Sync-layer FTW: graph ops never detach
+  // pixels. Deliberate ceiling: 512-entry FIFO cap; if retention across more than 512
+  // vanished layers ever matters, raise the cap or key by (id, epoch).
+  private droppedNodes = new Map<string, LayerNode>();
+  // Ids EVER dropped this session (cheap strings, unbounded by design): gates the
+  // retention-miss warning to true re-appearances (evicted/cleared entries), so a
+  // brand-new facade layer never triggers it.
+  private everDroppedIds = new Set<string>();
+
   constructor(id: DocumentId, name: string, width: number, height: number) {
     this.model = {
       id,
@@ -334,6 +348,11 @@ export class DocumentEngine {
         if (top && bottom && idx !== -1 && idx < this.model.layers.length - 1) {
           const mergedBitmap = compositeTwoLayers(top, bottom, this.model.width, this.model.height);
           const mergedId = `layer-${crypto.randomUUID()}`;
+          // Retain the victim nodes BEFORE the graph mutation: a later undo
+          // re-adds these ids and must re-attach their bitmaps (graph ops never
+          // detach pixels). Recorded again at drop time by the projection path.
+          this.recordDroppedNode(top as never);
+          this.recordDroppedNode(bottom as never);
           const ok: boolean = this.rustEngine.merge_down(
             id, mergedId, `${top.name} + ${bottom.name}`, bottom.locked || top.locked,
           );
@@ -351,6 +370,17 @@ export class DocumentEngine {
           }
         }
       } catch {}
+    }
+    // Retain the pair nodes before the pure-helper mutates the model (same
+    // pair guard the helper applies - no partner, no merge, no drop).
+    {
+      const pairIdx = this.model.layers.findIndex((l) => l.id === id);
+      const pairTop = pairIdx >= 0 ? this.model.layers[pairIdx] : undefined;
+      const pairBottom = pairIdx >= 0 ? this.model.layers[pairIdx + 1] : undefined;
+      if (pairTop && pairBottom) {
+        this.recordDroppedNode(pairTop as never);
+        this.recordDroppedNode(pairBottom as never);
+      }
     }
     const result = applyMergeDown(this.model, id);
     if (!result) return;
@@ -370,6 +400,8 @@ export class DocumentEngine {
       try {
         const selected = this.model.layers.filter(l => ids.includes(l.id));
         if (selected.length >= 2) {
+          // Retain every victim node before the graph mutation (undo re-adds them).
+          for (const v of selected) this.recordDroppedNode(v as never);
           const mergedBitmap = compositeAllLayers(selected, this.model.width, this.model.height);
           if (mergedBitmap) {
             const mergedId = `layer-${crypto.randomUUID()}`;
@@ -396,6 +428,10 @@ export class DocumentEngine {
         }
       } catch {}
     }
+    // Retain the selected victim nodes before the pure-helper mutates the model.
+    for (const l of this.model.layers) {
+      if (ids.includes(l.id)) this.recordDroppedNode(l as never);
+    }
     const result = applyMergeSelectedLayers(this.model, ids);
     if (!result) return;
 
@@ -416,6 +452,8 @@ export class DocumentEngine {
         if (mergedBitmap) {
           const mergedId = `layer-${crypto.randomUUID()}`;
           const removedIds = this.model.layers.map(l => l.id);
+          // Retain every node before flatten collapses them (undo re-adds each).
+          for (const l of this.model.layers) this.recordDroppedNode(l as never);
           const ok: boolean = this.rustEngine.flatten(mergedId, "Background", false);
           if (ok) {
             this.syncLayersFromRust();
@@ -432,6 +470,9 @@ export class DocumentEngine {
         }
       } catch {}
     }
+    // Retain nodes the helper is about to collapse (a survivor's stale record is
+    // never consumed: reuse only fires for ids re-appearing after disappearance).
+    for (const l of this.model.layers) this.recordDroppedNode(l as never);
     const removedIds = applyFlattenLayers(this.model);
     if (removedIds.length === 0) return;
 
@@ -444,11 +485,15 @@ export class DocumentEngine {
   }
 
   deleteLayer(id: LayerId): void {
+    const node = this.model.layers.find((l) => l.id === id) as
+      | (typeof this.model.layers)[number]
+      | undefined;
     if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade — legacy delete blocked`);
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const ok: boolean = this.rustEngine.delete_layer(id);
         if (ok) {
+          if (node) this.recordDroppedNode(node);
           this.syncLayersFromRust();
           this.dirtyLayerIds.delete(id);
           this.textureHandles.delete(id);
@@ -460,6 +505,7 @@ export class DocumentEngine {
     }
     const removedId = applyDeleteLayer(this.model, id);
     if (removedId === null) return;
+    if (node) this.recordDroppedNode(node);
 
     this.dirtyLayerIds.delete(removedId);
     this.textureHandles.delete(removedId);
@@ -1325,6 +1371,8 @@ export class DocumentEngine {
   clearCallbacks(): void {
     this.onChangeCallback = null;
     this.onVisualChangeCallback = null;
+    this.droppedNodes.clear();
+    this.everDroppedIds.clear();
   }
 
   /**
@@ -1538,6 +1586,20 @@ export class DocumentEngine {
     return true;
   }
 
+  // Bounded FIFO retention of recently-dropped layers' full nodes
+  // (bitmaps + non-text metadata) so facade-projection reappearance can reuse
+  // pixels instead of nulling them. 512 is far above any realistic in-flight
+  // undo depth; raise only if undo stacks grow substantially.
+  private readonly droppedNodesCap = 512;
+  private recordDroppedNode(node: LayerNode): void {
+    if (this.droppedNodes.size >= this.droppedNodesCap) {
+      const oldest = this.droppedNodes.keys().next().value as string | undefined;
+      if (oldest !== undefined) this.droppedNodes.delete(oldest);
+    }
+    this.droppedNodes.set(node.id, node);
+    this.everDroppedIds.add(node.id);
+  }
+
   // ─── Facade Projection (Ticket 2.1) ───
   applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }> }): void {
     const existingById = new Map(this.model.layers.map((l) => [l.id, l] as const));
@@ -1570,27 +1632,68 @@ export class DocumentEngine {
         existing.blendMode = (rl.blendMode as BlendMode) ?? "normal";
         nextLayers.push(existing);
       } else {
-        const newLayer: (typeof this.model.layers)[number] = {
-          id: rl.id,
-          name: rl.name,
-          type: "raster",
-          visible: rl.visible,
-          locked: rl.locked ?? false,
-          opacity: rl.opacity,
-          isBackground: rl.isBackground ?? false,
-          lockTransparency: rl.lockTransparency ?? false,
-          lockPosition: rl.lockPosition ?? false,
-          lockRotation: rl.lockRotation ?? false,
-          hasAdjustments: false,
-          basicAdjustment: undefined,
-          blendMode: (rl.blendMode as BlendMode) ?? "normal",
-          transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: false, flipV: false },
-          width: this.model.width,
-          height: this.model.height,
-          imageBitmap: null,
-          baseImageBitmap: null,
-          textureHandle: null,
-        } as unknown as (typeof this.model.layers)[number];
+        const retained = this.droppedNodes.get(rl.id);
+        let newLayer: (typeof this.model.layers)[number];
+        if (retained) {
+          // Reuse the dropped node so its pixel + non-text metadata (imageBitmap,
+          // baseImageBitmap, type, shapeParams, textData, basicAdjustment,
+          // hasAdjustments, width, height, bitmapEpoch) survive the projection.
+          // Only the snapshot-carried fields are updated from the facade
+          // descriptor; everything else is kept (graph ops never detach pixels).
+          newLayer = {
+            ...retained,
+            name: rl.name,
+            visible: rl.visible,
+            opacity: rl.opacity,
+            locked: rl.locked ?? false,
+            lockTransparency: rl.lockTransparency ?? false,
+            lockPosition: rl.lockPosition ?? false,
+            lockRotation: rl.lockRotation ?? false,
+            isBackground: rl.isBackground ?? false,
+            blendMode: (rl.blendMode as BlendMode) ?? "normal",
+            transform: {
+              x: rl.x,
+              y: rl.y,
+              scaleX: rl.scaleX,
+              scaleY: rl.scaleY,
+              rotation: rl.rotation,
+              flipH: retained.transform.flipH,
+              flipV: retained.transform.flipV,
+            },
+          } as unknown as (typeof this.model.layers)[number];
+          this.droppedNodes.delete(rl.id);
+        } else {
+          // Retention miss on a TRUE re-appearance (id was dropped but its entry
+          // was evicted or cleared): the node is rebuilt metadata-only with no
+          // pixel content. Loud by design - silent blanking of a restored layer
+          // was the original defect this contract removed; if this warn ever
+          // surfaces, the retention cap is too small for the workload.
+          if (this.everDroppedIds.has(rl.id))
+          console.warn(
+            `[facade-projection] layer ${rl.id} re-appeared with no retained node - pixels cannot be restored for it`,
+          );
+          newLayer = {
+            id: rl.id,
+            name: rl.name,
+            type: "raster",
+            visible: rl.visible,
+            locked: rl.locked ?? false,
+            opacity: rl.opacity,
+            isBackground: rl.isBackground ?? false,
+            lockTransparency: rl.lockTransparency ?? false,
+            lockPosition: rl.lockPosition ?? false,
+            lockRotation: rl.lockRotation ?? false,
+            hasAdjustments: false,
+            basicAdjustment: undefined,
+            blendMode: (rl.blendMode as BlendMode) ?? "normal",
+            transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: false, flipV: false },
+            width: this.model.width,
+            height: this.model.height,
+            imageBitmap: null,
+            baseImageBitmap: null,
+            textureHandle: null,
+          } as unknown as (typeof this.model.layers)[number];
+        }
         nextLayers.push(newLayer);
       }
     }
@@ -1614,6 +1717,8 @@ export class DocumentEngine {
     // so a deleted facade layer does not leak its surface/texture handles.
     for (const prev of existingById.keys()) {
       if (!nextIds.has(prev)) {
+        const dropped = existingById.get(prev);
+        if (dropped) this.recordDroppedNode(dropped);
         this.textureHandles.delete(prev);
         this.paintSurfaces.delete(prev);
       }

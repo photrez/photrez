@@ -341,8 +341,12 @@ describe("native canonical re-push after TS-side mutations", () => {
     await flush();
 
     expect(warnSpy).toHaveBeenCalled();
-    const warned = (warnSpy.mock.calls[0]?.[0] as string) ?? "";
-    expect(warned).toContain("[canonical-repush] shadow re-push failed");
+    // Order-independent: other legitimate warns (e.g. facade-projection
+    // retention) may interleave; the contract is that THE rejection was logged.
+    const sawRepushWarn = warnSpy.mock.calls.some((c) =>
+      String(c[0]).includes("[canonical-repush] shadow re-push failed"),
+    );
+    expect(sawRepushWarn).toBe(true);
     warnSpy.mockRestore();
   });
 });

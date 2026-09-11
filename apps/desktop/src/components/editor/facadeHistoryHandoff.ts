@@ -21,6 +21,19 @@ export async function runFacadeExternalHandoff(
 ): Promise<boolean> {
   const engine = editor.workspace.getActiveEngine();
   if (!engine) return false;
+  // Mirror useEditorCommands restore sweep: after projecting the facade snapshot
+  // onto the engine, re-upload any layer that now carries a retained bitmap so
+  // the renderer's texture cache matches the engine's (dropped-node reuse keeps
+  // pixels alive across routed delete -> undo). Without this the GPU-side handle
+  // stays stale and the restored layer renders blank.
+  const reuploadAttachedImages = (): void => {
+    // Engine is host-provided; tolerate a partial engine (e.g. test doubles that
+    // omit getLayers). Production DocumentEngine always exposes it.
+    const layers = typeof engine.getLayers === "function" ? engine.getLayers() : [];
+    for (const layer of layers) {
+      if (layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
+    }
+  };
   try {
     const facade = getFacade(engine.getId());
     const snap = await (direction === "undo" ? facade.undo() : facade.redo());
@@ -39,6 +52,7 @@ export async function runFacadeExternalHandoff(
       // snapshot onto the engine so it is not left stale before the barrier is
       // cleared (confirmExternalCursor no longer takes an engine).
       engine.applyFacadeSnapshot(snap as never);
+      reuploadAttachedImages();
       const committed = await confirmExternalCursor(
         engine.getId(),
         facade.lastExternalHandoff.seq,
@@ -55,6 +69,7 @@ export async function runFacadeExternalHandoff(
     }
     if (!facade.lastHistoryDeltaWasEmpty) {
       engine.applyFacadeSnapshot(snap as never);
+      reuploadAttachedImages();
       editor.scheduler.requestRender();
       editor.workspace.notifyVisualChange();
       return true;
