@@ -14,6 +14,7 @@ import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFrom
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "./structuralRouting";
 
 // Ticket 2.1: single facade per document when photrez.facade=1. Rust is sole owner for addLayer.
 // Registry lives in @/lib/protocol/facadeRegistry (shared with Ticket 2.2 transform drag).
@@ -51,28 +52,31 @@ export function useLayerActions() {
     }
   };
 
-  const handleDuplicateActiveLayer = () => {
+  const handleDuplicateActiveLayer = async () => {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
     const activeId = activeLayerId();
     const multiIds = selectedLayerIds();
 
-    if (multiIds.length > 1 && engine && history) {
-      const newIds = duplicateMultipleLayers(engine, history, renderer, multiIds);
-      if (newIds.length > 0) {
-        setSelectedLayerIds(newIds);
-        if (newIds[0]) engine.setActiveLayer(newIds[0]);
-        scheduler.requestRender();
-      }
-      return;
-    }
+    if (!engine || !history) return;
 
-    if (!activeId) {
-      showToast("No layer selected", "warn");
-      return;
-    }
-    if (engine && history && activeId) {
+    if (!isFacadeEnabled()) {
+      // Flag-off fast path: statement-for-statement the original handler,
+      // running synchronously with no await boundary (byte-identical parity).
+      if (multiIds.length > 1) {
+        const newIds = duplicateMultipleLayers(engine, history, renderer, multiIds);
+        if (newIds.length > 0) {
+          setSelectedLayerIds(newIds);
+          if (newIds[0]) engine.setActiveLayer(newIds[0]);
+          scheduler.requestRender();
+        }
+        return;
+      }
+      if (!activeId) {
+        showToast("No layer selected", "warn");
+        return;
+      }
       history.commit(engine.snapshot(), "Duplicate Layer");
       try {
         const dup = engine.duplicateLayer(activeId);
@@ -83,24 +87,102 @@ export function useLayerActions() {
       } catch (err) {
         showToast(`Cannot duplicate layer: ${(err as Error).message}`, "error");
       }
+      return;
+    }
+
+    if (multiIds.length > 1) {
+      const res = await routeDuplicate(engine, history, renderer, multiIds);
+      if (res.status === "applied") {
+        if (res.newIds.length > 0) {
+          setSelectedLayerIds(res.newIds);
+          if (res.newIds[0]) engine.setActiveLayer(res.newIds[0]);
+        }
+        scheduler.requestRender();
+      } else if (res.status === "legacy") {
+        const newIds = duplicateMultipleLayers(engine, history, renderer, multiIds);
+        if (newIds.length > 0) {
+          setSelectedLayerIds(newIds);
+          if (newIds[0]) engine.setActiveLayer(newIds[0]);
+        }
+        scheduler.requestRender();
+      } else if (res.status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+      } else {
+        // Partial success: clones already applied must not be left orphaned from
+        // selection. Apply selection first, then surface the error.
+        if (res.newIds.length > 0) {
+          setSelectedLayerIds(res.newIds);
+          if (res.newIds[0]) engine.setActiveLayer(res.newIds[0]);
+        }
+        showToast("Cannot duplicate layer", "error");
+      }
+      return;
+    }
+
+    if (!activeId) {
+      showToast("No layer selected", "warn");
+      return;
+    }
+    const res = await routeDuplicate(engine, history, renderer, [activeId]);
+    if (res.status === "applied") {
+      if (res.newIds[0]) engine.setActiveLayer(res.newIds[0]);
+      scheduler.requestRender();
+    } else if (res.status === "legacy") {
+      history.commit(engine.snapshot(), "Duplicate Layer");
+      try {
+        const dup = engine.duplicateLayer(activeId);
+        if (dup.imageBitmap) renderer.uploadImage(dup.id, dup.imageBitmap);
+        scheduler.requestRender();
+      } catch (err) {
+        showToast(`Cannot duplicate layer: ${(err as Error).message}`, "error");
+      }
+    } else if (res.status === "mixed-rejected") {
+      showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+    } else {
+      // Partial success: keep applied clones in selection before the error toast.
+      if (res.newIds.length > 0) {
+        setSelectedLayerIds(res.newIds);
+        if (res.newIds[0]) engine.setActiveLayer(res.newIds[0]);
+      }
+      showToast("Cannot duplicate layer", "error");
     }
   };
 
-  const handleMergeActiveLayerDown = () => {
+  const handleMergeActiveLayerDown = async () => {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
     const activeId = activeLayerId();
     const multiIds = selectedLayerIds();
 
-    if (multiIds.length > 1 && engine && history) {
+    if (!engine || !history) return;
+
+    if (multiIds.length > 1) {
       if (textEditSession()) {
         commitTextSession(textSessionEditor());
       }
-      if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
+      if (!isFacadeEnabled()) {
+        // Flag-off fast path: synchronous, statement-for-statement original.
+        if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not merge selected layers", "warn");
+        }
+        return;
+      }
+      const res = await routeMergeSelected(engine, history, renderer, multiIds);
+      if (res === "applied") {
         scheduler.requestRender();
+      } else if (res === "legacy") {
+        if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not merge selected layers", "warn");
+        }
+      } else if (res === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
       } else {
-        showToast("Could not merge selected layers", "warn");
+        showToast("Could not merge layers", "warn");
       }
       return;
     }
@@ -130,15 +212,33 @@ export function useLayerActions() {
           return;
         }
       }
-      if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
+      if (!isFacadeEnabled()) {
+        // Flag-off fast path: synchronous, statement-for-statement original.
+        if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not merge layers", "warn");
+        }
+        return;
+      }
+      const res = await routeMergeDown(engine, history, renderer, activeId);
+      if (res === "applied") {
         scheduler.requestRender();
+      } else if (res === "legacy") {
+        if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not merge layers", "warn");
+        }
+      } else if (res === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
       } else {
         showToast("Could not merge layers", "warn");
       }
     }
   };
 
-  const handleFlattenAllLayers = () => {
+  const handleFlattenAllLayers = async () => {
     cancelActiveTransformSession();
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
@@ -149,8 +249,26 @@ export function useLayerActions() {
       if (textEditSession()) {
         commitTextSession(textSessionEditor());
       }
-      if (flattenAllLayers(engine, history, renderer)) {
+      if (!isFacadeEnabled()) {
+        // Flag-off fast path: synchronous, statement-for-statement original.
+        if (flattenAllLayers(engine, history, renderer)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not flatten layers", "warn");
+        }
+        return;
+      }
+      const res = await routeFlatten(engine, history, renderer);
+      if (res === "applied") {
         scheduler.requestRender();
+      } else if (res === "legacy") {
+        if (flattenAllLayers(engine, history, renderer)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not flatten layers", "warn");
+        }
+      } else if (res === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
       } else {
         showToast("Could not flatten layers", "warn");
       }

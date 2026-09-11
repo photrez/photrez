@@ -2,7 +2,9 @@ import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
 import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers, mergeSelectedLayers, duplicateMultipleLayers } from "../../layers/layerOperations";
-import { commitFacadeOpacity, commitFacadeReorder, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "../../layers/structuralRouting";
+import type { StructuralRouteStatus, DuplicateRouteResult } from "../../layers/structuralRouting";
+import { commitFacadeOpacity, commitFacadeReorder, isFacadeEnabled, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
 import { showToast } from "../../Toast";
 import type { KeyboardShortcutContext } from "./context";
 
@@ -123,26 +125,81 @@ export function handleLayerOpsKey(
     const activeId = engine.getActiveLayerId();
     const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
 
+    if (!isFacadeEnabled()) {
+      // Flag-off fast path: statement-for-statement the original handler,
+      // running synchronously with no await boundary (byte-identical parity).
+      if (e.shiftKey) {
+        if (flattenAllLayers(engine, history, renderer)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not flatten layers", "warn");
+        }
+      } else if (multiIds.length > 1) {
+        if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
+          const nextActive = engine.getActiveLayerId();
+          editor.setSelectedLayerId(nextActive);
+          scheduler.requestRender();
+        } else {
+          showToast("Could not merge layers", "warn");
+        }
+      } else if (activeId) {
+        if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
+          scheduler.requestRender();
+        } else {
+          showToast("Could not merge layers", "warn");
+        }
+      } else {
+        showToast("No layer selected", "warn");
+      }
+      return true;
+    }
+
+    // The legacy closure owns its full branch body - including the failure
+    // toast - so the flag-OFF path is byte-identical to the original handler.
+    const afterRoute = (status: StructuralRouteStatus, legacy: () => void) => {
+      if (status === "applied") {
+        scheduler.requestRender();
+        editor.workspace.notifyVisualChange();
+      } else if (status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+      } else if (status === "legacy") {
+        legacy();
+      } else {
+        showToast("Could not merge or flatten layers", "warn");
+      }
+    };
+
     if (e.shiftKey) {
-      if (flattenAllLayers(engine, history, renderer)) {
-        scheduler.requestRender();
-      } else {
-        showToast("Could not flatten layers", "warn");
-      }
+      void routeFlatten(engine, history, renderer).then((s) =>
+        afterRoute(s, () => {
+          if (flattenAllLayers(engine, history, renderer)) {
+            scheduler.requestRender();
+          } else {
+            showToast("Could not flatten layers", "warn");
+          }
+        })
+      );
     } else if (multiIds.length > 1) {
-      if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
-        const nextActive = engine.getActiveLayerId();
-        editor.setSelectedLayerId(nextActive);
-        scheduler.requestRender();
-      } else {
-        showToast("Could not merge layers", "warn");
-      }
+      void routeMergeSelected(engine, history, renderer, multiIds).then((s) =>
+        afterRoute(s, () => {
+          if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
+            editor.setSelectedLayerId(engine.getActiveLayerId());
+            scheduler.requestRender();
+          } else {
+            showToast("Could not merge layers", "warn");
+          }
+        })
+      );
     } else if (activeId) {
-      if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
-        scheduler.requestRender();
-      } else {
-        showToast("Could not merge layers", "warn");
-      }
+      void routeMergeDown(engine, history, renderer, activeId).then((s) =>
+        afterRoute(s, () => {
+          if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
+            scheduler.requestRender();
+          } else {
+            showToast("Could not merge layers", "warn");
+          }
+        })
+      );
     } else {
       showToast("No layer selected", "warn");
     }
@@ -156,26 +213,74 @@ export function handleLayerOpsKey(
     const activeId = engine.getActiveLayerId();
     const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
 
-    if (multiIds.length > 1) {
-      const created = duplicateMultipleLayers(engine, history, renderer, multiIds);
-      if (created.length > 0) {
-        editor.setSelectedLayerIds(created);
-        scheduler.requestRender();
+    if (!isFacadeEnabled()) {
+      // Flag-off fast path: statement-for-statement the original handler,
+      // running synchronously with no await boundary (byte-identical parity).
+      if (multiIds.length > 1) {
+        const created = duplicateMultipleLayers(engine, history, renderer, multiIds);
+        if (created.length > 0) {
+          editor.setSelectedLayerIds(created);
+          scheduler.requestRender();
+        }
+        return true;
+      }
+      if (activeId) {
+        history.commit(engine.snapshot(), "Duplicate Layer");
+        try {
+          const dup = engine.duplicateLayer(activeId);
+          if (dup.imageBitmap) {
+            renderer.uploadImage(dup.id, dup.imageBitmap);
+          }
+          scheduler.requestRender();
+        } catch (err) {
+          showToast(`Cannot duplicate layer: ${(err as Error).message}`, "error");
+        }
       }
       return true;
     }
 
-    if (activeId) {
-      history.commit(engine.snapshot(), "Duplicate Layer");
-      try {
-        const dup = engine.duplicateLayer(activeId);
-        if (dup.imageBitmap) {
-          renderer.uploadImage(dup.id, dup.imageBitmap);
+    const afterDup = (res: DuplicateRouteResult) => {
+      if (res.status === "applied") {
+        if (res.newIds.length > 0) {
+          editor.setSelectedLayerIds(res.newIds);
+          if (res.newIds[0]) engine.setActiveLayer(res.newIds[0]);
         }
         scheduler.requestRender();
-      } catch (err) {
-        showToast(`Cannot duplicate layer: ${(err as Error).message}`, "error");
+        editor.workspace.notifyVisualChange();
+      } else if (res.status === "legacy") {
+        if (multiIds.length > 1) {
+          const created = duplicateMultipleLayers(engine, history, renderer, multiIds);
+          if (created.length > 0) editor.setSelectedLayerIds(created);
+          scheduler.requestRender();
+        } else if (activeId) {
+          history.commit(engine.snapshot(), "Duplicate Layer");
+          try {
+            const dup = engine.duplicateLayer(activeId);
+            if (dup.imageBitmap) renderer.uploadImage(dup.id, dup.imageBitmap);
+            scheduler.requestRender();
+          } catch (err) {
+            showToast(`Cannot duplicate layer: ${(err as Error).message}`, "error");
+          }
+        }
+      } else if (res.status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+      } else {
+        // Partial success: keep applied clones in selection before the error
+        // toast, mirroring the layer-actions path.
+        if (res.newIds.length > 0) {
+          editor.setSelectedLayerIds(res.newIds);
+          if (res.newIds[0]) engine.setActiveLayer(res.newIds[0]);
+        }
+        showToast("Cannot duplicate layer", "error");
       }
+    };
+
+    if (multiIds.length > 1) {
+      void routeDuplicate(engine, history, renderer, multiIds).then(afterDup);
+      return true;
+    }
+    if (activeId) {
+      void routeDuplicate(engine, history, renderer, [activeId]).then(afterDup);
     }
     return true;
   }

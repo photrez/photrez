@@ -208,6 +208,55 @@ export class EditorFacade {
     return this.snapshot;
   }
 
+  // Structural command arms: the native engine owns the graph mutation
+  // (identity/layer-set restatement); pixel compositing stays host-side. Each
+  // method mirrors deleteLayer EXACTLY — syncFromEngine -> applyCommand ->
+  // pending.set -> applyDelta -> return snapshot — with NO snapshot re-read
+  // beyond applyDelta's fallback. The structural arms emit an ordered full
+  // restatement (victims removed, merged/clone appears at the engine position
+  // with a NULL bitmap), which applyDeltaToSnapshot adopts (see its
+  // full-restatement branch). The caller composites the pixels host-side and
+  // attaches them via setLayerImageBitmap.
+  async duplicateLayer(id: string, newId: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "duplicateLayer", id, newId } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async mergeDown(id: string, mergedId: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "mergeDown", id, mergedId } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async mergeSelectedLayers(ids: string[], mergedId: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "mergeSelected", ids, mergedId } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async flattenLayers(mergedId: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "flatten", mergedId } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async rasterizeLayer(id: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "rasterizeLayer", id } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
   async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
     await this.syncFromEngine();

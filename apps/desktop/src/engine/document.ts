@@ -1600,6 +1600,24 @@ export class DocumentEngine {
     this.everDroppedIds.add(node.id);
   }
 
+  /**
+   * Pre-seed the projection retention with a full-fidelity node for an id that
+   * is about to arrive through applyFacadeSnapshot (a routed structural op's
+   * clone). The projection CONSUMES (deletes) the entry when it reuses it.
+   */
+  seedRetainedNodeForProjection(node: LayerNode): void {
+    this.recordDroppedNode(node);
+  }
+
+  /**
+   * Drop a pre-seeded node whose arrival never happened (the routed command
+   * rejected or threw), so a later unrelated re-appearance of the same id
+   * cannot pick up stale pixels.
+   */
+  unseedRetainedNodeForProjection(id: string): void {
+    this.droppedNodes.delete(id);
+  }
+
   // ─── Facade Projection (Ticket 2.1) ───
   applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }> }): void {
     const existingById = new Map(this.model.layers.map((l) => [l.id, l] as const));

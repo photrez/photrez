@@ -3,6 +3,7 @@ import { createSignal, createEffect, onCleanup } from "solid-js";
 import { useEditor } from "../shell/EditorContext";
 import { hitTestLayers, type LayerInfo } from "@/viewport/layerHitTest";
 import type { DocumentEngine } from "@/engine/document";
+import { isFacadeOwnedLayer } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
 import {
   handlePointerDown,
@@ -28,6 +29,8 @@ import { startTextPointer, trackTextPointer, applyTextPointer, cancelTextSession
 import { startCropDrag, trackModernCropDrag, handleCropPointerUp } from "./pointerTools/modernCrop";
 import type { PointerToolContext, ModernDragState, GradientDragState, ShapeDragState } from "./pointerTools/pointerToolContext";
 import type { TextPointerState } from "./pointerTools/textTool";
+import { isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { routeRasterize } from "../layers/structuralRouting";
 
 const NOOP = () => {};
 
@@ -562,6 +565,26 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
           const liveEngine = workspace.getActiveEngine();
           const liveHistory = workspace.getActiveHistory();
           if (!liveEngine || !liveHistory) return;
+          // Facade route: under native authority a facade-owned parametric layer's
+          // type-flip is a native graph arm (identity-only payload; the already
+          // rasterized bitmap is preserved — the pixel rasterization stays host-side,
+          // matching textLayerToRaster/shapeLayerToRaster). Native owns undo, so no
+          // history.commit. Falls through to the byte-identical legacy conversion
+          // when the flag is OFF, the layer is not facade-owned, or routing rejects.
+          if (isFacadeEnabled() && isFacadeOwnedLayer(paintLayerId)) {
+            void routeRasterize(liveEngine, liveHistory, renderer, paintLayerId).then((res) => {
+              if (res === "applied") {
+                scheduler.requestRender();
+              } else {
+                const pre = liveEngine.snapshot();
+                if (isText) liveEngine.textLayerToRaster(paintLayerId);
+                else liveEngine.shapeLayerToRaster(paintLayerId);
+                liveHistory.commit(pre, isText ? "Convert Text to Pixels" : "Convert Shape to Pixels");
+                scheduler.requestRender();
+              }
+            });
+            return;
+          }
           const pre = liveEngine.snapshot();
           if (isText) liveEngine.textLayerToRaster(paintLayerId);
           else liveEngine.shapeLayerToRaster(paintLayerId);

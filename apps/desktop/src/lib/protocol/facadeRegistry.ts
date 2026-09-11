@@ -29,7 +29,7 @@ import { repushCanonicalDocument } from "./canonicalSeed";
 import type { DocumentEngine } from "@/engine/document";
 import { CONTRACT_VERSION } from "./types";
 import type { LockKind } from "./types";
-export { isFacadeEnabled };
+export { isFacadeEnabled, isNativeAuthority };
 
 // ── ADR 0008/Opacity: transient render previews ──────────────────────────
 // Pure merge applied to the OUTGOING RenderState in EditorShell's scheduler.
@@ -218,6 +218,103 @@ export async function commitFacadeReorder(
   if (!isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.reorderLayer(id, toIndex);
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: 1 };
+}
+
+// ── Structural commit funnels (duplicate / merge / flatten / rasterize) ──
+// Route a structural graph op's GRAPH half to the native command arms; pixel
+// compositing stays host-side (the caller composites with the same pure helpers
+// the legacy engine uses, then attaches via engine.setLayerImageBitmap).
+//
+// Ownership policy mirrors commitFacadeOpacity resolution EXACTLY: single-target
+// ops resolve [id]; mergeSelected resolves over the full id set and MUST return
+// {status:"mixed-rejected"} with ZERO commands when ownership is mixed
+// (atomicity precedent — no partial native mutation). Unlike metadata funnels,
+// structural ops are gated to native authority: under wasm authority the engine
+// knows only facade-created layers, so a merge/flatten would operate on a
+// PARTIAL set and drop layers (data-loss class) — the same reason commitFacadeReorder
+// defers to legacy there. Under native authority the engine holds the FULL layer
+// set (ensureNativeEngineSeeded), so the routed command restores graph order
+// through its ordered restatement delta with no snapshot re-read. Returns the
+// applied command count.
+export async function commitFacadeDuplicate(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  id: string,
+  newId: string,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
+  const route = resolveSelectionRoute([id]);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  const last = await f.duplicateLayer(id, newId);
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: 1 };
+}
+
+export async function commitFacadeMergeDown(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  id: string,
+  mergedId: string,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
+  const route = resolveSelectionRoute([id]);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  const last = await f.mergeDown(id, mergedId);
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: 1 };
+}
+
+export async function commitFacadeMergeSelected(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  ids: string[],
+  mergedId: string,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
+  const route = resolveSelectionRoute(ids);
+  if (route.mode === "empty") return { status: "empty" };
+  // Mixed ownership across the selected set is rejected ATOMICALLY: zero native
+  // commands fire, so no partial merge leaves a dangling half-composited layer.
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  const last = await f.mergeSelectedLayers(ids, mergedId);
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: 1 };
+}
+
+export async function commitFacadeFlatten(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  mergedId: string,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  const last = await f.flattenLayers(mergedId);
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: 1 };
+}
+
+export async function commitFacadeRasterize(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  id: string,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
+  const route = resolveSelectionRoute([id]);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  const last = await f.rasterizeLayer(id);
   if (last) engine.applyFacadeSnapshot(last);
   return { status: "applied", count: 1 };
 }
