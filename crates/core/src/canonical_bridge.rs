@@ -5,6 +5,7 @@
 // contract test. Mirror of canonical_model.rs's additive/unwired posture.
 
 use crate::canonical_model::{CanonicalDocument, CanonicalLayer, Transform2D};
+use crate::command::ResourceId;
 use crate::model::RenderLayer;
 use std::collections::HashMap;
 
@@ -44,6 +45,69 @@ pub fn render_layer_from_canonical(c: &CanonicalLayer) -> RenderLayer {
         text_data: None,
         basic_adjustment: None,
     }
+}
+
+/// Up-project a `CanonicalLayer` into a `RenderLayer` carrying EVERY shared
+/// metadata field (typed enums, locks, dims, flips, nested params). The
+/// canonical push is the TS-authority truth at mirrored moments, so the
+/// projection must not silently drop fields the engine's arms can hold -
+/// dropping them would make the NEXT delta restatement reset consumer-side
+/// state to defaults. `resource_id` and `dirty_rect` are NOT set here: they
+/// are engine-owned (see the two wrappers below).
+fn up_project_fields(c: &CanonicalLayer) -> RenderLayer {
+    RenderLayer {
+        id: c.id.clone(),
+        name: c.name.clone(),
+        visible: c.visible,
+        opacity: c.opacity,
+        resource_id: 0, // placeholder: overwritten by the wrappers below
+        x: c.transform.x,
+        y: c.transform.y,
+        scale_x: c.transform.scale_x,
+        scale_y: c.transform.scale_y,
+        rotation: c.transform.rotation,
+        dirty_rect: None, // engine-owned: preserved (known) or cleared (new)
+        layer_type: Some(c.layer_type.clone()),
+        blend_mode: Some(c.blend_mode.clone()),
+        locked: Some(c.locked),
+        lock_transparency: c.lock_transparency,
+        lock_position: c.lock_position,
+        lock_rotation: c.lock_rotation,
+        is_background: c.is_background,
+        has_adjustments: c.has_adjustments,
+        width: Some(c.width),
+        height: Some(c.height),
+        flip_h: Some(c.transform.flip_h),
+        flip_v: Some(c.transform.flip_v),
+        shape_params: c.shape_params.clone(),
+        text_data: c.text_data.clone(),
+        basic_adjustment: c.basic_adjustment.clone(),
+    }
+}
+
+/// Up-project a `CanonicalLayer` into the engine's `RenderLayer` for a layer the
+/// engine ALREADY knows about (id present in the native set). Carries the full
+/// shared metadata (see `up_project_fields`) while preserving the ENGINE's
+/// existing `resource_id` and `dirty_rect`: the renderer cannot own either
+/// (the engine minted the pixel-resource handle and owns the per-frame dirty
+/// hint). The `render_layer_from_canonical` 0-sentinel semantics are left
+/// untouched.
+pub fn up_project_known_layer(c: &CanonicalLayer, engine: &RenderLayer) -> RenderLayer {
+    let mut r = up_project_fields(c);
+    r.resource_id = engine.resource_id;
+    r.dirty_rect = engine.dirty_rect.clone();
+    r
+}
+
+/// Up-project a `CanonicalLayer` for a layer the engine does NOT yet know about
+/// (a TS-originated layer arriving via a canonical re-push). Mints a fresh,
+/// non-zero `resource_id` supplied by the caller (the engine's `next_resource`),
+/// and starts the layer with no dirty hint. Every other shared field carries
+/// the full canonical metadata.
+pub fn up_project_new_layer(c: &CanonicalLayer, minted_resource_id: ResourceId) -> RenderLayer {
+    let mut r = up_project_fields(c);
+    r.resource_id = minted_resource_id;
+    r
 }
 
 /// Project renderer-driven edits from a RenderLayer back onto a CanonicalLayer

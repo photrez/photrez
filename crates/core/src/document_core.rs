@@ -4,7 +4,7 @@
 // model/projection types live in their own modules (history.rs / command.rs /
 // model.rs / projection.rs).
 
-use crate::canonical_bridge::CanonicalShadow;
+use crate::canonical_bridge::{up_project_known_layer, up_project_new_layer, CanonicalShadow};
 use crate::canonical_model::{CanonicalDocument, SelectionState};
 use crate::command::*;
 use crate::history::*;
@@ -140,50 +140,59 @@ impl ProtocolEngine {
         self.reconcile_shadow();
     }
 
-    /// Store a complete `CanonicalDocument` copy and begin reconciling layer
-    /// edits against it. A full push CLEARS tombstones and the `incomplete` flag,
-    /// replacing the entire shadow (a re-open must refresh, not keep stale data).
+    /// Store a complete `CanonicalDocument` and up-project its layer VECTOR into
+    /// the native `LayerSet` . The canonical re-push channel carries
+    /// the full TS layer truth at mirrored-commit moments; projecting it here makes
+    /// the native engine authoritative for membership AND order (push order = engine
+    /// order), so it is no longer blind to legacy structural mutations.
     ///
-    /// ADDITIVE / UNWIRED: only populated from the gated native-authority seed
-    /// path. In production `canonical` is `None`, so no reconcile ever runs.
+    /// Merge rules (all driven by the bridge's resource-preserving up-projection):
+    ///   * id known to the engine -> value-merge preserving the engine's EXISTING
+    ///     `resource_id` and `dirty_rect` (the renderer cannot own either); the
+    ///     canonical 0-sentinel projection is deliberately NOT applied.
+    ///   * id unknown -> mint a fresh, non-zero `resource_id` from `next_resource`
+    ///     (bumped); never 0.
+    ///   * engine id absent from the push -> dropped (a re-push missing an id is a
+    ///     TS-originated delete; mirror-legacy-delete legitimacy).
     ///
-    /// Seed the canonical shadow copy for a document.
-    ///
-    /// This is the TS re-push path. The shadow dims are what the SelectAll /
-    /// Invert arms read (apply.rs:529-530); the snapshot width/height has no
-    /// production consumer today, and any stale-shadow dims heal on the next
-    /// re-push, so the shadow is the ONLY thing a re-push is allowed to touch.
-    ///
-    /// `doc_size` has exactly three owners, all native:
-    ///   1. the initial baseline set here, ONCE, only when the engine has no dims
-    ///      yet (document open; the native engine is evicted on close so a reopen
-    ///      starts at `doc_size: None` again - pixel_store.rs:332 removes the
-    ///      `DocumentPixelStore` that owns the `ProtocolEngine`);
-    ///   2. the canvas arms (crop at document_core_canvas.rs:90, apply-crop at
-    ///      :207, resize at :246) which set `doc_size` AND capture its before /
-    ///      after pair via `begin_forward`;
-    ///   3. the undo/redo walker (apply.rs:717 / :785) which restores the
-    ///      captured pair.
-    ///
-    /// Because only native arms ever produce a `doc_size` pair, the walker always
-    /// restores a value consistent with the native dims timeline by construction.
-    ///
-    /// A re-push therefore NEVER mutates `doc_size` and NEVER invalidates history:
-    /// order divergence between the shadow (TS order) and native is a non-event
-    /// (SelectAll / Invert read the shadow only), and any stale shadow dims heal
-    /// via a later re-push. There is intentionally NO truncation / cursor reset
-    /// here - that was the old heuristic that wiped native history on a mere order
-    /// mismatch, and it is removed. Single-owner contract pinned by
-    /// `repush_never_mutates_native_doc_size` and `audit_sequence_repush_is_inert`
-    /// in document_core_canonical_seed_tests.rs.
+    /// `doc_size` rule UNCHANGED: it has exactly three native owners (the baseline
+    /// set here ONLY when `doc_size` is `None` at document open, the canvas arms,
+    /// and the undo/redo walker) - this method still never mutates an existing
+    /// `doc_size`. There is NO history entry: this is the TS-authority assertion
+    /// path (mirrors the facade's snapshot-seed semantics - an external step, not a
+    /// native transition), so external steps stay TS-executed and heal at the next
+    /// forward commit. Single-owner contract still pinned by
+    /// `repush_never_mutates_native_doc_size` / `audit_sequence_repush_preserves_history_and_dims`.
     pub fn seed_canonical(&mut self, doc: CanonicalDocument) {
         let pushed_dims = (doc.width, doc.height);
         // Owner (1): baseline only at document open (engine has no dims yet).
         if self.doc_size.is_none() {
             self.doc_size = Some(pushed_dims);
         }
+
+        // up-project the pushed layer vector into the native set.
+        let mut new_layers: Vec<Arc<LayerMeta>> = Vec::with_capacity(doc.layers.len());
+        for c in &doc.layers {
+            if let Some(pos) = self.layers.position_by_id(&c.id) {
+                let engine = self.layers.get(pos).expect("position valid").clone();
+                new_layers.push(Arc::new(up_project_known_layer(c, &engine)));
+            } else {
+                let rid = self.next_resource;
+                self.next_resource += 1;
+                new_layers.push(Arc::new(up_project_new_layer(c, rid)));
+            }
+        }
+        self.layers = LayerSet(Arc::new(new_layers));
+        // Keep `next_resource` ahead of any id the push carried (mirrors seed_layers
+        // :132-136), in case a preserved engine rid exceeds the minted frontier.
+        if let Some(max_res) = self.layers.iter().map(|l| l.resource_id).max() {
+            self.next_resource = self.next_resource.max(max_res.saturating_add(1));
+        }
+
         // Owner shadow: unconditional refresh so SelectAll / Invert read fresh dims.
+        // The shadow mirrors the push exactly, so this reconcile is a near-no-op.
         self.canonical = Some(CanonicalShadow::new(doc));
+        self.reconcile_shadow();
     }
 
     /// Read the seeded canonical document copy, if one has been stored.
@@ -485,7 +494,18 @@ impl ProtocolEngine {
         }
     }
 
-    fn diff(old: &LayerSet, new: &LayerSet) -> Vec<RenderLayerChange> {
+    /// Walker-only variant of `diff` used by the undo/redo arms. Identical to
+    /// `diff`, except the Remove pass is SCOPED to `removable`: a layer present in
+    /// `old` but absent from `new` is only removed when its id appears in
+    /// `removable`. This is the walker guard's soundness core - it stops an older entry
+    /// from deleting layers that a LATER external (TS-originated, mirror-legacy)
+    /// sync introduced. `None` = unrestricted (original `diff` behavior). Value
+    /// upserts and the order-aware restatement guard are unchanged.
+    fn diff_walker(
+        old: &LayerSet,
+        new: &LayerSet,
+        removable: Option<&HashSet<String>>,
+    ) -> Vec<RenderLayerChange> {
         let mut changes = Vec::new();
         // Index `old` by id once so the per-layer comparison is an O(1) lookup
         // instead of an O(n) linear scan per new layer (O(n²) total).
@@ -515,8 +535,14 @@ impl ProtocolEngine {
                 None => changes.push(RenderLayerChange::Upsert { layer: lr.clone() }),
             }
         }
+        // The per-layer (Upsert) branch above only touches ids present in `new`, so
+        // foreign ids in `old` are never upserted; here they are removed ONLY when
+        // whitelisted. With an empty whitelist (no ids this entry introduced) every
+        // foreign layer is preserved regardless of the restatement guard below.
         for o in old.iter() {
-            if !new_ids.contains(o.id.as_str()) {
+            if !new_ids.contains(o.id.as_str())
+                && removable.is_none_or(|s| s.contains(o.id.as_str()))
+            {
                 changes.push(RenderLayerChange::Remove {
                     id: o.id.clone(),
                     resource_id: o.resource_id,
@@ -531,7 +557,7 @@ impl ProtocolEngine {
         // id-change diffs keep the existing behavior verbatim. The guard stays
         // empty for a true no-op (order identical) and only fires when
         // `changes` is still empty, so partial+move keeps current semantics
-        // (documented as a pre-A0.5 gap for external entries).
+        // (a recorded follow-up gap for external entries).
         if changes.is_empty() && old.0.len() == new.0.len() {
             let same_order = old.iter().zip(new.iter()).all(|(a, b)| Arc::ptr_eq(a, b));
             if !same_order {
@@ -543,6 +569,40 @@ impl ProtocolEngine {
             }
         }
         changes
+    }
+
+    /// Diff two layer sets into the ordered change delta applied to the host.
+    /// See `diff_walker` for the scoped (walker) variant. `#[cfg(test)]` because
+    /// the non-walker contract is pinned only by a unit test in
+    /// `document_core_reorder_tests`; production uses `diff_walker` directly.
+    #[cfg(test)]
+    pub(crate) fn diff(old: &LayerSet, new: &LayerSet) -> Vec<RenderLayerChange> {
+        Self::diff_walker(old, new, None)
+    }
+
+    /// Walker-state restore that PRESERVES foreign layers. Undo/redo restores
+    /// the entry's captured vector, but layers introduced since then by a
+    /// canonical re-push (TS-originated structural commits the engine learned
+    /// through the mirror) belong to NEITHER side of this entry - dropping
+    /// them here would silently delete live layers from the native set while
+    /// the consumer delta (scoped by `diff_walker`'s removable whitelist) says
+    /// they survive. Result: the captured order first, foreign survivors
+    /// appended in current order as a provisional placement - the next TS
+    /// re-push (authoritative for order at mirrored moments) realigns.
+    fn restore_with_foreign(
+        current: &LayerSet,
+        captured: &LayerSet,
+        other_side: &LayerSet,
+    ) -> LayerSet {
+        let captured_ids: HashSet<&str> = captured.iter().map(|a| a.id.as_str()).collect();
+        let other_ids: HashSet<&str> = other_side.iter().map(|a| a.id.as_str()).collect();
+        let mut v: Vec<Arc<LayerMeta>> = captured.0.to_vec();
+        for arc in current.iter() {
+            if !captured_ids.contains(arc.id.as_str()) && !other_ids.contains(arc.id.as_str()) {
+                v.push(arc.clone());
+            }
+        }
+        LayerSet(Arc::new(v))
     }
 }
 // `apply()` command-arm dispatch lives in a submodule to keep this module under

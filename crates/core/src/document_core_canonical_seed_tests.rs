@@ -281,13 +281,14 @@ fn repush_never_mutates_native_doc_size() {
     assert_eq!(shadow_dims(&e), (100.0, 100.0));
 }
 
-// t4: the audit's reachable flipped-config sequence, reproduced natively under the
+// The audit's reachable flipped-config sequence, reproduced natively under the
 // single-owner rule. resize arm -> re-push with DIVERGENT dims (ignored for
 // doc_size) -> undo restores the captured dims. A second re-push that is merely
-// ORDER-divergent (different id vector, same dims) is fully inert: no wipe, no
-// doc_size change.
+// ORDER-divergent (different id vector, same dims) leaves HISTORY and doc_size
+// untouched; its layer vector now drives the engine order by design (a push is
+// the TS truth at mirrored moments).
 #[test]
-fn audit_sequence_repush_is_inert() {
+fn audit_sequence_repush_preserves_history_and_dims() {
     let mut e = ProtocolEngine::new();
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &[]));
     e.seed_layers(vec![mk_layer("A", "Layer A", 10)], 0);
@@ -321,14 +322,19 @@ fn audit_sequence_repush_is_inert() {
     );
 
     // Re-push merely ORDER-divergent (same dims 100x100, different id vector):
-    // fully inert - no wipe, no doc_size change.
+    // history and doc_size are untouched; the pushed vector drives engine order
+    // by design (TS truth at mirrored moments), which is inert on those axes.
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &["B", "A", "X"]));
     assert_eq!(
         e.doc_size,
         Some((100.0, 100.0)),
-        "order-divergent re-push is inert"
+        "order-divergent re-push leaves doc_size alone"
     );
-    assert_eq!(e.entries.len(), 1, "order-divergent re-push wipes nothing");
+    assert_eq!(
+        e.entries.len(),
+        1,
+        "order-divergent re-push wipes no history"
+    );
     assert_eq!(shadow_dims(&e), (100.0, 100.0));
 
     // Redo restores the captured resize after-pair (300x250) - the native baseline

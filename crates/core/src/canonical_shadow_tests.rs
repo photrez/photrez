@@ -464,14 +464,23 @@ fn no_shadow_no_reconcile_overhead() {
 }
 
 #[test]
-fn reconcile_preserves_engine_order_via_apply() {
-    let mut e = seeded_engine();
-    // Seed canonical in a DIFFERENT order than the engine layer set.
+fn seed_canonical_pushes_order_to_engine() {
+    // The canonical re-push channel is the TS-authority for layer
+    // order. seed_canonical up-projects the pushed vector in PUSH ORDER, so the
+    // native engine order follows the canonical (TS) order, and the shadow mirrors it.
+    let mut e = seeded_engine(); // engine [L1, L2, L3]
+                                 // TS reorders to [L2, L1, L3] and re-pushes.
     let mut doc = doc_3();
     doc.layers = vec![canon_layer(2), canon_layer(1), canon_layer(3)];
     e.seed_canonical(doc);
     e.apply(env(Command::Noop)).unwrap();
-    let ids: Vec<&str> = e
+    let engine_ids: Vec<String> = e.snapshot().layers.iter().map(|l| l.id.clone()).collect();
+    assert_eq!(
+        engine_ids,
+        vec!["L2".to_string(), "L1".to_string(), "L3".to_string()],
+        "seed_canonical drives engine order from canonical push order (TS authority)"
+    );
+    let shadow_ids: Vec<&str> = e
         .canonical()
         .unwrap()
         .layers
@@ -479,9 +488,9 @@ fn reconcile_preserves_engine_order_via_apply() {
         .map(|l| l.id.as_str())
         .collect();
     assert_eq!(
-        ids,
-        vec!["L1", "L2", "L3"],
-        "engine order wins over seed order"
+        shadow_ids,
+        vec!["L2", "L1", "L3"],
+        "shadow mirrors the pushed order"
     );
 }
 

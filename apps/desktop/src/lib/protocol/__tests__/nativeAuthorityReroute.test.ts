@@ -136,6 +136,9 @@ function routeNative(): void {
         layers.set(docId, payload.layers ?? []);
         return JSON.stringify({ version: version.get(docId) ?? 0, layers: payload.layers ?? [] });
       }
+      // Order/routing-contract harness only: this stub does NOT apply the pushed
+      // layer vector - the push-applies contract is pinned Rust-side (canonical seed
+      // and reorder test modules).
       case "protocol_seed_canonical_native": {
         if (!open.has(docId)) reject(`document not open: ${docId}`);
         // Mirrors protocol_seed_canonical_native (native client): returns the null

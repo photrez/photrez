@@ -541,11 +541,13 @@ fn flatten_then_crop_keeps_shadow_dims_coherent() {
     // minted layer is engine-only and unknown to the seeded shadow, so reconcile
     // correctly marks the shadow incomplete; that is expected, not an arm defect.
     let mut e = ProtocolEngine::new();
+    // seed_canonical FIRST: the dim doc carries no layers, so up-projection would
+    // otherwise wipe the engine set; seed the layers AFTER so they survive.
+    e.seed_canonical(canonical_dim_doc());
     e.seed_layers(
         vec![mk("A", 0.0, 0.0, 50.0, 50.0), mk("B", 5.0, 5.0, 40.0, 40.0)],
         0,
     );
-    e.seed_canonical(canonical_dim_doc());
     e.apply(env(Command::Flatten {
         merged_id: "BG".into(),
     }))

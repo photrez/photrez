@@ -128,8 +128,46 @@ function routeNative(): void {
         redo.set(docId, []);
         return JSON.stringify({ version: version.get(docId), layers: layers.get(docId) });
       }
-      case "protocol_seed_canonical_native":
+      case "protocol_seed_canonical_native": {
+        if (!open.has(docId)) throw `document not open: ${docId}`;
+        // Faithful to seed_canonical: up-project the pushed vector in PUSH
+        // ORDER; known ids preserve the engine's resourceId, unknown ids mint
+        // fresh ones from the per-doc frontier, ids absent from the push drop.
+        // No DV bump, no history entry, doc_size baseline-only (engine has one
+        // once protocol_seed_native ran).
+        const doc = JSON.parse((args.payloadJson as string) ?? "null");
+        if (doc && Array.isArray(doc.layers)) {
+          const cur = layers.get(docId) ?? [];
+          const curById = new Map(cur.map((l) => [l.id as string, l]));
+          let frontier = Math.max(0, ...cur.map((l) => Number(l.resourceId) || 0)) + 1;
+          const next: Array<Record<string, unknown>> = [];
+          for (const c of doc.layers as Array<Record<string, unknown>>) {
+            const ex = curById.get(c.id as string);
+            if (ex) {
+              next.push({
+                ...ex,
+                name: c.name ?? ex.name,
+                visible: c.visible ?? ex.visible,
+                opacity: c.opacity ?? ex.opacity,
+                x: (c.transform as { x?: number } | undefined)?.x ?? ex.x,
+                y: (c.transform as { y?: number } | undefined)?.y ?? ex.y,
+                scaleX: (c.transform as { scaleX?: number } | undefined)?.scaleX ?? ex.scaleX,
+                scaleY: (c.transform as { scaleY?: number } | undefined)?.scaleY ?? ex.scaleY,
+                rotation: (c.transform as { rotation?: number } | undefined)?.rotation ?? ex.rotation,
+              });
+            } else {
+              const rid = frontier++;
+              next.push({
+                id: c.id, name: c.name, visible: true, opacity: 1,
+                resourceId: rid, x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
+                isBackground: false,
+              });
+            }
+          }
+          layers.set(docId, next);
+        }
         return null;
+      }
       case "protocol_register_adapter_native":
         return null;
       case "protocol_apply_command_native": {

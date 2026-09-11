@@ -48,6 +48,9 @@ function routeNative(): void {
       case "protocol_seed_native":
         if (!open.has(docId)) throw `document not open: ${docId}`;
         return JSON.stringify({ version: 0, layers: [] });
+      // Order/routing-contract harness only: this stub does NOT apply the pushed
+      // layer vector - the push-applies contract is pinned Rust-side (canonical seed
+      // and reorder test modules).
       case "protocol_seed_canonical_native":
         if (!open.has(docId)) throw `document not open: ${docId}`;
         return null; // real Rust returns the "null" ack; result is ignored here

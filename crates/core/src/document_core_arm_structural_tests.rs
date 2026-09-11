@@ -728,8 +728,11 @@ fn canonical_doc_with_a() -> CanonicalDocument {
 #[test]
 fn duplicate_mints_engine_layer_flagging_shadow_incomplete() {
     let mut e = ProtocolEngine::new();
-    e.seed_canonical(canonical_doc_with_a());
+    // seed_layers FIRST: the only-when-empty guard means a later seed_canonical
+    // (which now up-projects the pushed layer vector) must find engine layer A
+    // already present so it preserves the seeded resource_id 10 via up-projection.
     e.seed_layers(vec![mk("A", "Layer 1", 10)], 0);
+    e.seed_canonical(canonical_doc_with_a());
     e.apply(env(Command::DuplicateLayer {
         id: "A".into(),
         new_id: "A2".into(),

@@ -704,11 +704,22 @@ impl ProtocolEngine {
                     match &e.payload {
                         EntryPayload::Native {
                             before,
+                            after,
                             doc_size_before,
                             ..
                         } => {
-                            let new_layers = before.clone();
-                            let changes = Self::diff(&self.layers, &new_layers);
+                            let new_layers =
+                                Self::restore_with_foreign(&self.layers, before, after);
+                            // walker Remove-guard: only remove ids THIS entry
+                            // introduced (after \ before); foreign (TS-sync) ids
+                            // present in current are never removed by an older entry.
+                            let removable: HashSet<String> = after
+                                .iter()
+                                .map(|a| a.id.clone())
+                                .filter(|id| !before.iter().any(|b| b.id == *id))
+                                .collect();
+                            let changes =
+                                Self::diff_walker(&self.layers, &new_layers, Some(&removable));
                             self.layers = new_layers;
                             // Restore the document size for canvas arms. This is
                             // always written (Some or None) so a None->Some crop
@@ -733,7 +744,7 @@ impl ProtocolEngine {
                             // captured pair below always restores a value consistent with
                             // the native dims timeline. Pinned by
                             // repush_never_mutates_native_doc_size and
-                            // audit_sequence_repush_is_inert in
+                            // audit_sequence_repush_preserves_history_and_dims in
                             // document_core_canonical_seed_tests.rs.
                             self.cursor -= 1;
                             changes
@@ -770,11 +781,21 @@ impl ProtocolEngine {
                     match &e.payload {
                         EntryPayload::Native {
                             after,
+                            before,
                             doc_size_after,
                             ..
                         } => {
-                            let new_layers = after.clone();
-                            let changes = Self::diff(&self.layers, &new_layers);
+                            let new_layers =
+                                Self::restore_with_foreign(&self.layers, after, before);
+                            // walker Remove-guard: only remove ids THIS entry
+                            // introduced (before \ after) on the redo direction.
+                            let removable: HashSet<String> = before
+                                .iter()
+                                .map(|b| b.id.clone())
+                                .filter(|id| !after.iter().any(|a| a.id == *id))
+                                .collect();
+                            let changes =
+                                Self::diff_walker(&self.layers, &new_layers, Some(&removable));
                             self.layers = new_layers;
                             // Restore the document size for canvas arms (see undo
                             // branch: always written, Some or None).
@@ -797,7 +818,7 @@ impl ProtocolEngine {
                             // captured pair below always restores a value consistent with
                             // the native dims timeline. Pinned by
                             // repush_never_mutates_native_doc_size and
-                            // audit_sequence_repush_is_inert in
+                            // audit_sequence_repush_preserves_history_and_dims in
                             // document_core_canonical_seed_tests.rs.
                             self.cursor += 1;
                             changes
