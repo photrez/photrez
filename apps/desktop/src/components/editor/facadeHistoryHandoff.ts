@@ -51,7 +51,9 @@ export async function runFacadeExternalHandoff(
       // post-restore engine state. Here we only project the facade-restored
       // snapshot onto the engine so it is not left stale before the barrier is
       // cleared (confirmExternalCursor no longer takes an engine).
-      engine.applyFacadeSnapshot(snap as never);
+      engine.applyFacadeSnapshot(snap as never, {
+        dimsAuthoritative: facade.lastProjectionDimsAuthoritative,
+      });
       reuploadAttachedImages();
       const committed = await confirmExternalCursor(
         engine.getId(),
@@ -68,7 +70,9 @@ export async function runFacadeExternalHandoff(
       }
     }
     if (!facade.lastHistoryDeltaWasEmpty) {
-      engine.applyFacadeSnapshot(snap as never);
+      engine.applyFacadeSnapshot(snap as never, {
+        dimsAuthoritative: facade.lastProjectionDimsAuthoritative,
+      });
       reuploadAttachedImages();
       editor.scheduler.requestRender();
       editor.workspace.notifyVisualChange();

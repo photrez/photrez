@@ -18,6 +18,10 @@ import { drawLayerToContext, compositeTwoLayers, compositeAllLayers } from "./la
 import { getLoadedWasmModule } from "@/components/editor/wasmExport";
 const USE_RUST_SSOT = true; // Rust owns graph ops (field parity complete); history/snapshot stay TS (bitmaps)
 
+// Options for applyFacadeSnapshot. The flag marks a projection whose document
+// width/height are authoritative (see EditorFacade.lastProjectionDimsAuthoritative).
+export type FacadeProjectionOptions = { dimsAuthoritative?: boolean };
+
 // Gate A: facade isolation — when photrez.facade=1, Rust is sole owner for facade layers.
 const FACADE_FLAG = "photrez.facade";
 function isFacadeEnabled(): boolean {
@@ -1640,20 +1644,33 @@ export class DocumentEngine {
   }
 
   // ─── Facade Projection (Ticket 2.1) ───
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }>; width?: number; height?: number }): void {
-    // A canvas-size command's projection carries the new document size. Write
-    // it when it differs from the model so a routed resize/crop (and its
-    // undo/redo) keeps the TS size in step with the native document. Layers and
-    // every other field stay verbatim; notifyVisualChange at the end redraws.
+  // Write the projected document size into the model when the projection is
+  // authoritative and the size differs. See applyFacadeSnapshot.
+  private applyProjectedDims(
+    snapshot: { width?: number; height?: number },
+    opts?: FacadeProjectionOptions,
+  ): void {
     if (
-      snapshot.width !== undefined &&
-      snapshot.height !== undefined &&
-      (snapshot.width !== this.model.width || snapshot.height !== this.model.height)
+      opts?.dimsAuthoritative !== true ||
+      snapshot.width === undefined ||
+      snapshot.height === undefined ||
+      (snapshot.width === this.model.width && snapshot.height === this.model.height)
     ) {
-      this.model.width = snapshot.width;
-      this.model.height = snapshot.height;
-      this.model.dirty = true;
+      return;
     }
+    this.model.width = snapshot.width;
+    this.model.height = snapshot.height;
+    this.model.dirty = true;
+  }
+
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
+    // A canvas-size command's projection carries the new document size. A
+    // metadata delta carries no size, so applyDeltaToSnapshot carries the
+    // facade's prior size forward; writing that would revert a model size the
+    // legacy pixel path changed on its own, so the caller must mark the
+    // projection authoritative. Layers and every other field stay verbatim;
+    // notifyVisualChange at the end redraws.
+    this.applyProjectedDims(snapshot, opts);
     const existingById = new Map(this.model.layers.map((l) => [l.id, l] as const));
     const nextLayers: typeof this.model.layers = [];
     for (const rl of snapshot.layers) {

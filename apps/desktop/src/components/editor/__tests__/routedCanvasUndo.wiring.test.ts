@@ -49,7 +49,7 @@ describe("routed canvas undo through the production handoff", () => {
 
     // Route the crop: the native arm records the entry and moves the size.
     await facade.applyCrop(0, 0, 100, 100, 0);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     expect([engine.getWidth(), engine.getHeight()]).toEqual([100, 100]);
 
     // A pre-existing TS history entry stands in for a legacy step. A double-step

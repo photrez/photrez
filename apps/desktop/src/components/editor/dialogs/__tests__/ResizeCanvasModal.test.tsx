@@ -146,7 +146,7 @@ describe("ResizeCanvasModal", () => {
     await seedFacadeFromEngine(view.session.engine as never, facade);
     // Establish a native baseline size so undo has a prior size to restore.
     await facade.resizeCanvas(800, 600);
-    view.session.engine.applyFacadeSnapshot(facade.snapshot as never);
+    view.session.engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
 
     const dialog = view.dialog()!;
     const width = dialog.querySelector<HTMLInputElement>("#resize-canvas-width")!;
@@ -164,7 +164,7 @@ describe("ResizeCanvasModal", () => {
 
     await facade.undo();
     expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
-    view.session.engine.applyFacadeSnapshot(facade.snapshot as never);
+    view.session.engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     expect([view.session.engine.getWidth(), view.session.engine.getHeight()]).toEqual([800, 600]);
 
     view.dispose();

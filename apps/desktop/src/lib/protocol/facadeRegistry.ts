@@ -31,6 +31,14 @@ import { CONTRACT_VERSION } from "./types";
 import type { LockKind } from "./types";
 export { isFacadeEnabled, isNativeAuthority };
 
+// Projection sink: the TS engine a funnel pushes the facade snapshot into. The
+// optional flag tells the engine whether the projection is authoritative for the
+// document width/height (see EditorFacade.lastProjectionDimsAuthoritative).
+type FacadeProjectionSink = {
+  getId(): string;
+  applyFacadeSnapshot(s: unknown, opts?: { dimsAuthoritative?: boolean }): void;
+};
+
 // ── ADR 0008/Opacity: transient render previews ──────────────────────────
 // Pure merge applied to the OUTGOING RenderState in EditorShell's scheduler.
 // The engine model stays untouched during facade gestures; committed Rust
@@ -73,10 +81,7 @@ export type OpacityRouteStatus =
   | "noop";
 
 export async function commitFacadeOpacity(
-  engine: {
-    getId(): string;
-    applyFacadeSnapshot(s: unknown): void;
-  },
+  engine: FacadeProjectionSink,
   ids: string[],
   opacity: number,
   facadeOverride?: EditorFacade
@@ -90,7 +95,7 @@ export async function commitFacadeOpacity(
   for (const id of route.ownedIds) {
     last = await f.setOpacity(id, opacity);
   }
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -112,7 +117,7 @@ export type FacadeRouteStatus =
   | "noop";
 
 export async function commitFacadeVisibility(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   ids: string[],
   visible: boolean,
   facadeOverride?: EditorFacade,
@@ -126,12 +131,12 @@ export async function commitFacadeVisibility(
   for (const id of route.ownedIds) {
     last = await f.setLayerVisibility(id, visible);
   }
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: route.ownedIds.length };
 }
 
 export async function commitFacadeRename(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   ids: string[],
   name: string,
   facadeOverride?: EditorFacade,
@@ -145,12 +150,12 @@ export async function commitFacadeRename(
   for (const id of route.ownedIds) {
     last = await f.setLayerName(id, name);
   }
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: route.ownedIds.length };
 }
 
 export async function commitFacadeLock(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   ids: string[],
   kind: LockKind,
   locked: boolean,
@@ -165,12 +170,12 @@ export async function commitFacadeLock(
   for (const id of route.ownedIds) {
     last = await f.setLayerLocked(id, kind, locked);
   }
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: route.ownedIds.length };
 }
 
 export async function commitFacadeBlendMode(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   ids: string[],
   mode: string,
   facadeOverride?: EditorFacade,
@@ -184,7 +189,7 @@ export async function commitFacadeBlendMode(
   for (const id of route.ownedIds) {
     last = await f.setLayerBlendMode(id, mode);
   }
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -197,7 +202,7 @@ export async function commitFacadeBlendMode(
 // adopts, so the projection order matches the authoritative engine WITHOUT any
 // snapshot re-read.
 export async function commitFacadeReorder(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   id: string,
   toIndex: number,
   facadeOverride?: EditorFacade,
@@ -218,7 +223,7 @@ export async function commitFacadeReorder(
   if (!isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.reorderLayer(id, toIndex);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 
@@ -239,7 +244,7 @@ export async function commitFacadeReorder(
 // through its ordered restatement delta with no snapshot re-read. Returns the
 // applied command count.
 export async function commitFacadeDuplicate(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   id: string,
   newId: string,
   facadeOverride?: EditorFacade,
@@ -251,12 +256,12 @@ export async function commitFacadeDuplicate(
   if (route.mode !== "facade") return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.duplicateLayer(id, newId);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 
 export async function commitFacadeMergeDown(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   id: string,
   mergedId: string,
   facadeOverride?: EditorFacade,
@@ -268,12 +273,12 @@ export async function commitFacadeMergeDown(
   if (route.mode !== "facade") return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.mergeDown(id, mergedId);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 
 export async function commitFacadeMergeSelected(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   ids: string[],
   mergedId: string,
   facadeOverride?: EditorFacade,
@@ -287,24 +292,24 @@ export async function commitFacadeMergeSelected(
   if (route.mode !== "facade") return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.mergeSelectedLayers(ids, mergedId);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 
 export async function commitFacadeFlatten(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   mergedId: string,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
   if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.flattenLayers(mergedId);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 
 export async function commitFacadeRasterize(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   id: string,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
@@ -315,7 +320,7 @@ export async function commitFacadeRasterize(
   if (route.mode !== "facade") return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.rasterizeLayer(id);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 
@@ -324,11 +329,12 @@ export async function commitFacadeRasterize(
 // gate as the structural funnels: under wasm authority the routed arm cannot own
 // the document size (the projection would contradict the TS model), so defer to
 // the legacy engine path. The canvas arms emit an empty layer delta plus the new
-// size on delta.width/height; the facade's delta consumer adopts those, then the
-// projection below pushes the same size into the TS model (applyFacadeSnapshot
-// writes model width/height when the snapshot carries a different size).
+// size on delta.width/height; the facade's delta consumer adopts those and marks
+// the projection authoritative for the size, then the projection below pushes the
+// same size into the TS model (applyFacadeSnapshot writes model width/height only
+// for an authoritative projection whose size differs).
 export async function commitFacadeResizeCanvas(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   width: number,
   height: number,
   facadeOverride?: EditorFacade,
@@ -336,12 +342,12 @@ export async function commitFacadeResizeCanvas(
   if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.resizeCanvas(width, height);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 
 export async function commitFacadeApplyCrop(
-  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  engine: FacadeProjectionSink,
   x: number,
   y: number,
   width: number,
@@ -354,7 +360,7 @@ export async function commitFacadeApplyCrop(
   if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.applyCrop(x, y, width, height, rotation, targetWidth, targetHeight);
-  if (last) engine.applyFacadeSnapshot(last);
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: 1 };
 }
 

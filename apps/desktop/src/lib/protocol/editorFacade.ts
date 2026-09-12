@@ -20,6 +20,15 @@ export class EditorFacade {
   private pending = new Map<number, DocumentVersion>();
   // Ticket 2.2: set by undo()/redo() — true when Rust had no entry (no-op).
   lastHistoryDeltaWasEmpty = false;
+  // True when the projection just adopted is authoritative for the document
+  // width/height. Set by applyDelta only when the delta itself carried a size
+  // (the canvas arms and a canvas-entry undo/redo do; metadata commands never
+  // do, so applyDeltaToSnapshot carries the prior snapshot size forward). Also
+  // set by applySnapshot, because a full read from the native engine is a
+  // complete authoritative snapshot. The engine projection write-back consults
+  // this so a metadata projection cannot revert a model size that only the
+  // legacy pixel path moved.
+  lastProjectionDimsAuthoritative = false;
   // Native-authority shadow re-push: the TS engine bound during
   // seedFacadeFromEngine so addLayer can re-push the full canonical document
   // after Rust mints a layer (Rust cannot populate the canonical-only fields).
@@ -46,6 +55,8 @@ export class EditorFacade {
 
   applyDelta(delta: RenderDelta): boolean {
     if (!isDeltaApplicable(delta, this.renderedVersion)) return false;
+    this.lastProjectionDimsAuthoritative =
+      delta.width !== undefined || delta.height !== undefined;
     this.snapshot = applyDeltaToSnapshot(this.snapshot, delta);
     this.snapshot.version = delta.version;
     this.renderedVersion = delta.version;
@@ -56,6 +67,8 @@ export class EditorFacade {
     if (snap.version <= this.renderedVersion) return false;
     this.snapshot = snap;
     this.renderedVersion = snap.version;
+    // A full read from the native engine is authoritative for the document size.
+    this.lastProjectionDimsAuthoritative = true;
     return true;
   }
   // Ticket 2.2: one-time initial seeding from the TS engine view. Unlike
@@ -348,7 +361,9 @@ export class EditorFacade {
   private repushCanonicalAfterAddLayer(): void {
     if (!isNativeAuthority() || !this.engine) return;
     try {
-      this.engine.applyFacadeSnapshot(this.snapshot);
+      this.engine.applyFacadeSnapshot(this.snapshot, {
+        dimsAuthoritative: this.lastProjectionDimsAuthoritative,
+      });
     } catch {
       // Projection is auxiliary to the command's success; never fail addLayer on it.
     }

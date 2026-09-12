@@ -15,6 +15,7 @@ import { DocumentEngine } from "@/engine/document";
 import { getEffectiveMaxDim } from "@/engine/types";
 import * as bridge from "@/lib/protocol/bridge";
 import {
+  commitFacadeOpacity,
   getFacade,
   seedFacadeFromEngine,
   __resetFacadeRegistryForTests,
@@ -116,6 +117,50 @@ describe("routeResizeCanvas", () => {
     // The route re-uploads layer textures and asks for a redraw.
     expect(renderer.uploadImage).toHaveBeenCalledTimes(1);
     expect(scheduler.requestRender).toHaveBeenCalledOnce();
+  });
+
+  it("same-dims resize is a no-op: applied without dispatch", async () => {
+    const { engine } = await newDoc("canvas1");
+    const spy = vi.spyOn(bridge, "applyCommand");
+
+    const status = await routeResizeCanvas(
+      engine,
+      {},
+      makeRenderer() as never,
+      makeScheduler() as never,
+      800,
+      600,
+    );
+
+    expect(status).toBe("applied");
+    // Nothing changes, so no phantom history entry is recorded.
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("divergence to the current size: rebase dispatches, the same-size resize does not", async () => {
+    const { engine, facade } = await newDoc("canvas1");
+    await facade.resizeCanvas(500, 500);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
+    // A legacy TS-only size change: the native engine still stores 500x500.
+    engine.resizeCanvas(300, 300);
+    const spy = vi.spyOn(bridge, "applyCommand");
+
+    const status = await routeResizeCanvas(
+      engine,
+      {},
+      makeRenderer() as never,
+      makeScheduler() as never,
+      300,
+      300,
+    );
+
+    expect(status).toBe("applied");
+    // The rebase is the only dispatch; the target already matches the model.
+    const types = spy.mock.calls.map((c) => typeOf(c[0]));
+    expect(types).toEqual(["resizeCanvas"]);
+    const rebase = spy.mock.calls[0][0] as unknown as { command: { width: number; height: number } };
+    expect(rebase.command.width).toBe(300);
+    expect(rebase.command.height).toBe(300);
   });
 
   it("device max-dim rejects with error and zero applyCommand", async () => {
@@ -270,7 +315,7 @@ describe("routeApplyCrop", () => {
   it("divergence guard: a stale native size is rebased with a resize BEFORE the crop command", async () => {
     const { engine, facade } = await newDoc("canvas1");
     await facade.resizeCanvas(500, 500);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     // A legacy TS-only size change: the native engine still stores 500x500.
     engine.resizeCanvas(300, 300);
     const spy = vi.spyOn(bridge, "applyCommand");
@@ -300,19 +345,62 @@ describe("route undo of a canvas entry", () => {
   it("undo restores the document size into the model and is reported as a handled step", async () => {
     const { engine, facade } = await newDoc("canvas1");
     await facade.resizeCanvas(1000, 800);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     await facade.resizeCanvas(800, 600);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     expect(engine.getWidth()).toBe(800);
 
     await facade.undo();
     // Empty layer delta BUT a dims-carrying delta: a handled step, not a no-op.
     expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     expect(engine.getWidth()).toBe(1000);
     expect(engine.getHeight()).toBe(800);
 
     await facade.undo();
     expect(facade.lastHistoryDeltaWasEmpty).toBe(true);
+  });
+});
+
+describe("metadata projection after a legacy-only size change", () => {
+  it("does not revert a model size the legacy path moved on its own", async () => {
+    const { engine, facade } = await newDoc("canvasDims", true);
+    // Project once so the seeded layer becomes facade-owned; the metadata
+    // funnel accepts only facade-owned ids.
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = engine.getLayers()[0].id;
+    // A routed canvas resize carries its size and is authoritative.
+    await facade.resizeCanvas(500, 500);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
+    expect(engine.getWidth()).toBe(500);
+    // A legacy pixel-baking operation moves the TS model size only; the native
+    // engine still stores 500x500.
+    engine.resizeCanvas(300, 300);
+    expect(engine.getWidth()).toBe(300);
+
+    const spy = vi.spyOn(bridge, "applyCommand");
+    const r = await commitFacadeOpacity(engine as never, [id], 0.5);
+
+    expect(r.status).toBe("applied");
+    expect(spy).toHaveBeenCalledTimes(1);
+    // The metadata delta carried no size, so the projection must not write the
+    // carried-forward native size back over the legacy model size.
+    expect(engine.getWidth()).toBe(300);
+    expect(engine.getHeight()).toBe(300);
+  });
+
+  it("companion: a routed canvas resize still writes the new size", async () => {
+    const { engine } = await newDoc("canvasDims2", true);
+    const status = await routeResizeCanvas(
+      engine,
+      {},
+      makeRenderer() as never,
+      makeScheduler() as never,
+      640,
+      480,
+    );
+    expect(status).toBe("applied");
+    expect(engine.getWidth()).toBe(640);
+    expect(engine.getHeight()).toBe(480);
   });
 });

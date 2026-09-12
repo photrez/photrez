@@ -95,6 +95,9 @@ export async function routeResizeCanvas(
   } catch {
     return "error";
   }
+  // A resize to the size the model already has changes nothing; report applied
+  // but skip the phantom entry whose undo would fire into the legacy history.
+  if (w === engine.getWidth() && h === engine.getHeight()) return "applied";
   let r: { status: string; count?: number };
   try {
     r = await commitFacadeResizeCanvas(engine as never, w, h);

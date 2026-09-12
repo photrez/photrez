@@ -316,7 +316,7 @@ describe("applyCropPreview routed path (flag ON + native)", () => {
     await seedFacadeFromEngine(engine as never, facade);
     // Native baseline size so undo has a prior size to restore.
     await facade.resizeCanvas(800, 600);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     const historyCommit = vi.fn();
     const workspace = {
       getActiveEngine: () => engine,
@@ -359,7 +359,7 @@ describe("applyCropPreview routed path (flag ON + native)", () => {
 
     await facade.undo();
     expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
-    engine.applyFacadeSnapshot(facade.snapshot as never);
+    engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     expect([engine.getWidth(), engine.getHeight()]).toEqual([800, 600]);
   });
 
