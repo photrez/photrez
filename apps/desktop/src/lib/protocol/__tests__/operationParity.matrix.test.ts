@@ -1572,8 +1572,8 @@ describe("operation parity matrix - STRUCTURAL ARM PATH (ProtocolEngine structur
 //    resize ops as the independent oracle; Side B drives the real wasm arm via the
 //    production bridge. Layer geometry is compared by NAME (the arm uses the
 //    TS-minted id we supply; the TS engine mints its own, so ids differ). Document
-//    size rides the snapshot width/height (canvas-size arms emit no/empty layer
-//    delta) and is compared directly for both sides.
+//    size rides the delta width/height (canvas-size arms emit no/empty layer
+//    delta) and the snapshot width/height, and is compared directly for both sides.
 //    Design boundary: the pixel-baking crop variants (delete-cropped-pixels bake
 //    and fill-background bake) are deliberately NOT represented by this command set
 //    and remain host-side.
@@ -1776,8 +1776,11 @@ describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/ap
     // Layers are NOT moved by resize; only the document size changes.
     expectByNameOverlap(armSnap.layers, tsLayers, "(c5) resize leaves layers");
     expect(armL.x).toBe(pre.layers.find((l: any) => l.id === armId).x);
-    // Resize emits an EMPTY layer delta (the doc size rides the snapshot).
+    // Resize emits an EMPTY layer delta; the new document size rides the delta's
+    // width/height fields (the snapshot carries it too).
     expect(res.delta.changes).toHaveLength(0);
+    expect(res.delta.width).toBe(800);
+    expect(res.delta.height).toBe(600);
     expect(armSnap.width).toBe(800);
     expect(armSnap.height).toBe(600);
     expect(ts.getWidth()).toBe(800);
@@ -1787,7 +1790,7 @@ describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/ap
       scenario: "(c5) resizeCanvas (800x600)",
       overlap: "EQUAL (layers untouched, by name)",
       dims: "EQUAL (800x600 on both via snapshot)",
-      delta: "empty layer delta on the arm (size rides snapshot)",
+      delta: "empty layer delta; size rides delta.width/height AND snapshot width/height",
       divergences: "none on overlap/dims",
     });
   });

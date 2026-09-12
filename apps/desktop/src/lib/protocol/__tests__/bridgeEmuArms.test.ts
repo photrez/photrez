@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as bridge from "@/lib/protocol/bridge";
 import { __resetEmulatedForTests, setEmuDocumentDims, getEmuSelection, getEmuDocumentDims } from "@/lib/protocol/bridge";
+import { EditorFacade } from "../editorFacade";
 import { CONTRACT_VERSION } from "../types";
 import type { RenderLayer } from "../types";
 
@@ -810,6 +811,47 @@ describe("emulator canvas-size arms mirror the Rust arms", () => {
     const a = u2.delta.changes.find((c: any) => c.kind === "upsert" && c.layer.id === "A").layer;
     expect(a.x).toBe(0);
     expect(a.y).toBe(0);
+  });
+});
+
+// --- Facade semantics over the emulator canvas arms ---
+// The facade consumes the emulator's command result, so a canvas entry's new
+// document size must ride delta.width/height or the facade's undo bookkeeping
+// treats a real size step as an empty no-op (the mock-fidelity gap this block
+// pins). Metadata / unchanged-size steps stay dims-less and remain empty.
+describe("facade undo over emulator canvas entries", () => {
+  beforeEach(() => {
+    __resetEmulatedForTests();
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
+  });
+  afterEach(() => {
+    __resetEmulatedForTests();
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
+  });
+
+  it("resize via the emulator: facade.undo() carries restored dims (handled step, not empty)", async () => {
+    const f = new EditorFacade();
+    setEmuDocumentDims(200, 100);
+    await f.resizeCanvas(800, 600);
+    expect(f.snapshot.width).toBe(800);
+    expect(f.snapshot.height).toBe(600);
+
+    await f.undo();
+    expect(f.lastHistoryDeltaWasEmpty).toBe(false);
+    expect(f.snapshot.width).toBe(200);
+    expect(f.snapshot.height).toBe(100);
+  });
+
+  it("undo of a metadata step stays empty: unchanged dims are not reported", async () => {
+    const f = new EditorFacade();
+    setEmuDocumentDims(100, 100);
+    await f.applyCrop(0, 0, 100, 100, 0);
+    expect(f.snapshot.width).toBe(100);
+
+    await f.undo();
+    expect(f.lastHistoryDeltaWasEmpty).toBe(true);
   });
 });
 

@@ -571,3 +571,135 @@ fn flatten_then_crop_keeps_shadow_dims_coherent() {
     // sync is reconcile's concern, not the crop arm's.
     assert!(e.canonical_incomplete());
 }
+
+// Additive document-size delta signal (RenderDelta.width/height). These pin the
+// wire contract consumers use to resize the canvas from a delta without re-reading
+// the snapshot: the canvas arms carry the new size, Resize Canvas carries it with
+// an EMPTY layer delta, the undo/redo walker carries the restored size only when it
+// actually changed, and metadata entries carry None.
+
+#[test]
+fn crop_canvas_delta_carries_new_doc_dims() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
+    let res = e
+        .apply(env(Command::CropCanvas {
+            x: 0.0,
+            y: 0.0,
+            width: 320.0,
+            height: 240.0,
+        }))
+        .unwrap();
+    assert_eq!(res.delta.width, Some(320.0));
+    assert_eq!(res.delta.height, Some(240.0));
+}
+
+#[test]
+fn apply_crop_delta_carries_final_target_dims() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(vec![mk("A", 10.0, 10.0, 50.0, 50.0)], 0);
+    let res = e
+        .apply(env(Command::ApplyCrop {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+            rotation: None,
+            target_width: Some(200.0),
+            target_height: Some(100.0),
+        }))
+        .unwrap();
+    assert_eq!(res.delta.width, Some(200.0));
+    assert_eq!(res.delta.height, Some(100.0));
+}
+
+#[test]
+fn resize_canvas_delta_carries_dims_with_empty_changes() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(vec![mk("A", 10.0, 20.0, 50.0, 50.0)], 0);
+    let res = e
+        .apply(env(Command::ResizeCanvas {
+            width: 800.0,
+            height: 600.0,
+        }))
+        .unwrap();
+    assert!(res.delta.changes.is_empty());
+    assert_eq!(res.delta.width, Some(800.0));
+    assert_eq!(res.delta.height, Some(600.0));
+}
+
+#[test]
+fn undo_and_redo_of_resize_carry_restored_dims() {
+    let mut e = ProtocolEngine::new();
+    // Seed a baseline size so the undo has a concrete size to restore (not None).
+    // seed_canonical first: the dim doc carries no layers, so the later seed_layers
+    // survives and doc_size keeps its Some((10,10)) baseline.
+    e.seed_canonical(canonical_dim_doc());
+    e.seed_layers(vec![mk("A", 10.0, 20.0, 50.0, 50.0)], 0);
+    e.apply(env(Command::ResizeCanvas {
+        width: 800.0,
+        height: 600.0,
+    }))
+    .unwrap();
+
+    let undo = e.apply(env(Command::Undo)).unwrap();
+    assert_eq!(e.doc_size(), Some((10.0, 10.0)));
+    assert_eq!(undo.delta.width, Some(10.0));
+    assert_eq!(undo.delta.height, Some(10.0));
+
+    let redo = e.apply(env(Command::Redo)).unwrap();
+    assert_eq!(e.doc_size(), Some((800.0, 600.0)));
+    assert_eq!(redo.delta.width, Some(800.0));
+    assert_eq!(redo.delta.height, Some(600.0));
+}
+
+#[test]
+fn undo_of_metadata_keeps_delta_dims_none() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0)], 0);
+    let crop = e
+        .apply(env(Command::CropCanvas {
+            x: 10.0,
+            y: 20.0,
+            width: 500.0,
+            height: 400.0,
+        }))
+        .unwrap();
+    assert_eq!(crop.delta.width, Some(500.0));
+
+    e.apply(env(Command::Rename {
+        id: "A".into(),
+        name: "Renamed".into(),
+    }))
+    .unwrap();
+    let undo = e.apply(env(Command::Undo)).unwrap();
+    assert_eq!(
+        e.doc_size(),
+        Some((500.0, 400.0)),
+        "metadata undo leaves the document size unchanged"
+    );
+    assert_eq!(undo.delta.width, None);
+    assert_eq!(undo.delta.height, None);
+}
+
+#[test]
+fn apply_crop_zero_target_is_silent_noop() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(vec![mk("A", 10.0, 10.0, 50.0, 50.0)], 0);
+    let res = e
+        .apply(env(Command::ApplyCrop {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+            rotation: None,
+            target_width: Some(0.0),
+            target_height: Some(0.0),
+        }))
+        .unwrap();
+    assert_eq!(e.entries.len(), 0, "zero target creates no history entry");
+    assert_eq!(e.doc_size(), None, "zero target cannot collapse doc size");
+    assert!(res.delta.changes.is_empty());
+    assert_eq!(res.delta.width, None);
+    assert_eq!(e.version(), 1, "silent no-op still bumps DV once");
+}

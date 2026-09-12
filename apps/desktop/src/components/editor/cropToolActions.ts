@@ -5,6 +5,8 @@ import type { CropPreview } from "./cropState";
 import type { ToolId } from "./tools/toolTypes";
 import type { Point } from "@/viewport/transformGeometry";
 import type { CropRect } from "@/viewport/cropGeometry";
+import { isFacadeEnabled, isNativeAuthority } from "@/lib/protocol/facadeRegistry";
+import { routeApplyCrop } from "./canvasRouting";
 
 export interface CropPreviewControls {
   cropRect: () => CropPreview["rect"] | null;
@@ -81,7 +83,6 @@ export function applyCropPreview(params: {
   if (!engine || !rect) return;
 
   const history = params.workspace.getActiveHistory();
-  history?.commit(engine.snapshot(), "Crop Canvas");
 
   const cropOptions: {
     deleteCroppedPixels: boolean;
@@ -98,37 +99,67 @@ export function applyCropPreview(params: {
   if (params.cropFillColor) {
     cropOptions.fillBackgroundColor = params.cropFillColor;
   }
-  engine.applyCrop(
-    Math.round(rect.x),
-    Math.round(rect.y),
-    Math.round(rect.w),
-    Math.round(rect.h),
-    cropOptions,
-  );
+  const cropX = Math.round(rect.x);
+  const cropY = Math.round(rect.y);
+  const cropW = Math.round(rect.w);
+  const cropH = Math.round(rect.h);
 
-  params.recenterViewport?.();
+  // Post-apply viewport resize + session cleanup. sweepLayers repeats the
+  // texture re-upload on the default path; the routed path already re-uploaded
+  // layer textures inside the route.
+  const finish = (sweepLayers: boolean) => {
+    params.recenterViewport?.();
 
-  const dpr = window.devicePixelRatio || 1;
-  params.renderer.resizeToViewport(params.viewport.width, params.viewport.height, dpr);
+    const dpr = window.devicePixelRatio || 1;
+    params.renderer.resizeToViewport(params.viewport.width, params.viewport.height, dpr);
 
-  for (const layer of engine.getLayers()) {
-    if (layer.imageBitmap) {
-      params.renderer.uploadImage(layer.id, layer.imageBitmap);
+    if (sweepLayers) {
+      for (const layer of engine.getLayers()) {
+        if (layer.imageBitmap) {
+          params.renderer.uploadImage(layer.id, layer.imageBitmap);
+        }
+      }
+      params.scheduler.requestRender();
     }
+
+    discardCropSession({
+      cropRect: () => params.cropRect,
+      cropRotation: () => params.cropRotation,
+      hiddenCropPreview: () => null,
+      setCropRect: params.setCropRect,
+      setCropRotation: params.setCropRotation,
+      setHiddenCropPreview: params.setHiddenCropPreview,
+    });
+    params.setActiveTool("move");
+    params.setSelectedLayerId(null);
+    engine.setActiveLayer(null);
+  };
+
+  // Routed path: the native applyCrop owns the document size and its undo entry,
+  // so there is no TS history commit. On success the route has already re-uploaded
+  // layer textures; "legacy" runs the default path below.
+  if (isFacadeEnabled() && isNativeAuthority()) {
+    void routeApplyCrop(engine, history, params.renderer, params.scheduler, cropX, cropY, cropW, cropH, cropOptions)
+      .then((status) => {
+        if (status === "applied") {
+          finish(false);
+          return;
+        }
+        if (status === "legacy") {
+          history?.commit(engine.snapshot(), "Crop Canvas");
+          engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
+          finish(true);
+        }
+        // "error": leave the crop session in place so the user can adjust it.
+      })
+      .catch(() => {});
+    return;
   }
 
-  params.scheduler.requestRender();
-  discardCropSession({
-    cropRect: () => params.cropRect,
-    cropRotation: () => params.cropRotation,
-    hiddenCropPreview: () => null,
-    setCropRect: params.setCropRect,
-    setCropRotation: params.setCropRotation,
-    setHiddenCropPreview: params.setHiddenCropPreview,
-  });
-  params.setActiveTool("move");
-  params.setSelectedLayerId(null);
-  engine.setActiveLayer(null);
+  // Default path (flag off) — unchanged.
+  history?.commit(engine.snapshot(), "Crop Canvas");
+  engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
+  finish(true);
 }
 
 export const CROP_REPLACEMENT_DRAG_THRESHOLD_PX = 3;

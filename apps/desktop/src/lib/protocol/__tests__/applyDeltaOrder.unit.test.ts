@@ -66,4 +66,44 @@ describe("applyDeltaToSnapshot ordering (two-pass consumer)", () => {
     const out = applyDeltaToSnapshot(snap, delta);
     expect(out.layers.map((l) => l.id)).toEqual(["A", "B", "C"]);
   });
+
+  it("adopts the delta canvas size on the full-restatement branch", () => {
+    const snap: RenderSnapshot = { version: 5, layers: [mk("A")], width: 100, height: 50 };
+    const delta: RenderDelta = {
+      baseVersion: 5,
+      version: 6,
+      changes: [{ kind: "upsert", layer: mk("A") }],
+      width: 200,
+      height: 300,
+    };
+    const out = applyDeltaToSnapshot(snap, delta);
+    expect(out.width).toBe(200);
+    expect(out.height).toBe(300);
+  });
+
+  it("adopts the delta canvas size on the fallback branch", () => {
+    const snap: RenderSnapshot = { version: 5, layers: [mk("A"), mk("B")], width: 100, height: 50 };
+    const delta: RenderDelta = {
+      baseVersion: 5,
+      version: 6,
+      changes: [{ kind: "upsert", layer: mk("C", 3) }],
+      width: 640,
+      height: 480,
+    };
+    const out = applyDeltaToSnapshot(snap, delta);
+    expect(out.width).toBe(640);
+    expect(out.height).toBe(480);
+  });
+
+  it("carries the prior canvas size forward when the delta has no dims", () => {
+    const snap: RenderSnapshot = { version: 5, layers: [mk("A")], width: 100, height: 50 };
+    const delta: RenderDelta = {
+      baseVersion: 5,
+      version: 6,
+      changes: [{ kind: "upsert", layer: mk("A") }],
+    };
+    const out = applyDeltaToSnapshot(snap, delta);
+    expect(out.width).toBe(100);
+    expect(out.height).toBe(50);
+  });
 });

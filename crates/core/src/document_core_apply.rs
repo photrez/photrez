@@ -76,6 +76,8 @@ impl ProtocolEngine {
                     base_version: base,
                     version: self.version,
                     changes: Vec::new(),
+                    width: None,
+                    height: None,
                 },
                 status: Some("external-recorded".to_string()),
                 external_seq: None,
@@ -86,6 +88,10 @@ impl ProtocolEngine {
         // protocol_history_cursor_commit (which performs the DV bump).
         let mut external_handoff: Option<u64> = None;
         let mut handoff_dir = "";
+        // Additive document-size signal for this delta: set by the canvas-size arms
+        // and by the undo/redo walker when a canvas entry's dimensions are restored.
+        // None for every other command, so the delta stays byte-identical.
+        let mut delta_dims: Option<(f64, f64)> = None;
         let changes = match envelope.command {
             Command::Noop => Vec::new(),
             Command::Ping { echo } => {
@@ -680,7 +686,15 @@ impl ProtocolEngine {
                 y,
                 width,
                 height,
-            } => self.apply_crop_canvas(x, y, width, height)?,
+            } => {
+                let entries_before = self.entries.len();
+                let changes = self.apply_crop_canvas(x, y, width, height)?;
+                // A silent no-op creates no entry; a real crop carries the new size.
+                if self.entries.len() > entries_before {
+                    delta_dims = self.doc_size;
+                }
+                changes
+            }
             Command::ApplyCrop {
                 x,
                 y,
@@ -690,9 +704,30 @@ impl ProtocolEngine {
                 target_width,
                 target_height,
             } => {
-                self.apply_apply_crop(x, y, width, height, rotation, target_width, target_height)?
+                let entries_before = self.entries.len();
+                let changes = self.apply_apply_crop(
+                    x,
+                    y,
+                    width,
+                    height,
+                    rotation,
+                    target_width,
+                    target_height,
+                )?;
+                if self.entries.len() > entries_before {
+                    delta_dims = self.doc_size;
+                }
+                changes
             }
-            Command::ResizeCanvas { width, height } => self.apply_resize_canvas(width, height)?,
+            Command::ResizeCanvas { width, height } => {
+                let entries_before = self.entries.len();
+                let changes = self.apply_resize_canvas(width, height)?;
+                // Resize emits an empty layer delta; these dims are its only signal.
+                if self.entries.len() > entries_before {
+                    delta_dims = self.doc_size;
+                }
+                changes
+            }
             // Handled by the early-return above (kept for exhaustiveness).
             Command::RecordExternalTransition { .. } => Vec::new(),
             Command::Undo => {
@@ -721,8 +756,14 @@ impl ProtocolEngine {
                             // Restore the document size for canvas arms. This is
                             // always written (Some or None) so a None->Some crop
                             // undoes back to None; metadata arms leave the value
-                            // unchanged, so restoring it is a no-op for them.
+                            // unchanged, so restoring it is a no-op for them. Attach
+                            // the restored size to the delta only when it actually
+                            // changed; metadata entries (unchanged dims) stay None.
+                            let pre_doc = self.doc_size;
                             self.doc_size = *doc_size_before;
+                            if pre_doc != *doc_size_before {
+                                delta_dims = *doc_size_before;
+                            }
                             if let Some(d) = doc_size_before {
                                 if let Some(sh) = &mut self.canonical {
                                     sh.doc.width = d.0;
@@ -733,7 +774,7 @@ impl ProtocolEngine {
                             // never by seed_canonical): doc_size has exactly three owners -
                             // (1) the baseline set in seed_canonical only when engine
                             // doc_size is None (document open), (2) the canvas arms
-                            // (document_core_canvas.rs:90/207/246) which set doc_size AND
+                            // (document_core_canvas.rs:90/214/253) which set doc_size AND
                             // capture its before/after pair via begin_forward, (3) this
                             // walker, which restores the captured pair. A canonical
                             // re-push refreshes ONLY the shadow (SelectAll/Invert read it)
@@ -789,8 +830,13 @@ impl ProtocolEngine {
                             let changes = Self::diff_walker(&self.layers, &new_layers);
                             self.layers = new_layers;
                             // Restore the document size for canvas arms (see undo
-                            // branch: always written, Some or None).
+                            // branch: always written, Some or None). Attach the
+                            // restored size to the delta only when it actually changed.
+                            let pre_doc = self.doc_size;
                             self.doc_size = *doc_size_after;
+                            if pre_doc != *doc_size_after {
+                                delta_dims = *doc_size_after;
+                            }
                             if let Some(d) = doc_size_after {
                                 if let Some(sh) = &mut self.canonical {
                                     sh.doc.width = d.0;
@@ -801,7 +847,7 @@ impl ProtocolEngine {
                             // never by seed_canonical): doc_size has exactly three owners -
                             // (1) the baseline set in seed_canonical only when engine
                             // doc_size is None (document open), (2) the canvas arms
-                            // (document_core_canvas.rs:90/207/246) which set doc_size AND
+                            // (document_core_canvas.rs:90/214/253) which set doc_size AND
                             // capture its before/after pair via begin_forward, (3) this
                             // walker, which restores the captured pair. A canonical
                             // re-push refreshes ONLY the shadow (SelectAll/Invert read it)
@@ -843,6 +889,8 @@ impl ProtocolEngine {
                     base_version: base,
                     version: self.version,
                     changes: Vec::new(),
+                    width: None,
+                    height: None,
                 },
                 status: Some("external".to_string()),
                 external_seq: Some(seq),
@@ -850,12 +898,18 @@ impl ProtocolEngine {
         }
         self.version += 1;
         self.reconcile_shadow();
+        let (width, height) = match delta_dims {
+            Some((w, h)) => (Some(w), Some(h)),
+            None => (None, None),
+        };
         Ok(CommandResult {
             document_version: self.version,
             delta: RenderDelta {
                 base_version: base,
                 version: self.version,
                 changes,
+                width,
+                height,
             },
             status: None,
             external_seq: None,

@@ -204,8 +204,9 @@ pub enum Command {
     // re-derive its transform. Mirror of DocumentEngine.applyCrop's non-destructive
     // branch (the pixel-baking delete/fill variants remain host-side). `rotation`
     // defaults to 0; `target_width`/`target_height` are an optional pair (a half-pair
-    // rejects with E_INVALID). Non-positive width/height is a silent no-op;
-    // non-finite inputs reject with E_INVALID.
+    // rejects with E_INVALID). Non-positive width/height is a silent no-op; a target
+    // size that resolves to <= 0 is also a silent no-op; non-finite inputs reject
+    // with E_INVALID.
     //
     // Divergence (host-side guard must survive at routing time): the host oracle also
     // silently rejects final dimensions above its device-adaptive effective maximum

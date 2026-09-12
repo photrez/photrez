@@ -409,6 +409,8 @@ impl ProtocolEngine {
                 base_version: dv - 1,
                 version: dv,
                 changes: Vec::new(),
+                width: None,
+                height: None,
             },
             status: Some("external-confirmed".to_string()),
             external_seq: Some(seq),

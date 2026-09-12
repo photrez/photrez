@@ -257,6 +257,42 @@ export class EditorFacade {
     return this.snapshot;
   }
 
+  // Canvas-size command arms: the native engine owns the document size. These
+  // methods mirror the structural methods EXACTLY — syncFromEngine -> applyCommand
+  // -> pending.set -> applyDelta -> return snapshot with no snapshot re-read
+  // beyond applyDelta's fallback. The canvas arms emit an empty layer delta; the
+  // new size rides the delta's width/height fields, which applyDeltaToSnapshot
+  // adopts. A silent no-op on the arm (non-positive dims) leaves the size
+  // unchanged and the delta carries no dims.
+  async resizeCanvas(width: number, height: number): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "resizeCanvas", width, height } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async applyCrop(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    rotation?: number,
+    targetWidth?: number,
+    targetHeight?: number,
+  ): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: this.renderedVersion,
+      docId: this.docId,
+      command: { type: "applyCrop", x, y, width, height, rotation, targetWidth, targetHeight },
+    });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
   async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
     await this.syncFromEngine();
@@ -270,7 +306,10 @@ export class EditorFacade {
     // Ticket 2.2 mixed-history routing: Rust Undo on an empty stack is a NO-OP
     // success (empty delta, version still bumps). Callers must treat this flag
     // as "Rust had nothing" and fall through to the legacy TS history store.
-    this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
+    // A canvas-size entry undoes as an empty layer delta BUT carries the
+    // restored width/height, so it is a real handled step, not a no-op.
+    this.lastHistoryDeltaWasEmpty =
+      res.delta.changes.length === 0 && res.delta.width === undefined && res.delta.height === undefined;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     // Delta-only projection by design: a full-snapshot re-read would drop layers
     // the engine never learned (unrouted structural mutations live in TS only).
@@ -288,7 +327,8 @@ export class EditorFacade {
     if (res.status === "external" && res.externalSeq !== undefined) {
       this.lastExternalHandoff = { seq: res.externalSeq, direction: "redo" };
     }
-    this.lastHistoryDeltaWasEmpty = res.delta.changes.length === 0;
+    this.lastHistoryDeltaWasEmpty =
+      res.delta.changes.length === 0 && res.delta.width === undefined && res.delta.height === undefined;
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;
@@ -370,9 +410,14 @@ export function applyDeltaToSnapshot(snap: RenderSnapshot, delta: RenderDelta): 
     .map((c) => c.layer);
   const restatedIds = new Set(restated.map((l) => l.id));
   const adoptsSequence = restated.length > 0 && layers.every((l) => restatedIds.has(l.id));
+  // Canvas dims: a canvas-size delta carries its new size in width/height, so
+  // adopt it when present and carry the prior size forward otherwise. A
+  // metadata-only delta leaves the document size untouched.
+  const width = delta.width ?? snap.width;
+  const height = delta.height ?? snap.height;
   if (adoptsSequence) {
     // Carry canvas dims + selection forward (see below).
-    return { version: delta.version, layers: restated, width: snap.width, height: snap.height, selection: snap.selection };
+    return { version: delta.version, layers: restated, width, height, selection: snap.selection };
   }
   // Fallback: in-place upsert (replace by id) + append unknown ids. Covers
   // count-changing-but-not-restatement deltas such as a single addLayer upsert
@@ -385,7 +430,8 @@ export function applyDeltaToSnapshot(snap: RenderSnapshot, delta: RenderDelta): 
     }
   }
   // Carry canvas dims + selection forward: ResizeCanvas/CropCanvas/ApplyCrop emit
-  // an empty (or layer-only) delta but change the document size, which rides the
-  // snapshot's width/height. Selection is engine-local UI state on the snapshot.
-  return { version: delta.version, layers, width: snap.width, height: snap.height, selection: snap.selection };
+  // an empty (or layer-only) delta but change the document size, which rides
+  // delta.width/height (falling back to the prior snapshot size when absent).
+  // Selection is engine-local UI state on the snapshot.
+  return { version: delta.version, layers, width, height, selection: snap.selection };
 }

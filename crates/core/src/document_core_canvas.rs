@@ -120,7 +120,8 @@ impl ProtocolEngine {
     /// given as a half-pair (one of targetWidth/targetHeight without the other) is
     /// invalid (the oracle takes targetSize as a complete {w,h} pair). Non-positive
     /// width/height is a SILENT no-op (the oracle's first guard, before reading the
-    /// target size).
+    /// target size); a target size that resolves to <= 0 is also a SILENT no-op so
+    /// the document size can never collapse to 0x0.
     #[allow(clippy::too_many_arguments)] // flat args mirror the apply-crop command struct
     pub(crate) fn apply_apply_crop(
         &mut self,
@@ -150,6 +151,12 @@ impl ProtocolEngine {
         }
         let final_w = target_width.unwrap_or(width);
         let final_h = target_height.unwrap_or(height);
+        // A target size that collapses to zero or below is a silent no-op (same
+        // convention as the non-positive crop rect above) so a zero-target
+        // applyCrop can never collapse the document size to 0x0.
+        if final_w <= 0.0 || final_h <= 0.0 {
+            return Ok(Vec::new());
+        }
         let crop_center_x = x + width / 2.0;
         let crop_center_y = y + height / 2.0;
         let rad = (-rot * std::f64::consts::PI) / 180.0;

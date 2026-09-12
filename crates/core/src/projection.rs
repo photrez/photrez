@@ -38,6 +38,16 @@ pub struct RenderDelta {
     pub base_version: DocumentVersion,
     pub version: DocumentVersion,
     pub changes: Vec<RenderLayerChange>,
+    // Additive: document size affected by this delta. Set by the canvas-size arms
+    // (Crop Canvas / Apply Crop / Resize Canvas) and by the undo/redo restoration
+    // of those entries, so consumers can resize the canvas from the delta without
+    // re-reading the snapshot (Resize Canvas emits an EMPTY layer delta, so the
+    // dims are its only signal). Optional so every pre-dims delta stays
+    // byte-identical on the wire; skipped when the delta does not change the size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
 }
 impl RenderDelta {
     pub fn is_applicable(&self, rendered_version: DocumentVersion) -> bool {
@@ -203,5 +213,43 @@ mod tests {
         assert_eq!(parsed.height, Some(768.0));
         assert!(json.contains("\"width\":1024"));
         assert!(json.contains("\"height\":768"));
+    }
+
+    // Additive field: a delta that predates the `width`/`height` document-size
+    // fields must serialize byte-identically (both keys are skipped when absent)
+    // and still parse. Guards the wire-compat contract for the canvas arms.
+    #[test]
+    fn render_delta_without_dims_is_byte_identical_and_parses() {
+        let delta = RenderDelta {
+            base_version: 1,
+            version: 2,
+            changes: vec![],
+            width: None,
+            height: None,
+        };
+        let json = serde_json::to_string(&delta).expect("delta serializes");
+        assert_eq!(json, r#"{"baseVersion":1,"version":2,"changes":[]}"#);
+        let parsed: RenderDelta =
+            serde_json::from_str(r#"{"baseVersion":1,"version":2,"changes":[]}"#)
+                .expect("legacy delta without dims must parse");
+        assert_eq!(parsed.width, None);
+        assert_eq!(parsed.height, None);
+    }
+
+    #[test]
+    fn render_delta_with_dims_round_trips() {
+        let delta = RenderDelta {
+            base_version: 1,
+            version: 2,
+            changes: vec![],
+            width: Some(320.0),
+            height: Some(240.0),
+        };
+        let json = serde_json::to_string(&delta).expect("delta with dims serializes");
+        assert!(json.contains("\"width\":320"));
+        assert!(json.contains("\"height\":240"));
+        let parsed: RenderDelta = serde_json::from_str(&json).expect("round-trips with dims");
+        assert_eq!(parsed.width, Some(320.0));
+        assert_eq!(parsed.height, Some(240.0));
     }
 }

@@ -1,8 +1,20 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { ResizeCanvasModal } from "../ResizeCanvasModal";
 import { WorkspaceManager } from "@/engine/workspace";
+import * as bridge from "@/lib/protocol/bridge";
+import {
+  getFacade,
+  seedFacadeFromEngine,
+  __resetFacadeRegistryForTests,
+} from "@/lib/protocol/facadeRegistry";
+import { installCanvasRouteEmulator, type CanvasRouteEmulator } from "@/__tests__/canvasRouteEmulator";
+import { invoke } from "@tauri-apps/api/core";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const invokeMock = invoke as unknown as Mock<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>;
+let emulator: CanvasRouteEmulator | null = null;
 
 const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve));
 let setShowDialog: (value: boolean) => void = () => {};
@@ -59,6 +71,13 @@ const button = (dialog: HTMLElement, label: string) => Array.from(dialog.querySe
 describe("ResizeCanvasModal", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
+    bridge.__resetNativeAuthorityForTests();
+    __resetFacadeRegistryForTests();
+    invokeMock.mockReset();
+    emulator?.reset();
+    emulator = null;
     document.querySelectorAll("[data-photrez-dialog], [data-dialog-backdrop]").forEach((node) => node.remove());
   });
 
@@ -112,6 +131,42 @@ describe("ResizeCanvasModal", () => {
     expect(previous).not.toBeNull();
     view.session.engine.restore(previous!);
     expect([view.session.engine.getWidth(), view.session.engine.getHeight()]).toEqual([800, 600]);
+    view.dispose();
+  });
+
+  it("routed resize (flag ON + native) applies dims through the facade, leaves TS history empty, and facade undo restores dims", async () => {
+    localStorage.setItem("photrez.facade", "1");
+    localStorage.setItem("photrez.facadeAuthority", "native");
+    bridge.__resetNativeAuthorityForTests();
+    invokeMock.mockReset();
+    emulator = installCanvasRouteEmulator(invokeMock);
+
+    const view = renderModal();
+    const facade = getFacade("test");
+    await seedFacadeFromEngine(view.session.engine as never, facade);
+    // Establish a native baseline size so undo has a prior size to restore.
+    await facade.resizeCanvas(800, 600);
+    view.session.engine.applyFacadeSnapshot(facade.snapshot as never);
+
+    const dialog = view.dialog()!;
+    const width = dialog.querySelector<HTMLInputElement>("#resize-canvas-width")!;
+    width.value = "400";
+    width.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
+    button(dialog, "Resize").click();
+
+    await vi.waitFor(() => {
+      expect(view.session.engine.getWidth()).toBe(400);
+    });
+    expect(view.session.engine.getHeight()).toBe(300);
+    expect(view.dialog()).toBeNull();
+    // Routed ops own undo through the native cursor: no TS history entry.
+    expect(view.session.history.undo(view.session.engine.snapshot())).toBeNull();
+
+    await facade.undo();
+    expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
+    view.session.engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect([view.session.engine.getWidth(), view.session.engine.getHeight()]).toEqual([800, 600]);
+
     view.dispose();
   });
 

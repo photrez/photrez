@@ -73,6 +73,15 @@ export type RenderDelta = {
   baseVersion: DocumentVersion;
   version: DocumentVersion;
   changes: RenderLayerChange[];
+  // Document canvas size affected by this delta (mirrors the additive
+  // RenderDelta.width/height in crates/core/src/projection.rs). The canvas-size
+  // command arms (resizeCanvas / applyCrop / cropCanvas) and the undo/redo
+  // restoration of those entries set these, so the consumer can apply a size
+  // change from the delta alone (resizeCanvas emits an empty layer delta, so the
+  // dims are its only signal). Optional so pre-dims deltas stay byte-identical
+  // on the wire.
+  width?: number;
+  height?: number;
 };
 
 export type TransformPatch = {

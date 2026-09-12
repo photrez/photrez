@@ -319,6 +319,45 @@ export async function commitFacadeRasterize(
   return { status: "applied", count: 1 };
 }
 
+// ── Canvas-size commit funnels (resize canvas / apply crop) ──────────────
+// Route the document-size ops to the native canvas arms. Same native-authority
+// gate as the structural funnels: under wasm authority the routed arm cannot own
+// the document size (the projection would contradict the TS model), so defer to
+// the legacy engine path. The canvas arms emit an empty layer delta plus the new
+// size on delta.width/height; the facade's delta consumer adopts those, then the
+// projection below pushes the same size into the TS model (applyFacadeSnapshot
+// writes model width/height when the snapshot carries a different size).
+export async function commitFacadeResizeCanvas(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  width: number,
+  height: number,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  const last = await f.resizeCanvas(width, height);
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: 1 };
+}
+
+export async function commitFacadeApplyCrop(
+  engine: { getId(): string; applyFacadeSnapshot(s: unknown): void },
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  rotation?: number,
+  targetWidth?: number,
+  targetHeight?: number,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  const last = await f.applyCrop(x, y, width, height, rotation, targetWidth, targetHeight);
+  if (last) engine.applyFacadeSnapshot(last);
+  return { status: "applied", count: 1 };
+}
+
 // ── ADR 0009: mixed-selection policy helper ─────────────────────────────
 // Single source of truth for routing a batch target set during the migration
 // window. PURE with respect to editor state: reads the ownership set + flag,

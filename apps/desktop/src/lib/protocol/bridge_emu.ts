@@ -323,6 +323,11 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
   const base = emuVersion;
   let changes: CommandResult["delta"]["changes"] = [];
   let externalSeq: number | null = null;
+  // Document-size effect of this step, mirroring the Rust walker: a canvas arm
+  // that records an entry reports the new size; undo/redo report the restored
+  // size only when it differs from the pre-step size. Absent means the delta
+  // carries no size change (metadata arms and silent no-ops).
+  let deltaDims: { w: number; h: number } | null = null;
   const cmd = env.command as unknown as { type: string; [k: string]: unknown };
   if (cmd.type === "ping") {
     const echo = cmd.echo as string;
@@ -856,6 +861,8 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       emuDocHeight = height;
       emuSelection = null;
       finishEmu(_e);
+      // A real crop entry reports its new document size on the delta.
+      deltaDims = { w: emuDocWidth, h: emuDocHeight };
       changes = emuLayers.map((l) => ({ kind: "upsert" as const, layer: l }));
     }
   } else if (cmd.type === "applyCrop") {
@@ -928,6 +935,8 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       emuDocHeight = finalH;
       emuSelection = null;
       finishEmu(_e);
+      // A real crop entry reports its new document size on the delta.
+      deltaDims = { w: emuDocWidth, h: emuDocHeight };
       changes = emuLayers.map((l) => ({ kind: "upsert" as const, layer: l }));
     }
   } else if (cmd.type === "resizeCanvas") {
@@ -948,6 +957,8 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       emuDocWidth = width;
       emuDocHeight = height;
       finishEmu(_e);
+      // Resize emits an empty layer delta; its new document size is the only signal.
+      deltaDims = { w: emuDocWidth, h: emuDocHeight };
       changes = [];
     }
   } else if (cmd.type === "undo") {
@@ -957,10 +968,17 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       const e = emuEntries[emuCursor - 1];
       if (e.origin === "native") {
         const cur = [...emuLayers];
+        const preW = emuDocWidth;
+        const preH = emuDocHeight;
         changes = diffEmu(cur, e.before);
         emuLayers = [...e.before];
         emuDocWidth = e.docWBefore;
         emuDocHeight = e.docHBefore;
+        // Attach the restored size only when it actually changed (metadata
+        // entries carry unchanged dims and stay a dims-less delta).
+        if (preW !== emuDocWidth || preH !== emuDocHeight) {
+          deltaDims = { w: emuDocWidth, h: emuDocHeight };
+        }
         emuCursor -= 1;
       } else {
         externalSeq = e.seq; // host handoff - no cursor move, no DV bump here
@@ -972,10 +990,17 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       const e = emuEntries[emuCursor];
       if (e.origin === "native") {
         const cur = [...emuLayers];
+        const preW = emuDocWidth;
+        const preH = emuDocHeight;
         changes = diffEmu(cur, e.after);
         emuLayers = [...e.after];
         emuDocWidth = e.docWAfter;
         emuDocHeight = e.docHAfter;
+        // See undo: report the restored size only when it differs from the
+        // pre-step size.
+        if (preW !== emuDocWidth || preH !== emuDocHeight) {
+          deltaDims = { w: emuDocWidth, h: emuDocHeight };
+        }
         emuCursor += 1;
       } else {
         externalSeq = e.seq;
@@ -997,7 +1022,15 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
     };
   }
   emuVersion += 1;
-  return { documentVersion: emuVersion, delta: { baseVersion: base, version: emuVersion, changes } };
+  return {
+    documentVersion: emuVersion,
+    delta: {
+      baseVersion: base,
+      version: emuVersion,
+      changes,
+      ...(deltaDims ? { width: deltaDims.w, height: deltaDims.h } : {}),
+    },
+  };
 }
 
 // Mirror the real engine's snapshot read: the emulator tracks the authoritative

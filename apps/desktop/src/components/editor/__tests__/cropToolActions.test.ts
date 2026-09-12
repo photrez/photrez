@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   clearCropPreview,
   resetCropPreviewToCanvas,
@@ -8,6 +8,18 @@ import {
   discardCropSession,
   type CropPreviewControls,
 } from "../cropToolActions";
+import { DocumentEngine } from "@/engine/document";
+import * as bridge from "@/lib/protocol/bridge";
+import {
+  getFacade,
+  seedFacadeFromEngine,
+  __resetFacadeRegistryForTests,
+} from "@/lib/protocol/facadeRegistry";
+import { installCanvasRouteEmulator, type CanvasRouteEmulator } from "@/__tests__/canvasRouteEmulator";
+import { invoke } from "@tauri-apps/api/core";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const invokeMock = invoke as unknown as Mock<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>;
 
 function controls(overrides: Partial<CropPreviewControls> = {}) {
   return {
@@ -262,5 +274,131 @@ describe("cropToolActions hidden preview", () => {
     expect(c.setCropRect).toHaveBeenCalledWith(null);
     expect(c.setCropRotation).toHaveBeenCalledWith(0);
     expect(c.setHiddenCropPreview).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("applyCropPreview routed path (flag ON + native)", () => {
+  let emulator: CanvasRouteEmulator;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
+    bridge.__resetNativeAuthorityForTests();
+    __resetFacadeRegistryForTests();
+    invokeMock.mockReset();
+    emulator?.reset();
+  });
+
+  function controls() {
+    return {
+      setCropRect: vi.fn(),
+      setCropRotation: vi.fn(),
+      setHiddenCropPreview: vi.fn(),
+      setActiveTool: vi.fn(),
+      setSelectedLayerId: vi.fn(),
+      recenterViewport: vi.fn(),
+      scheduler: { requestRender: vi.fn() },
+      renderer: { uploadImage: vi.fn(), resizeToViewport: vi.fn() },
+    };
+  }
+
+  async function nativeDoc() {
+    localStorage.setItem("photrez.facade", "1");
+    localStorage.setItem("photrez.facadeAuthority", "native");
+    bridge.__resetNativeAuthorityForTests();
+    invokeMock.mockReset();
+    emulator = installCanvasRouteEmulator(invokeMock);
+    const engine = new DocumentEngine("crop1", "crop1", 800, 600);
+    const layer = engine.addLayer("A", 100, 100);
+    layer.imageBitmap = { width: 4, height: 4 } as unknown as ImageBitmap;
+    const facade = getFacade("crop1");
+    await seedFacadeFromEngine(engine as never, facade);
+    // Native baseline size so undo has a prior size to restore.
+    await facade.resizeCanvas(800, 600);
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const historyCommit = vi.fn();
+    const workspace = {
+      getActiveEngine: () => engine,
+      getActiveHistory: () => ({ commit: historyCommit }),
+    };
+    return { engine, facade, historyCommit, workspace };
+  }
+
+  it("non-destructive crop: dims applied via the native arm, no TS history commit, facade undo restores dims", async () => {
+    const { engine, facade, historyCommit, workspace } = await nativeDoc();
+    const c = controls();
+    const applyCropSpy = vi.spyOn(engine, "applyCrop");
+
+    applyCropPreview({
+      workspace: workspace as any,
+      renderer: c.renderer as any,
+      viewport: { width: 1048, height: 594 },
+      cropRect: { x: 10, y: 20, w: 100, h: 100 },
+      cropMode: "free",
+      cropSizeTarget: null,
+      cropDeletePixels: false,
+      cropRotation: 0,
+      scheduler: c.scheduler as any,
+      setCropRect: c.setCropRect,
+      setCropRotation: c.setCropRotation,
+      setHiddenCropPreview: c.setHiddenCropPreview,
+      setActiveTool: c.setActiveTool,
+      setSelectedLayerId: c.setSelectedLayerId,
+      recenterViewport: c.recenterViewport,
+    });
+
+    await vi.waitFor(() => {
+      expect(engine.getWidth()).toBe(100);
+    });
+    expect(engine.getHeight()).toBe(100);
+    expect(historyCommit).not.toHaveBeenCalled();
+    expect(applyCropSpy).not.toHaveBeenCalled();
+    expect(c.setActiveTool).toHaveBeenCalledWith("move");
+    expect(c.renderer.resizeToViewport).toHaveBeenCalled();
+
+    await facade.undo();
+    expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect([engine.getWidth(), engine.getHeight()]).toEqual([800, 600]);
+  });
+
+  it("destructive crop defers to the legacy path (TS history commit + engine.applyCrop)", async () => {
+    const { engine, historyCommit, workspace } = await nativeDoc();
+    const c = controls();
+    const applyCropSpy = vi.spyOn(engine, "applyCrop");
+
+    applyCropPreview({
+      workspace: workspace as any,
+      renderer: c.renderer as any,
+      viewport: { width: 1048, height: 594 },
+      cropRect: { x: 10, y: 20, w: 100, h: 100 },
+      cropMode: "free",
+      cropSizeTarget: null,
+      cropDeletePixels: true,
+      cropRotation: 0,
+      scheduler: c.scheduler as any,
+      setCropRect: c.setCropRect,
+      setCropRotation: c.setCropRotation,
+      setHiddenCropPreview: c.setHiddenCropPreview,
+      setActiveTool: c.setActiveTool,
+      setSelectedLayerId: c.setSelectedLayerId,
+    });
+
+    await vi.waitFor(() => {
+      expect(applyCropSpy).toHaveBeenCalled();
+    });
+    // History sees the PRE-crop snapshot (800x600), committed before the mutation.
+    expect(historyCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 800, height: 600 }),
+      "Crop Canvas",
+    );
+    expect(applyCropSpy).toHaveBeenCalledWith(
+      10,
+      20,
+      100,
+      100,
+      expect.objectContaining({ deleteCroppedPixels: true }),
+    );
   });
 });

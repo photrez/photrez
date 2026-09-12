@@ -86,6 +86,23 @@ import {
 
 export { drawLayerToContext };
 
+// Resize-canvas memory projection, shared by DocumentEngine.resizeCanvas and the
+// routed canvas path so the legacy guard stays the single source of truth.
+// Conservative: assumes every existing layer is re-allocated at the new size.
+// Returns true when the projected usage exceeds the pixel budget.
+export function resizeCanvasExceedsBudget(
+  currentWidth: number,
+  currentHeight: number,
+  layerCount: number,
+  memoryUsage: number,
+  width: number,
+  height: number,
+): boolean {
+  if (layerCount <= 0) return false;
+  const newBytes = width * height * 4;
+  const estimatedGrowth = (newBytes - currentWidth * currentHeight * 4) * layerCount;
+  return memoryUsage + Math.max(0, estimatedGrowth) > MAX_PIXEL_BUDGET;
+}
 
 export class DocumentEngine {
   private model: DocumentModel;
@@ -967,18 +984,22 @@ export class DocumentEngine {
     if (width > maxDim || height > maxDim) return;
 
     // Memory budget check: resizing to larger dimensions could cause OOM
-    // if layers are later re-allocated at the new size.
-    const newBytes = width * height * 4;
-    // Estimate: each existing layer could be resized to the new canvas size.
-    // This is conservative — layers may keep their own dimensions, but
-    // paint operations or crop/resize to canvas size could trigger re-alloc.
-    const layerCount = this.model.layers.length;
-    if (layerCount > 0) {
-      const estimatedGrowth = (newBytes - (this.model.width * this.model.height * 4)) * layerCount;
-      const projected = this.calculateMemoryUsage() + Math.max(0, estimatedGrowth);
-      if (projected > MAX_PIXEL_BUDGET) {
-        throw new Error("E_RESOURCE_LIMIT: Resizing canvas exceeds maximum pixel memory budget.");
-      }
+    // if layers are later re-allocated at the new size. Estimate: each existing
+    // layer could be resized to the new canvas size (conservative — layers may
+    // keep their own dimensions, but paint operations or crop/resize to canvas
+    // size could trigger re-alloc). Shared with the routed canvas path so both
+    // use the same projection.
+    if (
+      resizeCanvasExceedsBudget(
+        this.model.width,
+        this.model.height,
+        this.model.layers.length,
+        this.calculateMemoryUsage(),
+        width,
+        height,
+      )
+    ) {
+      throw new Error("E_RESOURCE_LIMIT: Resizing canvas exceeds maximum pixel memory budget.");
     }
 
     this.model.width = width;
@@ -1619,7 +1640,20 @@ export class DocumentEngine {
   }
 
   // ─── Facade Projection (Ticket 2.1) ───
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }> }): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }>; width?: number; height?: number }): void {
+    // A canvas-size command's projection carries the new document size. Write
+    // it when it differs from the model so a routed resize/crop (and its
+    // undo/redo) keeps the TS size in step with the native document. Layers and
+    // every other field stay verbatim; notifyVisualChange at the end redraws.
+    if (
+      snapshot.width !== undefined &&
+      snapshot.height !== undefined &&
+      (snapshot.width !== this.model.width || snapshot.height !== this.model.height)
+    ) {
+      this.model.width = snapshot.width;
+      this.model.height = snapshot.height;
+      this.model.dirty = true;
+    }
     const existingById = new Map(this.model.layers.map((l) => [l.id, l] as const));
     const nextLayers: typeof this.model.layers = [];
     for (const rl of snapshot.layers) {
