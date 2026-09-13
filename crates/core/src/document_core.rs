@@ -99,6 +99,13 @@ impl ProtocolEngine {
         self.doc_size
     }
 
+    /// Borrow the current structural-sharing layer set. Used by the history
+    /// module to capture the pre-transition vector for a host-handoff entry
+    /// (an O(1) `Arc` clone under structural sharing).
+    pub(crate) fn layers(&self) -> &LayerSet {
+        &self.layers
+    }
+
     /// Read the current engine selection state, if any.
     pub fn selection(&self) -> Option<&SelectionState> {
         self.selection.as_ref()
@@ -187,6 +194,21 @@ impl ProtocolEngine {
         // :132-136), in case a preserved engine rid exceeds the minted frontier.
         if let Some(max_res) = self.layers.iter().map(|l| l.resource_id).max() {
             self.next_resource = self.next_resource.max(max_res.saturating_add(1));
+        }
+
+        // If the most recently applied history entry is a host-handoff
+        // (external) record, this push is that entry's sync: capture the
+        // up-projected vector as its post-sync side so an undo/redo of that
+        // entry can restore layer order natively. Only an empty slot is filled,
+        // so a later unrelated push never overwrites the captured side.
+        if self.cursor > 0 {
+            let post_sync = self.layers.clone();
+            if let EntryPayload::External { after, .. } = &mut self.entries[self.cursor - 1].payload
+            {
+                if after.is_none() {
+                    *after = Some(post_sync);
+                }
+            }
         }
 
         // Owner shadow: unconditional refresh so SelectAll / Invert read fresh dims.
@@ -471,7 +493,7 @@ impl ProtocolEngine {
                 version_after: e.version_after,
                 memory_cost_bytes: e.memory_cost_bytes,
                 payload_ref: match &e.payload {
-                    EntryPayload::External { token } => Some(token.clone()),
+                    EntryPayload::External { token, .. } => Some(token.clone()),
                     EntryPayload::Native { .. } => None,
                     EntryPayload::Pixel { .. } => None,
                     EntryPayload::Snapshot { .. } => None,
@@ -556,11 +578,10 @@ impl ProtocolEngine {
     /// the entry's captured vector, but layers introduced since then by a
     /// canonical re-push (TS-originated structural commits the engine learned
     /// through the mirror) belong to NEITHER side of this entry - dropping
-    /// them here would silently delete live layers from the native set while
-    /// the consumer delta (scoped by `diff_walker`'s removable whitelist) says
-    /// they survive. Result: the captured order first, foreign survivors
-    /// appended in current order as a provisional placement - the next TS
-    /// re-push (authoritative for order at mirrored moments) realigns.
+    /// them here would silently delete live layers from the native set. Result:
+    /// the captured order first, foreign survivors appended in current order (a
+    /// bounded placement for layers the entry's capture predates). Shared by
+    /// the native walker and the host-handoff (external) entry restore.
     fn restore_with_foreign(
         current: &LayerSet,
         captured: &LayerSet,
@@ -575,6 +596,55 @@ impl ProtocolEngine {
             }
         }
         LayerSet(Arc::new(v))
+    }
+
+    /// Restore the native layer ORDER captured by an External (host-handoff)
+    /// entry, and return the ordered restatement delta plus the entry seq.
+    ///
+    /// An External entry records a mirrored TS commit. Its captured `before` is
+    /// the engine's layer set at record time - the pre-sync state, i.e. exactly
+    /// what an undo of this entry restores to. Its `after` is the post-sync
+    /// state, captured when the mirrored commit is up-projected
+    /// (`seed_canonical`); undo restores `before`, redo restores `after`. Both
+    /// are `Arc` clones under structural sharing.
+    ///
+    /// The same membership-safety rule as the native walker applies: the merged
+    /// result is the captured side plus any layer that belongs to neither side
+    /// of this entry (a foreign survivor introduced by a later re-push), so the
+    /// delta's Remove set is scoped to ids this entry itself introduced and
+    /// foreign layers are never dropped. Foreign survivors are appended in
+    /// current order - a bounded placement for layers the capture predates.
+    ///
+    /// Returns an empty delta (handoff-only, no state change) when the post-sync
+    /// side was never captured (a handoff that did not pass through a canonical
+    /// push), so the host keeps the pre-existing handoff behavior.
+    fn restore_external_layers(
+        &mut self,
+        idx: usize,
+        direction: &str,
+    ) -> (u64, Vec<RenderLayerChange>) {
+        let seq = self.entries[idx].seq;
+        // Cheap Arc clones (structural sharing): no deep layer copy.
+        let (before, after) = match &self.entries[idx].payload {
+            EntryPayload::External { before, after, .. } => (before.clone(), after.clone()),
+            _ => return (seq, Vec::new()),
+        };
+        let after = match after {
+            Some(a) => a,
+            None => return (seq, Vec::new()),
+        };
+        let (captured, other_side) = if direction == "undo" {
+            (&before, &after)
+        } else {
+            (&after, &before)
+        };
+        let new_layers = Self::restore_with_foreign(&self.layers, captured, other_side);
+        let changes = Self::diff_walker(&self.layers, &new_layers);
+        self.layers = new_layers;
+        // The layer vector changed natively, so keep the shadow consistent
+        // (SelectAll/Invert read it). No-op when no shadow is seeded.
+        self.reconcile_shadow();
+        (seq, changes)
     }
 }
 // `apply()` command-arm dispatch lives in a submodule to keep this module under

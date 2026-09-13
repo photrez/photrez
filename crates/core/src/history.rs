@@ -43,8 +43,19 @@ pub(crate) enum EntryPayload {
         doc_size_before: Option<(f64, f64)>,
         doc_size_after: Option<(f64, f64)>,
     },
+    /// TS (adapter) logical transition recorded as a host handoff. `token` is
+    /// the opaque host payload reference. `before` is the engine's layer set as
+    /// it stood when the transition was recorded - i.e. BEFORE the mirrored TS
+    /// commit was up-projected into the engine, so it is exactly the state this
+    /// entry undoes TO. It is an `Arc` clone of the structural-sharing
+    /// `LayerSet` (O(1), no deep layer copy). `after` is the up-projected layer
+    /// set, captured when the mirrored commit reaches the engine
+    /// (`seed_canonical`); it is `None` until then and for handoffs that never
+    /// pass through a canonical push.
     External {
         token: String,
+        before: LayerSet,
+        after: Option<LayerSet>,
     },
     /// Native pixel-history entry. Carries before/after pixel
     /// states as immutable, byte-free `Arc<StateNode>`s (COW tile blocks
@@ -246,6 +257,10 @@ impl ProtocolEngine {
             memory_cost_bytes,
             payload: EntryPayload::External {
                 token: token.to_string(),
+                // Capture the pre-sync layer vector: the state this entry's undo
+                // restores. Arc clone under structural sharing - O(1), no deep copy.
+                before: self.layers().clone(),
+                after: None,
             },
         });
         self.cursor = self.entries.len();

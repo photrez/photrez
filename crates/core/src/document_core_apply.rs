@@ -734,6 +734,18 @@ impl ProtocolEngine {
                 if self.cursor == 0 {
                     // No-op undo: DV still bumps (accepted transition event).
                     Vec::new()
+                } else if matches!(
+                    &self.entries[self.cursor - 1].payload,
+                    EntryPayload::External { .. }
+                ) {
+                    // External (host-handoff) entry: restore the captured layer
+                    // order natively and emit the ordered restatement, then route
+                    // the host handoff so the TS side steps its own store (the
+                    // cursor moves on the cursor commit, not here).
+                    let (seq, changes) = self.restore_external_layers(self.cursor - 1, "undo");
+                    external_handoff = Some(seq);
+                    handoff_dir = "undo";
+                    changes
                 } else {
                     let e = &self.entries[self.cursor - 1];
                     match &e.payload {
@@ -800,20 +812,25 @@ impl ProtocolEngine {
                             // walker leaves Snapshot entries untouched.
                             Vec::new()
                         }
-                        EntryPayload::External { .. } => {
-                            // Host handoff: adapter executes, then
-                            // protocol_history_cursor_commit moves the cursor
-                            // and bumps DV. Nothing changes here.
-                            external_handoff = Some(e.seq);
-                            handoff_dir = "undo";
-                            Vec::new()
-                        }
+                        // External entries are handled above (captured native
+                        // order restore + host handoff); unreachable here.
+                        EntryPayload::External { .. } => Vec::new(),
                     }
                 }
             }
             Command::Redo => {
                 if self.cursor >= self.entries.len() {
                     Vec::new()
+                } else if matches!(
+                    &self.entries[self.cursor].payload,
+                    EntryPayload::External { .. }
+                ) {
+                    // External (host-handoff) entry: see the undo arm. Redo
+                    // restores the up-projected side captured at the sync.
+                    let (seq, changes) = self.restore_external_layers(self.cursor, "redo");
+                    external_handoff = Some(seq);
+                    handoff_dir = "redo";
+                    changes
                 } else {
                     let e = &self.entries[self.cursor];
                     match &e.payload {
@@ -870,25 +887,25 @@ impl ProtocolEngine {
                             // undo_snapshot/redo_snapshot, not the walker.
                             Vec::new()
                         }
-                        EntryPayload::External { .. } => {
-                            external_handoff = Some(e.seq);
-                            handoff_dir = "redo";
-                            Vec::new()
-                        }
+                        // External entries are handled above (captured native
+                        // order restore + host handoff); unreachable here.
+                        EntryPayload::External { .. } => Vec::new(),
                     }
                 }
             }
         };
         if let Some(seq) = external_handoff {
             self.pending_external = Some((seq, handoff_dir.to_string()));
-            // Layers unchanged here - reconcile intentionally skipped (host executes
-            // external mutation out-of-band); the cursor commit lands it separately.
+            // The layer vector was restored natively from the entry's captured
+            // set, so this delta is the ordered restatement the host projection
+            // reconstructs order from. The version still advances only on the
+            // cursor commit; the cursor itself is moved there, not here.
             return Ok(CommandResult {
                 document_version: self.version,
                 delta: RenderDelta {
                     base_version: base,
                     version: self.version,
-                    changes: Vec::new(),
+                    changes,
                     width: None,
                     height: None,
                 },
