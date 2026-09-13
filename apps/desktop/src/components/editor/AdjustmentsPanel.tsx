@@ -4,8 +4,17 @@ import { useEditor } from "./shell/EditorContext";
 import { SectionHeader } from "./layers/SectionHeader";
 import { LayerThumb } from "./layers/LayerThumb";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
+import type { DocumentEngine } from "@/engine/document";
 import { Slider } from "./primitives";
 import { useI18n } from "@/i18n/I18nProvider";
+import { showToast } from "./Toast";
+import {
+  commitFacadeAdjustment,
+  isFacadeEnabled,
+  setAdjustmentPreview,
+  clearAdjustmentPreview,
+  MIXED_OWNERSHIP_MESSAGE,
+} from "@/lib/protocol/facadeRegistry";
 
 const COMING_SOON_SECTIONS = [
   {
@@ -66,12 +75,23 @@ export function AdjustmentsPanel() {
   // per drag (or per property switch). Plain closure var — not reactive.
   let sessionBase: { layerId: string; lastProperty: string } | null = null;
 
+  // Active routed-transient gesture: set on the first slider tick of a
+  // facade-owned drag, cleared at the gesture boundary. While non-null the
+  // engine model is intentionally held at its pre-gesture value and the live
+  // preview rides the transient adjustment preview (see facadeRegistry
+  // applyFacadePreviews). Plain closure var - not reactive.
+  let pendingAdjustment: { layerId: string; start: BasicAdjustment; key: keyof BasicAdjustment } | null = null;
+
+  const zeroAdjustment = (): BasicAdjustment => ({ brightness: 0, contrast: 0, saturation: 0 });
+
   // Reset slider values whenever the selected layer changes
   createEffect(() => {
     selectedLayerId();
     batch(() => {
       setBasicAdjustment({ brightness: 0, contrast: 0, saturation: 0 });
       sessionBase = null;
+      pendingAdjustment = null;
+      clearAdjustmentPreview();
     });
   });
 
@@ -82,6 +102,11 @@ export function AdjustmentsPanel() {
   createEffect(() => {
     const layer = activeLayer();
     if (!layer) return;
+
+    // A routed drag holds the model at its pre-gesture value while the slider
+    // leads and the transient preview supplies the render; skip the
+    // model->slider sync until the gesture boundary commits.
+    if (pendingAdjustment) return;
 
     // Sync slider from layer state on external changes (layer switch, undo).
     // During an active drag the engine does NOT notify the layers signal, so
@@ -135,19 +160,129 @@ export function AdjustmentsPanel() {
     }
   };
 
+  // Route an adjustment (or a clear when adjustment is undefined) to the native
+  // engine, falling back to the caller's legacy path only when the shared
+  // ownership policy says the target is not facade-owned ("legacy"). Dispatches
+  // are serialized: the EditorFacade requires each command to be awaited before
+  // the next (expectedVersion is bumped post-await), and a discrete reset can
+  // overlap a drag-end commit, so an un-chained pair could reject with
+  // E_VERSION_MISMATCH.
+  let adjustmentRouteChain: Promise<void> = Promise.resolve();
+
+  // Re-sync the slider from the authoritative model after a routed dispatch
+  // failed: the panel signal was advanced optimistically, so leaving it would
+  // show a value the model never adopted.
+  const resyncAdjustmentFromModel = () => {
+    // A newer gesture may already own the preview. Overwriting the slider here
+    // would make that gesture read moved=false at its boundary and drop its
+    // commit. Only resync when no gesture is in flight.
+    if (pendingAdjustment !== null) return;
+    const current = activeLayer()?.basicAdjustment;
+    setBasicAdjustment(current ? { ...current } : zeroAdjustment());
+  };
+
+  const routeAdjustment = (
+    engine: DocumentEngine,
+    layerId: string,
+    adjustment: BasicAdjustment | undefined,
+    legacy: () => void,
+  ) => {
+    adjustmentRouteChain = adjustmentRouteChain
+      .then(async () => {
+        try {
+          const r = await commitFacadeAdjustment(engine as never, [layerId], adjustment);
+          if (r.status === "mixed-rejected") {
+            showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+            resyncAdjustmentFromModel();
+            return;
+          }
+          if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+            scheduler.requestRender();
+            return;
+          }
+          legacy(); // status === "legacy"
+        } catch (err) {
+          showToast(`Cannot set adjustment: ${(err as Error).message}`, "error");
+          resyncAdjustmentFromModel();
+        }
+      })
+      .catch(() => {});
+  };
+
   const setAdjustmentValue = (key: keyof BasicAdjustment, value: number) => {
-    const next = { ...basicAdjustment(), [key]: value };
-    setBasicAdjustment(next);
-    // Commit undo checkpoint once per gesture/property switch (cheap).
-    commitAdjustmentSession(key);
-    // Non-destructive: push the param to the engine; the GPU shader applies
-    // it instantly on the next render — no CPU pixel loop, no debounce.
     const engine = workspace.getActiveEngine();
     const layer = activeLayer();
-    if (engine && layer) {
-      engine.applyBasicAdjustment(layer.id, next);
+    const next = { ...basicAdjustment(), [key]: value };
+
+    // Facade-owned drag: mark the gesture BEFORE writing the panel signal. The
+    // model->slider sync effect runs synchronously on that write; without the
+    // pending marker it would immediately reset the slider to the (unchanged)
+    // model value. Every tick stays transient here - the single SetAdjustment
+    // fires at the gesture boundary, so undo gets ONE native entry per gesture.
+    if (engine && layer && layer.imageBitmap && isFacadeEnabled() && !layer.locked) {
+      if (pendingAdjustment === null) {
+        pendingAdjustment = {
+          layerId: layer.id,
+          start: layer.basicAdjustment ? { ...layer.basicAdjustment } : zeroAdjustment(),
+          key,
+        };
+      } else {
+        pendingAdjustment.key = key;
+      }
+      setBasicAdjustment(next);
+      setAdjustmentPreview({ layerId: layer.id, adjustment: next });
       scheduler.requestRender();
+      return;
     }
+
+    setBasicAdjustment(next);
+    if (!engine || !layer) return;
+    // Oracle parity: the legacy apply no-ops on a layer with no pixels
+    // (DocumentEngine.applyBasicAdjustment guards !imageBitmap). Keep the guard
+    // on the routed path too, so the native arm never applies an adjustment to a
+    // bitmap-less layer the legacy path would have skipped.
+    if (!layer.imageBitmap) return;
+
+    // Legacy path (flag OFF) plus the locked-layer oracle case: a locked layer
+    // makes no undo entry (commitAdjustmentSession returns early on `locked`),
+    // so flag ON must not create a native entry legacy would not.
+    commitAdjustmentSession(key);
+    // Non-destructive: push the param to the engine; the GPU shader applies
+    // it instantly on the next render - no CPU pixel loop, no debounce.
+    engine.applyBasicAdjustment(layer.id, next);
+    scheduler.requestRender();
+  };
+
+  // Slider gesture boundary (pointerup / change / blur): dispatch ONE routed
+  // SetAdjustment with the final value. A no-op when no routed gesture is
+  // pending (flag OFF already committed per tick) or the value never moved.
+  const finishAdjustmentEdit = () => {
+    const pending = pendingAdjustment;
+    if (!pending) return;
+    pendingAdjustment = null;
+    clearAdjustmentPreview();
+    const engine = workspace.getActiveEngine();
+    const layer = activeLayer();
+    if (!engine || !layer || layer.id !== pending.layerId) {
+      scheduler.requestRender();
+      return;
+    }
+    const final = basicAdjustment();
+    const start = pending.start;
+    const moved =
+      final.brightness !== start.brightness ||
+      final.contrast !== start.contrast ||
+      final.saturation !== start.saturation;
+    if (!moved) {
+      scheduler.requestRender();
+      return;
+    }
+    const legacy = () => {
+      commitAdjustmentSession(pending.key);
+      engine.applyBasicAdjustment(layer.id, final);
+      scheduler.requestRender();
+    };
+    routeAdjustment(engine, layer.id, final, legacy);
   };
 
   const hasPendingAdjustment = () => {
@@ -173,10 +308,20 @@ export function AdjustmentsPanel() {
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
     const layer = activeLayer();
-    if (engine && history && layer) {
-      history.commit(engine.snapshot(), "Reset Adjustments");
-      engine.clearBasicAdjustments(layer.id);
-      scheduler.requestRender();
+    if (engine && layer) {
+      const legacy = () => {
+        if (!history) return;
+        history.commit(engine.snapshot(), "Reset Adjustments");
+        engine.clearBasicAdjustments(layer.id);
+        scheduler.requestRender();
+      };
+      if (isFacadeEnabled()) {
+        // The clear has no !imageBitmap guard in the oracle (clearBasicAdjustments
+        // drops the param on any existing layer), so route it unconditionally.
+        routeAdjustment(engine, layer.id, undefined, legacy);
+      } else {
+        legacy();
+      }
     }
     sessionBase = null;
     setBasicAdjustment({ brightness: 0, contrast: 0, saturation: 0 });
@@ -278,6 +423,7 @@ export function AdjustmentsPanel() {
                       label={t("adjustments.bright", "Bright")}
                       value={basicAdjustment().brightness}
                       type="brightness"
+                      onCommit={finishAdjustmentEdit}
                       onInput={(value) =>
                         setAdjustmentValue("brightness", value)
                       }
@@ -286,6 +432,7 @@ export function AdjustmentsPanel() {
                       label={t("adjustments.contrast", "Contrast")}
                       value={basicAdjustment().contrast}
                       type="contrast"
+                      onCommit={finishAdjustmentEdit}
                       onInput={(value) =>
                         setAdjustmentValue("contrast", value)
                       }
@@ -294,6 +441,7 @@ export function AdjustmentsPanel() {
                       label={t("adjustments.saturate", "Saturate")}
                       value={basicAdjustment().saturation}
                       type="saturation"
+                      onCommit={finishAdjustmentEdit}
                       onInput={(value) =>
                         setAdjustmentValue("saturation", value)
                       }
@@ -344,6 +492,7 @@ function AdjustmentSliderRow(props: {
   value: number;
   type?: "brightness" | "contrast" | "saturation" | "default";
   onInput: (value: number) => void;
+  onCommit: () => void;
 }) {
   const displayValue = () =>
     props.value > 0 ? `+${props.value}` : `${props.value}`;
@@ -368,6 +517,10 @@ function AdjustmentSliderRow(props: {
             max="100"
             value={props.value}
             onInput={(e) => props.onInput(parseInt(e.currentTarget.value, 10))}
+            onPointerUp={props.onCommit}
+            onPointerCancel={props.onCommit}
+            onBlur={props.onCommit}
+            onChange={props.onCommit}
             class="absolute inset-0 h-[18px] w-full cursor-pointer opacity-0"
           />
         </div>

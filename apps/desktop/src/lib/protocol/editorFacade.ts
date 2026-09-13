@@ -6,7 +6,8 @@ import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNati
 import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentEngine } from "@/engine/document";
-import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, RenderLayer, TransformPatch, LockKind } from "./types";
+import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, RenderLayer, TransformPatch, LockKind, SelectionState } from "./types";
+import type { BasicAdjustment } from "@/engine/layerAdjustments";
 import { isDeltaApplicable } from "./types";
 
 export type TransientTransform = { id: string; start: TransformPatch; live: TransformPatch } | null;
@@ -205,6 +206,18 @@ export class EditorFacade {
     return this.snapshot;
   }
 
+  // Basic adjustment is a single optional-payload arm: Some sets it, undefined
+  // clears it (mirrors TS applyBasicAdjustment / clearBasicAdjustments). Mirrors
+  // setLayerBlendMode exactly - expectedVersion-enforced envelope + applyDelta,
+  // with refreshSnapshot fallback on an inapplicable delta.
+  async setLayerAdjustment(id: string, adjustment?: BasicAdjustment): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setAdjustment", id, adjustment } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
   // Structural command arm: the Reorder arm emits an ordered FULL RESTATEMENT
   // of every layer (and the history diff restates order on undo/redo of a
   // pure move), so applyDeltaToSnapshot's full-restatement branch rebuilds the
@@ -301,6 +314,51 @@ export class EditorFacade {
       docId: this.docId,
       command: { type: "applyCrop", x, y, width, height, rotation, targetWidth, targetHeight },
     });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  // Selection command arms: selection is engine-local UI state that rides
+  // snapshots. The native arms emit an EMPTY delta and commit NO history entry,
+  // and the RenderSnapshot projection carries only layers + document size
+  // (applyDeltaToSnapshot never writes model.selection). These methods therefore
+  // DISPATCH ONLY: the host engine stays the visual authority for
+  // model.selection, and the caller's mirror funnel deliberately ignores the
+  // returned snapshot (see facadeRegistry commitFacadeSetSelection). The
+  // envelope shape mirrors the metadata methods exactly so version bookkeeping
+  // and rejection behavior stay uniform.
+  //
+  // Internal - call via mirrorSelectionCommand/commitFacade* funnel so dispatches
+  // serialize per doc (see facadeRegistry). Direct concurrent calls race on
+  // renderedVersion (editorFacade invariant) and a lost invert does not self-heal.
+  async setSelection(selection: SelectionState): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setSelection", selection } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async clearSelection(): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "clearSelection" } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async selectAll(): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "selectAll" } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  async invertSelection(): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "invertSelection" } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;

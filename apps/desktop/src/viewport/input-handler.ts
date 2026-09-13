@@ -4,6 +4,11 @@ import type { DocumentModel } from "../engine/types";
 import type { SnapLine, SnapRect, SnapResult } from "./smartGuides";
 import type { PaintToolSettings } from "@/components/editor/brushToolState";
 import type { ToolId } from "@/components/editor/tools/toolTypes";
+import {
+  commitFacadeClearSelection,
+  commitFacadeSetSelection,
+  mirrorSelectionCommand,
+} from "@/lib/protocol/facadeRegistry";
 import { getLayerAabb } from "./transformGeometry";
 
 /**
@@ -328,6 +333,18 @@ function commitSelection(
   } else {
     engine.createSelection(r.x, r.y, r.w, r.h);
   }
+  // The host op above is the visual authority and always runs; mirror it into
+  // the native shadow when the facade flag is on (no-op otherwise). The payload
+  // mirrors exactly what createSelection just wrote (angle 0, shape only for
+  // ellipse).
+  mirrorSelectionCommand(engine, () => commitFacadeSetSelection(engine as never, {
+    x: r.x,
+    y: r.y,
+    width: r.w,
+    height: r.h,
+    angle: 0,
+    ...(shape === "ellipse" ? { shape: "ellipse" as const } : {}),
+  }));
 }
 
 export function handlePointerUp(
@@ -349,6 +366,11 @@ export function handlePointerUp(
       const newX = docX - context.dragStart.x;
       const newY = docY - context.dragStart.y;
       context.onSelectionMoved?.(newX, newY);
+      // Mirror ONCE at this discrete commit. The host model is updated every
+      // pointermove via onSelectionMoved above, but the native shadow only needs
+      // the final geometry, so no per-frame dispatch happens.
+      const moved = engine.getSelection();
+      if (moved) mirrorSelectionCommand(engine, () => commitFacadeSetSelection(engine as never, moved));
 
       // Commit deferred history snapshot ONLY if the selection actually moved.
       // Click-without-drag must not produce an undo entry.
@@ -407,6 +429,7 @@ export function handlePointerUp(
         commitSelection(engine, r, context.selectionShape ?? "rect");
         } else {
           engine.clearSelection();
+          mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
         }
       } else {
         if (context.isShiftPressed) {
@@ -436,6 +459,7 @@ export function handlePointerUp(
         commitSelection(engine, r, context.selectionShape ?? "rect");
         } else {
           engine.clearSelection();
+          mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
         }
       }
     }

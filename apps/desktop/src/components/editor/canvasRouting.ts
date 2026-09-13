@@ -26,9 +26,11 @@ import { resizeCanvasExceedsBudget } from "@/engine/document";
 import { getSnapshot } from "@/lib/protocol/bridge";
 import {
   commitFacadeApplyCrop,
+  commitFacadeClearSelection,
   commitFacadeResizeCanvas,
   isFacadeEnabled,
   isNativeAuthority,
+  mirrorSelectionCommand,
 } from "@/lib/protocol/facadeRegistry";
 
 export type CanvasRouteStatus = "applied" | "legacy" | "error";
@@ -154,6 +156,7 @@ export async function routeApplyCrop(
     finalH === engine.getHeight();
   if (wholeCanvasCrop) {
     engine.clearSelection();
+    mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
     return "applied";
   }
 
@@ -179,8 +182,9 @@ export async function routeApplyCrop(
   }
   if (r.status === "legacy") return "legacy";
   if (r.status !== "applied") return "error";
-  // The native crop arm clears its own selection. Mirror that onto the TS model
-  // with the canonical engine method (rust clear + model.selection = null +
+  // The native crop arm clears its own shadow selection, so no separate mirror
+  // is needed here. The host engine still needs its own selection cleared with
+  // the canonical engine method (rust clear + model.selection = null +
   // notifyChange), the same user-visible clear the legacy applyCrop performs.
   engine.clearSelection();
   reuploadLayers(engine, renderer, scheduler);

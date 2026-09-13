@@ -16,6 +16,9 @@ import {
   setOpacityPreview,
   opacityPreview,
   clearOpacityPreview,
+  adjustmentPreview,
+  setAdjustmentPreview,
+  clearAdjustmentPreview,
   applyFacadePreviews,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
@@ -34,6 +37,7 @@ beforeEach(() => localStorage.setItem("photrez.facade", "1"));
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
   clearOpacityPreview();
+  clearAdjustmentPreview();
   __resetFacadeRegistryForTests();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
@@ -148,6 +152,22 @@ describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
     // render-state merge picks up the preview (renderer unchanged)
     const rs = applyFacadePreviews({ layers: [{ id, transform: {} as never }] } as never);
     expect((rs.layers[0] as { opacity?: number }).opacity).toBe(0.6);
+  });
+
+  it("adjustment transient preview ticks send ZERO IPC and the render merge carries the value", () => {
+    const id = "adj-preview-layer";
+    const spy = vi.spyOn(bridge, "applyCommand");
+
+    for (const b of [10, 20, 30]) {
+      setAdjustmentPreview({ layerId: id, adjustment: { brightness: b, contrast: 0, saturation: 0 } });
+    }
+    expect(spy).not.toHaveBeenCalled(); // ZERO IPC during the drag
+    expect(adjustmentPreview()!.adjustment.brightness).toBe(30);
+
+    // The render-state merge the shader reads (webgl2 layerUniforms.adjustment)
+    // picks up the transient value without any model mutation.
+    const rs = applyFacadePreviews({ layers: [{ id, transform: {} as never }] } as never);
+    expect((rs.layers[0] as { basicAdjustment?: { brightness: number } }).basicAdjustment?.brightness).toBe(30);
   });
 
   it("expectedVersion stale -> E_VERSION_MISMATCH propagates (mandatory guard)", async () => {

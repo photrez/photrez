@@ -1,5 +1,9 @@
 import { screenToDocument } from "@/viewport/coords";
 import type { ViewportState } from "@/engine/types";
+import {
+  commitFacadeSetSelection,
+  mirrorSelectionCommand,
+} from "@/lib/protocol/facadeRegistry";
 
 export interface SelectionBox {
   x: number;
@@ -27,7 +31,7 @@ export function startSelectionRotation(
   getSelectionBox: () => SelectionBox | null,
   setSelectionBox: (box: SelectionBox | null) => void,
   getContainerRef: () => HTMLDivElement | undefined,
-  getActiveEngine: () => { getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void } | null,
+  getActiveEngine: () => { getId(): string; getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void } | null,
   getViewportCoords?: ViewportCoordsProvider,
 ): void {
   const box = getSelectionBox();
@@ -78,6 +82,16 @@ export function startSelectionRotation(
     const finalBox = getSelectionBox();
     if (finalBox) {
       engine.createSelection(finalBox.x, finalBox.y, finalBox.w, finalBox.h, finalBox.angle, finalBox.shape);
+      // Mirror the committed geometry to the native shadow. Built from the same
+      // values the host just wrote (createSelection drops any prior `inverted`).
+      mirrorSelectionCommand(engine, () => commitFacadeSetSelection(engine as never, {
+        x: finalBox.x,
+        y: finalBox.y,
+        width: finalBox.w,
+        height: finalBox.h,
+        angle: finalBox.angle,
+        ...(finalBox.shape === "ellipse" ? { shape: "ellipse" as const } : {}),
+      }));
       // Re-sync the signal AFTER committing to engine so any concurrent
       // canvas-element pointerUp handler that read stale engine state is
       // overwritten with the correct angle. Also request a render so the

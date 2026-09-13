@@ -16,6 +16,10 @@ import {
 import type { DocumentEngine } from "@/engine/document";
 import type { SnapLine } from "@/viewport/smartGuides";
 import type { RenderScheduler } from "@/renderer/scheduler";
+import {
+  commitFacadeClearSelection,
+  mirrorSelectionCommand,
+} from "@/lib/protocol/facadeRegistry";
 
 interface PasteboardGestureState {
   pointerId: number;
@@ -214,6 +218,7 @@ export function usePasteboardGesture(params: UsePasteboardGestureParams) {
     if (action === "clear-selection-preview") {
       params.setSelectionBoxSignal(null);
       engine?.clearSelection();
+      if (engine) mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
       params.setSnapLines([]);
       params.setHudInfo(null);
       params.scheduler.requestRender();

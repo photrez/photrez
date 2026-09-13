@@ -539,8 +539,8 @@ export class DocumentEngine {
     // same-doc drag-and-drop caller (crossDocLayerOps) is not facade-routed
     // yet, so a guard would crash a working path instead of protecting state.
     // Under native authority an unrouted reorder diverges from the engine the
-    // same way unrouted duplicate/merge already do - a known gap closed by the
-    // engine-completeness sync rung, tracked in the cutover plan, not by a throw.
+    // same way unrouted duplicate/merge already do - a known gap tracked
+    // separately, not signalled by a throw.
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const ok: boolean = this.rustEngine.reorder_layer(fromIndex, toIndex);
@@ -1663,7 +1663,7 @@ export class DocumentEngine {
     this.model.dirty = true;
   }
 
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
     // A canvas-size command's projection carries the new document size. A
     // metadata delta carries no size, so applyDeltaToSnapshot carries the
     // facade's prior size forward; writing that would revert a model size the
@@ -1699,6 +1699,19 @@ export class DocumentEngine {
         // so an undo that restores a before-snapshot without the field reverts.
         existing.isBackground = rl.isBackground ?? false;
         existing.blendMode = (rl.blendMode as BlendMode) ?? "normal";
+        // Basic adjustment rides the same serde-Option convention as blendMode:
+        // every arm upserts the FULL native layer, so a Some adjustment is present
+        // on each restatement of an adjusted layer; an omitted value means the
+        // authoritative state is cleared (native None), which is exactly what an
+        // undo-of-apply or an explicit clear projects. Without this projection a
+        // routed adjustment would never reach model.layer.basicAdjustment and the
+        // GPU preview + export would silently ignore it.
+        existing.basicAdjustment = rl.basicAdjustment;
+        existing.hasAdjustments = rl.hasAdjustments ?? false;
+        // Deliberately NOT projected on this branch: shapeParams, textData,
+        // layerType, flipH, flipV. No routed op carries them yet, so projecting
+        // them would change behavior for fields no arm restates. Add each one
+        // alongside the change that routes its op, with a test.
         nextLayers.push(existing);
       } else {
         const retained = this.droppedNodes.get(rl.id);
@@ -1752,8 +1765,12 @@ export class DocumentEngine {
             lockTransparency: rl.lockTransparency ?? false,
             lockPosition: rl.lockPosition ?? false,
             lockRotation: rl.lockRotation ?? false,
-            hasAdjustments: false,
-            basicAdjustment: undefined,
+            // Adjustment metadata rides the descriptor exactly like the
+            // existing-layer branch: a retention miss rebuilds pixels only, so
+            // hardcoding a cleared value here would silently drop an adjustment
+            // the snapshot still carries (undo-of-delete of an adjusted layer).
+            hasAdjustments: rl.hasAdjustments ?? false,
+            basicAdjustment: rl.basicAdjustment,
             blendMode: (rl.blendMode as BlendMode) ?? "normal",
             transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: false, flipV: false },
             width: this.model.width,

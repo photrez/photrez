@@ -5,7 +5,12 @@ import type { CropPreview } from "./cropState";
 import type { ToolId } from "./tools/toolTypes";
 import type { Point } from "@/viewport/transformGeometry";
 import type { CropRect } from "@/viewport/cropGeometry";
-import { isFacadeEnabled, isNativeAuthority } from "@/lib/protocol/facadeRegistry";
+import {
+  commitFacadeClearSelection,
+  isFacadeEnabled,
+  isNativeAuthority,
+  mirrorSelectionCommand,
+} from "@/lib/protocol/facadeRegistry";
 import { routeApplyCrop } from "./canvasRouting";
 
 export interface CropPreviewControls {
@@ -148,6 +153,13 @@ export function applyCropPreview(params: {
         if (status === "legacy") {
           history?.commit(engine.snapshot(), "Crop Canvas");
           engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
+          // The native crop arms clear the native selection, but this fallback
+          // runs the HOST applyCrop (which nulls model.selection) with no native
+          // command, so mirror the clear to keep the shadow in step. The routed
+          // path above already mirrors its own clear inside routeApplyCrop; only
+          // this fallback needs it. Gated by the outer flag+native check, so the
+          // default path is unchanged.
+          mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
           finish(true);
         }
         // "error": leave the crop session in place so the user can adjust it.

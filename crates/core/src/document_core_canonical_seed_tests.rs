@@ -46,7 +46,7 @@ fn seed_canonical_replaces_existing() {
 // layer order is inert: it cannot wipe history. Tests below pin that contract.
 
 use super::arm_tests::env;
-use crate::canonical_model::{BlendMode, CanonicalLayer, LayerType, Transform2D};
+use crate::canonical_model::{BasicAdjustment, BlendMode, CanonicalLayer, LayerType, Transform2D};
 use crate::document_core::ProtocolEngine;
 use crate::history::EntryPayload;
 use crate::model::RenderLayer;
@@ -344,5 +344,59 @@ fn audit_sequence_repush_preserves_history_and_dims() {
         e.doc_size,
         Some((300.0, 250.0)),
         "redo restores the captured after-pair"
+    );
+}
+
+// A canonical push whose id the engine ALREADY knows must up-project the pushed
+// canonical-only metadata (blend mode, locks, adjustment) into the engine's
+// LayerSet, preserving only the engine-owned resource id. This pins the
+// up_project_known_layer / up_project_fields invariant at its source: a future
+// edit that drops a field from that projection would silently revert the push's
+// value to the engine's prior metadata-seed value on a facade-owned layer. A
+// test-harness fake cannot be the only thing asserting this contract.
+#[test]
+fn seed_canonical_known_id_takes_pushed_metadata_over_engine_seed() {
+    let mut e = ProtocolEngine::new();
+    // Engine already knows "L" from a metadata-only seed: no adjustment, no
+    // blend mode, unlocked, engine-minted resource id 7.
+    e.seed_layers(vec![mk_layer("L", "L", 7)], 0);
+
+    let mut pushed = canon_layer("L");
+    pushed.blend_mode = BlendMode::Multiply;
+    pushed.locked = true;
+    pushed.has_adjustments = Some(true);
+    pushed.basic_adjustment = Some(BasicAdjustment {
+        brightness: 20.0,
+        contrast: -10.0,
+        saturation: 5.0,
+    });
+
+    e.seed_canonical(CanonicalDocument {
+        id: "doc".to_string(),
+        name: "n".to_string(),
+        width: 100.0,
+        height: 100.0,
+        layers: vec![pushed],
+        selection: None,
+    });
+
+    // Assert on the ENGINE LayerSet (via snapshot), never the canonical shadow.
+    let l = e
+        .snapshot()
+        .layers
+        .into_iter()
+        .find(|l| l.id == "L")
+        .expect("engine holds the pushed id");
+    assert_eq!(l.resource_id, 7, "engine-owned resource id preserved");
+    assert_eq!(l.blend_mode, Some(BlendMode::Multiply));
+    assert_eq!(l.locked, Some(true));
+    assert_eq!(l.has_adjustments, Some(true));
+    assert_eq!(
+        l.basic_adjustment,
+        Some(BasicAdjustment {
+            brightness: 20.0,
+            contrast: -10.0,
+            saturation: 5.0,
+        })
     );
 }

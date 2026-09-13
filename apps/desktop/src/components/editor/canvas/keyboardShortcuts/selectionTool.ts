@@ -2,6 +2,11 @@
 import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
+import {
+  commitFacadeClearSelection,
+  commitFacadeInvertSelection,
+  mirrorSelectionCommand,
+} from "@/lib/protocol/facadeRegistry";
 import type { KeyboardShortcutContext } from "./context";
 
 /**
@@ -25,6 +30,7 @@ export function handleSelectionToolKey(
     e.preventDefault();
     e.stopPropagation();
     engine.clearSelection();
+    mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
     setSelectionEditMode(false);
     options.onSelectionChange?.();
     scheduler.requestRender();
@@ -36,6 +42,7 @@ export function handleSelectionToolKey(
     e.preventDefault();
     e.stopPropagation();
     engine.invertSelection();
+    mirrorSelectionCommand(engine, () => commitFacadeInvertSelection(engine as never));
     setSelectionEditMode(false);
     options.onSelectionChange?.();
     scheduler.requestRender();
@@ -57,6 +64,7 @@ export function handleSelectionToolKey(
   if (e.key === "Escape") {
     e.preventDefault();
     engine.clearSelection();
+    mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
     setSelectionEditMode(false);
     options.onSelectionChange?.();
     scheduler.requestRender();

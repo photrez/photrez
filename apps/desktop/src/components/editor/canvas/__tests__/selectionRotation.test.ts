@@ -9,13 +9,13 @@ vi.mock("@/viewport/coords", () => ({
 describe("startSelectionRotation", () => {
   let setBox: ReturnType<typeof vi.fn>;
   let getContainer: () => HTMLDivElement;
-  let getEngine: () => { getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void } | null;
+  let getEngine: () => { getId(): string; getViewport(): ViewportState; createSelection(x: number, y: number, w: number, h: number, angle?: number, shape?: "rect" | "ellipse"): void } | null;
 
   beforeEach(() => {
     setBox = vi.fn();
     getContainer = () =>
       ({ getBoundingClientRect: () => new DOMRect(0, 0, 800, 600) }) as HTMLDivElement;
-    getEngine = () => ({ getViewport: () => ({}) as ViewportState, createSelection: vi.fn() });
+    getEngine = () => ({ getId: () => "doc-1", getViewport: () => ({}) as ViewportState, createSelection: vi.fn() });
   });
 
   afterEach(() => {
@@ -137,7 +137,7 @@ describe("startSelectionRotation", () => {
 
   it("commits the rotated angle to engine on pointerup", () => {
     const createSel = vi.fn();
-    const engine = { getViewport: () => ({}) as ViewportState, createSelection: createSel };
+    const engine = { getId: () => "doc-1", getViewport: () => ({}) as ViewportState, createSelection: createSel };
     // Use a mutable variable so getSelectionBox reflects the latest angle
     let mutableAngle = 0;
     startSelectionRotation(

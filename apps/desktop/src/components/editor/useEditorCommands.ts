@@ -21,7 +21,14 @@ import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } 
 import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss, scheduleSave } from "./saveState";
 import { cancelAutosave } from "./autoSave";
 import { hasFacadeOwnedLayers } from "@/engine/document";
-import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import {
+  commitFacadeClearSelection,
+  commitFacadeInvertSelection,
+  commitFacadeSelectAll,
+  mirrorRestoredSelection,
+  mirrorSelectionCommand,
+  syncFacadeVersionFromPixel,
+} from "@/lib/protocol/facadeRegistry";
 import { isNativeAuthority } from "@/lib/protocol/bridge";
 import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
 import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
@@ -285,6 +292,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // step's model restore (engine.restore() throws E_FACADE_OWNED - mixed
       // history constraint, tracked separately). It must not claim the restore
       // finished.
+      // No selection mirror needed here: the facade-owned handoff returns before engine.restore and selection is unchanged on both sides (host applyFacadeSnapshot writes layers+dims only; the native walker restores layers+doc_size and selection arms commit no history entry), so host and shadow stay consistent by construction.
       if (await runFacadeExternalHandoff(editor, direction)) return;
       // Handoff attempted but fell through (Rust had no entry; TS does the restore).
       // The native heal re-push below fires only in this case, AFTER engine.restore,
@@ -331,6 +339,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // Pixels are restored via surface patches + per-tile uploads; the model
       // is identical for pure-paint entries, so engine.restore (and its
       // full-texture re-upload) is intentionally skipped.
+      // This fast-path early-returns WITHOUT touching model.selection: a paint
+      // entry's snapshot carries the same selection the live model already has
+      // (a paint op never mutates selection), so there is nothing to mirror to
+      // the native shadow here. Selection-changing entries go through the
+      // engine.restore path below, which does mirror (mirrorRestoredSelection).
       const patches = direction === "undo"
         ? history.consumeLastUndoPatches()
         : history.consumeLastRedoPatches();
@@ -467,6 +480,17 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           console.warn("[canonical-repush] restore-history heal re-push failed", e),
         );
       }
+
+      // Undo/redo mirror: engine.restore replaced model.selection from the popped
+      // snapshot, but the native shadow's selection is only touched by a native
+      // selection command, so without this the shadow keeps the pre-undo rect and
+      // the next native selectAll/invert reads a stale selection. Covers BOTH
+      // directions (this function serves undo and redo). The funnel no-ops when
+      // the facade flag is off, so the default path stays byte-identical. Placed
+      // here so model.selection is final for this step; the heal re-push above
+      // refreshes only the canonical shadow document, not the engine's own active
+      // selection.
+      mirrorRestoredSelection(engine);
 
       // ── Snapshot-token re-attach (bridge-ON only, Snapshot-typed entries) ──
       // The Rust snapshot cursor is the single undo/redo authority when the
@@ -849,12 +873,17 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         editor.scheduler.requestRender();
         break;
       }
-      case "edit.select-all":
-        editor.workspace.getActiveEngine()?.selectAll();
+      case "edit.select-all": {
+        const engine = editor.workspace.getActiveEngine();
+        engine?.selectAll();
+        if (engine) mirrorSelectionCommand(engine, () => commitFacadeSelectAll(engine as never));
         editor.scheduler.requestRender();
         break;
-      case "edit.deselect":
-        editor.workspace.getActiveEngine()?.clearSelection();
+      }
+      case "edit.deselect": {
+        const engine = editor.workspace.getActiveEngine();
+        engine?.clearSelection();
+        if (engine) mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
         editor.setSelectionEditMode(false);
         if (editor.activeTool() === "move") {
           editor.setSelectedLayerIds([]);
@@ -863,11 +892,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         }
         editor.scheduler.requestRender();
         break;
-      case "edit.invert-selection":
-        editor.workspace.getActiveEngine()?.invertSelection();
+      }
+      case "edit.invert-selection": {
+        const engine = editor.workspace.getActiveEngine();
+        engine?.invertSelection();
+        if (engine) mirrorSelectionCommand(engine, () => commitFacadeInvertSelection(engine as never));
         editor.setSelectionEditMode(false);
         editor.scheduler.requestRender();
         break;
+      }
       case "image.resize":
         if (editor.activeDocumentId()) editor.setShowResizeDialog(true);
         break;

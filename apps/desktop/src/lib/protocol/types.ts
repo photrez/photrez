@@ -219,8 +219,10 @@ export type Command =
   | { type: "setAdjustment"; id: string; adjustment?: BasicAdjustment }
   // Selection arms: selection is engine-local UI state that rides Model-A
   // snapshots; it commits NO history entry and produces an empty delta. Mirror the
-  // TS engine selection ops (selectionOps.ts) — but invertSelection is a strict
-  // no-op when no selection exists (no selectAll fallback).
+  // TS engine selection ops (selectionOps.ts). setSelection/clearSelection/selectAll
+  // match the host ops one-to-one; invertSelection toggles `inverted` when a
+  // selection exists and otherwise falls back to a full-canvas select-all, rejecting
+  // E_INVALID when no seeded canonical dims are available.
   | { type: "setSelection"; selection: SelectionState }
   | { type: "clearSelection" }
   | { type: "selectAll" }

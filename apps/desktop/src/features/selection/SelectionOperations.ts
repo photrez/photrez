@@ -1,5 +1,9 @@
 import { SelectionState } from "./SelectionTypes";
 import { DocumentEngine } from "../../engine/document";
+import {
+  commitFacadeClearSelection,
+  mirrorSelectionCommand,
+} from "@/lib/protocol/facadeRegistry";
 import type { Transform2D } from "../../engine/types";
 import { documentToLayerLocal } from "../../viewport/transformGeometry";
 
@@ -245,6 +249,7 @@ export class SelectionOperations {
       SelectionOperations.fillSelectionWithTransparent(engine);
     }
     engine.clearSelection();
+    mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
     return copied;
   }
 
@@ -263,6 +268,7 @@ export class SelectionOperations {
     }
     SelectionOperations.fillSelectionWithTransparent(engine);
     engine.clearSelection();
+    mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
   }
 
   /**

@@ -29,15 +29,30 @@ import { repushCanonicalDocument } from "./canonicalSeed";
 import type { DocumentEngine } from "@/engine/document";
 import { CONTRACT_VERSION } from "./types";
 import type { LockKind } from "./types";
+import type { BasicAdjustment } from "@/engine/layerAdjustments";
+import {
+  clearFacadeStoreForTests,
+  facadeDocIdsForTests,
+  getFacade,
+  peekFacade,
+} from "./selectionMirror";
+import type { FacadeProjectionSink } from "./selectionMirror";
 export { isFacadeEnabled, isNativeAuthority };
 
-// Projection sink: the TS engine a funnel pushes the facade snapshot into. The
-// optional flag tells the engine whether the projection is authoritative for the
-// document width/height (see EditorFacade.lastProjectionDimsAuthoritative).
-type FacadeProjectionSink = {
-  getId(): string;
-  applyFacadeSnapshot(s: unknown, opts?: { dimsAuthoritative?: boolean }): void;
-};
+// Selection-mirror funnel + the shared per-document facade store live in
+// selectionMirror.ts (file-size guard). The public selection API is re-exported
+// here so existing call sites keep importing from this module.
+export {
+  commitFacadeClearSelection,
+  commitFacadeInvertSelection,
+  commitFacadeSelectAll,
+  commitFacadeSetSelection,
+  getFacade,
+  mirrorRestoredSelection,
+  mirrorSelectionCommand,
+  removeFacade,
+} from "./selectionMirror";
+export type { FacadeProjectionSink, SelectionRouteStatus } from "./selectionMirror";
 
 // ── ADR 0008/Opacity: transient render previews ──────────────────────────
 // Pure merge applied to the OUTGOING RenderState in EditorShell's scheduler.
@@ -54,15 +69,35 @@ export function clearOpacityPreview(): void {
   setOpacityPreview(null);
 }
 
+// Same transient contract as the opacity preview, for basic adjustments: the
+// slider writes the WHOLE gesture value here (render preview only, zero protocol
+// commands) and the single SetAdjustment command fires at the gesture boundary
+// (see AdjustmentsPanel.finishAdjustmentEdit). The engine model stays untouched
+// during the drag, so the routed path cannot create one native undo entry per
+// pointermove.
+export interface FacadeAdjustmentPreview {
+  layerId: string;
+  adjustment: BasicAdjustment;
+}
+const [adjustmentPreview, setAdjustmentPreview] = createSignal<FacadeAdjustmentPreview | null>(null);
+export { adjustmentPreview, setAdjustmentPreview };
+export function clearAdjustmentPreview(): void {
+  setAdjustmentPreview(null);
+}
+
 export function applyFacadePreviews(rs: RenderState): RenderState {
   const tp = transformPreview();
   const op = opacityPreview();
+  const ap = adjustmentPreview();
   let layers = rs.layers;
   if (tp) {
     layers = layers.map((l) => (l.id === tp.layerId ? { ...l, transform: tp.transform } : l));
   }
   if (op) {
     layers = layers.map((l) => (l.id === op.layerId ? { ...l, opacity: op.opacity } : l));
+  }
+  if (ap) {
+    layers = layers.map((l) => (l.id === ap.layerId ? { ...l, basicAdjustment: ap.adjustment } : l));
   }
   return { ...rs, layers };
 }
@@ -188,6 +223,30 @@ export async function commitFacadeBlendMode(
   let last: unknown = null;
   for (const id of route.ownedIds) {
     last = await f.setLayerBlendMode(id, mode);
+  }
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  return { status: "applied", count: route.ownedIds.length };
+}
+
+// Basic-adjustment funnel: one optional-payload command per owned id. A defined
+// adjustment sets it; undefined clears it (the same method serves apply + reset).
+// Mirrors commitFacadeBlendMode exactly: shared selection policy, expectedVersion
+// enforced inside setLayerAdjustment, authoritative projection, and a legacy
+// fall-through when no target is facade-owned.
+export async function commitFacadeAdjustment(
+  engine: FacadeProjectionSink,
+  ids: string[],
+  adjustment?: BasicAdjustment,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  const route = resolveSelectionRoute(ids);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  let last: unknown = null;
+  for (const id of route.ownedIds) {
+    last = await f.setLayerAdjustment(id, adjustment);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: route.ownedIds.length };
@@ -364,6 +423,8 @@ export async function commitFacadeApplyCrop(
   return { status: "applied", count: 1 };
 }
 
+// Selection commit mirrors + serialized dispatch moved to selectionMirror.ts (re-exported above).
+
 // ── ADR 0009: mixed-selection policy helper ─────────────────────────────
 // Single source of truth for routing a batch target set during the migration
 // window. PURE with respect to editor state: reads the ownership set + flag,
@@ -386,43 +447,6 @@ export function resolveSelectionRoute(ids: string[]): SelectionRoute {
   if (ownedIds.length === 0) return { mode: "legacy" };
   if (ownedIds.length === unique.length) return { mode: "facade", ownedIds };
   return { mode: "mixed-rejected" };
-}
-
-const facadeByDoc = new Map<string, EditorFacade>();
-
-// Normalize an empty doc id to the reserved "default" key. The native-authority
-// engine (bridge/native client) resolves "" -> "default"; on that path the facade
-// registry must agree so a facade keyed by the native engine's id meets the bridge.
-// On the default (wasm) path this normalization is deliberately NOT applied:
-// getFacade/removeFacade use the raw doc id so the wasm default path is
-// byte-identical to before the native-authority reroute.
-function resolveFacadeDocKey(docId: string): string {
-  return docId === "" ? "default" : docId;
-}
-
-// Resolve the facade map key for the active authority. On the native-authority
-// path empty ids normalize to "default" (matching the native engine); on the
-// default wasm path the raw doc id is used unchanged (byte-identical behavior).
-function facadeKey(docId: string): string {
-  return isNativeAuthority() ? resolveFacadeDocKey(docId) : docId;
-}
-
-export function getFacade(docId: string): EditorFacade {
-  const key = facadeKey(docId);
-  let f = facadeByDoc.get(key);
-  if (!f) {
-    f = new EditorFacade(undefined, key);
-    facadeByDoc.set(key, f);
-  }
-  return f;
-}
-
-// Evict a doc's facade (called on document close, alongside clearNativeSeed) so a
-// reopened doc id gets a FRESH facade seeded from the freshly-reseeded native
-// engine, never a stale one. Gated callers (WorkspaceManager.removeDocument)
-// decide when this runs; the registry itself stays authority-agnostic.
-export function removeFacade(docId: string): void {
-  facadeByDoc.delete(facadeKey(docId));
 }
 
 // ── Transient drag preview ────────────────────────────────────────────────
@@ -487,6 +511,13 @@ export async function seedFacadeFromEngine(
       visible: boolean;
       opacity: number;
       isBackground?: boolean;
+      locked?: boolean;
+      lockTransparency?: boolean;
+      lockPosition?: boolean;
+      lockRotation?: boolean;
+      blendMode?: string;
+      hasAdjustments?: boolean;
+      basicAdjustment?: BasicAdjustment;
       transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
     }>;
   },
@@ -501,6 +532,18 @@ export async function seedFacadeFromEngine(
         visible: l.visible,
         opacity: l.opacity,
         isBackground: l.isBackground,
+        // Carry the same optional fields applyFacadeSnapshot reads as
+        // authoritative. The projection treats an omitted field as the cleared
+        // default, so a seed that dropped these would clobber a pre-existing
+        // layer's blend/locks/adjustment on the first facade restatement. Deep-
+        // copy the adjustment so the seed never aliases the model object.
+        locked: l.locked,
+        lockTransparency: l.lockTransparency,
+        lockPosition: l.lockPosition,
+        lockRotation: l.lockRotation,
+        blendMode: l.blendMode,
+        hasAdjustments: l.hasAdjustments,
+        basicAdjustment: l.basicAdjustment ? { ...l.basicAdjustment } : undefined,
         x: l.transform.x,
         y: l.transform.y,
         scaleX: l.transform.scaleX,
@@ -570,12 +613,8 @@ const [historyDegraded, setHistoryDegraded] = createSignal<
 >(null);
 export { historyDegraded };
 
-function peekFacade(docId: string): EditorFacade | undefined {
-  return facadeByDoc.get(facadeKey(docId));
-}
-
 function syncAuthoritativeVersion(docId: string, dv: number): void {
-  const f = facadeByDoc.get(facadeKey(docId));
+  const f = peekFacade(docId);
   if (f) f.syncRenderedVersionTo(dv);
 }
 
@@ -594,7 +633,7 @@ export function syncFacadeVersionFromPixel(docId: string, version: number): void
   // opacity/transform path). Without this the sync no-ops and a later facade
   // command is rejected with E_VERSION_MISMATCH. Gated by isNativeAuthority above.
   if (!peekFacade(docId)) getFacade(docId);
-  const f = facadeByDoc.get(facadeKey(docId));
+  const f = peekFacade(docId);
   if (f) f.syncRenderedVersionTo(version);
 }
 
@@ -801,8 +840,8 @@ export function installFacadeCommitShim(providers: {
 export function __resetFacadeRegistryForTests(): void {
   // Reset the per-document wasm engine for each doc id this registry created,
   // so engine state does not leak across tests using real doc ids.
-  for (const docId of facadeByDoc.keys()) resetWasmDoc(docId);
-  facadeByDoc.clear();
+  for (const docId of facadeDocIdsForTests()) resetWasmDoc(docId);
+  clearFacadeStoreForTests();
   resetFacadeBridgeForTests();
   clearTransformPreview();
   tsPayloadStore.clear();

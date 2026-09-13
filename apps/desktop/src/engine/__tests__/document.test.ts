@@ -776,6 +776,104 @@ describe('DocumentEngine', () => {
     });
   });
 
+  // Routed basic adjustments reach the TS model ONLY through the projection:
+  // the call site skips the host engine.applyBasicAdjustment on the applied
+  // path, so applyFacadeSnapshot must write basicAdjustment/hasAdjustments onto
+  // an existing layer (mirroring blendMode). These pin that contract.
+  describe('Facade basicAdjustment projection (routed SetAdjustment)', () => {
+    function adjDesc(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return { id, name: id, visible: true, opacity: 1, x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, resourceId: 0, ...extra };
+    }
+    const adj = { brightness: 20, contrast: -10, saturation: 0 };
+
+    it('writes basicAdjustment + hasAdjustments onto an existing layer (forward apply)', () => {
+      const engine = new DocumentEngine('docAdj', 'D', 800, 600);
+      const l = engine.addLayer('L', 100, 100);
+      engine.applyFacadeSnapshot({ version: 1, layers: [adjDesc(l.id, { basicAdjustment: adj, hasAdjustments: true })] } as never);
+      expect(engine.getLayer(l.id)!.basicAdjustment).toEqual(adj);
+      expect(engine.getLayer(l.id)!.hasAdjustments).toBe(true);
+    });
+
+    it('clears basicAdjustment + hasAdjustments when the descriptor omits them (clear / undo-of-apply)', () => {
+      const engine = new DocumentEngine('docAdjClear', 'D', 800, 600);
+      const l = engine.addLayer('L', 100, 100);
+      engine.applyFacadeSnapshot({ version: 1, layers: [adjDesc(l.id, { basicAdjustment: adj, hasAdjustments: true })] } as never);
+      engine.applyFacadeSnapshot({ version: 2, layers: [adjDesc(l.id)] } as never);
+      expect(engine.getLayer(l.id)!.basicAdjustment).toBeUndefined();
+      expect(engine.getLayer(l.id)!.hasAdjustments).toBe(false);
+    });
+
+    it('a full restatement that still carries the adjustment keeps it (serde-omit guard)', () => {
+      const engine = new DocumentEngine('docAdjRename', 'D', 800, 600);
+      const l = engine.addLayer('L', 100, 100);
+      engine.applyFacadeSnapshot({ version: 1, layers: [adjDesc(l.id, { basicAdjustment: adj, hasAdjustments: true })] } as never);
+      // A routed rename restates the FULL native layer, which still carries the
+      // adjustment; the projection must not treat that as a clear.
+      engine.applyFacadeSnapshot({ version: 2, layers: [adjDesc(l.id, { name: 'Renamed', basicAdjustment: adj, hasAdjustments: true })] } as never);
+      expect(engine.getLayer(l.id)!.name).toBe('Renamed');
+      expect(engine.getLayer(l.id)!.basicAdjustment).toEqual(adj);
+      expect(engine.getLayer(l.id)!.hasAdjustments).toBe(true);
+    });
+
+    it('retention-miss rebuild carries the adjustment from the descriptor (undo-of-delete after eviction)', () => {
+      const engine = new DocumentEngine('docAdjRebuild', 'D', 800, 600);
+      const bg = engine.addLayer('Background', 100, 100);
+      const bgDesc = adjDesc(bg.id);
+      const l = engine.addLayer('L', 100, 100);
+      // Drop L -> it enters the dropped-node cache, then evict the cache so the
+      // next reappearance takes the metadata-only rebuild branch (no retained node).
+      engine.applyFacadeSnapshot({ version: 1, layers: [bgDesc] } as never);
+      engine.clearCallbacks();
+      // Undo-of-delete restates L with its adjustment: the rebuild branch must
+      // carry it instead of hardcoding a cleared value.
+      engine.applyFacadeSnapshot({ version: 2, layers: [bgDesc, adjDesc(l.id, { basicAdjustment: adj, hasAdjustments: true })] } as never);
+      expect(engine.getLayer(l.id)!.basicAdjustment).toEqual(adj);
+      expect(engine.getLayer(l.id)!.hasAdjustments).toBe(true);
+    });
+
+    it('coverage guard: projects the routed metadata set; shapeParams/textData/layerType stay unprojected', () => {
+      // Optional metadata on protocol RenderLayer (types.ts) and whether
+      // applyFacadeSnapshot's EXISTING-layer branch writes it:
+      //   projected:   blendMode, locked, lockTransparency, lockPosition,
+      //                lockRotation, isBackground, hasAdjustments, basicAdjustment
+      //   unprojected: layerType, shapeParams, textData, flipH, flipV, width,
+      //                height (no routed op restates them yet - add each one
+      //                alongside the change that routes its op, with a test, so an
+      //                arm that starts sending a field cannot silently no-op)
+      const engine = new DocumentEngine('docGuard', 'D', 800, 600);
+      const l = engine.addLayer('L', 100, 100);
+      const shape = { marker: 'shape-params' };
+      const text = { marker: 'text-data' };
+      engine.getLayer(l.id)!.shapeParams = shape as never;
+      engine.getLayer(l.id)!.textData = text as never;
+      engine.getLayer(l.id)!.transform.flipH = true;
+
+      engine.applyFacadeSnapshot({
+        version: 1,
+        layers: [adjDesc(l.id, {
+          blendMode: 'multiply', locked: true, lockTransparency: true, lockPosition: true, lockRotation: true,
+          isBackground: false, hasAdjustments: true, basicAdjustment: adj,
+          layerType: 'text', shapeParams: { kind: 'ellipse' }, textData: { content: 'x' }, flipH: false, flipV: true,
+        })],
+      } as never);
+
+      const out = engine.getLayer(l.id)!;
+      // Projected set:
+      expect(out.blendMode).toBe('multiply');
+      expect(out.locked).toBe(true);
+      expect(out.lockTransparency).toBe(true);
+      expect(out.lockPosition).toBe(true);
+      expect(out.lockRotation).toBe(true);
+      expect(out.isBackground).toBe(false);
+      expect(out.hasAdjustments).toBe(true);
+      expect(out.basicAdjustment).toEqual(adj);
+      // Deliberately unprojected (identity preserved):
+      expect(out.shapeParams).toBe(shape);
+      expect(out.textData).toBe(text);
+      expect(out.transform.flipH).toBe(true);
+    });
+  });
+
   describe('Dimension bounds', () => {
     afterEach(() => {
       setDeviceMaxTextureSize(MAX_CANVAS_DIM); // reset

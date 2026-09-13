@@ -5,6 +5,12 @@ import { ToolPill, MoreDropdown, Divider, ToggleBtn, SelectDropdown } from "./sh
 import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
+import {
+  commitFacadeClearSelection,
+  commitFacadeInvertSelection,
+  commitFacadeSetSelection,
+  mirrorSelectionCommand,
+} from "@/lib/protocol/facadeRegistry";
 import { clsx } from "clsx";
 import { useI18n } from "@/i18n/I18nProvider";
 
@@ -49,53 +55,76 @@ export function SelectionOptionBar() {
   };
 
   const submitW = (n: number) => {
+    const e = engine();
     const s = selection();
-    if (s && !isNaN(n) && n > 0) {
-      engine()?.createSelection(s.x, s.y, n, s.height, s.angle, selectionShape());
+    if (e && s && !isNaN(n) && n > 0) {
+      e.createSelection(s.x, s.y, n, s.height, s.angle, selectionShape());
+      const committed = e.getSelection();
+      if (committed) mirrorSelectionCommand(e, () => commitFacadeSetSelection(e as never, committed));
       scheduler.requestRender();
     }
   };
 
   const submitH = (n: number) => {
+    const e = engine();
     const s = selection();
-    if (s && !isNaN(n) && n > 0) {
-      engine()?.createSelection(s.x, s.y, s.width, n, s.angle, selectionShape());
+    if (e && s && !isNaN(n) && n > 0) {
+      e.createSelection(s.x, s.y, s.width, n, s.angle, selectionShape());
+      const committed = e.getSelection();
+      if (committed) mirrorSelectionCommand(e, () => commitFacadeSetSelection(e as never, committed));
       scheduler.requestRender();
     }
   };
 
   const submitX = (n: number) => {
+    const e = engine();
     const s = selection();
-    if (s && !isNaN(n)) {
-      engine()?.createSelection(n, s.y, s.width, s.height, s.angle, selectionShape());
+    if (e && s && !isNaN(n)) {
+      e.createSelection(n, s.y, s.width, s.height, s.angle, selectionShape());
+      const committed = e.getSelection();
+      if (committed) mirrorSelectionCommand(e, () => commitFacadeSetSelection(e as never, committed));
       scheduler.requestRender();
     }
   };
 
   const submitY = (n: number) => {
+    const e = engine();
     const s = selection();
-    if (s && !isNaN(n)) {
-      engine()?.createSelection(s.x, n, s.width, s.height, s.angle, selectionShape());
+    if (e && s && !isNaN(n)) {
+      e.createSelection(s.x, n, s.width, s.height, s.angle, selectionShape());
+      const committed = e.getSelection();
+      if (committed) mirrorSelectionCommand(e, () => commitFacadeSetSelection(e as never, committed));
       scheduler.requestRender();
     }
   };
 
   const submitAngle = (n: number) => {
+    const e = engine();
     const s = selection();
-    if (s && !isNaN(n)) {
-      engine()?.createSelection(s.x, s.y, s.width, s.height, n, selectionShape());
+    if (e && s && !isNaN(n)) {
+      e.createSelection(s.x, s.y, s.width, s.height, n, selectionShape());
+      const committed = e.getSelection();
+      if (committed) mirrorSelectionCommand(e, () => commitFacadeSetSelection(e as never, committed));
       scheduler.requestRender();
     }
   };
 
   const handleInvert = () => {
-    engine()?.invertSelection();
+    const e = engine();
+    if (e) {
+      e.invertSelection();
+      mirrorSelectionCommand(e, () => commitFacadeInvertSelection(e as never));
+    }
     setSelectionEditMode(false);
     scheduler.requestRender();
   };
 
   const handleDeselect = () => {
-    engine()?.clearSelection();
+    const e = engine();
+    if (e) {
+      e.clearSelection();
+      mirrorSelectionCommand(e, () => commitFacadeClearSelection(e as never));
+    }
     setSelectionEditMode(false);
     scheduler.requestRender();
   };

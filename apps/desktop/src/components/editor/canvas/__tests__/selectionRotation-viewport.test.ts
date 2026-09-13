@@ -28,6 +28,7 @@ describe("startSelectionRotation — viewport integration (TDD)", () => {
 
   function createEngine(vp = staleEngineViewport) {
     return {
+      getId: () => "doc-1",
       getViewport: () => ({ ...vp }),
       createSelection: vi.fn(),
     };
@@ -47,6 +48,7 @@ describe("startSelectionRotation — viewport integration (TDD)", () => {
     setBox = vi.fn();
     createSel = vi.fn();
     getEngine = () => ({
+      getId: () => "doc-1",
       getViewport: () => ({ ...staleEngineViewport }),
       createSelection: createSel,
     });

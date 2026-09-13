@@ -271,6 +271,11 @@ export function fillActiveLayerWithColor(
         if (!changed) return;
         // Capture pre-fill state BEFORE clearing the adjustment so undo restores it.
         const preSnapshot = engine.snapshot();
+        // Host pixel composite: this metadata clear rides the SAME single history
+        // entry as the Rust pixel write below, so it stays on the host path. A
+        // routed SetAdjustment clear would add a separate native entry and split
+        // the fill gesture's undo (pixel composites for fill/bake stay host-side
+        // until pixel authority).
         if (layer.basicAdjustment) engine.clearBasicAdjustments(activeId);
         const res = (await invoke("rust_pixels_write_region", {
           docId,
@@ -331,6 +336,9 @@ export function fillActiveLayerWithColor(
   // adjustment independently undoable from the fill.
   const preFillSnapshot = engine.snapshot();
 
+  // Same rationale as the Rust fill path above: the clear rides this fill's
+  // single history entry and its host-side bitmap replacement, so it is not
+  // routed to the native SetAdjustment arm.
   if (layer.basicAdjustment) engine.clearBasicAdjustments(activeId);
 
   // Commit pre-action snapshot BEFORE mutating so the fill is undoable/redoable.

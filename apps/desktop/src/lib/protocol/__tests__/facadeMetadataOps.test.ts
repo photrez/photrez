@@ -15,6 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from "vitest";
 import { DocumentEngine, isFacadeOwnedLayer, hasFacadeOwnedLayers } from "@/engine/document";
+import { normalizeBasicAdjustment } from "@/engine/layerAdjustments";
 import * as bridge from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import {
@@ -22,6 +23,7 @@ import {
   commitFacadeRename,
   commitFacadeLock,
   commitFacadeBlendMode,
+  commitFacadeAdjustment,
   commitFacadeReorder,
   getFacade,
   seedFacadeFromEngine,
@@ -101,6 +103,51 @@ function diffChanges(
   return changes;
 }
 
+// Faithful mirror of canonical_bridge.rs `up_project_fields`: up-project the
+// canonical push's full shared metadata subset into the flat RenderLayer wire
+// shape the emulated engine stores. resourceId and dirtyRect are engine-owned
+// and deliberately absent here (the caller supplies them). Pushed Option fields
+// are taken verbatim - a push that omits one clears the engine's value; there
+// is no fallback to the engine's prior value (the `or_else(base)` fallback is
+// in the DOWN direction, merge_render_layer_into_canonical).
+function upProjectCanonicalFields(c: Record<string, unknown>): Record<string, unknown> {
+  const t = (c.transform ?? {}) as {
+    x?: number;
+    y?: number;
+    scaleX?: number;
+    scaleY?: number;
+    rotation?: number;
+    flipH?: boolean;
+    flipV?: boolean;
+  };
+  return {
+    id: c.id,
+    name: c.name,
+    visible: c.visible,
+    opacity: c.opacity,
+    x: t.x,
+    y: t.y,
+    scaleX: t.scaleX,
+    scaleY: t.scaleY,
+    rotation: t.rotation,
+    layerType: c.type,
+    blendMode: c.blendMode,
+    locked: c.locked,
+    lockTransparency: c.lockTransparency,
+    lockPosition: c.lockPosition,
+    lockRotation: c.lockRotation,
+    isBackground: c.isBackground,
+    hasAdjustments: c.hasAdjustments,
+    width: c.width,
+    height: c.height,
+    flipH: t.flipH,
+    flipV: t.flipV,
+    shapeParams: c.shapeParams,
+    textData: c.textData,
+    basicAdjustment: c.basicAdjustment,
+  };
+}
+
 function routeNative(): void {
   const open = new Set<string>();
   const version = new Map<string, number>();
@@ -135,6 +182,17 @@ function routeNative(): void {
         // fresh ones from the per-doc frontier, ids absent from the push drop.
         // No DV bump, no history entry, doc_size baseline-only (engine has one
         // once protocol_seed_native ran).
+        //
+        // Known-id merge rule copied field-by-field from canonical_bridge.rs
+        // `up_project_known_layer` -> `up_project_fields`: EVERY shared field
+        // comes from the canonical PUSH (blendMode/locks/isBackground/
+        // hasAdjustments/width/height/flips/params/basicAdjustment included),
+        // and ONLY the engine-owned resourceId + dirtyRect are preserved. The
+        // pushed Option values are taken verbatim: a push that omits an optional
+        // field clears the engine's prior value (up_project_fields clones the
+        // canonical Option; it does NOT fall back to the engine's value). The
+        // `or_else(base)` fallback lives in the DOWN direction
+        // (merge_render_layer_into_canonical), not here.
         const doc = JSON.parse((args.payloadJson as string) ?? "null");
         if (doc && Array.isArray(doc.layers)) {
           const cur = layers.get(docId) ?? [];
@@ -145,23 +203,13 @@ function routeNative(): void {
             const ex = curById.get(c.id as string);
             if (ex) {
               next.push({
-                ...ex,
-                name: c.name ?? ex.name,
-                visible: c.visible ?? ex.visible,
-                opacity: c.opacity ?? ex.opacity,
-                x: (c.transform as { x?: number } | undefined)?.x ?? ex.x,
-                y: (c.transform as { y?: number } | undefined)?.y ?? ex.y,
-                scaleX: (c.transform as { scaleX?: number } | undefined)?.scaleX ?? ex.scaleX,
-                scaleY: (c.transform as { scaleY?: number } | undefined)?.scaleY ?? ex.scaleY,
-                rotation: (c.transform as { rotation?: number } | undefined)?.rotation ?? ex.rotation,
+                ...upProjectCanonicalFields(c),
+                resourceId: ex.resourceId,
+                dirtyRect: ex.dirtyRect,
               });
             } else {
               const rid = frontier++;
-              next.push({
-                id: c.id, name: c.name, visible: true, opacity: 1,
-                resourceId: rid, x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
-                isBackground: false,
-              });
+              next.push({ ...upProjectCanonicalFields(c), resourceId: rid });
             }
           }
           layers.set(docId, next);
@@ -554,6 +602,254 @@ describe("commitFacadeBlendMode (SetBlendMode arm)", () => {
   });
 });
 
+describe("commitFacadeAdjustment (SetAdjustment arm)", () => {
+  const adj = { brightness: 20, contrast: -10, saturation: 5 };
+
+  it("flag ON + facade-owned: ONE setAdjustment command w/ expectedVersion + projection", async () => {
+    const { engine, facade } = makeDoc("adj1");
+    await facade.addLayer("L");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = lastOwnedId(facade);
+    const vBefore = facade.renderedVersion;
+    const spy = vi.spyOn(bridge, "applyCommand");
+
+    const r = await commitFacadeAdjustment(engine as never, [id], adj);
+
+    expect(r.status).toBe("applied");
+    expect(r.count).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const env = spy.mock.calls[0][0] as { expectedVersion?: number; command: { type: string; id: string; adjustment?: typeof adj } };
+    expect(env.command.type).toBe("setAdjustment");
+    expect(env.command.id).toBe(id);
+    expect(env.command.adjustment).toEqual(adj);
+    expect(env.expectedVersion).toBe(vBefore); // mandatory guard
+    // The funnel projected the authoritative snapshot: the adjustment reached
+    // model.layer.basicAdjustment (this is what makes the routed op visible).
+    expect(engine.getLayer(id)!.basicAdjustment).toEqual(adj);
+    expect(engine.getLayer(id)!.hasAdjustments).toBe(true);
+  });
+
+  it("clear path: undefined adjustment issues setAdjustment with no payload and clears the projection", async () => {
+    const { engine, facade } = makeDoc("adjClear");
+    await facade.addLayer("L");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = lastOwnedId(facade);
+    await facade.setLayerAdjustment(id, adj);
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect(engine.getLayer(id)!.basicAdjustment).toEqual(adj);
+
+    const spy = vi.spyOn(bridge, "applyCommand");
+    const r = await commitFacadeAdjustment(engine as never, [id], undefined);
+
+    expect(r.status).toBe("applied");
+    const env = spy.mock.calls[0][0] as { command: { type: string; adjustment?: unknown } };
+    expect(env.command.type).toBe("setAdjustment");
+    expect(env.command.adjustment).toBeUndefined();
+    expect(engine.getLayer(id)!.basicAdjustment).toBeUndefined();
+    expect(engine.getLayer(id)!.hasAdjustments).toBe(false);
+  });
+
+  it("flag OFF: legacy status, zero applyCommand", async () => {
+    localStorage.removeItem("photrez.facade");
+    const { engine } = makeDoc("adjL");
+    const spy = vi.spyOn(bridge, "applyCommand");
+    const r = await commitFacadeAdjustment(engine as never, ["any"], adj);
+    expect(r.status).toBe("legacy");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("mixed selection rejected atomically", async () => {
+    const { engine } = makeDoc("adjM");
+    const facade = getFacade("adjM");
+    await facade.addLayer("Owned");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const ownedId = lastOwnedId(facade);
+    const r = await commitFacadeAdjustment(engine as never, [ownedId, "legacy-bg"], adj);
+    expect(r.status).toBe("mixed-rejected");
+  });
+
+  it("routed op reverts via native-history undo (basicAdjustment restored)", async () => {
+    const { engine, facade } = makeDoc("adjU");
+    await facade.addLayer("U");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = lastOwnedId(facade);
+    await facade.setLayerAdjustment(id, adj);
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect(engine.getLayer(id)!.basicAdjustment).toEqual(adj);
+    await facade.undo();
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect(engine.getLayer(id)!.basicAdjustment).toBeUndefined();
+    expect(engine.getLayer(id)!.hasAdjustments).toBe(false);
+    // Redo direction (heal coverage): the same native entry restores the
+    // adjustment through the projection, not through any host mutation.
+    await facade.redo();
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect(engine.getLayer(id)!.basicAdjustment).toEqual(adj);
+    expect(engine.getLayer(id)!.hasAdjustments).toBe(true);
+  });
+
+  it("routed rename on an adjusted layer keeps the adjustment (full-layer restatement)", async () => {
+    const { engine, facade } = makeDoc("adjRename");
+    await facade.addLayer("L");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = lastOwnedId(facade);
+    await facade.setLayerAdjustment(id, adj);
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    // Rename restates the FULL native layer. If the arm's serde omitted the
+    // adjustment when Some, the projection would silently clear it here.
+    await facade.setLayerName(id, "Renamed");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect(engine.getLayer(id)!.name).toBe("Renamed");
+    expect(engine.getLayer(id)!.basicAdjustment).toEqual(adj);
+    expect(engine.getLayer(id)!.hasAdjustments).toBe(true);
+  });
+
+  it("out-of-range channels clamp to [-100, 100] on the arm", async () => {
+    const { engine, facade } = makeDoc("adjClamp");
+    await facade.addLayer("C");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = lastOwnedId(facade);
+    await facade.setLayerAdjustment(id, { brightness: 999, contrast: -999, saturation: 0 });
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    expect(engine.getLayer(id)!.basicAdjustment).toEqual({ brightness: 100, contrast: -100, saturation: 0 });
+    expect(engine.getLayer(id)!.hasAdjustments).toBe(true);
+  });
+
+  it("invalid input: a NaN channel rejects the command and mutates nothing", async () => {
+    const { engine, facade } = makeDoc("adjNaN");
+    await facade.addLayer("N");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = lastOwnedId(facade);
+    // NaN has no JSON representation: JSON.stringify emits null, which the
+    // native f64 field cannot deserialize, so the arm rejects instead of
+    // clamping. Pin that the failure surfaces and the layer stays untouched
+    // (the call site's catch turns it into a toast).
+    await expect(
+      commitFacadeAdjustment(engine as never, [id], { brightness: Number.NaN, contrast: 0, saturation: 0 }),
+    ).rejects.toThrow();
+    expect(engine.getLayer(id)!.basicAdjustment).toBeUndefined();
+    expect(engine.getLayer(id)!.hasAdjustments ?? false).toBe(false);
+  });
+
+  it("rejection propagates (no silent TS mutation)", async () => {
+    const { engine, facade } = makeDoc("adjR");
+    await facade.addLayer("R");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+    const id = lastOwnedId(facade);
+    vi.spyOn(bridge, "applyCommand").mockRejectedValueOnce(new Error("E_EXTERNAL_PENDING"));
+    await expect(commitFacadeAdjustment(engine as never, [id], adj)).rejects.toThrow(/E_EXTERNAL_PENDING/);
+    expect(engine.getLayer(id)!.basicAdjustment).toBeUndefined();
+  });
+});
+
+// Regression: seedFacadeFromEngine must carry the same optional layer fields
+// applyFacadeSnapshot reads as authoritative. A metadata-only seed let the first
+// facade restatement clobber a pre-existing layer's blendMode/locks/adjustment
+// (silent data loss; the id becomes facade-owned so undo is blocked).
+describe("seedFacadeFromEngine preserves pre-existing layer metadata", () => {
+  const LEGACY_ADJ = { brightness: 33, contrast: -7, saturation: 12 };
+
+  function makeLegacyAdjustedDoc(id: string) {
+    const engine = new DocumentEngine(id, id, 800, 600);
+    const layer = engine.addLayer("Base", 4, 2);
+    engine.setLayerImageBitmap(layer.id, { width: 4, height: 2 } as ImageBitmap);
+    // Pre-ownership state exactly as the legacy path leaves it: adjustment
+    // applied through the engine, blendMode + lock set directly on the model.
+    engine.applyBasicAdjustment(layer.id, LEGACY_ADJ);
+    layer.blendMode = "multiply";
+    layer.locked = true;
+    return { engine, layer, facade: getFacade(id) };
+  }
+
+  it("first facade restatement (addLayer) keeps blendMode/lock/adjustment", async () => {
+    const { engine, layer, facade } = makeLegacyAdjustedDoc("seedKeepAdd");
+    await seedFacadeFromEngine(engine as never, facade);
+
+    await facade.addLayer("New");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+
+    const after = engine.getLayer(layer.id)!;
+    expect(after.blendMode).toBe("multiply");
+    expect(after.locked).toBe(true);
+    expect(after.basicAdjustment).toEqual(LEGACY_ADJ);
+    expect(after.hasAdjustments).toBe(true);
+  });
+
+  it("undo-of-add restatement keeps the pre-existing adjustment", async () => {
+    const { engine, layer, facade } = makeLegacyAdjustedDoc("seedKeepUndo");
+    await seedFacadeFromEngine(engine as never, facade);
+    await facade.addLayer("New");
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+
+    await facade.undo();
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+
+    const after = engine.getLayer(layer.id)!;
+    expect(after.basicAdjustment).toEqual(LEGACY_ADJ);
+    expect(after.blendMode).toBe("multiply");
+    expect(after.locked).toBe(true);
+  });
+});
+
+// Trust-boundary probe for a non-finite channel on the emulator authority.
+// The routed test above goes through the real Rust arm, which rejects a NaN
+// channel at the JSON boundary (JSON.stringify(NaN) is "null" and serde will not
+// read null as f64). The emulator is the legacy authority when the wasm pkg is
+// unarmed, and bridge.applyCommand hands it the RAW envelope (no JSON
+// round-trip), so this measures what the emulator SetAdjustment arm actually
+// stores. The pure-TS oracle (normalizeBasicAdjustment) backs the legacy
+// DocumentEngine.applyBasicAdjustment path.
+describe("SetAdjustment arm: non-finite channel (emulator vs TS oracle)", () => {
+  beforeEach(() => {
+    bridge.__resetEmulatedForTests();
+  });
+  afterEach(() => {
+    bridge.__resetEmulatedForTests();
+  });
+
+  type Adj = { brightness: number; contrast: number; saturation: number };
+  function emuAdjust(echo: string, adjustment: Adj) {
+    // The ping arm mints a layer in the emulator without needing a seed; the
+    // SetAdjustment arm then restates it as a single Upsert.
+    bridge.emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo } });
+    const res = bridge.emulateApply({
+      contractVersion: CONTRACT_VERSION,
+      command: { type: "setAdjustment", id: `ping:${echo}`, adjustment },
+    });
+    const change = res.delta.changes[0] as { layer: { basicAdjustment?: Adj; hasAdjustments?: boolean } };
+    return change.layer;
+  }
+
+  it("NaN kept and Infinity clamped identically by emulator and oracle (pinned equality)", () => {
+    const nanLayer = emuAdjust("nan", { brightness: Number.NaN, contrast: 0, saturation: 0 });
+    expect(Number.isNaN(nanLayer.basicAdjustment!.brightness)).toBe(true);
+    expect(nanLayer.hasAdjustments).toBe(true);
+
+    const infLayer = emuAdjust("inf", { brightness: 0, contrast: Number.POSITIVE_INFINITY, saturation: 0 });
+    expect(infLayer.basicAdjustment!.contrast).toBe(100);
+    expect(infLayer.hasAdjustments).toBe(true);
+
+    // The oracle clamp is guard-free: NaN < -100 and NaN > 100 are both false, so
+    // NaN passes through, while Infinity > 100 clamps to 100 (same as the
+    // emulator's Math.min/Math.max).
+    const oracle = normalizeBasicAdjustment({ brightness: Number.NaN, contrast: Number.POSITIVE_INFINITY, saturation: 0 });
+    expect(Number.isNaN(oracle.brightness)).toBe(true);
+    expect(oracle.contrast).toBe(100);
+  });
+
+  it.skip("DIVERGENCE: emulator keeps a non-finite channel while the real Rust arm rejects it", () => {
+    // The emulator is documented as mirroring the Rust SetAdjustment arm, but the
+    // two disagree on non-finite input: bridge.applyCommand serializes the command
+    // to JSON for the real arm (NaN/Infinity -> null -> serde rejects, proven by
+    // the NaN test above), while it hands the raw envelope to emulateApply and the
+    // value is stored here. Not reachable from the production adjustment funnel
+    // today (the emulator arm is only live when the wasm pkg is unarmed AND the
+    // facade flag is off, and the flag-off funnel returns "legacy" without calling
+    // applyCommand), so no host-side guard is proposed. Escalated for a counter
+    // decision on emulator mock fidelity for non-finite channels.
+  });
+});
+
 describe("commitFacadeReorder (Reorder arm) - wasm authority (legacy route)", () => {
   // Under wasm authority the reorder arm never routes to native: commitFacadeReorder
   // returns {status:"legacy"} before any selection resolve, so applyCommand is never
@@ -730,5 +1026,75 @@ describe("commitFacadeReorder (Reorder arm) - native authority", () => {
     vi.spyOn(bridge, "applyCommand").mockRejectedValueOnce(new Error("E_EXTERNAL_PENDING"));
     await expect(commitFacadeReorder(engine as never, id, 1)).rejects.toThrow(/E_EXTERNAL_PENDING/);
     expect(engine.getLayers().map((l) => l.id)).toEqual([id]);
+  });
+});
+
+// Mock-fidelity contract for the canonical seed's known-id up-projection
+// (canonical_bridge.rs `up_project_known_layer` -> `up_project_fields`). The
+// reorder suites above exercise this merge but never assert its metadata, so
+// this pins that a pushed canonical layer takes blendMode/locked/basicAdjustment
+// from the PUSH - not from the engine's prior metadata-only seed entry - while
+// preserving only the engine-owned resourceId. A mock that kept the engine's
+// prior values would stay green here only if production lost the adjustment
+// (the class of silent clobber this contract exists to prevent).
+describe("canonical seed known-id up-projection (mock fidelity)", () => {
+  beforeEach(() => {
+    localStorage.setItem("photrez.facadeAuthority", "native");
+    bridge.__resetNativeAuthorityForTests();
+    invokeMock.mockReset();
+    routeNative();
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.facadeAuthority");
+    bridge.__resetNativeAuthorityForTests();
+    invokeMock.mockReset();
+  });
+
+  it("takes the pushed blendMode/locked/basicAdjustment and preserves the engine resourceId", async () => {
+    const docId = "seedFid";
+    await invoke("rust_pixels_open_document", { docId });
+    // Engine already knows id "L" with metadata-only values: normal blend,
+    // unlocked, no adjustment, engine-owned resourceId 7.
+    await invoke("protocol_seed_native", {
+      docId,
+      payloadJson: JSON.stringify({
+        version: 0,
+        layers: [
+          {
+            id: "L", name: "L", visible: true, opacity: 1, resourceId: 7,
+            x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, blendMode: "normal",
+          },
+        ],
+      }),
+    });
+    // Push the SAME id carrying the canonical-only fields the engine cannot own.
+    await bridge.seedNativeCanonical(
+      docId,
+      JSON.stringify({
+        id: docId,
+        name: "D",
+        width: 800,
+        height: 600,
+        layers: [
+          {
+            id: "L", name: "L", type: "raster", visible: true, opacity: 0.5,
+            locked: true, blendMode: "multiply",
+            transform: { x: 3, y: 4, scaleX: 1, scaleY: 1, rotation: 0 },
+            width: 100, height: 50,
+            basicAdjustment: { brightness: 20, contrast: -10, saturation: 5 },
+            hasAdjustments: true,
+          },
+        ],
+      }),
+    );
+
+    const layer = (await bridge.getSnapshot(docId)).layers.find((l) => l.id === "L");
+    expect(layer?.resourceId).toBe(7); // engine-owned, preserved
+    expect(layer?.blendMode).toBe("multiply"); // from the PUSH, not the seed's "normal"
+    expect(layer?.locked).toBe(true);
+    expect(layer?.hasAdjustments).toBe(true);
+    expect(layer?.basicAdjustment).toEqual({ brightness: 20, contrast: -10, saturation: 5 });
+    expect(layer?.opacity).toBe(0.5);
+    expect(layer?.x).toBe(3);
   });
 });

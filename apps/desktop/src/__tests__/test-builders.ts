@@ -45,6 +45,12 @@ export function createMockEngine(methods: EngineMethod[] = ["snapshot", "getLaye
   // so most coordinate-based tests are unaffected unless they override it.
   stub.getWidth = vi.fn<() => number>().mockReturnValue(4000);
   stub.getHeight = vi.fn<() => number>().mockReturnValue(4000);
+  // Faithful default for the real DocumentEngine.getSelection (null = no
+  // selection). Tests that need a selection assign their own stub.
+  stub.getSelection = vi.fn<() => null>().mockReturnValue(null);
+  // Faithful default for the real DocumentEngine.getId (selection mirrors key
+  // their per-doc serialization tail on it; without it a flag-ON mirror throws).
+  stub.getId = vi.fn<() => string>().mockReturnValue("mock-doc");
   return stub as unknown as DocumentEngine;
 }
 
