@@ -775,3 +775,7 @@ mod arm_structural_tests;
 #[cfg(test)]
 #[path = "document_core_canvas_tests.rs"]
 mod canvas_tests;
+
+#[cfg(test)]
+#[path = "document_core_fuzz_tests.rs"]
+mod fuzz_tests;
