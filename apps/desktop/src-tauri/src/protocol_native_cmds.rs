@@ -453,4 +453,488 @@ mod tests {
             "error must be a valid missing-doc rejection envelope, got: {err}"
         );
     }
+
+    // ── Native command surface: full routed sequence, undo/redo, error
+    // envelope shape, wrapper transparency, canonical read-back ─────────────
+    //
+    // These tests drive the real native command functions (the ones the TS
+    // client reaches through raw `invoke()`), so the whole desktop surface is
+    // exercised headlessly: serde envelope parse, registry lookup, engine
+    // apply, `CommandResult` serialize, and the `"CODE: message"` rejection
+    // string. Each test owns a unique doc key because the pixel-store registry
+    // is process-global and the test suite runs in parallel.
+
+    use photrez_core::protocol::CONTRACT_VERSION;
+
+    const SEQ_DOC: &str = "apply-sequence-native-test-doc";
+    const UNDO_DOC: &str = "undo-redo-native-test-doc";
+    const ERR_INVALID_DOC: &str = "error-invalid-native-test-doc";
+    const ERR_VERSION_DOC: &str = "error-version-native-test-doc";
+    const PARITY_CMD_DOC: &str = "parity-command-native-test-doc";
+    const PARITY_DIRECT_DOC: &str = "parity-direct-native-test-doc";
+    const CANON_READ_DOC: &str = "canonical-read-native-test-doc";
+
+    /// Real-shape `TextData` payload used by the typed-add / params arms. The
+    /// field names are camelCase because `TextData` is a plain struct (the
+    /// snake_case rule applies to the `Command` enum's struct-variant fields).
+    const SEQ_TEXT_DATA: &str = r##"{"content":"Hi","fontFamily":"Arial","fontSize":32.0,"fontWeight":700.0,"fontStyle":"italic","color":"#000000","align":"center","lineHeight":1.2,"letterSpacing":0.0,"boxMode":"area","boxWidth":300.0,"boxHeight":60.0,"stroke":{"width":2.0,"color":"#FF0000","align":"outside"},"underline":false,"strikethrough":false,"uppercase":true}"##;
+
+    /// A three-layer canonical document matching the render layers seeded by
+    /// `seed_routed_doc` (so the canonical up-projection preserves engine
+    /// resource ids and order). The top layer is typed `text` so the
+    /// rasterize arm exercises a real parametric-to-raster transition.
+    fn sequence_canonical_fixture() -> String {
+        format!(
+            r#"{{"id":"seq-doc","name":"Seq","width":800.0,"height":600.0,"layers":[
+                {{"id":"l-top","name":"Top","type":"text","visible":true,"opacity":1.0,"locked":false,"blendMode":"normal","transform":{{"x":0.0,"y":0.0,"scaleX":1.0,"scaleY":1.0,"rotation":0.0,"flipH":false,"flipV":false}},"width":300.0,"height":60.0,"textData":{text}}},
+                {{"id":"l-mid","name":"Mid","type":"raster","visible":true,"opacity":1.0,"locked":false,"blendMode":"normal","transform":{{"x":0.0,"y":0.0,"scaleX":1.0,"scaleY":1.0,"rotation":0.0,"flipH":false,"flipV":false}},"width":200.0,"height":150.0}},
+                {{"id":"l-bot","name":"Bot","type":"raster","visible":true,"opacity":1.0,"locked":false,"blendMode":"normal","transform":{{"x":0.0,"y":0.0,"scaleX":1.0,"scaleY":1.0,"rotation":0.0,"flipH":false,"flipV":false}},"width":200.0,"height":150.0}}
+            ]}}"#,
+            text = SEQ_TEXT_DATA
+        )
+    }
+
+    /// Open `doc` and seed it through the native seed commands: the initial
+    /// layer load (`protocol_seed_native`) followed by the canonical shadow
+    /// push (`protocol_seed_canonical_native`), which also establishes the
+    /// document dimensions the selection and merge arms read.
+    fn seed_routed_doc(doc: &str) {
+        open_doc(doc);
+        let layers = r#"[{"id":"l-top","name":"Top","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0},{"id":"l-mid","name":"Mid","visible":true,"opacity":1.0,"resourceId":2,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0},{"id":"l-bot","name":"Bot","visible":true,"opacity":1.0,"resourceId":3,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]"#;
+        let payload = format!(r#"{{"version":10,"layers":{layers}}}"#);
+        protocol_seed_native(payload, doc.to_string()).expect("seed layers");
+        protocol_seed_canonical_native(sequence_canonical_fixture(), doc.to_string())
+            .expect("seed canonical");
+    }
+
+    /// Build an envelope JSON string with an explicit expected version. The
+    /// command struct-variant fields stay snake_case (see the `Command` enum's
+    /// serde contract); only the envelope struct fields are camelCase.
+    fn envelope_json(command: &str, expected_version: u64) -> String {
+        format!(
+            r#"{{"contractVersion":{cv},"expectedVersion":{ev},"command":{cmd}}}"#,
+            cv = CONTRACT_VERSION,
+            ev = expected_version,
+            cmd = command
+        )
+    }
+
+    /// Stable digest of the observable engine state: layers in engine order,
+    /// selection, and document dimensions. Version and the per-layer
+    /// `resourceId` / `dirtyRect` are excluded because the version counter
+    /// changes on every accepted undo/redo and the resource/dirty values are
+    /// engine-internal bookkeeping, not canonical state.
+    fn snapshot_digest(snapshot: &RenderSnapshot) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut value = serde_json::to_value(snapshot).expect("snapshot serializes");
+        if let Some(map) = value.as_object_mut() {
+            map.remove("version");
+        }
+        if let Some(layers) = value.get_mut("layers").and_then(|l| l.as_array_mut()) {
+            for layer in layers.iter_mut() {
+                if let Some(obj) = layer.as_object_mut() {
+                    obj.remove("resourceId");
+                    obj.remove("dirtyRect");
+                }
+            }
+        }
+        let canonical = serde_json::to_string(&value).expect("normalized snapshot serializes");
+        let mut hasher = DefaultHasher::new();
+        canonical.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Read the engine state digest through the native snapshot command.
+    fn command_digest(doc: &str) -> u64 {
+        let json = protocol_snapshot_native(doc.to_string()).expect("snapshot ok");
+        let snapshot: RenderSnapshot = serde_json::from_str(&json).expect("snapshot parses");
+        snapshot_digest(&snapshot)
+    }
+
+    /// Apply one command JSON through the native command and assert the
+    /// version advanced by exactly one. Returns the new version.
+    fn apply_ok(doc: &str, command: &str) -> u64 {
+        let version = protocol_version_native(doc.to_string()).expect("version");
+        let result =
+            protocol_apply_command_native(envelope_json(command, version), doc.to_string())
+                .unwrap_or_else(|e| panic!("apply {command} failed: {e}"));
+        let parsed: CommandResult = serde_json::from_str(&result).expect("CommandResult parses");
+        assert_eq!(
+            parsed.document_version,
+            version + 1,
+            "accepted command must bump the document version by exactly one",
+        );
+        parsed.document_version
+    }
+
+    /// The full routed command family, one envelope body per command. Layer
+    /// ids stay valid as the stack evolves. Each entry is exactly the
+    /// snake_case wire shape the TS bridge produces.
+    fn routed_command_script() -> Vec<String> {
+        let text = SEQ_TEXT_DATA;
+        vec![
+            // Layer add / transform / metadata.
+            r#"{"type":"addLayer","id":"n1","name":"New","width":100.0,"height":80.0,"index":1}"#.to_string(),
+            r#"{"type":"transformLayer","id":"n1","transform":{"x":12.0,"y":8.0,"scaleX":2.0,"scaleY":2.0,"rotation":45.0,"flipH":true,"flipV":false}}"#.to_string(),
+            r#"{"type":"setOpacity","id":"n1","opacity":0.5}"#.to_string(),
+            r#"{"type":"setVisible","id":"n1","visible":false}"#.to_string(),
+            r#"{"type":"setLocked","id":"n1","kind":"base","locked":true}"#.to_string(),
+            r#"{"type":"rename","id":"n1","name":"Renamed"}"#.to_string(),
+            r#"{"type":"reorder","id":"n1","to":3}"#.to_string(),
+            r#"{"type":"setBackgroundFlag","id":"l-bot"}"#.to_string(),
+            r#"{"type":"setBlendMode","id":"n1","mode":"multiply"}"#.to_string(),
+            format!(r#"{{"type":"setLayerParams","id":"l-top","text_data":{text}}}"#),
+            r#"{"type":"setAdjustment","id":"l-mid","adjustment":{"brightness":15.0,"contrast":-10.0,"saturation":0.0}}"#.to_string(),
+            // Structural.
+            r#"{"type":"duplicateLayer","id":"l-mid","new_id":"n1-dup"}"#.to_string(),
+            r#"{"type":"mergeDown","id":"n1-dup","merged_id":"m1"}"#.to_string(),
+            r#"{"type":"rasterizeLayer","id":"l-top"}"#.to_string(),
+            r#"{"type":"mergeSelected","ids":["m1","n1"],"merged_id":"m2"}"#.to_string(),
+            format!(r#"{{"type":"addLayer","id":"t1","name":"Typed","width":200.0,"height":60.0,"index":0,"layer_type":"text","text_data":{text}}}"#),
+            format!(r#"{{"type":"setLayerParams","id":"t1","text_data":{text}}}"#),
+            r#"{"type":"rasterizeLayer","id":"t1"}"#.to_string(),
+            r#"{"type":"flatten","merged_id":"flat1"}"#.to_string(),
+            r#"{"type":"addLayer","id":"post","name":"Post","width":10.0,"height":10.0,"index":0}"#.to_string(),
+            r#"{"type":"duplicateLayer","id":"post","new_id":"post-dup"}"#.to_string(),
+            r#"{"type":"deleteLayer","id":"post-dup"}"#.to_string(),
+            // Canvas size.
+            r#"{"type":"resizeCanvas","width":1024.0,"height":768.0}"#.to_string(),
+            r#"{"type":"cropCanvas","x":0.0,"y":0.0,"width":512.0,"height":512.0}"#.to_string(),
+            r#"{"type":"applyCrop","x":0.0,"y":0.0,"width":512.0,"height":512.0,"rotation":0.0,"target_width":256.0,"target_height":256.0}"#.to_string(),
+            // Selection.
+            r#"{"type":"setSelection","selection":{"x":1.0,"y":2.0,"width":50.0,"height":40.0,"angle":0.0,"shape":"rect","inverted":false}}"#.to_string(),
+            r#"{"type":"clearSelection"}"#.to_string(),
+            r#"{"type":"selectAll"}"#.to_string(),
+            r#"{"type":"invertSelection"}"#.to_string(),
+        ]
+    }
+
+    /// Run the shared script by issuing each command through the native apply
+    /// command (the exact code path the desktop client uses).
+    fn run_script_through_commands(doc: &str) -> (u64, u64) {
+        for command in routed_command_script() {
+            let version = protocol_version_native(doc.to_string()).expect("version");
+            protocol_apply_command_native(envelope_json(&command, version), doc.to_string())
+                .unwrap_or_else(|e| panic!("command path failed at {command}: {e}"));
+        }
+        let version = protocol_version_native(doc.to_string()).expect("version");
+        (command_digest(doc), version)
+    }
+
+    /// Run the same script by deserializing each envelope in the test and
+    /// calling `engine.history.apply` directly, bypassing the command wrapper.
+    fn run_script_through_engine(doc: &str) -> (u64, u64) {
+        for command in routed_command_script() {
+            let mut guard = registry();
+            let reg = guard.as_mut().expect("registry initialized");
+            let engine = reg.docs.get_mut(doc).expect("doc open");
+            let version = engine.history.version();
+            let envelope: CommandEnvelope =
+                serde_json::from_str(&envelope_json(&command, version)).expect("envelope parses");
+            engine.history.apply(envelope).expect("direct apply ok");
+        }
+        let guard = registry();
+        let reg = guard.as_ref().expect("registry initialized");
+        let engine = reg.docs.get(doc).expect("doc open");
+        (
+            snapshot_digest(&engine.history.snapshot()),
+            engine.history.version(),
+        )
+    }
+
+    /// Every routed command is accepted through the native command surface, the
+    /// version advances by exactly one per accepted command, the returned
+    /// `CommandResult` reports that version, and the snapshot read-back stays
+    /// parseable across the whole sequence.
+    #[test]
+    fn native_apply_command_drives_full_routed_sequence() {
+        seed_routed_doc(SEQ_DOC);
+        let seed_digest = command_digest(SEQ_DOC);
+        let mut version = protocol_version_native(SEQ_DOC.to_string()).expect("version");
+        assert_eq!(
+            version, 10,
+            "seeded version must be the seed payload version"
+        );
+
+        let script = routed_command_script();
+        assert!(
+            script.len() >= 28,
+            "script must cover the full routed command family, got {}",
+            script.len()
+        );
+
+        for (step, command) in script.iter().enumerate() {
+            let result =
+                protocol_apply_command_native(envelope_json(command, version), SEQ_DOC.to_string())
+                    .unwrap_or_else(|e| panic!("step {step} ({command}) failed: {e}"));
+            let parsed: CommandResult =
+                serde_json::from_str(&result).expect("CommandResult parses");
+            let next = protocol_version_native(SEQ_DOC.to_string()).expect("version");
+            assert_eq!(
+                next,
+                version + 1,
+                "step {step} ({command}) must advance the version by exactly one"
+            );
+            assert_eq!(
+                parsed.document_version, next,
+                "step {step} ({command}) CommandResult must report the post-apply version"
+            );
+            version = next;
+        }
+
+        let final_digest = command_digest(SEQ_DOC);
+        assert_ne!(
+            final_digest, seed_digest,
+            "the script must have changed the observable state"
+        );
+        close_doc(SEQ_DOC);
+    }
+
+    /// Undo/redo through the native command surface restores the exact
+    /// pre-transition snapshot at each cursor position. Undo past the bottom
+    /// and redo past the top are accepted no-ops that still advance the
+    /// version, matching the engine's real behavior.
+    #[test]
+    fn native_apply_command_undo_redo_round_trip() {
+        seed_routed_doc(UNDO_DOC);
+        let seed_digest = command_digest(UNDO_DOC);
+
+        apply_ok(
+            UNDO_DOC,
+            r#"{"type":"addLayer","id":"u1","name":"U","width":10.0,"height":10.0,"index":0}"#,
+        );
+        let after_add = command_digest(UNDO_DOC);
+        assert_ne!(after_add, seed_digest, "add must change the state");
+
+        apply_ok(
+            UNDO_DOC,
+            r#"{"type":"setOpacity","id":"u1","opacity":0.25}"#,
+        );
+        let after_opacity = command_digest(UNDO_DOC);
+        assert_ne!(after_opacity, after_add, "opacity must change the state");
+
+        apply_ok(UNDO_DOC, r#"{"type":"undo"}"#);
+        assert_eq!(
+            command_digest(UNDO_DOC),
+            after_add,
+            "undo restores the prior cursor"
+        );
+        apply_ok(UNDO_DOC, r#"{"type":"redo"}"#);
+        assert_eq!(
+            command_digest(UNDO_DOC),
+            after_opacity,
+            "redo restores the later cursor"
+        );
+
+        apply_ok(UNDO_DOC, r#"{"type":"undo"}"#);
+        apply_ok(UNDO_DOC, r#"{"type":"undo"}"#);
+        assert_eq!(
+            command_digest(UNDO_DOC),
+            seed_digest,
+            "two undos reach the seeded state"
+        );
+
+        // Undo past the bottom: the real engine returns an accepted no-op that
+        // still bumps the version (it does not error).
+        let before = apply_ok(UNDO_DOC, r#"{"type":"undo"}"#);
+        assert_eq!(
+            before,
+            protocol_version_native(UNDO_DOC.to_string()).expect("version")
+        );
+        assert_eq!(
+            command_digest(UNDO_DOC),
+            seed_digest,
+            "bottom no-op changes no state"
+        );
+
+        // Redo twice returns to the top; a third redo is the top no-op.
+        apply_ok(UNDO_DOC, r#"{"type":"redo"}"#);
+        apply_ok(UNDO_DOC, r#"{"type":"redo"}"#);
+        assert_eq!(
+            command_digest(UNDO_DOC),
+            after_opacity,
+            "two redos reach the top"
+        );
+        apply_ok(UNDO_DOC, r#"{"type":"redo"}"#);
+        assert_eq!(
+            command_digest(UNDO_DOC),
+            after_opacity,
+            "top no-op changes no state"
+        );
+
+        close_doc(UNDO_DOC);
+    }
+
+    /// An arm-level rejection that crosses the real JSON wire returns the bare
+    /// `"CODE: message"` string (not a JSON object) and leaves the version
+    /// untouched. This is the exact rejection shape the desktop client parses
+    /// from a raw `invoke()`.
+    #[test]
+    fn native_apply_command_error_envelope_shape() {
+        seed_routed_doc(ERR_INVALID_DOC);
+        let version = protocol_version_native(ERR_INVALID_DOC.to_string()).expect("version");
+        let command = r#"{"type":"setSelection","selection":{"x":0.0,"y":0.0,"width":-5.0,"height":10.0,"angle":0.0,"shape":"rect","inverted":false}}"#;
+        let err = protocol_apply_command_native(
+            envelope_json(command, version),
+            ERR_INVALID_DOC.to_string(),
+        )
+        .expect_err("negative selection geometry must be rejected");
+        assert!(
+            err.starts_with("E_INVALID: "),
+            "expected bare 'E_INVALID: message', got: {err}"
+        );
+        assert_eq!(
+            err.split(": ").next(),
+            Some("E_INVALID"),
+            "code must lead the string"
+        );
+        assert!(
+            !err.trim_start().starts_with('{'),
+            "rejection must be a bare string, not a JSON envelope: {err}"
+        );
+        assert_eq!(
+            protocol_version_native(ERR_INVALID_DOC.to_string()).expect("version"),
+            version,
+            "a rejected command must not advance the version"
+        );
+        close_doc(ERR_INVALID_DOC);
+    }
+
+    /// Envelope-level rejections also use the `"CODE: message"` shape and are
+    /// decided before the registry is touched. A non-finite geometry value
+    /// cannot reach the arm's E_INVALID gate over JSON: JSON has no NaN or
+    /// Infinity, so such a value arrives as `null` (or an out-of-range number)
+    /// and is rejected by serde as E_ENVELOPE_PARSE. The desktop client must
+    /// expect that code, not E_INVALID, for non-finite input.
+    #[test]
+    fn native_apply_command_parse_error_envelope_shape() {
+        let missing = "parse-error-native-missing-doc-NOPE";
+        let err = protocol_apply_command_native("{ not json".to_string(), missing.to_string())
+            .expect_err("malformed json must be rejected");
+        assert!(
+            err.starts_with("E_ENVELOPE_PARSE: "),
+            "expected bare 'E_ENVELOPE_PARSE: message', got: {err}"
+        );
+
+        let unknown = r#"{"contractVersion":2,"command":{"type":"doesNotExist"}}"#.to_string();
+        let err = protocol_apply_command_native(unknown, missing.to_string())
+            .expect_err("unknown command type must be rejected");
+        assert!(
+            err.starts_with("E_ENVELOPE_PARSE: "),
+            "unknown command type must be E_ENVELOPE_PARSE, got: {err}"
+        );
+
+        let non_finite = r#"{"contractVersion":2,"command":{"type":"setSelection","selection":{"x":null,"y":0.0,"width":10.0,"height":10.0,"angle":0.0,"shape":"rect","inverted":false}}}"#.to_string();
+        let err = protocol_apply_command_native(non_finite, missing.to_string())
+            .expect_err("null geometry must be rejected at parse");
+        assert!(
+            err.starts_with("E_ENVELOPE_PARSE: "),
+            "non-finite geometry over the JSON wire must be E_ENVELOPE_PARSE, got: {err}"
+        );
+    }
+
+    /// Version and contract mismatches reject with their own codes, and the
+    /// document must be open before either check runs (the registry lookup
+    /// precedes the engine's checks).
+    #[test]
+    fn native_apply_command_contract_and_expected_version_errors() {
+        open_doc(ERR_VERSION_DOC);
+        protocol_seed_native(
+            r#"{"version":5,"layers":[{"id":"v1","name":"V","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]}"#.to_string(),
+            ERR_VERSION_DOC.to_string(),
+        )
+        .expect("seed");
+
+        let contract = r#"{"contractVersion":1,"command":{"type":"noop"}}"#.to_string();
+        let err = protocol_apply_command_native(contract, ERR_VERSION_DOC.to_string())
+            .expect_err("contract version mismatch must be rejected");
+        assert!(
+            err.starts_with("E_CONTRACT_VERSION: "),
+            "expected bare 'E_CONTRACT_VERSION: message', got: {err}"
+        );
+
+        let stale = envelope_json(r#"{"type":"noop"}"#, 999);
+        let err = protocol_apply_command_native(stale, ERR_VERSION_DOC.to_string())
+            .expect_err("stale expected version must be rejected");
+        assert!(
+            err.starts_with("E_VERSION_MISMATCH: "),
+            "expected bare 'E_VERSION_MISMATCH: message', got: {err}"
+        );
+        close_doc(ERR_VERSION_DOC);
+    }
+
+    /// The command wrapper is transparent to the engine: the same script run
+    /// through the native command and directly through `engine.history.apply`
+    /// must reach the identical final state digest and version. This is the
+    /// native-vs-engine parity check (the wrapper adds only serde parse,
+    /// registry lookup, result serialize, and error formatting).
+    #[test]
+    fn native_apply_command_wrapper_is_transparent_to_engine() {
+        seed_routed_doc(PARITY_CMD_DOC);
+        seed_routed_doc(PARITY_DIRECT_DOC);
+        assert_eq!(
+            command_digest(PARITY_CMD_DOC),
+            command_digest(PARITY_DIRECT_DOC),
+            "both docs must start from the identical seeded state"
+        );
+
+        let (command_digest_final, command_version) = run_script_through_commands(PARITY_CMD_DOC);
+        let (direct_digest_final, direct_version) = run_script_through_engine(PARITY_DIRECT_DOC);
+
+        assert_eq!(
+            command_version, direct_version,
+            "the wrapper must not alter version bookkeeping"
+        );
+        assert_eq!(
+            command_digest_final, direct_digest_final,
+            "the wrapper must be transparent to the engine state"
+        );
+
+        close_doc(PARITY_CMD_DOC);
+        close_doc(PARITY_DIRECT_DOC);
+    }
+
+    /// `protocol_canonical_native` is exercised as a real consumer: after a
+    /// canvas resize and a selection change it returns a parseable canonical
+    /// document reflecting the applied dimensions and selection.
+    #[test]
+    fn native_canonical_read_back_reflects_applied_state() {
+        seed_routed_doc(CANON_READ_DOC);
+        apply_ok(
+            CANON_READ_DOC,
+            r#"{"type":"resizeCanvas","width":1024.0,"height":768.0}"#,
+        );
+        apply_ok(
+            CANON_READ_DOC,
+            r#"{"type":"setSelection","selection":{"x":3.0,"y":4.0,"width":50.0,"height":40.0,"angle":0.0,"shape":"rect","inverted":false}}"#,
+        );
+
+        let read = protocol_canonical_native(CANON_READ_DOC.to_string()).expect("read-back ok");
+        let parsed: serde_json::Value = serde_json::from_str(&read).expect("canonical parses");
+        assert_eq!(parsed["id"], "seq-doc");
+        assert_eq!(parsed["width"].as_f64(), Some(1024.0));
+        assert_eq!(parsed["height"].as_f64(), Some(768.0));
+        assert_eq!(parsed["selection"]["x"].as_f64(), Some(3.0));
+        assert_eq!(parsed["selection"]["width"].as_f64(), Some(50.0));
+        assert!(
+            parsed["layers"].is_array(),
+            "canonical read-back must carry layers"
+        );
+        close_doc(CANON_READ_DOC);
+    }
+
+    /// A missing doc rejects the canonical read-back cleanly (same
+    /// missing-doc envelope as the sibling read commands) without mutating the
+    /// shared registry, so this stays order-independent in the parallel suite.
+    #[test]
+    fn native_canonical_read_back_missing_doc_errors_cleanly() {
+        let res = protocol_canonical_native("canonical-read-native-missing-doc-NOPE".to_string());
+        assert!(res.is_err(), "missing doc must error");
+        let err = res.unwrap_err();
+        assert!(
+            err.starts_with("document not open:") || err.starts_with("pixel store not initialized"),
+            "error must be a valid missing-doc rejection envelope, got: {err}"
+        );
+    }
 }
