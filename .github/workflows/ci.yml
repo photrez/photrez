@@ -238,7 +238,10 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
           HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
-          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(ts|tsx|rs)$' | tr '\n' ' ')
+          # `|| true`: with no changed source files the filter exits 1, which
+          # bash -o pipefail turns into a failed step before the skip branch
+          # below can run. Docs-only and config-only commits must pass.
+          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(ts|tsx|rs)$' | tr '\n' ' ' || true)
           if [ -n "$FILES" ]; then
             sh scripts/check-public-terminology.sh --files "$FILES"
           else
