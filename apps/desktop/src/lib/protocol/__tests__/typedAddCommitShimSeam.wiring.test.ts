@@ -7,10 +7,14 @@
 // entry point. This test drives the PRODUCTION seam instead: it installs the
 // commit shim (EditorShell does this once at boot), then calls
 // CommandHistory.commit() - the exact call every legacy op makes. The shim
-// forwards the LIVE engine into recordExternalTransitionFor, which captures the
-// layer vector and re-projects it into the facade snapshot. The assertion is
-// that the facade snapshot learned the typed layer the legacy op added, so the
-// next routed projection rebuilds the model with it.
+// forwards the LIVE engine into recordExternalTransitionFor, which re-projects
+// the live layer vector into the facade snapshot.
+//
+// The typed layer is already in the snapshot before the commit (the
+// post-mutation choke point, DocumentEngine.notifyChange, projected it), so the
+// shim's re-projection is redundant by design here; this test proves the seam is
+// reachable and that a commit with no following mutation leaves the layer in the
+// snapshot instead of dropping it.
 //
 // Flag-ON path: every other shim test runs with photrez.facade OFF.
 
@@ -19,6 +23,7 @@ import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
+import * as bridge from "@/lib/protocol/bridge";
 import {
   getFacade,
   installFacadeCommitShim,
@@ -96,7 +101,7 @@ afterEach(() => {
 });
 
 describe("facade commit-shim seam (photrez.facade=1)", () => {
-  it("history.commit() through the installed shim refreshes the facade snapshot with the typed layer", async () => {
+  it("history.commit() through the installed shim keeps the typed layer in the facade snapshot", async () => {
     const engine = new DocumentEngine(DOC_ID, DOC_ID, 800, 600);
     liveEngine = engine;
     const facade = getFacade(DOC_ID);
@@ -105,16 +110,20 @@ describe("facade commit-shim seam (photrez.facade=1)", () => {
     engine.applyFacadeSnapshot(snap as never);
 
     const text = engine.addTextLayer("Hello", { ...DEFAULT_TEXT_DATA, content: "Hello" });
-    // The typed add is in the model but NOT yet in the facade snapshot.
-    expect(facade.snapshot.layers.map((l) => l.id)).not.toContain(text.id);
+    // notifyChange is the post-mutation choke point, so the typed add is already
+    // projected into the snapshot before any commit.
+    expect(facade.snapshot.layers.map((l) => l.id)).toContain(text.id);
 
-    // The production entry point every legacy op calls.
+    // The production entry point every legacy op calls. No mutation follows, so
+    // notifyChange will not run again. The layer must stay in the snapshot.
+    const applyCommandSpy = vi.spyOn(bridge, "applyCommand");
     const history = new CommandHistory();
     history.commit(engine.getModel() as never, "Add Text");
 
-    // The shim forwarded the LIVE engine into recordExternalTransitionFor, which
-    // re-projected the model into the facade snapshot.
+    // Prove the shim actually reached the external-transition record; without
+    // this the test would pass even if the shim path were dead code.
     await vi.waitFor(() => {
+      expect(applyCommandSpy).toHaveBeenCalled();
       expect(facade.snapshot.layers.map((l) => l.id)).toContain(text.id);
     });
     // The routed layer that was already projected is still present too.

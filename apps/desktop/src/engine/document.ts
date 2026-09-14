@@ -40,6 +40,7 @@ import { normalizeBasicAdjustment, bakeAdjustmentToBitmap, bakeAdjustmentToBitma
 import type { RenderBackend } from "../renderer/types";
 import { invertRgba } from "../lib/gpu/gpuCompute";
 import { PaintTileSurface } from "../lib/paint/paintTileSurface";
+import { refreshFacadeSnapshotFromModelLayers } from "@/lib/protocol/facadeProjection";
 
 import {
   addLayer as applyAddLayer,
@@ -1269,6 +1270,10 @@ export class DocumentEngine {
       }
       this.model.dirty = true;
       this.markLayerDirty(id);
+      // No facade refresh here: this path replaces only the bitmap and the
+      // layer's pixel width/height, and the projection snapshot carries neither
+      // (see the facadeProjection field list), so a refresh would republish
+      // identical values.
       this.pushModelToRust(); // width/height are graph fields — keep Rust in sync
       this.notifyVisualChange();
     }
@@ -1314,6 +1319,10 @@ export class DocumentEngine {
       normalized.saturation !== 0;
     this.model.dirty = true;
     this.markLayerDirty(id);
+    // Direct push (no notifyChange): refresh the facade projection snapshot
+    // first so the next routed op cannot rebuild from a stale pre-mutation
+    // snapshot.
+    this.refreshFacadeProjectionCache();
     this.pushModelToRust(); // hasAdjustments/basicAdjustment are graph fields
     this.notifyVisualChange();
   }
@@ -1327,6 +1336,10 @@ export class DocumentEngine {
       layer.hasAdjustments = false;
       this.model.dirty = true;
       this.markLayerDirty(id);
+      // Direct push (no notifyChange): refresh the facade projection snapshot
+      // first so the next routed op cannot rebuild from a stale pre-mutation
+      // snapshot.
+      this.refreshFacadeProjectionCache();
       this.pushModelToRust();
       this.notifyVisualChange();
     }
@@ -1519,6 +1532,50 @@ export class DocumentEngine {
   }
 
   /**
+   * Keep the facade projection snapshot in step with THIS engine's TS model. The
+   * snapshot is the layer vector the next routed projection rebuilds the model
+   * from (applyFacadeSnapshot replaces model.layers with it), so a snapshot that
+   * still held a layer the model no longer has would RESURRECT it at the next
+   * routed op. Called from notifyChange() (the dominant post-mutation path, keyed
+   * by the mutating engine), from restore() (undo/redo/open replaces the whole
+   * model without a history.commit), and from the two mutators that push to the
+   * Rust mirror directly without going through notifyChange (applyBasicAdjustment
+   * and clearBasicAdjustments — the adjustment fields ARE projection-carried, so
+   * those two must republish or the next routed projection would revert the
+   * adjustment). setLayerImageBitmap also pushes directly, but it mutates no
+   * projection-carried field, so it does not refresh.
+   *
+   * restore() refreshes AFTER its push while the direct sites refresh BEFORE
+   * theirs. Both orders are correct: the refresh reads the model, which both
+   * sites have already mutated, and the Rust push does not touch the model.
+   *
+   * Refreshing FROM the model can only carry ids the model currently holds; it
+   * never reads the per-engine mirror, so it cannot resurrect a stale mirror
+   * entry. It is not a guarantee of agreement with the authoritative engine: a
+   * legacy undo after an ownership unmark can legitimately re-add an id the Rust
+   * stream deleted, and that divergence is legacy-undo semantics, not a refresh
+   * defect.
+   *
+   * Cost: one array map + shallow object copy per layer per notifyChange, and
+   * notifyChange is ALSO the viewport path (pan/zoom call it every frame), so a
+   * pan re-projects a layer vector whose projection fields did not change. The
+   * projection is still cheaper than the whole-model JSON.stringify
+   * pushModelToRust already does in the same notifyChange.
+   * Gated by photrez.facade: flag OFF returns before any work (byte-identical).
+   */
+  private refreshFacadeProjectionCache(): void {
+    if (!isFacadeEnabled()) return;
+    try {
+      refreshFacadeSnapshotFromModelLayers(this.model.id, this.model.layers, {
+        width: this.model.width,
+        height: this.model.height,
+      });
+    } catch {
+      // Auxiliary to the mutation; never break the legacy op.
+    }
+  }
+
+  /**
    * Push the current TS model INTO Rust so both sides stay consistent.
    * Choke point called from notifyChange: any TS-side mutation that bypasses
    * Rust (opacity/visibility/locks/rename/blendMode/merge/flatten/shape-text
@@ -1554,6 +1611,12 @@ export class DocumentEngine {
   }
 
   private notifyChange(): void {
+    // Post-mutation, per-engine choke point for the facade projection snapshot:
+    // keyed by THIS engine's model id, so a cross-document operation refreshes
+    // its own document's facade even when the commit shim resolved another
+    // (active) engine. Runs before pushModelToRust and independent of its
+    // Rust-SSOT guards.
+    this.refreshFacadeProjectionCache();
     this.pushModelToRust();
     if (this.onChangeCallback) {
       this.onChangeCallback();
@@ -1681,6 +1744,11 @@ export class DocumentEngine {
     // Rust engine must receive the restored graph or its next op (e.g. addLayer)
     // would resurrect pre-undo state and overwrite the restoration.
     this.pushModelToRust();
+    // Undo/redo/open has NO history.commit, so no external record refreshes the
+    // facade projection snapshot. notifyChange (which also refreshes) is not on
+    // this path either: restore() replaces the model and calls its own
+    // notification. Gated: no-op unless the facade flag is on and a facade exists.
+    this.refreshFacadeProjectionCache();
     this.notifyVisualChange();
   }
 
