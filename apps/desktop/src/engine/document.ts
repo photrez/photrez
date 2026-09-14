@@ -1849,7 +1849,7 @@ export class DocumentEngine {
     this.model.dirty = true;
   }
 
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
     // A canvas-size command's projection carries the new document size. A
     // metadata delta carries no size, so applyDeltaToSnapshot carries the
     // facade's prior size forward; writing that would revert a model size the
@@ -1870,6 +1870,12 @@ export class DocumentEngine {
         existing.transform.scaleX = rl.scaleX;
         existing.transform.scaleY = rl.scaleY;
         existing.transform.rotation = rl.rotation;
+        // Flip flags ride the same wire-Option convention as blendMode: the
+        // native side omits them when unset, so an absent field leaves the
+        // model value alone. Clearing here would let the next numeric op
+        // re-send flipH:false and silently undo a routed flip.
+        existing.transform.flipH = rl.flipH ?? existing.transform.flipH;
+        existing.transform.flipV = rl.flipV ?? existing.transform.flipV;
         // Facade protocol carries lock kinds + blendMode as optional serde fields
         // (None is omitted on the wire). When omitted the authoritative facade state
         // is the default (unlocked / normal), so fall back to the default rather than
@@ -1895,9 +1901,9 @@ export class DocumentEngine {
         existing.basicAdjustment = rl.basicAdjustment;
         existing.hasAdjustments = rl.hasAdjustments ?? false;
         // Deliberately NOT projected on this branch: shapeParams, textData,
-        // layerType, flipH, flipV. No routed op carries them yet, so projecting
-        // them would change behavior for fields no arm restates. Add each one
-        // alongside the change that routes its op, with a test.
+        // layerType. No routed op carries them yet, so projecting them would
+        // change behavior for fields no arm restates. Add each one alongside
+        // the change that routes its op, with a test.
         nextLayers.push(existing);
       } else {
         const retained = this.droppedNodes.get(rl.id);
@@ -1925,8 +1931,8 @@ export class DocumentEngine {
               scaleX: rl.scaleX,
               scaleY: rl.scaleY,
               rotation: rl.rotation,
-              flipH: retained.transform.flipH,
-              flipV: retained.transform.flipV,
+              flipH: rl.flipH ?? retained.transform.flipH,
+              flipV: rl.flipV ?? retained.transform.flipV,
             },
           } as unknown as (typeof this.model.layers)[number];
           this.droppedNodes.delete(rl.id);
@@ -1958,7 +1964,7 @@ export class DocumentEngine {
             hasAdjustments: rl.hasAdjustments ?? false,
             basicAdjustment: rl.basicAdjustment,
             blendMode: (rl.blendMode as BlendMode) ?? "normal",
-            transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: false, flipV: false },
+            transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: rl.flipH ?? false, flipV: rl.flipV ?? false },
             width: this.model.width,
             height: this.model.height,
             imageBitmap: null,

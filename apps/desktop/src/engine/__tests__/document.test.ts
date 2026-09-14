@@ -835,8 +835,10 @@ describe('DocumentEngine', () => {
       // Optional metadata on protocol RenderLayer (types.ts) and whether
       // applyFacadeSnapshot's EXISTING-layer branch writes it:
       //   projected:   blendMode, locked, lockTransparency, lockPosition,
-      //                lockRotation, isBackground, hasAdjustments, basicAdjustment
-      //   unprojected: layerType, shapeParams, textData, flipH, flipV, width,
+      //                lockRotation, isBackground, hasAdjustments, basicAdjustment,
+      //                flipH, flipV (an absent flip flag instead leaves the model
+      //                value alone - see the flip-projection tests)
+      //   unprojected: layerType, shapeParams, textData, width,
       //                height (no routed op restates them yet - add each one
       //                alongside the change that routes its op, with a test, so an
       //                arm that starts sending a field cannot silently no-op)
@@ -870,7 +872,10 @@ describe('DocumentEngine', () => {
       // Deliberately unprojected (identity preserved):
       expect(out.shapeParams).toBe(shape);
       expect(out.textData).toBe(text);
-      expect(out.transform.flipH).toBe(true);
+      // Flip flags project: a restated false overrides the model's true, and a
+      // restated true lands on the model's default false.
+      expect(out.transform.flipH).toBe(false);
+      expect(out.transform.flipV).toBe(true);
     });
   });
 

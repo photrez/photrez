@@ -27,8 +27,11 @@ import { isFacadeEnabled } from "./bridge";
 import { peekFacade } from "./selectionMirror";
 
 // Engine-layer shape the facade projection consumes. DocumentEngine.applyFacadeSnapshot
-// reads these fields authoritatively (an omitted field is projected as the cleared
-// default), so every field it consumes must be carried across.
+// reads these fields authoritatively, so every field it consumes must be carried
+// across. An omitted lock / blendMode / isBackground / adjustment field projects as
+// the cleared default; an omitted flipH/flipV instead leaves the model value alone,
+// because the arms that restate a layer without touching flips simply do not send
+// the field.
 export type FacadeProjectionLayer = {
   id: string;
   name: string;
@@ -42,7 +45,7 @@ export type FacadeProjectionLayer = {
   blendMode?: string;
   hasAdjustments?: boolean;
   basicAdjustment?: BasicAdjustment;
-  transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
+  transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean };
 };
 
 // Build the flat facade-projection descriptor for one engine layer. Shared by the
@@ -67,6 +70,8 @@ export function toFacadeProjectionLayer(l: FacadeProjectionLayer): RenderLayer {
     scaleX: l.transform.scaleX,
     scaleY: l.transform.scaleY,
     rotation: l.transform.rotation,
+    flipH: l.transform.flipH,
+    flipV: l.transform.flipV,
     resourceId: 0,
   };
 }
