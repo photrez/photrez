@@ -116,8 +116,14 @@ export default defineConfig({
           // CI windows runners are slow: 3 tests hit the 5000ms default and
           // flaked (crossDocDragDropWiring, PropertiesPanelBasicAdjustments,
           // useBrushOverlay). Re-run --failed always passed - runner slowness,
-          // not a regression. 30000ms removes the flake structurally.
-          testTimeout: 30000,
+          // not a regression. 30000ms removed that flake structurally.
+          // 30000ms was then itself outgrown: operationParity.matrix "(p6)
+          // rasterizeLayer" (86ms of real work locally, no assertion failure)
+          // stalled past 30s on a component job whose whole file import phase
+          // takes ~283s on the windows runner, and the next run of the same
+          // suite passed. The component job is near-saturated, so keep an extra
+          // margin instead of "fixing" a test that is not broken.
+          testTimeout: 60000,
           alias: { "@/wasm/pkg/photrez_core": wasmTestShim },
         },
         extends: true,
