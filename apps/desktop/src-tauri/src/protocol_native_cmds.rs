@@ -937,4 +937,128 @@ mod tests {
             "error must be a valid missing-doc rejection envelope, got: {err}"
         );
     }
+
+    /// Measurement bench (the NUMBER is the point, not correctness): times the
+    /// in-process cost of one commit through the FULL native command path -
+    /// `serde_json` envelope parse -> registry lookup -> `history.apply` ->
+    /// `CommandResult` serialize. This is the per-commit compute+serde cost the
+    /// native authority adds per commit.
+    ///
+    /// It EXCLUDES the Tauri webview<->process IPC transport, which cannot be
+    /// measured headlessly; the live per-commit cost is this number plus that
+    /// hop. The assertion is a deliberately lenient ceiling so the bench
+    /// documents the figure instead of flaking on a slow CI runner.
+    #[test]
+    fn native_commit_latency_bench() {
+        use std::time::{Duration, Instant};
+
+        const BENCH_DOC: &str = "native-commit-latency-bench-doc";
+        const ITERS: usize = 1000;
+        const BATCH: usize = 100;
+        /// Lenient in-process ceiling: 2ms per commit. The real figure is tens
+        /// of microseconds; this only catches a pathological regression.
+        const BUDGET_US: f64 = 2000.0;
+
+        seed_routed_doc(BENCH_DOC);
+        let mut version = protocol_version_native(BENCH_DOC.to_string()).expect("version");
+
+        // Two realistic small commit-boundary envelopes: a flat metadata op and
+        // a small nested-struct op, both on the same raster layer. Alternating
+        // keeps each accepted command advancing the document version.
+        let opacity = r#"{"type":"setOpacity","id":"l-mid","opacity":0.5}"#;
+        let adjustment = r#"{"type":"setAdjustment","id":"l-mid","adjustment":{"brightness":15.0,"contrast":-10.0,"saturation":0.0}}"#;
+
+        let mut per_op_us: Vec<f64> = Vec::with_capacity(ITERS);
+        let mut opacity_ops = 0usize;
+        let mut adjustment_ops = 0usize;
+
+        for i in 0..ITERS {
+            let is_opacity = i % 2 == 0;
+            let command = if is_opacity { opacity } else { adjustment };
+            // Envelope construction is client-side; keep it out of the timed
+            // region so we measure the native command path, not `format!`.
+            let envelope = envelope_json(command, version);
+
+            let t0 = Instant::now();
+            let result = protocol_apply_command_native(envelope, BENCH_DOC.to_string())
+                .expect("bench command accepted");
+            let elapsed = t0.elapsed();
+            per_op_us.push(elapsed.as_secs_f64() * 1e6);
+
+            let parsed: CommandResult = serde_json::from_str(&result).expect("result parses");
+            assert_eq!(
+                parsed.document_version,
+                version + 1,
+                "each accepted bench commit must bump the version by one"
+            );
+            version = parsed.document_version;
+            if is_opacity {
+                opacity_ops += 1;
+            } else {
+                adjustment_ops += 1;
+            }
+        }
+
+        // Serde-only control: parse the envelope and serialize it back, with no
+        // engine apply, so the report separates serde-in/out from compute.
+        let serde_sample = envelope_json(opacity, 0);
+        let mut serde_total = Duration::ZERO;
+        for _ in 0..ITERS {
+            let t0 = Instant::now();
+            let env: CommandEnvelope =
+                serde_json::from_str(&serde_sample).expect("envelope parses");
+            let _ = serde_json::to_string(&env).expect("envelope serializes");
+            serde_total += t0.elapsed();
+        }
+
+        let total_us: f64 = per_op_us.iter().sum();
+        let mean_us = total_us / ITERS as f64;
+        let serde_mean_us = serde_total.as_secs_f64() * 1e6 / ITERS as f64;
+        let apply_mean_us = mean_us - serde_mean_us;
+
+        // Per-op mean within each batch of 100, then the median of those batch
+        // means (robust against a single scheduling hiccup).
+        let mut sorted_batch_means: Vec<f64> = per_op_us
+            .chunks(BATCH)
+            .map(|c| c.iter().sum::<f64>() / c.len() as f64)
+            .collect();
+        sorted_batch_means.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
+        let batch_median_us = sorted_batch_means[sorted_batch_means.len() / 2];
+
+        // Per-command split: even indices are setOpacity, odd are setAdjustment.
+        let per_command = |us: &[f64]| -> (f64, f64) {
+            let mean = us.iter().sum::<f64>() / us.len() as f64;
+            let mut sorted = us.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
+            (mean, sorted[sorted.len() / 2])
+        };
+        let opacity_us: Vec<f64> = per_op_us.iter().step_by(2).copied().collect();
+        let adjustment_us: Vec<f64> = per_op_us.iter().skip(1).step_by(2).copied().collect();
+        let (opacity_mean, opacity_median) = per_command(&opacity_us);
+        let (adjustment_mean, adjustment_median) = per_command(&adjustment_us);
+
+        assert_eq!(opacity_ops, ITERS / 2);
+        assert_eq!(adjustment_ops, ITERS / 2);
+
+        eprintln!(
+            "native_commit_latency_bench: N={ITERS} (setOpacity={opacity_ops}, setAdjustment={adjustment_ops})"
+        );
+        eprintln!(
+            "  per-op total (serde-in + apply + serde-out): mean={mean_us:.2}us batch-median={batch_median_us:.2}us"
+        );
+        eprintln!("  setOpacity:    mean={opacity_mean:.2}us median={opacity_median:.2}us");
+        eprintln!("  setAdjustment: mean={adjustment_mean:.2}us median={adjustment_median:.2}us");
+        eprintln!("  serde-only (envelope parse + serialize):      mean={serde_mean_us:.2}us");
+        eprintln!("  derived engine.apply portion:                 mean~={apply_mean_us:.2}us");
+        eprintln!(
+            "  budget assert: mean {mean_us:.2}us < {BUDGET_US:.0}us -> PASS (in-process only; IPC hop excluded)"
+        );
+
+        assert!(
+            mean_us < BUDGET_US,
+            "in-process per-commit compute+serde mean {mean_us:.2}us exceeded the {BUDGET_US:.0}us lenient budget"
+        );
+
+        close_doc(BENCH_DOC);
+    }
 }

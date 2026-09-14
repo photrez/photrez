@@ -237,8 +237,18 @@ export class DocumentEngine {
    */
   private syncLayersFromRust(): void {
     const prevById = new Map(this.model.layers.map(l => [l.id, l]));
-    const rustLayers: any[] = JSON.parse(this.rustEngine.get_layers_json());
-    this.model.layers = rustLayers.map((l: any) => {
+    const facadeOn = isFacadeEnabled();
+    let rustLayers: any[];
+    try {
+      rustLayers = JSON.parse(this.rustEngine.get_layers_json());
+    } catch (e) {
+      // The Rust mirror is an auxiliary view of the graph. Under facade authority
+      // a failed mirror read must never drop the authoritative model, so leave it
+      // untouched. Flag OFF keeps the original throw-through (byte-identical).
+      if (facadeOn) return;
+      throw e;
+    }
+    const restated: LayerNode[] = rustLayers.map((l: any) => {
       const prev = prevById.get(l.id);
       return {
         id: l.id,
@@ -267,7 +277,110 @@ export class DocumentEngine {
         bitmapEpoch: prev?.bitmapEpoch,
       } as LayerNode;
     });
-    this.model.activeLayerId = this.rustEngine.get_active_layer_id() ?? null;
+    let rebuilt: LayerNode[];
+    if (facadeOn) {
+      // Facade authority: the per-engine Rust mirror is an auxiliary view - it is
+      // refreshed only by a legacy op's notifyChange (which re-pushes the whole
+      // model), so after a facade op it can be short and/or stale. Rebuilding the
+      // model from the mirror alone would DROP the routed layers it never
+      // received and would restore their stale mirror positions. The previous
+      // model order is therefore the SPINE - it is the last authoritative
+      // projection.
+      //
+      // Order rule: the mirror owns the RELATIVE order of the ids it restates
+      // (that is where a legacy reorder is expressed), so both-present ids are
+      // filled from the mirror order. An id the model still holds and the mirror
+      // lacks (a routed layer, or one added after the last legacy push) is
+      // PRESERVED IN ITS PREVIOUS-MODEL SLOT - it is never appended to the end, so
+      // a legacy op cannot teleport a routed layer.
+      //
+      // Set membership: an id the model still holds and the mirror lacks is
+      // preserved only when the facade still owns it (facadeOwnedIds) AND this
+      // engine projected it in its last facade snapshot (facadeProjectedIds), so
+      // a layer legitimately deleted through the facade - already gone from the
+      // model and unmarked - is never resurrected.
+      const mirrorIds = new Set(rustLayers.map((l: any) => l.id));
+      const restatedById = new Map(restated.map(n => [n.id, n] as const));
+      const survives = (id: string): boolean => {
+        if (mirrorIds.has(id)) return true;
+        if (!isFacadeOwned(id)) return false;
+        if (this.facadeProjectedIds && !this.facadeProjectedIds.has(id)) return false;
+        return true;
+      };
+      const nodeFor = (id: string): LayerNode => restatedById.get(id) ?? prevById.get(id)!;
+      const bothPresent = rustLayers.map((l: any) => l.id).filter((id: string) => prevById.has(id));
+
+      rebuilt = [];
+      let cursor = 0;
+      for (const id of prevById.keys()) {
+        if (mirrorIds.has(id)) {
+          // Both-present slot: fill from the mirror's relative order.
+          rebuilt.push(nodeFor(bothPresent[cursor++]));
+        } else if (survives(id)) {
+          // Mirror-absent preserved id: keep its previous-model slot.
+          rebuilt.push(nodeFor(id));
+        }
+      }
+      // New mirror ids (add/duplicate through the legacy mirror) are placed at
+      // their mirror-relative position: immediately after the nearest preceding
+      // mirror id already in the vector, else at the front, else at the end.
+      const indexOfId = new Map(rebuilt.map((n, i) => [n.id, i] as const));
+      let anchor = -1;
+      for (const id of rustLayers.map((l: any) => l.id)) {
+        const at = indexOfId.get(id);
+        if (at !== undefined) { anchor = at; continue; }
+        if (prevById.has(id)) continue; // prev id dropped by this op: not re-added
+        // An id the FACADE deleted keeps living in this engine's mirror until the
+        // next legacy op overwrites it, because applyFacadeSnapshot never pushes
+        // the model back into the mirror. Here it is mirror-present and
+        // prev-absent, which is the exact shape of a genuinely new mirror id - so
+        // without this gate the insert below would resurrect it as a pixel-less
+        // ghost. everDroppedIds is this engine's own ledger of ids that left the
+        // model (facade delete / undone add / legacy delete / merge / flatten),
+        // populated before the projection consumes a disappearance, so a mirror id
+        // recorded there is never re-added. Per-engine by construction: ids dropped
+        // in another document can never suppress an insert here.
+        if (this.everDroppedIds.has(id)) continue;
+        rebuilt.splice(anchor + 1, 0, restatedById.get(id)!);
+        for (let i = 0; i < rebuilt.length; i++) indexOfId.set(rebuilt[i].id, i);
+        anchor = indexOfId.get(id)!;
+      }
+      // A mirror read that would drop model content without a recorded delete is
+      // a desync (e.g. a degenerate empty mirror beside a populated model), not a
+      // real removal. Every intended disappearance records its node before this
+      // sync runs (legacy delete/merge/flatten record the victims, facade delete
+      // records the projection), so a dropped id absent from that ledger means the
+      // mirror lost a layer the model never deleted. Announce it loudly with the
+      // ids instead of silently deleting them; still a warning, never a throw.
+      const rebuiltIdSet = new Set(rebuilt.map((n) => n.id));
+      const silentlyDropped: string[] = [];
+      for (const id of prevById.keys()) {
+        if (!rebuiltIdSet.has(id) && !this.everDroppedIds.has(id)) silentlyDropped.push(id);
+      }
+      if (silentlyDropped.length > 0) {
+        console.warn(
+          `[facade-sync] Rust mirror dropped ${silentlyDropped.length} model layer(s) for doc "${this.model.id}" without a recorded delete: ${silentlyDropped.join(", ")}`,
+        );
+      }
+    } else {
+      rebuilt = restated;
+    }
+    this.model.layers = rebuilt;
+    const mirrorActive = this.rustEngine.get_active_layer_id() ?? null;
+    if (facadeOn) {
+      // The mirror's active id is only meaningful when it survived the rebuild.
+      // A routed layer is absent from a stale mirror, so adopting its (null or
+      // stale) active id would drop the user's selection on a legacy op. Keep the
+      // previous model's active when it survived; adopt the mirror's only when it
+      // did.
+      const rebuiltIds = new Set(rebuilt.map(l => l.id));
+      const mirrorActiveOk = !!mirrorActive && rebuiltIds.has(mirrorActive);
+      const prevActive = this.model.activeLayerId;
+      const prevActiveOk = !!prevActive && rebuiltIds.has(prevActive);
+      this.model.activeLayerId = mirrorActiveOk ? mirrorActive : (prevActiveOk ? prevActive : mirrorActive);
+    } else {
+      this.model.activeLayerId = mirrorActive;
+    }
     this.model.dirty = true;
   }
 
@@ -572,6 +685,9 @@ export class DocumentEngine {
 
   // ─── Shape Layers ───
   addShapeLayer(name: string, params: ShapeParams): LayerNode {
+    // Under facade authority this add goes through the Rust mirror like any other
+    // legacy op; syncLayersFromRust's facade choke point keeps the facade-owned
+    // layers the short mirror lacks (see that method).
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const id = `layer-${crypto.randomUUID()}`;
@@ -644,6 +760,8 @@ export class DocumentEngine {
 
   // ─── Text Layers ───
   addTextLayer(name: string, data: TextData): LayerNode {
+    // Facade authority: see addShapeLayer - the syncLayersFromRust choke point
+    // preserves facade-owned layers a short mirror would otherwise drop.
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const normalized = normalizeTextData(data);

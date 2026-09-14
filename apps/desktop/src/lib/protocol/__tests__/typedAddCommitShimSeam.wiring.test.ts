@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Production-seam wiring test for the facade typed-add snapshot refresh.
+//
+// The sibling typedAddFacadeSync.test.ts calls recordExternalTransitionFor
+// DIRECTLY, which does not prove the refresh is reachable from the real app
+// entry point. This test drives the PRODUCTION seam instead: it installs the
+// commit shim (EditorShell does this once at boot), then calls
+// CommandHistory.commit() - the exact call every legacy op makes. The shim
+// forwards the LIVE engine into recordExternalTransitionFor, which captures the
+// layer vector and re-projects it into the facade snapshot. The assertion is
+// that the facade snapshot learned the typed layer the legacy op added, so the
+// next routed projection rebuilds the model with it.
+//
+// Flag-ON path: every other shim test runs with photrez.facade OFF.
+
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
+import { DocumentEngine } from "@/engine/document";
+import { CommandHistory } from "@/engine/history";
+import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
+import {
+  getFacade,
+  installFacadeCommitShim,
+  seedFacadeFromEngine,
+  __resetFacadeRegistryForTests,
+} from "@/lib/protocol/facadeRegistry";
+
+const DOC_ID = "docCommitSeam";
+
+// jsdom has no OffscreenCanvas; stub the minimal seam the text rasterizer uses.
+function stubOffscreenCanvas(): void {
+  const Mock = function (this: any, w: number, h: number) {
+    this.width = w;
+    this.height = h;
+    const ctx: any = {
+      font: "",
+      fillStyle: "",
+      strokeStyle: "",
+      lineWidth: 0,
+      lineJoin: "miter",
+      miterLimit: 10,
+      globalAlpha: 1,
+      globalCompositeOperation: "source-over",
+      textBaseline: "alphabetic",
+      letterSpacing: undefined,
+      measureText: (s: string) => ({
+        width: s.length * 10,
+        actualBoundingBoxAscent: 80,
+        actualBoundingBoxDescent: 24,
+        fontBoundingBoxAscent: 80,
+        fontBoundingBoxDescent: 24,
+      }),
+      fillText: () => {},
+      strokeText: () => {},
+      drawImage: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      scale: () => {},
+      rotate: () => {},
+      fillRect: () => {},
+    };
+    this.getContext = () => ctx;
+    this.transferToImageBitmap = () => ({ width: this.width, height: this.height, close: () => {} });
+  } as unknown as typeof OffscreenCanvas;
+  vi.stubGlobal("OffscreenCanvas", Mock);
+}
+
+// The shim reads getEngine()/getId() at commit time; hand it the per-test engine.
+let liveEngine: DocumentEngine | null = null;
+
+beforeAll(async () => {
+  await getWasmExportModule();
+  // Install the production shim once (shimInstalled is module-sticky; production
+  // installs it once at EditorShell boot).
+  installFacadeCommitShim({
+    getEngine: () => liveEngine as never,
+    getDocId: () => liveEngine?.getId() ?? "default",
+  });
+});
+
+beforeEach(() => {
+  localStorage.setItem("photrez.facade", "1");
+  localStorage.removeItem("photrez.facadeAuthority");
+  stubOffscreenCanvas();
+});
+
+afterEach(() => {
+  localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
+  liveEngine = null;
+  __resetFacadeRegistryForTests();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("facade commit-shim seam (photrez.facade=1)", () => {
+  it("history.commit() through the installed shim refreshes the facade snapshot with the typed layer", async () => {
+    const engine = new DocumentEngine(DOC_ID, DOC_ID, 800, 600);
+    liveEngine = engine;
+    const facade = getFacade(DOC_ID);
+    await seedFacadeFromEngine(engine as never, facade);
+    const snap = await facade.addLayer("Owned", 100, 100, 0);
+    engine.applyFacadeSnapshot(snap as never);
+
+    const text = engine.addTextLayer("Hello", { ...DEFAULT_TEXT_DATA, content: "Hello" });
+    // The typed add is in the model but NOT yet in the facade snapshot.
+    expect(facade.snapshot.layers.map((l) => l.id)).not.toContain(text.id);
+
+    // The production entry point every legacy op calls.
+    const history = new CommandHistory();
+    history.commit(engine.getModel() as never, "Add Text");
+
+    // The shim forwarded the LIVE engine into recordExternalTransitionFor, which
+    // re-projected the model into the facade snapshot.
+    await vi.waitFor(() => {
+      expect(facade.snapshot.layers.map((l) => l.id)).toContain(text.id);
+    });
+    // The routed layer that was already projected is still present too.
+    expect(facade.snapshot.layers.map((l) => l.id)).toContain(snap.layers[0].id);
+  });
+});

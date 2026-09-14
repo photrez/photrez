@@ -9,6 +9,7 @@
 import { createSignal } from "solid-js";
 import type { Transform2D, RenderState } from "@/engine/types";
 import { HistoryQueryResult } from "./types";
+import type { RenderLayer } from "./types";
 import { CommandHistory } from "@/engine/history";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { EditorFacade } from "./editorFacade";
@@ -501,57 +502,65 @@ export async function facadeCommitNumericTransform(
 // A fresh facade knows nothing about pre-existing TS layers; without seeding,
 // its first full-snapshot projection would CLOBBER them (applyFacadeSnapshot
 // replaces the model with the facade view). Seed once from the engine's
-// current layers as an initial metadata-only snapshot.
+// current layers as an initial metadata-only snapshot. The same layer mapping
+// re-projects the model into the snapshot after a mirrored external transition.
+// Engine-layer shape the facade projection consumes. DocumentEngine.applyFacadeSnapshot
+// reads these fields authoritatively (an omitted field is projected as the cleared
+// default), so every field it consumes must be carried across.
+type FacadeProjectionLayer = {
+  id: string;
+  name: string;
+  visible: boolean;
+  opacity: number;
+  isBackground?: boolean;
+  locked?: boolean;
+  lockTransparency?: boolean;
+  lockPosition?: boolean;
+  lockRotation?: boolean;
+  blendMode?: string;
+  hasAdjustments?: boolean;
+  basicAdjustment?: BasicAdjustment;
+  transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
+};
+
+// Build the flat facade-projection descriptor for one engine layer. Shared by
+// the one-time seed and the post-external-transition refresh so both project the
+// same fields. Deep-copy the adjustment so neither aliases the model object.
+function toFacadeProjectionLayer(l: FacadeProjectionLayer): RenderLayer {
+  return {
+    id: l.id,
+    name: l.name,
+    visible: l.visible,
+    opacity: l.opacity,
+    isBackground: l.isBackground,
+    locked: l.locked,
+    lockTransparency: l.lockTransparency,
+    lockPosition: l.lockPosition,
+    lockRotation: l.lockRotation,
+    blendMode: l.blendMode,
+    hasAdjustments: l.hasAdjustments,
+    basicAdjustment: l.basicAdjustment ? { ...l.basicAdjustment } : undefined,
+    x: l.transform.x,
+    y: l.transform.y,
+    scaleX: l.transform.scaleX,
+    scaleY: l.transform.scaleY,
+    rotation: l.transform.rotation,
+    resourceId: 0,
+  };
+}
+
 export async function seedFacadeFromEngine(
   engine: {
     getId(): string;
-    getLayers(): Array<{
-      id: string;
-      name: string;
-      visible: boolean;
-      opacity: number;
-      isBackground?: boolean;
-      locked?: boolean;
-      lockTransparency?: boolean;
-      lockPosition?: boolean;
-      lockRotation?: boolean;
-      blendMode?: string;
-      hasAdjustments?: boolean;
-      basicAdjustment?: BasicAdjustment;
-      transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
-    }>;
+    getLayers(): Array<FacadeProjectionLayer>;
   },
   facade: EditorFacade
 ): Promise<void> {
   if (facade.snapshot.layers.length === 0 && engine.getLayers().length > 0) {
     facade.seedSnapshot({
       version: 0,
-      layers: engine.getLayers().map((l) => ({
-        id: l.id,
-        name: l.name,
-        visible: l.visible,
-        opacity: l.opacity,
-        isBackground: l.isBackground,
-        // Carry the same optional fields applyFacadeSnapshot reads as
-        // authoritative. The projection treats an omitted field as the cleared
-        // default, so a seed that dropped these would clobber a pre-existing
-        // layer's blend/locks/adjustment on the first facade restatement. Deep-
-        // copy the adjustment so the seed never aliases the model object.
-        locked: l.locked,
-        lockTransparency: l.lockTransparency,
-        lockPosition: l.lockPosition,
-        lockRotation: l.lockRotation,
-        blendMode: l.blendMode,
-        hasAdjustments: l.hasAdjustments,
-        basicAdjustment: l.basicAdjustment ? { ...l.basicAdjustment } : undefined,
-        x: l.transform.x,
-        y: l.transform.y,
-        scaleX: l.transform.scaleX,
-        scaleY: l.transform.scaleY,
-        rotation: l.transform.rotation,
-        resourceId: 0,
-      })),
-    } as never);
+      layers: engine.getLayers().map(toFacadeProjectionLayer),
+    });
   }
   // Native-authority cutover seed: mirror the live TS/facade state into the
   // Rust REGISTRY engine so the first rerouted command's expectedVersion matches.
@@ -586,6 +595,31 @@ export async function seedFacadeFromEngine(
     // renderedVersion backward if pixel commits had already advanced past the seed.
     const snap = await getSnapshot(facade.docId);
     facade.syncRenderedVersionTo(snap.version);
+  }
+}
+
+// Re-project a layer vector into the facade projection snapshot after a mirrored
+// external transition. The transition mutates the TS model outside the facade
+// command path, and the snapshot is the source the next routed projection
+// rebuilds the model from (engine.applyFacadeSnapshot), so without this the
+// projection would drop the externally added/removed layers. Gated by the facade
+// flag (no-op when OFF => the default path is byte-identical).
+function refreshFacadeSnapshotFromEngine(docId: string, layers: RenderLayer[]): void {
+  if (!isFacadeEnabled()) return;
+  const f = peekFacade(docId);
+  if (!f) return;
+  try {
+    f.seedSnapshot({
+      version: f.renderedVersion,
+      layers,
+      // Only the layer vector changes here; carry the projection's document size
+      // and selection forward so a metadata delta keeps projecting them.
+      width: f.snapshot.width,
+      height: f.snapshot.height,
+      selection: f.snapshot.selection,
+    });
+  } catch {
+    // never let instrumentation break the legacy caller
   }
 }
 
@@ -654,6 +688,20 @@ export async function recordExternalTransitionFor(
   });
   const marker: Marker = { kind: "pendingRecord", token, label: rec.label };
   pendingMarkers.push(marker); // detection marker BEFORE the record call (ADR)
+  // Capture the layer vector SYNCHRONOUSLY at record time, before the await: the
+  // refresh below must project the model as it was when the transition was
+  // recorded, not a state a concurrent op may have mutated during the round-trip.
+  // Gated by the facade flag so the default path does no extra work. The
+  // projection is auxiliary, so a minimal/throwing engine stub degrades to
+  // "no refresh" and must never fail the history mirror.
+  let externalLayers: RenderLayer[] | null = null;
+  if (engine && isFacadeEnabled()) {
+    try {
+      externalLayers = engine.getLayers().map(toFacadeProjectionLayer);
+    } catch {
+      externalLayers = null;
+    }
+  }
   try {
     // Per-document engine owns its adapters, so register "ts-external" on this
     // doc's engine before every external transition. Rust `register_adapter` is
@@ -677,6 +725,13 @@ export async function recordExternalTransitionFor(
     // facade calls — every envelope builder must see the new DV.
     if (!peekFacade(docId)) getFacade(docId); // ensure instance exists for future refresh
     syncAuthoritativeVersion(docId, res.documentVersion);
+    // The mirrored transition changed the TS model outside the facade command
+    // path, so the projection snapshot must learn the new layer vector before
+    // the next routed op rebuilds the model from it. Gated: no-op when the
+    // facade flag is OFF (default path byte-identical). The vector was captured
+    // before the await (see above), so the refresh cannot observe a model a
+    // concurrent op mutated mid-round-trip.
+    if (externalLayers) refreshFacadeSnapshotFromEngine(docId, externalLayers);
     // Native-authority shadow re-push (gated, default OFF => no-op). A mirrored
     // external transition changes the TS model outside the facade command path, so
     // re-push the full canonical shadow so the native copy stays complete. The
