@@ -6,6 +6,8 @@ import { MAX_LAYERS, getEffectiveMaxDim } from "@/engine/types";
 import { decodeImageBytes, UnsupportedImageError, ImageTooLargeError } from "@/engine/imageDecode";
 import { readFileBytes } from "@/tauri/native";
 import { WorkspaceManager, type DocumentSession } from "@/engine/workspace";
+import { isFacadeOwnedLayer } from "@/engine/document";
+import { commitFacadeReorder, isFacadeEnabled, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
 
 export const CASCADE_OFFSET_PX = 24;
 
@@ -77,6 +79,64 @@ async function fileToBitmap(path: string): Promise<ImageBitmap> {
   return await decodeImageBytes(bytes);
 }
 
+// Panel drop geometry: the (insertAt, insertPosition) hint tracked during dragover
+// names a CURRENT row, while reorderLayer's toIndex is a post-removal insertion
+// index. The math differs by where the source sits relative to the hint; get it
+// wrong and the drop silently no-ops or lands one row off. A target without a hint
+// means "move to the end of the stack", so a drop is never silently lost.
+function panelDropTargetIndex(sourceIdx: number, target: DropTarget, layerCount: number): number {
+  let targetIdx: number;
+  if (target && target.type === "layers-panel" && typeof target.insertAt === "number") {
+    const insertAt = target.insertAt;
+    const position = target.insertPosition === "below" ? "below" : "above";
+    if (sourceIdx < insertAt) {
+      // Source is above the insertion point. After splice, every row at-or-after
+      // sourceIdx shifts down by one, so the row that was at insertAt is now at
+      // insertAt - 1.
+      targetIdx = position === "below" ? insertAt : insertAt - 1;
+    } else if (sourceIdx > insertAt) {
+      targetIdx = position === "below" ? insertAt + 1 : insertAt;
+    } else {
+      targetIdx = position === "below" ? sourceIdx + 1 : sourceIdx;
+    }
+  } else {
+    targetIdx = layerCount - 1;
+  }
+  return Math.min(Math.max(0, targetIdx), layerCount - 1);
+}
+
+// The panel drag reaches the same Reorder command arm as the menu / keyboard
+// reorder actions. The routed arm owns the undo entry, so this path writes no TS
+// history entry and never also calls engine.reorderLayer (no double apply). The
+// projection's ordered restatement repaints panel and canvas through the engine's
+// visual-change channel.
+function routePanelReorder(
+  sourceEngine: EngineFacade,
+  ws: WorkspaceFacade,
+  docId: string,
+  layerId: string,
+  sourceIdx: number,
+  targetIdx: number,
+): void {
+  void commitFacadeReorder(sourceEngine as never, layerId, targetIdx)
+    .then((res) => {
+      if (res.status === "mixed-rejected") {
+        // Unreachable for a one-row drag (mixed needs owned and unowned ids in
+        // the same set); kept as the safety net the sibling call sites use so a
+        // future multi-row drag cannot partially reorder.
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+        return;
+      }
+      if (res.status === "applied" || res.status === "noop" || res.status === "empty") return;
+      // "legacy": facade-owned at the gate, but the funnel deferred (the authority
+      // can still be wasm). Run the untouched legacy gesture, history first.
+      const history = ws.getHistory(docId);
+      if (history) history.commit(sourceEngine.snapshot(), "Reorder Layer");
+      sourceEngine.reorderLayer(sourceIdx, targetIdx);
+    })
+    .catch((err) => showToast(`Cannot reorder layer: ${(err as Error).message}`, "error"));
+}
+
 export function addLayerFromCrossDoc(
   payload: LayerDragPayload,
   target: DropTarget,
@@ -92,44 +152,26 @@ export function addLayerFromCrossDoc(
     return { newLayerId: null };
   }
 
-  // own layer panel. When the drop handler provides insertAt +
-  // insertPosition (tracked during dragover), honour that exact
-  // landing position. Otherwise fall back to "move source to end of
-  // its own stack" so the drop is never silently lost.
+  // Same-document drop is a reorder. See panelDropTargetIndex for the row math and
+  // routePanelReorder for the facade-owned arm.
   if (payload.sourceDocId === targetDocId) {
-    const sourceIdx = sourceEngine.getLayers().findIndex((l) => l.id === payload.layerId);
+    const layers = sourceEngine.getLayers();
+    const sourceIdx = layers.findIndex((l) => l.id === payload.layerId);
     if (sourceIdx < 0) return { newLayerId: null };
+    const targetIdx = panelDropTargetIndex(sourceIdx, target, layers.length);
+
+    // The gate is evaluated SYNCHRONOUSLY, before any await, so the flag-off path
+    // below still commits and reorders inside the drop handler.
+    if (isFacadeEnabled() && isFacadeOwnedLayer(payload.layerId)) {
+      if (targetIdx !== sourceIdx) {
+        routePanelReorder(sourceEngine, ws, payload.sourceDocId, payload.layerId, sourceIdx, targetIdx);
+      }
+      return { newLayerId: payload.layerId };
+    }
+
     const sourceHistory = ws.getHistory(payload.sourceDocId);
     if (sourceHistory) sourceHistory.commit(sourceEngine.snapshot(), "Reorder Layer");
-
-    const layers = sourceEngine.getLayers();
-    // dragover-tracked (insertAt, insertPosition) hint. The naive
-    // `splice+insert` math is sensitive to whether the source sits
-    // before, at, or after the insertion point — get it wrong and
-    // the drop silently no-ops or lands in the wrong row.
-    let targetIdx: number;
-    if (target && target.type === "layers-panel" && typeof target.insertAt === "number") {
-      const insertAt = target.insertAt;
-      const position = target.insertPosition === "below" ? "below" : "above";
-      if (sourceIdx < insertAt) {
-        // Source is above the insertion point. After splice, every
-        // row at-or-after sourceIdx shifts down by one, so the row
-        // that was at insertAt is now at insertAt-1.
-        targetIdx = position === "below" ? insertAt : insertAt - 1;
-      } else if (sourceIdx > insertAt) {
-        // Source is below the insertion point — no shift.
-        targetIdx = position === "below" ? insertAt + 1 : insertAt;
-      } else {
-        // sourceIdx === insertAt — drop on the source's own row.
-        targetIdx = position === "below" ? sourceIdx + 1 : sourceIdx;
-      }
-    } else {
-      targetIdx = layers.length - 1;
-    }
-    // Clamp to a valid range after the math.
-    targetIdx = Math.min(Math.max(0, targetIdx), layers.length - 1);
     if (targetIdx === sourceIdx) {
-      // Drop on source's own row with no movement — no-op.
       return { newLayerId: payload.layerId };
     }
     sourceEngine.reorderLayer(sourceIdx, targetIdx);

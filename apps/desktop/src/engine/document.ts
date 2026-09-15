@@ -649,12 +649,13 @@ export class DocumentEngine {
   }
 
   reorderLayer(fromIndex: number, toIndex: number): void {
-    // No E_FACADE_OWNED guard here (unlike the pure-metadata setters): the
-    // same-doc drag-and-drop caller (crossDocLayerOps) is not facade-routed
-    // yet, so a guard would crash a working path instead of protecting state.
+    // No E_FACADE_OWNED guard here (unlike the pure-metadata setters): a guard
+    // throws, which would crash a caller instead of protecting state. Reorder is
+    // structural, so a call site that diverges is fixed at the call site (route
+    // it through commitFacadeReorder in facadeRegistry), not by throwing here.
     // Under native authority an unrouted reorder diverges from the engine the
-    // same way unrouted duplicate/merge already do - a known gap tracked
-    // separately, not signalled by a throw.
+    // same way unrouted duplicate/merge already do - a known gap, not signalled
+    // by a throw.
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
         const ok: boolean = this.rustEngine.reorder_layer(fromIndex, toIndex);
