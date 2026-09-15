@@ -12,7 +12,7 @@ import {
   decideTransformSetRoute,
   routeNumericTransform,
   routeNumericTransformBatch,
-  type TransformEdit,
+  type WholeTransformEdit,
   type TransformRouteRefresh,
 } from "./layers/transformRouting";
 
@@ -198,7 +198,7 @@ export function MoveOptionBar() {
 
     // Every position is computed from the pre-mutation model first, so a mixed
     // selection can be refused without leaving a half-aligned stack.
-    const edits: TransformEdit[] = [];
+    const edits: WholeTransformEdit[] = [];
 
     for (const { id: targetId, layer } of layersToAlign) {
       const next = { ...layer.transform };

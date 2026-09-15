@@ -2,6 +2,10 @@ import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
 import type { LayerNode } from "@/engine/types";
 import { PAINT_SIZE_STEP_HARDNESS, paintSizeStep, adjustPaintSize, adjustPaintHardness } from "../../brushToolState";
+import {
+  decideTransformSetRoute,
+  routeNumericTransformBatch,
+} from "../../layers/transformRouting";
 import type { KeyboardShortcutContext } from "./context";
 
 /**
@@ -213,6 +217,26 @@ export function handleToolNavKey(
     else if (e.key === "ArrowDown") dy = step;
     else if (e.key === "ArrowLeft") dx = -step;
     else if (e.key === "ArrowRight") dx = step;
+
+    // Relative + repeatable, so the routed patch is a resolver: a hop must add the
+    // step to the transform the PREVIOUS hop projected. A position read at keydown
+    // would make every key in a repeat burst send the same absolute x/y, and the
+    // unchanged-value guard would silently drop all but the first.
+    const nudgeIds = layersToNudge.map((l) => l.id);
+    if (decideTransformSetRoute(nudgeIds) !== "legacy") {
+      void routeNumericTransformBatch(
+        engine,
+        nudgeIds.map((id) => ({
+          layerId: id,
+          patch: (current) => ({ x: current.x + dx, y: current.y + dy }),
+        })),
+        {
+          requestRender: () => scheduler.requestRender(),
+          notifyVisualChange: () => editor.workspace.notifyVisualChange(),
+        },
+      );
+      return true;
+    }
 
     if (!e.repeat) {
       history.commit(engine.snapshot(), layersToNudge.length > 1 ? "Move Layers" : "Move Layer");

@@ -1,7 +1,7 @@
-// Routing seam for COMMITTED numeric layer-transform edits (position, rotation,
-// reset, align, flip). The native TransformLayer command arm owns the model field
-// and writes its own history entry, so a routed commit must not also mutate the TS
-// engine or write a TS history entry.
+// Routing seam for COMMITTED numeric layer-transform edits (position, nudge,
+// rotation, reset, align, flip). The native TransformLayer command arm owns the
+// model field and writes its own history entry, so a routed commit must not also
+// mutate the TS engine or write a TS history entry.
 //
 // The decision is synchronous and the dispatch is async ON PURPOSE. Callers branch
 // on `canRouteTransform` / `decideTransformSetRoute` inside the event handler and
@@ -17,9 +17,11 @@
 // back, so a routed flip survives the next numeric commit.
 //
 // Undo granularity differs by design: the native arm labels every entry
-// "Transform Layer" (so a routed reset/flip/align loses the legacy label), and a
+// "Transform Layer" (so a routed reset/flip/align loses the legacy label), a
 // routed multi-layer commit writes one entry per layer where the legacy path wrote
-// a single combined entry.
+// a single combined entry, and a routed nudge writes one entry per keypress
+// because the native arm has no coalescing (legacy recorded one per key repeat
+// burst, on the first press only).
 
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
@@ -42,8 +44,17 @@ export type TransformRouteStatus =
 
 export interface TransformEdit {
   layerId: string;
-  // A batch edit is always a whole computed transform, never a resolver: the
-  // legacy fall-through below writes it straight into the engine model.
+  // Relative and repeatable callers pass a resolver so each hop adds its step to
+  // the transform the PREVIOUS hop projected (see the arrow-key nudge).
+  patch: NumericTransformPatch;
+}
+
+// A batch member whose patch is a whole computed transform. Callers that can fall
+// through to the legacy mutators need this: on a "legacy" return the dispatcher
+// writes nothing, so the caller replays the patch itself and a resolver has no
+// value to replay from. Assignable to `TransformEdit`.
+export interface WholeTransformEdit {
+  layerId: string;
   patch: Partial<Transform2D>;
 }
 
@@ -103,6 +114,10 @@ export async function routeNumericTransform(
 // document chain, so a concurrent single edit can only land between two members of
 // this batch - the batch is ordered, not atomic, which matches the one native
 // history entry per layer it produces.
+//
+// A "legacy" return writes nothing: the caller replays the edits itself, which only
+// works for `WholeTransformEdit`. A caller that passes a resolver must have decided
+// to route before it gets here.
 export async function routeNumericTransformBatch(
   engine: DocumentEngine,
   edits: TransformEdit[],
