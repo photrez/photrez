@@ -12,6 +12,15 @@
 // that does not touch params omits it on the wire, so an ABSENT field must leave
 // the model value alone. Clearing on absence would drop a text edit as soon as
 // any other metadata arm restated the layer.
+//
+// shapeParams and layerType (the wire name for the model's `type`) ride that
+// same convention. One consequence is pinned below and is NOT a defect this
+// projection can fix: the RasterizeLayer arm clears shape_params by setting it
+// to None, and a None Option serializes as an absent key
+// (crates/core/src/model.rs - skip_serializing_if), so the wire cannot tell
+// "cleared" apart from "this arm never mentioned the field". The production
+// rasterize route compensates host-side (see routeRasterize in
+// components/editor/layers/structuralRouting.ts).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocumentEngine } from "@/engine/document";
@@ -120,5 +129,82 @@ describe("applyFacadeSnapshot textData projection", () => {
     });
 
     expect(engine.getLayer(layer.id)!.textData!.content).toBe("keep me");
+  });
+});
+
+describe("applyFacadeSnapshot shapeParams + layerType projection", () => {
+  const params = {
+    kind: "rect" as const,
+    width: 100,
+    height: 50,
+    radius: 8,
+    fill: { kind: "solid" as const, color: "#ff0000" },
+    stroke: { enabled: true, color: "#00ff00", width: 6 },
+    arrowHead: false,
+  };
+
+  function shapeModel(): { engine: DocumentEngine; id: string } {
+    // The model layer is assembled directly rather than through
+    // addShapeLayer: the projection consumes the descriptor, and building the
+    // layer without the rasterizer keeps jsdom's missing 2d context out of the
+    // test. Same shape the coverage guard in engine/__tests__/document.test.ts
+    // uses.
+    const engine = new DocumentEngine("docShapeProjection", "Doc", 800, 600);
+    const layer = engine.addLayer("S", 100, 100);
+    const model = engine.getLayer(layer.id)!;
+    model.type = "shape";
+    model.shapeParams = { ...params };
+    return { engine, id: layer.id };
+  }
+
+  it("writes shapeParams + layerType carried by a native restatement into the model", () => {
+    const { engine, id } = shapeModel();
+    const committed = { ...params, kind: "star" as const, radius: 4 };
+
+    engine.applyFacadeSnapshot({
+      version: 3,
+      layers: [restated(id, { layerType: "shape", shapeParams: committed })],
+      width: 800,
+      height: 600,
+    });
+
+    expect(engine.getLayer(id)!.shapeParams).toEqual(committed);
+    expect(engine.getLayer(id)!.type).toBe("shape");
+  });
+
+  it("leaves both fields alone when the restatement omits them", () => {
+    const { engine, id } = shapeModel();
+    const before = engine.getLayer(id)!.shapeParams;
+
+    engine.applyFacadeSnapshot({
+      version: 4,
+      layers: [restated(id)],
+      width: 800,
+      height: 600,
+    });
+
+    expect(engine.getLayer(id)!.shapeParams).toBe(before);
+    expect(engine.getLayer(id)!.type).toBe("shape");
+  });
+
+  it("rasterize: a restated layerType flips type, and the cleared shapeParams cannot ride the wire (absent means keep)", () => {
+    const { engine, id } = shapeModel();
+
+    // What apply_rasterize emits: layer_type Some(Raster) and shape_params None,
+    // which serializes as an ABSENT key (crates/core/src/model.rs). The delta
+    // shape asserted here is the one bridgeEmuArms.test.ts pins for the
+    // rasterize arm.
+    engine.applyFacadeSnapshot({
+      version: 5,
+      layers: [restated(id, { layerType: "raster" })],
+      width: 800,
+      height: 600,
+    });
+
+    // The kind travels, so the model stops being a shape layer.
+    expect(engine.getLayer(id)!.type).toBe("raster");
+    // The params do NOT travel: absence means keep, and the arm has no way to
+    // say "cleared". routeRasterize deletes them on the model after the command.
+    expect(engine.getLayer(id)!.shapeParams).toEqual(params);
   });
 });

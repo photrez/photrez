@@ -8,6 +8,9 @@ import { Tooltip } from "./Tooltip";
 import { Icon, type IconName } from "./icons";
 import type { LayerNode, ShapeParams, ShapeKind } from "@/engine/types";
 import { useI18n } from "@/i18n/I18nProvider";
+import { isFacadeOwnedLayer, type DocumentEngine } from "@/engine/document";
+import { commitFacadeParams, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { showToast } from "./Toast";
 
 type ShapeLayer = LayerNode & { type: "shape"; shapeParams: ShapeParams };
 
@@ -48,8 +51,10 @@ const SHAPE_PRESETS: { kind: ShapeKind; arrow: boolean; icon: IconName; label: s
  * Shape option bar — TWO modes:
  * - draw mode (shape tool active, no shape node selected): writes the shape
  *   signals used for the NEXT created shape (deterministic session defaults).
- * - edit mode (a shape layer is selected, any active tool): binds live
- *   params and calls engine.updateShapeParams (commit BEFORE mutation).
+ * - edit mode (a shape layer is selected, any active tool): binds live params
+ *   and commits them to the params owner - the native command on a
+ *   facade-owned layer, engine.updateShapeParams (commit BEFORE mutation)
+ *   everywhere else.
  * Research pain point: controls must NOT disappear once the shape tool is
  * deselected, otherwise existing shapes are uneditable.
  */
@@ -97,6 +102,37 @@ export function ShapeOptionBar() {
   const radius = () => (isEditMode() ? shape().shapeParams.radius : shapeRadius());
   const arrowHead = () => (isEditMode() ? shape().shapeParams.arrowHead : shapeArrowHead());
 
+  // Routed shape edit. The native side owns this layer's shapeParams, and
+  // engine.updateShapeParams carries no ownership guard, so writing the model
+  // directly would leave the two copies disagreeing silently. One SetLayerParams
+  // command carries the whole merged params object (the arm replaces the
+  // payload, not a single field), and no TS history entry is written - the
+  // native engine records that step.
+  const applyRoutedEdit = (engine: DocumentEngine, layerId: string, params: ShapeParams) => {
+    void commitFacadeParams(engine, [layerId], { shapeParams: params })
+      .then((result) => {
+        if (result.status !== "applied") {
+          showToast(`Cannot edit shape (${result.status})`, "error");
+          return;
+        }
+        // No native arm rasterizes a shape, so the bitmap and the layer's
+        // width/height are regenerated here from the params the projection just
+        // wrote - the same call the legacy branch makes, which is what keeps the
+        // two end states equal. The value passed is the projected one, so this
+        // is a re-raster of what the native side already owns, not a second
+        // unguarded model write.
+        const settled = engine.getLayer(layerId);
+        if (!settled || settled.type !== "shape" || !settled.shapeParams) return;
+        engine.updateShapeParams(layerId, settled.shapeParams);
+        const bitmap = typeof engine.getLayerImageBitmap === "function" ? engine.getLayerImageBitmap(layerId) : null;
+        if (bitmap) renderer?.uploadImage(layerId, bitmap);
+        scheduler?.requestRender();
+      })
+      .catch((err) => {
+        showToast(`Cannot edit shape: ${err instanceof Error ? err.message : String(err)}`, "error");
+      });
+  };
+
   const applyEdit = (patch: Partial<ShapeParams>) => {
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
@@ -107,6 +143,10 @@ export function ShapeOptionBar() {
     // params — prevents ghost undo entries from range/color per-tick input
     // events and from clicking a control at its current value.
     if (shallowEqualParams(layer.shapeParams, next)) return;
+    if (isFacadeEnabled() && isFacadeOwnedLayer(layer.id)) {
+      applyRoutedEdit(engine, layer.id, next);
+      return;
+    }
     // commit BEFORE mutation (AGENTS.md wiring rule)
     history.commit(engine.snapshot(), "Edit Shape");
     engine.updateShapeParams(layer.id, next);

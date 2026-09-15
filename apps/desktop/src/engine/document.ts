@@ -1850,7 +1850,7 @@ export class DocumentEngine {
     this.model.dirty = true;
   }
 
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment; textData?: TextData }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment; textData?: TextData; shapeParams?: ShapeParams; layerType?: string }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
     // A canvas-size command's projection carries the new document size. A
     // metadata delta carries no size, so applyDeltaToSnapshot carries the
     // facade's prior size forward; writing that would revert a model size the
@@ -1909,10 +1909,19 @@ export class DocumentEngine {
         // restatements; clearing on absence would revert it at the next metadata
         // commit.
         existing.textData = rl.textData ?? existing.textData;
-        // Deliberately NOT projected on this branch: shapeParams, layerType. No
-        // routed op carries them yet, so projecting them would change behavior
-        // for fields no arm restates. Add each one alongside the change that
-        // routes its op, with a test.
+        // shapeParams and layerType (the wire name for the model's `type`) ride
+        // the same convention. Their writers are the typed-add and SetLayerParams
+        // arms; every other arm restates a clone of the layer it holds, so a
+        // field the arm does not touch is simply absent and must not clear the
+        // model value.
+        //
+        // Known wire limit, NOT fixable here: RasterizeLayer clears shape_params
+        // by storing None, and a None Option is omitted by serde, so "cleared"
+        // and "never mentioned" are the same bytes. A routed rasterize therefore
+        // flips `type` (layerType is carried) while the model keeps shapeParams;
+        // routeRasterize deletes them host-side to match shapeLayerToRaster.
+        existing.shapeParams = rl.shapeParams ?? existing.shapeParams;
+        existing.type = (rl.layerType as typeof existing.type) ?? existing.type;
         nextLayers.push(existing);
       } else {
         const retained = this.droppedNodes.get(rl.id);
