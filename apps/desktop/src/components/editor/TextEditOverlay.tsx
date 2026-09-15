@@ -17,6 +17,17 @@ import { Show, createEffect, createMemo, createSignal, onCleanup, untrack, type 
 import { useEditor } from "./shell/EditorContext";
 import { commitTextSession, cancelTextSession, setPendingTextFlush } from "./canvas/pointerTools/textTool";
 import { useI18n } from "@/i18n/I18nProvider";
+import { isFacadeOwnedLayer, type DocumentEngine } from "@/engine/document";
+import { rasterizeText } from "@/engine/textRasterizer";
+import {
+  clearTransformPreview,
+  commitFacadeParams,
+  isFacadeEnabled,
+  peekFacade,
+  setTransformPreview,
+} from "@/lib/protocol/facadeRegistry";
+import { routeNumericTransform } from "./layers/transformRouting";
+import { showToast } from "./Toast";
 
 /**
  * Small minimum width so a one-character or empty text box still offers a
@@ -26,7 +37,6 @@ import { useI18n } from "@/i18n/I18nProvider";
  */
 export const OVERLAY_MIN_WIDTH = "2ch";
 import type { TextData } from "@/engine/textTypes";
-import type { DocumentEngine } from "@/engine/document";
 
 /** Debounce window for live re-raster (plan risk R4: memory churn). */
 const RERASTER_DEBOUNCE_MS = 50;
@@ -125,7 +135,12 @@ export function TextEditOverlay() {
         clearTimeout(pushTimer);
         pushTimer = undefined;
       }
-      pushContent(value(), engineOverride);
+      const content = value();
+      pushContent(content, engineOverride);
+      // Session close is the commit boundary for an owned layer. Cancel does not
+      // go through here (see cancelTextSession), so this only ever runs with the
+      // intent to keep the typing.
+      commitRoutedContent(s.layerId, content, engineOverride);
     });
   });
 
@@ -143,10 +158,69 @@ export function TextEditOverlay() {
     if (!engine) return;
     const l = engine.getLayer(s.layerId);
     if (!l || l.type !== "text" || !l.textData) return;
+    if (isFacadeEnabled() && isFacadeOwnedLayer(s.layerId)) {
+      // The native arm owns this layer's textData and engine.updateTextData has no
+      // ownership guard: writing the model here would let the two copies drift
+      // until some later projection clobbered one of them. Rasterize host-side so
+      // the frame still shows the typed text; the content itself reaches the
+      // native side once, at session close (commitRoutedContent below).
+      renderer?.uploadImage(s.layerId, rasterizeText({ ...l.textData, content }).imageBitmap);
+      scheduler.requestRender();
+      return;
+    }
     engine.updateTextData(s.layerId, { ...l.textData, content });
     const bitmap = engine.getLayerImageBitmap(s.layerId);
     if (bitmap) renderer?.uploadImage(s.layerId, bitmap);
     scheduler.requestRender();
+  };
+
+  // One SetLayerParams command per session close for an owned layer. Nothing is
+  // written to the model here: the arm stores the content and the projection
+  // installs it, so a local write would race the authoritative value.
+  const commitRoutedContent = (
+    layerId: string,
+    content: string,
+    engineOverride?: DocumentEngine | null,
+  ) => {
+    if (!isFacadeEnabled() || !isFacadeOwnedLayer(layerId)) return;
+    const engine = engineOverride ?? workspace.getActiveEngine();
+    if (!engine) return;
+    const layer = engine.getLayer(layerId);
+    if (!layer || layer.type !== "text" || !layer.textData) return;
+    if (layer.textData.content === content) return;
+    void commitFacadeParams(engine, [layerId], { textData: { ...layer.textData, content } })
+      .then((result) => {
+        if (result.status !== "applied") {
+          showToast(`Cannot update text (${result.status})`, "error");
+          return;
+        }
+        // No native arm rasterizes text, and the projection carries no bitmap and
+        // no box dims, so the host raster is regenerated from the value the
+        // projection just wrote. Reading it back keeps both sides on one value
+        // even if the rasterizer normalizes the payload.
+        const settled = engine.getLayer(layerId);
+        if (!settled?.textData) return;
+        if (settled.textData.content !== content) {
+          // The command reported success but the authoritative engine did not take
+          // the content: an arm that does not hold the layer restates nothing, and
+          // the projection then keeps the model value. Re-raster from the model so
+          // the canvas shows what was actually committed instead of the discarded
+          // keystrokes, and say so rather than dropping the typing quietly.
+          engine.updateTextData(layerId, settled.textData);
+          const stale = engine.getLayerImageBitmap(layerId);
+          if (stale) renderer?.uploadImage(layerId, stale);
+          scheduler.requestRender();
+          showToast("Cannot update text: the native engine does not hold this layer", "error");
+          return;
+        }
+        engine.updateTextData(layerId, settled.textData);
+        const bitmap = engine.getLayerImageBitmap(layerId);
+        if (bitmap) renderer?.uploadImage(layerId, bitmap);
+        scheduler.requestRender();
+      })
+      .catch((err) => {
+        showToast(`Cannot update text: ${err instanceof Error ? err.message : String(err)}`, "error");
+      });
   };
 
   const schedulePush = (content: string) => {
@@ -362,8 +436,9 @@ export function TextEditOverlay() {
     e.preventDefault();
     const s = session();
     const td = textData();
+    const startLayer = layer();
     const engine = workspace.getActiveEngine();
-    if (!s || !td || !engine) return;
+    if (!s || !td || !startLayer || !engine) return;
 
     const startClientX = e.clientX;
     const startClientY = e.clientY;
@@ -371,18 +446,22 @@ export function TextEditOverlay() {
     const startDocY = s.docY;
     const startW = s.boxWidth;
     const startH = s.boxHeight > 0 ? s.boxHeight : Math.round(rows() * td.fontSize * td.lineHeight);
+    const startTransform = { ...startLayer.transform };
 
-    const targetEl = e.currentTarget as HTMLElement;
-    try {
-      targetEl.setPointerCapture(e.pointerId);
-    } catch {}
+    // Routed only when the facade is on AND the native arm already owns this
+    // layer: every per-frame legacy write below would otherwise either throw
+    // (transformLayer rejects an owned layer) or mutate the TS model behind the
+    // native one's back (updateTextData has no ownership guard). The temp layer
+    // of a CREATE gesture is never owned, so creating text is unaffected.
+    const routed = isFacadeEnabled() && isFacadeOwnedLayer(s.layerId);
 
-    const onPointerMove = (moveEv: PointerEvent) => {
-      moveEv.stopPropagation();
+    // Box geometry for a pointer position, shared by pointermove and pointerup so
+    // the value committed at release cannot drift from the last previewed one.
+    const boxFor = (clientX: number, clientY: number) => {
       const z = zoom();
-      if (z <= 0) return;
-      const dx = (moveEv.clientX - startClientX) / z;
-      const dy = (moveEv.clientY - startClientY) / z;
+      if (z <= 0) return null;
+      const dx = (clientX - startClientX) / z;
+      const dy = (clientY - startClientY) / z;
 
       let newW = startW;
       let newH = startH;
@@ -408,38 +487,164 @@ export function TextEditOverlay() {
       newH = Math.round(newH);
       newX = Math.round(newX);
       newY = Math.round(newY);
+      return { x: newX, y: newY, w: newW, h: newH };
+    };
 
-      engine.transformLayer(s.layerId, { x: newX, y: newY });
+    const targetEl = e.currentTarget as HTMLElement;
+    try {
+      targetEl.setPointerCapture(e.pointerId);
+    } catch {}
+
+    // Back to the pre-gesture pixels and box. The routed frames only touched the
+    // renderer preview, so the texture has to be re-uploaded from the model's own
+    // bitmap, and the session has to be put back at the box it started from.
+    const restoreRouted = () => {
+      const current = engine.getLayer(s.layerId);
+      if (current?.imageBitmap) renderer?.uploadImage(s.layerId, current.imageBitmap);
+      clearTransformPreview();
+      // peekFacade, never getFacade: teardown must not create a facade for a
+      // document that has none. Releasing the slot defensively is cheap and a
+      // slot leaked by any earlier gesture permanently refuses later numeric
+      // edits of that document.
+      peekFacade(engine.getId())?.cancelTransform();
+      setTextEditSession({ ...s });
+      scheduler.requestRender();
+    };
+
+    const detach = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      if (routed) {
+        window.removeEventListener("pointercancel", onPointerCancel);
+        window.removeEventListener("keydown", onKeyDown, true);
+      }
+    };
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      moveEv.stopPropagation();
+      const box = boxFor(moveEv.clientX, moveEv.clientY);
+      if (!box) return;
+
+      if (routed) {
+        // No model write and no command per frame. The size travels WITH the
+        // transform because the renderer draws the quad from the RenderState
+        // width/height, and the model keeps its old size until release.
+        setTransformPreview([
+          {
+            layerId: s.layerId,
+            transform: { ...startTransform, x: box.x, y: box.y },
+            width: box.w,
+            height: box.h,
+          },
+        ]);
+        setTextEditSession({ ...s, docX: box.x, docY: box.y, boxMode: "area", boxWidth: box.w, boxHeight: box.h });
+        // Reflow the glyphs host-side: no native arm rasterizes text, and the
+        // model bitmap must not move per frame, so the frame rasterizes the
+        // target box straight to the renderer.
+        const raster = rasterizeText({ ...td, boxMode: "area", boxWidth: box.w, boxHeight: box.h });
+        renderer?.uploadImage(s.layerId, raster.imageBitmap);
+        scheduler.requestRender();
+        return;
+      }
+
+      engine.transformLayer(s.layerId, { x: box.x, y: box.y });
       engine.updateTextData(s.layerId, {
         ...td,
         boxMode: "area",
-        boxWidth: newW,
-        boxHeight: newH,
+        boxWidth: box.w,
+        boxHeight: box.h,
       });
       setTextEditSession({
         ...s,
-        docX: newX,
-        docY: newY,
+        docX: box.x,
+        docY: box.y,
         boxMode: "area",
-        boxWidth: newW,
-        boxHeight: newH,
+        boxWidth: box.w,
+        boxHeight: box.h,
       });
       const bitmap = engine.getLayerImageBitmap(s.layerId);
       if (bitmap) renderer?.uploadImage(s.layerId, bitmap);
       scheduler.requestRender();
     };
 
+    const finishRouted = async (box: { x: number; y: number; w: number; h: number }) => {
+      const target: TextData = { ...td, boxMode: "area", boxWidth: box.w, boxHeight: box.h };
+      try {
+        // One native transform entry through the shared numeric funnel: no TS
+        // history entry and no engine mutator. A no-op is legitimate, because a
+        // corner that does not move the origin (bottom-right) changes only the
+        // box.
+        const status = await routeNumericTransform(
+          engine,
+          s.layerId,
+          { x: box.x, y: box.y },
+          { requestRender: () => scheduler.requestRender(), notifyVisualChange: () => {} },
+        );
+        // routeNumericTransform has already surfaced its own failure toast.
+        if (status === "error") {
+          restoreRouted();
+          return;
+        }
+        // One native params entry. This is the command whose projection
+        // (DocumentEngine.applyFacadeSnapshot) writes textData back into the model.
+        const result = await commitFacadeParams(engine, [s.layerId], { textData: target });
+        if (result.status !== "applied") {
+          throw new Error(`text params were not applied (${result.status})`);
+        }
+        // The committed box reflows here: neither native arm rasterizes text, so
+        // the bitmap AND the layer's box dims are regenerated from the textData
+        // the projection just wrote. This is the same call the legacy branch
+        // makes per frame, which is what keeps the two end states equal.
+        // Ownership note: the value written is the one commitFacadeParams just
+        // projected from the native restatement, so this is not the unguarded
+        // model write the routed path exists to avoid - it re-rasterizes what the
+        // native arm already owns.
+        engine.updateTextData(s.layerId, target);
+        clearTransformPreview();
+        scheduler.requestRender();
+      } catch (err) {
+        restoreRouted();
+        showToast(`Cannot resize text: ${err instanceof Error ? err.message : String(err)}`, "error");
+      }
+    };
+
     const onPointerUp = (upEv: PointerEvent) => {
       upEv.stopPropagation();
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
+      detach();
       try {
         targetEl.releasePointerCapture(upEv.pointerId);
       } catch {}
+      if (!routed) return;
+      const box = boxFor(upEv.clientX, upEv.clientY);
+      if (!box) return;
+      void finishRouted(box);
+    };
+
+    // Routed-only exits. The legacy path had none: its model already reflects
+    // every frame, so there is nothing to roll back on cancel.
+    const onPointerCancel = (ev: PointerEvent) => {
+      ev.stopPropagation();
+      detach();
+      restoreRouted();
+    };
+
+    // Capture phase so a mid-resize Escape abandons the RESIZE and is consumed
+    // before the textarea's own handler runs cancelTextSession() - closing the
+    // whole edit session is a different (and much bigger) action.
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      detach();
+      restoreRouted();
     };
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
+    if (routed) {
+      window.addEventListener("pointercancel", onPointerCancel);
+      window.addEventListener("keydown", onKeyDown, true);
+    }
   };
 
   // Corner handle position generator for Area mode

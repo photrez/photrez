@@ -170,6 +170,11 @@ export type TextData = {
   uppercase?: boolean;
 };
 
+// Whichever half a setLayerParams command carries is written by the native arm;
+// both absent is rejected (E_INVALID). Shared by the sender (EditorFacade) and
+// the routing funnel so the two cannot drift.
+export type LayerParamsPatch = { shapeParams?: ShapeParams; textData?: TextData };
+
 export type Command =
   | { type: "noop" }
   | { type: "ping"; echo: string }

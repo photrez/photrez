@@ -1850,7 +1850,7 @@ export class DocumentEngine {
     this.model.dirty = true;
   }
 
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment; textData?: TextData }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
     // A canvas-size command's projection carries the new document size. A
     // metadata delta carries no size, so applyDeltaToSnapshot carries the
     // facade's prior size forward; writing that would revert a model size the
@@ -1901,10 +1901,18 @@ export class DocumentEngine {
         // GPU preview + export would silently ignore it.
         existing.basicAdjustment = rl.basicAdjustment;
         existing.hasAdjustments = rl.hasAdjustments ?? false;
-        // Deliberately NOT projected on this branch: shapeParams, textData,
-        // layerType. No routed op carries them yet, so projecting them would
-        // change behavior for fields no arm restates. Add each one alongside
-        // the change that routes its op, with a test.
+        // textData rides the flip-flag convention rather than the lock/blend
+        // one: the SetLayerParams arm restates the layer WITH textData when it
+        // was the thing that changed, but every other arm (transform, opacity,
+        // name, ...) restates the layer too and omits the field. Falling back to
+        // the model value therefore keeps a routed text edit alive across those
+        // restatements; clearing on absence would revert it at the next metadata
+        // commit.
+        existing.textData = rl.textData ?? existing.textData;
+        // Deliberately NOT projected on this branch: shapeParams, layerType. No
+        // routed op carries them yet, so projecting them would change behavior
+        // for fields no arm restates. Add each one alongside the change that
+        // routes its op, with a test.
         nextLayers.push(existing);
       } else {
         const retained = this.droppedNodes.get(rl.id);

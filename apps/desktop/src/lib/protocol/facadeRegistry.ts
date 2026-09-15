@@ -28,7 +28,7 @@ import {
 import { repushCanonicalDocument } from "./canonicalSeed";
 import type { DocumentEngine } from "@/engine/document";
 import { CONTRACT_VERSION } from "./types";
-import type { LockKind } from "./types";
+import type { LockKind, LayerParamsPatch } from "./types";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
 import {
   clearFacadeStoreForTests,
@@ -97,10 +97,16 @@ export function applyFacadePreviews(rs: RenderState): RenderState {
   const ap = adjustmentPreview();
   let layers = rs.layers;
   if (tps.length) {
-    const byId = new Map(tps.map((p) => [p.layerId, p.transform]));
+    const byId = new Map(tps.map((p) => [p.layerId, p]));
     layers = layers.map((l) => {
-      const t = byId.get(l.id);
-      return t ? { ...l, transform: t } : l;
+      const p = byId.get(l.id);
+      if (!p) return l;
+      return {
+        ...l,
+        transform: p.transform,
+        ...(p.width !== undefined ? { width: p.width } : {}),
+        ...(p.height !== undefined ? { height: p.height } : {}),
+      };
     });
   }
   if (op) {
@@ -257,6 +263,30 @@ export async function commitFacadeAdjustment(
   let last: unknown = null;
   for (const id of route.ownedIds) {
     last = await f.setLayerAdjustment(id, adjustment);
+  }
+  if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  return { status: "applied", count: route.ownedIds.length };
+}
+
+// Parametric-payload funnel (text/shape params). Mirrors commitFacadeAdjustment:
+// shared selection policy, expectedVersion enforced inside setLayerParams,
+// authoritative projection, legacy fall-through when no target is facade-owned.
+// Takes an id SET so the mixed-ownership rejection is reachable at this boundary
+// exactly like the other metadata funnels; the production caller passes one id.
+export async function commitFacadeParams(
+  engine: FacadeProjectionSink,
+  ids: string[],
+  params: LayerParamsPatch,
+  facadeOverride?: EditorFacade,
+): Promise<{ status: FacadeRouteStatus; count?: number }> {
+  const route = resolveSelectionRoute(ids);
+  if (route.mode === "empty") return { status: "empty" };
+  if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
+  if (route.mode !== "facade") return { status: "legacy" };
+  const f = facadeOverride ?? getFacade(engine.getId());
+  let last: unknown = null;
+  for (const id of route.ownedIds) {
+    last = await f.setLayerParams(id, params);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   return { status: "applied", count: route.ownedIds.length };
@@ -469,6 +499,14 @@ export function resolveSelectionRoute(ids: string[]): SelectionRoute {
 export interface FacadeTransformPreview {
   layerId: string;
   transform: Transform2D;
+  // Box size for a gesture that resizes the layer's own quad instead of only
+  // moving it (the text overlay's corner resize). The renderer draws the quad
+  // from RenderState width/height, and a routed resize leaves the model size
+  // untouched, so without these the quad would move to the new position still
+  // drawn at the old size. Optional: the move/scale gestures below write the
+  // transform only and keep the model size.
+  width?: number;
+  height?: number;
 }
 const [transformPreview, setTransformPreview] = createSignal<FacadeTransformPreview[]>([]);
 export { transformPreview, setTransformPreview };

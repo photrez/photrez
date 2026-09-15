@@ -6,7 +6,7 @@ import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNati
 import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentEngine } from "@/engine/document";
-import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, RenderLayer, TransformPatch, LockKind, SelectionState } from "./types";
+import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, RenderLayer, TransformPatch, LockKind, SelectionState, LayerParamsPatch } from "./types";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
 import { isDeltaApplicable } from "./types";
 
@@ -215,6 +215,21 @@ export class EditorFacade {
   async setLayerAdjustment(id: string, adjustment?: BasicAdjustment): Promise<RenderSnapshot> {
     await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setAdjustment", id, adjustment } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
+  // Parametric-payload arm: the native SetLayerParams arm writes whichever of
+  // shapeParams/textData is present and restates the layer; the projection then
+  // carries textData back into the TS model (see DocumentEngine.applyFacadeSnapshot).
+  // Mirrors setLayerAdjustment exactly - expectedVersion-enforced envelope +
+  // applyDelta, with refreshSnapshot fallback on an inapplicable delta. Both
+  // halves absent is the native E_INVALID, so only callers with a real payload
+  // reach here.
+  async setLayerParams(id: string, params: LayerParamsPatch): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setLayerParams", id, shapeParams: params.shapeParams, textData: params.textData } });
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
     return this.snapshot;

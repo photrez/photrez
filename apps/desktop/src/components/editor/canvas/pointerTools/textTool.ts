@@ -17,6 +17,8 @@ import type { PointerToolContext } from "./pointerToolContext";
 import type { EditorAccessors } from "./pointerToolContext";
 import type { LayerNode } from "@/engine/types";
 import type { DocumentEngine } from "@/engine/document";
+import { isFacadeOwnedLayer } from "@/engine/document";
+import { isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
 import { type TextData, DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import type { TextEditSession } from "../../tools/editorState";
 
@@ -464,6 +466,17 @@ export function commitTextSession(editor: TextSessionEditor): void {
     return;
   }
 
+  // Re-edit of a layer the native arm owns: the routed SetLayerParams command the
+  // overlay's pending flush dispatches already recorded the native history entry,
+  // and the native commit is what puts the typed content in the model. A TS entry
+  // here would strand an undo point whose engine.restore() rejects with
+  // E_FACADE_OWNED, and would record a second entry for one edit.
+  if (isFacadeEnabled() && isFacadeOwnedLayer(session.layerId)) {
+    editor.setTextEditSession(null);
+    editor.scheduler.requestRender();
+    return;
+  }
+
   // Re-edit of an existing layer: no-op guard — identical textData → no commit.
   const preLayer = session.preSnapshot.layers?.find((l) => l.id === session.layerId);
   const preData = layerTextData(preLayer as LayerNode);
@@ -497,6 +510,23 @@ export function cancelTextSession(editor: TextSessionEditor): void {
   const session = editor.textEditSession();
   if (!session) return;
   const engine = editor.workspace.getActiveEngine();
+  // A layer the native arm owns was never written by this session (the overlay's
+  // routed branch only previews), so there is nothing to flush and nothing to roll
+  // back: engine.restore() refuses while the facade owns layers, and flushing would
+  // COMMIT the typing that cancel is meant to discard. The renderer still holds the
+  // preview rasters, so the model bitmap is re-uploaded to take them back.
+  if (isFacadeEnabled() && isFacadeOwnedLayer(session.layerId)) {
+    if (engine && editor.renderer) {
+      const previewed = engine.getLayerImageBitmap(session.layerId);
+      if (previewed) editor.renderer.uploadImage(session.layerId, previewed);
+    }
+    if (engine && typeof engine.setRenderHiddenLayerId === "function") {
+      engine.setRenderHiddenLayerId(null);
+    }
+    editor.setTextEditSession(null);
+    editor.scheduler.requestRender();
+    return;
+  }
   // Flush with the session's engine (same rationale as commitTextSession: on
   // a doc switch the wrapper provides the source engine).
   flushPendingText(session.layerId, engine);

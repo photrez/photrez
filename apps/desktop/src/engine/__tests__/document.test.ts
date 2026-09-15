@@ -831,14 +831,18 @@ describe('DocumentEngine', () => {
       expect(engine.getLayer(l.id)!.hasAdjustments).toBe(true);
     });
 
-    it('coverage guard: projects the routed metadata set; shapeParams/textData/layerType stay unprojected', () => {
+    it('coverage guard: projects the routed metadata set; shapeParams/layerType stay unprojected', () => {
       // Optional metadata on protocol RenderLayer (types.ts) and whether
       // applyFacadeSnapshot's EXISTING-layer branch writes it:
       //   projected:   blendMode, locked, lockTransparency, lockPosition,
       //                lockRotation, isBackground, hasAdjustments, basicAdjustment,
       //                flipH, flipV (an absent flip flag instead leaves the model
       //                value alone - see the flip-projection tests)
-      //   unprojected: layerType, shapeParams, textData, width,
+      //   projected with the absent-means-keep convention: textData (the
+      //                SetLayerParams arm is its only writer; every other arm
+      //                restates the layer and omits the field, so absence must
+      //                not clear a routed text edit)
+      //   unprojected: layerType, shapeParams, width,
       //                height (no routed op restates them yet - add each one
       //                alongside the change that routes its op, with a test, so an
       //                arm that starts sending a field cannot silently no-op)
@@ -871,7 +875,8 @@ describe('DocumentEngine', () => {
       expect(out.basicAdjustment).toEqual(adj);
       // Deliberately unprojected (identity preserved):
       expect(out.shapeParams).toBe(shape);
-      expect(out.textData).toBe(text);
+      // Projected: the restatement carried textData, so the model takes it.
+      expect(out.textData).toEqual({ content: 'x' });
       // Flip flags project: a restated false overrides the model's true, and a
       // restated true lands on the model's default false.
       expect(out.transform.flipH).toBe(false);
