@@ -161,7 +161,9 @@ export class EditorFacade {
     return this.snapshot;
   }
   cancelTransform(): void { this.transientTransform = null; }
-  // Test/introspection helper: true while a transient drag session exists.
+  // True while a transient transform session exists (a pointer gesture, or a
+  // numeric commit's own begin-to-commit span). Numeric commits check this so
+  // they never take the slot from a live gesture.
   transientTransformActive(): boolean { return this.transientTransform !== null; }
 
   async setOpacity(id: string, opacity: number): Promise<RenderSnapshot> {

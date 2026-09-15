@@ -16,7 +16,7 @@ import {
 import { shapeRenderMargin } from "@/engine/shapeRaster";
 import { getRotateCursorByPos } from "@/viewport/cursorRotate";
 import { commitLayerTransformSession } from "./transformSession";
-import { isFacadeEnabled, getFacade, transformPreview, setTransformPreview, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
+import { isFacadeEnabled, getFacade, peekFacade, transformPreview, setTransformPreview, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
 import { isFacadeOwnedLayer } from "@/engine/document";
 
 interface UseSelectionTransformDragParams {
@@ -58,6 +58,10 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     startTransform: Transform2D;
     pointerId: number;
     layerId: string;
+    // Document the gesture holds the facade's transient slot on. Captured at
+    // pointerdown because the ACTIVE document may differ by the time the gesture
+    // is abandoned, and the slot has to be released where it was taken.
+    docId: string;
     pendingSnapshot?: DocumentModel | null;
     // Ticket 2.2: facade drag — transient-only moves, Rust commit on pointerup.
     facade?: boolean;
@@ -67,6 +71,22 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
   // Ticket 2.2: a drag targets the facade path when the flag is on and the
   // layer is facade-owned (Rust persistent owner). Legacy drags are unchanged.
   const isFacadeDrag = (layer: { id: string }) => isFacadeEnabled() && isFacadeOwnedLayer(layer.id);
+
+  // Release the facade's transient transform slot for a gesture that ends WITHOUT
+  // committing. Every path that drops dragState must go through this: the slot is
+  // the gate the numeric commit funnel refuses on, so a slot left behind by an
+  // abandoned drag turns every later numeric edit of that document into a
+  // permanent "release the current handle first" refusal with no handle showing.
+  // cancelTransform() is idempotent, so calling it after a commit that already
+  // cleared the slot is harmless.
+  const releaseFacadeSlot = (drag: NonNullable<ReturnType<typeof dragState>>): void => {
+    if (!drag.facade) return;
+    // peek, not get: a document that was already closed evicted its facade, and
+    // creating one here to release a slot it no longer has would hand the next
+    // document with the same id a stale empty facade.
+    peekFacade(drag.docId)?.cancelTransform();
+    clearTransformPreview();
+  };
 
   // Effective transform = transient facade preview while dragging, else the
   // persisted layer transform. Overlay memos read this so handles/HUD track
@@ -293,6 +313,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       startTransform: { ...layer.transform },
       pointerId: e.pointerId,
       layerId: layer.id,
+      docId: engine.getId(),
       pendingSnapshot: facade ? null : engine.snapshot(),
       facade,
       liveTransform: facade ? { ...layer.transform } : undefined,
@@ -312,6 +333,9 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     if (!engine || !layer) return;
 
     if (layer.id !== drag.layerId) {
+      // Selection moved (or the layer went away) mid-gesture: this drag will never
+      // see a matching pointerup, so the slot it took has to be dropped here.
+      releaseFacadeSlot(drag);
       setDragState(null);
       return;
     }
@@ -491,7 +515,11 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
         // Facade commit rejected: teardown in `finally` must still run so the
         // drag state never gets stuck.
       } finally {
-        clearTransformPreview();
+        // Idempotent safety net for the paths inside `try` that never reached
+        // commitTransform (no active engine) or reached it after the slot was
+        // already cleared. Without this a rejected commit leaves the slot held and
+        // every later numeric edit of the document is refused.
+        releaseFacadeSlot(drag);
         scheduler.requestRender();
         props.onSnapClear?.();
         props.onHudUpdate?.(null);
@@ -570,8 +598,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     // Ticket 2.2: facade cancel — the engine was never mutated during the
     // drag, so there is nothing to restore; drop the transient session.
     if (drag.facade) {
-      getFacade(workspace.getActiveEngine()?.getId() ?? "").cancelTransform();
-      clearTransformPreview();
+      releaseFacadeSlot(drag);
       scheduler.requestRender();
       props.onSnapClear?.();
       props.onHudUpdate?.(null);
@@ -594,9 +621,13 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
   const handleLostPointerCapture = (e: PointerEvent) => {
     const drag = dragState();
     if (!drag) return;
+    // Capture was stolen (or the pointer device went away): no pointerup will
+    // follow for this drag, so the facade slot has to be released right here.
+    releaseFacadeSlot(drag);
     props.onSnapClear?.();
     props.onHudUpdate?.(null);
     if (drag.type === "rotate") setHoverPos(null);
+    if (drag.facade) scheduler.requestRender();
     setDragState(null);
   };
 
@@ -608,8 +639,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
         const layer = getLayer();
         // Ticket 2.2: facade Escape — drop transient session, engine untouched.
         if (drag.facade) {
-          getFacade(engine?.getId() ?? "").cancelTransform();
-          clearTransformPreview();
+          releaseFacadeSlot(drag);
           scheduler.requestRender();
           const svg = props.getSvgRef();
           if (svg) {
@@ -644,6 +674,10 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     window.addEventListener("keydown", handleKeyDown);
     onCleanup(() => {
       window.removeEventListener("keydown", handleKeyDown);
+      // Unmounting mid-gesture (document switch, overlay teardown) skips every
+      // pointer handler above, so the slot release has to happen here too.
+      const drag = dragState();
+      if (drag) releaseFacadeSlot(drag);
     });
   });
 

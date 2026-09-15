@@ -3,6 +3,7 @@ import { isFacadeOwnedLayer } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
 import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers, mergeSelectedLayers, duplicateMultipleLayers } from "../../layers/layerOperations";
 import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "../../layers/structuralRouting";
+import { canRouteTransform, routeNumericTransform } from "../../layers/transformRouting";
 import type { StructuralRouteStatus, DuplicateRouteResult } from "../../layers/structuralRouting";
 import { commitFacadeOpacity, commitFacadeReorder, isFacadeEnabled, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
 import { showToast } from "../../Toast";
@@ -358,6 +359,20 @@ export function handleLayerOpsKey(
     if (activeId) {
       const layer = engine.getLayer(activeId);
       if (layer && !layer.locked) {
+        // Same routing seam the option bar's flip button uses, so the shortcut and
+        // the bar cannot drift apart.
+        if (canRouteTransform(activeId)) {
+          void routeNumericTransform(
+            engine,
+            activeId,
+            e.shiftKey ? (cur) => ({ flipV: !cur.flipV }) : (cur) => ({ flipH: !cur.flipH }),
+            {
+              requestRender: () => scheduler.requestRender(),
+              notifyVisualChange: () => editor.workspace.notifyVisualChange(),
+            },
+          );
+          return true;
+        }
         history.commit(engine.snapshot(), "Flip Layer");
         engine.flipLayer(activeId, e.shiftKey ? "v" : "h");
         scheduler.requestRender();

@@ -55,6 +55,7 @@ export {
   getFacade,
   mirrorRestoredSelection,
   mirrorSelectionCommand,
+  peekFacade,
   removeFacade,
 } from "./selectionMirror";
 export type { FacadeProjectionSink, SelectionRouteStatus } from "./selectionMirror";
@@ -473,18 +474,104 @@ export function clearTransformPreview(): void {
 // One committed numeric edit/group = exactly ONE TransformLayer Rust command
 // with expectedVersion, then authoritative projection. No persistent TS
 // mutation: the TS model only ever receives the Rust RenderDelta snapshot.
-export async function facadeCommitNumericTransform(
+//
+// WHY THE PER-DOCUMENT CHAIN: the facade holds ONE transient transform slot and
+// only advances renderedVersion after a command resolves. Two commits started in
+// the same tick (two quick X/Y field submits, a keyboard flip issued while an
+// earlier commit is still in flight, one Align batch over several layers)
+// therefore read the same expectedVersion and the arm rejects the second with
+// E_VERSION_MISMATCH; and a commit that begins while a pointer gesture owns the
+// slot overwrites that gesture, whose own commitTransform then finds an empty
+// slot and drops the drag. Running each call's whole read -> begin -> update ->
+// commit -> project sequence as one hop on a chain keyed by the facade's document
+// id fixes both: commits land in issue order and each reads the model the
+// previous one projected. Keep the map bounded: drop the entry once that hop has
+// settled, unless a newer dispatch already replaced it.
+//
+// A patch may also be a function of the layer's CURRENT projected transform. The
+// flip callers use that: the flag to send is decided inside the hop, so a second
+// flip queued behind the first negates what the first actually committed instead
+// of re-sending the flag read at click time.
+export type NumericTransformPatch =
+  | Partial<Transform2D>
+  | ((current: Transform2D) => Partial<Transform2D>);
+
+const numericCommitTailByDoc = new Map<string, { tail: Promise<unknown>; queuedAt: number }>();
+
+// A hop that never settles (a protocol call that hangs) parks every later commit
+// on the same document with no trace. Warn about it instead of timing it out: an
+// in-flight command must be allowed to finish, and a watchdog timer that keeps
+// the process alive is worse than the hang it reports.
+const STALLED_TAIL_WARN_MS = 5000;
+
+function serializeNumericCommit<T>(docKey: string, run: () => Promise<T>): Promise<T> {
+  const waiting = numericCommitTailByDoc.get(docKey);
+  if (waiting) {
+    const waitedMs = Date.now() - waiting.queuedAt;
+    if (waitedMs > STALLED_TAIL_WARN_MS) {
+      console.warn(
+        `[numeric-transform-commit] ${docKey} queued a commit behind one that has not settled for ${Math.round(waitedMs)}ms; a protocol call may be stuck.`,
+      );
+    }
+  }
+  const previous = waiting?.tail ?? Promise.resolve();
+  const settled = previous.then(run, run);
+  const tail = settled.then(
+    () => undefined,
+    () => undefined,
+  );
+  const entry = { tail, queuedAt: Date.now() };
+  numericCommitTailByDoc.set(docKey, entry);
+  void tail.then(() => {
+    if (numericCommitTailByDoc.get(docKey) === entry) numericCommitTailByDoc.delete(docKey);
+  });
+  return settled;
+}
+
+export function facadeCommitNumericTransform(
   engine: {
     getId(): string;
     getLayer(id: string): { id: string; locked: boolean; transform: Transform2D } | null | undefined;
     applyFacadeSnapshot(s: unknown): void;
   },
   layerId: string,
-  patch: Partial<Transform2D>
+  patch: NumericTransformPatch,
+): Promise<boolean> {
+  // Self-guard, not a caller convention (same shape as mirrorSelectionCommand):
+  // flag OFF never reaches the queue, so the legacy paths keep their synchronous
+  // shape no matter which caller is added later.
+  if (!isFacadeEnabled()) return Promise.resolve(false);
+  // "Nothing to do" is decided at ISSUE time, inside the click handler: a layer
+  // that is already gone or locked stays a silent no-op, as it always was. What
+  // changes between issue and hop is re-checked inside the hop, where it is a
+  // visible failure instead (see commitNumericTransformOnce).
+  const atIssue = engine.getLayer(layerId);
+  if (!atIssue || atIssue.locked) return Promise.resolve(false);
+  // getFacade resolves the same key the slot lives on, so chain and facade
+  // always address one document.
+  const facade = getFacade(engine.getId());
+  return serializeNumericCommit(facade.docId, () =>
+    commitNumericTransformOnce(engine, facade, layerId, patch),
+  );
+}
+
+async function commitNumericTransformOnce(
+  engine: {
+    getLayer(id: string): { id: string; locked: boolean; transform: Transform2D } | null | undefined;
+    applyFacadeSnapshot(s: unknown): void;
+  },
+  facade: EditorFacade,
+  layerId: string,
+  patch: NumericTransformPatch,
 ): Promise<boolean> {
   const layer = engine.getLayer(layerId);
-  if (!layer || layer.locked) return false;
-  const next = { ...layer.transform, ...patch };
+  // The layer was there at issue time and is gone (or locked) now: a Delete or a
+  // lock toggle landed while an earlier commit was in flight. Returning false
+  // here would throw the edit away silently, so it fails loud and the caller's
+  // error toast makes it visible.
+  if (!layer) throw new Error(`Layer ${layerId} no longer exists.`);
+  if (layer.locked) throw new Error(`Layer ${layerId} is locked.`);
+  const next = { ...layer.transform, ...(typeof patch === "function" ? patch(layer.transform) : patch) };
   const same =
     next.x === layer.transform.x &&
     next.y === layer.transform.y &&
@@ -494,11 +581,26 @@ export async function facadeCommitNumericTransform(
     next.flipH === layer.transform.flipH &&
     next.flipV === layer.transform.flipV;
   if (same) return false;
-  const f = getFacade(engine.getId());
-  f.beginTransform(layerId, { ...layer.transform });
-  f.updateTransform(next);
-  const snap = await f.commitTransform();
-  if (snap) engine.applyFacadeSnapshot(snap);
+  if (facade.transientTransformActive()) {
+    // A pointer gesture holds the slot; beginning here would take it over and
+    // the gesture's own commit would find nothing to apply. Refusing out loud is
+    // the only option that keeps both edits: the queue cannot help, because the
+    // gesture spans an unbounded number of pointermove tasks.
+    throw new Error(
+      `Layer ${layerId} cannot be committed while a transform gesture is in progress. Release the current handle first.`,
+    );
+  }
+  facade.beginTransform(layerId, { ...layer.transform });
+  facade.updateTransform(next);
+  const snap = await facade.commitTransform();
+  if (!snap) {
+    // Defensive net, not a known failure path: commitTransform() null-checks the
+    // slot synchronously and there is no await between beginTransform and this
+    // call, so no other task can take the slot here. Kept so a future change to
+    // that method can never make a no-command edit report success.
+    throw new Error(`Transform commit for layer ${layerId} produced no command result.`);
+  }
+  engine.applyFacadeSnapshot(snap);
   return true;
 }
 
@@ -840,6 +942,7 @@ export function __resetFacadeRegistryForTests(): void {
   resetFacadeBridgeForTests();
   clearTransformPreview();
   tsPayloadStore.clear();
+  numericCommitTailByDoc.clear();
   pendingMarkers = [];
   setHistoryDegraded(null);
 }

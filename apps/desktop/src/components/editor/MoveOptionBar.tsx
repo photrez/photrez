@@ -7,6 +7,14 @@ import { Tooltip } from "./Tooltip";
 import { useEditor } from "./shell/EditorContext";
 import { ToggleBtn, Divider, ToolPill, MoreDropdown, OptionCheckbox } from "./shell/OptionBarShared";
 import { useI18n } from "@/i18n/I18nProvider";
+import {
+  canRouteTransform,
+  decideTransformSetRoute,
+  routeNumericTransform,
+  routeNumericTransformBatch,
+  type TransformEdit,
+  type TransformRouteRefresh,
+} from "./layers/transformRouting";
 
 export function MoveOptionBar() {
   const { t } = useI18n();
@@ -53,11 +61,32 @@ export function MoveOptionBar() {
     return l ? l.locked : false;
   };
 
+  // Routed commits own the refresh side effects; the legacy paths below keep
+  // calling scheduler.requestRender() directly.
+  const transformRefresh: TransformRouteRefresh = {
+    requestRender: () => scheduler.requestRender(),
+    notifyVisualChange: () => workspace.notifyVisualChange(),
+  };
+
   const handleFlip = (axis: "h" | "v") => {
     if (isLocked()) return;
     const engine = workspace.getActiveEngine();
     const id = selectedLayerId();
     if (engine && id) {
+      if (canRouteTransform(id)) {
+        // The flag to send is derived inside the commit hop from the transform that
+        // hop reads, so a second click queued behind the first negates what the
+        // first actually committed instead of re-sending the same flag.
+        void routeNumericTransform(
+          engine,
+          id,
+          axis === "h"
+            ? (cur) => ({ flipH: !cur.flipH })
+            : (cur) => ({ flipV: !cur.flipV }),
+          transformRefresh,
+        );
+        return;
+      }
       const history = workspace.getActiveHistory();
       history?.commit(engine.snapshot(), "Flip Layer");
       engine.flipLayer(id, axis);
@@ -85,6 +114,17 @@ export function MoveOptionBar() {
       ) {
         return;
       }
+      if (canRouteTransform(id)) {
+        // The native entry is labelled "Transform Layer"; the legacy path below
+        // recorded "Reset Layer Transform".
+        void routeNumericTransform(
+          engine,
+          id,
+          { x: 0, y: 0, scaleX: 1.0, scaleY: 1.0, rotation: 0, flipH: false, flipV: false },
+          transformRefresh,
+        );
+        return;
+      }
       const history = workspace.getActiveHistory();
       history?.commit(engine.snapshot(), "Reset Layer Transform");
       engine.transformLayer(id, {
@@ -110,6 +150,10 @@ export function MoveOptionBar() {
       // undo entries that make undo feel "stuck" — pressing undo would
       // appear to do nothing because the snapshot matches current state.
       if (layer.transform[axis] === val) return;
+      if (canRouteTransform(id)) {
+        void routeNumericTransform(engine, id, { [axis]: val }, transformRefresh);
+        return;
+      }
       const history = workspace.getActiveHistory();
       history?.commit(engine.snapshot(), "Transform Layer");
       const next = { ...layer.transform };
@@ -126,6 +170,10 @@ export function MoveOptionBar() {
       const layer = engine.getLayer(id);
       if (!layer || layer.locked) return;
       if (layer.transform.rotation === val) return;
+      if (canRouteTransform(id)) {
+        void routeNumericTransform(engine, id, { rotation: val }, transformRefresh);
+        return;
+      }
       const history = workspace.getActiveHistory();
       history?.commit(engine.snapshot(), "Transform Layer");
       engine.transformLayer(id, { ...layer.transform, rotation: val });
@@ -147,9 +195,10 @@ export function MoveOptionBar() {
 
     const docW = docWidth();
     const docH = docHeight();
-    const history = workspace.getActiveHistory();
-    const preSnapshot = engine.snapshot();
-    let anyChanged = false;
+
+    // Every position is computed from the pre-mutation model first, so a mixed
+    // selection can be refused without leaving a half-aligned stack.
+    const edits: TransformEdit[] = [];
 
     for (const { id: targetId, layer } of layersToAlign) {
       const next = { ...layer.transform };
@@ -177,15 +226,29 @@ export function MoveOptionBar() {
           break;
       }
       if (next.x !== layer.transform.x || next.y !== layer.transform.y) {
-        anyChanged = true;
-        engine.transformLayer(targetId, next);
+        edits.push({ layerId: targetId, patch: next });
       }
     }
 
-    if (anyChanged) {
-      history?.commit(preSnapshot, layersToAlign.length > 1 ? "Align Layers" : "Align Layer");
-      scheduler.requestRender();
+    if (edits.length === 0) return;
+
+    // Routed: one native history entry per aligned layer where the legacy path
+    // below wrote a single combined entry, and every native entry is labelled
+    // "Transform Layer". Compound undo for a routed batch is not implemented.
+    // "mixed-rejected" must not fall through either: the legacy mutator throws on
+    // the facade-owned members of the selection after the others are written.
+    if (decideTransformSetRoute(edits.map((edit) => edit.layerId)) !== "legacy") {
+      void routeNumericTransformBatch(engine, edits, transformRefresh);
+      return;
     }
+
+    const history = workspace.getActiveHistory();
+    // Captured before any mutation; the commit call lands after the writes, as
+    // it always has.
+    const preSnapshot = engine.snapshot();
+    for (const edit of edits) engine.transformLayer(edit.layerId, edit.patch);
+    history?.commit(preSnapshot, layersToAlign.length > 1 ? "Align Layers" : "Align Layer");
+    scheduler.requestRender();
   };
 
   return (
