@@ -90,7 +90,7 @@ export function TransformOptionBar() {
     // session's original transform (still uncommitted; zero IPC).
     if (current && currentSession && isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
       getFacade(current.getId()).updateTransform({ ...currentSession.originalTransform });
-      setTransformPreview({ layerId: currentSession.layerId, transform: { ...currentSession.originalTransform } });
+      setTransformPreview([{ layerId: currentSession.layerId, transform: { ...currentSession.originalTransform } }]);
       setTransformTick((t) => t + 1);
       scheduler.requestRender();
       return;
@@ -111,7 +111,7 @@ export function TransformOptionBar() {
     if (isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
       const next = { ...layer.transform, ...patch };
       getFacade(current.getId()).updateTransform(next);
-      setTransformPreview({ layerId: layer.id, transform: next });
+      setTransformPreview([{ layerId: layer.id, transform: next }]);
       setTransformTick((t) => t + 1);
       scheduler.requestRender();
       return;
@@ -147,7 +147,7 @@ export function TransformOptionBar() {
     if (isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
       const full = { ...layer.transform, ...next };
       getFacade(current.getId()).updateTransform(full);
-      setTransformPreview({ layerId: layer.id, transform: full });
+      setTransformPreview([{ layerId: layer.id, transform: full }]);
       setTransformTick((t) => t + 1);
       scheduler.requestRender();
       return;
@@ -175,7 +175,7 @@ export function TransformOptionBar() {
     if (isFacadeEnabled() && isFacadeOwnedLayer(currentSession.layerId)) {
       const full = { ...layer.transform, ...next };
       getFacade(current.getId()).updateTransform(full);
-      setTransformPreview({ layerId: layer.id, transform: full });
+      setTransformPreview([{ layerId: layer.id, transform: full }]);
       setTransformTick((t) => t + 1);
       scheduler.requestRender();
       return;

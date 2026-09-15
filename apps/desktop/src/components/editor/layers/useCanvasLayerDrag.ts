@@ -1,13 +1,27 @@
-import { createSignal } from "solid-js";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import { useEditor } from "../shell/EditorContext";
 import { useDragController } from "../DragController";
 import { addLayerFromCrossDoc } from "../crossDocLayerOps";
+import { showToast } from "../Toast";
 import type { LayerNode } from "@/engine/types";
 import { computeSnapAdjustment, type SnapRect, type SnapLine } from "@/viewport/smartGuides";
 import { buildTransformSnapTargets } from "@/viewport/transformSnapTargets";
 import { getLayerAabb } from "@/viewport/transformGeometry";
 import { ALPHA_HIT_THRESHOLD, isBoxHittable } from "@/viewport/layerHitTest";
 import type { HudMode } from "../TransformHud";
+import {
+  MIXED_OWNERSHIP_MESSAGE,
+  clearTransformPreview,
+  getFacade,
+  peekFacade,
+  setTransformPreview,
+  type FacadeTransformPreview,
+} from "@/lib/protocol/facadeRegistry";
+import {
+  decideTransformSetRoute,
+  routeNumericTransformBatch,
+  type TransformEdit,
+} from "./transformRouting";
 
 export interface LayerTransformStart {
   id: string;
@@ -26,6 +40,18 @@ interface CanvasLayerDrag {
   rect: { left: number; top: number };
   preDragSnapshot: import("@/engine/types").DocumentModel;
   selectedLayerStarts: LayerTransformStart[];
+  // Pointer that took the gesture, so an unrelated pointer losing capture cannot
+  // abort it.
+  pointerId: number;
+  // True when the dragged layers are owned by the native editor state. The model
+  // is then never touched mid-drag: the pointermove channel is the transient
+  // render preview, and one committed edit per layer goes out at pointerup.
+  facade: boolean;
+  // Offset the last pointermove previewed. The commit sends absolute values
+  // derived from these, so a hover-freeze frame (which previews nothing) cannot
+  // move the layer back to a half-way position.
+  liveDx: number;
+  liveDy: number;
 }
 
 export interface CanvasLayerDragApi {
@@ -71,12 +97,122 @@ export interface CanvasLayerDragOptions {
  * picks the first non-locked, non-background, visible layer whose
  * axis-aligned bounding box contains the pointer. Rotation is ignored
  * for simplicity (matches the existing layer-helpers).
+ *
+ * Two authority paths, decided once at pointerdown and never re-decided
+ * mid-gesture:
+ *  - Layers owned by the native editor state: the model is not touched during the
+ *    drag. Each frame writes a transient preview the render scheduler projects onto
+ *    the outgoing RenderState, and pointerup sends one committed edit per layer.
+ *    The native side owns the undo entry, so no history entry is written here.
+ *  - Everything else: the original behavior, one engine.transformLayer per frame
+ *    and a single history entry at pointerup.
+ * While a routed drag is live it holds the facade's one transient transform slot,
+ * so a numeric edit issued from elsewhere in that window fails with a toast
+ * instead of silently overwriting what the pointer is holding.
  */
 export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLayerDragApi {
   const { workspace, renderer, camera, activeDocumentId, activeTool, scheduler, moveSnapEnabled, snapToLayersEnabled, snapToCanvasEnabled, moveAutoSelect, selectedLayerId, setSelectedLayerId, selectedLayerIds, toggleLayerSelection, zoom } = useEditor();
   const dragController = useDragController();
 
   const [drag, setDrag] = createSignal<CanvasLayerDrag | null>(null);
+
+  // Release everything a routed gesture holds, for any exit that does NOT commit.
+  // The facade's transient transform slot is the gate the numeric commit funnel
+  // refuses on, so a slot left behind by an abandoned drag turns every later
+  // numeric edit of that document (option bar, nudge, align, flip) into a
+  // permanent refusal. cancelTransform() is idempotent, so calling it after a
+  // commit that already cleared the slot is harmless.
+  function releaseFacadeDrag(d: CanvasLayerDrag): void {
+    if (!d.facade) return;
+    // peek, not get: a document that was already closed evicted its facade, and
+    // creating one here to release a slot it no longer has would hand the next
+    // document with the same id a stale empty facade.
+    peekFacade(d.sourceDocId)?.cancelTransform();
+    clearTransformPreview();
+  }
+
+  // Preview every dragged layer at the given offset. This is the channel the
+  // canvas actually renders through: EditorShell's render scheduler applies the
+  // preview to the outgoing RenderState, so the move is visible without touching
+  // the model, and the selection overlay tracks it off the same signal.
+  function previewDragOffset(
+    engine: { getLayer(id: string): LayerNode | null | undefined },
+    d: CanvasLayerDrag,
+    dx: number,
+    dy: number,
+  ): void {
+    const entries: FacadeTransformPreview[] = [];
+    for (const item of d.selectedLayerStarts) {
+      if (item.lockPosition) continue;
+      const layer = engine.getLayer(item.id);
+      if (!layer) continue;
+      entries.push({
+        layerId: item.id,
+        transform: { ...layer.transform, x: item.startTransformX + dx, y: item.startTransformY + dy },
+      });
+    }
+    setTransformPreview(entries);
+    const primary = entries[0];
+    if (primary) peekFacade(d.sourceDocId)?.updateTransform(primary.transform);
+  }
+
+  // One committed edit per dragged layer, through the same seam the option bar and
+  // the arrow-key nudge use: it owns the mixed-selection rejection, the per-layer
+  // serialization, the failure toast, and the post-commit render/panel refresh.
+  // The native arm writes the undo entry, so no legacy history entry is added.
+  function commitRoutedDrag(d: CanvasLayerDrag): void {
+    const engine = workspace.getEngine(d.sourceDocId);
+    if (!engine) return;
+    const edits: TransformEdit[] = [];
+    for (const item of d.selectedLayerStarts) {
+      if (item.lockPosition) continue;
+      edits.push({
+        layerId: item.id,
+        patch: { x: item.startTransformX + d.liveDx, y: item.startTransformY + d.liveDy },
+      });
+    }
+    if (edits.length === 0) return;
+    void routeNumericTransformBatch(engine, edits, {
+      requestRender: () => scheduler.requestRender(),
+      notifyVisualChange: () => workspace.notifyVisualChange(),
+    });
+  }
+
+  function detachDragListeners() {
+    document.removeEventListener("pointermove", onPointerMove);
+    document.removeEventListener("pointerup", onPointerUp);
+    document.removeEventListener("pointercancel", onPointerCancel);
+  }
+
+  /** End the gesture without applying it: preview away, listeners gone, drag over. */
+  function cancelDrag(): void {
+    const d = drag();
+    if (!d) return;
+    detachDragListeners();
+    opts.onSnapLinesChange?.([]);
+    opts.onHudUpdate?.(null);
+    releaseFacadeDrag(d);
+
+    const src = d.sourceDocId ?? activeDocumentId();
+    if (src && !d.facade) {
+      // Legacy: the model was mutated every frame, so the start transform has to be
+      // written back. Under the routed path it never was, so dropping the preview
+      // above IS the revert.
+      const sourceEngine = workspace.getEngine(src);
+      if (sourceEngine) {
+        for (const item of d.selectedLayerStarts) {
+          sourceEngine.transformLayer(item.id, {
+            x: item.startTransformX,
+            y: item.startTransformY,
+          });
+        }
+        scheduler.requestRender();
+      }
+    }
+    dragController.setDropTarget(null);
+    setDrag(null);
+    dragController.endDrag();
+  }
 
   function findLayerAt(docX: number, docY: number): LayerNode | null {
     const engine = workspace.getActiveEngine();
@@ -155,6 +291,10 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         scheduler.requestRender();
         return;
       }
+      // The layer is gone from its own document (deleted, or its identity changed
+      // mid-gesture), so no pointerup can commit it and the routed gesture would
+      // keep holding the facade slot forever.
+      if (d.facade) cancelDrag();
       return;
     }
 
@@ -216,12 +356,21 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     const actualDx = newX - d.startTransformX;
     const actualDy = newY - d.startTransformY;
 
-    for (const item of d.selectedLayerStarts) {
-      if (item.lockPosition) continue;
-      engine.transformLayer(item.id, {
-        x: item.startTransformX + actualDx,
-        y: item.startTransformY + actualDy,
-      });
+    d.liveDx = actualDx;
+    d.liveDy = actualDy;
+
+    if (d.facade) {
+      // Zero protocol calls and zero model writes per frame: the pointer moves a
+      // transient preview the renderer projects onto the outgoing RenderState.
+      previewDragOffset(engine, d, actualDx, actualDy);
+    } else {
+      for (const item of d.selectedLayerStarts) {
+        if (item.lockPosition) continue;
+        engine.transformLayer(item.id, {
+          x: item.startTransformX + actualDx,
+          y: item.startTransformY + actualDy,
+        });
+      }
     }
     scheduler.requestRender();
 
@@ -254,12 +403,16 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     const d = drag();
     if (!d) return;
 
-    document.removeEventListener("pointermove", onPointerMove);
-    document.removeEventListener("pointerup", onPointerUp);
-    document.removeEventListener("pointercancel", onPointerCancel);
+    detachDragListeners();
 
     opts.onSnapLinesChange?.([]);
     opts.onHudUpdate?.(null);
+
+    // The slot and the preview come down FIRST. The numeric funnel refuses a commit
+    // while the slot is held, so the routed commit below has to run after the
+    // release, and every exit from this function (including the no-active-engine
+    // path that skips the commit branch) has to be covered by it.
+    releaseFacadeDrag(d);
 
     const dropTarget = dragController.state().dropTarget;
     // Use the source docId captured at pointerdown, NOT the current
@@ -315,8 +468,9 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
           workspace,
         );
         crossDocAdded = true;
-        if (!e.altKey) {
-          // Copy (default) leaves the source untouched in place.
+        if (!e.altKey && !d.facade) {
+          // Copy (default) leaves the source untouched in place. The routed path
+          // never mutated it, so releasing the preview above already left it there.
           sourceEngine.transformLayer(d.layerId, {
             x: d.startTransformX,
             y: d.startTransformY,
@@ -335,7 +489,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       // Dropped on the same doc's tab →revert position (treat as cancel)
       dragController.cancelTabHover();
       const sourceEngine = workspace.getEngine(src);
-      if (sourceEngine) {
+      if (sourceEngine && !d.facade) {
         for (const item of d.selectedLayerStarts) {
           sourceEngine.transformLayer(item.id, {
             x: item.startTransformX,
@@ -344,9 +498,15 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         }
         scheduler.requestRender();
       }
+    } else if (d.facade) {
+      // Ended inside the source document with no drop-target action: the gesture's
+      // whole travel goes out as one committed edit per layer.
+      commitRoutedDrag(d);
     }
 
     // Commit history for the SOURCE doc so the user can undo the drag.
+    // Skipped on the routed path: the native transform arm owns that undo entry,
+    // so a second one here would leave two undo steps for one drag.
     // useCanvasLayerDrag is the sole history owner for move tool:
     // input-handler.handlePointerUp does NOT commit for "move" because
     // the SVG overlay (SelectionTransformOverlay, z-index 40) intercepts
@@ -354,7 +514,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     // never fires for SVG overlay clicks, and pendingHistorySnapshot stays
     // null. Only useCanvasLayerDrag.handlePointerDown can reliably track
     // and commit move tool history for both SVG and canvas click paths.
-    if (src) {
+    if (src && !d.facade) {
       const sourceEngine = workspace.getEngine(src);
       const history = workspace.getHistory(src);
       if (sourceEngine && history) {
@@ -375,30 +535,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
   }
 
   function onPointerCancel() {
-    const d = drag();
-    if (!d) return;
-    document.removeEventListener("pointermove", onPointerMove);
-    document.removeEventListener("pointerup", onPointerUp);
-    document.removeEventListener("pointercancel", onPointerCancel);
-    opts.onSnapLinesChange?.([]);
-    opts.onHudUpdate?.(null);
-
-    const src = d?.sourceDocId ?? activeDocumentId();
-    if (src) {
-      const sourceEngine = workspace.getEngine(src);
-      if (sourceEngine) {
-        for (const item of d.selectedLayerStarts) {
-          sourceEngine.transformLayer(item.id, {
-            x: item.startTransformX,
-            y: item.startTransformY,
-          });
-        }
-        scheduler.requestRender();
-      }
-    }
-    dragController.setDropTarget(null);
-    setDrag(null);
-    dragController.endDrag();
+    cancelDrag();
   }
 
   function handlePointerDown(e: PointerEvent) {
@@ -536,6 +673,29 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       }];
     }
 
+    // The route is decided here, synchronously, before any await: a per-frame write
+    // to a layer the native editor state owns is refused by the engine, so the
+    // gesture has to know up front whether it previews or mutates. With the flag off
+    // no layer is owned, the decision is always "legacy", and this function keeps
+    // its original shape.
+    const decision = decideTransformSetRoute(
+      selectedLayerStarts.filter((item) => !item.lockPosition).map((item) => item.id),
+    );
+    if (decision === "mixed-rejected") {
+      // Owned and legacy layers in one selection: dragging would move the legacy
+      // ones and throw on the owned ones. Refuse the gesture atomically, the same
+      // way the option bar refuses a mixed batch.
+      showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+      return;
+    }
+    if (decision === "route") {
+      // Hold the facade's one transient transform slot for the whole gesture. It is
+      // the gate the numeric commit funnel refuses on, which is what keeps a
+      // mid-drag option-bar edit or nudge from overwriting the gesture out from
+      // under the pointer. Released on every exit through releaseFacadeDrag().
+      getFacade(src).beginTransform(dragLayerId, { ...layer.transform });
+    }
+
     setDrag({
       layerId: dragLayerId,
       sourceDocId: src,
@@ -546,6 +706,10 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       rect: { left: rect.left, top: rect.top },
       preDragSnapshot,
       selectedLayerStarts,
+      pointerId: e.pointerId,
+      facade: decision === "route",
+      liveDx: 0,
+      liveDy: 0,
     });
 
     // Notify the DragController so cross-cutting subscribers
@@ -569,6 +733,32 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     document.addEventListener("pointerup", onPointerUp);
     document.addEventListener("pointercancel", onPointerCancel);
   }
+
+  onMount(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape aborts a routed drag only: adding a legacy Escape abort would be new
+      // behavior on the flag-off path, which this gesture keeps byte-identical.
+      const d = drag();
+      if (e.key === "Escape" && d?.facade) cancelDrag();
+    };
+    const handleLostPointerCapture = (e: PointerEvent) => {
+      const d = drag();
+      // Capture stolen (or the device gone) mid-routed-drag: no pointerup follows
+      // for that pointer, so this is the only place the slot can come down.
+      if (d?.facade && e.pointerId === d.pointerId) cancelDrag();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("lostpointercapture", handleLostPointerCapture, true);
+    onCleanup(() => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("lostpointercapture", handleLostPointerCapture, true);
+      detachDragListeners();
+      // Unmounting mid-gesture (document switch, viewport teardown) skips every
+      // pointer handler above, so the release has to happen here too.
+      const d = drag();
+      if (d) releaseFacadeDrag(d);
+    });
+  });
 
   return {
     handlePointerDown,

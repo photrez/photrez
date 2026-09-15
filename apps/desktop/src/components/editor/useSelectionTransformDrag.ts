@@ -92,8 +92,8 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
   // persisted layer transform. Overlay memos read this so handles/HUD track
   // the pointer during facade drags without any engine mutation.
   const effTransformOf = (layer: { id: string; transform: Transform2D }): Transform2D => {
-    const p = transformPreview();
-    if (p && p.layerId === layer.id) return p.transform;
+    const p = transformPreview().find((entry) => entry.layerId === layer.id);
+    if (p) return p.transform;
     return layer.transform;
   };
 
@@ -274,7 +274,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     if (drag.facade) {
       const full = { ...drag.startTransform, ...partial } as Transform2D;
       getFacade(engine.getId()).updateTransform(full);
-      setTransformPreview({ layerId, transform: full });
+      setTransformPreview([{ layerId, transform: full }]);
       setDragState((d) => (d && d.pointerId === drag.pointerId ? { ...d, liveTransform: full } : d));
     } else {
       engine.transformLayer(layerId, partial);

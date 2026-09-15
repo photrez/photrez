@@ -92,12 +92,16 @@ export function clearAdjustmentPreview(): void {
 }
 
 export function applyFacadePreviews(rs: RenderState): RenderState {
-  const tp = transformPreview();
+  const tps = transformPreview();
   const op = opacityPreview();
   const ap = adjustmentPreview();
   let layers = rs.layers;
-  if (tp) {
-    layers = layers.map((l) => (l.id === tp.layerId ? { ...l, transform: tp.transform } : l));
+  if (tps.length) {
+    const byId = new Map(tps.map((p) => [p.layerId, p.transform]));
+    layers = layers.map((l) => {
+      const t = byId.get(l.id);
+      return t ? { ...l, transform: t } : l;
+    });
   }
   if (op) {
     layers = layers.map((l) => (l.id === op.layerId ? { ...l, opacity: op.opacity } : l));
@@ -456,18 +460,20 @@ export function resolveSelectionRoute(ids: string[]): SelectionRoute {
 }
 
 // ── Transient drag preview ────────────────────────────────────────────────
-// Written by useSelectionTransformDrag during a facade drag (pointermove),
-// read by EditorShell's render scheduler (renderer model-matrix override)
-// and by the selection-overlay memos (handle/HUD tracking). Never persisted:
-// commitTransform()'s Rust delta is authoritative and clears it.
+// Written during a facade drag (pointermove) and read by the render scheduler's
+// outgoing RenderState (applyFacadePreviews above) and by the selection-overlay
+// memos (handle/HUD tracking). Never persisted: the committed Rust delta is
+// authoritative and clears it. A list rather than one entry because the canvas
+// move gesture drags every selected layer at once, and a dragged layer whose
+// preview is missing reads as a frozen layer.
 export interface FacadeTransformPreview {
   layerId: string;
   transform: Transform2D;
 }
-const [transformPreview, setTransformPreview] = createSignal<FacadeTransformPreview | null>(null);
+const [transformPreview, setTransformPreview] = createSignal<FacadeTransformPreview[]>([]);
 export { transformPreview, setTransformPreview };
 export function clearTransformPreview(): void {
-  setTransformPreview(null);
+  setTransformPreview([]);
 }
 
 // ── Numeric transform commit (Ticket 2.2 refinement) ─────────────────────
