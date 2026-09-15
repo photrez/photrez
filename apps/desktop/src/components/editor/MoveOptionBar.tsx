@@ -1,5 +1,4 @@
 import { Show, createMemo } from "solid-js";
-import type { LayerNode } from "@/engine/types";
 import { Icon } from "./icons";
 import { NumField, EditableNumField } from "./primitives";
 import { clsx } from "clsx";
@@ -8,11 +7,12 @@ import { useEditor } from "./shell/EditorContext";
 import { ToggleBtn, Divider, ToolPill, MoreDropdown, OptionCheckbox } from "./shell/OptionBarShared";
 import { useI18n } from "@/i18n/I18nProvider";
 import {
+  alignTransformEdits,
   canRouteTransform,
   decideTransformSetRoute,
   routeNumericTransform,
   routeNumericTransformBatch,
-  type WholeTransformEdit,
+  type AlignMode,
   type TransformRouteRefresh,
 } from "./layers/transformRouting";
 
@@ -181,55 +181,15 @@ export function MoveOptionBar() {
     }
   };
 
-  const handleAlign = (type: "left" | "center-h" | "right" | "top" | "center-v" | "bottom") => {
+  const handleAlign = (type: AlignMode) => {
     const engine = workspace.getActiveEngine();
     const multiIds = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
     const targetIds = multiIds.length > 1 ? multiIds : (selectedLayerId() ? [selectedLayerId()!] : []);
     if (!engine || targetIds.length === 0) return;
 
-    const layersToAlign = targetIds
-      .map((id) => ({ id, layer: engine.getLayer(id) }))
-      .filter((item): item is { id: string; layer: LayerNode } => Boolean(item.layer) && !item.layer!.locked && !item.layer!.lockPosition && !item.layer!.isBackground);
-
-    if (layersToAlign.length === 0) return;
-
-    const docW = docWidth();
-    const docH = docHeight();
-
     // Every position is computed from the pre-mutation model first, so a mixed
     // selection can be refused without leaving a half-aligned stack.
-    const edits: WholeTransformEdit[] = [];
-
-    for (const { id: targetId, layer } of layersToAlign) {
-      const next = { ...layer.transform };
-      const layerW = Math.round(layer.width * layer.transform.scaleX);
-      const layerH = Math.round(layer.height * layer.transform.scaleY);
-
-      switch (type) {
-        case "left":
-          next.x = 0;
-          break;
-        case "center-h":
-          next.x = Math.round((docW - layerW) / 2);
-          break;
-        case "right":
-          next.x = docW - layerW;
-          break;
-        case "top":
-          next.y = 0;
-          break;
-        case "center-v":
-          next.y = Math.round((docH - layerH) / 2);
-          break;
-        case "bottom":
-          next.y = docH - layerH;
-          break;
-      }
-      if (next.x !== layer.transform.x || next.y !== layer.transform.y) {
-        edits.push({ layerId: targetId, patch: next });
-      }
-    }
-
+    const { memberCount, edits } = alignTransformEdits(engine, targetIds, type, docWidth(), docHeight());
     if (edits.length === 0) return;
 
     // Routed: one native history entry per aligned layer where the legacy path
@@ -247,7 +207,7 @@ export function MoveOptionBar() {
     // it always has.
     const preSnapshot = engine.snapshot();
     for (const edit of edits) engine.transformLayer(edit.layerId, edit.patch);
-    history?.commit(preSnapshot, layersToAlign.length > 1 ? "Align Layers" : "Align Layer");
+    history?.commit(preSnapshot, memberCount > 1 ? "Align Layers" : "Align Layer");
     scheduler.requestRender();
   };
 

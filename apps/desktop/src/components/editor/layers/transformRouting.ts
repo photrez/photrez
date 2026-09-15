@@ -25,7 +25,8 @@
 
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
-import type { Transform2D } from "@/engine/types";
+import type { LayerNode, Transform2D } from "@/engine/types";
+import { getLayerAabb } from "@/viewport/transformGeometry";
 import {
   MIXED_OWNERSHIP_MESSAGE,
   facadeCommitNumericTransform,
@@ -145,4 +146,131 @@ export async function routeNumericTransformBatch(
   if (applied === 0) return "noop";
   refresh(afterCommit);
   return "applied";
+}
+
+export type AlignMode = "left" | "center-h" | "right" | "top" | "center-v" | "bottom";
+
+// What an align/distribute click would write. `memberCount` counts the selection
+// members that survive the guards even when none of them moves; the callers label
+// their legacy history entry from it.
+export interface TransformEditSet {
+  memberCount: number;
+  edits: WholeTransformEdit[];
+}
+
+// The guards an align/distribute action applies to its selection, unchanged from the
+// inline form the panel actions used: a locked, position-locked or background layer
+// never moves in either the routed or the legacy path.
+function editableTransformMembers(
+  engine: DocumentEngine,
+  layerIds: string[],
+): Array<{ id: string; layer: LayerNode }> {
+  return layerIds
+    .map((id) => ({ id, layer: engine.getLayer(id) }))
+    .filter(
+      (item): item is { id: string; layer: LayerNode } =>
+        Boolean(item.layer) && !item.layer!.locked && !item.layer!.lockPosition && !item.layer!.isBackground,
+    );
+}
+
+// Alignment targets are absolute (canvas edges and the canvas center), computed from
+// the model before any of them is written, so the whole set can be refused without
+// leaving a half-aligned stack.
+export function alignTransformEdits(
+  engine: DocumentEngine,
+  layerIds: string[],
+  type: AlignMode,
+  docW: number,
+  docH: number,
+): TransformEditSet {
+  const members = editableTransformMembers(engine, layerIds);
+  const edits: WholeTransformEdit[] = [];
+
+  for (const { id, layer } of members) {
+    const next = { ...layer.transform };
+    const layerW = Math.round(layer.width * layer.transform.scaleX);
+    const layerH = Math.round(layer.height * layer.transform.scaleY);
+
+    switch (type) {
+      case "left":
+        next.x = 0;
+        break;
+      case "center-h":
+        next.x = Math.round((docW - layerW) / 2);
+        break;
+      case "right":
+        next.x = docW - layerW;
+        break;
+      case "top":
+        next.y = 0;
+        break;
+      case "center-v":
+        next.y = Math.round((docH - layerH) / 2);
+        break;
+      case "bottom":
+        next.y = docH - layerH;
+        break;
+    }
+
+    if (next.x !== layer.transform.x || next.y !== layer.transform.y) {
+      edits.push({ layerId: id, patch: next });
+    }
+  }
+
+  return { memberCount: members.length, edits };
+}
+
+// Distribution keeps the outermost members of the selection where they are and spreads
+// the free space between every pair evenly. Bounds come from the rotated bounding box,
+// so a rotated member is spread by the space it visually occupies.
+export function distributeTransformEdits(
+  engine: DocumentEngine,
+  layerIds: string[],
+  axis: "h" | "v",
+): TransformEditSet {
+  const members = editableTransformMembers(engine, layerIds).map((item) => ({
+    id: item.id,
+    layer: item.layer,
+    aabb: getLayerAabb(item.layer.transform, item.layer.width, item.layer.height),
+  }));
+  const edits: WholeTransformEdit[] = [];
+  // Both axis branches divide by (count - 1): fewer than two members has no gap to
+  // compute, and every caller treats fewer than three as a no-op anyway.
+  if (members.length < 2) return { memberCount: members.length, edits };
+
+  if (axis === "h") {
+    members.sort((a, b) => a.aabb.x - b.aabb.x);
+    const first = members[0];
+    const last = members[members.length - 1];
+    const totalSpan = last.aabb.x + last.aabb.width - first.aabb.x;
+    const totalLayersWidth = members.reduce((sum, item) => sum + item.aabb.width, 0);
+    const gap = (totalSpan - totalLayersWidth) / (members.length - 1);
+
+    let currentX = first.aabb.x;
+    for (const item of members) {
+      const dx = Math.round(currentX - item.aabb.x);
+      if (dx !== 0) {
+        edits.push({ layerId: item.id, patch: { ...item.layer.transform, x: item.layer.transform.x + dx } });
+      }
+      currentX += item.aabb.width + gap;
+    }
+  } else {
+    members.sort((a, b) => a.aabb.y - b.aabb.y);
+    const first = members[0];
+    const last = members[members.length - 1];
+    const totalSpan = last.aabb.y + last.aabb.height - first.aabb.y;
+    const totalLayersHeight = members.reduce((sum, item) => sum + item.aabb.height, 0);
+    const gap = (totalSpan - totalLayersHeight) / (members.length - 1);
+
+    let currentY = first.aabb.y;
+    for (const item of members) {
+      const dy = Math.round(currentY - item.aabb.y);
+      if (dy !== 0) {
+        edits.push({ layerId: item.id, patch: { ...item.layer.transform, y: item.layer.transform.y + dy } });
+      }
+      currentY += item.aabb.height + gap;
+    }
+  }
+
+  return { memberCount: members.length, edits };
 }

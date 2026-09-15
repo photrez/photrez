@@ -15,14 +15,12 @@ import { getAvailableFonts, getInstantFonts, type FontFamily } from "@/lib/fontE
 import type { TextData, TextStrokeAlign } from "@/engine/textTypes";
 import { useLayerActions } from "./layers/useLayerActions";
 import type { LayerNode, Transform2D } from "@/engine/types";
-import { isFacadeEnabled, facadeCommitNumericTransform } from "@/lib/protocol/facadeRegistry";
+import { opacityPreview, setOpacityPreview, clearOpacityPreview, commitFacadeOpacity } from "@/lib/protocol/facadeRegistry";
 import {
-  opacityPreview,
-  setOpacityPreview,
-  clearOpacityPreview,
-  commitFacadeOpacity,
-} from "@/lib/protocol/facadeRegistry";
-import { isFacadeOwnedLayer } from "@/engine/document";
+  alignTransformEdits, distributeTransformEdits, decideTransformSetRoute,
+  canRouteTransform, routeNumericTransform, routeNumericTransformBatch,
+  type AlignMode, type TransformRouteRefresh,
+} from "./layers/transformRouting";
 import { useI18n } from "@/i18n/I18nProvider";
 
 const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
@@ -75,57 +73,38 @@ export function PropertiesPanel() {
     };
   });
 
-  const handleAlign = (type: "left" | "center-h" | "right" | "top" | "center-v" | "bottom") => {
+  const transformRefresh: TransformRouteRefresh = {
+    requestRender: () => scheduler.requestRender(),
+    notifyVisualChange: () => workspace.notifyVisualChange(),
+  };
+
+  const handleAlign = (type: AlignMode) => {
     const engine = workspace.getActiveEngine();
     const multiIds = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
     const targetIds = multiIds.length > 1 ? multiIds : (selectedLayerId() ? [selectedLayerId()!] : []);
     if (!engine || targetIds.length === 0) return;
 
-    const layersToAlign = targetIds
-      .map((id) => ({ id, layer: engine.getLayer(id) }))
-      .filter((item): item is { id: string; layer: LayerNode } => Boolean(item.layer) && !item.layer!.locked && !item.layer!.lockPosition && !item.layer!.isBackground);
+    const { memberCount, edits } = alignTransformEdits(engine, targetIds, type, docWidth(), docHeight());
+    // The legacy path drew the same line: an empty candidate set returns before the
+    // snapshot is taken, while a candidate set that needs no move is snapshotted and
+    // then left alone.
+    if (memberCount === 0) return;
 
-    if (layersToAlign.length === 0) return;
-
-    const docW = docWidth();
-    const docH = docHeight();
     const history = workspace.getActiveHistory();
     const preSnapshot = engine.snapshot();
-    let anyChanged = false;
+    if (edits.length === 0) return;
 
-    for (const { id: targetId, layer } of layersToAlign) {
-      const next = { ...layer.transform };
-      const layerW = Math.round(layer.width * layer.transform.scaleX);
-      const layerH = Math.round(layer.height * layer.transform.scaleY);
-
-      switch (type) {
-        case "left":
-          next.x = 0;
-          break;
-        case "center-h":
-          next.x = Math.round((docW - layerW) / 2);
-          break;
-        case "right":
-          next.x = docW - layerW;
-          break;
-        case "top":
-          next.y = 0;
-          break;
-        case "center-v":
-          next.y = Math.round((docH - layerH) / 2);
-          break;
-        case "bottom":
-          next.y = docH - layerH;
-          break;
-      }
-
-      if (next.x !== layer.transform.x || next.y !== layer.transform.y) {
-        anyChanged = true;
-        engine.transformLayer(targetId, next);
-      }
+    // Routed: one native history entry per aligned layer, each labelled "Transform
+    // Layer", where the legacy path wrote a single combined entry. A mixed selection
+    // must not fall through either: the legacy mutator throws on the facade-owned
+    // members after the others are already written.
+    if (decideTransformSetRoute(edits.map((edit) => edit.layerId)) !== "legacy") {
+      void routeNumericTransformBatch(engine, edits, transformRefresh);
+      return;
     }
 
-    if (anyChanged && history) {
+    for (const edit of edits) engine.transformLayer(edit.layerId, edit.patch);
+    if (history) {
       history.commit(preSnapshot, `Align ${type}`);
       scheduler.requestRender();
       workspace.notifyVisualChange();
@@ -137,67 +116,20 @@ export function PropertiesPanel() {
     const multiIds = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
     if (!engine || multiIds.length < 3) return;
 
-    const layersToDistribute = multiIds
-      .map((id) => ({ id, layer: engine.getLayer(id) }))
-      .filter((item): item is { id: string; layer: LayerNode } => Boolean(item.layer) && !item.layer!.locked && !item.layer!.lockPosition && !item.layer!.isBackground)
-      .map((item) => {
-        const aabb = getLayerAabb(item.layer.transform, item.layer.width, item.layer.height);
-        return {
-          id: item.id,
-          layer: item.layer,
-          aabb,
-        };
-      });
-
-    if (layersToDistribute.length < 3) return;
+    const { memberCount, edits } = distributeTransformEdits(engine, multiIds, axis);
+    if (memberCount < 3) return;
 
     const history = workspace.getActiveHistory();
     const preSnapshot = engine.snapshot();
 
-    if (axis === "h") {
-      layersToDistribute.sort((a, b) => a.aabb.x - b.aabb.x);
-      const first = layersToDistribute[0];
-      const last = layersToDistribute[layersToDistribute.length - 1];
-      const totalSpan = (last.aabb.x + last.aabb.width) - first.aabb.x;
-      const totalLayersWidth = layersToDistribute.reduce((sum, item) => sum + item.aabb.width, 0);
-      const freeSpace = totalSpan - totalLayersWidth;
-      const gap = freeSpace / (layersToDistribute.length - 1);
-
-      let currentX = first.aabb.x;
-      for (const item of layersToDistribute) {
-        const dx = Math.round(currentX - item.aabb.x);
-        if (dx !== 0) {
-          engine.transformLayer(item.id, {
-            ...item.layer.transform,
-            x: item.layer.transform.x + dx,
-          });
-        }
-        currentX += item.aabb.width + gap;
-      }
-      history?.commit(preSnapshot, "Distribute Horizontally");
-    } else {
-      layersToDistribute.sort((a, b) => a.aabb.y - b.aabb.y);
-      const first = layersToDistribute[0];
-      const last = layersToDistribute[layersToDistribute.length - 1];
-      const totalSpan = (last.aabb.y + last.aabb.height) - first.aabb.y;
-      const totalLayersHeight = layersToDistribute.reduce((sum, item) => sum + item.aabb.height, 0);
-      const freeSpace = totalSpan - totalLayersHeight;
-      const gap = freeSpace / (layersToDistribute.length - 1);
-
-      let currentY = first.aabb.y;
-      for (const item of layersToDistribute) {
-        const dy = Math.round(currentY - item.aabb.y);
-        if (dy !== 0) {
-          engine.transformLayer(item.id, {
-            ...item.layer.transform,
-            y: item.layer.transform.y + dy,
-          });
-        }
-        currentY += item.aabb.height + gap;
-      }
-      history?.commit(preSnapshot, "Distribute Vertically");
+    // Same routing contract as align, including the mixed-selection refusal.
+    if (decideTransformSetRoute(edits.map((edit) => edit.layerId)) !== "legacy") {
+      void routeNumericTransformBatch(engine, edits, transformRefresh);
+      return;
     }
 
+    for (const edit of edits) engine.transformLayer(edit.layerId, edit.patch);
+    history?.commit(preSnapshot, axis === "h" ? "Distribute Horizontally" : "Distribute Vertically");
     scheduler.requestRender();
     workspace.notifyVisualChange();
   };
@@ -304,7 +236,7 @@ export function PropertiesPanel() {
       // transient in TS (render preview only, ZERO protocol commands); the
       // single SetOpacity command fires at the semantic boundary
       // (finishOpacityEdit) with expectedVersion enforced.
-      if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+      if (canRouteTransform(id)) {
         if (Math.abs(layer.opacity - target) < 0.0001) return;
         if (facadeOpacityStart === null) facadeOpacityStart = layer.opacity;
         setOpacityPreview({ layerId: id, opacity: target });
@@ -329,7 +261,7 @@ export function PropertiesPanel() {
     // Facade commit boundary: ONE SetOpacity command (expectedVersion enforced)
     // + authoritative projection; transient preview cleared. Skipped when the
     // gesture ended at the starting value (no-op guard).
-    if (id && engine && isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+    if (id && engine && canRouteTransform(id)) {
       const pv = opacityPreview();
       const final = pv && pv.layerId === id ? pv.opacity : null;
       clearOpacityPreview();
@@ -359,21 +291,11 @@ export function PropertiesPanel() {
     const layer = engine.getLayer(id);
     if (!layer || layer.locked) return false;
 
-    // Ticket 2.2: facade-owned layers commit through Rust (one command per
-    // committed edit, expectedVersion enforced, projection updates the model).
-    if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
-      let ok = false;
-      try {
-        ok = await facadeCommitNumericTransform(engine, id, patch);
-      } catch (e) {
-        console.error(e);
-        showToast(`Cannot apply transform: ${(e as Error).message}`, "error");
-        return false;
-      }
-      if (!ok) return false;
-      scheduler.requestRender();
-      workspace.notifyVisualChange();
-      return true;
+    // Facade-owned layers commit through the routing seam: one native command per
+    // committed edit, expectedVersion enforced, the projection updating the model.
+    // The seam shows the error toast and runs the refresh side effects itself.
+    if (canRouteTransform(id)) {
+      return (await routeNumericTransform(engine, id, patch, transformRefresh)) === "applied";
     }
 
     const next = { ...layer.transform, ...patch };
