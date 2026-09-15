@@ -475,6 +475,13 @@ export { transformPreview, setTransformPreview };
 export function clearTransformPreview(): void {
   setTransformPreview([]);
 }
+// Overlay geometry (selection box, transform handles, HUD) reads this so it tracks
+// a gesture the model never sees: a routed transform gesture writes only the preview,
+// so a box computed off the raw model would sit still while the pixels move.
+export function previewedTransformOf(layerId: string, fallback: Transform2D): Transform2D {
+  const p = transformPreview().find((entry) => entry.layerId === layerId);
+  return p ? p.transform : fallback;
+}
 
 // ── Numeric transform commit (Ticket 2.2 refinement) ─────────────────────
 // One committed numeric edit/group = exactly ONE TransformLayer Rust command

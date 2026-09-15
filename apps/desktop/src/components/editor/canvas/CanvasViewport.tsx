@@ -3,6 +3,7 @@ import { screenToDocument } from "@/viewport/coords";
 import { computeSnapAdjustment } from "@/viewport/smartGuides";
 import { buildTransformSnapTargets } from "@/viewport/transformSnapTargets";
 import { getLayerAabb, getCursorForHandle } from "@/viewport/transformGeometry";
+import { previewedTransformOf } from "@/lib/protocol/facadeRegistry";
 import { useCanvasMarqueeSelect } from "./useCanvasMarqueeSelect";
 import { useMultiSelectionGroupTransform } from "./useMultiSelectionGroupTransform";
 import { useEditor } from "../shell/EditorContext";
@@ -442,7 +443,7 @@ export function CanvasViewport() {
     for (const id of ids) {
       const l = all.find((item) => item.id === id);
       if (!l || !l.visible) continue;
-      const aabb = getLayerAabb(l.transform, l.width, l.height);
+      const aabb = getLayerAabb(previewedTransformOf(l.id, l.transform), l.width, l.height);
       if (aabb.x < minX) minX = aabb.x;
       if (aabb.y < minY) minY = aabb.y;
       if (aabb.x + aabb.width > maxX) maxX = aabb.x + aabb.width;
