@@ -4,6 +4,7 @@ import { clsx } from "clsx";
 import { useEditor } from "./shell/EditorContext";
 import { useDialog } from "./dialogs/DialogProvider";
 import { ToolPill, Divider } from "./shell/OptionBarShared";
+import { commitTextParamsEdit } from "./layers/paramsRouting";
 import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
 import { getAvailableFonts, getInstantFonts } from "@/lib/fontEnumeration";
@@ -100,7 +101,7 @@ function shallowEqualTextData(cur: TextData, patch: Partial<TextData>): boolean 
  *   signals used for the NEXT created text layer (deterministic session
  *   defaults; color reads the shared editor foreground).
  * - edit mode (a text layer is selected, any active tool): binds live textData
- *   and calls engine.updateTextData (commit BEFORE mutation).
+ *   and commits through the shared text-params seam (layers/paramsRouting).
  * Research pain points addressed: always-visible bar (edit mode), WYSIWYG font
  * preview + search, color read from the same foreground used elsewhere.
  */
@@ -277,6 +278,11 @@ export function TextOptionBar() {
         ? textStrokeAlign()
         : "outside";
 
+  // Every edit-mode change funnels through the shared text-params seam
+  // (layers/paramsRouting). On a facade-owned layer the seam dispatches ONE
+  // SetLayerParams command and writes no TS history entry (the native arm owns
+  // the step); while a live session owns this same layer it live-mutates with no
+  // entry; otherwise it keeps the legacy commit-before-mutate order.
   const applyEdit = (patch: Partial<TextData>) => {
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
@@ -286,24 +292,13 @@ export function TextOptionBar() {
     // No-op guard: skip commit when the patch doesn't change the current
     // textData — prevents ghost undo entries from repeated input events.
     if (shallowEqualTextData(layer.textData, next)) return;
-    // Session guard (B4): while a live text-edit session owns this SAME
-    // layer, skip the history commit — the session commits exactly once at
-    // close (one "Edit Text" undo step per session contract). Live-mutate
-    // only, so option-bar changes appear in the overlay/engine immediately.
-    // A session open on a DIFFERENT layer still commits normally.
-    const session = textEditSession();
-    if (session && session.layerId === layer.id) {
-      engine.updateTextData(layer.id, next);
-      if (typeof engine.getLayerImageBitmap === "function") {
-        const bitmap = engine.getLayerImageBitmap(layer.id);
-        if (bitmap) renderer?.uploadImage(layer.id, bitmap);
-      }
-      scheduler?.requestRender();
-      return;
-    }
-    // commit BEFORE mutation (AGENTS.md wiring rule)
-    history.commit(engine.snapshot(), "Edit Text");
-    engine.updateTextData(layer.id, next);
+    commitTextParamsEdit(engine, layer.id, patch, "Edit Text", {
+      history,
+      renderer,
+      scheduler,
+      notifyVisualChange: () => workspace.notifyVisualChange(),
+      sessionLayerId: textEditSession()?.layerId ?? null,
+    });
   };
 
   const setFamily = (family: string) => {

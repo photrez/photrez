@@ -99,11 +99,17 @@ function buildMock(overrides: Record<string, unknown> = {}, layer?: LayerNode) {
   const updateTextData = vi.fn();
   const commit = vi.fn();
   const snapshot = vi.fn(() => ({}));
-  const engine = { getLayer: () => layer ?? undefined, updateTextData, snapshot };
+  const engine = {
+    getLayer: () => layer ?? undefined,
+    updateTextData,
+    snapshot,
+    getLayerImageBitmap: vi.fn(() => null),
+  };
   const editor = {
     workspace: {
       getActiveEngine: () => engine,
       getActiveHistory: () => ({ commit }),
+      notifyVisualChange: vi.fn(),
     },
     activeTool: () => "text",
     layers: () => (layer ? [layer] : []),

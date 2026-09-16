@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Committing a text-params edit (font/size/color/box in the properties panel, and
-// the text overlay's session-close flush) while the native arm owns the layer.
+// Committing a text-params edit (font/size/color/box in the properties panel, the
+// text option bar's edit-mode controls, and the text overlay's session-close
+// flush) while the native arm owns the layer.
 // One SetLayerParams command carries the whole payload and the native engine
 // records the history entry, so the routed path writes no TS history entry: a TS
 // entry here would strand an undo point whose engine.restore() rejects with
@@ -141,6 +142,13 @@ export function commitTextParamsEdit(
   }
   if (deps.sessionLayerId === layerId) {
     engine.updateTextData(layerId, next);
+    // A live session tick redraws immediately, so the fresh raster has to reach
+    // the renderer here: nothing else uploads a changed layer texture after a
+    // model write.
+    if (typeof engine.getLayerImageBitmap === "function") {
+      const sessionBitmap = engine.getLayerImageBitmap(layerId);
+      if (sessionBitmap) deps.renderer?.uploadImage(layerId, sessionBitmap);
+    }
     deps.scheduler?.requestRender();
     deps.notifyVisualChange?.();
     return;
