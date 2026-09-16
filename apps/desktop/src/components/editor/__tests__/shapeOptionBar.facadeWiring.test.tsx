@@ -33,6 +33,7 @@ import {
   __resetFacadeRegistryForTests,
   commitFacadeParams,
   getFacade,
+  seedFacadeFromEngine,
 } from "@/lib/protocol/facadeRegistry";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
@@ -139,9 +140,19 @@ interface Harness {
   cleanup: () => void;
 }
 
-async function setup(opts: { owned: boolean }): Promise<Harness> {
+async function setup(opts: { owned: boolean; unheld?: boolean }): Promise<Harness> {
   const engine = new DocumentEngine(DOC, "Doc", 800, 600);
   const layer = engine.addShapeLayer("Shape", { ...PARAMS });
+
+  if (opts.unheld) {
+    // Ownership without the native engine ever receiving the layer: the facade
+    // snapshot carries it (so a projection keeps it) while the protocol engine
+    // holds nothing. applyFacadeSnapshot marks every id in the cache vector, so
+    // the layer counts as owned even though no arm can restate it.
+    const facade = getFacade(DOC);
+    await seedFacadeFromEngine(engine as never, facade);
+    engine.applyFacadeSnapshot(facade.snapshot as never);
+  }
 
   if (opts.owned) {
     // The native engine only learns a layer through a protocol arm, so the shape
@@ -266,9 +277,11 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
     expect(h.requestRender).toHaveBeenCalled();
 
     // The only model write is that re-raster, and it carries the value the arm
-    // already holds - never a locally computed patch.
+    // already holds - never a locally computed patch. No mismatch toast: a false
+    // "does not hold this layer" would mean the equality check is too strict.
     expect(engineWrite).toHaveBeenCalledTimes(1);
     expect(engineWrite.mock.calls[0][1]).toEqual(native.shapeParams);
+    expect(vi.mocked(showToast)).not.toHaveBeenCalled();
     h.cleanup();
   });
 
@@ -303,6 +316,29 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
     expect(h.history.getUndoCount()).toBe(0);
     expect(vi.mocked(showToast)).toHaveBeenCalledWith(
       expect.stringContaining("E_INVALID: boom"),
+      "error",
+    );
+    h.cleanup();
+  });
+
+  it("a layer the native engine never received: writes the intended params and reports the miss", async () => {
+    const h = await setup({ owned: false, unheld: true });
+    expect(isFacadeOwnedLayer(h.layerId)).toBe(true);
+    // Precondition: the model holds the shape at radius 8 and the native engine
+    // holds nothing, so the params arm restates no layer at all.
+    expect(shapeParamsOf(h).radius).toBe(8);
+
+    typeRadius(h.container, "30");
+    await settle();
+
+    expect(commandLog.types).toEqual(["setLayerParams"]);
+    // The intended edit is on the model - not the stale pre-edit value the
+    // settled read would hand back - and the miss is reported rather than a
+    // silent no-op reported as applied.
+    expect(shapeParamsOf(h).radius).toBe(30);
+    expect(h.history.getUndoCount()).toBe(0);
+    expect(vi.mocked(showToast)).toHaveBeenCalledWith(
+      expect.stringContaining("does not hold this layer"),
       "error",
     );
     h.cleanup();

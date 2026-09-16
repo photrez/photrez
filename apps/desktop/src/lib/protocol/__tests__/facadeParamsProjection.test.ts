@@ -13,6 +13,10 @@
 // the model value alone. Clearing on absence would drop a text edit as soon as
 // any other metadata arm restated the layer.
 //
+// Layer width/height are NOT part of that convention: for a layer the model
+// already has they are model-owned (the pixel path produces them) and
+// applyFacadeSnapshot never writes them, so a restatement cannot clobber the size.
+//
 // shapeParams and layerType (the wire name for the model's `type`) ride that
 // same convention. One consequence is pinned below and is NOT a defect this
 // projection can fix: the RasterizeLayer arm clears shape_params by setting it

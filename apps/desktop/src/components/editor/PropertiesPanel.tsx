@@ -22,6 +22,7 @@ import {
   type AlignMode, type TransformRouteRefresh,
 } from "./layers/transformRouting";
 import { useI18n } from "@/i18n/I18nProvider";
+import { commitTextParamsEdit } from "./layers/paramsRouting";
 
 const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
   { value: 100, label: "Thin" },
@@ -37,7 +38,7 @@ const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
 
 export function PropertiesPanel() {
   const { t } = useI18n();
-  const { workspace, layers, selectedLayerId, selectedLayerIds, scheduler, activeDocumentId, docWidth, docHeight, constrainRatio, setConstrainRatio, textEditSession, setColorPickerOpen, setColorPickerTarget } = useEditor();
+  const { workspace, renderer, layers, selectedLayerId, selectedLayerIds, scheduler, activeDocumentId, docWidth, docHeight, constrainRatio, setConstrainRatio, textEditSession, setColorPickerOpen, setColorPickerTarget } = useEditor();
   const dialogs = useDialog();
   const layerActions = useLayerActions();
   const [opacityEditLayerId, setOpacityEditLayerId] = createSignal<string | null>(null);
@@ -174,23 +175,13 @@ export function PropertiesPanel() {
     const engine = workspace.getActiveEngine();
     const id = selectedLayerId();
     if (!engine || !id) return;
-    const layer = engine.getLayer(id);
-    if (!layer || layer.locked || layer.type !== "text" || !layer.textData) return;
-
-    const next = { ...layer.textData, ...patch };
-    const session = typeof textEditSession === "function" ? textEditSession() : null;
-    if (session && session.layerId === layer.id) {
-      engine.updateTextData(layer.id, next);
-      scheduler.requestRender();
-      workspace.notifyVisualChange();
-      return;
-    }
-
-    const history = workspace.getActiveHistory();
-    history?.commit(engine.snapshot(), label);
-    engine.updateTextData(layer.id, next);
-    scheduler.requestRender();
-    workspace.notifyVisualChange();
+    commitTextParamsEdit(engine, id, patch, label, {
+      history: workspace.getActiveHistory(),
+      renderer,
+      scheduler,
+      notifyVisualChange: () => workspace.notifyVisualChange(),
+      sessionLayerId: typeof textEditSession === "function" ? textEditSession()?.layerId ?? null : null,
+    });
   };
 
   const handlePickTextColor = async (currentColor: string) => {

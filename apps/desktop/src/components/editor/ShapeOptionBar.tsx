@@ -122,7 +122,19 @@ export function ShapeOptionBar() {
         // is a re-raster of what the native side already owns, not a second
         // unguarded model write.
         const settled = engine.getLayer(layerId);
-        if (!settled || settled.type !== "shape" || !settled.shapeParams) return;
+        if (!settled || settled.type !== "shape") return;
+        if (!settled.shapeParams || !shallowEqualParams(settled.shapeParams, params)) {
+          // The command reported success but the arm restated no layer, so it does
+          // not hold this id (the arm no-ops on an unknown id). The settled read is
+          // the stale pre-edit value; write the INTENDED params and say so, instead
+          // of re-writing the old value and reporting a no-op as applied.
+          engine.updateShapeParams(layerId, params);
+          const fallback = typeof engine.getLayerImageBitmap === "function" ? engine.getLayerImageBitmap(layerId) : null;
+          if (fallback) renderer?.uploadImage(layerId, fallback);
+          scheduler?.requestRender();
+          showToast("Cannot edit shape: the native engine does not hold this layer", "error");
+          return;
+        }
         engine.updateShapeParams(layerId, settled.shapeParams);
         const bitmap = typeof engine.getLayerImageBitmap === "function" ? engine.getLayerImageBitmap(layerId) : null;
         if (bitmap) renderer?.uploadImage(layerId, bitmap);

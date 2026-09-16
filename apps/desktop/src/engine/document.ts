@@ -1271,9 +1271,11 @@ export class DocumentEngine {
       }
       this.model.dirty = true;
       this.markLayerDirty(id);
-      // Direct push (no notifyChange): layer width/height are projection-carried,
-      // so a stale snapshot would let the next routed op restore the size the
-      // bitmap replace just moved. Same refresh the adjustment mutators do.
+      // Direct push (no notifyChange): the snapshot cache carries layer dims and
+      // the rebuild/retained branches read them, so a bitmap replace that moves the
+      // layer's own size must republish - otherwise a drop-and-rebuild would restore
+      // the size the bitmap replace just moved. Same refresh the adjustment mutators
+      // do.
       this.refreshFacadeProjectionCache();
       this.pushModelToRust(); // width/height are graph fields - keep Rust in sync
       this.notifyVisualChange();
@@ -1544,9 +1546,10 @@ export class DocumentEngine {
    * and clearBasicAdjustments — the adjustment fields ARE projection-carried, so
    * those two must republish or the next routed projection would revert the
    * adjustment). setLayerImageBitmap pushes directly too and refreshes for the
-   * same reason since layer width/height became projection-carried: a bitmap
-   * replace moves the layer's own dims, and a snapshot left on the old size
-   * would restore them at the next routed op.
+   * same reason since the snapshot cache carries layer dims: a bitmap replace moves
+   * the layer's own dims, and a snapshot left on the old size would restore them if
+   * the layer were dropped and rebuilt from the snapshot (the rebuild and retained
+   * branches read projected dims).
    *
    * restore() refreshes AFTER its push while the direct sites refresh BEFORE
    * theirs. Both orders are correct: the refresh reads the model, which both
@@ -1924,12 +1927,15 @@ export class DocumentEngine {
         // routeRasterize deletes them host-side to match shapeLayerToRaster.
         existing.shapeParams = rl.shapeParams ?? existing.shapeParams;
         existing.type = (rl.layerType as typeof existing.type) ?? existing.type;
-        // Layer dims ride the same convention. The Rust DTO carries them as
-        // Option<f64> (model.rs:51-54) and the arms that know a real size send it
-        // (AddLayer: document_core_apply.rs:192-193), so presence means the
-        // authoritative value and absence means the arm did not restate it.
-        existing.width = rl.width ?? existing.width;
-        existing.height = rl.height ?? existing.height;
+        // Layer dims are MODEL-owned, not projection-owned: the pixel path
+        // produces them host-side (updateShapeParams, updateTextData,
+        // setLayerImageBitmap - document.ts:720-721, 796-797, 1269-1270) and no
+        // command ever pushes a new size back to the engine, so the arm's stored
+        // layer keeps its create-time size forever. Writing the projected size
+        // here would clobber the model's real dims on every same-layer metadata op
+        // (wrong-size quad and a lying size field). This branch has a model value
+        // to keep, so it must not write width/height. The rebuild and retained
+        // branches below have nothing to keep and still honor the projected size.
         nextLayers.push(existing);
       } else {
         const retained = this.droppedNodes.get(rl.id);
@@ -1951,8 +1957,8 @@ export class DocumentEngine {
             lockRotation: rl.lockRotation ?? false,
             isBackground: rl.isBackground ?? false,
             blendMode: (rl.blendMode as BlendMode) ?? "normal",
-            // Same dims convention as the existing-layer branch: a restated size
-            // wins, an omitted one keeps the retained node's own size.
+            // No model layer to protect here: a restated size wins, an omitted
+            // one keeps the retained node's own size (the pixel path's value).
             width: rl.width ?? retained.width,
             height: rl.height ?? retained.height,
             transform: {
@@ -1995,9 +2001,10 @@ export class DocumentEngine {
             basicAdjustment: rl.basicAdjustment,
             blendMode: (rl.blendMode as BlendMode) ?? "normal",
             transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: rl.flipH ?? false, flipV: rl.flipV ?? false },
-            // Same dims convention again; the document size is only the last
-            // fallback, for a descriptor that carries no size at all (a native
-            // add always knows its own, which is why this branch exists).
+            // Restated size wins here too (this branch has no model layer to
+            // keep); the document size is only the last fallback, for a descriptor
+            // that carries no size at all (a native add always knows its own,
+            // which is why this branch exists).
             width: rl.width ?? this.model.width,
             height: rl.height ?? this.model.height,
             imageBitmap: null,

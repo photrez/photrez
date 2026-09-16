@@ -27,6 +27,7 @@ import {
   setTransformPreview,
 } from "@/lib/protocol/facadeRegistry";
 import { routeNumericTransform } from "./layers/transformRouting";
+import { commitRoutedTextParams } from "./layers/paramsRouting";
 import { showToast } from "./Toast";
 
 /**
@@ -38,7 +39,7 @@ import { showToast } from "./Toast";
 export const OVERLAY_MIN_WIDTH = "2ch";
 import type { TextData } from "@/engine/textTypes";
 
-/** Debounce window for live re-raster (plan risk R4: memory churn). */
+/** Debounce window for the live re-raster; each push rasterizes a fresh bitmap. */
 const RERASTER_DEBOUNCE_MS = 50;
 
 export function TextEditOverlay() {
@@ -56,6 +57,11 @@ export function TextEditOverlay() {
 
   let textareaRef: HTMLTextAreaElement | undefined;
   let pushTimer: ReturnType<typeof setTimeout> | undefined;
+  // Detach for the resize gesture currently listening on window. Unmount must run
+  // it: the pointer/key listeners outlive the component and would otherwise keep
+  // handling events (a leaked capture-phase Escape handler swallows the textarea's
+  // own Escape) for the rest of the session.
+  let activeResizeDetach: (() => void) | null = null;
   let composing = false;
   let prevSessionKey: string | null = null;
   const [value, setValue] = createSignal("");
@@ -146,6 +152,17 @@ export function TextEditOverlay() {
 
   onCleanup(() => {
     if (pushTimer) clearTimeout(pushTimer);
+    activeResizeDetach?.();
+    // A resize gesture torn down by unmount must not leave its preview entry set
+    // or a facade transform slot active: both outlive the component and a leaked
+    // slot refuses every later numeric commit of that document. Gated on an open
+    // session so another layer's or document's gesture is left alone.
+    const s = textEditSession();
+    const engine = workspace.getActiveEngine() as Partial<DocumentEngine> | null;
+    if (s) {
+      clearTransformPreview();
+      if (typeof engine?.getId === "function") peekFacade(engine.getId())?.cancelTransform();
+    }
   });
 
   const pushContent = (content: string, engineOverride?: DocumentEngine | null) => {
@@ -176,51 +193,19 @@ export function TextEditOverlay() {
 
   // One SetLayerParams command per session close for an owned layer. Nothing is
   // written to the model here: the arm stores the content and the projection
-  // installs it, so a local write would race the authoritative value.
+  // installs it, and the local re-raster regenerates the glyphs (and the box dims,
+  // which the projection never writes) from the value it settled on.
   const commitRoutedContent = (
     layerId: string,
     content: string,
     engineOverride?: DocumentEngine | null,
   ) => {
-    if (!isFacadeEnabled() || !isFacadeOwnedLayer(layerId)) return;
     const engine = engineOverride ?? workspace.getActiveEngine();
     if (!engine) return;
     const layer = engine.getLayer(layerId);
     if (!layer || layer.type !== "text" || !layer.textData) return;
     if (layer.textData.content === content) return;
-    void commitFacadeParams(engine, [layerId], { textData: { ...layer.textData, content } })
-      .then((result) => {
-        if (result.status !== "applied") {
-          showToast(`Cannot update text (${result.status})`, "error");
-          return;
-        }
-        // No native arm rasterizes text, and the projection carries no bitmap and
-        // no box dims, so the host raster is regenerated from the value the
-        // projection just wrote. Reading it back keeps both sides on one value
-        // even if the rasterizer normalizes the payload.
-        const settled = engine.getLayer(layerId);
-        if (!settled?.textData) return;
-        if (settled.textData.content !== content) {
-          // The command reported success but the authoritative engine did not take
-          // the content: an arm that does not hold the layer restates nothing, and
-          // the projection then keeps the model value. Re-raster from the model so
-          // the canvas shows what was actually committed instead of the discarded
-          // keystrokes, and say so rather than dropping the typing quietly.
-          engine.updateTextData(layerId, settled.textData);
-          const stale = engine.getLayerImageBitmap(layerId);
-          if (stale) renderer?.uploadImage(layerId, stale);
-          scheduler.requestRender();
-          showToast("Cannot update text: the native engine does not hold this layer", "error");
-          return;
-        }
-        engine.updateTextData(layerId, settled.textData);
-        const bitmap = engine.getLayerImageBitmap(layerId);
-        if (bitmap) renderer?.uploadImage(layerId, bitmap);
-        scheduler.requestRender();
-      })
-      .catch((err) => {
-        showToast(`Cannot update text: ${err instanceof Error ? err.message : String(err)}`, "error");
-      });
+    commitRoutedTextParams(engine, layerId, { content }, { renderer, scheduler });
   };
 
   const schedulePush = (content: string) => {
@@ -512,6 +497,7 @@ export function TextEditOverlay() {
     };
 
     const detach = () => {
+      activeResizeDetach = null;
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       if (routed) {
@@ -591,6 +577,19 @@ export function TextEditOverlay() {
         if (result.status !== "applied") {
           throw new Error(`text params were not applied (${result.status})`);
         }
+        // A command reports success even when the arm restates no layer (an id the
+        // engine does not hold); the projection then wrote nothing and the local
+        // write below would move the box while the engine kept the old one. The
+        // box fields are what this commit changes, so they are the equality signal.
+        const settledTd = engine.getLayer(s.layerId)?.textData;
+        if (
+          !settledTd ||
+          settledTd.boxMode !== target.boxMode ||
+          settledTd.boxWidth !== target.boxWidth ||
+          settledTd.boxHeight !== target.boxHeight
+        ) {
+          throw new Error("the native engine does not hold this layer");
+        }
         // The committed box reflows here: neither native arm rasterizes text, so
         // the bitmap AND the layer's box dims are regenerated from the textData
         // the projection just wrote. This is the same call the legacy branch
@@ -616,7 +615,13 @@ export function TextEditOverlay() {
       } catch {}
       if (!routed) return;
       const box = boxFor(upEv.clientX, upEv.clientY);
-      if (!box) return;
+      if (!box) {
+        // Box math yields nothing (zoom <= 0): release the preview and the slot
+        // rather than leaving the last previewed frame on screen and a slot that
+        // would refuse every later numeric commit of this document.
+        restoreRouted();
+        return;
+      }
       void finishRouted(box);
     };
 
@@ -641,6 +646,7 @@ export function TextEditOverlay() {
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
+    activeResizeDetach = detach;
     if (routed) {
       window.addEventListener("pointercancel", onPointerCancel);
       window.addEventListener("keydown", onKeyDown, true);

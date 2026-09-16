@@ -21,7 +21,10 @@
 // routed multi-layer commit writes one entry per layer where the legacy path wrote
 // a single combined entry, and a routed nudge writes one entry per keypress
 // because the native arm has no coalescing (legacy recorded one per key repeat
-// burst, on the first press only).
+// burst, on the first press only). A routed shape/text params commit rides the
+// native "Set Layer Params" label - also fixed, not taken from the control - where
+// the legacy panel/overlay paths labelled the step per action ("Edit Shape",
+// "Toggle Italic", ...).
 
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";

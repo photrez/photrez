@@ -29,9 +29,11 @@ import { peekFacade } from "./selectionMirror";
 // Engine-layer shape the facade projection consumes. DocumentEngine.applyFacadeSnapshot
 // reads these fields authoritatively, so every field it consumes must be carried
 // across. An omitted lock / blendMode / isBackground / adjustment field projects as
-// the cleared default; an omitted flipH/flipV/width/height instead leaves the model
-// value alone, because the arms that restate a layer without touching those fields
-// simply do not send them.
+// the cleared default; an omitted flipH/flipV instead leaves the model value alone,
+// because the arms that restate a layer without touching those fields simply do not
+// send them. width/height are carried for the rebuild and retained branches only:
+// for a layer the model already has they are model-owned, and
+// DocumentEngine.applyFacadeSnapshot never writes them.
 export type FacadeProjectionLayer = {
   id: string;
   name: string;

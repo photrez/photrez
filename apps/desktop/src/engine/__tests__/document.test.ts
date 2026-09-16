@@ -831,7 +831,7 @@ describe('DocumentEngine', () => {
       expect(engine.getLayer(l.id)!.hasAdjustments).toBe(true);
     });
 
-    it('coverage guard: projects the routed metadata set; width/height project with absent-means-keep', () => {
+    it('coverage guard: projects the routed metadata set; width/height are model-owned for existing layers', () => {
       // Optional metadata on protocol RenderLayer (types.ts) and whether
       // applyFacadeSnapshot's EXISTING-layer branch writes it:
       //   projected:   blendMode, locked, lockTransparency, lockPosition,
@@ -839,10 +839,14 @@ describe('DocumentEngine', () => {
       //                flipH, flipV (an absent flip flag instead leaves the model
       //                value alone - see the flip-projection tests)
       //   projected with the absent-means-keep convention: textData, shapeParams,
-      //                layerType, width, height (the typed-add, SetLayerParams and
-      //                AddLayer arms carry them; any other arm restates the layer
-      //                and omits them, so absence must not clear a routed edit, the
-      //                layer kind, or a size the pixel path moved)
+      //                layerType (the typed-add and SetLayerParams arms carry them;
+      //                any other arm restates the layer and omits them, so absence
+      //                must not clear a routed edit or the layer kind)
+      //   model-owned, NOT written by this branch: width, height - the pixel path
+      //                produces them host-side and no command pushes a new size
+      //                back to the engine, so a restatement would clobber the real
+      //                size; the rebuild/retained branches still honor projected
+      //                dims for a layer the model does not have
       const engine = new DocumentEngine('docGuard', 'D', 800, 600);
       const l = engine.addLayer('L', 100, 100);
       const shape = { marker: 'shape-params' };
@@ -870,7 +874,7 @@ describe('DocumentEngine', () => {
       expect(out.isBackground).toBe(false);
       expect(out.hasAdjustments).toBe(true);
       expect(out.basicAdjustment).toEqual(adj);
-      // Absent width/height keep the model value (same convention):
+      // Width/height stay at the model's own size (model-owned, never written):
       expect(out.width).toBe(100);
       expect(out.height).toBe(100);
       // Projected: the restatement carried textData, shapeParams and layerType,
@@ -891,12 +895,13 @@ describe('DocumentEngine', () => {
       expect(kept.shapeParams).toEqual({ kind: 'ellipse' });
       expect(kept.type).toBe('text');
 
-      // Present width/height write through (the AddLayer arm's case), so the
-      // absent case above is a real convention and not a field nothing reads.
+      // Width/height are model-owned: a restated size never overwrites the
+      // existing layer's own dims (routed same-layer regression pinned in
+      // lib/protocol/__tests__/facadeLayerDimsProjection.test.ts).
       engine.applyFacadeSnapshot({ version: 3, layers: [adjDesc(l.id, { width: 300, height: 250 })] } as never);
       const sized = engine.getLayer(l.id)!;
-      expect(sized.width).toBe(300);
-      expect(sized.height).toBe(250);
+      expect(sized.width).toBe(100);
+      expect(sized.height).toBe(100);
     });
   });
 

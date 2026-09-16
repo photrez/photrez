@@ -4,17 +4,16 @@
 // (applyFacadeSnapshot replaces model.layers). Layer dimensions were not carried
 // on that vector, so the REBUILD branch (a layer id the model does not have) fell
 // back to the DOCUMENT size: a natively created 100x100 layer landed in an 800x600
-// model as 800x600. Production order (the legacy model creates the layer first,
-// then the projection lands on the EXISTING branch) hid it, so the failure is
-// only reachable when the native engine originates an add - or when a test
-// projects a native add onto a model that does not have the layer.
+// model as 800x600. The fields are carried now and the rebuild branch uses them.
 //
-// Convention (same as flipH/flipV, textData, shapeParams): present = write the
-// model value, absent = keep it. The wire carries width/height as
-// Option<f64> with skip_serializing_if = "Option::is_none"
-// (crates/core/src/model.rs:51-54); the AddLayer arm sets Some(width)/Some(height)
-// from the command (crates/core/src/document_core_apply.rs:192-193), so the keys
-// are absent exactly when no real value exists.
+// Ownership: for a layer the model already has, dims are MODEL-owned. The pixel
+// path produces them host-side (updateShapeParams / updateTextData /
+// setLayerImageBitmap in engine/document.ts) and no command pushes a new size back
+// to the engine, so the arm's stored layer keeps its create-time size.
+// applyFacadeSnapshot's existing-layer branch therefore never writes width/height -
+// a restatement of the stored layer would otherwise clobber the real size on every
+// metadata op. Projected dims are honored only where the model has nothing to
+// keep: the rebuild and retained branches.
 //
 // The chain that must round-trip is
 // toFacadeProjectionLayer -> refreshFacadeSnapshotFromModelLayers ->
@@ -53,12 +52,12 @@ function snap(version: number, layers: Record<string, unknown>[]): never {
 }
 
 describe("facade layer dims projection (pure)", () => {
-  it("existing branch: present width/height reach the model", () => {
+  it("existing branch: dims are model-owned, a restated size never overwrites them", () => {
     const engine = new DocumentEngine("dims-doc", "D", 800, 600);
     const l = engine.addLayer("L", 100, 100);
     engine.applyFacadeSnapshot(snap(1, [layerDesc(l.id, { width: 300, height: 250 })]));
-    expect(engine.getLayer(l.id)!.width).toBe(300);
-    expect(engine.getLayer(l.id)!.height).toBe(250);
+    expect(engine.getLayer(l.id)!.width).toBe(100);
+    expect(engine.getLayer(l.id)!.height).toBe(100);
   });
 
   it("existing branch: absent width/height preserve the model value (anti-clobber)", () => {
@@ -103,7 +102,7 @@ describe("facade layer dims projection (pure)", () => {
     expect(engine.getLayer("fresh-missing")!.height).toBe(600);
   });
 
-  it("invalid input: a null width/height is treated as absent, never written", () => {
+  it("invalid input: a null width/height is never written (the existing branch keeps the model dims)", () => {
     const engine = new DocumentEngine("dims-null", "D", 800, 600);
     const l = engine.addLayer("L", 120, 90);
     engine.applyFacadeSnapshot(snap(1, [layerDesc(l.id, { width: null, height: null })]));
@@ -223,5 +222,40 @@ describe("layer dims survive the real facade chain", () => {
     expect(r.status).toBe("applied");
     expect(engine.getLayer(ownedId)!.width).toBe(120);
     expect(engine.getLayer(ownedId)!.height).toBe(120);
+  });
+
+  it("a same-layer metadata op does not overwrite model-owned dims with the engine's stored size", async () => {
+    const { engine, facade } = await setupDoc("docDimsOwnership");
+    const added = await facade.addLayer("Owned", 100, 100, 0);
+    engine.applyFacadeSnapshot(added as never);
+    const ownedId = added.layers.find((l) => l.name === "Owned")!.id;
+
+    // The pixel path produced the model's real dims and moved them away from the
+    // 100x100 the native engine stored at create time.
+    engine.setLayerImageBitmap(ownedId, fakeBitmap(120, 90));
+    expect(engine.getLayer(ownedId)!.width).toBe(120);
+    expect(engine.getLayer(ownedId)!.height).toBe(90);
+
+    // A routed op on the SAME layer makes the arm restate its stored layer,
+    // which still carries the create-time size. The model owns the dims, so the
+    // restatement must not write them back.
+    const r = await commitFacadeRename(engine as never, [ownedId], "Renamed");
+    expect(r.status).toBe("applied");
+    expect(engine.getLayer(ownedId)!.name).toBe("Renamed");
+    expect(engine.getLayer(ownedId)!.width).toBe(120);
+    expect(engine.getLayer(ownedId)!.height).toBe(90);
+  });
+
+  it("rebuild branch still takes the projected size (the model has nothing to keep)", async () => {
+    const { engine, facade } = await setupDoc("docDimsOwnershipRebuild");
+    const added = await facade.addLayer("Native", 140, 60, 0);
+    // The sink model never held this layer, so the rebuild branch must land on the
+    // projected size rather than the document size.
+    const sink = new DocumentEngine("docDimsOwnershipRebuildSink", "S", 800, 600);
+    sink.applyFacadeSnapshot(added as never);
+    const landed = sink.getLayers().find((l) => l.name === "Native")!;
+    expect(landed.width).toBe(140);
+    expect(landed.height).toBe(60);
+    expect(engine.getLayer(added.layers[0].id)).toBeUndefined();
   });
 });

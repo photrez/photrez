@@ -90,4 +90,69 @@ describe("move tool drag on empty canvas is owned by the marquee session", () =>
     disposeTools();
     dispose();
   });
+
+  it("a press that hits a layer is owned by the move-tool path, never the marquee or the shared handler", async () => {
+    const { signals, mockEngine, dispose } = createMockEditorParams("move");
+    // A visible, movable layer whose box covers the press point, so the Move tool's
+    // hit test resolves a layer instead of empty canvas. Width/height/transform are
+    // read by hitTestLayers through the same mock getLayer.
+    (mockEngine as any).getLayers = () => [
+      {
+        id: "layer-1",
+        type: "raster",
+        visible: true,
+        locked: false,
+        width: 200,
+        height: 200,
+        transform: { x: -100, y: -100, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+        isBackground: false,
+      },
+    ];
+    signals.selectedLayerId = createSignal<string | null>("layer-1")[0];
+    signals.selectedLayerIds = createSignal<string[]>(["layer-1"])[0];
+    signals.setSelectedLayerIds = vi.fn();
+
+    const moveLayerSilent = vi.fn();
+    const flushChangeNotification = vi.fn();
+    (mockEngine as any).moveLayerSilent = moveLayerSilent;
+    (mockEngine as any).flushChangeNotification = flushChangeNotification;
+
+    mockUseEditor(signals);
+
+    const container = document.createElement("div");
+    const onStartMarquee = vi.fn(() => true);
+    const { tools, marquee, dispose: disposeTools } = createRoot((rootDispose) => {
+      const marquee = useCanvasMarqueeSelect({ isSpacePressed: () => false, isPanning: () => false });
+      const tools = useCanvasPointerTools({
+        getCanvasContainerRef: () => container,
+        getCanvasRef: () => document.createElement("canvas"),
+        isSpacePressed: () => false,
+        isPanning: () => false,
+        isAltPressed: () => false,
+        stopMomentum: vi.fn(),
+        fitToScreenAndRender: vi.fn(),
+        commitBrushStroke: vi.fn(),
+        onStartMarquee,
+      });
+      return { tools, marquee, dispose: rootDispose };
+    });
+
+    tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
+    for (let i = 1; i <= 3; i++) {
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 50 + i * 40, clientY: 50 + i * 40 }));
+      tools.onCanvasPointerMove(makePointerEvent({ clientX: 50 + i * 40, clientY: 50 + i * 40 }));
+    }
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 170, clientY: 170 }));
+    await tools.onCanvasPointerUp(makePointerEvent({ clientX: 170, clientY: 170 }));
+
+    // The hit layer takes the press: no rubberband session starts, and the shared
+    // viewport/input-handler move branch (which mutates silently) never runs.
+    expect(onStartMarquee).not.toHaveBeenCalled();
+    expect(marquee.isMarqueeActive()).toBe(false);
+    expect(moveLayerSilent).not.toHaveBeenCalled();
+    expect(flushChangeNotification).not.toHaveBeenCalled();
+
+    disposeTools();
+    dispose();
+  });
 });

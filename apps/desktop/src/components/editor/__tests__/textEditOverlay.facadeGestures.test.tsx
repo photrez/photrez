@@ -39,6 +39,7 @@ import {
   facadeCommitNumericTransform,
   getFacade,
   peekFacade,
+  seedFacadeFromEngine,
   setTransformPreview,
   transformPreview,
 } from "@/lib/protocol/facadeRegistry";
@@ -46,6 +47,7 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import type { CommandEnvelope } from "@/lib/protocol/types";
+import { showToast } from "../Toast";
 
 vi.mock("../Toast", () => ({ showToast: vi.fn() }));
 
@@ -145,12 +147,13 @@ interface Harness {
   readSession: () => TextEditSession | null;
   editor: Record<string, unknown>;
   container: HTMLElement;
+  setZoom: (z: number) => void;
   cleanup: () => void;
 }
 
-async function setup(opts: { owned: boolean; isNewLayer?: boolean }): Promise<Harness> {
+async function setup(opts: { owned: boolean; isNewLayer?: boolean; unheld?: boolean }): Promise<Harness> {
   usedDocs.push(DOC);
-  if (!opts.owned) localStorage.removeItem("photrez.facade");
+  if (!opts.owned && !opts.unheld) localStorage.removeItem("photrez.facade");
 
   const engine = new DocumentEngine(DOC, "Doc", 800, 600);
   const data: TextData = {
@@ -189,6 +192,15 @@ async function setup(opts: { owned: boolean; isNewLayer?: boolean }): Promise<Ha
     facade.syncRenderedVersionTo(snapshot.version);
     const parked = await facadeCommitNumericTransform(engine, layer.id, { x: START.x, y: START.y });
     if (!parked) throw new Error("setup: could not park the owned layer");
+  } else if (opts.unheld) {
+    // Ownership without the native engine ever receiving the layer: park the model
+    // transform while it is still unowned, then seed the facade snapshot and project
+    // it. The projection marks every cache-vector id owned, while no arm holds the
+    // layer - so every routed command reports success while restating nothing.
+    engine.transformLayer(layer.id, { x: START.x, y: START.y });
+    const facade = getFacade(DOC);
+    await seedFacadeFromEngine(engine as never, facade);
+    engine.applyFacadeSnapshot(facade.snapshot as never);
   } else {
     engine.transformLayer(layer.id, { x: START.x, y: START.y });
   }
@@ -196,6 +208,7 @@ async function setup(opts: { owned: boolean; isNewLayer?: boolean }): Promise<Ha
   const history = new CommandHistory();
   const uploadImage = vi.fn();
   const requestRender = vi.fn();
+  let zoomValue = 1;
   const [session, setSession] = createSignal<TextEditSession | null>(null);
   const editor = {
     workspace: {
@@ -205,7 +218,7 @@ async function setup(opts: { owned: boolean; isNewLayer?: boolean }): Promise<Ha
     },
     renderer: { uploadImage },
     scheduler: { requestRender },
-    zoom: () => 1,
+    zoom: () => zoomValue,
     pan: () => ({ x: 0, y: 0 }),
     layers: () => engine.getLayers(),
     textEditSession: session,
@@ -241,6 +254,7 @@ async function setup(opts: { owned: boolean; isNewLayer?: boolean }): Promise<Ha
     readSession: session,
     editor,
     container,
+    setZoom: (z: number) => { zoomValue = z; },
     cleanup: () => {
       dispose();
       container.parentNode?.removeChild(container);
@@ -376,6 +390,65 @@ describe("TextEditOverlay corner resize", () => {
     expect(landed).toBe(true);
     expect(h.engine.getLayer(h.layerId)!.transform.x).toBe(77);
     h.cleanup();
+  });
+
+  it("a layer the native engine never received: the resize is refused and reported, not half-applied", async () => {
+    const h = await setup({ owned: false, unheld: true });
+    expect(isFacadeOwnedLayer(h.layerId)).toBe(true);
+
+    handle(h.container, "tl").dispatchEvent(pointer("pointerdown", 140, 100));
+    window.dispatchEvent(pointer("pointermove", 100, 80));
+    expect(transformPreview()).toHaveLength(1);
+
+    window.dispatchEvent(pointer("pointerup", 100, 80));
+    await settle();
+
+    // Neither command restates the layer, so the box AND the origin stay where they
+    // were: writing the intended target locally is exactly the model/engine drift
+    // this guard exists to prevent.
+    expect(textDataOf(h)).toMatchObject({ boxWidth: BOX.w, boxHeight: BOX.h });
+    expect(h.engine.getLayer(h.layerId)!.transform).toMatchObject({ x: START.x, y: START.y });
+    expect(transformPreview()).toEqual([]);
+    expect(h.history.getUndoCount()).toBe(0);
+    expect(vi.mocked(showToast)).toHaveBeenCalledWith(
+      expect.stringContaining("does not hold this layer"),
+      "error",
+    );
+    h.cleanup();
+  });
+
+  it("release with no box (zoom <= 0): the preview is cleared instead of leaking", async () => {
+    const h = await setup({ owned: true });
+
+    handle(h.container, "tl").dispatchEvent(pointer("pointerdown", 140, 100));
+    window.dispatchEvent(pointer("pointermove", 100, 80));
+    expect(transformPreview()).toHaveLength(1);
+
+    // Zoom collapses before release, so the box math yields nothing.
+    h.setZoom(0);
+    window.dispatchEvent(pointer("pointerup", 100, 80));
+    await settle();
+
+    expect(transformPreview()).toEqual([]);
+    // Nothing took the transform slot, so a later numeric edit of the document
+    // still lands.
+    const landed = await facadeCommitNumericTransform(h.engine, h.layerId, { x: 77 });
+    expect(landed).toBe(true);
+    expect(h.engine.getLayer(h.layerId)!.transform.x).toBe(77);
+    h.cleanup();
+  });
+
+  it("unmount during a resize: the preview and the transform slot are released", async () => {
+    const h = await setup({ owned: true });
+    handle(h.container, "tl").dispatchEvent(pointer("pointerdown", 140, 100));
+    window.dispatchEvent(pointer("pointermove", 100, 80));
+    expect(transformPreview()).toHaveLength(1);
+
+    h.cleanup();
+
+    expect(transformPreview()).toEqual([]);
+    const landed = await facadeCommitNumericTransform(h.engine, h.layerId, { x: 77 });
+    expect(landed).toBe(true);
   });
 
   it("never-owned temp layer: both sides of the flag keep the legacy per-frame path", async () => {
