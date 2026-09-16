@@ -1271,11 +1271,11 @@ export class DocumentEngine {
       }
       this.model.dirty = true;
       this.markLayerDirty(id);
-      // No facade refresh here: this path replaces only the bitmap and the
-      // layer's pixel width/height, and the projection snapshot carries neither
-      // (see the facadeProjection field list), so a refresh would republish
-      // identical values.
-      this.pushModelToRust(); // width/height are graph fields — keep Rust in sync
+      // Direct push (no notifyChange): layer width/height are projection-carried,
+      // so a stale snapshot would let the next routed op restore the size the
+      // bitmap replace just moved. Same refresh the adjustment mutators do.
+      this.refreshFacadeProjectionCache();
+      this.pushModelToRust(); // width/height are graph fields - keep Rust in sync
       this.notifyVisualChange();
     }
   }
@@ -1543,8 +1543,10 @@ export class DocumentEngine {
    * Rust mirror directly without going through notifyChange (applyBasicAdjustment
    * and clearBasicAdjustments — the adjustment fields ARE projection-carried, so
    * those two must republish or the next routed projection would revert the
-   * adjustment). setLayerImageBitmap also pushes directly, but it mutates no
-   * projection-carried field, so it does not refresh.
+   * adjustment). setLayerImageBitmap pushes directly too and refreshes for the
+   * same reason since layer width/height became projection-carried: a bitmap
+   * replace moves the layer's own dims, and a snapshot left on the old size
+   * would restore them at the next routed op.
    *
    * restore() refreshes AFTER its push while the direct sites refresh BEFORE
    * theirs. Both orders are correct: the refresh reads the model, which both
@@ -1850,7 +1852,7 @@ export class DocumentEngine {
     this.model.dirty = true;
   }
 
-  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment; textData?: TextData; shapeParams?: ShapeParams; layerType?: string }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
+  applyFacadeSnapshot(snapshot: { version: number; layers: Array<{ id: string; name: string; visible: boolean; opacity: number; x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean; resourceId: number; locked?: boolean; lockTransparency?: boolean; lockPosition?: boolean; lockRotation?: boolean; isBackground?: boolean; blendMode?: string; hasAdjustments?: boolean; basicAdjustment?: BasicAdjustment; textData?: TextData; shapeParams?: ShapeParams; layerType?: string; width?: number; height?: number }>; width?: number; height?: number }, opts?: FacadeProjectionOptions): void {
     // A canvas-size command's projection carries the new document size. A
     // metadata delta carries no size, so applyDeltaToSnapshot carries the
     // facade's prior size forward; writing that would revert a model size the
@@ -1922,6 +1924,12 @@ export class DocumentEngine {
         // routeRasterize deletes them host-side to match shapeLayerToRaster.
         existing.shapeParams = rl.shapeParams ?? existing.shapeParams;
         existing.type = (rl.layerType as typeof existing.type) ?? existing.type;
+        // Layer dims ride the same convention. The Rust DTO carries them as
+        // Option<f64> (model.rs:51-54) and the arms that know a real size send it
+        // (AddLayer: document_core_apply.rs:192-193), so presence means the
+        // authoritative value and absence means the arm did not restate it.
+        existing.width = rl.width ?? existing.width;
+        existing.height = rl.height ?? existing.height;
         nextLayers.push(existing);
       } else {
         const retained = this.droppedNodes.get(rl.id);
@@ -1943,6 +1951,10 @@ export class DocumentEngine {
             lockRotation: rl.lockRotation ?? false,
             isBackground: rl.isBackground ?? false,
             blendMode: (rl.blendMode as BlendMode) ?? "normal",
+            // Same dims convention as the existing-layer branch: a restated size
+            // wins, an omitted one keeps the retained node's own size.
+            width: rl.width ?? retained.width,
+            height: rl.height ?? retained.height,
             transform: {
               x: rl.x,
               y: rl.y,
@@ -1983,8 +1995,11 @@ export class DocumentEngine {
             basicAdjustment: rl.basicAdjustment,
             blendMode: (rl.blendMode as BlendMode) ?? "normal",
             transform: { x: rl.x, y: rl.y, scaleX: rl.scaleX, scaleY: rl.scaleY, rotation: rl.rotation, flipH: rl.flipH ?? false, flipV: rl.flipV ?? false },
-            width: this.model.width,
-            height: this.model.height,
+            // Same dims convention again; the document size is only the last
+            // fallback, for a descriptor that carries no size at all (a native
+            // add always knows its own, which is why this branch exists).
+            width: rl.width ?? this.model.width,
+            height: rl.height ?? this.model.height,
             imageBitmap: null,
             baseImageBitmap: null,
             textureHandle: null,

@@ -831,7 +831,7 @@ describe('DocumentEngine', () => {
       expect(engine.getLayer(l.id)!.hasAdjustments).toBe(true);
     });
 
-    it('coverage guard: projects the routed metadata set; width/height stay unprojected', () => {
+    it('coverage guard: projects the routed metadata set; width/height project with absent-means-keep', () => {
       // Optional metadata on protocol RenderLayer (types.ts) and whether
       // applyFacadeSnapshot's EXISTING-layer branch writes it:
       //   projected:   blendMode, locked, lockTransparency, lockPosition,
@@ -839,13 +839,10 @@ describe('DocumentEngine', () => {
       //                flipH, flipV (an absent flip flag instead leaves the model
       //                value alone - see the flip-projection tests)
       //   projected with the absent-means-keep convention: textData, shapeParams,
-      //                layerType (the typed-add and SetLayerParams arms carry
-      //                them; any other arm restates the layer and omits them, so
-      //                absence must not clear a routed edit or the layer kind)
-      //   unprojected: width,
-      //                height (no routed op restates them yet - add each one
-      //                alongside the change that routes its op, with a test, so an
-      //                arm that starts sending a field cannot silently no-op)
+      //                layerType, width, height (the typed-add, SetLayerParams and
+      //                AddLayer arms carry them; any other arm restates the layer
+      //                and omits them, so absence must not clear a routed edit, the
+      //                layer kind, or a size the pixel path moved)
       const engine = new DocumentEngine('docGuard', 'D', 800, 600);
       const l = engine.addLayer('L', 100, 100);
       const shape = { marker: 'shape-params' };
@@ -873,8 +870,9 @@ describe('DocumentEngine', () => {
       expect(out.isBackground).toBe(false);
       expect(out.hasAdjustments).toBe(true);
       expect(out.basicAdjustment).toEqual(adj);
-      // Deliberately unprojected (identity preserved):
+      // Absent width/height keep the model value (same convention):
       expect(out.width).toBe(100);
+      expect(out.height).toBe(100);
       // Projected: the restatement carried textData, shapeParams and layerType,
       // so the model takes all three.
       expect(out.textData).toEqual({ content: 'x' });
@@ -892,6 +890,13 @@ describe('DocumentEngine', () => {
       const kept = engine.getLayer(l.id)!;
       expect(kept.shapeParams).toEqual({ kind: 'ellipse' });
       expect(kept.type).toBe('text');
+
+      // Present width/height write through (the AddLayer arm's case), so the
+      // absent case above is a real convention and not a field nothing reads.
+      engine.applyFacadeSnapshot({ version: 3, layers: [adjDesc(l.id, { width: 300, height: 250 })] } as never);
+      const sized = engine.getLayer(l.id)!;
+      expect(sized.width).toBe(300);
+      expect(sized.height).toBe(250);
     });
   });
 

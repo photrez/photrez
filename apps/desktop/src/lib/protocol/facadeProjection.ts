@@ -29,9 +29,9 @@ import { peekFacade } from "./selectionMirror";
 // Engine-layer shape the facade projection consumes. DocumentEngine.applyFacadeSnapshot
 // reads these fields authoritatively, so every field it consumes must be carried
 // across. An omitted lock / blendMode / isBackground / adjustment field projects as
-// the cleared default; an omitted flipH/flipV instead leaves the model value alone,
-// because the arms that restate a layer without touching flips simply do not send
-// the field.
+// the cleared default; an omitted flipH/flipV/width/height instead leaves the model
+// value alone, because the arms that restate a layer without touching those fields
+// simply do not send them.
 export type FacadeProjectionLayer = {
   id: string;
   name: string;
@@ -45,6 +45,8 @@ export type FacadeProjectionLayer = {
   blendMode?: string;
   hasAdjustments?: boolean;
   basicAdjustment?: BasicAdjustment;
+  width?: number;
+  height?: number;
   transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number; flipH?: boolean; flipV?: boolean };
 };
 
@@ -65,6 +67,13 @@ export function toFacadeProjectionLayer(l: FacadeProjectionLayer): RenderLayer {
     blendMode: l.blendMode,
     hasAdjustments: l.hasAdjustments,
     basicAdjustment: l.basicAdjustment ? { ...l.basicAdjustment } : undefined,
+    // Layer dims are projection-carried (the rebuild branch of
+    // applyFacadeSnapshot has no model value to keep), so the cache must hold
+    // them; without this the next projection of a cache-born layer falls back to
+    // the document size. Undefined stays undefined: applyFacadeSnapshot then
+    // keeps the model value rather than writing a guess.
+    width: l.width,
+    height: l.height,
     x: l.transform.x,
     y: l.transform.y,
     scaleX: l.transform.scaleX,
