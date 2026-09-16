@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Text edit overlay — the live typing surface for a text edit session.
 //
-// Plan §7.92: a <textarea> positioned over the canvas at doc→screen coords,
-// synced with zoom/pan; transparent background, accent border. While editing
-// the canvas keeps rendering the live raster (debounced re-raster on every
-// input), so the result is WYSIWYG without a placeholder (research R1).
+// A <textarea> positioned over the canvas at doc→screen coords, synced with
+// zoom/pan; transparent background, accent border. While editing the canvas keeps
+// rendering the live raster (debounced re-raster on every input), so the result is
+// WYSIWYG without a placeholder.
 //
-// Session contract (Task 6):
+// Session contract:
 //   - Mounts while textEditSession() is non-null (new temp layer or re-edit).
 //   - Every input re-rasterizes the layer live (debounced 50ms) via
 //     engine.updateTextData → renderer.uploadImage.
@@ -27,7 +27,7 @@ import {
   setTransformPreview,
 } from "@/lib/protocol/facadeRegistry";
 import { routeNumericTransform } from "./layers/transformRouting";
-import { commitRoutedTextParams } from "./layers/paramsRouting";
+import { commitRoutedTextParams, sameParams } from "./layers/paramsRouting";
 import { showToast } from "./Toast";
 
 /**
@@ -81,7 +81,7 @@ export function TextEditOverlay() {
 
   // External value sync: when the session/layer changes (new session, undo,
   // option-bar edit), adopt the layer's content into the textarea. Focus +
-  // select-all happen ONLY on session start (double-click re-edit UX, R3) —
+  // select-all happen ONLY on session start (double-click re-edit UX) —
   // never on keystrokes, or typing would keep re-selecting all text.
   createEffect(() => {
     const s = session();
@@ -583,10 +583,14 @@ export function TextEditOverlay() {
         // box fields are what this commit changes, so they are the equality signal.
         const settledTd = engine.getLayer(s.layerId)?.textData;
         if (
-          !settledTd ||
-          settledTd.boxMode !== target.boxMode ||
-          settledTd.boxWidth !== target.boxWidth ||
-          settledTd.boxHeight !== target.boxHeight
+          !sameParams(
+            settledTd && {
+              boxMode: settledTd.boxMode,
+              boxWidth: settledTd.boxWidth,
+              boxHeight: settledTd.boxHeight,
+            },
+            { boxMode: target.boxMode, boxWidth: target.boxWidth, boxHeight: target.boxHeight },
+          )
         ) {
           throw new Error("the native engine does not hold this layer");
         }

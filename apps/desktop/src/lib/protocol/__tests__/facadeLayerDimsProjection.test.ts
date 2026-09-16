@@ -6,14 +6,17 @@
 // back to the DOCUMENT size: a natively created 100x100 layer landed in an 800x600
 // model as 800x600. The fields are carried now and the rebuild branch uses them.
 //
-// Ownership: for a layer the model already has, dims are MODEL-owned. The pixel
-// path produces them host-side (updateShapeParams / updateTextData /
-// setLayerImageBitmap in engine/document.ts) and no command pushes a new size back
-// to the engine, so the arm's stored layer keeps its create-time size.
-// applyFacadeSnapshot's existing-layer branch therefore never writes width/height -
-// a restatement of the stored layer would otherwise clobber the real size on every
-// metadata op. Projected dims are honored only where the model has nothing to
-// keep: the rebuild and retained branches.
+// Ownership: layer dims belong to the MODEL. The pixel path produces them
+// host-side (updateShapeParams / updateTextData / setLayerImageBitmap in
+// engine/document.ts), and no facade command reports a new size back: every arm
+// clones the layer the engine already stores, so a restatement can only repeat the
+// size learned at add time. (The canonical re-push path - seed_canonical at
+// document open, after a native add, and on heal - up-projects the model's dims
+// into the engine; that is a push, never a restatement.) Every branch that has a
+// model node to protect therefore ignores width/height - a restatement of the
+// stored layer would otherwise clobber the real size on every metadata op.
+// Projected dims are honored only in the rebuild branch, the one case with no
+// model value to keep.
 //
 // The chain that must round-trip is
 // toFacadeProjectionLayer -> refreshFacadeSnapshotFromModelLayers ->
@@ -30,6 +33,8 @@ import {
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
+import { CONTRACT_VERSION } from "@/lib/protocol/types";
 
 function layerDesc(id: string, extra: Record<string, unknown> = {}) {
   return {
@@ -71,7 +76,7 @@ describe("facade layer dims projection (pure)", () => {
     expect(engine.getLayer(l.id)!.height).toBe(150);
   });
 
-  it("retained branch: absent keeps the retained dims, present overrides", () => {
+  it("retained branch: the retained model node's dims win over a restatement", () => {
     const engine = new DocumentEngine("dims-retain", "D", 800, 600);
     const l = engine.addLayer("L", 100, 100);
     // Drop from the model (deleted / undone add) -> the node is retained.
@@ -81,11 +86,13 @@ describe("facade layer dims projection (pure)", () => {
     engine.applyFacadeSnapshot(snap(2, [layerDesc(l.id)]));
     expect(engine.getLayer(l.id)!.width).toBe(100);
     expect(engine.getLayer(l.id)!.height).toBe(100);
-    // Drop again, then reappear with the fields restated: the restatement wins.
+    // Drop again, then reappear with the fields restated. The retention IS a model
+    // node, and no arm ever moves a stored layer's size, so the restated pair can
+    // only be older than the retained one and must not win.
     engine.applyFacadeSnapshot(snap(3, []));
     engine.applyFacadeSnapshot(snap(4, [layerDesc(l.id, { width: 300, height: 250 })]));
-    expect(engine.getLayer(l.id)!.width).toBe(300);
-    expect(engine.getLayer(l.id)!.height).toBe(250);
+    expect(engine.getLayer(l.id)!.width).toBe(100);
+    expect(engine.getLayer(l.id)!.height).toBe(100);
   });
 
   it("rebuild branch: present carries the layer's own size (not the document size)", () => {
@@ -257,5 +264,54 @@ describe("layer dims survive the real facade chain", () => {
     expect(landed.width).toBe(140);
     expect(landed.height).toBe(60);
     expect(engine.getLayer(added.layers[0].id)).toBeUndefined();
+  });
+
+  it("a routed duplicate of a re-rastered layer keeps the model's dims, not the engine's", async () => {
+    const { engine } = await setupDoc("docDimsDuplicateRetention");
+    const docId = engine.getId();
+    const added = await applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: 0,
+      docId,
+      command: {
+        type: "addLayer",
+        id: "layer-dims-src",
+        name: "Owned",
+        width: 100,
+        height: 100,
+        index: 0,
+      } as never,
+    });
+    const snapshot = await getSnapshot(docId);
+    engine.applyFacadeSnapshot(snapshot as never);
+    expect(added.delta.version).toBe(snapshot.version);
+    const srcId = "layer-dims-src";
+
+    // The pixel path re-rastered the layer AFTER the engine learned it: the model
+    // is 120x90 while the engine's stored copy still carries the create-time 100x100.
+    engine.setLayerImageBitmap(srcId, fakeBitmap(120, 90));
+    expect(engine.getLayer(srcId)!.width).toBe(120);
+
+    // Routed duplicate. routeDuplicate pre-seeds the projection retention with the
+    // clone node (model dims, the same duplicateLayerNode carry) and then dispatches
+    // the Duplicate arm, which clones the layer the ENGINE holds. The clone id is
+    // new to the model, so the arrival lands on the RETAINED branch.
+    const cloneId = "layer-dims-clone";
+    engine.seedRetainedNodeForProjection({ ...engine.getLayer(srcId)!, id: cloneId });
+    await applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: snapshot.version,
+      docId,
+      command: { type: "duplicateLayer", id: srcId, newId: cloneId } as never,
+    });
+    const afterDuplicate = await getSnapshot(docId);
+    engine.applyFacadeSnapshot(afterDuplicate as never);
+
+    const clone = engine.getLayer(cloneId);
+    expect(clone).toBeDefined();
+    expect(clone!.width).toBe(120);
+    expect(clone!.height).toBe(90);
+    // The source keeps its model dims through the same projection.
+    expect(engine.getLayer(srcId)!.width).toBe(120);
   });
 });

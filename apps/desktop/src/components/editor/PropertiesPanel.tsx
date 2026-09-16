@@ -23,6 +23,7 @@ import {
 } from "./layers/transformRouting";
 import { useI18n } from "@/i18n/I18nProvider";
 import { commitTextParamsEdit } from "./layers/paramsRouting";
+import { createTextColorPicker } from "./layers/textColorPicker";
 
 const FONT_WEIGHT_PRESETS: { value: number; label: string }[] = [
   { value: 100, label: "Thin" },
@@ -184,35 +185,18 @@ export function PropertiesPanel() {
     });
   };
 
-  const handlePickTextColor = async (currentColor: string) => {
-    setColorPickerOpen(true);
-    setColorPickerTarget("foreground");
-    const chosen = await dialogs.colorPicker({
-      title: "Text Color",
-      initialColor: currentColor,
-      target: "foreground",
-      onChange: (c) => commitTextDataEdit({ color: c }, "Change Text Color"),
-    });
-    if (chosen) {
-      commitTextDataEdit({ color: chosen }, "Change Text Color");
-    }
-    setColorPickerOpen(false);
-  };
-
-  const handlePickTextStrokeColor = async (currentColor: string, strokeObj: any) => {
-    setColorPickerOpen(true);
-    setColorPickerTarget("foreground");
-    const chosen = await dialogs.colorPicker({
-      title: "Text Stroke Color",
-      initialColor: currentColor,
-      target: "foreground",
-      onChange: (c) => commitTextDataEdit({ stroke: { ...strokeObj, color: c } }, "Change Stroke Color"),
-    });
-    if (chosen) {
-      commitTextDataEdit({ stroke: { ...strokeObj, color: chosen } }, "Change Stroke Color");
-    }
-    setColorPickerOpen(false);
-  };
+  // The two text-color controls own their whole interaction (ticks, boundary
+  // command, cancel rollback) in one place; see layers/textColorPicker.ts.
+  const textColors = createTextColorPicker({
+    openPicker: dialogs.colorPicker,
+    workspace,
+    renderer,
+    scheduler,
+    selectedLayerId,
+    sessionLayerId: () => (typeof textEditSession === "function" ? textEditSession()?.layerId ?? null : null),
+    setColorPickerOpen,
+    setColorPickerTarget,
+  });
 
   let facadeOpacityStart: number | null = null;
 
@@ -649,7 +633,7 @@ export function PropertiesPanel() {
                               type="button"
                               aria-label="Text color"
                               disabled={safeLayer()!.locked}
-                              onClick={() => handlePickTextColor(textLayer().textData.color)}
+                              onClick={() => textColors.pickTextColor(textLayer().textData.color)}
                               class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 disabled:opacity-40"
                               style={{ "background-color": textLayer().textData.color }}
                             />
@@ -683,7 +667,7 @@ export function PropertiesPanel() {
                                 type="button"
                                 aria-label="Stroke color"
                                 disabled={safeLayer()!.locked}
-                                onClick={() => handlePickTextStrokeColor(textLayer().textData.stroke.color, textLayer().textData.stroke)}
+                                onClick={() => textColors.pickTextStrokeColor(textLayer().textData.stroke.color, textLayer().textData.stroke)}
                                 class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 disabled:opacity-40"
                                 style={{ "background-color": textLayer().textData.stroke.color }}
                               />

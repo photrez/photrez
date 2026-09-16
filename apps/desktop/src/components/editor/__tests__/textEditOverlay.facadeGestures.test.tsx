@@ -438,7 +438,7 @@ describe("TextEditOverlay corner resize", () => {
     h.cleanup();
   });
 
-  it("unmount during a resize: the preview and the transform slot are released", async () => {
+  it("unmount during a resize: the preview, the transform slot, and the window listeners are released", async () => {
     const h = await setup({ owned: true });
     handle(h.container, "tl").dispatchEvent(pointer("pointerdown", 140, 100));
     window.dispatchEvent(pointer("pointermove", 100, 80));
@@ -449,6 +449,11 @@ describe("TextEditOverlay corner resize", () => {
     expect(transformPreview()).toEqual([]);
     const landed = await facadeCommitNumericTransform(h.engine, h.layerId, { x: 77 });
     expect(landed).toBe(true);
+    // The gesture's window listeners are the only thing that re-fills the preview,
+    // so a stray move after unmount is what proves they came off. Without the
+    // detach the leaked handler writes the preview of a component that is gone.
+    window.dispatchEvent(pointer("pointermove", 60, 40));
+    expect(transformPreview()).toEqual([]);
   });
 
   it("never-owned temp layer: both sides of the flag keep the legacy per-frame path", async () => {

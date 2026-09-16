@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { createSignal, createMemo } from "solid-js";
+import { createSignal, createMemo, onCleanup } from "solid-js";
 import { useEditor } from "../shell/EditorContext";
 import { getLayerAabb } from "@/viewport/transformGeometry";
 
@@ -213,6 +213,16 @@ export function useCanvasMarqueeSelect(opts: CanvasMarqueeSelectOptions = {}) {
 
     return true;
   }
+
+  // The three listeners are registered capture-phase on window and otherwise come
+  // off only inside this gesture's own up/cancel. Unmounting mid-drag (document
+  // switch, viewport teardown) would leave all three driving a marquee whose owner
+  // is gone.
+  onCleanup(() => {
+    window.removeEventListener("pointermove", onPointerMove, { capture: true });
+    window.removeEventListener("pointerup", onPointerUp, { capture: true });
+    window.removeEventListener("pointercancel", onPointerCancel, { capture: true });
+  });
 
   return {
     handlePointerDown,

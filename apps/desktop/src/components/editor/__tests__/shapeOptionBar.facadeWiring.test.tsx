@@ -345,7 +345,7 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
   });
 });
 
-describe("ShapeOptionBar edit mode - flag OFF and unowned layers", () => {
+describe("ShapeOptionBar edit mode - keeps photrez.facade-OFF behavior (and unowned layers)", () => {
   it("flag OFF: one history entry committed BEFORE the engine write, no commands", async () => {
     const h = await setup({ owned: true });
     localStorage.removeItem("photrez.facade");

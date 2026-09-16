@@ -395,7 +395,7 @@ describe("PropertiesPanel transform actions with native transform authority on",
   });
 });
 
-describe("PropertiesPanel transform actions with native transform authority off", () => {
+describe("PropertiesPanel transform actions - keeps photrez.facade-OFF behavior (native transform authority off)", () => {
   beforeEach(() => {
     localStorage.setItem("photrez.facade", "0");
   });

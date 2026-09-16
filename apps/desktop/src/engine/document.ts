@@ -1930,12 +1930,17 @@ export class DocumentEngine {
         // Layer dims are MODEL-owned, not projection-owned: the pixel path
         // produces them host-side (updateShapeParams, updateTextData,
         // setLayerImageBitmap - document.ts:720-721, 796-797, 1269-1270) and no
-        // command ever pushes a new size back to the engine, so the arm's stored
-        // layer keeps its create-time size forever. Writing the projected size
-        // here would clobber the model's real dims on every same-layer metadata op
-        // (wrong-size quad and a lying size field). This branch has a model value
-        // to keep, so it must not write width/height. The rebuild and retained
-        // branches below have nothing to keep and still honor the projected size.
+        // facade command reports a new size back to the engine. Every arm clones
+        // the layer it already stores, so a restatement can only repeat the size
+        // the engine learned when the layer arrived. (The canonical re-push path -
+        // seed_canonical at document open, after a native add, and on heal - does
+        // up-project the model's dims into the engine, so those pushes are the one
+        // way the stored size moves, and they move it TO the model's value.) Writing
+        // the projected size here would clobber the model's real dims on every
+        // same-layer metadata op (wrong-size quad and a lying size field). This
+        // branch has a model value to keep, so it must not write width/height. Only
+        // the rebuild branch below, which has nothing to keep, honors the projected
+        // size.
         nextLayers.push(existing);
       } else {
         const retained = this.droppedNodes.get(rl.id);
@@ -1957,10 +1962,12 @@ export class DocumentEngine {
             lockRotation: rl.lockRotation ?? false,
             isBackground: rl.isBackground ?? false,
             blendMode: (rl.blendMode as BlendMode) ?? "normal",
-            // No model layer to protect here: a restated size wins, an omitted
-            // one keeps the retained node's own size (the pixel path's value).
-            width: rl.width ?? retained.width,
-            height: rl.height ?? retained.height,
+            // The retained node IS a model node, and its size never came from the
+            // engine: no arm moves a stored layer's dims, so a restated pair can
+            // only be older than this one. Routed duplicate (the pre-seeded clone
+            // node) and routed delete -> undo both land here.
+            width: retained.width,
+            height: retained.height,
             transform: {
               x: rl.x,
               y: rl.y,

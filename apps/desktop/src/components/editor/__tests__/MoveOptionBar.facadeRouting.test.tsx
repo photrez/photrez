@@ -666,7 +666,7 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 });
 
-describe("MoveOptionBar flag OFF keeps the legacy path synchronous", () => {
+describe("MoveOptionBar - keeps photrez.facade-OFF behavior (legacy path synchronous)", () => {
   it("Flip H click mutates and commits inside the click handler", async () => {
     localStorage.setItem("photrez.facade", "0");
     const { ws, engine } = openDoc("off-flip");

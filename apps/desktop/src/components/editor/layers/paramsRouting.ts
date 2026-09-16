@@ -7,11 +7,17 @@
 // entry here would strand an undo point whose engine.restore() rejects with
 // E_FACADE_OWNED.
 //
-// The local re-raster runs only from the value the projection wrote. A command
-// reports success even when the arm restates no layer (an id the engine does not
-// hold - the arm no-ops), so the patched fields are compared against the settled
-// value; a mismatch is surfaced instead of reporting a no-op as applied, and the
-// intended value is never written to the model.
+// A command reports success even when the arm restates no layer (an id the engine
+// does not hold - the arm no-ops), so the patched fields are compared against the
+// settled value. On a match the settled value is authoritative and drives the local
+// re-raster; on a mismatch the arm restated nothing, so the user's edit is kept and
+// the miss is surfaced out loud instead of reporting a no-op as applied (see
+// sameParams for the comparison rules).
+//
+// A transient caller (the color picker's per-tick preview) passes deps.transient so
+// the tick reaches the model + raster only: per-tick commands would all be built
+// from the same expectedVersion and the arm would reject every one after the first.
+// The transient branch is the same shape as the live-session branch below.
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import type { TextData } from "@/engine/textTypes";
@@ -27,19 +33,40 @@ export interface TextParamsRouterDeps {
 export interface TextDataEditDeps extends TextParamsRouterDeps {
   history?: { commit(snapshot: unknown, label: string): void } | null;
   sessionLayerId?: string | null;
+  // Live interaction tick on a layer the native arm owns (the color picker emits one
+  // per HSV change). A tick moves the model and its raster and stops there - no
+  // command, no history entry. Only the interaction boundary commits, because a
+  // command per tick would share one expectedVersion with the tick behind it.
+  transient?: boolean;
 }
 
-// Key-order-insensitive equality for the patched fields. Used instead of a JSON
-// compare because the native round trip re-serializes objects in its own field
-// order, and instead of a full payload compare because a field the wire does not
-// carry would read as a mismatch on a layer the engine DOES hold.
-function sameValue(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
-  const ka = Object.keys(a as object);
-  const kb = Object.keys(b as object);
-  if (ka.length !== kb.length) return false;
-  return ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+// Field-wise equality between a patch and the value the engine settled. Used
+// instead of a JSON compare because the native round trip re-serializes objects in
+// its own field order, and instead of a full payload compare because a field the
+// wire does not carry would read as a mismatch on a layer the engine DOES hold.
+//
+// Rules, in the order they are applied:
+//  - null and undefined are the same absence (the wire omits a None Option or
+//    serializes it as null depending on the field - TextStroke.align comes back as
+//    align: null);
+//  - keys are the UNION of both sides, so an extra restated field is not a mismatch
+//    and a member the other side carries a value for IS one;
+//  - nested objects (stroke, fill) recurse instead of comparing by reference;
+//  - a non-finite number never compares equal, not even to itself. A settled
+//    NaN/Infinity is not a value any renderer can use, so a caller has to surface
+//    it; this is also the answer the overlay's box check already gave with `!==`.
+export function sameParams(a: unknown, b: unknown): boolean {
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a === "number" || typeof b === "number") {
+    return typeof a === "number" && typeof b === "number" && Number.isFinite(a) && Number.isFinite(b) && a === b;
+  }
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
+  for (const key of keys) {
+    if (!sameParams((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
 }
 
 // Dispatch one text-params edit when the native arm owns the layer. Returns true
@@ -65,10 +92,13 @@ export function commitRoutedTextParams(
       const settled = engine.getLayer(layerId);
       if (!settled?.textData) return;
       const settledData = settled.textData;
-      const held = changedKeys.every((k) => sameValue(settledData[k], next[k]));
-      // The settled value is authoritative either way; writing the intended one
-      // would move the model while the engine kept the old value.
-      engine.updateTextData(layerId, settledData);
+      const held = changedKeys.every((k) => sameParams(settledData[k], next[k]));
+      // A mismatch means the arm restated nothing (an id the engine does not hold),
+      // so the settled read is the pre-edit value. Keep the user's edit and surface
+      // the miss: writing the stale value back loses an edit the UI just reported.
+      // On a match the settled value is authoritative - it is what the renderer and
+      // the export will use.
+      engine.updateTextData(layerId, held ? settledData : next);
       const bitmap = engine.getLayerImageBitmap(layerId);
       if (bitmap) deps.renderer?.uploadImage(layerId, bitmap);
       deps.scheduler?.requestRender();
@@ -95,7 +125,20 @@ export function commitTextParamsEdit(
 ): void {
   const layer = engine.getLayer(layerId);
   if (!layer || layer.locked || layer.type !== "text" || !layer.textData) return;
-  const next = { ...layer.textData, ...patch };
+  const current = layer.textData;
+  const next = { ...current, ...patch };
+  if (deps.transient) {
+    const patched = Object.keys(patch) as Array<keyof TextData>;
+    // The picker also emits once at mount and whenever a scrub returns to the
+    // starting value: those ticks must not re-raster or dirty the document.
+    if (!patched.some((key) => !sameParams(current[key], next[key]))) return;
+    engine.updateTextData(layerId, next);
+    const transientBitmap = engine.getLayerImageBitmap(layerId);
+    if (transientBitmap) deps.renderer?.uploadImage(layerId, transientBitmap);
+    deps.scheduler?.requestRender();
+    deps.notifyVisualChange?.();
+    return;
+  }
   if (deps.sessionLayerId === layerId) {
     engine.updateTextData(layerId, next);
     deps.scheduler?.requestRender();

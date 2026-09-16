@@ -10,13 +10,16 @@ import type { LayerNode, ShapeParams, ShapeKind } from "@/engine/types";
 import { useI18n } from "@/i18n/I18nProvider";
 import { isFacadeOwnedLayer, type DocumentEngine } from "@/engine/document";
 import { commitFacadeParams, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { sameParams } from "./layers/paramsRouting";
 import { showToast } from "./Toast";
 
 type ShapeLayer = LayerNode & { type: "shape"; shapeParams: ShapeParams };
 
-/** Field-by-field no-op check: skips commit when the edit is a no-op (avoids
- *  ghost undo entries on repeated range/color input events). Mirrors
- *  MoveOptionBar's transform no-op guard. */
+/** Field-by-field no-op check for an incoming PATCH: skips the commit when the edit
+ *  is a no-op (avoids ghost undo entries on repeated range/color input events).
+ *  Mirrors MoveOptionBar's transform no-op guard. It never compares
+ *  ShapeParams.width/height (the pixel path owns those), so it must not be used to
+ *  decide whether the engine settled an edit - that check is sameParams. */
 function shallowEqualParams(cur: ShapeParams, next: Partial<ShapeParams>): boolean {
   if (next.kind !== undefined && next.kind !== cur.kind) return false;
   if (next.radius !== undefined && next.radius !== cur.radius) return false;
@@ -123,11 +126,13 @@ export function ShapeOptionBar() {
         // unguarded model write.
         const settled = engine.getLayer(layerId);
         if (!settled || settled.type !== "shape") return;
-        if (!settled.shapeParams || !shallowEqualParams(settled.shapeParams, params)) {
+        if (!settled.shapeParams || !sameParams(settled.shapeParams, params)) {
           // The command reported success but the arm restated no layer, so it does
           // not hold this id (the arm no-ops on an unknown id). The settled read is
           // the stale pre-edit value; write the INTENDED params and say so, instead
-          // of re-writing the old value and reporting a no-op as applied.
+          // of re-writing the old value and reporting a no-op as applied. Compared
+          // field by field (including width/height, which the no-op guard above
+          // deliberately skips) against what the arm actually settled.
           engine.updateShapeParams(layerId, params);
           const fallback = typeof engine.getLayerImageBitmap === "function" ? engine.getLayerImageBitmap(layerId) : null;
           if (fallback) renderer?.uploadImage(layerId, fallback);

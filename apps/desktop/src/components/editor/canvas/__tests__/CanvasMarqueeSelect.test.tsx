@@ -277,4 +277,39 @@ describe("useCanvasMarqueeSelect", () => {
       dispose();
     });
   });
+
+  it("unmount mid-marquee detaches the window listeners", () => {
+    createRoot((dispose) => {
+      const { handlePointerDown } = useCanvasMarqueeSelect();
+      const mockContainer = {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      } as HTMLElement;
+
+      const e = {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        target: mockContainer,
+        currentTarget: mockContainer,
+      } as unknown as PointerEvent;
+
+      expect(handlePointerDown(e, mockContainer)).toBe(true);
+
+      // The gesture's listeners are registered capture-phase on window and removed
+      // only by its own up/cancel, so an unmount mid-drag is the case that would
+      // leave all three behind.
+      dispose();
+
+      mockSetSelectedLayerIds.mockClear();
+      mockSetSelectedLayerId.mockClear();
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 120, clientY: 120 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 120, clientY: 120 }));
+
+      expect(mockSetSelectedLayerIds).not.toHaveBeenCalled();
+      expect(mockSetSelectedLayerId).not.toHaveBeenCalled();
+    });
+  });
 });
