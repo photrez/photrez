@@ -287,6 +287,11 @@ export function handlePointerMove(
     const hex = rgbToHex(color[0], color[1], color[2]);
     context.setFgColor?.(hex);
   } else if (tool === "move" && context.selectedLayerId) {
+      // Unreachable in production: useCanvasPointerTools dispatches the Move
+      // tool itself (marquee on empty canvas, layer drag otherwise) and returns
+      // before the shared handler sets context.isDragging. Trap: moveLayerSilent
+      // has no ownership guard, so if this branch is ever made live it must route
+      // through layers/transformRouting.ts first.
       const layer = engine.getLayer(context.selectedLayerId);
       if (layer && !layer.locked && !layer.lockPosition && !layer.isBackground) {
       const newX = docX - context.dragStart.x;
