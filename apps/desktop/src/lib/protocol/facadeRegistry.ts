@@ -147,6 +147,28 @@ export async function commitFacadeOpacity(
     last = await f.setOpacity(id, opacity);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  // An id the engine never received keeps its old settled value, so a sent
+  // value that already equals it would pass the check below. Confirm the
+  // engine holds each id first and fail loud when one is absent.
+  const heldOpacity = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  for (const id of route.ownedIds) {
+    if (!heldOpacity.has(id)) {
+      throw new Error(
+        `Opacity commit for layer ${id} did not land (sent ${opacity}); the native engine does not hold this layer`,
+      );
+    }
+  }
+  // The engine limits opacity to [0, 1] before storing, so compare against
+  // the limited send: a 1.5 lands as 1 and that is a working op.
+  const limitOpacity = (v: number) => Math.max(0, Math.min(1, v));
+  for (const id of route.ownedIds) {
+    const settled = f.snapshot.layers.find((l) => l.id === id)?.opacity;
+    if (settled === undefined || Math.abs(settled - limitOpacity(opacity)) > 1e-9) {
+      throw new Error(
+        `Opacity commit for layer ${id} did not land (sent ${opacity}, settled ${settled}); the native engine does not hold this layer`,
+      );
+    }
+  }
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -159,7 +181,10 @@ export async function commitFacadeOpacity(
 // commitFacadeOpacity — the only difference is the facade method + command
 // shape (see editorFacade.ts setLayerVisibility / setLayerName /
 // setLayerLocked / setLayerBlendMode, already wired to the native Rust arms
-// SetVisible / Rename / SetLocked / SetBlendMode).
+// SetVisible / Rename / SetLocked / SetBlendMode). Each funnel below keeps its
+// settled-value check beside the command it guards (not in a shared helper)
+// so the value under test stays visible next to the dispatch; the shared
+// selection store already lives in selectionMirror.ts.
 export type FacadeRouteStatus =
   | "applied"
   | "legacy"
@@ -183,6 +208,26 @@ export async function commitFacadeVisibility(
     last = await f.setLayerVisibility(id, visible);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  // Same silent-id hazard as the opacity funnel: the engine ignores an id it
+  // never received, so confirm each value landed and fail loud instead. The
+  // membership check runs first because a sent value that already equals the
+  // settled value would otherwise pass the check below.
+  const heldVisibility = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  for (const id of route.ownedIds) {
+    if (!heldVisibility.has(id)) {
+      throw new Error(
+        `Visibility commit for layer ${id} did not land (sent ${visible}); the native engine does not hold this layer`,
+      );
+    }
+  }
+  for (const id of route.ownedIds) {
+    const settled = f.snapshot.layers.find((l) => l.id === id)?.visible;
+    if (settled !== visible) {
+      throw new Error(
+        `Visibility commit for layer ${id} did not land (sent ${visible}, settled ${settled}); the native engine does not hold this layer`,
+      );
+    }
+  }
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -202,6 +247,26 @@ export async function commitFacadeRename(
     last = await f.setLayerName(id, name);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  // Same silent-id hazard as the opacity funnel: the engine ignores an id it
+  // never received, so confirm each value landed and fail loud instead. The
+  // membership check runs first because a sent name that already equals the
+  // settled name would otherwise pass the check below.
+  const heldRename = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  for (const id of route.ownedIds) {
+    if (!heldRename.has(id)) {
+      throw new Error(
+        `Rename commit for layer ${id} did not land (sent ${name}); the native engine does not hold this layer`,
+      );
+    }
+  }
+  for (const id of route.ownedIds) {
+    const settled = f.snapshot.layers.find((l) => l.id === id)?.name;
+    if (settled !== name) {
+      throw new Error(
+        `Rename commit for layer ${id} did not land (sent ${name}, settled ${settled}); the native engine does not hold this layer`,
+      );
+    }
+  }
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -222,6 +287,32 @@ export async function commitFacadeLock(
     last = await f.setLayerLocked(id, kind, locked);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  // Same silent-id hazard as the opacity funnel: the engine ignores an id it
+  // never received, so confirm each value landed and fail loud instead. The
+  // membership check runs first because a sent flag that already equals the
+  // settled flag would otherwise pass the check below.
+  const heldLock = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  for (const id of route.ownedIds) {
+    if (!heldLock.has(id)) {
+      throw new Error(
+        `Lock commit for layer ${id} did not land (sent ${kind}=${locked}); the native engine does not hold this layer`,
+      );
+    }
+  }
+  const lockField = {
+    base: "locked",
+    transparency: "lockTransparency",
+    position: "lockPosition",
+    rotation: "lockRotation",
+  } as const;
+  for (const id of route.ownedIds) {
+    const settled = f.snapshot.layers.find((l) => l.id === id)?.[lockField[kind]];
+    if (settled !== locked) {
+      throw new Error(
+        `Lock commit for layer ${id} did not land (sent ${kind}=${locked}, settled ${settled}); the native engine does not hold this layer`,
+      );
+    }
+  }
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -241,6 +332,26 @@ export async function commitFacadeBlendMode(
     last = await f.setLayerBlendMode(id, mode);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  // Same silent-id hazard as the opacity funnel: the engine ignores an id it
+  // never received, so confirm each value landed and fail loud instead. The
+  // membership check runs first because a sent mode that already equals the
+  // settled mode would otherwise pass the check below.
+  const heldBlend = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  for (const id of route.ownedIds) {
+    if (!heldBlend.has(id)) {
+      throw new Error(
+        `Blend mode commit for layer ${id} did not land (sent ${mode}); the native engine does not hold this layer`,
+      );
+    }
+  }
+  for (const id of route.ownedIds) {
+    const settled = f.snapshot.layers.find((l) => l.id === id)?.blendMode;
+    if (settled !== mode) {
+      throw new Error(
+        `Blend mode commit for layer ${id} did not land (sent ${mode}, settled ${settled}); the native engine does not hold this layer`,
+      );
+    }
+  }
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -265,6 +376,38 @@ export async function commitFacadeAdjustment(
     last = await f.setLayerAdjustment(id, adjustment);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  // Same silent-id hazard as the opacity funnel: the engine ignores an id it
+  // never received, so confirm each value landed and fail loud instead. A
+  // missing adjustment means clear, so the settled value must be absent too.
+  // The membership check runs first because a clear on an id that already has
+  // no adjustment (or a send that already equals the settled channels) would
+  // otherwise pass the check below.
+  const heldAdjustment = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  for (const id of route.ownedIds) {
+    if (!heldAdjustment.has(id)) {
+      throw new Error(
+        `Adjustment commit for layer ${id} did not land; the native engine does not hold this layer`,
+      );
+    }
+  }
+  // The engine limits each channel to [-100, 100] before storing, so compare
+  // against the limited send: a 150 lands as 100 and that is a working op.
+  const limitChannel = (v: number) => Math.max(-100, Math.min(100, v));
+  for (const id of route.ownedIds) {
+    const settled = f.snapshot.layers.find((l) => l.id === id)?.basicAdjustment;
+    const landed =
+      adjustment === undefined
+        ? settled == null
+        : settled != null &&
+          settled.brightness === limitChannel(adjustment.brightness) &&
+          settled.contrast === limitChannel(adjustment.contrast) &&
+          settled.saturation === limitChannel(adjustment.saturation);
+    if (!landed) {
+      throw new Error(
+        `Adjustment commit for layer ${id} did not land; the native engine does not hold this layer`,
+      );
+    }
+  }
   return { status: "applied", count: route.ownedIds.length };
 }
 
@@ -273,6 +416,21 @@ export async function commitFacadeAdjustment(
 // authoritative projection, legacy fall-through when no target is facade-owned.
 // Takes an id SET so the mixed-ownership rejection is reachable at this boundary
 // exactly like the other metadata funnels; the production caller passes one id.
+// Field-by-field equality between a params patch half and the value the
+// engine settled. Keys are the union of both sides so an extra restated field
+// is not a mismatch while a missing one is; null and undefined count as the
+// same absence because the wire omits an empty option or sends it as null.
+function paramsValueEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
+  for (const key of keys) {
+    if (!paramsValueEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
+}
+
 export async function commitFacadeParams(
   engine: FacadeProjectionSink,
   ids: string[],
@@ -289,6 +447,32 @@ export async function commitFacadeParams(
     last = await f.setLayerParams(id, params);
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
+  // Same silent-id hazard as the opacity funnel: the engine ignores an id it
+  // never received, so confirm each dispatched half landed and fail loud.
+  // Only halves the caller sent are compared; a half the wire never carries
+  // must not read as a mismatch on a layer the engine does hold. The
+  // membership check runs first because a send that already equals the settled
+  // halves would otherwise pass the check below.
+  const heldParams = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  for (const id of route.ownedIds) {
+    if (!heldParams.has(id)) {
+      throw new Error(
+        `Params commit for layer ${id} did not land; the native engine does not hold this layer`,
+      );
+    }
+  }
+  for (const id of route.ownedIds) {
+    const settled = f.snapshot.layers.find((l) => l.id === id);
+    const landed =
+      settled !== undefined &&
+      (params.shapeParams === undefined || paramsValueEqual(settled.shapeParams, params.shapeParams)) &&
+      (params.textData === undefined || paramsValueEqual(settled.textData, params.textData));
+    if (!landed) {
+      throw new Error(
+        `Params commit for layer ${id} did not land; the native engine does not hold this layer`,
+      );
+    }
+  }
   return { status: "applied", count: route.ownedIds.length };
 }
 

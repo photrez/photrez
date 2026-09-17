@@ -321,7 +321,7 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
     h.cleanup();
   });
 
-  it("a layer the native engine never received: writes the intended params and reports the miss", async () => {
+  it("a layer the native engine never received: the funnel fails loud, the old params stay, the miss is toasted", async () => {
     const h = await setup({ owned: false, unheld: true });
     expect(isFacadeOwnedLayer(h.layerId)).toBe(true);
     // Precondition: the model holds the shape at radius 8 and the native engine
@@ -332,10 +332,9 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
     await settle();
 
     expect(commandLog.types).toEqual(["setLayerParams"]);
-    // The intended edit is on the model - not the stale pre-edit value the
-    // settled read would hand back - and the miss is reported rather than a
-    // silent no-op reported as applied.
-    expect(shapeParamsOf(h).radius).toBe(30);
+    // The funnel's settled-value check throws before the caller can report
+    // applied, so the model keeps the pre-edit params and the miss is toasted.
+    expect(shapeParamsOf(h).radius).toBe(8);
     expect(h.history.getUndoCount()).toBe(0);
     expect(vi.mocked(showToast)).toHaveBeenCalledWith(
       expect.stringContaining("does not hold this layer"),

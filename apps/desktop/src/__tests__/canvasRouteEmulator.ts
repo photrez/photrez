@@ -3,8 +3,11 @@
 // stored document size and push a history entry; undo/redo restore the size and
 // report it on the delta width/height, exactly like the walker in
 // crates/core/src/document_core_apply.rs. Layer geometry is deliberately NOT
-// modelled (the real-wasm parity matrix owns that); these tests pin the size
-// plumbing only.
+// modelled (the real-wasm parity matrix owns that) with one exception:
+// setOpacity applies to a seeded layer and restates it, because the opacity
+// funnel verifies the settled value and an empty delta would fail loud. An
+// unknown id stays a silent no-op with an empty delta, matching the engine.
+// These tests pin the size plumbing only.
 import type { Mock } from "vitest";
 
 type InvokeMock = Mock<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>;
@@ -101,6 +104,19 @@ export function installCanvasRouteEmulator(invokeMock: InvokeMock): CanvasRouteE
           docSize.set(docId, { w: fw, h: fh });
           version.set(docId, cur() + 1);
           return result(cur(), [], { w: fw, h: fh });
+        }
+        if (c.type === "setOpacity") {
+          const list = layers.get(docId) ?? [];
+          const at = list.findIndex((l) => l.id === c.id);
+          if (at >= 0 && Number.isFinite(Number(c.opacity))) {
+            pushHistory();
+            list[at] = { ...list[at], opacity: Number(c.opacity) };
+            layers.set(docId, list);
+            version.set(docId, cur() + 1);
+            return result(cur(), [{ kind: "upsert", layer: { ...list[at] } }]);
+          }
+          version.set(docId, cur() + 1);
+          return result(cur(), []);
         }
         if (c.type === "undo" || c.type === "redo") {
           const from = c.type === "undo" ? history : redo;

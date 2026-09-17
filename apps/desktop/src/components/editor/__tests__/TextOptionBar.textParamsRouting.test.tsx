@@ -202,7 +202,7 @@ describe("text option bar - facade-owned layer", () => {
     bar.dispose();
   });
 
-  it("a layer the native engine never received: refused out loud, the intended edit is kept", async () => {
+  it("a layer the native engine never received: refused out loud, the pre-edit value stays", async () => {
     const { bar, layerId } = await openBar({ pushedToEngine: false });
     expect(textDataOf(bar, layerId).fontStyle).toBe("normal");
 
@@ -211,10 +211,9 @@ describe("text option bar - facade-owned layer", () => {
 
     expect(dispatchedTypes().filter((t) => t === "setLayerParams")).toHaveLength(1);
     expect(bar.history().getUndoCount()).toBe(0);
-    // The arm restated nothing, so the settled read is the pre-edit value. For an id
-    // the engine does not hold, the user's edit is kept and the miss is surfaced:
-    // silently writing the old value back loses the edit the UI just reported.
-    expect(textDataOf(bar, layerId).fontStyle).toBe("italic");
+    // The funnel's settled-value check throws before the caller can report
+    // applied, so the model keeps the pre-edit value and the miss is toasted.
+    expect(textDataOf(bar, layerId).fontStyle).toBe("normal");
     expect(toastMock).toHaveBeenCalledWith(
       expect.stringContaining("does not hold this layer"),
       "error",
