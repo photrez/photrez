@@ -277,13 +277,13 @@ mod tests {
     const SNAP_DOC: &str = "snapshot-native-test-doc";
     const VERSION_DOC: &str = "version-native-test-doc";
 
-    fn open_doc(key: &str) {
+    pub(super) fn open_doc(key: &str) {
         let mut g = registry();
         let reg = g.get_or_insert_with(Default::default);
         reg.open_document(key);
     }
 
-    fn close_doc(key: &str) {
+    pub(super) fn close_doc(key: &str) {
         let mut g = registry();
         if let Some(reg) = g.as_mut() {
             reg.close_document(key);
@@ -483,7 +483,7 @@ mod tests {
     /// `seed_routed_doc` (so the canonical up-projection preserves engine
     /// resource ids and order). The top layer is typed `text` so the
     /// rasterize arm exercises a real parametric-to-raster transition.
-    fn sequence_canonical_fixture() -> String {
+    pub(super) fn sequence_canonical_fixture() -> String {
         format!(
             r#"{{"id":"seq-doc","name":"Seq","width":800.0,"height":600.0,"layers":[
                 {{"id":"l-top","name":"Top","type":"text","visible":true,"opacity":1.0,"locked":false,"blendMode":"normal","transform":{{"x":0.0,"y":0.0,"scaleX":1.0,"scaleY":1.0,"rotation":0.0,"flipH":false,"flipV":false}},"width":300.0,"height":60.0,"textData":{text}}},
@@ -494,14 +494,18 @@ mod tests {
         )
     }
 
+    /// The initial layer load pushed by `seed_routed_doc`. Exposed so the
+    /// engine-identity reference can start from byte-identical engine state
+    /// instead of restating the same layer set.
+    pub(super) const ROUTED_SEED_LAYERS: &str = r#"[{"id":"l-top","name":"Top","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0},{"id":"l-mid","name":"Mid","visible":true,"opacity":1.0,"resourceId":2,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0},{"id":"l-bot","name":"Bot","visible":true,"opacity":1.0,"resourceId":3,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]"#;
+
     /// Open `doc` and seed it through the native seed commands: the initial
     /// layer load (`protocol_seed_native`) followed by the canonical shadow
     /// push (`protocol_seed_canonical_native`), which also establishes the
     /// document dimensions the selection and merge arms read.
-    fn seed_routed_doc(doc: &str) {
+    pub(super) fn seed_routed_doc(doc: &str) {
         open_doc(doc);
-        let layers = r#"[{"id":"l-top","name":"Top","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0},{"id":"l-mid","name":"Mid","visible":true,"opacity":1.0,"resourceId":2,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0},{"id":"l-bot","name":"Bot","visible":true,"opacity":1.0,"resourceId":3,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]"#;
-        let payload = format!(r#"{{"version":10,"layers":{layers}}}"#);
+        let payload = format!(r#"{{"version":10,"layers":{}}}"#, ROUTED_SEED_LAYERS);
         protocol_seed_native(payload, doc.to_string()).expect("seed layers");
         protocol_seed_canonical_native(sequence_canonical_fixture(), doc.to_string())
             .expect("seed canonical");
@@ -510,7 +514,7 @@ mod tests {
     /// Build an envelope JSON string with an explicit expected version. The
     /// command struct-variant fields stay snake_case (see the `Command` enum's
     /// serde contract); only the envelope struct fields are camelCase.
-    fn envelope_json(command: &str, expected_version: u64) -> String {
+    pub(super) fn envelope_json(command: &str, expected_version: u64) -> String {
         format!(
             r#"{{"contractVersion":{cv},"expectedVersion":{ev},"command":{cmd}}}"#,
             cv = CONTRACT_VERSION,
@@ -524,7 +528,7 @@ mod tests {
     /// `resourceId` / `dirtyRect` are excluded because the version counter
     /// changes on every accepted undo/redo and the resource/dirty values are
     /// engine-internal bookkeeping, not canonical state.
-    fn snapshot_digest(snapshot: &RenderSnapshot) -> u64 {
+    pub(super) fn snapshot_digest(snapshot: &RenderSnapshot) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut value = serde_json::to_value(snapshot).expect("snapshot serializes");
@@ -546,7 +550,7 @@ mod tests {
     }
 
     /// Read the engine state digest through the native snapshot command.
-    fn command_digest(doc: &str) -> u64 {
+    pub(super) fn command_digest(doc: &str) -> u64 {
         let json = protocol_snapshot_native(doc.to_string()).expect("snapshot ok");
         let snapshot: RenderSnapshot = serde_json::from_str(&json).expect("snapshot parses");
         snapshot_digest(&snapshot)
@@ -554,7 +558,7 @@ mod tests {
 
     /// Apply one command JSON through the native command and assert the
     /// version advanced by exactly one. Returns the new version.
-    fn apply_ok(doc: &str, command: &str) -> u64 {
+    pub(super) fn apply_ok(doc: &str, command: &str) -> u64 {
         let version = protocol_version_native(doc.to_string()).expect("version");
         let result =
             protocol_apply_command_native(envelope_json(command, version), doc.to_string())
@@ -571,7 +575,7 @@ mod tests {
     /// The full routed command family, one envelope body per command. Layer
     /// ids stay valid as the stack evolves. Each entry is exactly the
     /// snake_case wire shape the TS bridge produces.
-    fn routed_command_script() -> Vec<String> {
+    pub(super) fn routed_command_script() -> Vec<String> {
         let text = SEQ_TEXT_DATA;
         vec![
             // Layer add / transform / metadata.
@@ -1062,3 +1066,10 @@ mod tests {
         close_doc(BENCH_DOC);
     }
 }
+
+// Engine-identity attestation for the native protocol authority. Kept in a
+// sibling file so the test body does not grow this module further; it reuses the
+// routed script and digest helpers declared above instead of restating them.
+#[cfg(test)]
+#[path = "protocol_native_engine_identity_tests.rs"]
+mod engine_identity_tests;
