@@ -110,8 +110,9 @@ describe("native canonical seed wiring", () => {
     expect(payload.layers[0]).not.toHaveProperty("bitmapEpoch");
   });
 
-  it("never seeds the canonical shadow when native authority is off (production default)", async () => {
-    localStorage.clear(); // facadeAuthority unset -> isNativeAuthority() false
+  it("never seeds the canonical shadow when native authority is off (wasm opt-out)", async () => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const wm = new WorkspaceManager();
     wm.addDocument(WorkspaceManager.createBlankDocument("docOff", "Off", 800, 600));
     await flush();
@@ -279,8 +280,9 @@ describe("native canonical re-push after TS-side mutations", () => {
     expect(idxRepush).toBeGreaterThan(idxApply);
   });
 
-  it("does not re-push after addLayer or external transitions when native authority is off (production default)", async () => {
-    localStorage.clear(); // facadeAuthority unset => isNativeAuthority() false
+  it("does not re-push after addLayer or external transitions when native authority is off (wasm opt-out)", async () => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const session = (() => {
       const wm = new WorkspaceManager();
       const s = WorkspaceManager.createBlankDocument("docOff", "Off", 800, 600);

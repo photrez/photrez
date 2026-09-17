@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { EditorProvider } from "../../shell/EditorContext";
 import { LayersPanel } from "../../layers/LayersPanel";
@@ -86,7 +86,13 @@ function renderLayersPanel(session = WorkspaceManager.createBlankDocument("test"
 }
 
 describe("Delete layer (no confirm dialog)", () => {
+  beforeEach(() => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
   afterEach(() => {
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

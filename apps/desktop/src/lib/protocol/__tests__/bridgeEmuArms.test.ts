@@ -1,7 +1,8 @@
 // Emulator parity for the metadata command arms.
 //
-// Drives the TS emulator (wasm NOT armed in this file, so applyCommand falls
-// through to emulateApply) through each metadata arm and asserts the emulator
+// Drives the TS emulator (wasm NOT armed in this file, and the legacy opt-out
+// flags photrez.facade="0" + photrez.facadeAuthority="wasm" are set, so
+// applyCommand falls through to emulateApply) through each metadata arm and asserts the emulator
 // mirrors the Rust ProtocolEngine arm semantics: silent no-op on an unknown id
 // (mirroring DeleteLayer + the TS apply ops), and E_INVALID on an empty or
 // duplicate addLayer id. The emulator layer shape is the flat RenderLayer, so
@@ -41,9 +42,13 @@ function addedLayer(result: any): RenderLayer {
 
 beforeEach(() => {
   __resetEmulatedForTests();
+  localStorage.setItem("photrez.facade", "0");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 afterEach(() => {
   __resetEmulatedForTests();
+  localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
 });
 
 describe("emulator metadata arms mirror the Rust arms", () => {
@@ -822,8 +827,8 @@ describe("emulator canvas-size arms mirror the Rust arms", () => {
 describe("facade undo over emulator canvas entries", () => {
   beforeEach(() => {
     __resetEmulatedForTests();
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
     __resetEmulatedForTests();

@@ -202,7 +202,8 @@ describe("history-restore heal re-push (handoff-fallthrough, native authority)",
   });
 
   it("native-authority OFF: fallthrough restore triggers no re-push", async () => {
-    // localStorage cleared => isNativeAuthority() false.
+    // wasm opt-out => isNativeAuthority() false.
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     routeNative();
     await bridge.createNativeSeed(DOC_ID, 0, []);
 

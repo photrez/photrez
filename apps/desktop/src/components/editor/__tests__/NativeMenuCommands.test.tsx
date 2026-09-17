@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import type { Event } from "@tauri-apps/api/event";
 import type { WebGL2Backend } from "@/renderer/webgl2";
@@ -72,7 +72,13 @@ function emitNativeMenu(command: string) {
 }
 
 describe("native menu command wiring", () => {
+  beforeEach(() => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
   afterEach(() => {
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
     eventMock.listener = undefined;
     eventMock.unlisten.mockClear();
     delete window.__TAURI_INTERNALS__;

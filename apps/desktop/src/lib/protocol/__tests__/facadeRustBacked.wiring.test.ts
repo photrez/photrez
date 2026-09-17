@@ -23,7 +23,7 @@
 // Mock-fidelity: wasmTestShim loads the REAL .wasm bytes from disk (initSync),
 // so this is the true production boundary (serde string in/out), not a fake wasm.
 
-import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 import * as bridge from "@/lib/protocol/bridge";
 import { __resetEmulatedForTests } from "@/lib/protocol/bridge";
@@ -48,6 +48,12 @@ beforeAll(async () => {
   expect(m).not.toBeNull();
   expect(typeof m.protocol_apply_command).toBe("function");
   wasmModule = m as WasmModule;
+});
+
+beforeEach(() => {
+  // The real wasm is armed here, so pin the wasm dispatch path explicitly
+  // (unset authority now defaults to native, which has no mock in this file).
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {

@@ -25,8 +25,8 @@ import type { EditorContextValue } from "../shell/EditorContext";
 
 describe("routed canvas undo through the production handoff", () => {
   beforeEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     __resetEmulatedForTests();
     __resetFacadeRegistryForTests();
   });

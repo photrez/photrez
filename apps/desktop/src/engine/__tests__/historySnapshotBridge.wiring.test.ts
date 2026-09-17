@@ -74,6 +74,8 @@ function gateOn(bridgeOn: boolean) {
 describe("snapshot history bridge (bitmap-token) wiring", () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     vi.mocked(invoke).mockReset();
     vi.mocked(isTauriRuntime).mockReset();
     vi.mocked(isTauriRuntime).mockReturnValue(false);

@@ -10,7 +10,11 @@ import { CONTRACT_VERSION, isDeltaApplicable } from "../types";
 // Uses JS emulation when wasm is absent; when wasm is present the same assertions hold via real Rust.
 
 describe("protocol wiring — Ticket 1", () => {
-  beforeEach(() => __resetEmulatedForTests());
+  beforeEach(() => {
+    __resetEmulatedForTests();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
 
   it("contractVersion vs documentVersion are distinct numbers", async () => {
     expect(getContractVersion()).toBe(CONTRACT_VERSION);

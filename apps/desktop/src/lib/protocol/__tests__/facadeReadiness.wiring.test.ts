@@ -39,17 +39,21 @@ import { CONTRACT_VERSION } from "../types";
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   // Start from a clean emulator (the real wasm is still UNARMED here).
   __resetEmulatedForTests();
 });
 
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetEmulatedForTests();
 });
 
 describe("Facade readiness gate (flag ON, engine arming)", () => {
   it("flag ON + wasm NOT armed -> facade command throws E_FACADE_NOT_READY (never emulates)", async () => {
+    localStorage.setItem("photrez.facade", "1");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     // Hardening: the discriminator below assumes the bridge starts unarmed, so
     // assert it explicitly (a test that accidentally ran after arming would make
     // the gate's effect invisible and the assertion vacuous).
@@ -69,11 +73,11 @@ describe("Facade readiness gate (flag ON, engine arming)", () => {
     expect((await getHistoryQuery()).entries.length).toBe(0);
   });
 
-  it("flag OFF + wasm NOT armed -> applyCommand STILL emulates (legacy path unchanged)", async () => {
-    // The default (flag OFF) production path must remain byte-identical: the
+  it("photrez.facade=0 opt-out + wasm NOT armed -> applyCommand STILL emulates (legacy path unchanged)", async () => {
+    // The opt-out production path must remain byte-identical: the
     // emulator is the legacy authority and must keep running (this is what a
-    // non-facade app relies on today). Under flag OFF the gate must NOT fire.
-    localStorage.removeItem("photrez.facade");
+    // non-facade app relies on today). Opted out the gate must NOT fire.
+    localStorage.setItem("photrez.facade", "0");
 
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,

@@ -169,6 +169,7 @@ beforeAll(async () => {
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   toastMock.mockClear();
@@ -252,10 +253,10 @@ describe("text option bar - live edit session on the same layer", () => {
   });
 });
 
-describe("text option bar - keeps photrez.facade-OFF behavior", () => {
+describe("text option bar - keeps photrez.facade=0 opt-out behavior", () => {
   it("legacy path: one history entry before the model write, zero commands", async () => {
     const { bar, layerId } = await openBar({ pushedToEngine: false });
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
     const history = bar.history();
     const commitSpy = vi.spyOn(history, "commit");
     const updateSpy = vi.spyOn(bar.engine, "updateTextData");

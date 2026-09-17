@@ -35,6 +35,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
@@ -44,6 +45,7 @@ afterEach(() => {
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -229,12 +231,12 @@ describe("overlapping numeric transform commits", () => {
     expect(requestRender).not.toHaveBeenCalled();
   });
 
-  it("flag OFF: the funnel dispatches nothing even when a caller forgets the gate", async () => {
+  it("photrez.facade=0 opt-out: the funnel dispatches nothing even when a caller forgets the gate", async () => {
     const docId = "race-flag-off";
     const { engine, facade, ids } = await docWithLayers(docId, 1);
     const versionBefore = facade.renderedVersion;
     const commitSpy = vi.spyOn(facade, "commitTransform");
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
 
     await expect(facadeCommitNumericTransform(engine, ids[0], { x: 150 })).resolves.toBe(false);
 

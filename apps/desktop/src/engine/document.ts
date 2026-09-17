@@ -22,11 +22,9 @@ const USE_RUST_SSOT = true; // Rust owns graph ops (field parity complete); hist
 // width/height are authoritative (see EditorFacade.lastProjectionDimsAuthoritative).
 export type FacadeProjectionOptions = { dimsAuthoritative?: boolean };
 
-// Gate A: facade isolation — when photrez.facade=1, Rust is sole owner for facade layers.
-const FACADE_FLAG = "photrez.facade";
-function isFacadeEnabled(): boolean {
-  try { return typeof localStorage !== "undefined" && localStorage.getItem(FACADE_FLAG) === "1"; } catch { return false; }
-}
+// Gate A: facade isolation — unless photrez.facade=0, Rust is sole owner for facade layers.
+// Shared flag reader from the protocol bridge: one source so both call sites stay in step.
+import { isFacadeEnabled } from "@/lib/protocol/bridge";
 const facadeOwnedIds = new Set<string>();
 function isFacadeOwned(id: string): boolean { return isFacadeEnabled() && facadeOwnedIds.has(id); }
 export function isFacadeOwnedLayer(id: string): boolean { return isFacadeOwned(id); }
@@ -1567,7 +1565,7 @@ export class DocumentEngine {
    * pan re-projects a layer vector whose projection fields did not change. The
    * projection is still cheaper than the whole-model JSON.stringify
    * pushModelToRust already does in the same notifyChange.
-   * Gated by photrez.facade: flag OFF returns before any work (byte-identical).
+    * Gated by photrez.facade: the facade=0 opt-out returns before any work (byte-identical).
    */
   private refreshFacadeProjectionCache(): void {
     if (!isFacadeEnabled()) return;

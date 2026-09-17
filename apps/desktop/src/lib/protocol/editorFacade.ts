@@ -34,7 +34,7 @@ export class EditorFacade {
   // seedFacadeFromEngine so addLayer can re-push the full canonical document
   // after Rust mints a layer (Rust cannot populate the canonical-only fields).
   // Null unless native authority is active; the re-push is itself gated, so an
-  // unset engine is a no-op and production (default authority) is unchanged.
+  // unset engine is a no-op and the wasm opt-out path is unchanged.
   private engine: DocumentEngine | null = null;
   bindEngine(engine: DocumentEngine): void {
     this.engine = engine;
@@ -426,7 +426,7 @@ export class EditorFacade {
     try { const snap = await getSnapshot(this.docId); this.applySnapshot(snap); } catch {}
   }
 
-  // Native-authority shadow re-push (gated, default OFF => no-op). After a
+  // Native-authority shadow re-push (gated, wasm opt-out => no-op). After a
   // successful addLayer the native engine has minted the layer but lacks its
   // canonical-only fields, and the TS engine has not yet received the layer
   // (the production caller projects it only after this returns). Project the
@@ -452,7 +452,7 @@ export class EditorFacade {
   // envelope and is fire-and-forget. Await any in-flight mirror, then read the
   // authoritative engine version, so renderedVersion matches the native engine
   // before we build expectedVersion. This closes the fill -> setOpacity interleave
-  // that rejected with E_VERSION_MISMATCH. The wasm default path no-ops here, so
+  // that rejected with E_VERSION_MISMATCH. The wasm opt-out path no-ops here, so
   // behavior is unchanged. The native engine remains the single version owner.
   private async syncFromEngine(): Promise<void> {
     if (!isNativeAuthority()) return;

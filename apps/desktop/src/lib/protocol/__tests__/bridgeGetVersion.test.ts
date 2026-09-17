@@ -72,7 +72,8 @@ describe("bridge.getVersion", () => {
   });
 
   it("wasm path: parses the version from the wasm snapshot", async () => {
-    // native authority OFF -> wasm branch. Arm a fake wasm module.
+    // wasm opt-out -> wasm branch. Arm a fake wasm module.
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     expect(isNativeAuthority()).toBe(false);
     setProtocolWasm({
       protocol_contract_version: () => CONTRACT_VERSION,
@@ -85,7 +86,8 @@ describe("bridge.getVersion", () => {
     expect(v).toBe(9);
   });
 
-  it("wasm path with no wasm armed returns 0 (total default)", async () => {
+  it("wasm path with no wasm armed returns 0 (wasm opt-out)", async () => {
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     expect(isNativeAuthority()).toBe(false);
     const v = await getVersion("docC");
     expect(v).toBe(0);

@@ -62,11 +62,11 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  // Photrez.facade + native authority stay OFF - these tests measure the
+  // photrez.facade=0 + wasm authority stay pinned - these tests measure the
   // always-on wasm graph mirror (Section 1) and the ProtocolEngine arms
   // (Section 2) directly, not the gated ownership stream.
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
+  localStorage.setItem("photrez.facade", "0");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {

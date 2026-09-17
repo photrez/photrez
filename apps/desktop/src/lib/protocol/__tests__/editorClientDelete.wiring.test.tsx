@@ -157,6 +157,7 @@ async function seedFacadeWithLayers(engine: any, facade: any, names: string[]) {
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.mocked(isTauriRuntime).mockReset();
@@ -194,7 +195,7 @@ describe("Delete Layer EditorClient routing", () => {
     expect(history.getUndoCount()).toBe(0);
   });
 
-  it("facade OFF: routes to the byte-identical legacy TS path (no facade, no applyCommand)", async () => {
+  it("photrez.facade=0 opt-out: routes to the byte-identical legacy TS path (no facade, no applyCommand)", async () => {
     localStorage.setItem("photrez.facade", "0");
     const { engine, history, wrapper } = createWrapper();
     const layer = engine.addLayer("Extra");

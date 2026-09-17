@@ -16,7 +16,7 @@
  * is no consumer in this change), and that the facade branch is NOT entered when
  * there are no facade-owned layers.
  *
- * MOCK FIDELITY: localStorage is cleared, so photrez.facade is unset and these
+ * MOCK FIDELITY: the legacy opt-out flags are set, so these
  * tests exercise the emulator arm of historyCursorCommit (a faithful mirror of
  * the Rust predicate), NOT the real wasm binary. facade=1 in production requires
  * an armed wasm, so this is an emulator-only path - labeled as such and not
@@ -132,11 +132,15 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     vi.mocked(isTauriRuntime).mockReturnValue(false);
     vi.mocked(hasFacadeOwnedLayers).mockReturnValue(true);
     localStorage.clear();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     facadeRegistry.__resetFacadeRegistryForTests();
     bridge.__resetEmulatedForTests();
   });
 
   afterEach(() => {
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 

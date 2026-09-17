@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from "vitest";
 import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
 import { EditorFacade } from "../editorFacade";
+import * as bridge from "../bridge";
 import { __resetEmulatedForTests } from "../bridge";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 
@@ -21,11 +22,13 @@ describe("Gate A — facade isolation", () => {
     wasmModule?.protocol_reset("default");
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
     localStorage.clear();
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
     localStorage.clear();
     wasmModule?.protocol_reset("default");
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
+    vi.restoreAllMocks();
   });
 
   it("legacy transform blocked on facade-owned layer while flag=1", async () => {
@@ -51,7 +54,7 @@ describe("Gate A — facade isolation", () => {
     expect(() => engine.restore(legacySnap)).toThrow(/E_FACADE_OWNED/);
   });
 
-  it("legacy ops allowed when flag=0 even on same id", async () => {
+  it("legacy ops allowed under photrez.facade=0 even on same id", async () => {
     localStorage.setItem("photrez.facade", "0");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
@@ -86,5 +89,25 @@ describe("Gate A — facade isolation", () => {
     // so no surface, no history entry, no pixel mutation occurs
     expect(engine.getLayer(id)?.imageBitmap).toBeNull();
     expect(() => engine.transformLayer(id, { x: 1 } as never)).toThrow(/E_FACADE_OWNED/);
+  });
+
+  it("spying the bridge flag flips the engine guard through the live import", async () => {
+    localStorage.setItem("photrez.facade", "1");
+    const engine = new DocumentEngine("doc", "Test", 100, 100);
+    const facade = new EditorFacade();
+    const snap = await facade.addLayer("A");
+    const id = snap.layers[0].id;
+    engine.applyFacadeSnapshot(snap);
+    expect(isFacadeOwnedLayer(id)).toBe(true);
+    // document.ts reads isFacadeEnabled from the bridge module on every call,
+    // so mocking that export (not a copy) must change the guard below.
+    const flagSpy = vi.spyOn(bridge, "isFacadeEnabled").mockReturnValue(false);
+    try {
+      expect(isFacadeOwnedLayer(id)).toBe(false);
+      expect(() => engine.setLayerOpacity(id, 0.5)).not.toThrow();
+    } finally {
+      flagSpy.mockRestore();
+    }
+    expect(isFacadeOwnedLayer(id)).toBe(true);
   });
 });

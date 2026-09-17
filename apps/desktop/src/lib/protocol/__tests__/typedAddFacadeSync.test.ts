@@ -78,9 +78,9 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
-  // Default authority (wasm) exercises the facade flag path without the native
+  // Pinned wasm authority exercises the facade flag path without the native
   // registry; native consistency is covered by the live probe.
-  localStorage.removeItem("photrez.facadeAuthority");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 
@@ -390,9 +390,9 @@ describe("facade-deleted id primed into the per-engine mirror (photrez.facade=1)
   });
 });
 
-describe("facade flag OFF is byte-identical (photrez.facade unset)", () => {
+describe("photrez.facade=0 opt-out is byte-identical", () => {
   beforeEach(() => {
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
   });
 
   it("the typed-add path leaves the facade snapshot unchanged", async () => {

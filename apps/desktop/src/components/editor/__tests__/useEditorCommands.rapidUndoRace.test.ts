@@ -143,6 +143,8 @@ describe("useEditorCommands rapid double-undo no stale re-attach (bridge ON)", (
     vi.mocked(isTauriRuntime).mockReset();
     vi.mocked(isTauriRuntime).mockReturnValue(false);
     localStorage.clear();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
 
   afterEach(() => {

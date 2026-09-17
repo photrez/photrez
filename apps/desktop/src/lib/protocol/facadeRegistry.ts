@@ -862,13 +862,13 @@ export async function seedFacadeFromEngine(
   }
   // Native-authority cutover seed: mirror the live TS/facade state into the
   // Rust REGISTRY engine so the first rerouted command's expectedVersion matches.
-  // Gated by isNativeAuthority() so the default (wasm) path is byte-identical.
+  // Gated by isNativeAuthority() so the wasm opt-out path is byte-identical.
   // Carries the live renderedVersion (not a hardcoded 0) so the seeded engine
   // starts at the same document version the facade holds.
   if (isNativeAuthority()) {
     // Bind the TS engine to the facade so addLayer can re-push the full canonical
     // document after Rust mints a layer (Rust cannot populate the canonical-only
-    // fields). Gated so the default (wasm) path is byte-identical.
+    // fields). Gated so the wasm opt-out path is byte-identical.
     facade.bindEngine(engine as unknown as DocumentEngine);
     await ensureNativeEngineSeeded(
       facade.docId,
@@ -930,8 +930,8 @@ function syncAuthoritativeVersion(docId: string, dv: number): void {
 // so a pixel commit between two facade commands advances the same documentVersion
 // the facade reads. Push the pixel commit's returned version into the facade so
 // the next facade command is not rejected with E_VERSION_MISMATCH. No-op unless
-// native authority is active and a facade exists for the doc, so the wasm default
-// path is byte-identical. The native engine is the single owner of document
+  // native authority is active and a facade exists for the doc, so the wasm opt-out
+  // path is byte-identical. The native engine is the single owner of document
 // version; this is the only place that mirrors it into the facade, up-only.
 export function syncFacadeVersionFromPixel(docId: string, version: number): void {
   if (!isNativeAuthority()) return;
@@ -1000,8 +1000,8 @@ export async function recordExternalTransitionFor(
     // transition changed the TS model outside the facade command path, and this
     // reads the same post-mutation vector DocumentEngine.notifyChange already
     // projected. Kept as a cheap net over a future mutation path that bypasses
-    // the choke point. Gated: no-op when the facade flag is OFF (default path
-    // byte-identical).
+    // the choke point. Gated: no-op when the facade flag is opted out (opt-out
+    // path byte-identical).
     if (engine && isFacadeEnabled()) {
       try {
         refreshFacadeSnapshotFromEngine(docId, engine.getLayers().map(toFacadeProjectionLayer));
@@ -1009,7 +1009,7 @@ export async function recordExternalTransitionFor(
         // never let instrumentation break the legacy caller
       }
     }
-    // Native-authority shadow re-push (gated, default OFF => no-op). A mirrored
+    // Native-authority shadow re-push (gated, wasm opt-out => no-op). A mirrored
     // external transition changes the TS model outside the facade command path, so
     // re-push the full canonical shadow so the native copy stays complete. The
     // commit shim passes the live engine; direct callers may omit it and skip the
@@ -1114,7 +1114,7 @@ export function installFacadeCommitShim(providers: {
       // Same docId as the external-cursor handoff (facadeHistoryHandoff) so both
       // seams address one engine; engine.getId() is that shared expression.
       // Register the in-flight mirror so a following facade command can await it
-      // (native-authority version-sync barrier; the wasm default path no-ops).
+      // (native-authority version-sync barrier; the wasm opt-out path no-ops).
       setExternalTransitionPending(
         engine.getId(),
         recordExternalTransitionFor(

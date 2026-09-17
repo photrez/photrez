@@ -239,9 +239,9 @@ afterEach(() => {
   setProtocolWasm(null as unknown as Parameters<typeof setProtocolWasm>[0]);
 });
 
-describe("default (wasm) path is byte-identical", () => {
+describe("wasm opt-out path is byte-identical", () => {
   it("uses the wasm engine and never issues a native invoke", async () => {
-    localStorage.clear(); // facadeAuthority unset -> isNativeAuthority() false
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     setProtocolWasm(makeWasm({ documentVersion: 7, delta: { baseVersion: 0, version: 7, changes: [] } }));
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
@@ -254,7 +254,7 @@ describe("default (wasm) path is byte-identical", () => {
   });
 
   it("getSnapshot/historyQuery/cursorCommit/getVersion stay on wasm when native authority is off", async () => {
-    localStorage.clear();
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     setProtocolWasm(makeWasm({ documentVersion: 3, delta: { baseVersion: 0, version: 3, changes: [] } }));
     await getSnapshot("docA");
     await getHistoryQuery("docA");

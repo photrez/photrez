@@ -2,8 +2,8 @@
 //
 // DoD wiring test (AGENTS.md "method defined but no call site proven" gap):
 // editorShell.tsx's boot path MUST reach ensureFacadeReady() when photrez.facade=1
-// (the producer call-site that arms the bridge), and MUST NOT when the flag is
-// OFF. This proves the arming call-site is reachable from the real EditorShell
+// (the producer call-site that arms the bridge), and MUST NOT when opted out.
+// This proves the arming call-site is reachable from the real EditorShell
 // mount — not merely that the symbol exists.
 //
 // ensureFacadeReady is mocked to decouple the mount from real wasm loading; the
@@ -56,8 +56,8 @@ describe("EditorShell boot facade-readiness wiring", () => {
     expect(ensureFacadeReadySpy).toHaveBeenCalledTimes(1);
   });
 
-  it("photrez.facade=0 (default) -> EditorShell boot does NOT call ensureFacadeReady()", () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out -> EditorShell boot does NOT call ensureFacadeReady()", () => {
+    localStorage.setItem("photrez.facade", "0");
     mountShell();
     expect(ensureFacadeReadySpy).not.toHaveBeenCalled();
   });

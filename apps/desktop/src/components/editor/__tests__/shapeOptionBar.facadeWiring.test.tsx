@@ -112,12 +112,14 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 
 afterEach(() => {
   wasm?.protocol_reset(DOC);
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.unstubAllGlobals();
@@ -344,10 +346,10 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
   });
 });
 
-describe("ShapeOptionBar edit mode - keeps photrez.facade-OFF behavior (and unowned layers)", () => {
-  it("flag OFF: one history entry committed BEFORE the engine write, no commands", async () => {
+describe("ShapeOptionBar edit mode - keeps photrez.facade=0 opt-out behavior (and unowned layers)", () => {
+  it("opted out: one history entry committed BEFORE the engine write, no commands", async () => {
     const h = await setup({ owned: true });
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
     const commit = vi.spyOn(h.history, "commit");
     const engineWrite = vi.spyOn(h.engine, "updateShapeParams");
 

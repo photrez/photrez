@@ -4,7 +4,11 @@ import { __resetEmulatedForTests } from "../bridge";
 import * as bridge from "../bridge";
 
 describe("facade ownership — Ticket 2 invariants", () => {
-  beforeEach(() => __resetEmulatedForTests());
+  beforeEach(() => {
+    __resetEmulatedForTests();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
 
   it("has no persistent layers field — only snapshot cache", async () => {
     const f = new EditorFacade();

@@ -236,6 +236,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   forcedLegacy.clear();
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -395,7 +396,7 @@ describe("PropertiesPanel transform actions with native transform authority on",
   });
 });
 
-describe("PropertiesPanel transform actions - keeps photrez.facade-OFF behavior (native transform authority off)", () => {
+describe("PropertiesPanel transform actions - keeps photrez.facade=0 opt-out behavior (native transform authority off)", () => {
   beforeEach(() => {
     localStorage.setItem("photrez.facade", "0");
   });

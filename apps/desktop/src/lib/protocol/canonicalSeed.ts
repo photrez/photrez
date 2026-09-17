@@ -5,7 +5,7 @@
 // holds a complete typed shadow of the authoritative TS model at open time.
 //
 // It is only ever invoked from the gated native-authority path (see bridge
-// seedNativeCanonical); the default (wasm) path never calls it, so production is
+// seedNativeCanonical); the wasm opt-out path never calls it, so production is
 // byte-identical.
 //
 // Field rules (cross-checked against canonical_model.rs serde attributes):
@@ -82,7 +82,7 @@ export function buildCanonicalDocumentPayload(engine: DocumentEngine): string {
 // directly (facade addLayer under native authority, or a mirrored external
 // transition): the native engine mints/advances the document model but cannot
 // reconstruct the canonical-only fields, so the TS model is re-pushed in full.
-// Gated by native authority (default OFF => no-op, production unchanged). The
+// Gated by native authority (wasm opt-out => no-op, production unchanged). The
 // native seed replaces the shadow unconditionally, so a re-push is idempotent
 // and safe to fire after every such event.
 //

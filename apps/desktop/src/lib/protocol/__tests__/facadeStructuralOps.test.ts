@@ -360,8 +360,8 @@ describe("commitFacadeDuplicate (Duplicate arm)", () => {
     expect(engine.getLayer(newId)?.name).toBe("B 3");
   });
 
-  it("flag OFF: legacy status, zero applyCommand (byte-identical default path)", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand (byte-identical opt-out path)", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeDuplicate(engine as never, "any", "layer-dup-2");
@@ -399,8 +399,8 @@ describe("commitFacadeMergeDown (MergeDown arm)", () => {
     expect(after).toEqual([ids[0], mergedId]);
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeMergeDown(engine as never, "any", "layer-merge-2");
@@ -490,8 +490,8 @@ describe("commitFacadeMergeSelected (MergeSelected arm)", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeMergeSelected(engine as never, ["a", "b"], "layer-msel-3");
@@ -522,8 +522,8 @@ describe("commitFacadeFlatten (Flatten arm)", () => {
     expect(engine.getLayers().map((l) => l.id)).toEqual([mergedId]);
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeFlatten(engine as never, "layer-flat-2");
@@ -555,8 +555,8 @@ describe("commitFacadeRasterize (Rasterize arm)", () => {
     expect(engine.getLayer(id)?.type).toBe("shape"); // funnel alone must NOT retype
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeRasterize(engine as never, "any");
@@ -676,7 +676,7 @@ describe("routeDuplicate retention + authority gates", () => {
 
   it("wasm authority: legacy status, zero commands, no clone side effects", async () => {
     localStorage.setItem("photrez.facade", "1");
-    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const res = await routeDuplicate(

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { ResizeCanvasModal } from "../ResizeCanvasModal";
@@ -69,6 +69,10 @@ const button = (dialog: HTMLElement, label: string) => Array.from(dialog.querySe
   .find((candidate) => candidate.textContent?.trim() === label) as HTMLButtonElement;
 
 describe("ResizeCanvasModal", () => {
+  beforeEach(() => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.removeItem("photrez.facade");

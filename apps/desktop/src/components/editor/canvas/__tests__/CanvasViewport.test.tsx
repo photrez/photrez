@@ -3461,9 +3461,9 @@ describe("Native authority: pixel-commit facade version sync (sink gating)", () 
     run("syncSink", 7);
     expect(spy).toHaveBeenCalledWith(7);
 
-    // Default (wasm) path: byte-identical, the facade is never touched.
+    // wasm opt-out path: byte-identical, the facade is never touched.
     spy.mockClear();
-    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     run("syncSink", 9);
     expect(spy).not.toHaveBeenCalled();
   });
@@ -3564,8 +3564,8 @@ describe("Native authority: paint-bucket pixel commit syncs facade version (real
     }, { timeout: 3000 });
   });
 
-  it("the same paint-bucket commit does NOT touch the facade when native authority is off (byte-identical default path)", async () => {
-    localStorage.removeItem("photrez.facadeAuthority");
+  it("the same paint-bucket commit does NOT touch the facade when native authority is off (byte-identical wasm opt-out path)", async () => {
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     armInvoke(1);
     const { ctx } = makeBucketCtx();
 

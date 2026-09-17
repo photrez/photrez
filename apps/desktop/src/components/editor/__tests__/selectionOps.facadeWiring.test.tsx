@@ -125,7 +125,8 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
     dispose();
   });
 
-  it("create (W submit): flag OFF uses the host engine only, zero facade calls", async () => {
+  it("create (W submit): photrez.facade=0 opt-out uses the host engine only, zero facade calls", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -167,7 +168,8 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
     dispose();
   });
 
-  it("deselect: flag OFF uses the host engine only, zero facade calls", async () => {
+  it("deselect: photrez.facade=0 opt-out uses the host engine only, zero facade calls", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -194,7 +196,8 @@ describe("marquee selection routing (input-handler)", () => {
     expect(h.commitFacadeSetSelection).toHaveBeenCalledTimes(1);
   });
 
-  it("flag OFF: createSelection runs on the host with zero facade calls", () => {
+  it("photrez.facade=0 opt-out: createSelection runs on the host with zero facade calls", () => {
+    localStorage.setItem("photrez.facade", "0");
     const engine = createMockEngine(["createSelection", "clearSelection", "snapshot"]);
     const ctx = createToolContext({ selectedLayerId: null, onSelectionCreated: vi.fn() });
 

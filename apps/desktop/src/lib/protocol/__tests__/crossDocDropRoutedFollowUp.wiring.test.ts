@@ -55,7 +55,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
-  localStorage.removeItem("photrez.facadeAuthority");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
@@ -155,9 +155,9 @@ describe("cross-doc drop then a routed op on the dropped layer (photrez.facade=1
   });
 });
 
-describe("facade flag OFF is byte-identical (photrez.facade unset)", () => {
+describe("photrez.facade=0 opt-out is byte-identical", () => {
   beforeEach(() => {
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
   });
 
   it("a cross-doc drop leaves the facade projection snapshot untouched", async () => {

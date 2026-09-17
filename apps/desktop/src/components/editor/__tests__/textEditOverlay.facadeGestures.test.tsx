@@ -118,6 +118,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 
@@ -125,6 +126,7 @@ afterEach(() => {
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.unstubAllGlobals();
@@ -153,7 +155,7 @@ interface Harness {
 
 async function setup(opts: { owned: boolean; isNewLayer?: boolean; unheld?: boolean }): Promise<Harness> {
   usedDocs.push(DOC);
-  if (!opts.owned && !opts.unheld) localStorage.removeItem("photrez.facade");
+  if (!opts.owned && !opts.unheld) localStorage.setItem("photrez.facade", "0");
 
   const engine = new DocumentEngine(DOC, "Doc", 800, 600);
   const data: TextData = {

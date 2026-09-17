@@ -127,7 +127,8 @@ describe("external-handoff confirmExternalCursor must NOT re-push (heal moved to
   });
 
   it("flag-off path: also no re-push (symmetry — re-push is on the restore path, not here)", async () => {
-    localStorage.clear(); // photrez.facadeAuthority unset => isNativeAuthority() false
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const docId = "docHealOff";
 
     await recordExternalTransitionFor(docId, { label: "Legacy", affectedLayerIds: [], snapshot: null });

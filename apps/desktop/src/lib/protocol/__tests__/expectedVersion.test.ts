@@ -3,7 +3,11 @@ import { applyCommand, __resetEmulatedForTests } from "../bridge";
 import { CONTRACT_VERSION } from "../types";
 
 describe("expectedVersion guard", () => {
-  beforeEach(() => __resetEmulatedForTests());
+  beforeEach(() => {
+    __resetEmulatedForTests();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
 
   it("expectedVersion matches -> accepted", async () => {
     const r1 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", name: "A", id: "A-id", width: 100, height: 100, index: 0 } });

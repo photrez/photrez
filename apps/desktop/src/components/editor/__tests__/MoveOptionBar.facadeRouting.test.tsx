@@ -285,6 +285,7 @@ function installFunnelDouble(): void {
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   forcedLegacy.clear();
   unhandled.length = 0;
   __resetFacadeRegistryForTests();
@@ -666,7 +667,7 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 });
 
-describe("MoveOptionBar - keeps photrez.facade-OFF behavior (legacy path synchronous)", () => {
+describe("MoveOptionBar - keeps photrez.facade=0 opt-out behavior (legacy path synchronous)", () => {
   it("Flip H click mutates and commits inside the click handler", async () => {
     localStorage.setItem("photrez.facade", "0");
     const { ws, engine } = openDoc("off-flip");

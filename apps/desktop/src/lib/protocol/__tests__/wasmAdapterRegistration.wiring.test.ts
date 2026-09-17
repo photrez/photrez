@@ -24,7 +24,7 @@
 // loads the REAL .wasm bytes, so this is the true production boundary (serde
 // JSON in/out), not a fake.
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { recordExternalTransitionFor } from "@/lib/protocol/facadeRegistry";
 
@@ -35,6 +35,12 @@ beforeAll(async () => {
   const m = await getWasmExportModule();
   expect(m).not.toBeNull();
   expect(typeof m.protocol_apply_command).toBe("function");
+});
+
+beforeEach(() => {
+  // recordExternalTransitionFor routes on authority: pin wasm so this file
+  // exercises the real wasm engine (unset authority now defaults to native).
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 describe("real-wasm ts-external adapter is registered inline per document", () => {

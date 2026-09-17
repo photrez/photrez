@@ -152,6 +152,7 @@ function fireKey(opts: KeyboardEventInit) {
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   const clearFn = (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests;
   if (typeof clearFn === "function") clearFn();
@@ -481,7 +482,9 @@ describe("canvas keyboard delete multi-select routing", () => {
 });
 
 describe("canvas keyboard delete parity with panel funnel", () => {
-  it("keystroke Delete and a direct panel-funnel call produce identical end state (flag OFF)", async () => {
+  it("keystroke Delete and a direct panel-funnel call produce identical end state (photrez.facade=0 opt-out)", async () => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const runDelete = async (via: "key" | "funnel") => {
       const h = makeKeyboardHarness(`kb-parity-${via}`);
       await new Promise((r) => setTimeout(r, 0));

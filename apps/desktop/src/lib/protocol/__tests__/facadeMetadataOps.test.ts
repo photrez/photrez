@@ -3,10 +3,10 @@
 // (facadeOpacity.test.ts). The arms already exist in document_core_apply.rs and
 // are proven MEASURED-EQUAL in the parity matrix; this file proves the PRODUCTION
 // dispatch (commitFacadeX helpers) issues the correct envelope and projects the
-// result, and that flag-OFF is byte-identical (zero applyCommand).
+// result, and that the photrez.facade=0 opt-out is byte-identical (zero applyCommand).
 //
 // Per-op coverage satisfies AGENTS.md wiring-test rule:
-//  (1) flag OFF -> legacy (zero applyCommand invocations)
+//  (1) opted out -> legacy (zero applyCommand invocations)
 //  (2) flag ON + facade-owned -> applyCommand with correct command type + payload
 //      shape; engine projection reflects the change
 //  (3) rejection path -> applyCommand rejects -> error propagates (no silent
@@ -48,9 +48,13 @@ beforeAll(async () => {
   wasmModule = m;
 });
 
-beforeEach(() => localStorage.setItem("photrez.facade", "1"));
+beforeEach(() => {
+  localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
+});
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
@@ -337,8 +341,8 @@ describe("commitFacadeVisibility (SetVisible arm)", () => {
     expect(engine.getLayer(id)!.visible).toBe(false);
   });
 
-  it("flag OFF: legacy status, zero applyCommand (byte-identical default path)", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand (byte-identical opt-out path)", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("visL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeVisibility(engine as never, ["any"], false);
@@ -411,8 +415,8 @@ describe("commitFacadeRename (Rename arm)", () => {
     expect(engine.getLayer(id)!.name).toBe("Renamed");
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("renL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeRename(engine as never, ["any"], "X");
@@ -492,8 +496,8 @@ describe("commitFacadeLock (SetLocked arm, 4 kinds)", () => {
     expect(kinds).toEqual(["transparency", "position", "rotation"]);
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("locL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeLock(engine as never, ["any"], "base", true);
@@ -558,8 +562,8 @@ describe("commitFacadeBlendMode (SetBlendMode arm)", () => {
     expect(engine.getLayer(id)!.blendMode).toBe("multiply");
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("bldL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeBlendMode(engine as never, ["any"], "multiply");
@@ -649,8 +653,8 @@ describe("commitFacadeAdjustment (SetAdjustment arm)", () => {
     expect(engine.getLayer(id)!.hasAdjustments).toBe(false);
   });
 
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("adjL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeAdjustment(engine as never, ["any"], adj);
@@ -864,10 +868,10 @@ describe("commitFacadeReorder (Reorder arm) - wasm authority (legacy route)", ()
   });
 
   // T3 (routing pin): under WASM authority the reorder arm returns {status:"legacy"}
-  // and applyCommand is NOT called. Under flag-off the default path is byte-identical:
+  // and applyCommand is NOT called. Under the facade=0 opt-out the path is byte-identical:
   // still legacy, still zero applyCommand.
-  it("T3: wasm authority -> legacy status, applyCommand NOT called (pins routing); flag-off also legacy", async () => {
-    localStorage.removeItem("photrez.facadeAuthority"); // ensure default (wasm) authority
+  it("T3: wasm authority -> legacy status, applyCommand NOT called (pins routing); photrez.facade=0 opt-out also legacy", async () => {
+    localStorage.setItem("photrez.facadeAuthority", "wasm"); // pin wasm authority
     const { engine, facade } = makeDoc("reT3w");
     await facade.addLayer("T");
     engine.applyFacadeSnapshot(facade.snapshot as never);
@@ -877,10 +881,10 @@ describe("commitFacadeReorder (Reorder arm) - wasm authority (legacy route)", ()
     expect(r.status).toBe("legacy");
     expect(spy).not.toHaveBeenCalled();
 
-    // Flag OFF (photrez.facade removed) is byte-identical: still legacy, no applyCommand
+    // facade=0 opt-out is byte-identical: still legacy, no applyCommand
     // from commitFacadeReorder itself. (addLayer mints the layer via applyCommand first;
     // isolate the commit under test by clearing the spy after the mint settles.)
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
     const spy2 = vi.spyOn(bridge, "applyCommand");
     const { engine: e2, facade: f2 } = makeDoc("reT3f");
     await f2.addLayer("U");

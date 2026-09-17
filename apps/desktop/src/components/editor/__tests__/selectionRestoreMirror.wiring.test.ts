@@ -170,8 +170,8 @@ describe("undo/redo mirrors the restored selection into the native shadow", () =
     expect(bridge.getEmuSelection()).toEqual(FULL);
   });
 
-  it("flag OFF: undo/redo never dispatch a mirror (default path byte-identical)", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: undo/redo never dispatch a mirror (opt-out path byte-identical)", async () => {
+    localStorage.setItem("photrez.facade", "0");
     bridge.setEmuDocumentDims(800, 600);
     bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,

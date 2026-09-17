@@ -17,11 +17,17 @@
 // requires editing bridge.ts core logic, which is OUT OF SCOPE for this subagent.
 // These tests therefore assert the ACTUAL current behavior so they stay green and honest.
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { applyCommand, setProtocolWasm } from "../bridge";
 import { CONTRACT_VERSION } from "../types";
 
+beforeEach(() => {
+  // These tests arm a fake wasm module, so pin the wasm dispatch path
+  // explicitly (unset authority now defaults to native).
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
+});
 afterEach(() => {
+  localStorage.removeItem("photrez.facadeAuthority");
   setProtocolWasm(null as unknown as Parameters<typeof setProtocolWasm>[0]);
 });
 

@@ -47,7 +47,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
-  localStorage.removeItem("photrez.facadeAuthority");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
@@ -167,9 +167,9 @@ describe("facade projection snapshot across legacy commit-before-mutation (photr
   });
 });
 
-describe("facade flag OFF is byte-identical (photrez.facade unset)", () => {
+describe("photrez.facade=0 opt-out is byte-identical", () => {
   beforeEach(() => {
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
   });
 
   it("a commit + legacy add + restore leaves the facade projection snapshot untouched", async () => {

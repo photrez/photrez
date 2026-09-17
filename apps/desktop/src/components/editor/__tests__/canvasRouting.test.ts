@@ -66,8 +66,8 @@ function typeOf(call: unknown): string {
 }
 
 describe("routeResizeCanvas", () => {
-  it("flag OFF: legacy status, zero applyCommand", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = await newDoc("canvas1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const status = await routeResizeCanvas(

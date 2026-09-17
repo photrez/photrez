@@ -62,12 +62,14 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -106,7 +108,7 @@ interface Ctx {
 async function setup(opts: { owned: number; legacy?: boolean; flag?: boolean }): Promise<Ctx> {
   usedDocs.push(DOC);
   const flagOn = opts.flag !== false;
-  if (!flagOn) localStorage.removeItem("photrez.facade");
+  if (!flagOn) localStorage.setItem("photrez.facade", "0");
 
   const engine = new DocumentEngine(DOC, "Canvas", 800, 600);
   const ws = new WorkspaceManager();

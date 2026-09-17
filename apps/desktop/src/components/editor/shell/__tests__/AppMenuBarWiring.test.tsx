@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => Promise.resolve("0.1.0") }));
 import type { WebGL2Backend } from "@/renderer/webgl2";
@@ -66,7 +66,15 @@ function renderTitleBar() {
 }
 
 describe("custom application menu wiring", () => {
-  afterEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
+    vi.restoreAllMocks();
+  });
 
   it("creates a real blank document from File > New Document", async () => {
     const host = renderTitleBar();

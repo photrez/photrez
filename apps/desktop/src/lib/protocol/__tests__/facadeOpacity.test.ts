@@ -33,9 +33,13 @@ beforeAll(async () => {
   wasmModule = m;
 });
 
-beforeEach(() => localStorage.setItem("photrez.facade", "1"));
+beforeEach(() => {
+  localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
+});
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   clearOpacityPreview();
   clearAdjustmentPreview();
   __resetFacadeRegistryForTests();
@@ -184,8 +188,8 @@ describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
     })).rejects.toThrow(/E_VERSION_MISMATCH/);
   });
 
-  it("legacy path unchanged when flag OFF / non-owned (status legacy)", async () => {
-    localStorage.removeItem("photrez.facade");
+  it("legacy path unchanged under photrez.facade=0 opt-out (status legacy)", async () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("docL");
     const r = await commitFacadeOpacity(engine as never, ["any"], 0.5);
     expect(r.status).toBe("legacy"); // caller falls back to untouched legacy code

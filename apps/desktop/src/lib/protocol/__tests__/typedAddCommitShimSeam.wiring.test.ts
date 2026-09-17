@@ -87,7 +87,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
-  localStorage.removeItem("photrez.facadeAuthority");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 

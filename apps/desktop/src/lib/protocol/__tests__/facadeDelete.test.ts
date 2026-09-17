@@ -28,9 +28,13 @@ beforeAll(async () => {
   wasmModule = m;
 });
 
-beforeEach(() => localStorage.setItem("photrez.facade", "1"));
+beforeEach(() => {
+  localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
+});
 afterEach(() => {
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
@@ -112,8 +116,8 @@ describe("DeleteLayer lifecycle (facade ON)", () => {
     expect(isFacadeOwnedLayer(victim)).toBe(false);
   });
 
-  it("legacy delete path unchanged when facade OFF (no E_FACADE_OWNED, rust graph path)", () => {
-    localStorage.removeItem("photrez.facade");
+  it("legacy delete path unchanged under photrez.facade=0 opt-out (no E_FACADE_OWNED, rust graph path)", () => {
+    localStorage.setItem("photrez.facade", "0");
     const { engine, bgId } = makeDoc("docOff");
     const extra = engine.addLayer("Extra");
     engine.deleteLayer(extra.id); // legacy path must work untouched

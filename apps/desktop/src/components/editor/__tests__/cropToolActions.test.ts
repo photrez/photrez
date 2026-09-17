@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   clearCropPreview,
   resetCropPreviewToCanvas,
@@ -34,6 +34,14 @@ function controls(overrides: Partial<CropPreviewControls> = {}) {
 }
 
 describe("cropToolActions", () => {
+  beforeEach(() => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
+  });
   it("clearCropPreview clears rect and rotation", () => {
     const setCropRect = vi.fn();
     const setCropRotation = vi.fn();

@@ -61,6 +61,17 @@ function makeBitmap(width = 100, height = 100): ImageBitmap {
   return { width, height, close: vi.fn() } as unknown as ImageBitmap;
 }
 
+// These suites pin the legacy engine behavior, so opt out of the facade
+// defaults explicitly (unset flags now default to facade ON + native).
+beforeEach(() => {
+  localStorage.setItem("photrez.facade", "0");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
+});
+afterEach(() => {
+  localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
+});
+
 describe("mergeActiveLayerDown", () => {
   let engine: DocumentEngine;
   let history: CommandHistory;

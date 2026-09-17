@@ -23,9 +23,9 @@ import type { SelectionState } from "@/lib/protocol/types";
 
 function setFlags(opts: { facade: boolean; native: boolean }): void {
   if (opts.facade) localStorage.setItem("photrez.facade", "1");
-  else localStorage.removeItem("photrez.facade");
+  else localStorage.setItem("photrez.facade", "0");
   if (opts.native) localStorage.setItem("photrez.facadeAuthority", "native");
-  else localStorage.removeItem("photrez.facadeAuthority");
+  else localStorage.setItem("photrez.facadeAuthority", "wasm");
 }
 
 afterEach(() => {

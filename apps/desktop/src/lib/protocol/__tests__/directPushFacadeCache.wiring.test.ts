@@ -44,7 +44,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
-  localStorage.removeItem("photrez.facadeAuthority");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
@@ -138,9 +138,9 @@ describe("direct pushModelToRust() paths refresh the facade projection snapshot 
   });
 });
 
-describe("facade flag OFF leaves the snapshot untouched on the direct-push paths", () => {
+describe("photrez.facade=0 opt-out leaves the snapshot untouched on the direct-push paths", () => {
   beforeEach(() => {
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
   });
 
   it("adjustment apply/clear + bitmap replace do not change the snapshot", async () => {

@@ -109,6 +109,8 @@ function gateOn(bridgeOn: boolean) {
 describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     vi.mocked(invoke).mockReset();
     vi.mocked(isTauriRuntime).mockReset();
     vi.mocked(isTauriRuntime).mockReturnValue(false);

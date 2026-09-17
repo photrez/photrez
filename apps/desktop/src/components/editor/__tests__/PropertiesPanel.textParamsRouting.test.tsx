@@ -196,6 +196,7 @@ beforeAll(async () => {
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   toastMock.mockClear();
@@ -375,10 +376,10 @@ describe("properties panel text color picker - owned layer", () => {
   });
 });
 
-describe("properties panel text params - keeps photrez.facade-OFF behavior", () => {
+describe("properties panel text params - keeps photrez.facade=0 opt-out behavior", () => {
   it("legacy path: one history entry before the model write, zero commands", async () => {
     const { panel, layerId } = await openPanel({ pushedToEngine: false });
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
     const history = panel.history();
     const commitSpy = vi.spyOn(history, "commit");
 

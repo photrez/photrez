@@ -111,7 +111,13 @@ function renderKeyboardHarness(session: ReturnType<typeof WorkspaceManager.creat
 }
 
 describe("canvas layer keyboard shortcuts", () => {
+  beforeEach(() => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  });
   afterEach(() => {
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     clearRegistry();

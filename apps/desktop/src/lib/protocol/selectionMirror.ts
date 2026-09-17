@@ -40,8 +40,8 @@ const facadeByDoc = new Map<string, EditorFacade>();
 // Normalize an empty doc id to the reserved "default" key. The native-authority
 // engine (bridge/native client) resolves "" -> "default"; on that path the facade
 // registry must agree so a facade keyed by the native engine's id meets the bridge.
-// On the default (wasm) path this normalization is deliberately NOT applied:
-// getFacade/removeFacade use the raw doc id so the wasm default path is
+// On the wasm opt-out path this normalization is deliberately NOT applied:
+// getFacade/removeFacade use the raw doc id so the wasm opt-out path is
 // byte-identical to before the native-authority reroute.
 export function resolveFacadeDocKey(docId: string): string {
   return docId === "" ? "default" : docId;
@@ -49,7 +49,7 @@ export function resolveFacadeDocKey(docId: string): string {
 
 // Resolve the facade map key for the active authority. On the native-authority
 // path empty ids normalize to "default" (matching the native engine); on the
-// default wasm path the raw doc id is used unchanged (byte-identical behavior).
+// wasm opt-out path the raw doc id is used unchanged (byte-identical behavior).
 function facadeKey(docId: string): string {
   return isNativeAuthority() ? resolveFacadeDocKey(docId) : docId;
 }
@@ -184,7 +184,7 @@ export function mirrorSelectionCommand(
 // engine's active selection) diverges. Dispatch through the SAME serialized
 // funnel the routed selection ops use: a non-null restored selection mirrors
 // setSelection, a cleared one mirrors clearSelection. Gated here on facade+native
-// before any engine read, so flag OFF is a no-op and the default path stays
+// before any engine read, so the opt-out path is a no-op and stays
 // byte-identical (the funnel re-checks the same gate).
 //
 // The native heal re-push (repushCanonicalDocument) does NOT cover this: it

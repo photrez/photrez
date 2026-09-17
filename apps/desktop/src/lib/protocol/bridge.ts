@@ -58,9 +58,9 @@ export function setProtocolWasm(mod: WasmProtocol): void {
 // armed (setProtocolWasm) a facade command must NOT silently fall through to
 // the TS emulator — the emulator starts at version 0 and is discarded once the
 // real engine arms, so an emu->Rust straddle diverges state/version (there is
-// no atomic reconciliation). The gate below makes that divergence LOUD under
-// flag ON, and only under flag ON. Flag OFF (default) keeps the emulator as the
-// legacy authority path, byte-identical to before.
+// no atomic reconciliation). The gate below makes that divergence LOUD while
+// the facade is enabled, and only while it is enabled. With the facade=0
+// opt-out the emulator is the legacy authority path, byte-identical to before.
 const FACADE_NOT_READY = "E_FACADE_NOT_READY";
 
 // Single source of truth for the facade flag. Reads localStorage directly (not
@@ -68,21 +68,23 @@ const FACADE_NOT_READY = "E_FACADE_NOT_READY";
 // registry re-exports this so existing consumers are unchanged.
 export function isFacadeEnabled(): boolean {
   try {
-    return typeof localStorage !== "undefined" && localStorage.getItem("photrez.facade") === "1";
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem("photrez.facade") !== "0";
   } catch {
     return false;
   }
 }
 
 // Native-authority dispatch selection: chooses which engine backs the protocol
-// command path. Defaults to wasm so production keeps using the wasm engine; when
-// native authority is active the predicate is read by the dispatch branches in
+// command path. Defaults to native; storing photrez.facadeAuthority="wasm" keeps
+// the wasm engine. The predicate is read by the dispatch branches in
 // applyCommand, getSnapshot, getHistoryQuery, and historyCursorCommit.
 const FACADE_AUTHORITY_KEY = "photrez.facadeAuthority";
 
 export function isNativeAuthority(): boolean {
   try {
-    return typeof localStorage !== "undefined" && localStorage.getItem(FACADE_AUTHORITY_KEY) === "native";
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem(FACADE_AUTHORITY_KEY) !== "wasm";
   } catch {
     return false;
   }
@@ -115,11 +117,11 @@ export function getContractVersion(): number {
   return CONTRACT_VERSION;
 }
 
-// ── Native-authority dispatch (gated, OFF by default) ────────────────────────
+// -- Native-authority dispatch (default ON; photrez.facadeAuthority="wasm" opts out) --
 // When native authority is active, the protocol command path is rerouted to the
 // per-document native ProtocolEngine in the Rust process-global REGISTRY (reached
-// via rust_pixels_open_document). Production (native authority off) keeps using
-// the wasm engine, byte-identical; no dispatch branch below runs in that case.
+// via rust_pixels_open_document). With the wasm opt-out the wasm engine runs,
+// byte-identical; no dispatch branch below runs in that case.
 // The single authoritative seed promise per doc. Created exactly ONCE, at the
 // document-open path (workspace.addDocument) with the REAL layers + starting
 // version, so the native engine is never seeded empty. Every bridge command
@@ -127,7 +129,7 @@ export function getContractVersion(): number {
 // previous behavior) would clobber the TS model with zero layers and lose data.
 export const nativeSeedPromiseByDoc = new Map<string, Promise<void>>();
 
-// Native-authority adapter-registration promises (gated, OFF by default).
+// Native-authority adapter-registration promises (skipped under the wasm opt-out).
 // registerPayloadAdapter creates one per (doc, adapterId) chained after the
 // authoritative seed; applyCommand awaits it so the adapter is registered on the
 // native engine BEFORE the command that references it (prevents E_UNKNOWN_ADAPTER).
@@ -165,7 +167,7 @@ export function createNativeSeed(docId: string, version: number, layers: RenderL
   return p;
 }
 
-// Native-authority canonical-document seed promises (gated, OFF by default).
+// Native-authority canonical-document seed promises (skipped under the wasm opt-out).
 // Like nativeSeedPromiseByDoc but for the full canonical-document shadow seed
 // (seedNativeCanonical). applyCommand awaits BOTH the layer seed and this seed,
 // so a facade command cannot apply natively before the canonical open-seed lands
@@ -174,8 +176,8 @@ export const nativeCanonicalSeedPromiseByDoc = new Map<string, Promise<void>>();
 
 // Seed the full canonical-document shadow into the native engine for a doc. Runs
 // AFTER the authoritative open-path layer seed (it awaits that seed's promise) so
-// the doc is already open when the canonical copy is pushed. Gated: a no-op under
-// the default (wasm) authority. If the open-path seed was never created, we still
+// the doc is already open when the canonical copy is pushed. Skipped: a no-op under
+// the wasm opt-out. If the open-path seed was never created, we still
 // invoke so the command surfaces the missing-doc ordering bug rather than silently
 // skipping a seed. The seed's promise is recorded in nativeCanonicalSeedPromiseByDoc
 // so applyCommand's seed barrier can await it.
@@ -222,8 +224,8 @@ export async function ensureNativeEngineSeeded(
 // command issued while that mirror is still in flight can read a stale
 // renderedVersion and be rejected with E_VERSION_MISMATCH (the fill -> setOpacity
 // interleave). Track the in-flight mirror so a facade command can await it and
-// then read the authoritative version. Gated: only the native path registers and
-// flushes; the wasm default path never touches this map, so flush is a no-op
+// then read the authoritative version. Skipped under the wasm opt-out: only the native path registers and
+// flushes; the wasm path never touches this map, so flush is a no-op
 // there and behavior is unchanged.
 const externalTransitionPendingByDoc = new Map<string, Promise<void>>();
 
@@ -265,7 +267,7 @@ export function normalizeProtocolError(e: unknown): Error {
 }
 
 // Test seam: clears native-authority cutover state so tests covering both the
-// default (wasm) and native paths stay isolated. Mirrors __resetEmulatedForTests.
+// wasm opt-out and native paths stay isolated. Mirrors __resetEmulatedForTests.
 export function __resetNativeAuthorityForTests(): void {
   nativeSeedPromiseByDoc.clear();
   nativeAdapterRegByDoc.clear();
@@ -303,7 +305,7 @@ export async function applyCommand(envelope: CommandEnvelope): Promise<CommandRe
   if (!wasm) {
     // Under photrez.facade=1 the facade must be Rust-backed — never
     // silently emulate a facade command while the wasm is unarmed (that
-    // emu->Rust straddle diverges state/version). Under flag OFF (default)
+    // emu->Rust straddle diverges state/version). With the facade=0 opt-out
     // the emulator is the legacy authority and behaves exactly as before.
     if (isFacadeEnabled()) {
       throw facadeReadinessError();

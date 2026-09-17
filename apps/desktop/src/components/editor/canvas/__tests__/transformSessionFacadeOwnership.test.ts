@@ -37,7 +37,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
-  localStorage.removeItem("photrez.facadeAuthority");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
@@ -135,7 +135,7 @@ describe("transform-session keyboard on a facade-owned layer (photrez.facade=1)"
 
 describe("transform-session keyboard on an unowned layer (non-vacuous control)", () => {
   it("Ctrl+Z applies without throwing", async () => {
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
     const engine = new DocumentEngine("docSessLegacy", "docSessLegacy", 800, 600);
     const layer = engine.addLayer("Plain", 100, 100);
     const history = new CommandHistory();
@@ -150,9 +150,9 @@ describe("transform-session keyboard on an unowned layer (non-vacuous control)",
   });
 });
 
-describe("facade flag OFF is byte-identical (photrez.facade unset)", () => {
+describe("photrez.facade=0 opt-out is byte-identical", () => {
   it("Ctrl+Z applies without throwing", async () => {
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
     const engine = new DocumentEngine("docSessOff", "docSessOff", 800, 600);
     const layer = engine.addLayer("Plain", 100, 100);
     const history = new CommandHistory();

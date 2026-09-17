@@ -34,11 +34,12 @@ import {
 import { CommandHistory } from "@/engine/history";
 
 beforeEach(() => {
-  // The TS emulator is the flag-OFF (legacy) path. These tests exercise
+  // The TS emulator is the legacy path. These tests exercise
   // the bridge's H0 stream semantics on the emulator, so run them with the
-  // facade flag OFF. Under flag ON the bridge would require the wasm engine to
+  // legacy opt-out flags. Without them the bridge would require the wasm engine to
   // be armed (E_FACADE_NOT_READY) and never silently emulate.
-  localStorage.removeItem("photrez.facade");
+  localStorage.setItem("photrez.facade", "0");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
   bridge.registerPayloadAdapter("ts-external");
 });
 afterEach(() => {
@@ -175,9 +176,10 @@ describe("H0 shim — unrecorded transition detection & degraded projection", ()
   });
 });
 
-describe("facade OFF — legacy path unchanged (zero H0 work)", () => {
-  it("shim records nothing when flag off; legacy commit behaves as before", () => {
-    localStorage.removeItem("photrez.facade");
+describe("photrez.facade=0 opt-out - legacy path unchanged (zero H0 work)", () => {
+  it("shim records nothing when opted out; legacy commit behaves as before", () => {
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     __resetFacadeRegistryForTests();
     const applySpy = vi.spyOn(bridge, "applyCommand");
     const engine = {
@@ -315,9 +317,10 @@ describe("H0 final invariants", () => {
 // broke brush undo (undo() could not replay tile patches). Locked here.
 describe("history facade shim forwards imperative arg", () => {
   it("preserves the 3rd imperative payload through commit -> undo -> redo", () => {
-    // Isolate forwarding: flag OFF => shim forwards to real commit and
+    // Isolate forwarding: opted out => shim forwards to real commit and
     // returns without touching the bridge.
-    localStorage.removeItem("photrez.facade");
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     installFacadeCommitShim({ getEngine: () => null, getDocId: () => "docC3" });
 
     const h = new CommandHistory();

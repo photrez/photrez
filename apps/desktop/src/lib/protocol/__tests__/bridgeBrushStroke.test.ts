@@ -14,9 +14,13 @@ import { CONTRACT_VERSION } from "../types";
 
 beforeEach(() => {
   __resetEmulatedForTests();
+  localStorage.setItem("photrez.facade", "0");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 afterEach(() => {
   __resetEmulatedForTests();
+  localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   vi.restoreAllMocks();
 });
 

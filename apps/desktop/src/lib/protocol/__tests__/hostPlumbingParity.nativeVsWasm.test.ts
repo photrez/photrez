@@ -291,7 +291,7 @@ type Observation = { digest: string; state: string };
 
 function useNativeAuthority(on: boolean): void {
   if (on) localStorage.setItem("photrez.facadeAuthority", "native");
-  else localStorage.removeItem("photrez.facadeAuthority");
+  else localStorage.setItem("photrez.facadeAuthority", "wasm");
 }
 
 /// Seed the native arm through the production host path: the authoritative

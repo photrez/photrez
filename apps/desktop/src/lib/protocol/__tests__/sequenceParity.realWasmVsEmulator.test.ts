@@ -441,7 +441,7 @@ describe("sequence parity: real Rust protocol engine vs TS emulator", () => {
     // Drive engine A with the facade flag ON: if the wasm were unarmed, the
     // bridge would throw E_FACADE_NOT_READY instead of silently emulating.
     localStorage.setItem("photrez.facade", "1");
-    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
 
     // Engine A must leave the emulator untouched. Reset the emulator first so the
     // "untouched" claim is measured against a known-empty baseline.
@@ -526,6 +526,7 @@ describe("sequence parity: real Rust protocol engine vs TS emulator", () => {
     // (fields absent). This test pins that representation detail so the semantic
     // normalization is a documented decision, not a hidden pass.
     localStorage.setItem("photrez.facade", "1");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     resetEngineA();
     await bridge.applyCommand({
       contractVersion: CONTRACT_VERSION,
@@ -562,6 +563,7 @@ describe("sequence parity: real Rust protocol engine vs TS emulator", () => {
     // This proves the discriminator above is real: with the bridge unarmed and the
     // facade flag ON, engine A can no longer silently substitute the emulator.
     localStorage.setItem("photrez.facade", "1");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     bridge.setProtocolWasm(null as unknown as Parameters<typeof bridge.setProtocolWasm>[0]);
     __resetEmulatedForTests();
     expect(bridge.isFacadeArmed()).toBe(false);

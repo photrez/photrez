@@ -190,6 +190,7 @@ describe("EditorClient.deleteLayer split-brain", () => {
 describe("applyFacadeSnapshot leak-cleanup", () => {
   it("reclaims paint surface + texture handle for a layer id that vanished from the projection", async () => {
     localStorage.setItem("photrez.facade", "1");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const engine = new DocumentEngine("docLeak", "Leak", 64, 64);
     engine.addLayer("Background");
     const facade = getFacade("docLeak");

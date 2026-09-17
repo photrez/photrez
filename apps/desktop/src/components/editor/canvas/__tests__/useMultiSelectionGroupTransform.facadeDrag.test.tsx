@@ -81,12 +81,14 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
+  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
   localStorage.removeItem("photrez.facade");
+  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -147,7 +149,7 @@ async function harness(opts: {
   // Set it, not just clear the other way: a case that builds one fixture per authority
   // shares this module-level switch with the fixture it built before it.
   if (flagOn) localStorage.setItem("photrez.facade", "1");
-  else localStorage.removeItem("photrez.facade");
+  else localStorage.setItem("photrez.facade", "0");
 
   const engine = new DocumentEngine(doc, "Group", 800, 600);
   const facade = getFacade(doc);
