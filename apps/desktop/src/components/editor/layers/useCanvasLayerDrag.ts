@@ -116,6 +116,42 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
 
   const [drag, setDrag] = createSignal<CanvasLayerDrag | null>(null);
 
+  // Snap targets list the edges the moving layer can catch on. They depend
+  // only on the layers that are NOT moving, so one build per gesture is
+  // enough and every later move reuses it. The on/off switch and the bypass
+  // keys are still read on every move, only the target list is shared. Any
+  // model change from outside this gesture drops the cache, because a stale
+  // list would snap to edges that already moved. The gesture's own writes
+  // touch only the dragged (excluded) layers, so they are held back from
+  // dropping it while they run.
+  let snapCache: {
+    targets: SnapRect[];
+    docW: number;
+    docH: number;
+    snapToLayers: boolean;
+    snapToCanvas: boolean;
+  } | null = null;
+  let snapUnsubs: Array<() => void> = [];
+  let snapWritesHeld = false;
+
+  function endSnapCache(): void {
+    for (const unsub of snapUnsubs) unsub();
+    snapUnsubs = [];
+    snapCache = null;
+  }
+
+  function beginSnapCache(): void {
+    endSnapCache();
+    snapUnsubs = [
+      workspace.onChange(() => {
+        if (!snapWritesHeld) snapCache = null;
+      }),
+      workspace.onVisualChange(() => {
+        if (!snapWritesHeld) snapCache = null;
+      }),
+    ];
+  }
+
   // Release everything a routed gesture holds, for any exit that does NOT commit.
   // The facade's transient transform slot is the gate the numeric commit funnel
   // refuses on, so a slot left behind by an abandoned drag turns every later
@@ -189,6 +225,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     const d = drag();
     if (!d) return;
     detachDragListeners();
+    endSnapCache();
     opts.onSnapLinesChange?.([]);
     opts.onHudUpdate?.(null);
     releaseFacadeDrag(d);
@@ -338,12 +375,25 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       const snapToLayers = typeof snapToLayersEnabled === "function" ? snapToLayersEnabled() : true;
       const snapToCanvas = typeof snapToCanvasEnabled === "function" ? snapToCanvasEnabled() : true;
       const excludeIds = d.selectedLayerStarts.map((s) => s.id);
-      const snapTargets = buildTransformSnapTargets(engine, docW, docH, {
-        excludeLayerId: layer.id,
-        excludeLayerIds: excludeIds,
-        snapToLayers,
-        snapToCanvas,
-      });
+      const cached = snapCache;
+      let snapTargets: SnapRect[];
+      if (
+        cached &&
+        cached.docW === docW &&
+        cached.docH === docH &&
+        cached.snapToLayers === snapToLayers &&
+        cached.snapToCanvas === snapToCanvas
+      ) {
+        snapTargets = cached.targets;
+      } else {
+        snapTargets = buildTransformSnapTargets(engine, docW, docH, {
+          excludeLayerId: layer.id,
+          excludeLayerIds: excludeIds,
+          snapToLayers,
+          snapToCanvas,
+        });
+        snapCache = { targets: snapTargets, docW, docH, snapToLayers, snapToCanvas };
+      }
       const result = computeSnapAdjustment(rect, snapTargets, 8, zoom());
       newX += result.dx;
       newY += result.dy;
@@ -364,14 +414,25 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       // transient preview the renderer projects onto the outgoing RenderState.
       previewDragOffset(engine, d, actualDx, actualDy);
     } else {
-      for (const item of d.selectedLayerStarts) {
-        if (item.lockPosition) continue;
-        engine.transformLayer(item.id, {
-          x: item.startTransformX + actualDx,
-          y: item.startTransformY + actualDy,
-        });
+      // Held back from the snap-cache drop above: these writes touch only the
+      // dragged layers, which are excluded from the targets, so the held list
+      // stays correct. The hold lifts in the finally, so a throw cannot wedge
+      // it open and hide a later outside change.
+      snapWritesHeld = true;
+      try {
+        for (const item of d.selectedLayerStarts) {
+          if (item.lockPosition) continue;
+          engine.transformLayer(item.id, {
+            x: item.startTransformX + actualDx,
+            y: item.startTransformY + actualDy,
+          });
+        }
+      } finally {
+        snapWritesHeld = false;
       }
     }
+    // The single render request for this move. The scheduler joins repeats
+    // for the frame, so nothing below may add a second one for the same move.
     scheduler.requestRender();
 
     opts.onHudUpdate?.({
@@ -395,8 +456,6 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       dragController.setDropTarget(null);
     }
     dragController.cancelTabHover();
-
-    scheduler.requestRender();
   }
 
   function onPointerUp(e: PointerEvent) {
@@ -404,6 +463,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     if (!d) return;
 
     detachDragListeners();
+    endSnapCache();
 
     opts.onSnapLinesChange?.([]);
     opts.onHudUpdate?.(null);
@@ -711,6 +771,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       liveDx: 0,
       liveDy: 0,
     });
+    beginSnapCache();
 
     // Notify the DragController so cross-cutting subscribers
     // (DocumentTabsBar's pointerenter →500ms hover-to-switch timer,
@@ -753,6 +814,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       window.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("lostpointercapture", handleLostPointerCapture, true);
       detachDragListeners();
+      endSnapCache();
       // Unmounting mid-gesture (document switch, viewport teardown) skips every
       // pointer handler above, so the release has to happen here too.
       const d = drag();
