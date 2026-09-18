@@ -6,7 +6,7 @@
 
 Photrez is a lightweight desktop image editor built for practical digital and print workflows.
 
-**MVP Runtime:** Tauri 2 (shell) + SolidJS/TypeScript (frontend) + **TypeScript DocumentEngine** (core) + **WebGL2** (renderer).
+**MVP Runtime:** Tauri 2 (shell) + SolidJS/TypeScript (frontend) + TypeScript DocumentEngine (MVP document model; projected view when native routing is on, see Source of Truth) + **WebGL2** (renderer).
 **Future target:** Rust Core via WASM (photrez-core → wasm-pack) for hot-path compute (brush, transform, tile, encode) + WebGL2 remains the renderer. wgpu deferred until compute-shader features are required.
 **Revised 2026-08-18:** Interactive pixel compute now targets **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; **native Rust** retained for export encode (entropy coding is serial → CPU). WASM hot-path compute deferred. See GPU Compute Layer below.
 
@@ -17,7 +17,7 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 ## Project Status
 
 - **Phase**: Deep-sync & documentation hardening (2026-07-02). Bun migration, mojibake cleanup, print feature, keyboard shortcut expansion, window-state persistence, E2E grand-tour, and multi-cycle bug-fix passes completed.
-- **Core Crate**: `photrez-core` is the WASM export encoder only (PNG/JPEG/WebP via the `image` crate), bound as `encode_image_wasm`. The domain model (document/layer/selection/transform/brush/workspace/history) was pruned in Phase 1 — app state lives in the TypeScript `DocumentEngine`. Core crate has 0 Rust tests (encoder exercised via TS `wasmExport`/`exportDocument`); desktop crate retains 25 tests.
+ - **Core Crate**: `photrez-core` holds the document command engine (layer, transform, selection, adjustment, and history operations) plus the export encoder (PNG/JPEG/WebP via the `image` crate). Last measured run 2026-09-18: `cargo test -p photrez-core` 354 passed / 0 failed (5 ignored); `cargo test -p photrez-desktop` 114 passed / 0 failed. Native command routing is ON by default with a legacy opt-out; for routed operations the Rust engine holds the authoritative copy and the TypeScript `DocumentEngine` keeps a projected view of it.
 - **Renderer**: MVP rendering is **WebGL2** (`apps/desktop/src/renderer/webgl2.ts`). A standalone GPU crate was evaluated but removed from the workspace (a pre-existing Windows entry-point issue); the future rendering direction keeps WebGL2 and only reintroduces a GPU crate when compute shaders or advanced blend modes exceed WebGL2 capabilities.
 - **WASM Strategy (2026-06-30)**: `photrez-core` is the source for WASM compilation (`wasm-pack` target). Hot-path operations (brush mask, tile ops, transform math, color space, export encode) will be ported from TypeScript to Rust and exposed as zero-copy WASM modules — no Tauri IPC overhead.
 - **Frontend**: Full UI shell with multi-document workspace, document tabs, empty state, drag/drop, and all core editing interactions. Artboard renders via WebGL2 projection-matrix-driven camera viewport.
@@ -82,7 +82,7 @@ SolidJS editor shell
                - write_file_bytes (image export allowlist, 256MB cap)
 
 Rust crate:
-  - photrez-core: export encoder only (WASM), no domain model/tests after Phase 1 prune
+  - photrez-core: document command engine (layer, transform, selection, adjustment, history) plus the export encoder; covered by the photrez-core and photrez-desktop cargo suites
 ```
 
 ### Historical / Future-Target Reference
@@ -232,7 +232,39 @@ Detail lengkap: `docs/reference/command-contract-spec.md`. The current Tauri she
 | `read_file_bytes` | `path: String` | Shell file IO | Active, image import extension allowlist, 256MB cap |
 | `write_file_bytes` | `path: String, data: String` | Shell file IO | Active, image export extension allowlist, base64 payload, 256MB cap |
 
-Historical workspace, layer, crop, and export command names describe earlier Rust-command plans and current product capabilities, but they are not registered in `apps/desktop/src-tauri/src/main.rs` in the MVP runtime. Their active implementation path is the SolidJS/TypeScript editor engine plus WebGL2 renderer, with Tauri used for shell file IO and dialogs.
+### Native document commands (registered in `apps/desktop/src-tauri/src/main.rs`)
+
+| Command | Purpose |
+| --- | --- |
+| `protocol_apply_command_native` | Applies one document edit to the native engine, returns the result |
+| `protocol_history_query_native` | Reads undo/redo cursor state for a document |
+| `protocol_history_cursor_commit_native` | Commits an undo or redo step at a given history position |
+| `protocol_register_adapter_native` | Registers a named payload adapter on a document |
+| `protocol_seed_native` | Loads an initial layer list into the native engine (setup only, no undo step) |
+| `protocol_seed_canonical_native` | Stores a full document copy beside the native layer set (setup only) |
+| `protocol_canonical_native` | Reads back the stored full document copy |
+| `protocol_snapshot_native` | Reads the current layer snapshot (version plus layers) from the native engine |
+| `protocol_version_native` | Reads only the document version number (cheap probe, no full snapshot) |
+| `document_snapshot` | Captures document metadata (version plus per-layer size and epoch, no pixel bytes) |
+| `document_restore` | Re-applies captured metadata (no pixel bytes), advances the version once |
+| `rust_pixels_record_snapshot` | Records a snapshot entry so pixel undo can return to it later |
+| `rust_pixels_undo_snapshot` | Undoes to a recorded snapshot, returning the earlier metadata |
+| `rust_pixels_redo_snapshot` | Redoes a snapshot undo, returning the later metadata |
+| `rust_pixels_open_document` | Opens a document pixel namespace in the native store |
+| `rust_pixels_close_document` | Closes it, releasing all its pixel storage |
+| `rust_pixels_init` | Seeds a layer pixel buffer from existing layer bytes (one-time setup) |
+| `rust_pixels_remove_layer` | Drops a layer pixel buffer |
+| `rust_pixels_resize_layer` | Recreates a layer buffer at new dimensions |
+| `rust_pixels_write_region` | Writes an explicit pixel region as one undoable step |
+| `apply_tile_patch` | Commits a brush change as dirty-tile before/after patches |
+| `rust_pixels_undo` | Undoes a pixel change, returns the earlier tiles |
+| `rust_pixels_redo` | Redoes a pixel change, returns the later tiles |
+| `rust_pixels_record_external` | Records a non-pixel edit in the shared history order (no pixel change) |
+| `rust_pixels_snapshot_tile` | Reads back one bounded pixel region |
+| `rust_pixels_snapshot_layer` | Reads back every tile of one layer (cache rebuild) |
+| `rust_pixels_get_epoch` | Reads a layer change counter (cache-validity check) |
+
+The file, print, font, cursor, and paint-helper commands registered alongside these follow the same envelope contract; see `main.rs` for the full list.
 
 ---
 
@@ -275,7 +307,7 @@ photrez/
 │           ├── Cargo.toml          # Tauri dependencies
 │           └── tauri.conf.json     # Tauri configuration
 ├── crates/
-│   ├── core/                       # photrez-core (WASM export encoder only, after Phase 1 prune)
+│   ├── core/                       # photrez-core (document command engine + export encoder)
 │   │   └── src/
 │   │       ├── lib.rs              # Crate root
 │   │       ├── document.rs         # Document struct & operations
@@ -313,17 +345,16 @@ photrez/
 | Module            | Owns                                                    | Must NOT Own                            |
 | ----------------- | ------------------------------------------------------- | --------------------------------------- |
 | Shell (Tauri)     | App lifecycle, file dialogs, cold-path file I/O          | Image processing, document state logic  |
-| Core (Rust WASM)  | Hot-path compute: brush mask, tile ops, transform math, color conversion, export encode | Rendering, UI state, file I/O |
+| Core (Rust engine)  | Authoritative document metadata, history, and Rust-owned pixel buffers for routed operations, plus export encode | Rendering, UI state, file I/O |
 | Renderer (WebGL2) | Frame rendering, texture upload, compositing             | Persistence, document rules, UI state   |
-| Frontend (Solid)  | UI state (tool, zoom, panel), user interaction, TS DocumentEngine | Document truth (MVP), pixel manipulation (future: WASM) |
+| Frontend (Solid)  | UI state (tool, zoom, panel), user interaction, TS projected view of the document | Authoritative document truth, pixel writes that bypass the engine |
 
 ### Source of Truth
 
-- **Document state (MVP)**: In TypeScript `DocumentEngine` (`apps/desktop/src/engine/document.ts`). After Phase 1 prune, `photrez-core` is the WASM export encoder only (no domain model / no tests) — app state lives in TS.
-- **Document state (future)**: Stays in TS `DocumentEngine`. Rust WASM modules are called for compute, not ownership — no dual-state synchronization problem.
-- **UI state**: In SolidJS signals (tool selection, zoom level, panel visibility).
-- **Pixel data (MVP)**: `ImageBitmap` per layer in `DocumentEngine`, rendered by WebGL2. Future WASM modules operate on `Uint8Array` zero-copy from JS.
-- **NEVER** duplicate document state in the frontend as a mutable source.
+ - **Document metadata and history**: The Rust engine holds the authoritative copy by default; the TypeScript `DocumentEngine` keeps a projected view that mirrors it. A legacy opt-out keeps the previous TypeScript-owned path available for rollback.
+ - **UI state**: In SolidJS signals (tool selection, zoom level, panel visibility).
+ - **Pixel data**: for Rust-owned layers the native side holds the authoritative pixel buffer (seeded once from layer bytes; brush commits write into it and undo restores the earlier state) and the TypeScript side keeps a bitmap cache synced by epoch and version; the metadata-only snapshot/restore commands carry no pixel bytes.
+ - **NEVER** duplicate document state in the frontend as a second writable source; the projected view is a read cache and every routed write goes through the Rust engine.
 
 ---
 
