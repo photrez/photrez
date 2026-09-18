@@ -151,6 +151,8 @@ describe("useCanvasMarqueeSelect", () => {
 
   it("starts marquee on empty space and selects intersecting layers on drag", () => {
     createRoot((dispose) => {
+      // Start unselected so the drag must perform the selection write.
+      mockSelectedLayerIds = [];
       const { handlePointerDown, marqueeRect, isMarqueeActive } = useCanvasMarqueeSelect();
       const mockContainer = {
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
@@ -198,6 +200,40 @@ describe("useCanvasMarqueeSelect", () => {
       expect(isMarqueeActive()).toBe(false);
       expect(marqueeRect()).toBeNull();
 
+      dispose();
+    });
+  });
+
+  // Defeat: drop the same-check guard (useCanvasMarqueeSelect.ts:104-105) so every move writes; toHaveBeenCalledTimes(1) goes RED.
+  it("writes the selection signal once for N identical moves (counts only)", () => {
+    createRoot((dispose) => {
+      // Start unselected: the first move writes, repeats must not.
+      mockSelectedLayerIds = [];
+      const { handlePointerDown } = useCanvasMarqueeSelect();
+      const mockContainer = {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      } as HTMLElement;
+
+      const e = {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        target: mockContainer,
+        currentTarget: mockContainer,
+      } as unknown as PointerEvent;
+      expect(handlePointerDown(e, mockContainer)).toBe(true);
+
+      const N = 5;
+      for (let i = 0; i < N; i++) {
+        window.dispatchEvent(new PointerEvent("pointermove", { clientX: 120, clientY: 120 }));
+      }
+      expect(mockSetSelectedLayerIds).toHaveBeenCalledTimes(1);
+      expect(mockSelectedLayerIds).toEqual(["layer-1"]);
+
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 120, clientY: 120 }));
       dispose();
     });
   });

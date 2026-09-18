@@ -1361,7 +1361,7 @@ export class DocumentEngine {
 
     const { width, height } = layer;
     const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) throw new Error("Failed to acquire 2D context for invert");
     ctx.drawImage(layer.imageBitmap, 0, 0);
     const imageData = ctx.getImageData(0, 0, width, height);

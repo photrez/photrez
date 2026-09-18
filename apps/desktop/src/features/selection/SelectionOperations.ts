@@ -120,7 +120,7 @@ export class SelectionOperations {
     if (w === 0 || h === 0) return null;
 
     const offscreen = new OffscreenCanvas(w, h);
-    const ctx = offscreen.getContext("2d");
+    const ctx = offscreen.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
 
     try {
@@ -363,7 +363,7 @@ export class SelectionOperations {
     if (w === 0 || h === 0) return;
 
     const offscreen = new OffscreenCanvas(layerW, layerH);
-    const ctx = offscreen.getContext("2d");
+    const ctx = offscreen.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
 
     // Copy the entire layer bitmap, then clear either the selected rectangle

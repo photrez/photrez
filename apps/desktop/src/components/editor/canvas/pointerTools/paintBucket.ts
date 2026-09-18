@@ -7,6 +7,7 @@ import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
 
 /**
  * Paint Bucket: click-to-fill. Runs flood fill on the active layer at the
@@ -97,7 +98,7 @@ export function applyPaintBucketFill(
             layerId,
             width: layer.width,
             height: layer.height,
-            bytes: Array.from(seedData),
+            bytes: new Uint8Array(seedData.buffer, seedData.byteOffset, seedData.byteLength),
           });
         }
         // Ensure the derived surface reflects the CURRENT canonical state before
@@ -121,7 +122,7 @@ export function applyPaintBucketFill(
           y: changed.y,
           w: changed.w,
           h: changed.h,
-          rgba: Array.from(changed.rgba),
+          rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
         })) as {
           before: { x: number; y: number; w: number; h: number; data: number[] }[];
           after: { x: number; y: number; w: number; h: number; data: number[] }[];
@@ -193,7 +194,11 @@ export function applyPaintBucketFill(
       })();
   try {
     engine.setLayerImageBitmap(layerId, newBitmap);
-    renderer?.uploadImage(layerId, newBitmap);
+    // Non-inverted selections bound the fill, so upload only that rect.
+    // Inverted or absent selections can touch the whole layer: full upload.
+    const dirty = selectionUploadRect(engine);
+    if (dirty) renderer?.uploadImage(layerId, newBitmap, dirty);
+    else renderer?.uploadImage(layerId, newBitmap);
   } catch (err) {
     showToast(`Fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");
     trySetPointerCapture(ctx.getCanvasRef(), e.pointerId);

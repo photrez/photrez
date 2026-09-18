@@ -250,7 +250,7 @@ export function fillActiveLayerWithColor(
             layerId: activeId,
             width: layer.width,
             height: layer.height,
-            bytes: Array.from(seedData),
+            bytes: new Uint8Array(seedData.buffer, seedData.byteOffset, seedData.byteLength),
           });
         }
         // Ensure the derived surface reflects the CURRENT canonical state before
@@ -284,7 +284,7 @@ export function fillActiveLayerWithColor(
           y: changed.y,
           w: changed.w,
           h: changed.h,
-          rgba: Array.from(changed.rgba),
+          rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
         })) as {
           before: { x: number; y: number; w: number; h: number; data: number[] }[];
           after: { x: number; y: number; w: number; h: number; data: number[] }[];

@@ -36,6 +36,7 @@ interface Ctx {
   setMoveSnapEnabled: (v: boolean) => void;
   setTool: (t: ToolId) => void;
   onSnapLinesChange: ReturnType<typeof vi.fn<(lines: SnapLine[]) => void>>;
+  onHudUpdate: ReturnType<typeof vi.fn<(hud: unknown) => void>>;
   scheduler: { requestRender: ReturnType<typeof vi.fn> };
   dispose: () => void;
   container: HTMLElement;
@@ -70,7 +71,8 @@ function setup(): Ctx {
   function Probe() {
     const ed = useEditor();
     ctx.onSnapLinesChange = vi.fn<(lines: SnapLine[]) => void>();
-    ctx.dragApi = useCanvasLayerDrag({ onSnapLinesChange: ctx.onSnapLinesChange });
+    ctx.onHudUpdate = vi.fn<(hud: unknown) => void>();
+    ctx.dragApi = useCanvasLayerDrag({ onSnapLinesChange: ctx.onSnapLinesChange, onHudUpdate: ctx.onHudUpdate });
     ctx.setMoveSnapEnabled = (v: boolean) => ed.setMoveSnapEnabled(v);
     ctx.setTool = (t: ToolId) => ed.setActiveTool(t);
     return null;
@@ -193,6 +195,68 @@ describe("useCanvasLayerDrag snap-target cache + render count", () => {
       expect(layer.transform.x).toBe(0);
       expect(snapBuildCount.n).toBe(1);
       up(ctx, 52, 150);
+    } finally {
+      teardown(ctx);
+    }
+  });
+});
+
+describe("useCanvasLayerDrag repeated-move skip (counts only)", () => {
+  it("emits snap lines + HUD once for N identical moves", () => {
+    const ctx = setup();
+    try {
+      ctx.setMoveSnapEnabled(true);
+      down(ctx, 150, 150);
+      const snapBase = ctx.onSnapLinesChange.mock.calls.length;
+      const hudBase = ctx.onHudUpdate.mock.calls.length;
+      const N = 5;
+      for (let i = 0; i < N; i++) move(ctx, 250, 200);
+      expect(ctx.onSnapLinesChange.mock.calls.length - snapBase).toBe(1);
+      expect(ctx.onHudUpdate.mock.calls.length - hudBase).toBe(1);
+      up(ctx, 250, 200);
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("re-emits after a real move and on bypass-key change", () => {
+    const ctx = setup();
+    try {
+      ctx.setMoveSnapEnabled(true);
+      down(ctx, 150, 150);
+      const snapBase = ctx.onSnapLinesChange.mock.calls.length;
+      const hudBase = ctx.onHudUpdate.mock.calls.length;
+      move(ctx, 250, 200);
+      move(ctx, 250, 200); // identical: skipped
+      move(ctx, 260, 200); // real move: re-emits
+      document.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, button: 0, clientX: 260, clientY: 200, ctrlKey: true }),
+      ); // same spot, bypass flipped: re-emits
+      expect(ctx.onSnapLinesChange.mock.calls.length - snapBase).toBe(3);
+      expect(ctx.onHudUpdate.mock.calls.length - hudBase).toBe(3);
+      up(ctx, 260, 200);
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("an outside target change defeats the repeat skip: same deltas recompute", () => {
+    const ctx = setup();
+    try {
+      ctx.setMoveSnapEnabled(true);
+      down(ctx, 150, 150);
+      move(ctx, 250, 200);
+      move(ctx, 250, 200); // identical: skipped, repeat state armed
+      // No counter reset in this block, so measure relative to the armed state.
+      const buildsArmed = snapBuildCount.n;
+      const snapBase = ctx.onSnapLinesChange.mock.calls.length;
+      // Outside write drops the target cache: the next identical report must
+      // rebuild + re-emit against the new targets, not re-apply stored deltas.
+      ctx.ws.getActiveEngine()!.addLayer("Newcomer");
+      move(ctx, 250, 200); // same dx/dy as the skipped move
+      expect(snapBuildCount.n).toBe(buildsArmed + 1);
+      expect(ctx.onSnapLinesChange.mock.calls.length - snapBase).toBe(1);
+      up(ctx, 250, 200);
     } finally {
       teardown(ctx);
     }

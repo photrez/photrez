@@ -127,6 +127,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     localStorage.setItem("photrez.rustPixels", "1");
   });
 
+  // Defeat: send wr.rgba as a plain number array (layerOperations.ts:287) instead of Uint8Array; the toBeInstanceOf(Uint8Array) check goes RED.
   it("fills the whole layer through rust_pixels_write_region and commits ONE history step (no setLayerImageBitmap)", async () => {
     const { surface, commit, uploadSurfaceTiles, engine, renderer, history } = makeFakes();
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
@@ -152,6 +153,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
       expect(wr.x).toBe(0); expect(wr.y).toBe(0); expect(wr.w).toBe(100); expect(wr.h).toBe(100);
       expect((wr.rgba as number[]).length).toBe(100 * 100 * 4);
       expect((wr.rgba as number[])[0]).toBe(255); expect((wr.rgba as number[])[3]).toBe(255);
+      expect(wr.rgba).toBeInstanceOf(Uint8Array);
       expect(surface.pixelEpoch).toBe(1); expect(surface.pixelVersion).toBe(1);
       expect(uploadSurfaceTiles).toHaveBeenCalledWith("L1", 100, 100, expect.anything());
       expect(engine.setLayerImageBitmap).not.toHaveBeenCalled();
@@ -174,6 +176,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
       expect(initCalls[0].docId).toBe("doc1"); expect(initCalls[0].layerId).toBe("L1");
       expect(initCalls[0].width).toBe(100); expect(initCalls[0].height).toBe(100);
       expect(initCalls[0].bytes.length).toBe(100 * 100 * 4);
+      expect(initCalls[0].bytes).toBeInstanceOf(Uint8Array);
       const cmds = mockInvoke.mock.calls.map((c) => c[0]);
       expect(cmds).toContain("rust_pixels_init");
       expect(cmds).toContain("rust_pixels_write_region");

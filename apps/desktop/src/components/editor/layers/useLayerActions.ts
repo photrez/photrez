@@ -324,7 +324,7 @@ export function useLayerActions() {
             const bakeCtx = bakeCanvas.getContext("2d")!;
             bakeCtx.drawImage(bakedLayer.imageBitmap!, 0, 0);
             const bakedImageData = bakeCtx.getImageData(0, 0, bakedLayer.width, bakedLayer.height);
-            const bakedRgba = Array.from(bakedImageData.data);
+            const bakedRgba = new Uint8Array(bakedImageData.data.buffer, bakedImageData.data.byteOffset, bakedImageData.data.byteLength);
 
             // C5.4 ensure-if-absent: Adjustment Bake may be the FIRST raster op on a layer,
             // so seed the canonical store from the PRE-bake bitmap when Rust has no entry yet.
@@ -344,7 +344,7 @@ export function useLayerActions() {
                 layerId: activeId,
                 width: layer.width,
                 height: layer.height,
-                bytes: Array.from(preImageData.data),
+                bytes: new Uint8Array(preImageData.data.buffer, preImageData.data.byteOffset, preImageData.data.byteLength),
               });
             }
 

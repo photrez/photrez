@@ -107,6 +107,7 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
     localStorage.setItem("photrez.rustPixels", "1");
   });
 
+  // Defeat: send wr.rgba as a plain number array (paintBucket.ts:125) instead of Uint8Array; the toBeInstanceOf(Uint8Array) check goes RED.
   it("writes the changed region via rust_pixels_write_region and commits ONE history entry", async () => {
     const { surface, commit, uploadSurfaceTiles, editor, ctx } = makeFakes();
 
@@ -156,6 +157,8 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
       expect((wr.rgba as number[]).length).toBe(8 * 8 * 4);
       expect((wr.rgba as number[])[0]).toBe(255);
       expect((wr.rgba as number[])[3]).toBe(255);
+      // Fill write crosses invoke as binary, like the seed path above.
+      expect(wr.rgba).toBeInstanceOf(Uint8Array);
 
       // TS derived cache updated from Rust result.
       expect(surface.pixelEpoch).toBe(1);
@@ -190,7 +193,73 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
-  it("seeds the canonical store via rust_pixels_init when the layer has no Rust entry yet (fill as FIRST raster op)", async () => {
+describe("applyPaintBucketFill — legacy path upload granularity", () => {
+  beforeEach(() => {
+    localStorage.removeItem("photrez.rustPixels");
+    (globalThis as any).OffscreenCanvas = class {
+      width: number; height: number; _buffer: Uint8ClampedArray;
+      constructor(w: number, h: number) {
+        this.width = w; this.height = h;
+        this._buffer = new Uint8ClampedArray(w * h * 4);
+      }
+      getContext() {
+        const self = this;
+        return {
+          drawImage(img: any) {
+            const d = img?._buffer;
+            if (d && d.length === self._buffer.length) self._buffer.set(d);
+          },
+          getImageData() {
+            return new FakeImageData(self._buffer, self.width, self.height);
+          },
+          putImageData: () => {},
+        };
+      }
+      transferToImageBitmap() {
+        return { width: this.width, height: this.height, close: () => {} };
+      }
+    };
+  });
+
+  function legacyFakes(sel: any) {
+    const base = makeFakes();
+    const bitmap = { width: 8, height: 8, _buffer: new Uint8ClampedArray(8 * 8 * 4) };
+    base.engine.getLayerImageBitmap = vi.fn(() => bitmap);
+    base.engine.setLayerImageBitmap = vi.fn();
+    base.engine.getSelection = () => sel;
+    base.engine.snapshot = () => ({});
+    const uploadImage = vi.fn();
+    base.editor.renderer = { uploadImage };
+    return { ...base, uploadImage };
+  }
+
+  const rectSel = { x: 1, y: 1, width: 3, height: 3, angle: 0, shape: "rect", inverted: false };
+
+  it("passes the fill AABB as dirtyRect for a non-inverted selection", () => {
+    const { ctx, uploadImage } = legacyFakes(rectSel);
+    expect(applyPaintBucketFill(ctx, { pointerId: 1 } as any)).toBe(true);
+    expect(uploadImage).toHaveBeenCalledTimes(1);
+    expect(uploadImage.mock.calls[0][2]).toEqual({ x: 1, y: 1, width: 3, height: 3 });
+  });
+
+  it("stays FULL for an inverted selection (fill can touch the whole layer)", () => {
+    const { ctx, uploadImage } = legacyFakes({ ...rectSel, inverted: true });
+    expect(applyPaintBucketFill(ctx, { pointerId: 1 } as any)).toBe(true);
+    expect(uploadImage).toHaveBeenCalledTimes(1);
+    expect(uploadImage.mock.calls[0].length).toBe(2);
+  });
+
+  it("stays FULL with no selection", () => {
+    const { ctx, uploadImage } = legacyFakes(null);
+    expect(applyPaintBucketFill(ctx, { pointerId: 1 } as any)).toBe(true);
+    expect(uploadImage).toHaveBeenCalledTimes(1);
+    expect(uploadImage.mock.calls[0].length).toBe(2);
+  });
+});
+
+describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () => {
+  it("seeds the canonical store via rust_pixels_init when the layer has no Rust entry yet", async () => {
+    localStorage.setItem("photrez.rustPixels", "1");
     const { surface, commit, editor, ctx } = makeFakes();
     const initCalls: any[] = [];
     let writeRes: any;
@@ -223,6 +292,7 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
       expect(initCalls[0].width).toBe(8);
       expect(initCalls[0].height).toBe(8);
       expect(initCalls[0].bytes.length).toBe(8 * 8 * 4);
+      expect(initCalls[0].bytes).toBeInstanceOf(Uint8Array);
 
       // Then the normal read → fill → write path still ran.
       const cmds = mockInvoke.mock.calls.map((c) => c[0]);
@@ -235,4 +305,5 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
       expect(surface.pixelVersion).toBe(1);
     }, { timeout: 2000 });
   });
+});
 });

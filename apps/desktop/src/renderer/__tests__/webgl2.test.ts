@@ -135,6 +135,45 @@ describe("WebGL2Backend.uploadImage — dirty-rect fast path", () => {
     expect(sub).toHaveLength(0);
     expect(img.length).toBeGreaterThan(0);
   });
+
+  // Defeat: always create a fresh scratch canvas (webgl2.ts:230, drop the size-reuse check) and the count becomes 2 so toBe(1) goes RED; removing generateMipmap (webgl2.ts:245) turns the PATCH-mipmap case RED.
+  it("reuses one scratch canvas across same-size PATCH calls", () => {
+    restoreCtx = stub2DContext();
+    const mock = makeGLMock();
+    const canvas = makeCanvas(mock.gl);
+    const renderer = new WebGL2Backend();
+    renderer.initialize(canvas);
+
+    renderer.uploadImage("a", BITMAP); // full upload
+    const origCreate = document.createElement.bind(document);
+    let patchCanvases = 0;
+    vi.spyOn(document, "createElement").mockImplementation(((tag: string, ...rest: any[]) => {
+      if (tag === "canvas") patchCanvases += 1;
+      return (origCreate as any)(tag, ...rest);
+    }) as any);
+
+    try {
+      renderer.uploadImage("a", OTHER, { x: 10, y: 20, width: 30, height: 40 });
+      renderer.uploadImage("a", OTHER, { x: 10, y: 20, width: 30, height: 40 });
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(patchCanvases).toBe(1);
+  });
+
+  it("still regenerates mipmaps on PATCH (minified views must not go stale)", () => {
+    restoreCtx = stub2DContext();
+    const mock = makeGLMock();
+    const canvas = makeCanvas(mock.gl);
+    const renderer = new WebGL2Backend();
+    renderer.initialize(canvas);
+
+    renderer.uploadImage("a", BITMAP); // full upload
+    mock.calls.length = 0;
+
+    renderer.uploadImage("a", OTHER, { x: 10, y: 20, width: 30, height: 40 });
+    expect(mock.calls.filter((c) => c.method === "generateMipmap")).toHaveLength(1);
+  });
 });
 
 describe("WebGL2Backend.render — MAG filter switches to NEAREST above 200% zoom", () => {

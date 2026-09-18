@@ -414,18 +414,21 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       const snapEnabled = props.moveSnapEnabled ?? moveSnapEnabled();
       const bypassSnap = e.ctrlKey || e.metaKey;
 
+      // One geometry call covers both the snap probe and the commit when the
+      // pointer is unchanged by snap: same args into a pure function, so the
+      // candidate already is the answer. A real snap shift recomputes below.
+      const baseVbTransform = applyResizeHandle(
+        startVb.transform,
+        startVb.w,
+        startVb.h,
+        drag.type,
+        dx,
+        dy,
+        breakAspect,
+        e.altKey,
+      );
       if (!bypassSnap && snapEnabled && props.onComputeSnap) {
-        const candidateVbTransform = applyResizeHandle(
-          startVb.transform,
-          startVb.w,
-          startVb.h,
-          drag.type,
-          dx,
-          dy,
-          breakAspect,
-          e.altKey,
-        );
-        const candidateAabb = getLayerAabb(candidateVbTransform, startVb.w, startVb.h);
+        const candidateAabb = getLayerAabb(baseVbTransform, startVb.w, startVb.h);
         const snap = props.onComputeSnap({
           x: candidateAabb.x,
           y: candidateAabb.y,
@@ -451,16 +454,18 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       // frame, so convert it back to the full-layer frame before committing.
       const newTransform = fullTransformFromVisible(
         layer,
-        applyResizeHandle(
-          startVb.transform,
-          startVb.w,
-          startVb.h,
-          drag.type,
-          effectiveDx,
-          effectiveDy,
-          breakAspect,
-          e.altKey,
-        )
+        effectiveDx === dx && effectiveDy === dy
+          ? baseVbTransform
+          : applyResizeHandle(
+            startVb.transform,
+            startVb.w,
+            startVb.h,
+            drag.type,
+            effectiveDx,
+            effectiveDy,
+            breakAspect,
+            e.altKey,
+          )
       );
       applyDragTransform(engine, layer.id, drag, newTransform);
       const effW = startVb.w * Math.abs(newTransform.scaleX);

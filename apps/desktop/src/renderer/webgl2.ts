@@ -72,6 +72,10 @@ export class WebGL2Backend implements RenderBackend {
   // Textures map
   private textures: Map<string, TextureRef> = new Map();
   private magFilterNearest = false;
+  // One scratch canvas for PATCH crops, reused while the rect size repeats
+  // (same marquee/brush size = zero element churn). Plain 2D canvas, so no
+  // GL resource to release on context loss.
+  private patchScratch: HTMLCanvasElement | null = null;
 
   // Ping-pong Framebuffers & Textures
   private pingPongFbos: [WebGLFramebuffer | null, WebGLFramebuffer | null] = [null, null];
@@ -222,15 +226,22 @@ export class WebGL2Backend implements RenderBackend {
     ) {
       // Patch only the changed sub-rect — avoids re-uploading the full layer texture.
       const { x, y, width, height } = dirtyRect;
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
+      let canvas = this.patchScratch;
+      if (!canvas || canvas.width !== width || canvas.height !== height) {
+        canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        this.patchScratch = canvas;
+      }
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.drawImage(source, x, y, width, height, 0, 0, width, height);
         gl.bindTexture(gl.TEXTURE_2D, existing.texture);
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+        // Kept per PATCH: the min filter is mipmapped, and WebGL2 has no
+        // partial-mipmap update, so skipping this would render stale pixels
+        // at minified zooms until the next full upload.
         gl.generateMipmap(gl.TEXTURE_2D);
         return existing;
       }

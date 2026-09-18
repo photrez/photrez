@@ -1314,5 +1314,26 @@ describe("useSelectionTransformDrag", () => {
       expect(engine.transformLayer).toHaveBeenCalled();
       dispose();
     });
+
+    // Defeat: always recompute geometry for the commit (useSelectionTransformDrag.ts:456-459) instead of reusing the probe; the spy sees 2N calls and toHaveBeenCalledTimes(N) goes RED.
+    it("computes resize geometry once per move when snap leaves the pointer alone (counts only)", () => {
+      const { result, engine, dispose } = setupHook({ snapEnabled: true });
+      const resizeSpy = vi.spyOn(TransformGeometryModule, "applyResizeHandle");
+      result.handlePointerDown(
+        makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
+        "se",
+      );
+      resizeSpy.mockClear();
+
+      const N = 3;
+      for (let i = 0; i < N; i++) {
+        result.handlePointerMove(makePointerEvent({ clientX: 200, clientY: 150, pointerId: 1 }));
+      }
+      // Default onComputeSnap returns zero deltas, so the candidate computed
+      // for snap is already the answer: one geometry call per move.
+      expect(resizeSpy).toHaveBeenCalledTimes(N);
+      resizeSpy.mockRestore();
+      dispose();
+    });
   });
 });

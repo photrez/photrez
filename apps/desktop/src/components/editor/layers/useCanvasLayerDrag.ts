@@ -133,21 +133,44 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
   } | null = null;
   let snapUnsubs: Array<() => void> = [];
   let snapWritesHeld = false;
+  // Last move's snap inputs + outcome. A repeat pointer report with the same
+  // switches re-applies the stored deltas and skips the recompute + emits.
+  let lastSnapDx: number | null = null;
+  let lastSnapDy: number | null = null;
+  let lastSnapBypass = false;
+  let lastSnapOn = false;
+  let lastSnapZoom = 0;
+  let lastSnapDeltaX = 0;
+  let lastSnapDeltaY = 0;
+  let lastSnapActive = false;
+
+  function resetSnapRepeat(): void {
+    lastSnapDx = null;
+    lastSnapDy = null;
+    lastSnapDeltaX = 0;
+    lastSnapDeltaY = 0;
+    lastSnapActive = false;
+  }
 
   function endSnapCache(): void {
     for (const unsub of snapUnsubs) unsub();
     snapUnsubs = [];
     snapCache = null;
+    resetSnapRepeat();
   }
 
   function beginSnapCache(): void {
     endSnapCache();
+    resetSnapRepeat();
     snapUnsubs = [
       workspace.onChange(() => {
-        if (!snapWritesHeld) snapCache = null;
+        // Drop the stored deltas with the targets: a repeat report after this
+        // point must recompute against the new list, never re-apply deltas
+        // measured against the old one.
+        if (!snapWritesHeld) { snapCache = null; resetSnapRepeat(); }
       }),
       workspace.onVisualChange(() => {
-        if (!snapWritesHeld) snapCache = null;
+        if (!snapWritesHeld) { snapCache = null; resetSnapRepeat(); }
       }),
     ];
   }
@@ -356,8 +379,25 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     let newY = d.startTransformY + dy;
 
     const bypassSnap = e.ctrlKey || e.metaKey;
+    const snapOn = moveSnapEnabled();
+    const zoomLevel = zoom();
     let snapActive = false;
-    if (!bypassSnap && moveSnapEnabled()) {
+    let snapRepeated = false;
+    if (
+      dx === lastSnapDx &&
+      dy === lastSnapDy &&
+      bypassSnap === lastSnapBypass &&
+      snapOn === lastSnapOn &&
+      zoomLevel === lastSnapZoom
+    ) {
+      // Repeat report: the snap outcome and both emits below match the
+      // previous move exactly, so re-apply the stored deltas and skip the
+      // recompute + notifications. Model writes and the render continue.
+      newX += lastSnapDeltaX;
+      newY += lastSnapDeltaY;
+      snapActive = lastSnapActive;
+      snapRepeated = true;
+    } else if (!bypassSnap && snapOn) {
       const docW = engine.getWidth();
       const docH = engine.getHeight();
       const aabb = getLayerAabb(layer.transform, layer.width, layer.height);
@@ -394,14 +434,25 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
         });
         snapCache = { targets: snapTargets, docW, docH, snapToLayers, snapToCanvas };
       }
-      const result = computeSnapAdjustment(rect, snapTargets, 8, zoom());
+      const result = computeSnapAdjustment(rect, snapTargets, 8, zoomLevel);
       newX += result.dx;
       newY += result.dy;
       snapActive = result.lines.length > 0;
+      lastSnapDeltaX = result.dx;
+      lastSnapDeltaY = result.dy;
+      lastSnapActive = snapActive;
       opts.onSnapLinesChange?.(result.lines);
     } else {
+      lastSnapDeltaX = 0;
+      lastSnapDeltaY = 0;
+      lastSnapActive = false;
       opts.onSnapLinesChange?.([]);
     }
+    lastSnapDx = dx;
+    lastSnapDy = dy;
+    lastSnapBypass = bypassSnap;
+    lastSnapOn = snapOn;
+    lastSnapZoom = zoomLevel;
 
     const actualDx = newX - d.startTransformX;
     const actualDy = newY - d.startTransformY;
@@ -435,18 +486,21 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     // for the frame, so nothing below may add a second one for the same move.
     scheduler.requestRender();
 
-    opts.onHudUpdate?.({
-      mode: "move",
-      clientX: e.clientX,
-      clientY: e.clientY,
-      deltaX: actualDx,
-      deltaY: actualDy,
-      width: layer.width,
-      height: layer.height,
-      scalePercent: 100,
-      angle: layer.transform.rotation,
-      snapActive,
-    });
+    // Repeat reports carry the identical payload, already emitted.
+    if (!snapRepeated) {
+      opts.onHudUpdate?.({
+        mode: "move",
+        clientX: e.clientX,
+        clientY: e.clientY,
+        deltaX: actualDx,
+        deltaY: actualDy,
+        width: layer.width,
+        height: layer.height,
+        scalePercent: 100,
+        angle: layer.transform.rotation,
+        snapActive,
+      });
+    }
 
     // Update drop target for non-cross-doc hover.
     const tabBarEl = el?.closest("[data-tab-bar-empty]") as HTMLElement | null;

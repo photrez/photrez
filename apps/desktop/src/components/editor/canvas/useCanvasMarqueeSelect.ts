@@ -98,7 +98,11 @@ export function useCanvasMarqueeSelect(opts: CanvasMarqueeSelectOptions = {}) {
     }
 
     if (typeof setSelectedLayerIds === "function") {
-      setSelectedLayerIds(finalIds);
+      // Same pointer, same hit set: skip the signal write so downstream
+      // effects do not re-run on an identical array.
+      const prev = typeof selectedLayerIds === "function" ? selectedLayerIds() : [];
+      const same = prev.length === finalIds.length && prev.every((id, i) => id === finalIds[i]);
+      if (!same) setSelectedLayerIds(finalIds);
     }
   }
 
