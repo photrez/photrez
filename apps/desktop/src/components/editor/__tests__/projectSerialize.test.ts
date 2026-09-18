@@ -338,6 +338,31 @@ describe("projectSerialize — serializeAndSaveProject", () => {
     expect(Object.keys(capturedProject!.layers)).toContain(l2.id);
   });
 
+  it("clean layers served from cache issue zero ensureBitmapCurrent calls", async () => {
+    stubSerializeGlobals(PNG_BYTES);
+
+    const engine = new DocumentEngine("doc-ensure-skip", "Ensure Skip", 100, 100);
+    const l1 = engine.addLayer("A", 100, 100);
+    engine.setLayerImageBitmap(l1.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+    const l2 = engine.addLayer("B", 100, 100);
+    engine.setLayerImageBitmap(l2.id, makeBitmap(100, 100, new Uint8ClampedArray(100 * 100 * 4)));
+
+    const { serializeAndSaveProject, clearLayerCache } = await import("../projectSerialize");
+    clearLayerCache(engine.getId());
+
+    // First save populates the cache; the second save serves both from cache.
+    await serializeAndSaveProject(engine, "/path/ensure1.ptz");
+    engine.clearDirty();
+
+    const spy = vi.spyOn(engine, "ensureBitmapCurrent");
+    await serializeAndSaveProject(engine, "/path/ensure2.ptz");
+    // Clean layers never touch their bitmap, so no sync readback is needed.
+    expect(spy).not.toHaveBeenCalled();
+    expect(Object.keys(capturedProject!.layers)).toContain(l1.id);
+    expect(Object.keys(capturedProject!.layers)).toContain(l2.id);
+    spy.mockRestore();
+  });
+
   it("caches carry-forward: edited layer re-encoded, clean layer from cache", async () => {
     const { serializeAndSaveProject, clearLayerCache } = await import("../projectSerialize");
     clearLayerCache("doc-cache-2");

@@ -159,12 +159,24 @@ export async function serializeAndSaveProject(
   };
 
   try {
-    // C5.4 bitmap sync: ensure all layer bitmaps reflect Rust canonical before
-    // encoding for persistence.  Sync only dirty/visible layers to minimize overhead.
+    // Bitmap sync: ensure a layer bitmap matches Rust canonical only when the
+    // save will actually read that bitmap for encoding. Layers served from
+    // the encode cache never touch their bitmap, so syncing them re-reads
+    // full layers for nothing. Order stays sequential, abort behavior is
+    // unchanged, and the cache logic below is untouched.
+    const encodeIds = new Set<string>();
     for (const layer of model.layers) {
-      if (layer.imageBitmap) {
-        await engine.ensureBitmapCurrent(docId, layer.id);
+      if (!layer.imageBitmap) continue;
+      if (dirtyIds.has(layer.id)) {
+        encodeIds.add(layer.id);
+        continue;
       }
+      // A second cacheRead below returns the same bytes; reads only refresh
+      // recency, they never evict, so peeking here is side-effect free.
+      if (!cacheRead(docId, layer.id)) encodeIds.add(layer.id);
+    }
+    for (const id of encodeIds) {
+      await engine.ensureBitmapCurrent(docId, id);
     }
 
     // ── Separate clean (cache) from dirty (needs encode) ──

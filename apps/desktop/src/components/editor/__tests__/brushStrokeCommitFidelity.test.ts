@@ -318,6 +318,7 @@ function makeHarness(surface: any, layerId = LAYER) {
     width: 512,
     height: 512,
     imageBitmap: document.createElement("canvas") as unknown as ImageBitmap,
+    bitmapEpoch: undefined as number | undefined,
   };
   const history = {
     entries: [] as any[],
@@ -432,5 +433,43 @@ describe("Scratch composite faithful dab-pixel proof", () => {
     // job 1 must carry SEED_A, job 2 must carry SEED_B (each its own snapshot).
     expect(regionIsSolid(rgba1, SEED_A)).toBe(true);
     expect(regionIsSolid(rgba2, SEED_B)).toBe(true);
+  });
+
+  it("brush commit stamps layer.bitmapEpoch so a later save-side sync is a no-op", async () => {
+    const surface = makeSurface();
+    // Production paint surfaces expose toImageBitmap; the mock harness surface
+    // does not, so provide the production shape for this path.
+    surface.toImageBitmap = async () => document.createElement("canvas") as unknown as ImageBitmap;
+    const { overlay, layer, engine, history } = makeHarness(surface);
+    const sim = hoist.getSim();
+
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    await overlay.commitBrushStroke(engine, history as any, LAYER, false);
+    await flushC4Commits();
+
+    const wr = sim.calls.find((c) => c.cmd === "rust_pixels_write_region");
+    expect(wr, "a write_region was issued").toBeTruthy();
+    // The committed model bitmap holds the store pixels at the store epoch.
+    expect(layer.bitmapEpoch).toBe(sim.store.get(`${DOC}|${LAYER}`)!.epoch);
+
+    // A save-side sync against the same store epoch must take the no-op
+    // branch: no full-layer readback.
+    const realEngine = new docModule.DocumentEngine(DOC, "Sync Check", 512, 512);
+    const rl = realEngine.addLayer("L", 512, 512);
+    rl.id = LAYER;
+    rl.imageBitmap = { width: 512, height: 512, close: () => {} } as unknown as ImageBitmap;
+    rl.bitmapEpoch = layer.bitmapEpoch;
+    const snapsBefore = sim.calls.filter((c) => c.cmd === "rust_pixels_snapshot_layer").length;
+    await realEngine.ensureBitmapCurrent(DOC, LAYER);
+    expect(sim.calls.filter((c) => c.cmd === "rust_pixels_snapshot_layer").length).toBe(snapsBefore);
+
+    // The mirror image: an unstamped layer takes the full-readback branch.
+    const staleEngine = new docModule.DocumentEngine(DOC, "Stale Check", 512, 512);
+    const sl = staleEngine.addLayer("S", 512, 512);
+    sl.id = LAYER;
+    sl.imageBitmap = { width: 512, height: 512, close: () => {} } as unknown as ImageBitmap;
+    const snapsMid = sim.calls.filter((c) => c.cmd === "rust_pixels_snapshot_layer").length;
+    await staleEngine.ensureBitmapCurrent(DOC, LAYER);
+    expect(sim.calls.filter((c) => c.cmd === "rust_pixels_snapshot_layer").length).toBe(snapsMid + 1);
   });
 });

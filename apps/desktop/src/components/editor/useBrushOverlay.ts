@@ -175,6 +175,11 @@ export function useBrushOverlay() {
         if (surface.toImageBitmap) {
           const newBitmap = await surface.toImageBitmap();
           engine.setLayerImageBitmap(layerId, newBitmap);
+          // The new bitmap holds exactly the pixels the store has at
+          // res.epoch, so record that epoch. A later save can then skip the
+          // full readback for this layer.
+          const committed = engine.getLayer(layerId);
+          if (committed) committed.bitmapEpoch = res.epoch;
         }
       } catch (err) {
         console.warn("[paint] c4 model bitmap sync failed - committed snapshot may be stale:", err);
