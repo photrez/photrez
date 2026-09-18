@@ -1,18 +1,22 @@
 /**
  * Wiring test for the facade-history-handoff re-upload sweep.
  *
- * After projecting a facade snapshot onto the engine, any layer that now carries
- * a retained bitmap must be re-uploaded to the renderer so the GPU texture cache
+ * After projecting a facade snapshot onto the engine, only layers the
+ * projection added or swapped are re-uploaded, so the GPU texture cache
  * matches the engine (dropped-node reuse keeps pixels alive across routed
- * delete -> undo; without this the restored layer renders blank). This mirrors
- * the legacy restore sweep in useEditorCommands.
+ * delete -> undo; without this the restored layer renders blank). Untouched
+ * layers keep the same bitmap object, so their texture already matches and
+ * the full re-upload is skipped. This mirrors the legacy restore sweep in
+ * useEditorCommands.
  *
  * MOCK FIDELITY: facadeRegistry is mocked so getFacade / confirmExternalCursor
- * are deterministic; the engine is a stub returning re-attached layers with
- * bitmaps, and the renderer.uploadImage spy proves the sweep fires for them.
- * The two production flag combinations are covered: the external-handoff branch
- * (lastExternalHandoff set, lastHistoryDeltaWasEmpty true) and the normal-delta
- * branch (no handoff, non-empty delta).
+ * are deterministic; the engine stub lets the applyFacadeSnapshot mock mutate
+ * the layer list the way the real projection does (in-place metadata for kept
+ * layers, dropped-node re-add for restored ones). The renderer.uploadImage spy
+ * proves which layers the sweep fires for. The two production flag
+ * combinations are covered: the external-handoff branch (lastExternalHandoff
+ * set, lastHistoryDeltaWasEmpty true) and the normal-delta branch (no
+ * handoff, non-empty delta).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runFacadeExternalHandoff } from "../facadeHistoryHandoff";
@@ -29,11 +33,13 @@ const bitmap = { width: 8, height: 8, close: vi.fn() } as unknown as ImageBitmap
 
 type StubLayer = { id: string; imageBitmap: ImageBitmap | null };
 
-function makeEditor(layers: StubLayer[]) {
+function makeEditor(layers: StubLayer[], onProject?: () => void) {
   const engine = {
     getId: () => DOC_ID,
     getLayers: () => layers,
-    applyFacadeSnapshot: vi.fn(),
+    applyFacadeSnapshot: vi.fn(() => {
+      onProject?.();
+    }),
   };
   const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() };
   const ctx = {
@@ -61,29 +67,56 @@ describe("facade handoff re-upload sweep", () => {
     vi.mocked(facadeRegistry.confirmExternalCursor).mockResolvedValue({ ok: true } as never);
   });
 
-  it("external-handoff branch: re-uploads a retained-bitmap layer once", async () => {
+  it("external-handoff branch: uploads the restored layer, skips untouched and null layers", async () => {
     const facade = makeFacade({ external: true, emptyDelta: true });
     vi.mocked(facadeRegistry.getFacade).mockReturnValue(facade as never);
-
-    const { ctx, renderer } = makeEditor([{ id: "rl", imageBitmap: bitmap }]);
+    const restored = { width: 8, height: 8, close: vi.fn() } as unknown as ImageBitmap;
+    const layers: StubLayer[] = [
+      { id: "kept", imageBitmap: bitmap },
+      { id: "nb", imageBitmap: null },
+    ];
+    const { ctx, renderer } = makeEditor(layers, () => {
+      // Dropped-node reuse: the projection brings back a deleted layer with
+      // its retained pixels; kept layers reuse their bitmap object.
+      layers.push({ id: "rl", imageBitmap: restored });
+    });
     await runFacadeExternalHandoff(ctx, "undo");
 
     expect(renderer.uploadImage).toHaveBeenCalledTimes(1);
-    expect(renderer.uploadImage).toHaveBeenCalledWith("rl", bitmap);
+    expect(renderer.uploadImage).toHaveBeenCalledWith("rl", restored);
+    expect(renderer.uploadImage).not.toHaveBeenCalledWith("kept", bitmap);
   });
 
-  it("normal-delta branch: uploads only layers that carry a bitmap (guards null)", async () => {
+  it("normal-delta branch: uploads a swapped bitmap, skips untouched and null layers", async () => {
+    const facade = makeFacade({ external: false, emptyDelta: false });
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(facade as never);
+    const swapped = { width: 8, height: 8, close: vi.fn() } as unknown as ImageBitmap;
+    const layers: StubLayer[] = [
+      { id: "sw", imageBitmap: bitmap },
+      { id: "kept", imageBitmap: bitmap },
+      { id: "nb", imageBitmap: null },
+    ];
+    const { ctx, renderer } = makeEditor(layers, () => {
+      layers[0] = { id: "sw", imageBitmap: swapped };
+    });
+    await runFacadeExternalHandoff(ctx, "undo");
+
+    expect(renderer.uploadImage).toHaveBeenCalledTimes(1);
+    expect(renderer.uploadImage).toHaveBeenCalledWith("sw", swapped);
+    expect(renderer.uploadImage).not.toHaveBeenCalledWith("kept", bitmap);
+    expect(renderer.uploadImage).not.toHaveBeenCalledWith("nb", null);
+  });
+
+  it("skips layers whose bitmap is unchanged by the projection", async () => {
     const facade = makeFacade({ external: false, emptyDelta: false });
     vi.mocked(facadeRegistry.getFacade).mockReturnValue(facade as never);
 
-    const { ctx, renderer } = makeEditor([
-      { id: "rl", imageBitmap: bitmap },
-      { id: "nb", imageBitmap: null },
-    ]);
+    // The real applyFacadeSnapshot keeps the same bitmap object for
+    // untouched layers (in-place metadata update, pixels stay host-side),
+    // so the texture cache already matches and no upload is needed.
+    const { ctx, renderer } = makeEditor([{ id: "same", imageBitmap: bitmap }]);
     await runFacadeExternalHandoff(ctx, "undo");
 
-    expect(renderer.uploadImage).toHaveBeenCalledTimes(1);
-    expect(renderer.uploadImage).toHaveBeenCalledWith("rl", bitmap);
-    expect(renderer.uploadImage).not.toHaveBeenCalledWith("nb", null);
+    expect(renderer.uploadImage).not.toHaveBeenCalledWith("same", bitmap);
   });
 });

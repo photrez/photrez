@@ -157,3 +157,36 @@ describe("scale-aware sampling for supersampled (2x) text bitmaps", () => {
     expect(mockCtx.drawImage).toHaveBeenCalledWith(bmp, 10, 10, 1, 1, 0, 0, 1, 1);
   });
 });
+
+describe("sampling scratch canvas", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("creates the 2d context for frequent reads", async () => {
+    const seen: unknown[][] = [];
+    const mockCtx = {
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray([10, 20, 30, 255]) })),
+    };
+    vi.stubGlobal(
+      "OffscreenCanvas",
+      class {
+        getContext(...args: unknown[]) {
+          seen.push(args);
+          return mockCtx;
+        }
+      },
+    );
+    vi.resetModules();
+    const mod = await import("../pixelSample");
+    const bmp = { width: 100, height: 100 } as ImageBitmap;
+    const layer = makeLayer({ width: 100, height: 100, imageBitmap: bmp });
+
+    mod.performPixelSampling([layer], 100, 100, 10, 10);
+
+    expect(seen[0]?.[0]).toBe("2d");
+    expect(seen[0]?.[1]).toEqual({ willReadFrequently: true });
+  });
+});

@@ -10,7 +10,8 @@ let sampleCtx: OffscreenCanvasRenderingContext2D | null = null;
 function getSampleCtx(): OffscreenCanvasRenderingContext2D | null {
   if (sampleCtx) return sampleCtx;
   sampleCanvas = new OffscreenCanvas(1, 1);
-  sampleCtx = sampleCanvas.getContext("2d");
+  // Kept in RAM for cheap per-sample readback instead of GPU round-trips.
+  sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
   return sampleCtx;
 }
 

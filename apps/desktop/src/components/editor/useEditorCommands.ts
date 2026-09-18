@@ -32,6 +32,7 @@ import {
 import { isNativeAuthority } from "@/lib/protocol/bridge";
 import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
 import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
+import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
 import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
 import { bitmapStoreFor } from "@/engine/bitmapStore";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
@@ -198,12 +199,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     return true;
   };
 
-  const uploadActiveLayerBitmap = () => {
+  const uploadActiveLayerBitmap = (dirty?: { x: number; y: number; width: number; height: number }) => {
     const engine = editor.workspace.getActiveEngine();
     const activeId = engine?.getActiveLayerId();
     if (!engine || !activeId) return;
     const layer = engine.getLayer(activeId);
-    if (layer?.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
+    if (layer?.imageBitmap) {
+      if (dirty) editor.renderer.uploadImage(layer.id, layer.imageBitmap, dirty);
+      else editor.renderer.uploadImage(layer.id, layer.imageBitmap);
+    }
   };
 
   const cancelActiveTransformSession = (): boolean => {
@@ -853,8 +857,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         const history = editor.workspace.getActiveHistory();
         if (!engine?.getSelection() || !history) break;
         history.commit(engine.snapshot(), "Cut");
+        const dirty = selectionUploadRect(engine);
         SelectionOperations.cutSelection(engine);
-        uploadActiveLayerBitmap();
+        uploadActiveLayerBitmap(dirty ?? undefined);
         editor.scheduler.requestRender();
         break;
       }

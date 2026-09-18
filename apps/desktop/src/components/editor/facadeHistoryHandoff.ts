@@ -26,12 +26,20 @@ export async function runFacadeExternalHandoff(
   // the renderer's texture cache matches the engine's (dropped-node reuse keeps
   // pixels alive across routed delete -> undo). Without this the GPU-side handle
   // stays stale and the restored layer renders blank.
-  const reuploadAttachedImages = (): void => {
+  const captureBitmaps = (): Map<string, ImageBitmap | null> => {
     // Engine is host-provided; tolerate a partial engine (e.g. test doubles that
     // omit getLayers). Production DocumentEngine always exposes it.
     const layers = typeof engine.getLayers === "function" ? engine.getLayers() : [];
+    return new Map(layers.map((l) => [l.id, l.imageBitmap ?? null]));
+  };
+  const reuploadAttachedImages = (before: Map<string, ImageBitmap | null>): void => {
+    const layers = typeof engine.getLayers === "function" ? engine.getLayers() : [];
     for (const layer of layers) {
-      if (layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
+      if (!layer.imageBitmap) continue;
+      // Upload only layers the projection added or swapped. Untouched layers
+      // keep the same bitmap object (the projection never swaps pixels), so
+      // their texture already matches and a full re-upload only burns time.
+      if (before.get(layer.id) !== layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
     }
   };
   try {
@@ -51,10 +59,11 @@ export async function runFacadeExternalHandoff(
       // post-restore engine state. Here we only project the facade-restored
       // snapshot onto the engine so it is not left stale before the barrier is
       // cleared (confirmExternalCursor no longer takes an engine).
+      const before = captureBitmaps();
       engine.applyFacadeSnapshot(snap as never, {
         dimsAuthoritative: facade.lastProjectionDimsAuthoritative,
       });
-      reuploadAttachedImages();
+      reuploadAttachedImages(before);
       const committed = await confirmExternalCursor(
         engine.getId(),
         facade.lastExternalHandoff.seq,
@@ -70,10 +79,11 @@ export async function runFacadeExternalHandoff(
       }
     }
     if (!facade.lastHistoryDeltaWasEmpty) {
+      const before = captureBitmaps();
       engine.applyFacadeSnapshot(snap as never, {
         dimsAuthoritative: facade.lastProjectionDimsAuthoritative,
       });
-      reuploadAttachedImages();
+      reuploadAttachedImages(before);
       editor.scheduler.requestRender();
       editor.workspace.notifyVisualChange();
       return true;

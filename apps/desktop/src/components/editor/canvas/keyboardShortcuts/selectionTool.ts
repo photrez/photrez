@@ -10,6 +10,37 @@ import {
 import type { KeyboardShortcutContext } from "./context";
 
 /**
+ * Layer-local pixel rect covered by the live selection, clamped to the
+ * active layer bounds. Inverted selections change the whole layer, so there
+ * is no sub-rect to report (null = full upload). Call BEFORE the mutating
+ * op: cut/delete clear the selection state the mapping reads.
+ * Rounding matches the pixel writer in SelectionOperations, which clears
+ * [round(x), round(x) + round(w)): rounding the far edge instead would
+ * shrink the rect by a pixel on fractional bounds and leave stale pixels.
+ */
+export function selectionUploadRect(
+  engine: DocumentEngine,
+): { x: number; y: number; width: number; height: number } | null {
+  const sel = engine.getSelection();
+  if (!sel || sel.inverted) return null;
+  const activeId = engine.getActiveLayerId();
+  if (!activeId) return null;
+  const layer = engine.getLayer(activeId);
+  if (!layer) return null;
+  const aabb = SelectionOperations.selectionToLayerAabb(sel, layer.transform, layer.width, layer.height);
+  const sx = Math.round(aabb.x);
+  const sy = Math.round(aabb.y);
+  const w = Math.round(aabb.width);
+  const h = Math.round(aabb.height);
+  const x = Math.max(0, Math.min(layer.width, sx));
+  const y = Math.max(0, Math.min(layer.height, sy));
+  const width = Math.max(0, Math.min(layer.width, sx + w) - x);
+  const height = Math.max(0, Math.min(layer.height, sy + h) - y);
+  if (width === 0 || height === 0) return null;
+  return { x, y, width, height };
+}
+
+/**
  * Selection tool keyboard shortcuts: Ctrl+D deselect, Ctrl+I invert,
  * Ctrl+T toggle transform/edit mode, Escape cancel, Ctrl+X cut,
  * Ctrl+C copy, Ctrl+V paste, Delete/Backspace delete selection pixels.
@@ -80,6 +111,7 @@ export function handleSelectionToolKey(
       // Without this, the post-cut state was never pushed to the undo
       // stack and redo had no entry to replay.
       history.commit(engine.snapshot(), "Cut");
+      const dirty = selectionUploadRect(engine);
       SelectionOperations.cutSelection(engine);
       // Re-upload the modified layer's bitmap to the renderer so the
       // canvas reflects the cut immediately (otherwise the GPU texture
@@ -88,7 +120,8 @@ export function handleSelectionToolKey(
       if (activeId) {
         const layer = engine.getLayer(activeId);
         if (layer?.imageBitmap) {
-          renderer.uploadImage(layer.id, layer.imageBitmap);
+          if (dirty) renderer.uploadImage(layer.id, layer.imageBitmap, dirty);
+          else renderer.uploadImage(layer.id, layer.imageBitmap);
         }
       }
       options.onSelectionChange?.();
@@ -138,6 +171,7 @@ export function handleSelectionToolKey(
     if (sel) {
       // Commit pre-action snapshot so the deletion is undoable/redoable.
       history.commit(engine.snapshot(), "Delete Pixels");
+      const dirty = selectionUploadRect(engine);
       SelectionOperations.deleteSelection(engine);
       // Re-upload the modified layer's bitmap to the renderer so the
       // canvas reflects the deletion immediately.
@@ -145,7 +179,8 @@ export function handleSelectionToolKey(
       if (activeId) {
         const layer = engine.getLayer(activeId);
         if (layer?.imageBitmap) {
-          renderer.uploadImage(layer.id, layer.imageBitmap);
+          if (dirty) renderer.uploadImage(layer.id, layer.imageBitmap, dirty);
+          else renderer.uploadImage(layer.id, layer.imageBitmap);
         }
       }
       options.onSelectionChange?.();

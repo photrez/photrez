@@ -5,6 +5,7 @@ import { ToolPill, MoreDropdown, Divider, ToggleBtn, SelectDropdown } from "./sh
 import { Tooltip } from "./Tooltip";
 import { Icon } from "./icons";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
+import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
 import {
   commitFacadeClearSelection,
   commitFacadeInvertSelection,
@@ -43,14 +44,15 @@ export function SelectionOptionBar() {
   const selection = () => selectionSignal() ?? engine()?.getSelection() ?? null;
   const hasSelection = () => selection() !== null;
 
-  const uploadActiveLayerBitmap = () => {
+  const uploadActiveLayerBitmap = (dirty?: { x: number; y: number; width: number; height: number }) => {
     const e = engine();
     if (!e) return;
     const activeId = e.getActiveLayerId();
     if (!activeId) return;
     const layer = e.getLayer(activeId);
     if (layer?.imageBitmap) {
-      renderer.uploadImage(layer.id, layer.imageBitmap);
+      if (dirty) renderer.uploadImage(layer.id, layer.imageBitmap, dirty);
+      else renderer.uploadImage(layer.id, layer.imageBitmap);
     }
   };
 
@@ -135,8 +137,10 @@ export function SelectionOptionBar() {
     if (e?.getSelection() && h) {
       // Commit pre-action snapshot so the cut is undoable AND redoable.
       h.commit(e.snapshot(), "Cut");
+      // Read the rect first: the mutation below clears the selection it maps from.
+      const dirty = selectionUploadRect(e);
       SelectionOperations.cutSelection(e);
-      uploadActiveLayerBitmap();
+      uploadActiveLayerBitmap(dirty ?? undefined);
       scheduler.requestRender();
     }
   };
@@ -166,8 +170,10 @@ export function SelectionOptionBar() {
     if (e?.getSelection() && h) {
       // Commit pre-action snapshot so the deletion is undoable/redoable.
       h.commit(e.snapshot(), "Delete Pixels");
+      // Read the rect first: the mutation below clears the selection it maps from.
+      const dirty = selectionUploadRect(e);
       SelectionOperations.deleteSelection(e);
-      uploadActiveLayerBitmap();
+      uploadActiveLayerBitmap(dirty ?? undefined);
       scheduler.requestRender();
     }
   };
