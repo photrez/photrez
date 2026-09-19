@@ -17,7 +17,7 @@ import { mapPaintPointToLayerLocal } from "./paintStrokeCoordinates";
 import { showToast } from "./Toast";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyBasicAdjustmentToColor, inverseBasicAdjustmentToColor } from "@/engine/layerAdjustments";
-import { isRustShadowEnabled, runShadowForCommit, applyRustTilesToSurface, isPristineOpaqueWhite, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { isRustShadowEnabled, runShadowForCommit, applyRustTilesToSurface, isPristineOpaqueWhite, rehydratePaintSurfaceFromRust, getRustEpoch } from "@/lib/rustShadow";
 import {
   getBrushDabSpacing,
   getBrushTip,
@@ -85,6 +85,18 @@ interface PaintStrokeSession {
 // overtakes stroke N (canonical state + history ordering preserved). The pointerup
 // handler returns immediately after enqueue — block = bbox bookkeeping only.
 const c4CommitQueues = new Map<string, Promise<void>>();
+// In-flight plus queued-but-unstarted commit count per document layer. Lets a
+// test observe overlap pressure and lets a future producer slow down instead
+// of piling work. Reads only; the queue below stays the single ordering rule.
+const c4QueueDepth = new Map<string, number>();
+
+/** Test-only: number of commits still queued or running (validation flush). */
+export function c4PendingCommits(docId?: string, layerId?: string): number {
+  if (docId !== undefined && layerId !== undefined) return c4QueueDepth.get(`${docId}:${layerId}`) ?? 0;
+  let total = 0;
+  for (const n of c4QueueDepth.values()) total += n;
+  return total;
+}
 
 interface C4SurfaceLike {
   context: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
@@ -132,9 +144,19 @@ export function useBrushOverlay() {
     const sctx = surface.context;
     const runCore = async () => {
       const { invoke } = await import("@tauri-apps/api/core");
-      await rehydratePaintSurfaceFromRust(docId, layerId, surface as never);
-      let layerReady = true;
-      try { await invoke("rust_pixels_get_epoch", { docId, layerId }); } catch { layerReady = false; }
+      // One store epoch read serves both checks below. When it matches the
+      // surface epoch the surface already holds the store pixels, so the full
+      // layer read inside the rehydrate helper is skipped. The skip is safe
+      // because both sides compare the same two numbers: any store advance
+      // (commit, undo, redo) moves the store epoch off the surface epoch, a
+      // cleared surface (restore, bitmap replace) restarts at 0 against a
+      // store at 1 or more, a missing store (other document, first open)
+      // reads as absent and takes the seed path instead of skipping.
+      const storeEpoch = await getRustEpoch(docId, layerId);
+      const layerReady = storeEpoch !== null;
+      if (layerReady && surface.pixelEpoch !== storeEpoch) {
+        await rehydratePaintSurfaceFromRust(docId, layerId, surface as never);
+      }
       if (!layerReady) {
         const seed = surface.readRect(0, 0, w, h);
         await invoke("rust_pixels_init", { docId, layerId, width: w, height: h, bytes: new Uint8Array(seed.data.buffer, seed.data.byteOffset, seed.data.byteLength) });
@@ -162,10 +184,12 @@ export function useBrushOverlay() {
       const afterPatches: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
       const rectUploads: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[] = [];
       for (const t of res.after) {
-        const data = new Uint8ClampedArray(t.w * t.h * 4);
-        data.set(t.data);
+        // One conversion per tile. History and the renderer both read these
+        // bytes and neither writes them (the fallback path below already
+        // shares one array the same way), so both entries use the same copy.
+        const data = new Uint8ClampedArray(t.data);
         afterPatches.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
-        rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) });
+        rectUploads.push({ x: t.x, y: t.y, width: t.w, height: t.h, data });
       }
       // Deferred path: the surface now holds the final post-stroke pixels. Sync
       // them into the canonical model bitmap BEFORE history.commit so the
@@ -233,10 +257,20 @@ export function useBrushOverlay() {
 
   function enqueueC4Commit(job: C4CommitJob): void {
     const key = `${job.docId}:${job.layerId}`;
+    c4QueueDepth.set(key, (c4QueueDepth.get(key) ?? 0) + 1);
     const prev = c4CommitQueues.get(key) ?? Promise.resolve();
+    // Serialize behind the running commit. This is the only discipline that
+    // cannot lose a stroke: every enqueued job runs to completion in order,
+    // so overlapping strokes accumulate instead of wiping each other. A merge
+    // would fold undo entries together and a refusal would drop pixels.
     const next = prev.then(() => c4CoreCommit(job)).catch(() => {});
     c4CommitQueues.set(key, next);
-    next.finally(() => { if (c4CommitQueues.get(key) === next) c4CommitQueues.delete(key); }).catch(() => {});
+    next.finally(() => {
+      if (c4CommitQueues.get(key) === next) c4CommitQueues.delete(key);
+      const left = (c4QueueDepth.get(key) ?? 1) - 1;
+      if (left <= 0) c4QueueDepth.delete(key);
+      else c4QueueDepth.set(key, left);
+    }).catch(() => {});
     // DEV-only: async-queue ordering probe (gate verification — tree-shaken in prod).
     if ((import.meta as any).env?.DEV) {
       const w = window as unknown as Record<string, any>;
