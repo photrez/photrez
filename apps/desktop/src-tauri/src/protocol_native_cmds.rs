@@ -272,6 +272,7 @@ pub fn protocol_version_native(doc_id: String) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paint_parity_cmds::TEST_REGISTRY_LOCK;
     use photrez_core::pixel_store::registry;
 
     const SNAP_DOC: &str = "snapshot-native-test-doc";
@@ -292,6 +293,7 @@ mod tests {
 
     #[test]
     fn snapshot_native_returns_seeded_engine() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         open_doc(SNAP_DOC);
         // Seed one layer at version 1 through the sibling native seed command.
         let payload = r#"{"version":1,"layers":[{"id":"L1","name":"Base","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]}"#;
@@ -331,6 +333,7 @@ mod tests {
 
     #[test]
     fn version_native_returns_seeded_engine_version() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         open_doc(VERSION_DOC);
         // Seed one layer at version 7 through the sibling native seed command.
         let payload = r#"{"version":7,"layers":[{"id":"L1","name":"Base","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]}"#;
@@ -391,6 +394,7 @@ mod tests {
 
     #[test]
     fn seed_canonical_round_trips_through_read_back() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         open_doc(CANON_DOC);
         let seed = protocol_seed_canonical_native(CANON_FIXTURE.to_string(), CANON_DOC.to_string());
         assert!(seed.is_ok(), "seed failed: {:?}", seed.err());
@@ -413,6 +417,7 @@ mod tests {
 
     #[test]
     fn seed_canonical_malformed_json_errors() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         open_doc(CANON_BAD_DOC);
         let bad = "{ not canonical json";
         let res = protocol_seed_canonical_native(bad.to_string(), CANON_BAD_DOC.to_string());
@@ -427,6 +432,7 @@ mod tests {
 
     #[test]
     fn canonical_read_back_before_seed_errors() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         // Same shared-registry caveat as the sibling missing-doc tests: open the
         // doc (so the registry is initialized) but never seed a canonical copy.
         open_doc(CANON_ABSENT_DOC);
@@ -461,8 +467,10 @@ mod tests {
     // client reaches through raw `invoke()`), so the whole desktop surface is
     // exercised headlessly: serde envelope parse, registry lookup, engine
     // apply, `CommandResult` serialize, and the `"CODE: message"` rejection
-    // string. Each test owns a unique doc key because the pixel-store registry
-    // is process-global and the test suite runs in parallel.
+    // string. Each test owns a unique doc key AND holds TEST_REGISTRY_LOCK:
+    // unique keys alone do not protect against a sibling test wiping the
+    // whole process-global registry with reset(), so registry-touching tests
+    // run one at a time like the paint_parity and document_snapshot suites.
 
     use photrez_core::protocol::CONTRACT_VERSION;
 
@@ -653,6 +661,7 @@ mod tests {
     /// parseable across the whole sequence.
     #[test]
     fn native_apply_command_drives_full_routed_sequence() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         seed_routed_doc(SEQ_DOC);
         let seed_digest = command_digest(SEQ_DOC);
         let mut version = protocol_version_native(SEQ_DOC.to_string()).expect("version");
@@ -701,6 +710,7 @@ mod tests {
     /// version, matching the engine's real behavior.
     #[test]
     fn native_apply_command_undo_redo_round_trip() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         seed_routed_doc(UNDO_DOC);
         let seed_digest = command_digest(UNDO_DOC);
 
@@ -776,6 +786,7 @@ mod tests {
     /// from a raw `invoke()`.
     #[test]
     fn native_apply_command_error_envelope_shape() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         seed_routed_doc(ERR_INVALID_DOC);
         let version = protocol_version_native(ERR_INVALID_DOC.to_string()).expect("version");
         let command = r#"{"type":"setSelection","selection":{"x":0.0,"y":0.0,"width":-5.0,"height":10.0,"angle":0.0,"shape":"rect","inverted":false}}"#;
@@ -843,6 +854,7 @@ mod tests {
     /// precedes the engine's checks).
     #[test]
     fn native_apply_command_contract_and_expected_version_errors() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         open_doc(ERR_VERSION_DOC);
         protocol_seed_native(
             r#"{"version":5,"layers":[{"id":"v1","name":"V","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]}"#.to_string(),
@@ -875,6 +887,7 @@ mod tests {
     /// registry lookup, result serialize, and error formatting).
     #[test]
     fn native_apply_command_wrapper_is_transparent_to_engine() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         seed_routed_doc(PARITY_CMD_DOC);
         seed_routed_doc(PARITY_DIRECT_DOC);
         assert_eq!(
@@ -904,6 +917,7 @@ mod tests {
     /// document reflecting the applied dimensions and selection.
     #[test]
     fn native_canonical_read_back_reflects_applied_state() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         seed_routed_doc(CANON_READ_DOC);
         apply_ok(
             CANON_READ_DOC,
@@ -956,6 +970,7 @@ mod tests {
     fn native_commit_latency_bench() {
         use std::time::{Duration, Instant};
 
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
         const BENCH_DOC: &str = "native-commit-latency-bench-doc";
         const ITERS: usize = 1000;
         const BATCH: usize = 100;

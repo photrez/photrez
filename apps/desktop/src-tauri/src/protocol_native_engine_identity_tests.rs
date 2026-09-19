@@ -40,6 +40,7 @@ use super::tests::{
     apply_ok, close_doc, command_digest, envelope_json, routed_command_script, seed_routed_doc,
     sequence_canonical_fixture, snapshot_digest, ROUTED_SEED_LAYERS,
 };
+use crate::paint_parity_cmds::TEST_REGISTRY_LOCK;
 use photrez_core::canonical_model::CanonicalDocument;
 use photrez_core::pixel_store::DocumentPixelStore;
 use photrez_core::protocol::{CommandEnvelope, ProtocolEngine, RenderLayer};
@@ -125,6 +126,7 @@ fn bare_engine_digests() -> Vec<u64> {
 
 #[test]
 fn native_transport_is_step_by_step_transparent_to_the_one_engine() {
+    let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
     let labels = step_labels();
     let native = native_surface_digests(IDENTITY_DOC);
     let reference = bare_engine_digests();
