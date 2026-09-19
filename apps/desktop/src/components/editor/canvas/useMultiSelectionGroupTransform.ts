@@ -72,6 +72,10 @@ interface GroupDragState {
   // rather than re-deriving from a pointer position, so a frame that previewed
   // nothing cannot move a member back to a half-way value.
   live: FacadeTransformPreview[];
+  // True once a legacy frame wrote the model through the silent path.
+  // Pointerup flushes one notification only then, so a click without travel
+  // stays notification-free exactly as before.
+  moved: boolean;
 }
 
 /**
@@ -246,16 +250,21 @@ export function useMultiSelectionGroupTransform(params: UseMultiSelectionGroupTr
       docId: decision === "route" ? engine.getId() : "",
       facade: decision === "route",
       live: [],
+      moved: false,
     });
   };
 
   const applyFrames = (
-    engine: { transformLayer: (id: string, t: Partial<Transform2D>) => void },
+    engine: { transformLayerSilent: (id: string, t: Partial<Transform2D>) => void },
     state: GroupDragState,
     frames: Frame[],
   ): void => {
     if (!state.facade) {
-      for (const frame of frames) engine.transformLayer(frame.item.id, frame.next);
+      // Silent per frame: one notifyChange per move (whole-model stringify +
+      // mirror push + fan-out) is what janks the drag. The model still updates
+      // every frame; pointerup flushes once.
+      for (const frame of frames) engine.transformLayerSilent(frame.item.id, frame.next);
+      state.moved = true;
       return;
     }
     const previews: FacadeTransformPreview[] = frames.map((frame) => ({
@@ -463,6 +472,8 @@ export function useMultiSelectionGroupTransform(params: UseMultiSelectionGroupTr
     const history = workspace.getActiveHistory();
     if (engine && history) {
       history.commit(state.preSnapshot, "Transform Layers");
+      // Single end-of-gesture notify for the silent per-frame writes above.
+      if (state.moved) engine.flushChangeNotification();
       scheduler.requestRender();
       workspace.notifyVisualChange();
     }
@@ -486,8 +497,10 @@ export function useMultiSelectionGroupTransform(params: UseMultiSelectionGroupTr
     const engine = workspace.getActiveEngine();
     if (engine) {
       for (const item of state.layerStarts) {
-        engine.transformLayer(item.id, item.transform);
+        engine.transformLayerSilent(item.id, item.transform);
       }
+      // Single flush for the whole revert: same final pixels, one notify.
+      engine.flushChangeNotification();
       scheduler.requestRender();
     }
 

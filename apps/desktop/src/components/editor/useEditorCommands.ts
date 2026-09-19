@@ -469,8 +469,12 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         return;
       }
 
+      // Upload narrow: remember which bitmap object each layer held before the
+      // restore. Snapshots reuse the immutable bitmap reference, so a layer
+      // whose object is identical afterwards has identical pixels and its
+      // texture already matches. Only added or swapped layers re-upload.
+      const beforeBitmaps = new Map(engine.getLayers().map((l) => [l.id, l.imageBitmap ?? null]));
       engine.restore(snapshot);
-
       // Native-authority heal re-push: the handoff fell through to the legacy TS
       // restore, so the native engine was NOT updated by a Rust undo/redo this step.
       // Re-push the FULL canonical document now (AFTER restore) so the native shadow
@@ -596,7 +600,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       const restoredLayer = engine.getLayers()[0];
 
       for (const layer of engine.getLayers()) {
-        if (layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
+        if (!layer.imageBitmap) continue;
+        // Identity-map narrow: an unchanged layer keeps the same bitmap object
+        // through the restore, so its texture already matches. A layer with no
+        // before entry was re-added and always re-uploads.
+        if (beforeBitmaps.get(layer.id) !== layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
       }
       // Notify workspace to trigger UI sync (layers, history panel, adjustments, etc.)
       editor.workspace.notifyVisualChange();

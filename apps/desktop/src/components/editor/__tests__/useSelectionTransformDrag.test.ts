@@ -58,6 +58,14 @@ const { mockEditorState, createMockEngine, createMockHistory,
             Object.assign(currentTransform, t);
           }
         ),
+        // Silent twin: same model write, no notification. Mirrors the
+        // production engine method so legacy-drag tests run green.
+        transformLayerSilent: vi.fn(
+          (id: string, t: Partial<Transform2D>) => {
+            Object.assign(currentTransform, t);
+          }
+        ),
+        flushChangeNotification: vi.fn(),
         snapshot: vi.fn(
           () =>
             ({ snap: Date.now(), layers: [] } as unknown as DocumentModel)
@@ -336,13 +344,13 @@ describe("useSelectionTransformDrag", () => {
   });
 
   describe("handlePointerMove (move type)", () => {
-    it("moves the layer via engine.transformLayer with offset from start", () => {
+    it("moves the layer via engine.transformLayerSilent with offset from start", () => {
       const { result, engine, dispose } = setupHook({ zoom: 2 });
       result.handlePointerDown(
         makePointerEvent({ clientX: 100, clientY: 100 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
 
       // Move pointer by 80px right / 40px down at zoom=2 -> 40dx / 20dy in doc space
       const moveE = makePointerEvent({
@@ -354,7 +362,7 @@ describe("useSelectionTransformDrag", () => {
 
       const expectedX = 100 + (180 - 100) / 2;
       const expectedY = 50 + (140 - 100) / 2;
-      expect(engine.transformLayer).toHaveBeenCalledWith("layer-1", {
+      expect(engine.transformLayerSilent).toHaveBeenCalledWith("layer-1", {
         x: expectedX,
         y: expectedY,
       });
@@ -403,7 +411,7 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 100, clientY: 100 }),
         "se"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
 
       const moveE = makePointerEvent({
         clientX: 200,
@@ -412,8 +420,8 @@ describe("useSelectionTransformDrag", () => {
       });
       result.handlePointerMove(moveE);
 
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const callArgs = engine.transformLayer.mock.calls[0];
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const callArgs = engine.transformLayerSilent.mock.calls[0];
       expect(callArgs[0]).toBe("layer-1");
       const newTransform = callArgs[1];
       expect(newTransform).toHaveProperty("scaleX");
@@ -551,12 +559,12 @@ describe("useSelectionTransformDrag", () => {
       // SE handle sits at the visible-box corner: (96+margin + pathW, 96+margin + pathH)
       // = (200, 150) in doc space (zoom 1, pan 0).
       result.handlePointerDown(makePointerEvent({ clientX: 200, clientY: 150 }), "se");
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
 
       // Drag +50px x, +25px y -> pointer at (250, 175); aspect-locked -> ~1.5x.
       result.handlePointerMove(makePointerEvent({ clientX: 250, clientY: 175, pointerId: 1 }));
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const t = engine.transformLayer.mock.calls[0][1] as Transform2D;
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const t = engine.transformLayerSilent.mock.calls[0][1] as Transform2D;
       expect(t.scaleX).toBeCloseTo(1.5, 5);
       expect(t.scaleY).toBeCloseTo(1.5, 5);
       // Full-layer origin must be shifted back by margin*scale (the fix). Without it
@@ -870,6 +878,32 @@ describe("useSelectionTransformDrag", () => {
       expect(result.dragState()).toBeNull();
       dispose();
     });
+
+    it("restores startTransform with one flush for a legacy drag", () => {
+      const { result, engine, dispose } = setupHook();
+      result.handlePointerDown(
+        makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
+        "move"
+      );
+      result.handlePointerMove(
+        makePointerEvent({ clientX: 200, clientY: 150, pointerId: 1 })
+      );
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      engine.transformLayerSilent.mockClear();
+      engine.flushChangeNotification.mockClear();
+
+      result.handleLostPointerCapture(
+        makePointerEvent({ pointerId: 1 })
+      );
+      // Same write-back as the cancel path: start state back, one notify.
+      expect(engine.transformLayerSilent).toHaveBeenCalledWith(
+        "layer-1",
+        DEFAULT_TRANSFORM
+      );
+      expect(engine.flushChangeNotification).toHaveBeenCalledTimes(1);
+      expect(result.dragState()).toBeNull();
+      dispose();
+    });
   });
 
   describe("Escape key handling", () => {
@@ -1013,13 +1047,13 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
       // Move 1000px screen → 10px doc space
       result.handlePointerMove(
         makePointerEvent({ clientX: 1100, clientY: 100, pointerId: 1 })
       );
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const args = engine.transformLayer.mock.calls[0][1];
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const args = engine.transformLayerSilent.mock.calls[0][1];
       expect(args.x).toBeCloseTo(110, 2); // 100 + 1000/100 = 110
       dispose();
     });
@@ -1030,13 +1064,13 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
       // Move 5px screen → 500px doc space
       result.handlePointerMove(
         makePointerEvent({ clientX: 105, clientY: 100, pointerId: 1 })
       );
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const args = engine.transformLayer.mock.calls[0][1];
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const args = engine.transformLayerSilent.mock.calls[0][1];
       expect(args.x).toBeCloseTo(600, 0); // 100 + 5/0.01 = 600
       expect(Number.isFinite(args.x)).toBe(true);
       dispose();
@@ -1072,12 +1106,12 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: -50, clientY: -50, pointerId: 1 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
       result.handlePointerMove(
         makePointerEvent({ clientX: -30, clientY: -20, pointerId: 1 })
       );
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const args = engine.transformLayer.mock.calls[0][1];
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const args = engine.transformLayerSilent.mock.calls[0][1];
       expect(Number.isFinite(args.x)).toBe(true);
       expect(Number.isFinite(args.y)).toBe(true);
       // delta = (-30-(-50), -20-(-50)) = (20, 30) → layer should move +20, +30
@@ -1093,13 +1127,13 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
       // Move to exactly the same position
       result.handlePointerMove(
         makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 })
       );
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const args = engine.transformLayer.mock.calls[0][1];
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const args = engine.transformLayerSilent.mock.calls[0][1];
       expect(args.x).toBe(100); // original x unchanged
       expect(args.y).toBe(50);  // original y unchanged
       dispose();
@@ -1117,13 +1151,13 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
       result.handlePointerMove(
         makePointerEvent({ clientX: 150, clientY: 100, pointerId: 1 })
       );
       // Layer should move despite snap returning 0 offset
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const args = engine.transformLayer.mock.calls[0][1];
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const args = engine.transformLayerSilent.mock.calls[0][1];
       expect(Number.isFinite(args.x)).toBe(true);
       dispose();
     });
@@ -1138,7 +1172,7 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 10200, clientY: 5100, pointerId: 1 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
       result.handlePointerMove(
         makePointerEvent({
           clientX: 10400,
@@ -1146,8 +1180,8 @@ describe("useSelectionTransformDrag", () => {
           pointerId: 1,
         })
       );
-      expect(engine.transformLayer).toHaveBeenCalled();
-      const args = engine.transformLayer.mock.calls[0][1];
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
+      const args = engine.transformLayerSilent.mock.calls[0][1];
       // delta doc = ((10400-10200)/0.5, (5200-5100)/0.5) = (400, 200)
       // original position (100,50), so new = (500, 250)
       expect(args.x).toBeCloseTo(500, 2);
@@ -1191,7 +1225,7 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 100, clientY: 100, pointerId: 1 }),
         "move"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
       // Second pointerDown with same pointerId should reinitialize
       result.handlePointerDown(
         makePointerEvent({ clientX: 300, clientY: 300, pointerId: 1 }),
@@ -1204,8 +1238,8 @@ describe("useSelectionTransformDrag", () => {
       result.handlePointerMove(
         makePointerEvent({ clientX: 400, clientY: 300, pointerId: 1 })
       );
-      const args = engine.transformLayer.mock.calls[
-        engine.transformLayer.mock.calls.length - 1
+      const args = engine.transformLayerSilent.mock.calls[
+        engine.transformLayerSilent.mock.calls.length - 1
       ][1];
       expect(args.x).toBeCloseTo(200, 4); // 100 + (400-300) = 200
       dispose();
@@ -1304,14 +1338,14 @@ describe("useSelectionTransformDrag", () => {
         makePointerEvent({ clientX: 200, clientY: 150, pointerId: 1 }),
         "se"
       );
-      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
 
       result.handlePointerMove(
         makePointerEvent({ clientX: 250, clientY: 200, pointerId: 1 })
       );
 
       expect(snapFn).toHaveBeenCalled();
-      expect(engine.transformLayer).toHaveBeenCalled();
+      expect(engine.transformLayerSilent).toHaveBeenCalled();
       dispose();
     });
 
@@ -1333,6 +1367,60 @@ describe("useSelectionTransformDrag", () => {
       // for snap is already the answer: one geometry call per move.
       expect(resizeSpy).toHaveBeenCalledTimes(N);
       resizeSpy.mockRestore();
+      dispose();
+    });
+  });
+
+  describe("legacy drag silent + single flush (interaction seam)", () => {
+    it("per-move writes go through transformLayerSilent; pointerup flushes once", async () => {
+      const { result, engine, ws, dispose } = setupHook({ zoom: 1 });
+      const history = ws.getActiveHistory();
+      result.handlePointerDown(
+        makePointerEvent({ clientX: 100, clientY: 100 }),
+        "move"
+      );
+      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
+      const N = 5;
+      for (let i = 1; i <= N; i++) {
+        result.handlePointerMove(
+          makePointerEvent({ clientX: 100 + 10 * i, clientY: 100 + 5 * i, pointerId: 1 })
+        );
+      }
+      // Zero noisy writes mid-gesture; one silent write per move.
+      expect(engine.transformLayer).not.toHaveBeenCalled();
+      expect(engine.transformLayerSilent).toHaveBeenCalledTimes(N);
+      await result.handlePointerUp(
+        makePointerEvent({ clientX: 150, clientY: 125, pointerId: 1 })
+      );
+      // One history entry, one notification, final pixels match the travel.
+      expect(history.commit).toHaveBeenCalledTimes(1);
+      expect(engine.flushChangeNotification).toHaveBeenCalledTimes(1);
+      const t = engine.getLayer("layer-1")!.transform;
+      expect(t.x).toBe(100 + 50);
+      expect(t.y).toBe(50 + 25);
+      dispose();
+    });
+
+    it("cancel reverts through the silent path with a single flush", () => {
+      const { result, engine, dispose } = setupHook({ zoom: 1 });
+      result.handlePointerDown(
+        makePointerEvent({ clientX: 100, clientY: 100 }),
+        "move"
+      );
+      result.handlePointerMove(
+        makePointerEvent({ clientX: 150, clientY: 125, pointerId: 1 })
+      );
+      engine.transformLayer.mockClear();
+      engine.transformLayerSilent.mockClear();
+      engine.flushChangeNotification.mockClear();
+      result.handlePointerCancel(makePointerEvent({ pointerId: 1 }));
+      expect(engine.transformLayer).not.toHaveBeenCalled();
+      expect(engine.transformLayerSilent).toHaveBeenCalledTimes(1);
+      expect(engine.flushChangeNotification).toHaveBeenCalledTimes(1);
+      const t = engine.getLayer("layer-1")!.transform;
+      expect(t.x).toBe(100);
+      expect(t.y).toBe(50);
       dispose();
     });
   });

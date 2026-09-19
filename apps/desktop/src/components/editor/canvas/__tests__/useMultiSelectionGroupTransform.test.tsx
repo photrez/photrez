@@ -8,6 +8,8 @@ let mockSelectedLayerIds = ["layer-1", "layer-2"];
 let mockLayers: LayerNode[] = [];
 let mockHistoryCommit = vi.fn();
 let mockTransformLayer = vi.fn();
+let mockTransformSilent = vi.fn();
+let mockFlush = vi.fn();
 
 const engineLayersMap = new Map<string, LayerNode>();
 
@@ -20,6 +22,16 @@ const mockEngine = {
       existing.transform = { ...t };
     }
   }),
+  // Silent twin: same model write, no notification. Mirrors the production
+  // engine method so legacy-drag tests run green.
+  transformLayerSilent: vi.fn((id: string, t: Transform2D) => {
+    mockTransformSilent(id, t);
+    const existing = engineLayersMap.get(id);
+    if (existing) {
+      existing.transform = { ...t };
+    }
+  }),
+  flushChangeNotification: mockFlush,
   snapshot: vi.fn(() => ({ id: "snap-1" } as unknown as DocumentModel)),
   restoreSnapshot: vi.fn(),
 };
@@ -143,7 +155,8 @@ describe("useMultiSelectionGroupTransform", () => {
         stopPropagation: vi.fn(),
       } as unknown as PointerEvent);
 
-      expect(mockTransformLayer).toHaveBeenCalled();
+      expect(mockTransformLayer).not.toHaveBeenCalled();
+      expect(mockTransformSilent).toHaveBeenCalled();
 
       // Pointer up commits history
       transform.handlePointerUp({
@@ -154,7 +167,100 @@ describe("useMultiSelectionGroupTransform", () => {
 
       expect(transform.isTransforming()).toBe(false);
       expect(mockHistoryCommit).toHaveBeenCalledWith(expect.anything(), "Transform Layers");
+      // Single end-of-gesture flush for the silent per-frame writes.
+      expect(mockFlush).toHaveBeenCalledTimes(1);
 
+      dispose();
+    });
+  });
+
+  it("legacy frames write silent per move and flush once at pointerup", () => {
+    createRoot((dispose) => {
+      const transform = useMultiSelectionGroupTransform();
+      const mockEl = { setPointerCapture: vi.fn() } as unknown as HTMLElement;
+      transform.handlePointerDown(
+        {
+          button: 0,
+          clientX: 350,
+          clientY: 150,
+          pointerId: 1,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+          currentTarget: mockEl,
+        } as unknown as PointerEvent,
+        "se",
+      );
+      expect(transform.isTransforming()).toBe(true);
+
+      const N = 4;
+      for (let i = 1; i <= N; i++) {
+        transform.handlePointerMove({
+          pointerId: 1,
+          clientX: 350 + 10 * i,
+          clientY: 150 + 5 * i,
+          shiftKey: true,
+          altKey: false,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        } as unknown as PointerEvent);
+      }
+      // Zero noisy writes mid-gesture; one silent write per member per move.
+      expect(mockTransformLayer).not.toHaveBeenCalled();
+      expect(mockTransformSilent).toHaveBeenCalledTimes(N * 2);
+
+      transform.handlePointerUp({
+        pointerId: 1,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as PointerEvent);
+      expect(mockHistoryCommit).toHaveBeenCalledWith(expect.anything(), "Transform Layers");
+      expect(mockFlush).toHaveBeenCalledTimes(1);
+      dispose();
+    });
+  });
+
+  it("legacy cancel writes back silent with a single flush", () => {
+    createRoot((dispose) => {
+      const transform = useMultiSelectionGroupTransform();
+      const mockEl = { setPointerCapture: vi.fn() } as unknown as HTMLElement;
+      transform.handlePointerDown(
+        {
+          button: 0,
+          clientX: 350,
+          clientY: 150,
+          pointerId: 1,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+          currentTarget: mockEl,
+        } as unknown as PointerEvent,
+        "se",
+      );
+      transform.handlePointerMove({
+        pointerId: 1,
+        clientX: 400,
+        clientY: 200,
+        shiftKey: true,
+        altKey: false,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as PointerEvent);
+      mockTransformLayer.mockClear();
+      mockTransformSilent.mockClear();
+      mockFlush.mockClear();
+
+      transform.handlePointerCancel({
+        pointerId: 1,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as PointerEvent);
+      expect(mockTransformLayer).not.toHaveBeenCalled();
+      expect(mockTransformSilent).toHaveBeenCalledTimes(2);
+      expect(mockFlush).toHaveBeenCalledTimes(1);
+      // Both members are back at their gesture-start transforms.
+      expect(engineLayersMap.get("layer-1")!.transform.x).toBe(50);
+      expect(engineLayersMap.get("layer-1")!.transform.y).toBe(50);
+      expect(engineLayersMap.get("layer-2")!.transform.x).toBe(250);
+      expect(engineLayersMap.get("layer-2")!.transform.y).toBe(50);
       dispose();
     });
   });

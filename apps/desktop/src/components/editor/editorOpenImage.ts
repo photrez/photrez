@@ -116,6 +116,52 @@ export async function openImageFilesAsDocuments(
   }
 }
 
+// Max parallel layer decodes while opening a project. Small on purpose:
+// each decode holds a full-size bitmap, and the attach step below must see
+// every result before the engine is built.
+const OPEN_DECODE_LIMIT = 4;
+
+// Run fn over items with at most limit jobs in flight. Callers that need
+// order use the index to land results, never completion order.
+async function runBounded<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const workers: Promise<void>[] = [];
+  const workerCount = Math.min(limit, items.length);
+  for (let w = 0; w < workerCount; w++) {
+    workers.push((async () => {
+      while (next < items.length) {
+        const i = next;
+        next += 1;
+        await fn(items[i], i);
+      }
+    })());
+  }
+  // Settle every worker before returning, so a caller failure sweep over
+  // indexed results cannot run while a decode is still in flight. The first
+  // failure is rethrown after all settle.
+  const results = await Promise.allSettled(workers);
+  for (const r of results) {
+    if (r.status === "rejected") throw r.reason;
+  }
+}
+
+// Decode one stored layer PNG into a bitmap. Pure bytes in, bitmap out.
+async function decodeLayerBitmap(base64Data: string): Promise<ImageBitmap> {
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: "image/png" });
+  const bitmap = await createImageBitmap(blob);
+  await tick(); // yield so UI stays responsive during project load
+  return bitmap;
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -194,21 +240,32 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
   }
 
   params.onLoading?.(`Loading project layers...`);
-  for (const layer of model.layers) {
-    const base64Data = result.layers[layer.id];
-    if (base64Data) {
-      const binaryString = atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], { type: "image/png" });
-      layer.imageBitmap = await createImageBitmap(blob);
-      await tick(); // yield so UI stays responsive during project load
-    } else {
-      layer.imageBitmap = null;
+  // Decode layers with bounded overlap. Each decode is independent (bytes in,
+  // bitmap out), so they can run side by side; results land by layer index
+  // and attach in model order below, so out-of-order finishes cannot cross
+  // bitmaps between layers. A corrupt layer rejects the whole open exactly
+  // like the old sequential loop: nothing reaches the workspace, and bitmaps
+  // decoded along the way are closed instead of leaked.
+  const decoded: (ImageBitmap | null)[] = new Array(model.layers.length).fill(null);
+  let decodeFailed = false;
+  try {
+    await runBounded(model.layers, OPEN_DECODE_LIMIT, async (layer, i) => {
+      const base64Data = result.layers[layer.id];
+      if (!base64Data) return;
+      const bitmap = await decodeLayerBitmap(base64Data);
+      if (decodeFailed) bitmap.close();
+      else decoded[i] = bitmap;
+    });
+  } catch (err) {
+    decodeFailed = true;
+    for (const b of decoded) {
+      if (b) b.close();
     }
+    throw err;
   }
+  model.layers.forEach((layer, i) => {
+    layer.imageBitmap = decoded[i];
+  });
 
   const engine = new DocumentEngine(model.id, model.name, model.width, model.height);
   engine.restore(model, { restoreViewport: true });

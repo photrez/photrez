@@ -15,7 +15,7 @@ import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { useCanvasLayerDrag } from "../useCanvasLayerDrag";
 import { WorkspaceManager } from "@/engine/workspace";
-import { DocumentEngine } from "@/engine/document";
+import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { ViewportCamera } from "../../../../viewport/viewportCamera";
 import {
@@ -572,6 +572,47 @@ describe("canvas layer drag on native-owned layers", () => {
       pointerup(ctx, 200, 200);
       await vi.waitFor(() => expect(transformOf(ctx, ctx.owned[0]).x).toBe(before.x + 20));
       expect(transformPreview()).toEqual([]);
+    } finally {
+      ctx.dispose();
+    }
+  });
+});
+
+describe("canvas layer drag when a projection takes a layer mid-gesture", () => {
+  it("a legacy drag whose layer becomes owned mid-gesture stops loudly with no further silent write", async () => {
+    const ctx = await setup({ owned: 0 });
+    try {
+      // Legacy layer the facade learns about (seed) without owning: the
+      // pointerdown decision below latches the legacy path.
+      const layer = ctx.engine.addLayer("Legacy Flip", 200, 200);
+      layer.transform.x = 100;
+      layer.transform.y = 100;
+      await seedFacadeFromEngine(ctx.engine as never, getFacade(DOC));
+      expect(isFacadeOwnedLayer(layer.id)).toBe(false);
+
+      pointerdown(ctx, 150, 150);
+      expect(ctx.dragApi.isDragging()).toBe(true);
+      ctx.reset();
+
+      // One legal frame on the legacy path.
+      pointermove(ctx, 190, 200);
+      expect(transformOf(ctx, layer.id)).toMatchObject({ x: 140, y: 150 });
+
+      // A routed add lands mid-gesture: its projection hands every listed
+      // layer, including the dragged one, to the native side.
+      const silentSpy = vi.spyOn(ctx.engine, "moveLayerSilent");
+      ctx.engine.applyFacadeSnapshot(await getFacade(DOC).addLayer("Flipper", 200, 200));
+      expect(isFacadeOwnedLayer(layer.id)).toBe(true);
+      silentSpy.mockClear();
+
+      // The next frame must refuse loudly instead of writing the TypeScript
+      // copy of a natively owned layer, and the revert must skip it too.
+      pointermove(ctx, 230, 250);
+      expect(ctx.dragApi.isDragging()).toBe(false);
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("mixed selection"), "error");
+      expect(silentSpy).not.toHaveBeenCalled();
+      await settle();
+      expect(silentSpy).not.toHaveBeenCalled();
     } finally {
       ctx.dispose();
     }

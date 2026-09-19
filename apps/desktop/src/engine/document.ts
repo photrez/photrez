@@ -937,6 +937,18 @@ export class DocumentEngine {
     this.notifyChange();
   }
 
+  /**
+   * Transform layer WITHOUT firing onChange, for live drag updates that fire
+   * notifyChange on EVERY pointermove. Same scheduling shape as
+   * moveLayerSilent (which only covers x/y): the model updates every move so
+   * the renderer stays live, and the caller MUST call
+   * flushChangeNotification() once when the gesture ends or is cancelled.
+   */
+  transformLayerSilent(id: LayerId, transform: Partial<Transform2D>): void {
+    if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade — legacy transform blocked`);
+    applyTransformLayer(this.model, id, transform);
+  }
+
   transformLayer(id: LayerId, transform: Partial<Transform2D>): void {
     if (isFacadeOwned(id)) throw new Error(`E_FACADE_OWNED: layer ${id} owned by Rust facade — legacy transform blocked`);
     if (USE_RUST_SSOT && this.rustEngine) {

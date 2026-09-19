@@ -17,6 +17,32 @@ function getMimeType(format: ExportFormat): string {
   }
 }
 
+// Max parallel export jobs. Small on purpose: each bake holds a full-size
+// temp bitmap, and the composite below must see every result before drawing.
+const EXPORT_PARALLEL_LIMIT = 4;
+
+// Run fn over items with at most limit jobs in flight. Results land by index
+// so caller order never depends on completion order.
+async function runBounded<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const workerCount = Math.min(limit, items.length);
+  const workers: Promise<void>[] = [];
+  for (let w = 0; w < workerCount; w++) {
+    workers.push((async () => {
+      while (next < items.length) {
+        const i = next;
+        next += 1;
+        await fn(items[i], i);
+      }
+    })());
+  }
+  await Promise.all(workers);
+}
+
 function getExtension(format: ExportFormat): string {
   switch (format) {
     case "jpeg": return "jpg";
@@ -65,13 +91,33 @@ export async function encodeComposite(
   }
 
   // C5.4 bitmap sync: ensure all layer bitmaps reflect Rust canonical before
-  // compositing for export.  This is the smallest correct boundary — sync only
-  // when the consumer actually needs canonical pixels.
+  // compositing for export. Per-layer work is independent (each call touches
+  // only its own layer), so sync with bounded overlap instead of one by one.
   const docId = engine.getId();
-  for (const layer of layers) {
-    if (layer.visible && layer.imageBitmap) {
-      await engine.ensureBitmapCurrent(docId, layer.id);
+  const syncTargets = layers.filter((l) => l.visible && l.imageBitmap);
+  await runBounded(syncTargets, EXPORT_PARALLEL_LIMIT, (layer) =>
+    engine.ensureBitmapCurrent(docId, layer.id),
+  );
+
+  // Bake adjusted layers with bounded overlap. Baked bitmaps land by layer
+  // index, and the composite below still walks the stack bottom-to-top in
+  // order, so the exported pixels cannot reorder.
+  const baked: (ImageBitmap | null)[] = new Array(layers.length).fill(null);
+  let bakeFailed = false;
+  try {
+    await runBounded(layers, EXPORT_PARALLEL_LIMIT, async (layer, i) => {
+      if (layer.visible && layer.imageBitmap && layer.basicAdjustment) {
+        const done = await bakeAdjustment(layer);
+        if (bakeFailed) done.close();
+        else baked[i] = done;
+      }
+    });
+  } catch (err) {
+    bakeFailed = true;
+    for (const b of baked) {
+      if (b) b.close();
     }
+    throw err;
   }
 
   // Composite layers bottom-to-top using the same drawLayerToContext
@@ -81,8 +127,8 @@ export async function encodeComposite(
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i];
     if (!layer.visible || !layer.imageBitmap) continue;
-    if (layer.basicAdjustment) {
-      const adjusted = await bakeAdjustment(layer);
+    const adjusted = baked[i];
+    if (adjusted) {
       drawLayerToContext(ctx, { ...layer, imageBitmap: adjusted });
       adjusted.close();
     } else {

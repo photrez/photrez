@@ -266,7 +266,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
   //   TransformLayer command (with expectedVersion) at pointerup.
   // - legacy drag: unchanged per-move engine.transformLayer mutation.
   const applyDragTransform = (
-    engine: { getId: () => string; transformLayer: (id: string, t: Partial<Transform2D>) => void },
+    engine: { getId: () => string; transformLayerSilent: (id: string, t: Partial<Transform2D>) => void },
     layerId: string,
     drag: { pointerId: number; facade?: boolean; startTransform: Transform2D },
     partial: Partial<Transform2D>
@@ -277,7 +277,10 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       setTransformPreview([{ layerId, transform: full }]);
       setDragState((d) => (d && d.pointerId === drag.pointerId ? { ...d, liveTransform: full } : d));
     } else {
-      engine.transformLayer(layerId, partial);
+      // Silent per move: one notifyChange per frame (whole-model stringify +
+      // mirror push + fan-out) is what janks the drag. The model still updates
+      // every move; pointerup flushes once under the changed check below.
+      engine.transformLayerSilent(layerId, partial);
     }
   };
 
@@ -553,6 +556,8 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
         if (moved || scaled || rotated) {
           const label = drag.type === "move" ? "Move Layer" : drag.type === "rotate" ? "Rotate Layer" : "Transform Layer";
           history.commit(drag.pendingSnapshot, label);
+          // Single end-of-gesture notify for the silent per-move writes above.
+          engine.flushChangeNotification();
           scheduler.requestRender();
           workspace.notifyVisualChange();
         }
@@ -593,6 +598,20 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     setDragState(null);
   };
 
+  // Legacy write-back shared by the cancel and lost-capture exits: the model
+  // moved every frame, so the start transform goes back silently with one
+  // flush. Gestures on the native path never touched the model and skip this.
+  const revertLegacyTransform = (drag: NonNullable<ReturnType<typeof dragState>>): void => {
+    const engine = workspace.getActiveEngine();
+    const layer = getLayer();
+    if (engine && layer) {
+      engine.transformLayerSilent(layer.id, drag.startTransform);
+      // Single flush for the whole revert: same final pixels, one notify.
+      engine.flushChangeNotification();
+      scheduler.requestRender();
+    }
+  };
+
   const handlePointerCancel = (e: PointerEvent) => {
     const drag = dragState();
     if (!drag || e.pointerId !== drag.pointerId) return;
@@ -611,12 +630,7 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
       setDragState(null);
       return;
     }
-    const engine = workspace.getActiveEngine();
-    const layer = getLayer();
-    if (engine && layer) {
-      engine.transformLayer(layer.id, drag.startTransform);
-      scheduler.requestRender();
-    }
+    revertLegacyTransform(drag);
     props.onSnapClear?.();
     props.onHudUpdate?.(null);
     if (drag.type === "rotate") setHoverPos(null);
@@ -629,10 +643,11 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     // Capture was stolen (or the pointer device went away): no pointerup will
     // follow for this drag, so the facade slot has to be released right here.
     releaseFacadeSlot(drag);
+    if (drag.facade) scheduler.requestRender();
+    else revertLegacyTransform(drag);
     props.onSnapClear?.();
     props.onHudUpdate?.(null);
     if (drag.type === "rotate") setHoverPos(null);
-    if (drag.facade) scheduler.requestRender();
     setDragState(null);
   };
 

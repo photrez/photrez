@@ -1302,5 +1302,79 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
       teardown(ctx);
     }
   });
+
+  it("legacy drag: silent per move, single notify at pointerup, same final pixels", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      const layer = engine.getLayers().find((l) => l.name === "Draggable")!;
+      let changes = 0;
+      const unsub = ctx.ws.onChange(() => { changes++; });
+      const flushSpy = vi.spyOn(engine, "flushChangeNotification");
+      const noisySpy = vi.spyOn(engine, "transformLayer");
+      try {
+        ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true, cancelable: true, button: 0, clientX: 150, clientY: 150,
+        }));
+        const N = 5;
+        for (let i = 1; i <= N; i++) {
+          document.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true, button: 0, clientX: 150 + 10 * i, clientY: 150 + 5 * i,
+          }));
+        }
+        // Zero noisy writes and zero notifications mid-gesture.
+        expect(noisySpy).not.toHaveBeenCalled();
+        expect(changes).toBe(0);
+        document.dispatchEvent(new PointerEvent("pointerup", {
+          bubbles: true, button: 0, clientX: 200, clientY: 175,
+        }));
+        // One flush at the end; final pixels match the full travel.
+        expect(flushSpy).toHaveBeenCalledTimes(1);
+        expect(changes).toBe(1);
+        expect(layer.transform.x).toBe(150);
+        expect(layer.transform.y).toBe(125);
+        expect(ctx.testApi.dragApi.isDragging()).toBe(false);
+      } finally {
+        unsub();
+      }
+    } finally {
+      teardown(ctx);
+    }
+  });
+
+  it("legacy drag cancel: reverts to start with a single notify", () => {
+    const ctx = setupWithLayer();
+    try {
+      const engine = ctx.ws.getEngine("wiring-canvas")!;
+      const layer = engine.getLayers().find((l) => l.name === "Draggable")!;
+      let changes = 0;
+      const unsub = ctx.ws.onChange(() => { changes++; });
+      const flushSpy = vi.spyOn(engine, "flushChangeNotification");
+      const noisySpy = vi.spyOn(engine, "transformLayer");
+      try {
+        ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true, cancelable: true, button: 0, clientX: 150, clientY: 150,
+        }));
+        document.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true, button: 0, clientX: 250, clientY: 200,
+        }));
+        expect(layer.transform.x).toBe(200);
+        expect(noisySpy).not.toHaveBeenCalled();
+        expect(changes).toBe(0);
+        document.dispatchEvent(new PointerEvent("pointercancel", {
+          bubbles: true, button: 0,
+        }));
+        // Start position restored, exactly one notification for the revert.
+        expect(layer.transform.x).toBe(100);
+        expect(layer.transform.y).toBe(100);
+        expect(flushSpy).toHaveBeenCalledTimes(1);
+        expect(changes).toBe(1);
+      } finally {
+        unsub();
+      }
+    } finally {
+      teardown(ctx);
+    }
+  });
 });
 

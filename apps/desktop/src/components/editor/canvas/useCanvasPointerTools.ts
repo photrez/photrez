@@ -254,6 +254,33 @@ export function useCanvasPointerTools(params: UseCanvasPointerToolsParams) {
       interactiveState.strokePoints = [];
       interactiveState.isDragging = false;
       interactiveState.dragTool = null;
+      return;
+    }
+    // Escape cancels an in-flight selection draw: the per-move channel only
+    // ever wrote the transient preview signal, so dropping the gesture
+    // commits nothing. The signal syncs back from the engine exactly like the
+    // pointercancel path below, so a committed selection that predates the
+    // draw stays visible instead of going blind null. The selection-tool
+    // shortcut owns the clear/deselect semantic on its own listener.
+    if (
+      e.key === "Escape" &&
+      interactiveState.isDragging &&
+      (interactiveState.dragTool ?? activeTool()) === "selection" &&
+      interactiveState.dragMode === "draw"
+    ) {
+      interactiveState.isDragging = false;
+      interactiveState.dragTool = null;
+      interactiveState.dragMode = null;
+      interactiveState.pendingHistorySnapshot = null;
+      interactiveState.pendingOriginalSelectionPos = null;
+      const engine = workspace.getActiveEngine();
+      const sel = engine?.getSelection();
+      if (sel) {
+        setSelectionBoxSignal({ x: sel.x, y: sel.y, w: sel.width, h: sel.height, angle: sel.angle, shape: sel.shape });
+      } else {
+        setSelectionBoxSignal(null);
+      }
+      setHudInfo(null);
     }
   };
   if (typeof window !== "undefined") {

@@ -4,6 +4,7 @@ import { useDragController } from "../DragController";
 import { addLayerFromCrossDoc } from "../crossDocLayerOps";
 import { showToast } from "../Toast";
 import type { LayerNode } from "@/engine/types";
+import { isFacadeOwnedLayer } from "@/engine/document";
 import { computeSnapAdjustment, type SnapRect, type SnapLine } from "@/viewport/smartGuides";
 import { buildTransformSnapTargets } from "@/viewport/transformSnapTargets";
 import { getLayerAabb } from "@/viewport/transformGeometry";
@@ -52,6 +53,10 @@ interface CanvasLayerDrag {
   // move the layer back to a half-way position.
   liveDx: number;
   liveDy: number;
+  // True once a legacy pointermove wrote the model through the silent path.
+  // Pointerup flushes one notification only then, so a click without travel
+  // stays notification-free exactly as before.
+  moved: boolean;
 }
 
 export interface CanvasLayerDragApi {
@@ -261,11 +266,14 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       const sourceEngine = workspace.getEngine(src);
       if (sourceEngine) {
         for (const item of d.selectedLayerStarts) {
-          sourceEngine.transformLayer(item.id, {
-            x: item.startTransformX,
-            y: item.startTransformY,
-          });
+          // A projection may have handed this layer to the native side since
+          // pointerdown. The silent write below must never touch such a layer,
+          // so it keeps whatever the native side projected.
+          if (isFacadeOwnedLayer(item.id)) continue;
+          sourceEngine.moveLayerSilent(item.id, item.startTransformX, item.startTransformY);
         }
+        // Single flush for the whole revert: same final pixels, one notify.
+        sourceEngine.flushChangeNotification();
         scheduler.requestRender();
       }
     }
@@ -375,6 +383,16 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       return;
     }
 
+    // The gesture latched the legacy path at pointerdown, but a projection may
+    // have handed a dragged layer to the native side since. A silent write
+    // there would land on the TypeScript copy of a natively owned layer, so
+    // stop the whole gesture loudly instead of writing around the flip.
+    if (!d.facade && d.selectedLayerStarts.some((item) => !item.lockPosition && isFacadeOwnedLayer(item.id))) {
+      cancelDrag();
+      showToast(MIXED_OWNERSHIP_MESSAGE, "error");
+      return;
+    }
+
     let newX = d.startTransformX + dx;
     let newY = d.startTransformY + dy;
 
@@ -473,10 +491,16 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       try {
         for (const item of d.selectedLayerStarts) {
           if (item.lockPosition) continue;
-          engine.transformLayer(item.id, {
-            x: item.startTransformX + actualDx,
-            y: item.startTransformY + actualDy,
-          });
+          // Silent per move: one notifyChange per frame (whole-model stringify
+          // + mirror push + fan-out) is what janks the drag. The model still
+          // updates every move so the renderer stays live; pointerup flushes
+          // once. moveLayerSilent covers this x/y-only write.
+          engine.moveLayerSilent(
+            item.id,
+            item.startTransformX + actualDx,
+            item.startTransformY + actualDy,
+          );
+          d.moved = true;
         }
       } finally {
         snapWritesHeld = false;
@@ -535,6 +559,9 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
     const currentActive = activeDocumentId();
 
     let crossDocAdded = false;
+    // True when a revert branch above already wrote the start transforms back
+    // through the silent path. Covered by the single end flush below.
+    let reverted = false;
     const isCrossDocTab =
       dropTarget?.type === "tab" && dropTarget.docId !== src;
     const isCrossDocCanvas =
@@ -582,13 +609,11 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
           workspace,
         );
         crossDocAdded = true;
-        if (!e.altKey && !d.facade) {
+        if (!e.altKey && !d.facade && !isFacadeOwnedLayer(d.layerId)) {
           // Copy (default) leaves the source untouched in place. The routed path
           // never mutated it, so releasing the preview above already left it there.
-          sourceEngine.transformLayer(d.layerId, {
-            x: d.startTransformX,
-            y: d.startTransformY,
-          });
+          sourceEngine.moveLayerSilent(d.layerId, d.startTransformX, d.startTransformY);
+          reverted = true;
         }
         if (newLayerId) {
           const targetEngine = workspace.getActiveEngine();
@@ -605,17 +630,25 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       const sourceEngine = workspace.getEngine(src);
       if (sourceEngine && !d.facade) {
         for (const item of d.selectedLayerStarts) {
-          sourceEngine.transformLayer(item.id, {
-            x: item.startTransformX,
-            y: item.startTransformY,
-          });
+          // Same mid-gesture handover as the cancel path above: never write
+          // back a layer the native side now owns.
+          if (isFacadeOwnedLayer(item.id)) continue;
+          sourceEngine.moveLayerSilent(item.id, item.startTransformX, item.startTransformY);
         }
+        reverted = true;
         scheduler.requestRender();
       }
     } else if (d.facade) {
       // Ended inside the source document with no drop-target action: the gesture's
       // whole travel goes out as one committed edit per layer.
       commitRoutedDrag(d);
+    }
+
+    // Single end-of-gesture notify for the silent per-move writes and any
+    // silent revert above. Gated on travel so a click without moves notifies
+    // exactly as before (not at all on this path).
+    if (!d.facade && (d.moved || reverted)) {
+      workspace.getEngine(src)?.flushChangeNotification();
     }
 
     // Commit history for the SOURCE doc so the user can undo the drag.
@@ -824,6 +857,7 @@ export function useCanvasLayerDrag(opts: CanvasLayerDragOptions = {}): CanvasLay
       facade: decision === "route",
       liveDx: 0,
       liveDy: 0,
+      moved: false,
     });
     beginSnapCache();
 
