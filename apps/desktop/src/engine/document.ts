@@ -922,8 +922,8 @@ export class DocumentEngine {
    * Move layer WITHOUT firing onChange — for live drag updates that fire
    * notifyChange on EVERY pointermove (50+ fps). The caller MUST call
    * flushChangeNotification() once when the interaction ends so workspace
-   * sync (tab dirty state, title) still runs. Keyboard nudges and other
-   * single-shot callers keep using moveLayer().
+   * sync (tab dirty state, title) still runs. Single-shot callers keep using
+   * moveLayer(); held-arrow nudge bursts use this with one flush at keyup.
    */
   moveLayerSilent(id: LayerId, x: number, y: number): void {
     // Deliberately TS-side WITHOUT Rust sync: this fires on EVERY pointermove

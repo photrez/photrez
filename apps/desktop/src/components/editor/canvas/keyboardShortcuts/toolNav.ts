@@ -13,6 +13,20 @@ import type { KeyboardShortcutContext } from "./context";
  * tracking, Spacebar panning, Move-tool Escape deselect + arrow nudge,
  * and Ctrl+0 fit-to-screen. `key`/`ctrl` are computed once by the caller.
  */
+
+// Open legacy nudge burst: held-arrow repeats write the model silently and
+// the workspace/Rust sync fires once at burst end. One engine at a time.
+// Cleared by keyup, window blur, or the next non-repeat key that reaches
+// this handler. Keys taken by an earlier handler close the burst at keyup
+// or blur instead, so a missed keyup cannot strand the sync.
+let pendingNudgeEngine: DocumentEngine | null = null;
+
+// Fire the deferred sync for an open nudge burst. Safe with none open.
+export function flushPendingNudge(): void {
+  const engine = pendingNudgeEngine;
+  pendingNudgeEngine = null;
+  if (engine) engine.flushChangeNotification();
+}
 export function handleToolNavKey(
   ctx: KeyboardShortcutContext,
   e: KeyboardEvent,
@@ -46,6 +60,15 @@ export function handleToolNavKey(
     selectedLayerId,
     setSelectedLayerId,
   } = editor;
+
+  // A key reaching this handler that does not continue the burst closes it
+  // first, so a missed keyup cannot strand the sync (tool switch and Escape
+  // included). Runs before the new key commits, keeping the flush before
+  // the snapshot. Keys taken by earlier handlers never reach this flush
+  // and close the burst at keyup or blur instead.
+  if (!(e.key.startsWith("Arrow") && e.repeat) && pendingNudgeEngine) {
+    flushPendingNudge();
+  }
 
   // Paint tool shortcuts
   if (!ctrl && key === "b") {
@@ -238,12 +261,17 @@ export function handleToolNavKey(
       return true;
     }
 
-    if (!e.repeat) {
+    // Commit when no burst is open, not on the first-press flag: the first
+    // keydown seen here can already be marked repeat when focus returns
+    // while the key is held, and skipping the commit then would leave
+    // silent moves with no history entry.
+    if (!pendingNudgeEngine) {
       history.commit(engine.snapshot(), layersToNudge.length > 1 ? "Move Layers" : "Move Layer");
     }
     for (const l of layersToNudge) {
-      engine.moveLayer(l.id, l.transform.x + dx, l.transform.y + dy);
+      engine.moveLayerSilent(l.id, l.transform.x + dx, l.transform.y + dy);
     }
+    pendingNudgeEngine = engine;
     scheduler.requestRender();
     return true;
   }

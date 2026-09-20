@@ -718,7 +718,7 @@ describe("canvas keyboard arrow nudge routes through the numeric transform commi
 });
 
 describe("canvas keyboard arrow nudge legacy path (flag OFF, synchronous)", () => {
-  it("calls engine.moveLayer inside the keydown handler and never reaches the funnel", () => {
+  it("writes silently inside the keydown handler, flushes once at keyup, never reaches the funnel", () => {
     localStorage.setItem("photrez.facade", "0");
     const h = makeKeyboardHarness("nudge-off");
     const editor = h.getEditor();
@@ -727,7 +727,8 @@ describe("canvas keyboard arrow nudge legacy path (flag OFF, synchronous)", () =
     engine.setActiveLayer(layer.id);
     editor.setActiveTool("move");
     const commitSpy = vi.spyOn(getFacade(engine.getId()), "commitTransform");
-    const moveSpy = vi.spyOn(engine, "moveLayer");
+    const loudSpy = vi.spyOn(engine, "moveLayer");
+    const silentSpy = vi.spyOn(engine, "moveLayerSilent");
     const history = editor.workspace.getActiveHistory()!;
     const historySpy = vi.spyOn(history, "commit");
     const start = { x: layer.transform.x, y: layer.transform.y };
@@ -737,8 +738,9 @@ describe("canvas keyboard arrow nudge legacy path (flag OFF, synchronous)", () =
     // No await between the keystroke and these assertions: the flag-OFF branch must
     // keep its synchronous shape.
     expect(commitSpy).not.toHaveBeenCalled();
-    expect(moveSpy).toHaveBeenCalledTimes(1);
-    expect(moveSpy).toHaveBeenCalledWith(layer.id, start.x + 10, start.y);
+    expect(loudSpy).not.toHaveBeenCalled();
+    expect(silentSpy).toHaveBeenCalledTimes(1);
+    expect(silentSpy).toHaveBeenCalledWith(layer.id, start.x + 10, start.y);
     expect(historySpy).toHaveBeenCalledTimes(1);
     expect(history.canUndo()).toBe(true);
 
@@ -746,9 +748,15 @@ describe("canvas keyboard arrow nudge legacy path (flag OFF, synchronous)", () =
     // one entry per burst, on the first press only.
     historySpy.mockClear();
     fireKey({ key: "ArrowRight", shiftKey: true, repeat: true });
-    expect(moveSpy).toHaveBeenCalledTimes(2);
+    expect(silentSpy).toHaveBeenCalledTimes(2);
+    expect(loudSpy).not.toHaveBeenCalled();
     expect(historySpy).not.toHaveBeenCalled();
     expect(engine.getLayer(layer.id)!.transform.x).toBe(start.x + 20);
+
+    // Burst end: the deferred sync fires exactly once, closing the burst.
+    const flushSpy = vi.spyOn(engine, "flushChangeNotification");
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }));
+    expect(flushSpy).toHaveBeenCalledTimes(1);
     h.dispose();
   });
 });

@@ -9,7 +9,7 @@ import { handleTransformSessionKey } from "./keyboardShortcuts/transformSession"
 import { handleCropToolKey } from "./keyboardShortcuts/cropTool";
 import { handleSelectionToolKey } from "./keyboardShortcuts/selectionTool";
 import { handleLayerOpsKey } from "./keyboardShortcuts/layerOps";
-import { handleToolNavKey } from "./keyboardShortcuts/toolNav";
+import { handleToolNavKey, flushPendingNudge } from "./keyboardShortcuts/toolNav";
 
 export type { CanvasKeyboardOptions } from "./keyboardShortcuts/context";
 
@@ -132,12 +132,18 @@ export function useCanvasKeyboard(options: CanvasKeyboardOptions) {
       if (e.key === "Alt") {
         options.setIsAltPressed(false);
       }
+      // End of a held-arrow nudge burst: fire the one deferred sync.
+      if (e.key.startsWith("Arrow")) {
+        flushPendingNudge();
+      }
     };
 
     const handleWindowBlur = () => {
       options.setIsSpacePressed(false);
       options.setIsPanning(false);
       options.setIsAltPressed(false);
+      // A blur can swallow the keyup; flush so the burst sync is not lost.
+      flushPendingNudge();
     };
 
     // Capture phase: fires BEFORE bubble-phase handlers (useEditorCommands,
