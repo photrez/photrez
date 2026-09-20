@@ -44,6 +44,8 @@ import { useDialog } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession } from "../transformSession";
 // dev bench helper — window.__benchRealEngine() (no UI, no prod cost)
 if (import.meta.env.DEV) void import("@/lib/gpu/benchRealEngineDev");
+// dev latency self-test — window.__photrezPerfAudit() (no UI, no prod cost)
+if (import.meta.env.DEV) void import("@/lib/perf/perfAuditDev");
 
 // Core singletons import
 import { WorkspaceManager } from "@/engine/workspace";
