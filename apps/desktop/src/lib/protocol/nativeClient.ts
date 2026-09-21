@@ -14,6 +14,7 @@
 // the per-document native ProtocolEngine.
 
 import { invoke } from "@tauri-apps/api/core";
+import { recordIpcFreq } from "@/lib/perf/ipcFreqDev";
 
 export interface NativeProtocol {
   protocol_apply_command_native: (envelopeJson: string, docId: string) => Promise<string>;
@@ -41,15 +42,25 @@ function resolveDocKey(docId: string): string {
 
 export const nativeProtocol: NativeProtocol = {
   protocol_apply_command_native(envelopeJson, docId) {
+    recordIpcFreq("protocol_apply_command_native", {
+      envelopeJson,
+      docId: resolveDocKey(docId),
+    });
     return invoke("protocol_apply_command_native", {
       envelopeJson,
       docId: resolveDocKey(docId),
     });
   },
   protocol_history_query_native(docId) {
+    recordIpcFreq("protocol_history_query_native", { docId: resolveDocKey(docId) });
     return invoke("protocol_history_query_native", { docId: resolveDocKey(docId) });
   },
   protocol_history_cursor_commit_native(docId, seq, direction) {
+    recordIpcFreq("protocol_history_cursor_commit_native", {
+      docId: resolveDocKey(docId),
+      seq,
+      direction,
+    });
     return invoke("protocol_history_cursor_commit_native", {
       docId: resolveDocKey(docId),
       seq,
@@ -57,27 +68,37 @@ export const nativeProtocol: NativeProtocol = {
     });
   },
   protocol_register_adapter_native(docId, adapterId) {
+    recordIpcFreq("protocol_register_adapter_native", {
+      docId: resolveDocKey(docId),
+      adapterId,
+    });
     return invoke("protocol_register_adapter_native", {
       docId: resolveDocKey(docId),
       adapterId,
     });
   },
   protocol_seed_native(payloadJson, docId) {
+    recordIpcFreq("protocol_seed_native", { payloadJson, docId: resolveDocKey(docId) });
     return invoke("protocol_seed_native", { payloadJson, docId: resolveDocKey(docId) });
   },
   protocol_seed_canonical_native(payloadJson, docId) {
+    recordIpcFreq("protocol_seed_canonical_native", { payloadJson, docId: resolveDocKey(docId) });
     return invoke("protocol_seed_canonical_native", { payloadJson, docId: resolveDocKey(docId) });
   },
   protocol_canonical_native(docId) {
+    recordIpcFreq("protocol_canonical_native", { docId: resolveDocKey(docId) });
     return invoke("protocol_canonical_native", { docId: resolveDocKey(docId) });
   },
   protocol_snapshot_native(docId) {
+    recordIpcFreq("protocol_snapshot_native", { docId: resolveDocKey(docId) });
     return invoke("protocol_snapshot_native", { docId: resolveDocKey(docId) });
   },
   protocol_layer_ids_native(docId) {
+    recordIpcFreq("protocol_layer_ids_native", { docId: resolveDocKey(docId) });
     return invoke("protocol_layer_ids_native", { docId: resolveDocKey(docId) });
   },
   protocol_version_native(docId) {
+    recordIpcFreq("protocol_version_native", { docId: resolveDocKey(docId) });
     return invoke("protocol_version_native", { docId: resolveDocKey(docId) });
   },
 };
