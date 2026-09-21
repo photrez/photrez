@@ -269,6 +269,33 @@ pub fn protocol_version_native(doc_id: String) -> Result<u64, String> {
     Ok(doc.history.version())
 }
 
+/// Native read-only layer-id probe for the native `ProtocolEngine` authority.
+///
+/// Returns the per-doc native `ProtocolEngine`'s layer-id set as JSON (a bare
+/// array of id strings) WITHOUT serializing the full snapshot - the guarded
+/// metadata funnels only need membership, never values. There is NO wasm
+/// version export: the bridge parses the snapshot instead (same stance as the
+/// version probe). Reuses the same REGISTRY access the sibling native commands
+/// use (`registry()` -> `docs[doc].history`). Same missing-doc error stance as
+/// the siblings (`"document not open: {key}"`); native is the single canonical
+/// authority and reports a missing doc as an error. Same `""->"default"`
+/// normalization.
+#[tauri::command]
+pub fn protocol_layer_ids_native(doc_id: String) -> Result<String, String> {
+    let doc_key = resolve_doc_key(&doc_id).to_string();
+    let reg = registry();
+    let reg = reg
+        .as_ref()
+        .ok_or_else(|| "pixel store not initialized".to_string())?;
+    let doc = reg
+        .docs
+        .get(&doc_key)
+        .ok_or_else(|| format!("document not open: {doc_key}"))?;
+    let snap: RenderSnapshot = doc.history.snapshot();
+    let ids: Vec<&str> = snap.layers.iter().map(|l| l.id.as_str()).collect();
+    Ok(serde_json::to_string(&ids).unwrap())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,6 +380,42 @@ mod tests {
         let v = protocol_version_native(missing.to_string());
         assert!(v.is_err(), "missing doc must error");
         let err = v.unwrap_err();
+        assert!(
+            err.starts_with("document not open:") || err.starts_with("pixel store not initialized"),
+            "error must be a valid missing-doc rejection envelope, got: {err}"
+        );
+    }
+
+    const IDS_DOC: &str = "layer-ids-native-test-doc";
+
+    #[test]
+    fn layer_ids_native_returns_seeded_ids_only() {
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
+        open_doc(IDS_DOC);
+        // An empty doc probes to an empty id set with no snapshot serialization.
+        let empty = protocol_layer_ids_native(IDS_DOC.to_string()).expect("empty ids ok");
+        assert_eq!(empty, "[]");
+        // Seed two layers at version 3 through the sibling native seed command.
+        let payload = r#"{"version":3,"layers":[{"id":"L1","name":"Base","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0},{"id":"L2","name":"Top","visible":false,"opacity":0.5,"resourceId":2,"x":1,"y":2,"scaleX":1,"scaleY":1,"rotation":0}]}"#;
+        let seed = protocol_seed_native(payload.to_string(), IDS_DOC.to_string());
+        assert!(seed.is_ok(), "seed failed: {:?}", seed.err());
+
+        let out = protocol_layer_ids_native(IDS_DOC.to_string()).expect("ids ok");
+        let parsed: Vec<String> = serde_json::from_str(&out).expect("valid json");
+        assert_eq!(parsed, vec!["L1".to_string(), "L2".to_string()]);
+        close_doc(IDS_DOC);
+    }
+
+    #[test]
+    fn layer_ids_native_missing_doc_errors() {
+        // Same shared-registry caveat as snapshot_native_missing_doc_errors: do
+        // not mutate the global `registry()` here (it races the parallel suite).
+        // Assert a valid rejection envelope - either missing-doc stance is a
+        // correct rejection of a missing doc regardless of execution order.
+        let missing = "layer-ids-native-missing-doc-NOPE";
+        let out = protocol_layer_ids_native(missing.to_string());
+        assert!(out.is_err(), "missing doc must error");
+        let err = out.unwrap_err();
         assert!(
             err.starts_with("document not open:") || err.starts_with("pixel store not initialized"),
             "error must be a valid missing-doc rejection envelope, got: {err}"

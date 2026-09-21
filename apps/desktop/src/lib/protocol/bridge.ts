@@ -363,6 +363,31 @@ export async function getVersion(docId = "default"): Promise<number> {
   return (JSON.parse(j) as RenderSnapshot).version;
 }
 
+// Id-only membership probe: the guarded metadata funnels need the engine
+// layer-id set, never full layer values. Under native authority read it
+// directly via protocol_layer_ids_native (no snapshot serialization). A
+// backend that does not register the command rejects the invoke, and the
+// probe falls back to the full snapshot, so behavior is unchanged there. The
+// fallback also preserves the missing-doc error: the snapshot rejects the
+// same way the probe would, so no error is masked. Under wasm authority there
+// is no probe export (same stance as the version probe), so parse the
+// snapshot; without wasm use the emulator snapshot.
+export async function getLayerIds(docId = "default"): Promise<string[]> {
+  if (isNativeAuthority()) {
+    await awaitNativeSeed(docId);
+    try {
+      const j = await nativeProtocol.protocol_layer_ids_native(docId);
+      return JSON.parse(j) as string[];
+    } catch {
+      const snap = await getSnapshot(docId);
+      return (snap.layers ?? []).map((l) => l.id);
+    }
+  }
+  if (!wasm) return (emulateGetSnapshot().layers ?? []).map((l) => l.id);
+  const j = wasm.protocol_snapshot_json(docId);
+  return ((JSON.parse(j) as RenderSnapshot).layers ?? []).map((l) => l.id);
+}
+
 function toRustEnvelope(env: CommandEnvelope): unknown {
   const c = env.command;
   let rustCmd: unknown;

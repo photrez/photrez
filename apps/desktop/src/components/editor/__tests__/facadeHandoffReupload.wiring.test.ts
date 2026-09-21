@@ -119,4 +119,24 @@ describe("facade handoff re-upload sweep", () => {
 
     expect(renderer.uploadImage).not.toHaveBeenCalledWith("same", bitmap);
   });
+
+  it("changed layers re-upload FULL (no dirty rect): no covering region exists at this seam", async () => {
+    // Fallback contract: the undo delta restates capture-time metadata (the
+    // walker clones the entry capture, whose dirty_rect predates the undone
+    // step), and the TS bitmaps are opaque handles, so no rect here provably
+    // covers the changed pixels. Under-covering corrupts rendering, so the
+    // sweep uploads FULL until a region producer exists at this seam.
+    const facade = makeFacade({ external: false, emptyDelta: false });
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(facade as never);
+    const swapped = { width: 8, height: 8, close: vi.fn() } as unknown as ImageBitmap;
+    const layers: StubLayer[] = [{ id: "sw", imageBitmap: bitmap }];
+    const { ctx, renderer } = makeEditor(layers, () => {
+      layers[0] = { id: "sw", imageBitmap: swapped };
+    });
+    await runFacadeExternalHandoff(ctx, "undo");
+
+    expect(renderer.uploadImage).toHaveBeenCalledTimes(1);
+    expect(renderer.uploadImage).toHaveBeenCalledWith("sw", swapped);
+    for (const call of renderer.uploadImage.mock.calls) expect(call.length).toBe(2);
+  });
 });

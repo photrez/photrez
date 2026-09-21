@@ -17,6 +17,7 @@ import {
   applyCommand,
   ensureNativeEngineSeeded,
   getHistoryQuery,
+  getLayerIds,
   getSnapshot,
   historyCursorCommit,
   isFacadeEnabled,
@@ -150,7 +151,7 @@ export async function commitFacadeOpacity(
   // An id the engine never received keeps its old settled value, so a sent
   // value that already equals it would pass the check below. Confirm the
   // engine holds each id first and fail loud when one is absent.
-  const heldOpacity = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  const heldOpacity = new Set(await getLayerIds(f.docId));
   for (const id of route.ownedIds) {
     if (!heldOpacity.has(id)) {
       throw new Error(
@@ -212,7 +213,7 @@ export async function commitFacadeVisibility(
   // never received, so confirm each value landed and fail loud instead. The
   // membership check runs first because a sent value that already equals the
   // settled value would otherwise pass the check below.
-  const heldVisibility = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  const heldVisibility = new Set(await getLayerIds(f.docId));
   for (const id of route.ownedIds) {
     if (!heldVisibility.has(id)) {
       throw new Error(
@@ -251,7 +252,7 @@ export async function commitFacadeRename(
   // never received, so confirm each value landed and fail loud instead. The
   // membership check runs first because a sent name that already equals the
   // settled name would otherwise pass the check below.
-  const heldRename = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  const heldRename = new Set(await getLayerIds(f.docId));
   for (const id of route.ownedIds) {
     if (!heldRename.has(id)) {
       throw new Error(
@@ -291,7 +292,7 @@ export async function commitFacadeLock(
   // never received, so confirm each value landed and fail loud instead. The
   // membership check runs first because a sent flag that already equals the
   // settled flag would otherwise pass the check below.
-  const heldLock = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  const heldLock = new Set(await getLayerIds(f.docId));
   for (const id of route.ownedIds) {
     if (!heldLock.has(id)) {
       throw new Error(
@@ -336,7 +337,7 @@ export async function commitFacadeBlendMode(
   // never received, so confirm each value landed and fail loud instead. The
   // membership check runs first because a sent mode that already equals the
   // settled mode would otherwise pass the check below.
-  const heldBlend = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  const heldBlend = new Set(await getLayerIds(f.docId));
   for (const id of route.ownedIds) {
     if (!heldBlend.has(id)) {
       throw new Error(
@@ -382,7 +383,7 @@ export async function commitFacadeAdjustment(
   // The membership check runs first because a clear on an id that already has
   // no adjustment (or a send that already equals the settled channels) would
   // otherwise pass the check below.
-  const heldAdjustment = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  const heldAdjustment = new Set(await getLayerIds(f.docId));
   for (const id of route.ownedIds) {
     if (!heldAdjustment.has(id)) {
       throw new Error(
@@ -453,7 +454,7 @@ export async function commitFacadeParams(
   // must not read as a mismatch on a layer the engine does hold. The
   // membership check runs first because a send that already equals the settled
   // halves would otherwise pass the check below.
-  const heldParams = new Set(((await getSnapshot(f.docId)).layers ?? []).map((l) => l.id));
+  const heldParams = new Set(await getLayerIds(f.docId));
   for (const id of route.ownedIds) {
     if (!heldParams.has(id)) {
       throw new Error(

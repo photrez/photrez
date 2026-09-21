@@ -28,6 +28,7 @@ export interface NativeProtocol {
   protocol_seed_canonical_native: (payloadJson: string, docId: string) => Promise<string>;
   protocol_canonical_native: (docId: string) => Promise<string>;
   protocol_snapshot_native: (docId: string) => Promise<string>;
+  protocol_layer_ids_native: (docId: string) => Promise<string>;
   protocol_version_native: (docId: string) => Promise<number>;
 }
 
@@ -72,6 +73,9 @@ export const nativeProtocol: NativeProtocol = {
   },
   protocol_snapshot_native(docId) {
     return invoke("protocol_snapshot_native", { docId: resolveDocKey(docId) });
+  },
+  protocol_layer_ids_native(docId) {
+    return invoke("protocol_layer_ids_native", { docId: resolveDocKey(docId) });
   },
   protocol_version_native(docId) {
     return invoke("protocol_version_native", { docId: resolveDocKey(docId) });

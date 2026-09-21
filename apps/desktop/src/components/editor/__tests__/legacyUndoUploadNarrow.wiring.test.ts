@@ -197,4 +197,25 @@ describe("legacy undo upload narrow (single-layer undo uploads one layer)", () =
     // l1 is unchanged (shared ref) so it is skipped; the re-added l2 uploads.
     expect(ids).toEqual(["l2"]);
   });
+
+  it("changed layers re-upload FULL (no dirty rect): the entry carries ids, not regions", async () => {
+    // Fallback contract: history snapshots share whole bitmap objects and the
+    // entry records no changed region (region-carrying paint entries take the
+    // tile path and never reach this sweep), so FULL is the only covering
+    // upload. A full-bounds PATCH would add a scratch-canvas copy for the same
+    // bytes, so it is not used either. Pinned 2-arg so a future rect must be
+    // a provable sub-region, never a guess.
+    const beforeB = bmp("b");
+    const live = [makeLayer("l1", bmp("a-new")), makeLayer("l2", beforeB)];
+    const undone = [makeLayer("l1", bmp("a-old")), makeLayer("l2", beforeB)];
+    const h = makeHarness({ layers: undone });
+    h.setLive(live);
+    mockUseEditor(h.ctx);
+    const commands = useEditorCommands(() => {});
+    commands.undo();
+    await flush();
+    expect(h.uploadImage).toHaveBeenCalledTimes(1);
+    expect(h.uploadImage).toHaveBeenCalledWith("l1", expect.anything());
+    for (const call of h.uploadImage.mock.calls) expect(call.length).toBe(2);
+  });
 });

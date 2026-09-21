@@ -216,6 +216,7 @@ Registered and implemented, but NOT listed in `supported_commands` — they are 
 - `print_image_raw`, `get_printer_paper_sizes`
 - `get_print_settings`, `set_paper`, `toggle_orientation`, `set_orientation`, `set_margin`, `set_per_side_margins`, `set_scale_to_fit`, `set_scale_percent`, `set_center_image`, `set_top_offset_mm`, `set_left_offset_mm`, `set_copies`, `set_unit`, `set_show_paper_white`, `set_color_handling`, `set_rendering_intent`, `set_black_point_compensation`, `set_printer`, `open_printer_properties_and_apply`, `convert_mm_to_current_unit`, `convert_current_unit_to_mm`
 - `set_native_cursor`, `delete_file`, `delete_autosave_file`, `close_app`
+- `protocol_apply_command_native`, `protocol_history_query_native`, `protocol_history_cursor_commit_native`, `protocol_register_adapter_native`, `protocol_seed_native`, `protocol_seed_canonical_native`, `protocol_snapshot_native`, `protocol_layer_ids_native`, `protocol_canonical_native`, `protocol_version_native`
 
 Any addition or modification of the PUBLIC contract (7.1) must update this registry AND `PUBLIC_CONTRACT_COMMANDS` in `src/file_io.rs`. Internal commands (7.2) only need the registry above.
 

@@ -248,6 +248,7 @@ fn main() {
             protocol_native_cmds::protocol_seed_native,
             protocol_native_cmds::protocol_seed_canonical_native,
             protocol_native_cmds::protocol_snapshot_native,
+            protocol_native_cmds::protocol_layer_ids_native,
             protocol_native_cmds::protocol_canonical_native,
             protocol_native_cmds::protocol_version_native,
         ])
