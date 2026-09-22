@@ -71,7 +71,7 @@ import {
 } from "./layerOps";
 import { renderShapeToBitmap } from "./shapeRaster";
 import { normalizeTextData, type TextData } from "./textTypes";
-import { rasterizeText } from "./textRasterizer";
+import { rasterizeText, type RasterizeOptions } from "./textRasterizer";
 import type { ShapeParams } from "./types";
 import {
   setViewport as applySetViewport,
@@ -786,11 +786,13 @@ export class DocumentEngine {
     return layer;
   }
 
-  updateTextData(id: LayerId, data: TextData): void {
+  updateTextData(id: LayerId, data: TextData, opts?: RasterizeOptions): void {
     const layer = this.getLayer(id);
     if (!layer || layer.type !== "text") return; // no-op on non-text
     const normalized = normalizeTextData(data);
-    const { imageBitmap, width, height } = rasterizeText(normalized);
+    // Preview keeps the committed textData (real boxHeight) while the pixels
+    // shrink to the ink height; omitting opts (commit path) restores full-box.
+    const { imageBitmap, width, height } = rasterizeText(normalized, undefined, opts);
     layer.width = width;
     layer.height = height;
     layer.textData = normalized;

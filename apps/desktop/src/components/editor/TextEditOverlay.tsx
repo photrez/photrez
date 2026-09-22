@@ -165,7 +165,7 @@ export function TextEditOverlay() {
     }
   });
 
-  const pushContent = (content: string, engineOverride?: DocumentEngine | null) => {
+  const pushContent = (content: string, engineOverride?: DocumentEngine | null, isPreview = false) => {
     const s = session();
     if (!s) return;
     // Engine override: commit/cancel pass the SESSION's engine (the doc-switch
@@ -175,17 +175,37 @@ export function TextEditOverlay() {
     if (!engine) return;
     const l = engine.getLayer(s.layerId);
     if (!l || l.type !== "text" || !l.textData) return;
+    // Tight-height live preview: area text with a real box rasters only the
+    // content ink height per keystroke; the commit flush (isPreview false)
+    // keeps the full box. boxWidth is identical either way so wraps never
+    // move. Single revert point: the `true` passed by schedulePush below.
+    const tight = isPreview && l.textData.boxMode === "area" && l.textData.boxHeight > 0;
     if (isFacadeEnabled() && isFacadeOwnedLayer(s.layerId)) {
       // The native arm owns this layer's textData and engine.updateTextData has no
       // ownership guard: writing the model here would let the two copies drift
       // until some later projection clobbered one of them. Rasterize host-side so
       // the frame still shows the typed text; the content itself reaches the
       // native side once, at session close (commitRoutedContent below).
-      renderer?.uploadImage(s.layerId, rasterizeText({ ...l.textData, content }).imageBitmap);
+      const raster = rasterizeText({ ...l.textData, content }, undefined, tight ? { preview: true } : undefined);
+      renderer?.uploadImage(s.layerId, raster.imageBitmap);
+      if (tight) {
+        // The committed quad stays full-box (model untouched), so a shorter
+        // texture would stretch: shrink the quad to the tight raster at the
+        // same box origin (same x/width, glyphs draw top-down in both).
+        setTransformPreview([
+          { layerId: s.layerId, transform: { ...l.transform }, width: raster.width, height: raster.height },
+        ]);
+      } else {
+        clearTransformPreview();
+      }
       scheduler.requestRender();
       return;
     }
-    engine.updateTextData(s.layerId, { ...l.textData, content });
+    // Legacy path: the quad follows the model dims, so a tight model write
+    // needs no compensation. Two call shapes (not an explicit undefined)
+    // so the commit call stays byte-identical to the pre-preview code.
+    if (tight) engine.updateTextData(s.layerId, { ...l.textData, content }, { preview: true });
+    else engine.updateTextData(s.layerId, { ...l.textData, content });
     const bitmap = engine.getLayerImageBitmap(s.layerId);
     if (bitmap) renderer?.uploadImage(s.layerId, bitmap);
     scheduler.requestRender();
@@ -212,7 +232,10 @@ export function TextEditOverlay() {
     if (pushTimer) clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
       pushTimer = undefined;
-      pushContent(content);
+      // Live keystroke: tight preview (see pushContent). Commit paths call
+      // pushContent directly without the flag, so this `true` is the single
+      // revert point for the preview.
+      pushContent(content, undefined, true);
     }, RERASTER_DEBOUNCE_MS);
   };
 

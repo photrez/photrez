@@ -266,4 +266,26 @@ describe("text bitmap disposal (B5)", () => {
     s.engine.updateTextData(layer.id, { ...DEFAULT_TEXT_DATA, content: "Hello World" });
     expect(b0.close).not.toHaveBeenCalled();
   });
+
+  it("updateTextData preview keeps the committed box height while shrinking the live bitmap", () => {
+    const s = makeSession();
+    const layer = s.engine.addTextLayer("Text 1", {
+      ...DEFAULT_TEXT_DATA,
+      content: "Hi",
+      boxMode: "area",
+      boxWidth: 100,
+      boxHeight: 600,
+    });
+    s.engine.updateTextData(layer.id, { ...layer.textData!, content: "Hi!" }, { preview: true });
+    const previewed = s.engine.getLayer(layer.id)!;
+    // The committed box survives in textData; only the live pixels shrink.
+    expect(previewed.textData!.boxHeight).toBe(600);
+    expect(previewed.height).toBeGreaterThan(0);
+    expect(previewed.height).toBeLessThan(600);
+    // The commit write (no preview opt) restores the full box height.
+    s.engine.updateTextData(layer.id, { ...previewed.textData!, content: "Hi!" });
+    const committed = s.engine.getLayer(layer.id)!;
+    expect(committed.height).toBe(600);
+    expect(committed.textData!.boxHeight).toBe(600);
+  });
 });

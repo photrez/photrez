@@ -18,7 +18,7 @@ import type { EditorAccessors } from "./pointerToolContext";
 import type { LayerNode } from "@/engine/types";
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
-import { isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { isFacadeEnabled, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
 import { type TextData, DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import type { TextEditSession } from "../../tools/editorState";
 
@@ -519,6 +519,9 @@ export function cancelTextSession(editor: TextSessionEditor): void {
     if (engine && editor.renderer) {
       const previewed = engine.getLayerImageBitmap(session.layerId);
       if (previewed) editor.renderer.uploadImage(session.layerId, previewed);
+      // Drop the tight typing preview so the restored full-box bitmap draws
+      // at full size (the preview quad would otherwise squeeze it).
+      clearTransformPreview();
     }
     if (engine && typeof engine.setRenderHiddenLayerId === "function") {
       engine.setRenderHiddenLayerId(null);

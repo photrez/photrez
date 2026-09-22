@@ -238,12 +238,22 @@ export interface RasterizeResult {
 }
 
 /**
+ * Live-preview opt-in: skip the committed-box height floor so the raster hugs
+ * the content ink height. Explicit flag (never boxHeight 0) so it cannot leak
+ * into textData and destroy the committed box, and so every existing caller
+ * keeps byte-identical output by default.
+ */
+export interface RasterizeOptions {
+  preview?: boolean;
+}
+
+/**
  * Rasterizes text data at RASTER_SCALE (2x) for crisp rendering. Invalid
  * input is normalized (never throws); bitmap dims are clamped to 8192.
  * The returned ImageBitmap is owned by the caller: call `imageBitmap.close()`
  * when it is replaced or disposed.
  */
-export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
+export function rasterizeText(data: TextData, scale?: number, opts?: RasterizeOptions): RasterizeResult {
   const normalized = normalizeTextData(data);
   const effScale = resolveScale(scale);
   const fontPx = normalized.fontSize * effScale;
@@ -325,7 +335,15 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   // could overhang the box bottom by a few px — accepted trade-off for the
   // tight box (the old formula never clipped but wasted a full line-height).
   const inkPerLine = Math.max(normalized.lineHeight * fontPx, ascent + descent);
-  const minBoxHeight = normalized.boxMode === "area" && normalized.boxHeight > 0 ? normalized.boxHeight * effScale : 0;
+  // Live preview skips the box floor: the bitmap hugs the content ink height.
+  // boxWidth is identical either way, so line breaks never move between the
+  // preview and the commit.
+  const minBoxHeight =
+    opts?.preview === true
+      ? 0
+      : normalized.boxMode === "area" && normalized.boxHeight > 0
+        ? normalized.boxHeight * effScale
+        : 0;
   const canvasH = Math.min(
     MAX_CANVAS_DIM,
     Math.max(

@@ -22,7 +22,7 @@
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import type { TextData } from "@/engine/textTypes";
-import { commitFacadeParams, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { clearTransformPreview, commitFacadeParams, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
 import { showToast } from "../Toast";
 
 export interface TextParamsRouterDeps {
@@ -149,6 +149,10 @@ export function commitTextParamsEdit(
       const sessionBitmap = engine.getLayerImageBitmap(layerId);
       if (sessionBitmap) deps.renderer?.uploadImage(layerId, sessionBitmap);
     }
+    // The bitmap just uploaded is the full box, so a tight typing quad still
+    // held for this layer has to go: it would squeeze the fresh bitmap until
+    // session close. No-op when no preview is set.
+    clearTransformPreview();
     deps.scheduler?.requestRender();
     deps.notifyVisualChange?.();
     return;

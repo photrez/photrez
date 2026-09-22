@@ -44,6 +44,7 @@ import {
   transformPreview,
 } from "@/lib/protocol/facadeRegistry";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { rasterizeText } from "@/engine/textRasterizer";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import type { CommandEnvelope } from "@/lib/protocol/types";
@@ -514,6 +515,74 @@ describe("TextEditOverlay content path", () => {
     expect(commandLog.types).toEqual([]);
     expect(textDataOf(h).content).toBe("hello");
     expect(h.history.getUndoCount()).toBe(0);
+    expect(h.container.querySelector("[data-text-edit-overlay]")).toBeNull();
+    h.cleanup();
+  });
+
+  it("owned layer: typing sets the tight preview quad, and both exits clear it", async () => {
+    const h = await setup({ owned: true });
+    const overlayBox = () =>
+      h.container.querySelector("[data-text-edit-overlay]") as HTMLTextAreaElement;
+
+    // Round 1: type, wait out the 50ms re-raster debounce with real timers
+    // (the same 80ms wait the flag-OFF push test uses), then Ctrl+Enter.
+    const first = overlayBox();
+    first.value = "hello world";
+    first.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settle();
+
+    // The quad tracks the tight raster, not the full box: identical dims to a
+    // preview raster of the typed content, and shorter than the model box.
+    const expected = rasterizeText({ ...textDataOf(h), content: "hello world" }, undefined, {
+      preview: true,
+    });
+    expect(expected.height).toBeLessThan(BOX.h);
+    const preview = transformPreview();
+    expect(preview).toHaveLength(1);
+    expect(preview[0]).toMatchObject({
+      layerId: h.layerId,
+      width: expected.width,
+      height: expected.height,
+    });
+
+    first.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+    await settle();
+
+    expect(commandLog.types).toEqual(["setLayerParams"]);
+    expect(textDataOf(h).content).toBe("hello world");
+    expect(transformPreview()).toEqual([]);
+    expect(h.container.querySelector("[data-text-edit-overlay]")).toBeNull();
+
+    // Round 2: reopen on the same layer, type again, abandon with Escape.
+    h.setSession({
+      layerId: h.layerId,
+      docX: START.x,
+      docY: START.y,
+      boxMode: "area",
+      boxWidth: BOX.w,
+      boxHeight: BOX.h,
+      isNewLayer: false,
+      preSnapshot: {
+        layers: [{ id: h.layerId, type: "text", textData: { ...textDataOf(h) } }],
+      } as never,
+    });
+    await settle();
+
+    const commandsBeforeEscape = commandLog.types.length;
+    const second = overlayBox();
+    second.value = "hello world plus more";
+    second.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settle();
+    expect(transformPreview()).toHaveLength(1);
+
+    second.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await settle();
+
+    expect(commandLog.types).toHaveLength(commandsBeforeEscape);
+    expect(textDataOf(h).content).toBe("hello world");
+    expect(transformPreview()).toEqual([]);
     expect(h.container.querySelector("[data-text-edit-overlay]")).toBeNull();
     h.cleanup();
   });

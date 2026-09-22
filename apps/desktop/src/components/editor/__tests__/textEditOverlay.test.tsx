@@ -533,4 +533,32 @@ describe("TextEditOverlay", () => {
     expect(ta.rows).toBe(1);
     cleanup();
   });
+
+  it("area typing pushes a tight preview; Ctrl+Enter commits the full box", () => {
+    vi.useFakeTimers();
+    const { setSession, engine, commit, layer } = buildMock("Hi");
+    layer.textData = { ...layer.textData!, boxMode: "area", boxWidth: 100, boxHeight: 600 };
+    const { container, cleanup } = mountOverlay();
+    setSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "area", boxWidth: 100, boxHeight: 600, isNewLayer: false, preSnapshot: { layers: [] } as any });
+
+    const ta = qs<HTMLTextAreaElement>(container, "[data-text-edit-overlay]")!;
+    ta.value = "Hi!";
+    ta.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    vi.advanceTimersByTime(50);
+    // Live keystroke: tight preview raster, committed box untouched.
+    expect(engine.updateTextData).toHaveBeenCalledWith(
+      "text-1",
+      expect.objectContaining({ content: "Hi!", boxHeight: 600, boxWidth: 100 }),
+      { preview: true },
+    );
+
+    // Commit: full-box write with no preview opt, one undo step.
+    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+    expect(engine.updateTextData).toHaveBeenLastCalledWith(
+      "text-1",
+      expect.objectContaining({ content: "Hi!" }),
+    );
+    expect(commit).toHaveBeenCalled();
+    cleanup();
+  });
 });

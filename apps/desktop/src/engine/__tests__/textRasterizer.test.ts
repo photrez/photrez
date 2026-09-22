@@ -588,3 +588,54 @@ describe("rasterizeText", () => {
     expect(outsideRec.ctx.lineWidth).toBe(16);
   });
 });
+
+describe("rasterizeText preview (tight live raster)", () => {
+  let instances: RasterRecord[];
+  beforeEach(() => {
+    instances = setupOffscreenCanvasMock();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  // Tall area box, short wrapping content: the committed raster fills the
+  // whole box while the live preview only needs the content ink height.
+  const tallArea = {
+    ...DEFAULT_TEXT_DATA,
+    boxMode: "area" as const,
+    boxWidth: 100,
+    boxHeight: 600,
+    content: "aaa bbb ccc",
+  };
+
+  function allPaints(): PaintCall[] {
+    return instances.reduce<PaintCall[]>((acc, r) => acc.concat(r.paints), []);
+  }
+
+  it("preview height is the content ink height: above zero, below the full box", () => {
+    const full = rasterizeText(tallArea);
+    const prev = rasterizeText(tallArea, undefined, { preview: true });
+    expect(full.height).toBe(600);
+    expect(prev.height).toBeGreaterThan(0);
+    expect(prev.height).toBeLessThan(full.height);
+    const fullBmp = full.imageBitmap as unknown as { height: number };
+    const prevBmp = prev.imageBitmap as unknown as { height: number };
+    expect(prevBmp.height).toBeLessThan(fullBmp.height);
+  });
+
+  it("preview keeps byte-identical glyphs and line breaks (wrap invariance)", () => {
+    const n0 = allPaints().length;
+    rasterizeText(tallArea);
+    const fullPaints = allPaints().slice(n0);
+    // The paragraph wraps at boxWidth 100: three lines at the shared mock.
+    expect(fullPaints.length).toBe(3);
+    const n1 = allPaints().length;
+    rasterizeText(tallArea, undefined, { preview: true });
+    const prevPaints = allPaints().slice(n1);
+    // Same words per line, same positions: boxWidth selects breaks for both.
+    expect(prevPaints).toEqual(fullPaints);
+  });
+
+  it("omitting preview (commit path) keeps the full box height", () => {
+    const result = rasterizeText(tallArea);
+    expect(result.height).toBe(600);
+  });
+});
