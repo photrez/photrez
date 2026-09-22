@@ -75,6 +75,7 @@ export const PERF_AUDIT_OPS: readonly string[] = [
   "drag-per-move",
   "gpu-composite",
   "text-raster",
+  "text-raster-preview",
   "shape-raster",
   "ipc-probe",
 ];
@@ -448,6 +449,37 @@ export const defaultRunners: Record<string, RowRunner> = {
       uploadMs: NOT_PART,
       snapHistMs: NOT_PART,
       notes: `${n}x area-mode full-doc text raster; a keystroke also pays upload on top`,
+    };
+  },
+
+  "text-raster-preview": async (s) => {
+    const { rasterizeText } = await import("@/engine/textRasterizer");
+    const { DEFAULT_TEXT_DATA } = await import("@/engine/textTypes");
+    const n = 3;
+    let wall = 0;
+    for (let i = 0; i < n; i++) {
+      const t = performance.now();
+      const res = rasterizeText(
+        {
+          ...DEFAULT_TEXT_DATA,
+          content: `Perf audit line ${i}`,
+          boxMode: "area",
+          boxWidth: s.width,
+          boxHeight: s.height,
+        },
+        undefined,
+        { preview: true },
+      );
+      wall += performance.now() - t;
+      closeUnknown(res);
+    }
+    return {
+      totalMs: round1(wall),
+      invokeMs: NOT_PART,
+      rasterMs: round1(wall),
+      uploadMs: NOT_PART,
+      snapHistMs: NOT_PART,
+      notes: `${n}x area-mode full-doc text raster; a keystroke also pays upload on top (preview flag)`,
     };
   },
 
