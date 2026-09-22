@@ -39,6 +39,11 @@
  * because each mode is a full app launch (~minutes); run both explicitly
  * when you can afford two launches.
  *
+ * The reupload probe adds per-undo GPU texture re-uploads (uploads/rep,
+ * bytes/rep, wall) on an 8-layer 512x512 doc, read from a DEV-only
+ * in-client upload counter (window.__uploadFreq, recorded by
+ * WebGL2Backend.uploadImage). Native mode only.
+ *
  * Exit codes: 0 = captured, 1 = failure (stage named on stderr), 2 = blocked by env.
  *
  * Public-clean: ASCII only, no internal plan codenames.
@@ -62,6 +67,17 @@ const N = Math.max(1, Math.min(1000, Number(process.env.PHOTREZ_FREQ_N || 10)));
 // seed); small bitmaps only so layer-count scaling dominates pixel scaling.
 const SCALE_SIZES = [1, 8, 32];
 const SCALE_REPS = 5;
+
+// Reupload probe (no new env knobs): per-undo GPU texture re-uploads on a
+// multi-layer doc with real pixel sizes. 8 layers x 512x512 RGBA (8 MB of
+// textures). Each rep deletes one seeded layer (unmeasured seed) then undoes
+// that delete through the production facade-history handoff, which is the
+// seam that re-uploads restored layers FULL. Reports uploads/rep +
+// bytes/rep + wall. Native mode only; legacy gets a SKIP row.
+const REUPLOAD_LAYERS = 8;
+const REUPLOAD_W = 512;
+const REUPLOAD_H = 512;
+const REUPLOAD_REPS = 5;
 
 const MODE_RAW = String(process.env.PHOTREZ_FREQ_MODE || "native").trim().toLowerCase();
 const MODE = ["native", "legacy", "both"].includes(MODE_RAW) ? MODE_RAW : "native";
@@ -228,6 +244,38 @@ async function connectCdp() {
   await cdp.connect();
   await cdp.enableRuntime();
   return cdp;
+}
+
+// Wrong-target guard: during churned boot the first listed page can be a
+// transitional or error document whose context denies localStorage, so flag
+// seeding throws an eval exception there. Probe each candidate in its LIVE
+// document and only accept a target proving (i) an http(s)/tauri localhost
+// app URL, (ii) window.__TAURI_INTERNALS__, and (iii) readable localStorage
+// (one getItem read, never a write). Rejected candidates are closed, not killed.
+const APP_TARGET_PROBE_EXPR = `(async () => { const href = String((typeof location !== "undefined" && location.href) || ""); if (!/^(https?:\\/\\/(localhost|127\\.0\\.0\\.1)(:\\d+)?\\/|tauri:\\/\\/)/.test(href)) return { ok: false, href }; if (typeof window === "undefined" || !window.__TAURI_INTERNALS__) return { ok: false, href }; try { const ls = window.localStorage; if (!ls) return { ok: false, href }; void ls.getItem("photrez.attach.probe"); } catch (e) { return { ok: false, href }; } return { ok: true, href }; })()`;
+
+async function connectVerifiedAppTarget() {
+  let targets = [];
+  try {
+    targets = (await fetchCdpTargets()).filter(isAppTarget);
+  } catch {
+    return { cdp: null, target: null, seen: [] };
+  }
+  const seen = targets.map((t) => String(t.url || ""));
+  for (const target of targets) {
+    let cdp = null;
+    try {
+      cdp = new Cdp(target.webSocketDebuggerUrl);
+      await cdp.connect();
+      await cdp.enableRuntime();
+      const res = await cdp.evaluate(APP_TARGET_PROBE_EXPR, 10000);
+      if (res && res.ok) return { cdp, target, seen };
+    } catch {}
+    try {
+      if (cdp) cdp.close();
+    } catch {}
+  }
+  return { cdp: null, target: null, seen };
 }
 
 async function waitDocReady(cdp, timeoutMs) {
@@ -639,6 +687,150 @@ async function runScaledGestures(cdp) {
   return rows;
 }
 
+// Reupload probe: per-undo GPU texture re-uploads (the unmeasured undo cost:
+// which layers re-upload per undo on a multi-layer doc, plus bytes + wall).
+// Seeds an 8-layer 512x512 doc with real gradient bitmaps through the same
+// blank-doc + facade-seed path as FREQ_SETUP_FN, then per rep deletes one
+// seeded layer (unmeasured seed, counter reset after) and undoes that delete
+// through the production runFacadeExternalHandoff seam - the branch that
+// re-uploads restored layers FULL. Reads the DEV-only window.__uploadFreq
+// counter WebGL2Backend.uploadImage maintains; wall is page-side
+// performance.now around the handoff call. Native mode only: with the facade
+// off the handoff falls through to legacy history and records nothing.
+const UPLOAD_RESET_EXPR =
+  "(function(){try{if(!Array.isArray(window.__uploadFreq)){window.__uploadFreq=[];}else{window.__uploadFreq.length=0;}window.__uploadFreqDropped=0;}catch(e){}return true;})()";
+const UPLOAD_READ_EXPR =
+  "(function(){try{var a=window.__uploadFreq;var d=(typeof window.__uploadFreqDropped==='number'?window.__uploadFreqDropped:0);if(!Array.isArray(a)){return{events:[],count:0,dropped:d};}return{events:a.slice(),count:a.length,dropped:d};}catch(e){return{events:[],count:0,dropped:0};}})()";
+
+const REUPLOAD_SETUP_FN = `
+(async () => {
+  const mod = await import(location.origin + '/src/lib/protocol/facadeRegistry.ts');
+  const ed = window.__photrezEditor;
+  const ws = ed.workspace;
+  const id = 'fq-reupload-' + Date.now();
+  const session = ws.constructor.createBlankDocument(id, 'Reupload Doc', ${REUPLOAD_W}, ${REUPLOAD_H}, { backgroundColor: 'white' });
+  ws.addDocument(session);
+  const engine = session.engine;
+  if (!engine) throw new Error('[fq-reupload-setup] created session has no engine');
+  const facade = mod.getFacade(id);
+  await mod.seedFacadeFromEngine(engine, facade);
+  async function gradientBitmap(w, h, seed) {
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = seed % 2 ? '#8090a0' : '#203040';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 8; i++) ctx.fillRect((i * w) / 8, 0, 2, h);
+    return canvas.transferToImageBitmap();
+  }
+  // Route layer creation through the facade, not engine.addLayer: the native
+  // seed is first-wins on the blank doc, so TS-side layers stay unknown to the
+  // native engine and a later delete/undo pair yields an empty delta (the
+  // handoff falls through on every rep). Facade adds give the native engine
+  // real ids plus native history entries, so each rep's delete/undo carries a
+  // non-empty delta and the handoff reports handled.
+  for (let k = 1; k < ${REUPLOAD_LAYERS}; k++) {
+    const beforeIds = new Set(engine.getLayers().map((l) => l.id));
+    const snap = await facade.addLayer('ru-' + k, ${REUPLOAD_W}, ${REUPLOAD_H});
+    engine.applyFacadeSnapshot(snap);
+    const freshIds = engine.getLayers().map((l) => l.id).filter((nid) => !beforeIds.has(nid));
+    if (freshIds.length !== 1) throw new Error('[fq-reupload-setup] new layer id mismatch: want 1 fresh id, have ' + freshIds.length);
+    engine.setLayerImageBitmap(freshIds[0], await gradientBitmap(${REUPLOAD_W}, ${REUPLOAD_H}, k));
+  }
+  const layerCount = engine.getLayers().length;
+  if (layerCount < ${REUPLOAD_LAYERS}) throw new Error('[fq-reupload-setup] facade adds failed: have ' + layerCount + ' layers, want ${REUPLOAD_LAYERS}');
+  const withPixels = engine.getLayers().filter((l) => !l.isBackground && !!l.imageBitmap);
+  if (withPixels.length === 0) throw new Error('[fq-reupload-setup] bitmap attach failed: ' + layerCount + ' layers but none carries pixels');
+  const victim = withPixels[0];
+  window.__fqRu = { mod, engine, facade, ws, docId: id, victimId: victim.id };
+  return { docId: id, layerCount: engine.getLayers().length, victimId: victim.id, w: ${REUPLOAD_W}, h: ${REUPLOAD_H} };
+})()
+`;
+
+function aggregateUploads(events) {
+  const byKind = { upload_full: 0, upload_patch: 0 };
+  let bytes = 0;
+  for (const e of events) {
+    if (e.kind === "patch") byKind.upload_patch += 1;
+    else byKind.upload_full += 1;
+    if (typeof e.bytes === "number" && e.bytes > 0) bytes += e.bytes;
+  }
+  const total = events.length;
+  const byCommand = {};
+  if (byKind.upload_full) byCommand.upload_full = byKind.upload_full;
+  if (byKind.upload_patch) byCommand.upload_patch = byKind.upload_patch;
+  return { total, bytes, byCommand };
+}
+
+async function runReupload(cdp, modeName) {
+  if (modeName !== "native") {
+    return [{ gesture: "reupload-undo", skipped: true, reason: "facade handoff inactive in legacy mode (native-only probe)" }];
+  }
+  let setup = null;
+  try {
+    setup = await cdp.evaluate(REUPLOAD_SETUP_FN, EVAL_TIMEOUT_MS);
+  } catch (e) {
+    return [{ gesture: "reupload-undo", skipped: true, reason: clean(e?.message || String(e)).slice(0, 120) }];
+  }
+  if (!setup || !setup.victimId) {
+    return [{ gesture: "reupload-undo", skipped: true, reason: "seed produced no layer with pixels" }];
+  }
+  const wallMs = [];
+  let totalUploads = 0;
+  let totalBytes = 0;
+  const byCommand = {};
+  let handled = 0;
+  let failed = null;
+  let totalDropped = 0;
+  for (let i = 0; i < REUPLOAD_REPS; i++) {
+    try {
+      await cdp.evaluate(
+        "(async () => { const s = window.__fqRu; const snap = await s.facade.deleteLayer(s.victimId); s.engine.applyFacadeSnapshot(snap); return true; })()",
+        EVAL_TIMEOUT_MS,
+      );
+      await cdp.evaluate(UPLOAD_RESET_EXPR, EVAL_TIMEOUT_MS);
+      const timed = await cdp.evaluate(
+        "(async () => { const hh = await import(location.origin + '/src/components/editor/facadeHistoryHandoff.ts'); const t0 = performance.now(); const ok = await hh.runFacadeExternalHandoff(window.__photrezEditor, 'undo'); const dt = performance.now() - t0; return { ms: dt, handled: ok }; })()",
+        EVAL_TIMEOUT_MS,
+      );
+      const read = await cdp.evaluate(UPLOAD_READ_EXPR, EVAL_TIMEOUT_MS);
+      const agg = aggregateUploads(read.events || []);
+      totalUploads += agg.total;
+      totalBytes += agg.bytes;
+      if (typeof read.dropped === "number") totalDropped += read.dropped;
+      for (const [cmd, c] of Object.entries(agg.byCommand)) {
+        byCommand[cmd] = (byCommand[cmd] || 0) + c;
+      }
+      if (timed && typeof timed.ms === "number") wallMs.push(timed.ms);
+      if (timed && timed.handled) handled += 1;
+    } catch (e) {
+      failed = clean(e?.message || String(e)).slice(0, 120);
+      break;
+    }
+  }
+  if (failed !== null) {
+    return [{ gesture: "reupload-undo", skipped: true, reason: failed }];
+  }
+  if (handled === 0) {
+    return [{ gesture: "reupload-undo", skipped: true, reason: "handoff fell through on every rep (no facade delta)" }];
+  }
+  return [{
+    gesture: "reupload-undo",
+    reps: REUPLOAD_REPS,
+    totalInvokes: totalUploads,
+    meanPerRep: totalUploads / REUPLOAD_REPS,
+    meanWallMs: wallMs.length
+      ? Number((wallMs.reduce((s, v) => s + v, 0) / wallMs.length).toFixed(2))
+      : null,
+    fvMs: null,
+    argsBytesTotal: totalBytes,
+    byCommand,
+    dropped: totalDropped,
+    layers: (setup && setup.layerCount) || REUPLOAD_LAYERS,
+    note: "reupload probe: GPU texture uploads per facade-undo on a " + REUPLOAD_LAYERS + "-layer " + REUPLOAD_W + "x" + REUPLOAD_H + " doc over " + REUPLOAD_REPS + " reps (" + handled + "/" + REUPLOAD_REPS + " handled); wall excludes the composited frame",
+  }];
+}
+
 // Table columns carry mean ms where a row measured it page-side
 // (scale probes and gesture walls); "-" where no page-side timer ran.
 // The notes column repeats each row's caveat (gesture walls exclude the
@@ -701,14 +893,25 @@ async function captureForMode(modeName, flagRaw) {
       return { ok: false };
     }
     log("CDP endpoint ready; attaching...");
-    let attachTarget = null;
+    // Verify before flag seeding: connect to the exact probed target, re-listing
+    // on every pass within the attach budget and skipping pages that fail the
+    // live-document probe (transitional/error documents deny localStorage).
+    let probe = null;
+    let seenUrls = [];
     const attachT0 = Date.now();
     while (Date.now() - attachT0 < 90000) {
-      try { attachTarget = await findPageTarget(); if (attachTarget) break; } catch {}
+      try {
+        probe = await connectVerifiedAppTarget();
+        if (probe.cdp) break;
+        seenUrls = probe.seen;
+      } catch {}
       await sleep(1000);
     }
-    cdp = attachTarget ? await connectCdp() : null;
-    if (!cdp) { fail("attach", "no page target with webSocketDebuggerUrl."); return { ok: false }; }
+    cdp = probe && probe.cdp ? probe.cdp : null;
+    if (!cdp) {
+      fail("attach", "no verified app target (live document with app URL, tauri internals, readable localStorage). observed: " + clean(seenUrls.join(" | ")).slice(0, 300));
+      return { ok: false };
+    }
     if (!(await waitDocReady(cdp, 60000))) { fail("ready", "document never ready before flag seeding."); return { ok: false }; }
     // Single reload seeds the mode flags into localStorage before the app
     // boots. It exists for flags, not for the counter: the DEV recorder
@@ -770,6 +973,7 @@ async function captureForMode(modeName, flagRaw) {
     for (const s of await runStretch(cdp)) rows.push(s);
     for (const s of await runSnapshotScale(cdp)) rows.push(s);
     for (const s of await runScaledGestures(cdp)) rows.push(s);
+    for (const s of await runReupload(cdp, modeName)) rows.push(s);
     if (modeName === "native") {
       const total = rows.filter((r) => !r.skipped).reduce((s, r) => s + (r.totalInvokes || 0), 0);
       if (total === 0) err("WARN [counter]: native-mode gesture table totals zero across all reps; counts may indicate a bypassed seam.");
