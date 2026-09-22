@@ -28,6 +28,63 @@ interface SyncStateParams {
 
 export function setupWorkspaceSync(params: SyncStateParams) {
   let lastDocId: string | null = null;
+  // Identity cache for the published layer rows. Reorder drop math reads
+  // `data-layer-idx` from live DOM rows and the panel harness assumes a
+  // reorder recreates rows, so ANY id-sequence change (add/remove/reorder)
+  // emits fresh row objects for every row and re-anchors the cache. Toggles
+  // never reorder, so the same-sequence path reuses the previous row object
+  // on field equality and only the edited row is recreated. Every sync still
+  // publishes a new array so the signal fires.
+  let prevRows: LayerNode[] | null = null;
+
+  const copyLayer = (l: LayerNode): LayerNode => ({
+    ...l,
+    transform: { ...l.transform },
+    // Nested params are small plain objects: copy by value so a later
+    // in-place engine mutation can never alias a cached row.
+    ...(l.basicAdjustment ? { basicAdjustment: { ...l.basicAdjustment } } : null),
+    ...(l.shapeParams
+      ? {
+          shapeParams: {
+            ...l.shapeParams,
+            fill: { ...l.shapeParams.fill },
+            stroke: { ...l.shapeParams.stroke },
+          },
+        }
+      : null),
+    ...(l.textData ? { textData: { ...l.textData, stroke: { ...l.textData.stroke } } } : null),
+  });
+
+  const rowsEqual = (a: LayerNode, b: LayerNode): boolean =>
+    a.id === b.id &&
+    a.name === b.name &&
+    a.type === b.type &&
+    a.visible === b.visible &&
+    a.opacity === b.opacity &&
+    a.locked === b.locked &&
+    a.isBackground === b.isBackground &&
+    a.lockTransparency === b.lockTransparency &&
+    a.lockPosition === b.lockPosition &&
+    a.lockRotation === b.lockRotation &&
+    a.hasAdjustments === b.hasAdjustments &&
+    a.blendMode === b.blendMode &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.imageBitmap === b.imageBitmap &&
+    a.baseImageBitmap === b.baseImageBitmap &&
+    a.bitmapEpoch === b.bitmapEpoch &&
+    a.transform.x === b.transform.x &&
+    a.transform.y === b.transform.y &&
+    a.transform.scaleX === b.transform.scaleX &&
+    a.transform.scaleY === b.transform.scaleY &&
+    a.transform.rotation === b.transform.rotation &&
+    a.transform.flipH === b.transform.flipH &&
+    a.transform.flipV === b.transform.flipV &&
+    (a.basicAdjustment?.brightness ?? 0) === (b.basicAdjustment?.brightness ?? 0) &&
+    (a.basicAdjustment?.contrast ?? 0) === (b.basicAdjustment?.contrast ?? 0) &&
+    (a.basicAdjustment?.saturation ?? 0) === (b.basicAdjustment?.saturation ?? 0) &&
+    JSON.stringify(a.shapeParams ?? null) === JSON.stringify(b.shapeParams ?? null) &&
+    JSON.stringify(a.textData ?? null) === JSON.stringify(b.textData ?? null);
 
   const syncState = () => {
     batch(() => {
@@ -35,11 +92,24 @@ export function setupWorkspaceSync(params: SyncStateParams) {
       const activeId = params.workspace.getActiveDocumentId();
       const docChanged = activeId !== lastDocId;
       lastDocId = activeId;
+      if (docChanged) prevRows = null;
       params.setActiveDocumentId(activeId);
 
       const engine = params.workspace.getActiveEngine();
       if (engine) {
-        params.setLayers(engine.getLayers().map(l => ({ ...l, transform: { ...l.transform } })));
+        const live = engine.getLayers();
+        let next: LayerNode[];
+        if (
+          prevRows !== null &&
+          prevRows.length === live.length &&
+          prevRows.every((r, i) => r.id === live[i].id)
+        ) {
+          next = live.map((l, i) => (rowsEqual(prevRows![i], l) ? prevRows![i] : copyLayer(l)));
+        } else {
+          next = live.map(copyLayer);
+        }
+        prevRows = next;
+        params.setLayers(next);
         const activeLayerId = engine.getActiveLayerId();
         params.setActiveLayerId(activeLayerId);
         const currentMulti = params.selectedLayerIds ? params.selectedLayerIds() : [];
@@ -57,6 +127,7 @@ export function setupWorkspaceSync(params: SyncStateParams) {
         params.setDocWidth(engine.getWidth());
         params.setDocHeight(engine.getHeight());
       } else {
+        prevRows = null;
         params.setLayers([]);
         params.setActiveLayerId(null);
         params.setSelectedLayerId(null);
