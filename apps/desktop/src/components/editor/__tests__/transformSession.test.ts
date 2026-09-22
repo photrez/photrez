@@ -119,7 +119,10 @@ describe("commitLayerTransformSession", () => {
     expect(result).toBe(true);
     expect(history.commit).toHaveBeenCalledWith(
       session.originalSnapshot,
-      "Transform Layer"
+      "Transform Layer",
+      undefined,
+      undefined,
+      []
     );
   });
 

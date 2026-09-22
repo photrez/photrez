@@ -189,7 +189,7 @@ describe("TransformOptionBar", () => {
     const applyBtn = Array.from(buttons).find(b => b.textContent === "Apply") as HTMLButtonElement;
     applyBtn.click();
 
-    expect(mockActiveHistory.commit).toHaveBeenCalledWith({ id: "original" }, "Transform Layer");
+    expect(mockActiveHistory.commit).toHaveBeenCalledWith({ id: "original" }, "Transform Layer", undefined, undefined, []);
     expect(setSessionSpy).toHaveBeenCalledWith(null);
 
     dispose();

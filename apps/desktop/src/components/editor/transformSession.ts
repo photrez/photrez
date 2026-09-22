@@ -1,4 +1,5 @@
 import type { DocumentModel, Transform2D } from "@/engine/types";
+import type { HistoryTilePatches } from "@/engine/history";
 import type { LayerTransformSession } from "./tools/editorState";
 
 export interface TransformSessionEngine {
@@ -10,7 +11,13 @@ export interface TransformSessionEngine {
 }
 
 export interface TransformSessionHistory {
-  commit(snapshot: DocumentModel, label?: string): void;
+  commit(
+    snapshot: DocumentModel,
+    label?: string,
+    imperative?: HistoryTilePatches,
+    alreadyRecordedInRust?: boolean,
+    pixelLayerIds?: string[] | null,
+  ): void;
 }
 
 export function isSessionForEngine(
@@ -51,7 +58,10 @@ export function commitLayerTransformSession(
     return true;
   }
 
-  history.commit(session.originalSnapshot, "Transform Layer");
+  // A session only ever applies silent transform updates (position, rotation,
+  // scale, flips), which never replace a layer bitmap — the entry is provably
+  // metadata-only, so the undo upload narrow may skip every re-upload.
+  history.commit(session.originalSnapshot, "Transform Layer", undefined, undefined, []);
   return true;
 }
 

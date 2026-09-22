@@ -599,8 +599,17 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
 
       const restoredLayer = engine.getLayers()[0];
 
+      // Pixel-layer allowlist: null = unknown, keep the identity-map narrow
+      // below; [] = provably metadata-only, skip every upload even when the
+      // restored bitmap object differs; [ids] = only those layers are upload
+      // candidates (the identity check still applies to each).
+      const pixelLayerIds =
+        typeof history.getLastPoppedPixelLayerIds === "function"
+          ? history.getLastPoppedPixelLayerIds()
+          : null;
       for (const layer of engine.getLayers()) {
         if (!layer.imageBitmap) continue;
+        if (pixelLayerIds !== null && !pixelLayerIds.includes(layer.id)) continue;
         // Identity-map narrow: an unchanged layer keeps the same bitmap object
         // through the restore, so its texture already matches. A layer with no
         // before entry was re-added and always re-uploads.

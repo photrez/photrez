@@ -324,6 +324,14 @@ interface SnapshotEntry {
    * step — Rust snapshot cursor only steps for Snapshot entries.
    */
   snapshotType?: "snapshot";
+  /**
+   * Pixel-layer allowlist for the upload narrow in useEditorCommands.
+   * null/undefined = unknown, keep the identity-map fallback. [] =
+   * provably metadata-only, skip every upload even when the restored
+   * bitmap object differs. [ids] = only those layers are candidates
+   * (the identity check still applies to each).
+   */
+  pixelLayerIds?: string[] | null;
 }
 
 export interface HistoryItem {
@@ -340,6 +348,8 @@ export class CommandHistory {
   private docIdGetter: (() => string) | null = null;
   /** Whether the most recent undo()/redo() popped a snapshot-typed entry. */
   private lastPoppedIsSnapshot = false;
+  /** Allowlist of the most recently popped entry (null = unknown). */
+  private lastPoppedPixelLayerIds: string[] | null = null;
 
   constructor(maxDepth: number = MAX_HISTORY_DEPTH) {
     this.maxDepth = maxDepth;
@@ -410,6 +420,7 @@ export class CommandHistory {
     label?: string,
     imperative?: HistoryTilePatches,
     alreadyRecordedInRust = false,
+    pixelLayerIds: string[] | null = null,
   ): void {
     // Append this commit to the unified Rust history cursor.
     //  - imperative TS pixel op NOT yet in Rust (text/gradient/shape/transform)
@@ -457,6 +468,7 @@ export class CommandHistory {
       lastPaintCoords: this.currentLastPaintCoords,
       label,
       imperative,
+      pixelLayerIds: pixelLayerIds ?? null,
     });
 
     // Clear redo stack on new operation
@@ -501,7 +513,7 @@ export class CommandHistory {
    * pushed as the undo-point, the redo stack is cleared, and `maxDepth` +
    * `disposeSnapshot(evicted.snapshot, live)` are enforced exactly as commit().
    */
-  recordSnapshotHistory(before: DocumentModel, after: DocumentModel, label?: string): void {
+  recordSnapshotHistory(before: DocumentModel, after: DocumentModel, label?: string, pixelLayerIds: string[] | null = null): void {
     if (historyBridgeEnabled() && this.docIdGetter) {
       const docId = this.docIdGetter();
       // Registrations happen inside buildSnapshotPayload (idempotent per bitmap
@@ -539,6 +551,7 @@ export class CommandHistory {
       lastPaintCoords: this.currentLastPaintCoords,
       label,
       snapshotType: "snapshot",
+      pixelLayerIds: pixelLayerIds ?? null,
     });
 
     // Clear redo stack on new operation
@@ -577,6 +590,7 @@ export class CommandHistory {
 
     const previousEntry = this.undoStack.pop()!;
     this.lastPoppedIsSnapshot = previousEntry.snapshotType === "snapshot";
+    this.lastPoppedPixelLayerIds = previousEntry.pixelLayerIds ?? null;
 
     // Save current to redo stack. The imperative is OWNED BY THE ENTRY
     // (tile-memento model): it travels unchanged so a later redo replays
@@ -593,6 +607,7 @@ export class CommandHistory {
       // the redo twin is untyped, so redo() never consults the Rust snapshot
       // cursor and rust_pixels_redo_snapshot is dead from production.
       snapshotType: previousEntry.snapshotType,
+      pixelLayerIds: previousEntry.pixelLayerIds ?? null,
     });
     this.currentLastPaintCoords = previousEntry.lastPaintCoords;
     // Tile patches to execute for THIS undo (pre-stroke tiles of the entry).
@@ -620,6 +635,7 @@ export class CommandHistory {
 
     const nextEntry = this.redoStack.pop()!;
     this.lastPoppedIsSnapshot = nextEntry.snapshotType === "snapshot";
+    this.lastPoppedPixelLayerIds = nextEntry.pixelLayerIds ?? null;
 
     // Save current to undo stack — the entry's own imperative travels with it
     // (see undo(): entry-owned patches, no live-state reads).
@@ -633,6 +649,7 @@ export class CommandHistory {
       // keeps its type after a stack hop — a later undo of that twin still
       // reports `lastPoppedIsSnapshot=true` (Snapshots survive undo/redo hops).
       snapshotType: nextEntry.snapshotType,
+      pixelLayerIds: nextEntry.pixelLayerIds ?? null,
     });
 
     this.currentLastPaintCoords = nextEntry.lastPaintCoords;
@@ -685,6 +702,8 @@ export class CommandHistory {
     this.undoStack = [];
     this.redoStack = [];
     this.currentLastPaintCoords = null;
+    this.lastPoppedIsSnapshot = false;
+    this.lastPoppedPixelLayerIds = null;
   }
 
   /**
@@ -696,6 +715,14 @@ export class CommandHistory {
    */
   isLastPoppedSnapshotEntry(): boolean {
     return this.lastPoppedIsSnapshot;
+  }
+
+  /**
+   * Allowlist of the most recently popped entry for the upload narrow in
+   * useEditorCommands. null = unknown, keep the identity-map fallback.
+   */
+  getLastPoppedPixelLayerIds(): string[] | null {
+    return this.lastPoppedPixelLayerIds;
   }
 
   getUndoCount(): number {
