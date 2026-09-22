@@ -40,9 +40,43 @@ function toBitmap(canvas: OffscreenCanvas | HTMLCanvasElement): ImageBitmap {
   }
   // OffscreenCanvas absent: HTMLCanvasElement works as a texture source, but
   // consumers call bitmap.close(); give it a no-op so saves don't throw.
+  // Ancient-engine note: without transferToImageBitmap consecutive results
+  // alias this shared scratch canvas; the OffscreenCanvas path above returns
+  // a fresh bitmap per call.
   const html = canvas as HTMLCanvasElement & { close?: () => void };
   html.close = () => {};
   return html as unknown as ImageBitmap;
+}
+
+interface ScratchCanvas {
+  canvas: OffscreenCanvas | HTMLCanvasElement;
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+  seam: unknown;
+}
+
+// One module-level canvas shared by every rasterizeText call. Typing
+// re-rasters the same text at the same size per keystroke, so keeping the
+// backing store across calls removes a full allocation plus zero-fill per
+// press. The canvas object is never discarded, only resized to the exact
+// size each raster needs.
+let scratch: ScratchCanvas | null = null;
+
+// The canvas seam can change under us: tests re-stub the OffscreenCanvas
+// global per test, and some engines fall back to document canvas. A canvas
+// built under a different seam would record into a dead mock, so the seam
+// identity is part of the key and a swap drops the scratch.
+function scratchSeam(): unknown {
+  if (typeof OffscreenCanvas !== "undefined") return OffscreenCanvas;
+  return typeof document !== "undefined" ? document : null;
+}
+
+function acquireScratch(): ScratchCanvas {
+  const seam = scratchSeam();
+  if (!scratch || scratch.seam !== seam) {
+    const { canvas, ctx } = makeCanvas(1, 1);
+    scratch = { canvas, ctx, seam };
+  }
+  return scratch;
 }
 
 /**
@@ -214,9 +248,10 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
   const effScale = resolveScale(scale);
   const fontPx = normalized.fontSize * effScale;
 
-  // Probe with a 1x1 canvas, then resize the SAME canvas to the measured size
-  // (single allocation; ctx state is re-applied after the resize).
-  const { canvas, ctx } = makeCanvas(1, 1);
+  // Probe and draw share one module-level scratch canvas. Measurement only
+  // reads font and letterSpacing, so the probe runs on the scratch as-is;
+  // the backing store is sized exactly below, then all draw state is reset.
+  const { canvas, ctx } = acquireScratch();
   ctx.font = buildCSSFont(normalized, fontPx);
   // Apply BEFORE any measurement (wrap + line widths): letterSpacing is
   // document-space but the canvas runs at RASTER_SCALE, and real canvas
@@ -303,16 +338,40 @@ export function rasterizeText(data: TextData, scale?: number): RasterizeResult {
       ),
     ),
   );
-  canvas.width = canvasW;
-  canvas.height = canvasH;
+  // Size the backing store exactly. Assigning width/height reallocates and
+  // wipes context state even for an equal value, so equal sizes skip both
+  // writes (the typing steady state: same text, same size, zero reallocs).
+  // A larger store cannot serve a smaller raster as-is: the transfer below
+  // hands the FULL bitmap to the caller, so the store must match exactly.
+  if (canvas.width !== canvasW) canvas.width = canvasW;
+  if (canvas.height !== canvasH) canvas.height = canvasH;
 
-  // canvas resize resets context state; re-apply everything.
+  // Reset all draw state unconditionally. A reused scratch carries the
+  // previous raster's transform, alpha, composite mode, shadows, styles,
+  // and pixels; a resized one has blank pixels but wiped state. Either way
+  // this block is the single source of draw state, never "only after
+  // resize". The guards keep contexts without setTransform/clearRect alive.
+  const drawCtx = ctx as OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+  if (typeof drawCtx.setTransform === "function") drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  if (typeof drawCtx.clearRect === "function") drawCtx.clearRect(0, 0, canvasW, canvasH);
+  if ("shadowBlur" in drawCtx) {
+    drawCtx.shadowBlur = 0;
+    drawCtx.shadowColor = "rgba(0,0,0,0)";
+    drawCtx.shadowOffsetX = 0;
+    drawCtx.shadowOffsetY = 0;
+  }
   ctx.font = buildCSSFont(normalized, fontPx);
   ctx.fillStyle = normalized.color;
   ctx.textBaseline = "top";
-  const drawCtx = ctx as OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-  // Canvas resize reset the state, so re-apply the same device-space value
-  // the measurements were taken with.
+  // Fresh-canvas stroke defaults; every stroke branch below overwrites
+  // before use, so this only kills cross-raster carryover, never output.
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 1;
+  ctx.lineJoin = "miter";
+  ctx.miterLimit = 10;
+  // Re-apply the same device-space value the measurements were taken with.
   applyLetterSpacing(drawCtx, normalized.letterSpacing * effScale);
   const strokeEnabled = strokeWidth > 0;
   const strokeAlign = normalized.stroke?.align ?? "outside";

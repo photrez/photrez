@@ -26,6 +26,7 @@ const nodeTestFiles = [
   "src/engine/__tests__/tileStorage.test.ts",
   "src/engine/__tests__/textTypes.test.ts",
   "src/engine/__tests__/textRasterizer.test.ts",
+  "src/engine/__tests__/textRasterizerScratch.test.ts",
   "src/components/editor/__tests__/dragTypes.test.ts",
   "src/components/editor/__tests__/toolLifecycle.test.ts",
   "src/components/editor/__tests__/brushReferenceAudit.test.ts",

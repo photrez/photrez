@@ -414,10 +414,16 @@ describe("rasterizeText", () => {
     // and 120 (scale 2) -> one line at BOTH scales. Passing the unscaled 60
     // doc width would wrap "AA" into 2 lines at scale 2 (96 > 60).
     const data = { ...DEFAULT_TEXT_DATA, content: "AA", boxMode: "area" as const, boxWidth: 60 };
+    // Count paints per call by slicing: the shared scratch canvas records
+    // both draws on one record when the mock generation matches, so fixed
+    // record indexes no longer equal one call each.
+    const paintsBefore = instances.reduce((n, r) => n + r.paints.length, 0);
     const r1 = rasterizeText(data, 1);
+    const paintsAfterR1 = instances.reduce((n, r) => n + r.paints.length, 0);
     const r2 = rasterizeText(data, 2);
-    expect(instances[0].paints.length).toBe(1);
-    expect(instances[1].paints.length).toBe(1);
+    const paintsAfterR2 = instances.reduce((n, r) => n + r.paints.length, 0);
+    expect(paintsAfterR1 - paintsBefore).toBe(1);
+    expect(paintsAfterR2 - paintsAfterR1).toBe(1);
     // single line at scale 2: height = 0 spacing + max(1.2*96, 80+24) + 4
     // = 120
     expect((r2.imageBitmap as unknown as { height: number }).height).toBe(120);
@@ -521,7 +527,8 @@ describe("rasterizeText", () => {
     const result = rasterizeText({ ...DEFAULT_TEXT_DATA, content: "Hi", stroke: { width: 0, color: "#00ff00" } });
     const record = instances[instances.length - 1];
     expect(record.strokes.length).toBe(0);
-    expect(record.ctx.strokeStyle).toBe("");
+    // Fresh-canvas parity (real 2D ctx default), not mock-unset "".
+    expect(record.ctx.strokeStyle).toBe("#000000");
     // No stroke pad: same sizing as pre-stroke behavior (2 chars * 48px + 4 = 100).
     expect((result.imageBitmap as unknown as { width: number }).width).toBe(100);
   });
