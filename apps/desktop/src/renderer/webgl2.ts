@@ -10,6 +10,7 @@ import {
 } from "./shaders";
 import { getCheckerboardColors } from "./checkerboard";
 import { blendModeToShaderId } from "../engine/blendModes";
+import { recordUploadFreq } from "../lib/perf/uploadFreqDev";
 import {
   projectDocumentScissor,
   getInterLayerCopyQuad,
@@ -243,6 +244,7 @@ export class WebGL2Backend implements RenderBackend {
         // partial-mipmap update, so skipping this would render stale pixels
         // at minified zooms until the next full upload.
         gl.generateMipmap(gl.TEXTURE_2D);
+        recordUploadFreq(layerId, width * height * 4, "patch");
         return existing;
       }
       // ctx unavailable (e.g. test env) → fall through to full upload below.
@@ -276,6 +278,7 @@ export class WebGL2Backend implements RenderBackend {
     };
 
     this.textures.set(layerId, ref);
+    recordUploadFreq(layerId, source.width * source.height * 4, "full");
     return ref;
   }
 
