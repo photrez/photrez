@@ -265,6 +265,14 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
   }
   model.layers.forEach((layer, i) => {
     layer.imageBitmap = decoded[i];
+    // Stored dims are metadata claims; the decoded bitmap is the rendered
+    // truth. Reconcile one way (bitmap wins) so a diverged pair cannot feed
+    // downstream geometry with a size the pixels do not have.
+    const bitmap = decoded[i];
+    if (bitmap && (layer.width !== bitmap.width || layer.height !== bitmap.height)) {
+      layer.width = bitmap.width;
+      layer.height = bitmap.height;
+    }
   });
 
   const engine = new DocumentEngine(model.id, model.name, model.width, model.height);

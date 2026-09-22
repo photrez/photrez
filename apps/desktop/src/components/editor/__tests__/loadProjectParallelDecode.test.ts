@@ -168,3 +168,82 @@ describe("loadProjectFile parallel decode", () => {
     for (const b of hoisted.madeBitmaps) expect(b.closed).toBe(true);
   });
 });
+
+describe("loadProjectFile layer size reconcile", () => {
+  function sizedLayerJson(id: string, width: number, height: number) {
+    return {
+      ...layerJson(id),
+      width,
+      height,
+    };
+  }
+
+  function sizedProjectJson(id: string, width: number, height: number) {
+    return JSON.stringify({
+      id: "doc-1",
+      name: "proj",
+      width,
+      height,
+      version: 3,
+      activeLayerId: id,
+      selection: null,
+      viewport: { x: 0, y: 0, zoom: 1 },
+      dirty: false,
+      layers: [sizedLayerJson(id, width, height)],
+    });
+  }
+
+  it("bitmap wins when stored dims diverge from decoded PNG bytes", async () => {
+    globalThis.createImageBitmap = (async () => ({
+      width: 60,
+      height: 40,
+      close() {},
+    })) as unknown as typeof globalThis.createImageBitmap;
+    hoisted.mockLoadProject.mockResolvedValue({
+      document_json: sizedProjectJson("L1", 100, 100),
+      layers: { L1: btoa("x".repeat(10)) },
+    });
+
+    const { loadProjectFile } = await import("../editorOpenImage");
+    await loadProjectFile("/path/p.ptz", makeParams(), "p.ptz");
+
+    const layer = mockAddDocument.mock.calls[0][0].engine.getLayers()[0];
+    expect(layer.width).toBe(60);
+    expect(layer.height).toBe(40);
+  });
+
+  it("matching sizes pass through untouched", async () => {
+    globalThis.createImageBitmap = (async () => ({
+      width: 60,
+      height: 40,
+      close() {},
+    })) as unknown as typeof globalThis.createImageBitmap;
+    hoisted.mockLoadProject.mockResolvedValue({
+      document_json: sizedProjectJson("L1", 60, 40),
+      layers: { L1: btoa("x".repeat(10)) },
+    });
+
+    const { loadProjectFile } = await import("../editorOpenImage");
+    await loadProjectFile("/path/p.ptz", makeParams(), "p.ptz");
+
+    const layer = mockAddDocument.mock.calls[0][0].engine.getLayers()[0];
+    expect(layer.width).toBe(60);
+    expect(layer.height).toBe(40);
+    expect(layer.imageBitmap).toEqual({ width: 60, height: 40, close: expect.any(Function) });
+  });
+
+  it("missing bitmap leaves stored dims untouched", async () => {
+    hoisted.mockLoadProject.mockResolvedValue({
+      document_json: sizedProjectJson("L1", 100, 100),
+      layers: {},
+    });
+
+    const { loadProjectFile } = await import("../editorOpenImage");
+    await loadProjectFile("/path/p.ptz", makeParams(), "p.ptz");
+
+    const layer = mockAddDocument.mock.calls[0][0].engine.getLayers()[0];
+    expect(layer.width).toBe(100);
+    expect(layer.height).toBe(100);
+    expect(layer.imageBitmap).toBeNull();
+  });
+});
