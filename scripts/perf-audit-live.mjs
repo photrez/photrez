@@ -367,7 +367,13 @@ async function main() {
       exitCode = 1;
     } else {
       log("CDP endpoint ready; attaching...");
-      cdp = await connectCdp();
+      let attachTarget = null;
+      const attachT0 = Date.now();
+      while (Date.now() - attachT0 < 90000) {
+        try { attachTarget = await findPageTarget(); if (attachTarget) break; } catch {}
+        await sleep(1000);
+      }
+      cdp = attachTarget ? await connectCdp() : null;
       if (!cdp) {
         fail("attach", "no page target with webSocketDebuggerUrl.");
         exitCode = 1;
