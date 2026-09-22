@@ -148,6 +148,10 @@ export function clearNativeSeed(docId: string): void {
   // Mirror the layer/adapter eviction: a stale canonical-seed promise would otherwise
   // skip the re-seed on reopen and keep a divergent shadow alive.
   nativeCanonicalSeedPromiseByDoc.delete(key);
+  canonicalPendingByDoc.delete(key);
+  // Evict the payload record with the slot: otherwise a reopened doc id would
+  // skip its re-seed as a "duplicate" of the pre-close content.
+  canonicalPayloadByDoc.delete(key);
 }
 
 // Authoritative per-doc seed. Created with REAL layers + version at the
@@ -249,6 +253,38 @@ export async function flushExternalTransitions(docId: string): Promise<void> {
     externalTransitionPendingByDoc.delete(key);
     await p;
   }
+  // Drain the coalesced canonical slot the same way: take the latest re-push,
+  // clear the slot, then await it, so the next facade command (via
+  // syncFromEngine) still dispatches only after the shadow is complete.
+  // Fixed order: version mirrors drain first, then the re-push, so the shadow reflects every bumped version.
+  const canon = canonicalPendingByDoc.get(key);
+  if (canon) {
+    canonicalPendingByDoc.delete(key);
+    await canon;
+  }
+}
+
+// Coalesced canonical re-push slot (last-writer-wins). ONLY repushCanonicalDocument
+// writes here; external-mirror version entries stay on the chained barrier above
+// because each mirror bumps the engine version and every bump must run.
+export const canonicalPendingByDoc = new Map<string, Promise<void>>();
+
+// Last pushed canonical payload per doc. Backs the payload-compare guard in
+// repushCanonicalDocument: a byte-identical re-push is a proven duplicate.
+// Owned here (not in canonicalSeed) so workspace-close eviction clears it next
+// to the slot, and a reopened doc id always re-seeds instead of skipping.
+export const canonicalPayloadByDoc = new Map<string, string>();
+
+// Overwrites, never chains: a newer re-push supersedes the pending one because
+// every payload is the FULL document, so the latest alone heals the shadow.
+// Mirror/version entries must NEVER use this slot (see the map comment above).
+export function setCanonicalPending(docId: string, p: Promise<void>): void {
+  if (!isNativeAuthority()) return;
+  const key = docId === "" ? "default" : docId;
+  // Store a guarded copy: a rejected re-push must never wedge the flush (same
+  // stance as the chained barrier). The original still rejects for the
+  // re-push's own awaiter, which logs or drains it at the call site.
+  canonicalPendingByDoc.set(key, p.then(() => {}).catch(() => {}));
 }
 
 // Surface a protocol error uniformly as `CODE: message`. The wasm path rejects
@@ -272,6 +308,7 @@ export function __resetNativeAuthorityForTests(): void {
   nativeSeedPromiseByDoc.clear();
   nativeAdapterRegByDoc.clear();
   nativeCanonicalSeedPromiseByDoc.clear();
+  canonicalPendingByDoc.clear();
 }
 
 export async function applyCommand(envelope: CommandEnvelope): Promise<CommandResult> {

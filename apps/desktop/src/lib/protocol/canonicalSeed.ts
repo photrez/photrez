@@ -29,7 +29,7 @@
 
 import type { DocumentEngine } from "@/engine/document";
 import type { LayerNode } from "@/engine/types";
-import { isNativeAuthority, seedNativeCanonical, setExternalTransitionPending } from "./bridge";
+import { canonicalPayloadByDoc, isNativeAuthority, seedNativeCanonical, setCanonicalPending } from "./bridge";
 
 type JsonObject = Record<string, unknown>;
 
@@ -86,16 +86,44 @@ export function buildCanonicalDocumentPayload(engine: DocumentEngine): string {
 // native seed replaces the shadow unconditionally, so a re-push is idempotent
 // and safe to fire after every such event.
 //
-// Ordering: the re-push's invoke promise is registered in the per-doc
-// external-transition barrier (flushExternalTransitions, awaited by syncFromEngine
-// before every facade command) so a re-push for command 1 is guaranteed to land
-// before command 2 dispatches — otherwise a stale native doc_size could be read
-// by the next command. The barrier chain swallows a rejected re-push so it never
-// wedges the barrier.
+// Ordering: the re-push's invoke promise overwrites the per-doc canonical slot
+// (setCanonicalPending), which flushExternalTransitions - awaited by
+// syncFromEngine before every facade command - drains before the next command
+// dispatches, so the shadow is complete when the next command reads it.
+//
+// Crash-window honesty: the slot keeps only the LATEST re-push, so an
+// intermediate payload can be superseded before any flush awaits it, and an
+// older invoke already on the wire can land after a newer one. The shadow can
+// therefore stay stale longer than under the old chained barrier. That matches
+// today's mid-push death semantics exactly: if the process dies mid-push the
+// native shadow is already stale-or-absent while the TS model stays
+// authoritative, and the next successful re-push heals the shadow in full
+// because every payload is complete, never a delta. Coalescing widens a window
+// that already exists; it adds no new divergence class.
 export async function repushCanonicalDocument(docId: string, engine: DocumentEngine): Promise<void> {
   if (!isNativeAuthority()) return;
   const key = docId === "" ? "default" : docId;
-  const p = seedNativeCanonical(docId, buildCanonicalDocumentPayload(engine));
-  setExternalTransitionPending(key, p);
-  await p;
+  const payload = buildCanonicalDocumentPayload(engine);
+  // Cheap duplicate guard: a byte-identical payload means the shadow already
+  // holds exactly this content, so skip the invoke AND the slot write. String
+  // equality is a full-content compare far cheaper than an IPC round-trip.
+  if (canonicalPayloadByDoc.get(key) === payload) return;
+  canonicalPayloadByDoc.set(key, payload);
+  const p = seedNativeCanonical(docId, payload);
+  setCanonicalPending(key, p);
+  try {
+    await p;
+  } catch (e) {
+    // A failed push heals nothing: evict the record only if it is still ours,
+    // so the next identical re-push retries instead of skipping forever. A newer
+    // payload recorded meanwhile stays (its own push heals the shadow in full).
+    if (canonicalPayloadByDoc.get(key) === payload) canonicalPayloadByDoc.delete(key);
+    throw e;
+  }
+}
+
+// Test seam for the payload-compare guard. The record itself lives in bridge
+// (canonicalPayloadByDoc) so workspace-close eviction clears it; reset per test.
+export function __resetCanonicalRepushForTests(): void {
+  canonicalPayloadByDoc.clear();
 }

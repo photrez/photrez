@@ -24,7 +24,7 @@ import {
   __resetNativeAuthorityForTests,
 } from "../bridge";
 import { getFacade, seedFacadeFromEngine } from "../facadeRegistry";
-import { repushCanonicalDocument } from "../canonicalSeed";
+import { repushCanonicalDocument, __resetCanonicalRepushForTests } from "../canonicalSeed";
 import { WorkspaceManager } from "@/engine/workspace";
 import { CONTRACT_VERSION } from "../types";
 
@@ -107,12 +107,14 @@ describe("canonical push barrier ordering", () => {
     localStorage.clear();
     invokeMock.mockReset();
     __resetNativeAuthorityForTests();
+    __resetCanonicalRepushForTests();
     localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
   afterEach(() => {
     localStorage.clear();
     __resetNativeAuthorityForTests();
+    __resetCanonicalRepushForTests();
     vi.restoreAllMocks();
   });
 
