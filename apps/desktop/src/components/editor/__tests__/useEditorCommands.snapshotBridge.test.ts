@@ -70,7 +70,7 @@ function fakeBitmap(): ImageBitmap {
 function makeModel(bitmap: ImageBitmap | null): DocumentModel {
   return {
     id: "doc-1",
-    layers: [{ id: "l1", imageBitmap: bitmap }],
+    layers: [{ id: "l1", imageBitmap: bitmap, width: 10, height: 10 }],
     activeLayerId: "l1",
   } as unknown as DocumentModel;
 }
@@ -333,5 +333,53 @@ describe("useEditorCommands snapshot-bridge undo/redo (bridge ON)", () => {
     expect(capturedSet!("lNEW", made, "imageBitmap")).toBe(false);
     // The pre-existing layer (still verified) is NOT affected by the new layer.
     expect(capturedSet!("l1", bm0, "imageBitmap")).toBe(true);
+  });
+
+  // -- SIZE GATE wiring: the caller must feed the restored model's dims to the
+  // re-attach helper so it can refuse a size-mismatched payload bitmap. --
+  it("supplies the restored model's layer width/height to the re-attach size gate (currentLayerMeta)", async () => {
+    localStorage.setItem(GATE_KEY, "1");
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
+
+    const bm0 = fakeBitmap(); // before (undo bitmap)
+    const bm1 = fakeBitmap(); // after (S1.after)
+
+    let capturedMeta: ((layerId: string) => { width?: number; height?: number } | null) | null = null;
+    restoreSpy.mockImplementation(
+      (
+        _direction: "undo" | "redo",
+        _docId: string,
+        _resolve: (t: string) => ImageBitmap | null,
+        _set: (l: string, b: ImageBitmap, f?: "imageBitmap" | "baseImageBitmap") => boolean,
+        _fieldFor?: unknown,
+        _ids?: unknown,
+        meta?: (layerId: string) => { width?: number; height?: number } | null,
+      ) => {
+        capturedMeta = meta ?? null;
+        return Promise.resolve(false);
+      },
+    );
+
+    const history = new CommandHistory();
+    history.attachDocIdGetter(() => "doc-1");
+    const engine = makeEngine(makeModel(bm0)); // live state0
+
+    history.recordSnapshotHistory(makeModel(bm0), makeModel(bm1), "S1");
+    engine.restore(makeModel(bm1)); // apply S1 -> live state1
+
+    mockUseEditor(makeEditorContext(engine, history));
+    const commands = useEditorCommands(() => {});
+
+    commands.undo(); // pop S1 -> Model restores state0 (dims 10x10 restored too)
+    await flush();
+    expect(capturedMeta).toBeTruthy();
+    const meta = capturedMeta!("l1");
+    expect(meta).toBeTruthy();
+    // RED pre-fix: the caller's currentLayerMeta never carried width/height.
+    expect(meta!.width).toBe(10);
+    expect(meta!.height).toBe(10);
+    // Dims stay model-owned: the re-attach dispatch never writes them.
+    expect(engine.getLayer("l1")!.width).toBe(10);
+    expect(engine.getLayer("l1")!.height).toBe(10);
   });
 });

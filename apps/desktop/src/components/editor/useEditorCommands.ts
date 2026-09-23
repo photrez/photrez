@@ -578,11 +578,17 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           (layerId) => {
             const l = snapshot.layers.find((x) => x.id === layerId);
             if (!l) return null;
+            // Size-gate inputs: the CURRENT restored model's dims (live engine
+            // layer, falling back to the stack snapshot layer). Read-only -
+            // dims stay model-owned, never written by the re-attach.
+            const restored = engine.getLayer(layerId);
             return {
               epoch: l.bitmapEpoch ?? 0,
               pixelVersion: l.bitmapEpoch ?? 0,
               imageBitmap: l.imageBitmap ?? null,
               baseImageBitmap: l.baseImageBitmap ?? null,
+              width: restored?.width ?? l.width,
+              height: restored?.height ?? l.height,
             };
           },
         );

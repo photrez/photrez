@@ -496,5 +496,128 @@ describe("snapshot history bridge (bitmap-token) wiring", () => {
       warnSpy.mockRestore();
     }
   });
+
+  // -- SIZE GATE: payload bitmap pixel size vs the restored model's layer dims --
+  it("sizeGate: a payload bitmap whose pixel size mismatches the restored model dims SKIPS that layer's swap", async () => {
+    gateOn(true);
+    // The payload's bitmap is 60x40 while the restored model's layer dims are
+    // 100x100 - installing it would leave a bitmap that disagrees with the
+    // model-owned dims. All other identity gates (docId/layer-set/epoch/token)
+    // pass, so only the size gate can refuse this payload.
+    const payloadBm = { width: 60, height: 40, close: vi.fn() } as unknown as ImageBitmap;
+    const tk = tokenForBitmap(payloadBm);
+    const dto: SnapshotPayload = {
+      docId: "doc-1",
+      version: 0,
+      layers: [{ layerId: "l1", width: 60, height: 40, bitmapToken: tk, epoch: 0, pixelVersion: 0 }],
+    };
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "rust_pixels_undo_snapshot" ? Promise.resolve(dto) : Promise.resolve(null),
+    );
+    const store = bitmapStoreFor("doc-1");
+    store.set(tk, payloadBm);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // engine.restore already applied dims 100x100; the layer still holds the
+      // pre-swap bitmap the re-attach would clobber.
+      const restoredBm = fakeBitmap();
+      const layer = { id: "l1", width: 100, height: 100, imageBitmap: restoredBm };
+      const set = vi.fn((_layerId: string, bitmap: ImageBitmap) => {
+        layer.imageBitmap = bitmap;
+        return true;
+      });
+      const applied = await restoreSnapshotBitmapsByToken(
+        "undo", "doc-1", (t) => store.get(t), set,
+        undefined, () => ["l1"],
+        (layerId) =>
+          layerId === "l1"
+            ? { epoch: 0, pixelVersion: 0, imageBitmap: payloadBm, baseImageBitmap: null, width: 100, height: 100 }
+            : null,
+      );
+      expect(applied).toBe(false);
+      expect(set).not.toHaveBeenCalled();
+      expect(layer.imageBitmap).toBe(restoredBm); // swap skipped -> restored state intact
+      expect(layer.width).toBe(100);              // dims are model-owned; never written
+      expect(layer.height).toBe(100);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("sizeGate: a size-mismatched layer skips ONLY its swap while other layers still apply", async () => {
+    gateOn(true);
+    // l1's payload bitmap is 60x40 but the restored model dims are 100x100
+    // (size-gate skip); l2 matches at 10x10 and must still be swapped. If the
+    // gate aborted the whole loop, l2 would never reach set.
+    const l1Bm = { width: 60, height: 40, close: vi.fn() } as unknown as ImageBitmap;
+    const l2Bm = fakeBitmap(); // 10x10
+    const l1Tk = tokenForBitmap(l1Bm);
+    const l2Tk = tokenForBitmap(l2Bm);
+    const dto: SnapshotPayload = {
+      docId: "doc-1",
+      version: 0,
+      layers: [
+        { layerId: "l1", width: 60, height: 40, bitmapToken: l1Tk, epoch: 0, pixelVersion: 0 },
+        { layerId: "l2", width: 10, height: 10, bitmapToken: l2Tk, epoch: 0, pixelVersion: 0 },
+      ],
+    };
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "rust_pixels_undo_snapshot" ? Promise.resolve(dto) : Promise.resolve(null),
+    );
+    const store = bitmapStoreFor("doc-1");
+    store.set(l1Tk, l1Bm);
+    store.set(l2Tk, l2Bm);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const set = vi.fn(() => true);
+      const applied = await restoreSnapshotBitmapsByToken(
+        "undo", "doc-1", (t) => store.get(t), set,
+        undefined, () => ["l1", "l2"],
+        (layerId) => {
+          if (layerId === "l1") {
+            return { epoch: 0, pixelVersion: 0, imageBitmap: l1Bm, baseImageBitmap: null, width: 100, height: 100 };
+          }
+          if (layerId === "l2") {
+            return { epoch: 0, pixelVersion: 0, imageBitmap: l2Bm, baseImageBitmap: null, width: 10, height: 10 };
+          }
+          return null;
+        },
+      );
+      expect(applied).toBe(true);
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(set).toHaveBeenCalledWith("l2", l2Bm);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("sizeGate: a payload bitmap whose pixel size MATCHES the restored model dims is applied", async () => {
+    gateOn(true);
+    const bm = fakeBitmap(); // 10x10
+    const tk = tokenForBitmap(bm);
+    const dto: SnapshotPayload = {
+      docId: "doc-1",
+      version: 0,
+      layers: [{ layerId: "l1", width: 10, height: 10, bitmapToken: tk, epoch: 0, pixelVersion: 0 }],
+    };
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "rust_pixels_undo_snapshot" ? Promise.resolve(dto) : Promise.resolve(null),
+    );
+    const store = bitmapStoreFor("doc-1");
+    store.set(tk, bm);
+    const set = vi.fn(() => true);
+    const applied = await restoreSnapshotBitmapsByToken(
+      "undo", "doc-1", (t) => store.get(t), set,
+      undefined, () => ["l1"],
+      (layerId) =>
+        layerId === "l1"
+          ? { epoch: 0, pixelVersion: 0, imageBitmap: bm, baseImageBitmap: null, width: 10, height: 10 }
+          : null,
+    );
+    expect(applied).toBe(true);
+    expect(set).toHaveBeenCalledWith("l1", bm);
+  });
 });
 

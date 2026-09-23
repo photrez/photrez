@@ -74,6 +74,10 @@ export interface SnapshotLayerIdentity {
   imageBitmap?: ImageBitmap | null;
   /** The restored model's current baseImageBitmap for this layer. */
   baseImageBitmap?: ImageBitmap | null;
+  /** The restored model's current layer width in px (size gate). */
+  width?: number;
+  /** The restored model's current layer height in px (size gate). */
+  height?: number;
 }
 
 /**
@@ -112,6 +116,13 @@ export interface SnapshotLayerIdentity {
  * so a coincidentally-matching layer set can never silently attach the wrong
  * bitmap. The contiguous Delete Layer case is unaffected: its surviving layers
  * keep stable, consistent epochs and SAME bitmap objects across steps.
+ *
+ * Size gate: when `currentLayerMeta` supplies the restored model's layer
+ * `width`/`height`, a payload bitmap whose pixel size disagrees with those
+ * model-owned dims is SKIPPED for that layer (warn + continue) - a
+ * size-mismatched bitmap would render against dims it does not match. Only the
+ * swap is skipped; dims are never written here (dims stay model-owned). A null
+ * token resolution (missing path) keeps its existing warn-and-keep behavior.
  */
 export async function restoreSnapshotBitmapsByToken(
   direction: "undo" | "redo",
@@ -243,6 +254,25 @@ export async function restoreSnapshotBitmapsByToken(
             field: field ?? "imageBitmap",
           });
           return false;
+        }
+        // Size gate: the payload bitmap's pixel size must agree with the
+        // restored model's layer dims. On mismatch SKIP only this layer's swap
+        // (warn + continue) - the restored state stays intact and dims are
+        // never written. Dims absent (older meta) -> no gate, parity kept.
+        const metaW = meta?.width;
+        const metaH = meta?.height;
+        if (
+          typeof metaW === "number" &&
+          typeof metaH === "number" &&
+          (bitmap.width !== metaW || bitmap.height !== metaH)
+        ) {
+          console.warn("[history] snapshot bitmap size mismatches restored model dims; skipping layer re-attach", {
+            docId,
+            layerId: layer.layerId,
+            payload: { width: bitmap.width, height: bitmap.height },
+            model: { width: metaW, height: metaH },
+          });
+          continue;
         }
       }
       applied = field ? set(layer.layerId, bitmap, field) || applied : set(layer.layerId, bitmap) || applied;
