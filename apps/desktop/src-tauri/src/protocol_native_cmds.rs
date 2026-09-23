@@ -1,8 +1,9 @@
 // Native (Tauri) authority command surface for the per-document
 // `ProtocolEngine`. ADDITIVE ONLY - mirrors the wasm `protocol_*` bridge in
 // `document_core.rs` but drives the REAL `pixel_store` REGISTRY (keyed by
-// `doc_id`) instead of the wasm `ENGINES` thread_local. Nothing routes through
-// these commands yet (the facade stays on wasm); production behavior is unchanged.
+// `doc_id`) instead of the wasm `ENGINES` thread_local. The facade dispatches
+// here by default (native authority); set `photrez.facadeAuthority` to `wasm`
+// to route to the wasm engine. Production behavior follows the flag.
 //
 // Error envelope: `Result<T, String>` where the error is a bare
 // `"CODE: message"` string (the protocol contract's `ProtocolError` code plus a
