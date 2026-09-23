@@ -6,6 +6,7 @@ import { releaseBitmapStore } from "./bitmapStore";
 import { clearNativeSeed, createNativeSeed, isNativeAuthority, seedNativeCanonical } from "@/lib/protocol/bridge";
 import { buildCanonicalDocumentPayload } from "@/lib/protocol/canonicalSeed";
 import { removeFacade } from "@/lib/protocol/facadeRegistry";
+import { commitFacadeBackgroundFlag, isBackgroundFlagRouteArmed } from "@/lib/protocol/backgroundFlagRouting";
 import type { RenderLayer } from "@/lib/protocol/types";
 
 export interface DocumentSession {
@@ -265,7 +266,17 @@ export class WorkspaceManager {
     const engine = new DocumentEngine(id, name, width, height);
     const bg = engine.addLayer("Background"); // Default empty background layer
     // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
-    engine.markLayerAsBackground(bg.id);
+    // The factory cannot await the protocol commit: fire-and-forget, and a
+    // rejection falls back to the direct setter (logged loud) so the layer
+    // still flags instead of a silent no-op.
+    if (isBackgroundFlagRouteArmed()) {
+      void commitFacadeBackgroundFlag(engine as never, [bg.id]).catch((err) => {
+        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct setter:", err);
+        engine.markLayerAsBackground(bg.id);
+      });
+    } else {
+      engine.markLayerAsBackground(bg.id);
+    }
 
     if (options?.backgroundColor === "white") {
       const canvas = new OffscreenCanvas(width, height);
@@ -306,7 +317,17 @@ export class WorkspaceManager {
     const bgLayer = engine.addLayer("Background", bitmap.width, bitmap.height);
     engine.setLayerImageBitmap(bgLayer.id, bitmap);
     // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
-    engine.markLayerAsBackground(bgLayer.id);
+    // The factory cannot await the protocol commit: fire-and-forget, and a
+    // rejection falls back to the direct setter (logged loud) so the layer
+    // still flags instead of a silent no-op.
+    if (isBackgroundFlagRouteArmed()) {
+      void commitFacadeBackgroundFlag(engine as never, [bgLayer.id]).catch((err) => {
+        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct setter:", err);
+        engine.markLayerAsBackground(bgLayer.id);
+      });
+    } else {
+      engine.markLayerAsBackground(bgLayer.id);
+    }
     engine.clearDirty();
 
     const history = new CommandHistory();

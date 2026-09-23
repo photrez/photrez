@@ -192,6 +192,14 @@ export class EditorFacade {
     return this.snapshot;
   }
 
+  async setBackgroundFlag(id: string): Promise<RenderSnapshot> {
+    await this.syncFromEngine();
+    const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setBackgroundFlag", id } });
+    this.pending.set(this.nextSeq++, res.delta.baseVersion);
+    if (!this.applyDelta(res.delta)) await this.refreshSnapshot();
+    return this.snapshot;
+  }
+
   async setLayerLocked(id: string, kind: LockKind, locked: boolean): Promise<RenderSnapshot> {
     await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "setLocked", id, kind, locked } });
