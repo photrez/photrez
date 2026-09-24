@@ -117,7 +117,22 @@ function routeNative(): void {
     const docId = docIdOf(args);
     switch (cmd) {
       case "rust_pixels_open_document":
+        // This file's transport never receives rust_pixels_close_document (the
+        // workspace's notify is gated on __TAURI_INTERNALS__, which is not
+        // defined here), while the TS side clears its seed registry on
+        // removeDocument before a reopen. Real close removes the doc from the
+        // registry, so a reopen starts from empty state and the
+        // only-when-empty seed applies again; resetting per-doc state on open
+        // models that net close+reopen without needing the close command.
+        // Within this file an open reaches the mock only via
+        // bridge.createNativeSeed (deduped per seed-registry lifetime), so
+        // this reset never wipes a live doc's state.
         open.add(docId);
+        seeded.delete(docId);
+        adapters.delete(docId);
+        version.delete(docId);
+        layers.delete(docId);
+        snaps.delete(docId);
         return undefined;
       case "protocol_register_adapter_native": {
         if (!open.has(docId)) reject(`document not open: ${docId}`);
@@ -461,8 +476,11 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
     // The document-open path seeded the native engine for this doc id.
     expect(invokeMock).toHaveBeenCalledWith("rust_pixels_open_document", { docId: "docReopen" });
     expect(invokeMock).toHaveBeenCalledWith("protocol_seed_native", expect.objectContaining({ docId: "docReopen" }));
-    // The per-doc facade exists at the seeded version 0.
-    expect(getFacade("docReopen").renderedVersion).toBe(0);
+    // The factory's routed background-flag commit has landed: one native apply
+    // per commit, and every accepted apply bumps documentVersion, so the fresh
+    // facade sits at 1 (the guard-OFF direct setter bypassed the envelope and
+    // left this at 0).
+    expect(getFacade("docReopen").renderedVersion).toBe(1);
     // Advance the facade to a non-zero version so the reopen assertion proves the
     // facade was actually evicted on close. Without eviction (removeFacade) this
     // same instance would persist and still read 5 -> the assertion below fails.
@@ -479,9 +497,11 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
     expect(invokeMock).toHaveBeenCalledWith("rust_pixels_open_document", { docId: "docReopen" });
     expect(invokeMock).toHaveBeenCalledWith("protocol_seed_native", expect.objectContaining({ docId: "docReopen" }));
 
-    // The facade for the reopened id is FRESH (evicted on close), not a stale one
-    // left over from the first open.
-    expect(getFacade("docReopen").renderedVersion).toBe(0);
+    // The facade for the reopened id is FRESH (evicted on close), not a stale
+    // one left over from the first open: a fresh instance starts at 0 and the
+    // reopened factory commit's single accepted apply leaves it at 1 (the
+    // stale instance was synced to 5 above, so it could never read 1).
+    expect(getFacade("docReopen").renderedVersion).toBe(1);
   });
 
   // A bridge command on a doc whose native engine was never opened must reject

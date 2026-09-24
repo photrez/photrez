@@ -15,6 +15,7 @@ vi.mock("../../dialogs/DialogProvider", async (importOriginal) => {
         height: 600,
         backgroundColor: "transparent",
       }),
+      confirm: vi.fn().mockResolvedValue(true),
     }),
   };
 });

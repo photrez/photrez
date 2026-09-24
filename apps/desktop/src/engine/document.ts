@@ -758,6 +758,23 @@ export class DocumentEngine {
     this.notifyChange();
   }
 
+  /**
+   * Native-only retry of markLayerAsBackground, for when the guarded protocol
+   * commit rejects AFTER the workspace has wired its change listeners (the
+   * legacy setter runs synchronously inside the factory, before any listener
+   * exists). Applies the Rust-side flag and re-mirrors; returns false when no
+   * native engine handled it. Never marks the model dirty: the document
+   * factories already projected the flag at fire time, and a dirty-marking
+   * notify fired post-wiring would pin a freshly opened document as dirty and
+   * clobber an explicit dirty mark on the session.
+   */
+  markLayerBackgroundNative(id: LayerId): boolean {
+    if (!(USE_RUST_SSOT && this.rustEngine && this.rustEngine.set_layer_background(id))) return false;
+    this.syncLayersFromRust();
+    this.notifyChange();
+    return true;
+  }
+
   // ─── Text Layers ───
   addTextLayer(name: string, data: TextData): LayerNode {
     // Facade authority: see addShapeLayer - the syncLayersFromRust choke point

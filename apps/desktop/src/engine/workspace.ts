@@ -6,7 +6,14 @@ import { releaseBitmapStore } from "./bitmapStore";
 import { clearNativeSeed, createNativeSeed, isNativeAuthority, seedNativeCanonical } from "@/lib/protocol/bridge";
 import { buildCanonicalDocumentPayload } from "@/lib/protocol/canonicalSeed";
 import { removeFacade } from "@/lib/protocol/facadeRegistry";
-import { commitFacadeBackgroundFlag, isBackgroundFlagRouteArmed } from "@/lib/protocol/backgroundFlagRouting";
+import {
+  awaitBackgroundFlagCommit,
+  clearBackgroundFlagCommit,
+  commitFacadeBackgroundFlag,
+  isBackgroundFlagRouteArmed,
+  markBackgroundFlagOnModel,
+  trackBackgroundFlagCommit,
+} from "@/lib/protocol/backgroundFlagRouting";
 import type { RenderLayer } from "@/lib/protocol/types";
 
 export interface DocumentSession {
@@ -68,11 +75,16 @@ export class WorkspaceManager {
       }));
       createNativeSeed(id, 0, seededLayers).catch(() => {});
       // Full canonical-document shadow (all layer content + selection) so the native
-      // engine holds a complete typed copy. Fire-and-forget, same as the layer seed;
-      // log a failed push instead of swallowing it so a missing shadow is visible.
-      seedNativeCanonical(id, buildCanonicalDocumentPayload(session.engine)).catch((e) =>
-        console.warn("[canonical-seed] shadow seed failed", e),
-      );
+      // engine holds a complete typed copy. Ordered BEHIND the factory's in-flight
+      // background-flag commit: seed_canonical replaces the native layer set, so a
+      // payload built before the flag apply would carry no flag and clobber it. The
+      // seed promise registers only after the commit settles (the commit's own
+      // apply awaits the seed barrier), which is what keeps this ordering from
+      // deadlocking. Fire-and-forget, same as the layer seed; log a failed push
+      // instead of swallowing it so a missing shadow is visible.
+      void awaitBackgroundFlagCommit(id)
+        .then(() => seedNativeCanonical(id, buildCanonicalDocumentPayload(session.engine)))
+        .catch((e) => console.warn("[canonical-seed] shadow seed failed", e));
     }
 
     // Connect document engine change triggers back to workspace context updates.
@@ -107,6 +119,9 @@ export class WorkspaceManager {
       // into workspace state (review #40).
       const session = this.sessions.get(id)!;
       session.engine.clearCallbacks();
+      // Drop the tracked factory flag commit so its settled closure cannot
+      // retain the removed engine; a reopen re-tracks via the factory.
+      clearBackgroundFlagCommit(id);
 
       const index = Array.from(this.sessions.keys()).indexOf(id);
       this.sessions.delete(id);
@@ -266,14 +281,25 @@ export class WorkspaceManager {
     const engine = new DocumentEngine(id, name, width, height);
     const bg = engine.addLayer("Background"); // Default empty background layer
     // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
-    // The factory cannot await the protocol commit: fire-and-forget, and a
-    // rejection falls back to the direct setter (logged loud) so the layer
-    // still flags instead of a silent no-op.
+    // The factory cannot await the protocol commit: the model gets the flag
+    // synchronously (canonical payload + synchronous readers), the NATIVE apply
+    // stays fire-and-forget (tracked so the open path can order the canonical
+    // shadow seed behind it), and a rejection falls back to the direct setter
+    // (logged loud) so the layer still flags instead of a silent no-op.
     if (isBackgroundFlagRouteArmed()) {
-      void commitFacadeBackgroundFlag(engine as never, [bg.id]).catch((err) => {
-        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct setter:", err);
-        engine.markLayerAsBackground(bg.id);
+      markBackgroundFlagOnModel(engine, bg.id);
+      const commit = commitFacadeBackgroundFlag(engine as never, [bg.id]).catch((err) => {
+        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct native setter:", err);
+        // The TS flag was already projected at fire time (markBackgroundFlagOnModel),
+        // so only the native write is retried. The full legacy setter cannot run
+        // here: it marks the model dirty and notifies, and by the time an async
+        // commit rejects, addDocument has wired its dirty tracking — that notify
+        // would pin a freshly opened document as dirty and clobber an explicit
+        // dirty mark on the session. The legacy path fires the same setter while
+        // no listener is wired yet, so this keeps both paths equivalent.
+        engine.markLayerBackgroundNative(bg.id);
       });
+      trackBackgroundFlagCommit(engine.getId(), commit);
     } else {
       engine.markLayerAsBackground(bg.id);
     }
@@ -317,14 +343,19 @@ export class WorkspaceManager {
     const bgLayer = engine.addLayer("Background", bitmap.width, bitmap.height);
     engine.setLayerImageBitmap(bgLayer.id, bitmap);
     // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
-    // The factory cannot await the protocol commit: fire-and-forget, and a
-    // rejection falls back to the direct setter (logged loud) so the layer
-    // still flags instead of a silent no-op.
+    // The factory cannot await the protocol commit: the model gets the flag
+    // synchronously (canonical payload + synchronous readers), the NATIVE apply
+    // stays fire-and-forget (tracked so the open path can order the canonical
+    // shadow seed behind it), and a rejection falls back to the direct setter
+    // (logged loud) so the layer still flags instead of a silent no-op.
     if (isBackgroundFlagRouteArmed()) {
-      void commitFacadeBackgroundFlag(engine as never, [bgLayer.id]).catch((err) => {
-        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct setter:", err);
-        engine.markLayerAsBackground(bgLayer.id);
+      markBackgroundFlagOnModel(engine, bgLayer.id);
+      const commit = commitFacadeBackgroundFlag(engine as never, [bgLayer.id]).catch((err) => {
+        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct native setter:", err);
+        // Native-only retry; rationale in createBlankDocument's identical catch.
+        engine.markLayerBackgroundNative(bgLayer.id);
       });
+      trackBackgroundFlagCommit(engine.getId(), commit);
     } else {
       engine.markLayerAsBackground(bgLayer.id);
     }

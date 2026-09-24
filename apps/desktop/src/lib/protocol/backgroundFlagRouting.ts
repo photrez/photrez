@@ -1,8 +1,8 @@
 // Guarded commit funnel for the document-level SetBackgroundFlag op: routes a
 // layer's background-flag mutation through the protocol facade (one native
 // apply per commit) while the per-op photrez.bgFlagRoute guard is armed
-// (default OFF), and reports "legacy" otherwise so callers keep the direct
-// engine setter byte-for-byte.
+// (default ON; "0" opts out), and reports "legacy" otherwise so callers keep
+// the direct engine setter byte-for-byte.
 //
 // This op is document-level single-layer work, not a selection route: the
 // factory-created Background layer is never facade-owned, so the funnel skips
@@ -12,7 +12,7 @@
 // delta, so a sent flag that never landed must throw instead of passing.
 
 import type { DocumentEngine } from "@/engine/document";
-import { getLayerIds, isFacadeEnabled, isNativeAuthority } from "./bridge";
+import { getLayerIds, isFacadeEnabled, isNativeAuthority, setExternalTransitionPending } from "./bridge";
 import { EditorFacade } from "./editorFacade";
 import { getFacade, seedFacadeFromEngine } from "./facadeRegistry";
 import type { FacadeRouteStatus } from "./facadeRegistry";
@@ -20,19 +20,53 @@ import type { FacadeProjectionSink } from "./selectionMirror";
 
 const BG_FLAG_ROUTE_KEY = "photrez.bgFlagRoute";
 
-// Per-op migration guard: default OFF. Only an explicit "1" arms routing, so
-// a missing or unreadable localStorage keeps the legacy path.
+// Per-op migration guard: DEFAULT ON. An explicit "0" is the rollback switch
+// (restores the legacy direct setter byte-for-byte); any other value, a missing
+// key, or an unreadable localStorage arms routing.
 export function isBackgroundFlagRouteEnabled(): boolean {
   try {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem(BG_FLAG_ROUTE_KEY) === "1";
+    if (typeof localStorage === "undefined") return true;
+    return localStorage.getItem(BG_FLAG_ROUTE_KEY) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 
 export function isBackgroundFlagRouteArmed(): boolean {
   return isBackgroundFlagRouteEnabled() && isFacadeEnabled() && isNativeAuthority();
+}
+
+// In-flight factory flag commits per document. The factory fires the funnel
+// before it returns the session, so the open path (addDocument) can hold the
+// canonical shadow seed behind the commit. The entry is dropped on workspace
+// close so a closed engine is not retained by the settled promise's closure.
+const bgFlagCommitByDoc = new Map<string, Promise<unknown>>();
+
+export function trackBackgroundFlagCommit(docId: string, commit: Promise<unknown>): void {
+  bgFlagCommitByDoc.set(docId === "" ? "default" : docId, commit);
+}
+
+// Resolves once the tracked commit for this doc has settled; immediately when
+// none was tracked (guard opted out, or a session not created by the factory).
+export async function awaitBackgroundFlagCommit(docId: string): Promise<void> {
+  await bgFlagCommitByDoc.get(docId === "" ? "default" : docId);
+}
+
+export function clearBackgroundFlagCommit(docId: string): void {
+  bgFlagCommitByDoc.delete(docId === "" ? "default" : docId);
+}
+
+// Optimistic TS-model projection of the background flag, used by the document
+// factories at fire time: synchronous readers (property panel, reorder clamp)
+// and the canonical payload must see the flag while the native apply is still
+// in flight. Model-only by design - no dirty mark, no notify, no native write;
+// the single native apply stays inside commitFacadeBackgroundFlag.
+export function markBackgroundFlagOnModel(engine: DocumentEngine, layerId: string): void {
+  const layer = engine.getLayer(layerId);
+  if (!layer) return;
+  layer.isBackground = true;
+  layer.lockPosition = true;
+  layer.lockRotation = true;
 }
 
 export async function commitFacadeBackgroundFlag(
@@ -53,7 +87,16 @@ export async function commitFacadeBackgroundFlag(
   }
   let last: unknown = null;
   for (const id of ids) {
-    last = await f.setBackgroundFlag(id);
+    const applying = f.setBackgroundFlag(id);
+    // Register the in-flight apply on the external-transition barrier BEFORE
+    // awaiting, so any other command's syncFromEngine -> flushExternalTransitions
+    // reads the version only after this apply's documentVersion bump (closes the
+    // read-then-dispatch E_VERSION_MISMATCH interleave). This line runs
+    // synchronously right after setBackgroundFlag suspends inside this commit's
+    // OWN flush - that flush read the barrier before this entry existed, so the
+    // commit can never end up awaiting its own promise.
+    setExternalTransitionPending(f.docId, applying.then(() => {}));
+    last = await applying;
   }
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
   // Membership first because a sent flag that already equals the settled

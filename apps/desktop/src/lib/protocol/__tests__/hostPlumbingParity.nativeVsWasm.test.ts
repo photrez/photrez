@@ -50,10 +50,13 @@ import {
   getSnapshot,
   getVersion,
   createNativeSeed,
+  flushExternalTransitions,
   seedNativeCanonical,
+  awaitNativeSeed,
   setProtocolWasm,
   __resetNativeAuthorityForTests,
 } from "../bridge";
+import { awaitBackgroundFlagCommit } from "../backgroundFlagRouting";
 import { CONTRACT_VERSION, type Command, type RenderSnapshot } from "../types";
 import { WorkspaceManager } from "@/engine/workspace";
 import { seedFacadeFromEngine, getFacade, __resetFacadeRegistryForTests } from "../facadeRegistry";
@@ -599,6 +602,21 @@ async function observeRealOpen(docId: string, native: boolean): Promise<OpenObse
   // :72). seedFacadeFromEngine awaits the same per-doc seed barrier, so awaiting
   // it here is what makes both seeds land before the first read.
   await seedFacadeFromEngine(session.engine as never, getFacade(docId));
+  // The document factory's background-flag commit is also fire-and-forget.
+  // Production readers reach the version through EditorFacade.syncFromEngine,
+  // which drains this same external-transition barrier first; this helper reads
+  // the bridge directly, so drain it here before capturing the expectedVersion
+  // the first raw command will be built with (under wasm authority the drain is
+  // a no-op and the wasm arm is unchanged).
+  await flushExternalTransitions(docId);
+  // The factory's background-flag commit settles (landed or fell back), then
+  // the canonical shadow seed it is ordered in front of starts - and under
+  // this transport the document's layer state arrives through that canonical
+  // seed (see THE GAP above; protocol_seed_native is recorded but stores
+  // nothing). Production readers wait the same barriers (applyCommand awaits
+  // awaitNativeSeed), so wait for both before capturing.
+  await awaitBackgroundFlagCommit(docId);
+  await awaitNativeSeed(docId);
   const layers = session.engine.getLayers();
   // The USER-visible document: the facade projection the app renders from.
   // Compared by NAME across arms, not by id: createBlankDocument mints a random

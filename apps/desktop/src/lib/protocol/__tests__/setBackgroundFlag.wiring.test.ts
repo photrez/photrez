@@ -2,8 +2,9 @@
 // (commitFacadeBackgroundFlag) and its two document-factory call sites in
 // engine/workspace.ts (createBlankDocument, createDocumentFromImage): the
 // factory's "mark layer as background" step routes through exactly one native
-// protocol apply per commit while the photrez.bgFlagRoute guard is armed, and
-// keeps the synchronous direct-setter path when the guard is off (default).
+// protocol apply per commit while the photrez.bgFlagRoute guard is armed
+// (default ON: a missing key arms it), and keeps the synchronous direct-setter
+// path only when the guard is explicitly opted out with photrez.bgFlagRoute=0.
 //
 // Wire rules covered here: (c) caller -> funnel -> facade envelope -> native
 // apply, (d) exactly one native apply per commit, (e) invalid/unknown-id input
@@ -19,10 +20,6 @@
 // lockRotation plus a 1x1 dirtyRect for a known id, an UNKNOWN id yields an
 // empty delta (the Rust arm has no error branch), and documentVersion bumps on
 // every accepted apply.
-//
-// Transitional: the "photrez.bgFlagRoute-OFF parity" describe blocks pin the
-// default-OFF behavior while the per-op guard is in flight; delete them in the
-// change that retires the guard.
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { DocumentEngine } from "@/engine/document";
@@ -52,7 +49,8 @@ let forceApplyRejection = false;
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
   localStorage.setItem("photrez.facadeAuthority", "native");
-  localStorage.setItem(GUARD_KEY, "1");
+  // No photrez.bgFlagRoute key: the guard arms by default (missing key = ON).
+  localStorage.removeItem(GUARD_KEY);
   applyCount = 0;
   bgFlagApplies = 0;
   lastApplyEnvelope = null;
@@ -307,18 +305,36 @@ describe("commitFacadeBackgroundFlag (SetBackgroundFlag native arm)", () => {
   });
 });
 
-describe("photrez.bgFlagRoute-OFF parity (delete with the guard)", () => {
-  it("guard reader defaults OFF; photrez.bgFlagRoute=1 arms it", () => {
+describe("photrez.bgFlagRoute default ON (missing key arms the guard)", () => {
+  it("guard reader defaults ON when the key is missing; armed with facade + native authority", () => {
     localStorage.removeItem(GUARD_KEY);
-    expect(isBackgroundFlagRouteEnabled()).toBe(false);
-    expect(isBackgroundFlagRouteArmed()).toBe(false);
-    localStorage.setItem(GUARD_KEY, "1");
     expect(isBackgroundFlagRouteEnabled()).toBe(true);
     expect(isBackgroundFlagRouteArmed()).toBe(true);
   });
 
-  it("guard off: funnel reports legacy, zero applies, layer untouched", async () => {
+  it("armed by default: the funnel fires exactly one native setBackgroundFlag apply", async () => {
     localStorage.removeItem(GUARD_KEY);
+    const { engine, id } = await makeSeededDoc("bg-default-on");
+    const appliesBefore = applyCount;
+
+    const r = await commitFacadeBackgroundFlag(engine as never, [id]);
+
+    expect(r.status).toBe("applied");
+    expect(applyCount - appliesBefore).toBe(1);
+    expect(bgFlagApplies).toBe(1);
+    expect(lastApplyEnvelope!.command.type).toBe("setBackgroundFlag");
+  });
+});
+
+describe("photrez.bgFlagRoute=0 opt-out (legacy byte-identical path)", () => {
+  it("explicit 0 disables the guard even though the default is ON", () => {
+    localStorage.setItem(GUARD_KEY, "0");
+    expect(isBackgroundFlagRouteEnabled()).toBe(false);
+    expect(isBackgroundFlagRouteArmed()).toBe(false);
+  });
+
+  it("explicit 0: funnel reports legacy, zero applies, layer untouched", async () => {
+    localStorage.setItem(GUARD_KEY, "0");
     const { engine, id } = await makeSeededDoc("bg-off-fn");
     const appliesBefore = applyCount;
 
@@ -330,8 +346,8 @@ describe("photrez.bgFlagRoute-OFF parity (delete with the guard)", () => {
     expect(engine.getLayer(id)!.isBackground ?? false).toBe(false);
   });
 
-  it("guard off: createBlankDocument keeps the synchronous direct setter (zero protocol applies)", async () => {
-    localStorage.removeItem(GUARD_KEY);
+  it("explicit 0: createBlankDocument keeps the synchronous direct setter (zero protocol applies)", async () => {
+    localStorage.setItem(GUARD_KEY, "0");
     const session = WorkspaceManager.createBlankDocument("bg-off-factory", "Off", 8, 8);
     const bg = session.engine.getLayers().find((l) => l.name === "Background")!;
     expect(bg.isBackground).toBe(true);
@@ -344,7 +360,7 @@ describe("photrez.bgFlagRoute-OFF parity (delete with the guard)", () => {
   });
 });
 
-describe("createBlankDocument background-flag factory wiring (photrez.bgFlagRoute armed)", () => {
+describe("createBlankDocument background-flag factory wiring (photrez.bgFlagRoute default ON)", () => {
   it("armed: factory commits exactly one native apply and the Background layer settles", async () => {
     const session = WorkspaceManager.createBlankDocument("bg-on-factory", "On", 8, 8);
     const wm = new WorkspaceManager();
@@ -378,6 +394,64 @@ describe("createBlankDocument background-flag factory wiring (photrez.bgFlagRout
     expect(lastApplyEnvelope!.command.id).toBe(bg.id);
   });
 
+  it("armed: the funnel opens the native document itself before its first apply (addDocument not called)", async () => {
+    // Race guard: the factory fires the funnel before addDocument registers the
+    // open/seed barrier, so the first apply must be preceded by the funnel's own
+    // seedFacadeFromEngine -> createNativeSeed open. routeNative rejects any
+    // apply against an unopened document, which would trip the loud fallback.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const session = WorkspaceManager.createBlankDocument("bg-self-open", "Self Open", 8, 8);
+    const bg = session.engine.getLayers().find((l) => l.name === "Background")!;
+
+    await vi.waitFor(() => expect(bgFlagApplies).toBe(1));
+    await vi.waitFor(() => expect(session.engine.getLayer(bg.id)!.isBackground).toBe(true));
+
+    expect(applyCount).toBe(1);
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("Background-flag"))).toBe(false);
+  });
+
+  it("armed: the open-path canonical shadow seed waits for the factory flag commit and the native flag persists", async () => {
+    // Prior tests in this file share one invoke mock; index-based assertions
+    // below must see only this test's calls.
+    invokeMock.mockClear();
+    const session = WorkspaceManager.createBlankDocument("bg-seed-race", "Seed Race", 8, 8);
+    const wm = new WorkspaceManager();
+    wm.addDocument(session);
+    const bg = session.engine.getLayers().find((l) => l.name === "Background")!;
+
+    await vi.waitFor(() => {
+      expect(bgFlagApplies).toBe(1);
+      expect(invokeMock.mock.calls.some((c) => c[0] === "protocol_seed_canonical_native")).toBe(true);
+    });
+
+    const calls = invokeMock.mock.calls;
+    const seedIdx = calls.findIndex((c) => c[0] === "protocol_seed_canonical_native");
+    const applyIdx = calls.findIndex((c) => {
+      if (c[0] !== "protocol_apply_command_native") return false;
+      const env = JSON.parse(String((c[1] as Record<string, unknown>).envelopeJson)) as {
+        command?: { type?: string };
+      };
+      return env.command?.type === "setBackgroundFlag";
+    });
+
+    // The flag apply must land BEFORE the canonical push: seed_canonical
+    // replaces the native layer set with the pushed payload, so a push built
+    // before the commit would clobber the native background flag (and a
+    // pre-commit payload would not carry isBackground at all).
+    expect(applyIdx).toBeGreaterThanOrEqual(0);
+    expect(seedIdx).toBeGreaterThan(applyIdx);
+
+    const seedPayload = JSON.parse(
+      String((calls[seedIdx][1] as Record<string, unknown>).payloadJson),
+    ) as { layers: Array<{ id: string; isBackground?: boolean }> };
+    expect(seedPayload.layers.find((l) => l.id === bg.id)?.isBackground).toBe(true);
+
+    const snap = JSON.parse(
+      String(await invoke("protocol_snapshot_native", { docId: "bg-seed-race" })),
+    ) as { layers: Array<{ id: string; isBackground?: boolean }> };
+    expect(snap.layers.find((l) => l.id === bg.id)?.isBackground).toBe(true);
+  });
+
   it("armed + native rejection: console.error fires and the direct setter still settles the layer", async () => {
     forceApplyRejection = true;
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -394,5 +468,14 @@ describe("createBlankDocument background-flag factory wiring (photrez.bgFlagRout
     expect(bg.lockPosition).toBe(true);
     expect(bg.lockRotation).toBe(true);
     expect(bgFlagApplies).toBe(1);
+    // Fallback-state proof: the direct setter's notifyChange re-projects the
+    // engine model into the facade snapshot, so the facade is not left
+    // unflagged while the engine is flagged.
+    await vi.waitFor(() => {
+      const fl = getFacade("bg-fallback-factory").snapshot.layers.find((l) => l.id === bg.id);
+      expect(fl?.isBackground).toBe(true);
+      expect(fl?.lockPosition).toBe(true);
+      expect(fl?.lockRotation).toBe(true);
+    });
   });
 });
