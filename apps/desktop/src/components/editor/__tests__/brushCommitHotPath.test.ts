@@ -11,6 +11,11 @@
 // Part 4: two strokes with OVERLAPPING dirty rects accumulate byte-exact:
 //   both writes land, history and renderer pins fire once per stroke, and the
 //   store holds the union of both sent regions (no wipe of stroke 1).
+// Part 5: fallback/frequency baseline - per-condition counts (never wall time)
+//   of the synchronous-fallback warn (useBrushOverlay.ts:231) and the two
+//   full-layer read branches (seed readRect(0,0,w,h); stale rehydrate via
+//   rust_pixels_snapshot_layer) over 10-commit runs: healthy after seed,
+//   stale surface, absent store layer, and IPC write failure.
 
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
@@ -90,13 +95,14 @@ const realGetContext = (globalThis as any).HTMLCanvasElement.prototype.getContex
 
 type SimLayer = { w: number; h: number; pixels: number[]; undo: any[]; redo: any[]; epoch: number; version: number };
 
-function makeSim(opts?: { delayFirstWriteMs?: number }) {
+function makeSim(opts?: { delayFirstWriteMs?: number; failWriteRegion?: boolean }) {
   const store = new Map<string, SimLayer>();
   const calls: { cmd: string; args: any }[] = [];
   const key = (docId: string, layerId: string) => `${docId}|${layerId}`;
   let commitCount = 0;
   let initCount = 0;
   const delayFirstWriteMs = opts?.delayFirstWriteMs ?? 0;
+  const failWriteRegion = opts?.failWriteRegion ?? false;
 
   const invoke = async (cmd: string, args: any): Promise<any> => {
     calls.push({ cmd, args });
@@ -128,6 +134,11 @@ function makeSim(opts?: { delayFirstWriteMs?: number }) {
       commitCount += 1;
       if (delayFirstWriteMs > 0 && commitCount === 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, delayFirstWriteMs));
+      }
+      if (failWriteRegion) {
+        // Mirrors Tauri v2 rejecting with the Rust `Err(String)` payload; the
+        // production catch does not inspect the shape, only that it rejected.
+        throw "rust ipc unavailable";
       }
       const layer = store.get(k);
       if (!layer) throw new Error("no layer");
@@ -598,5 +609,117 @@ describe("brush commit hot path", () => {
     } finally {
       (globalThis as unknown as { OffscreenCanvas: unknown }).OffscreenCanvas = prevOffscreen;
     }
+  });
+});
+
+// Part 5: fallback/frequency baseline. Counts only - no wall-time asserts here
+// (timings live in the dedicated bench harnesses). Each condition runs N
+// commits and counts the synchronous-fallback warn plus both full-layer read
+// branches, so later tasks gate on "fallback hits == 0" against real numbers.
+const FALLBACK_WARN = "[paint] async deferred commit failed";
+
+function seedFullReadCount(surface: ReturnType<typeof makeSurface>): number {
+  return surface.readRect.mock.calls.filter(
+    (c: unknown[]) => c[0] === 0 && c[1] === 0 && c[2] === 512 && c[3] === 512,
+  ).length;
+}
+
+function fallbackWarnCount(spy: { mock: { calls: unknown[][] } }): number {
+  return spy.mock.calls.filter((c) => String(c[0]).includes(FALLBACK_WARN)).length;
+}
+
+async function runCommits(
+  overlay: ReturnType<typeof makeHarness>["overlay"],
+  engine: unknown,
+  history: unknown,
+  surface: unknown,
+  n: number,
+  opts?: { stale?: boolean },
+): Promise<void> {
+  for (let i = 0; i < n; i++) {
+    if (opts?.stale) (surface as { pixelEpoch: number }).pixelEpoch = -1;
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    await overlay.commitBrushStroke(engine as never, history as never, "layer-1", false);
+    await flushC4Commits();
+  }
+}
+
+describe("part 5: commit fallback frequency baseline (counts only)", () => {
+  beforeEach(() => {
+    vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
+    vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation(() => null);
+    vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation((id: string) => false);
+    hoist.setSim(makeSim());
+    localStorage.setItem("photrez.rustPixels", "1");
+    localStorage.removeItem("photrez.canonicalCommit");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("healthy after seed: 0 fallback warns, 0 rehydrates, no new full reads over 10 commits", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Warmup commit seeds the store: exactly one full seed read is allowed here.
+    await runCommits(overlay, engine, history, surface, 1);
+    expect(seedFullReadCount(surface)).toBe(1);
+
+    const sim = hoist.getSim();
+    const snapsBefore = count(sim, "rust_pixels_snapshot_layer");
+    await runCommits(overlay, engine, history, surface, 10);
+
+    expect(fallbackWarnCount(warns)).toBe(0);
+    expect(seedFullReadCount(surface)).toBe(1); // no further full readRect
+    expect(count(sim, "rust_pixels_snapshot_layer") - snapsBefore).toBe(0); // no rehydrate
+    expect(count(sim, "rust_pixels_write_region")).toBe(11);
+  });
+
+  it("stale surface: one full rehydrate read per commit, 0 fallback warns over 10 commits", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await runCommits(overlay, engine, history, surface, 1); // seed
+    const sim = hoist.getSim();
+    const snapsBefore = count(sim, "rust_pixels_snapshot_layer");
+    await runCommits(overlay, engine, history, surface, 10, { stale: true });
+
+    expect(count(sim, "rust_pixels_snapshot_layer") - snapsBefore).toBe(10);
+    expect(fallbackWarnCount(warns)).toBe(0);
+    // The stale rehydrate reads from the store, not via surface.readRect.
+    expect(seedFullReadCount(surface)).toBe(1);
+    expect(count(sim, "rust_pixels_write_region")).toBe(11);
+  });
+
+  it("absent store layer: exactly one full seed read on the first commit, none after", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await runCommits(overlay, engine, history, surface, 1);
+    expect(seedFullReadCount(surface)).toBe(1);
+    expect(count(hoist.getSim(), "rust_pixels_init")).toBe(1);
+
+    await runCommits(overlay, engine, history, surface, 10);
+    expect(seedFullReadCount(surface)).toBe(1);
+    expect(count(hoist.getSim(), "rust_pixels_init")).toBe(1);
+    expect(fallbackWarnCount(warns)).toBe(0);
+  });
+
+  it("IPC write failure: every commit warns the fallback once and still lands in history", async () => {
+    hoist.setSim(makeSim({ failWriteRegion: true }));
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await runCommits(overlay, engine, history, surface, 10);
+
+    expect(fallbackWarnCount(warns)).toBe(10);
+    expect(history.commit).toHaveBeenCalledTimes(10);
+    expect(count(hoist.getSim(), "rust_pixels_write_region")).toBe(10); // attempted, none succeeded
+    expect(c4PendingCommits("doc-test", "layer-1")).toBe(0);
   });
 });
