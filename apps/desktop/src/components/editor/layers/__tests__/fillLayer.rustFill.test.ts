@@ -37,6 +37,14 @@ vi.mock("@/lib/rustShadow", async (importOriginal) => {
   };
 });
 
+// Toast spy: the failure toast must carry the raw rejection text, so the
+// production toast module is kept and only `showToast` is intercepted.
+const showToastMock = vi.fn();
+vi.mock("@/components/editor/Toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/editor/Toast")>();
+  return { ...actual, showToast: (...args: Parameters<typeof actual.showToast>) => showToastMock(...args) };
+});
+
 // createImageBitmap(ImageData) → object whose getImageData returns the same buffer,
 // so the fill canvas can drawImage (copy) the canonical `before` pixels.
 (globalThis as any).createImageBitmap = async (src: any) => {
@@ -124,6 +132,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     installOffscreenCanvas();
     mockInvoke.mockReset();
     applyCalls.length = 0;
+    showToastMock.mockClear();
     localStorage.setItem("photrez.rustPixels", "1");
   });
 
@@ -158,6 +167,27 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
       expect(uploadSurfaceTiles).toHaveBeenCalledWith("L1", 100, 100, expect.anything());
       expect(engine.setLayerImageBitmap).not.toHaveBeenCalled();
     }, { timeout: 2000 });
+  });
+
+  // RED-first: on the pre-fix tree this toast reads `Unknown error`, because a
+  // Tauri v2 rejection is a bare string and `err instanceof Error` is false.
+  it("surfaces a bare-string write_region rejection verbatim in the failure toast", async () => {
+    const { commit, engine, renderer, history } = makeFakes();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "rust_pixels_get_epoch") return 0;
+      if (cmd === "rust_pixels_snapshot_layer") {
+        return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
+      }
+      if (cmd === "rust_pixels_write_region") throw "E_RUST: boom";
+      return undefined;
+    });
+
+    fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+
+    await vi.waitFor(() => {
+      expect(showToastMock).toHaveBeenCalledWith("Fill Layer failed: E_RUST: boom", "error");
+    }, { timeout: 2000 });
+    expect(commit).not.toHaveBeenCalled();
   });
 
   it("seeds the canonical store via rust_pixels_init when the layer has no Rust entry yet (fill as FIRST raster op)", async () => {

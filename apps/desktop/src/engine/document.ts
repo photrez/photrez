@@ -1188,6 +1188,7 @@ export class DocumentEngine {
     let rustEpoch: number | null = null;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
+      // Read-only probe: stays outside the six-command census by design.
       const res = await invoke("rust_pixels_get_epoch", { docId, layerId });
       rustEpoch = typeof res === "number" ? res : null;
     } catch {
@@ -1216,6 +1217,7 @@ export class DocumentEngine {
       // Surface missing or stale — read full canonical from Rust.
       try {
         const { invoke } = await import("@tauri-apps/api/core");
+        // Read-only probe: stays outside the six-command census by design.
         const tiles = (await invoke("rust_pixels_snapshot_layer", {
           docId, layerId,
         })) as { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[] | null;

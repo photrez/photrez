@@ -3,6 +3,7 @@ import { documentToLayerLocal } from "@/viewport/transformGeometry";
 import { floodFill, type FillMask } from "@/features/fill/fillOperations";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import { showToast } from "../../Toast";
+import { ipcErrorMessage } from "@/tauri/native";
 import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
@@ -81,6 +82,7 @@ export function applyPaintBucketFill(
     void (async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
+        const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
         // C5.4 ensure-if-absent: the canonical store only holds an entry for this
         // layer once a prior Rust pixel op seeded it (the brush seeds inside its
         // commit). A Paint Bucket Fill can be the FIRST raster op on a layer, so
@@ -115,7 +117,7 @@ export function applyPaintBucketFill(
         const changed = computeChangedRegion(before, imgData.data, layer.width, layer.height);
         if (!changed) return;
         const preSnapshot = engine.snapshot();
-        const res = (await invoke("rust_pixels_write_region", {
+        const res = (await pixelInvoke("rust_pixels_write_region", {
           docId,
           layerId,
           x: changed.x,
@@ -152,7 +154,7 @@ export function applyPaintBucketFill(
         history.commit(preSnapshot, "Paint Bucket Fill", imperative, true);
         scheduler.requestRender();
       } catch (err) {
-        showToast(`Fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");
+        showToast(`Fill failed: ${ipcErrorMessage(err)}`, "error");
       } finally {
         trySetPointerCapture(ctx.getCanvasRef(), e.pointerId);
       }

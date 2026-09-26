@@ -10,8 +10,17 @@ import type {
 } from "./types";
 import { CONTRACT_VERSION } from "./types";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
-import { invoke } from "@tauri-apps/api/core";
+import { pixelInvoke } from "./pixelInvokeCensus";
 import { nativeProtocol } from "./nativeClient";
+
+/**
+ * Shared pixel-invoke entry. State-changing pixel commands funnel through here
+ * so the census registrar is installed before the first pixel invoke and one
+ * monotonic order counter covers every call site.
+ */
+export function invokePixelCommand(command: string, args: Record<string, unknown>): Promise<unknown> {
+  return pixelInvoke(command, args);
+}
 
 type WasmProtocol = {
   protocol_contract_version: () => number;
@@ -164,7 +173,7 @@ export function createNativeSeed(docId: string, version: number, layers: RenderL
   const existing = nativeSeedPromiseByDoc.get(key);
   if (existing) return existing;
   const p = (async () => {
-    await invoke("rust_pixels_open_document", { docId: key });
+    await invokePixelCommand("rust_pixels_open_document", { docId: key });
     await nativeProtocol.protocol_seed_native(JSON.stringify({ version, layers }), key);
   })();
   nativeSeedPromiseByDoc.set(key, p);

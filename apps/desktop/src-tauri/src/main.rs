@@ -8,6 +8,7 @@ mod file_io;
 mod fonts;
 mod menu;
 mod paint_parity_cmds;
+mod pixel_history_depth;
 mod print_core;
 mod print_geometry;
 mod print_settings;
@@ -236,6 +237,7 @@ fn main() {
             paint_parity_cmds::rust_pixels_snapshot_tile,
             paint_parity_cmds::rust_pixels_snapshot_layer,
             paint_parity_cmds::rust_pixels_get_epoch,
+            pixel_history_depth::rust_pixels_history_depth,
             document_snapshot_cmds::document_snapshot,
             document_snapshot_cmds::document_restore,
             document_snapshot_cmds::rust_pixels_record_snapshot,

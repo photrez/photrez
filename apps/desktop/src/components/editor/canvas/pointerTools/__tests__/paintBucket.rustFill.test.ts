@@ -39,6 +39,14 @@ vi.mock("@/lib/rustShadow", async (importOriginal) => {
   };
 });
 
+// Toast spy: the failure toast must carry the raw rejection text, so the
+// production toast module is kept and only `showToast` is intercepted.
+const showToastMock = vi.fn();
+vi.mock("@/components/editor/Toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/editor/Toast")>();
+  return { ...actual, showToast: (...args: Parameters<typeof actual.showToast>) => showToastMock(...args) };
+});
+
 function makeFakes() {
   const surface = { context: { putImageData: vi.fn(), getImageData: vi.fn((_x: number, _y: number, w: number, h: number) => new FakeImageData(w, h)) }, pixelEpoch: 0, pixelVersion: 0 } as any;
   const commit = vi.fn();
@@ -104,6 +112,7 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
   beforeEach(() => {
     mockInvoke.mockReset();
     applyCalls.length = 0;
+    showToastMock.mockClear();
     localStorage.setItem("photrez.rustPixels", "1");
   });
 
@@ -172,6 +181,27 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
         writeRes.after.map((t: { x: number; y: number; w: number; h: number; data: number[] }) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
       );
     }, { timeout: 2000 });
+  });
+
+  // RED-first: on the pre-fix tree this toast reads `Unknown error`, because a
+  // Tauri v2 rejection is a bare string and `err instanceof Error` is false.
+  it("surfaces a bare-string write_region rejection verbatim in the failure toast", async () => {
+    const { commit, ctx } = makeFakes();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "rust_pixels_get_epoch") return 0;
+      if (cmd === "rust_pixels_snapshot_layer") {
+        return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
+      }
+      if (cmd === "rust_pixels_write_region") throw "E_RUST: boom";
+      return undefined;
+    });
+
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+
+    await vi.waitFor(() => {
+      expect(showToastMock).toHaveBeenCalledWith("Fill failed: E_RUST: boom", "error");
+    }, { timeout: 2000 });
+    expect(commit).not.toHaveBeenCalled();
   });
 
   it("does NOT invoke write_region when the flood changes nothing", async () => {

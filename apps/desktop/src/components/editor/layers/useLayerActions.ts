@@ -317,6 +317,7 @@ export function useLayerActions() {
         void (async () => {
           try {
             const { invoke } = await import("@tauri-apps/api/core");
+            const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
             const docId = engine.getId();
 
             // Extract baked RGBA from the produced ImageBitmap.
@@ -352,7 +353,7 @@ export function useLayerActions() {
             await rehydratePaintSurfaceFromRust(docId, activeId, surface);
 
             // Write baked pixels to Rust canonical (whole layer).
-            const res = (await invoke("rust_pixels_write_region", {
+            const res = (await pixelInvoke("rust_pixels_write_region", {
               docId,
               layerId: activeId,
               x: 0,

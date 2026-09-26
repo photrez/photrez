@@ -144,6 +144,7 @@ export function useBrushOverlay() {
     const sctx = surface.context;
     const runCore = async () => {
       const { invoke } = await import("@tauri-apps/api/core");
+      const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
       // One store epoch read serves both checks below. When it matches the
       // surface epoch the surface already holds the store pixels, so the full
       // layer read inside the rehydrate helper is skipped. The skip is safe
@@ -173,7 +174,7 @@ export function useBrushOverlay() {
       snapCtx.putImageData(job.scratchSnap, 0, 0);
       sctx.drawImage(snapCanvas, 0, 0, dw, dh, dx0, dy0, dw, dh);
       const region = surface.readRect(dx0, dy0, dw, dh);
-      const res = (await invoke("rust_pixels_write_region", {
+      const res = (await pixelInvoke("rust_pixels_write_region", {
         docId, layerId, x: dx0, y: dy0, w: dw, h: dh,
         rgba: new Uint8Array(region.data.buffer, region.data.byteOffset, region.data.byteLength),
       })) as { before: { x: number; y: number; w: number; h: number; data: number[] }[]; after: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number };
@@ -208,11 +209,16 @@ export function useBrushOverlay() {
       } catch (err) {
         console.warn("[paint] c4 model bitmap sync failed - committed snapshot may be stale:", err);
       }
+      // alreadyRecordedInRust: rust_pixels_write_region succeeded above, so Rust
+      // already owns this Pixel entry. Leaving it false makes history.ts fire a
+      // SECOND state-changing apply (apply_tile_patch) for the same stroke.
+      // The failed-write fallback below must keep it false — a rejected write
+      // owns no Rust state, so that path still records the one recoverable apply.
       history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", {
         layerId, surfaceWidth: w, surfaceHeight: h,
         before: beforePatches.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
         after: afterPatches,
-      });
+      }, true);
       queueOrUploadTiles(layerId, w, h, rectUploads);
       requestRender();
       try {

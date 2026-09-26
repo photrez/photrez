@@ -16,6 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { useEditorCommands } from "../useEditorCommands";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
@@ -172,6 +173,32 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     commands.redo();
     await flush();
     expect(invoke).toHaveBeenCalledWith("rust_pixels_redo", { docId: "doc-1", layerId: "l1" });
+  });
+
+  it("rustPixels ON: the tile path fires exactly ONE undo/redo invoke and the census records it", async () => {
+    localStorage.setItem(RUST_PIXELS_KEY, "1");
+    localStorage.setItem(GATE_KEY, "1");
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
+    mockUseEditor(makeEditorContext(makePatches(), makeEngine()));
+    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
+    const censusBefore = (await flushPixelInvokeCensus()).entries.length;
+
+    const commands = useEditorCommands(() => {});
+    commands.undo();
+    await flush();
+
+    // rustPixels ON fires the tile-path cursor sync and skips the bridge-only
+    // site, so one undo is exactly one Rust cursor step (no double step).
+    const undoRedoCalls = (vi.mocked(invoke).mock.calls as [string][]).filter(
+      ([cmd]) => cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo",
+    );
+    expect(undoRedoCalls).toHaveLength(1);
+    expect(undoRedoCalls[0][0]).toBe("rust_pixels_undo");
+
+    const census = await flushPixelInvokeCensus();
+    expect(census.entries.slice(censusBefore)).toEqual([
+      { order: expect.any(Number), command: "rust_pixels_undo", phase: "resolved" },
+    ]);
   });
 
   it("historyBridgeEnabled predicate: default false, gate+tauri true, gate+non-tauri false", async () => {

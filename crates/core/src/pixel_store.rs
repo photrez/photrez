@@ -306,6 +306,21 @@ impl DocumentPixelStore {
     }
 }
 
+/// Read-only depth report for one document's unified history stream, as returned
+/// by `PixelStoreRegistry::get_history_depth` and the
+/// `rust_pixels_history_depth` Tauri command. Carries no pixel bytes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct HistoryDepth {
+    /// Stream length (entries recorded, both branches included).
+    pub total_depth: usize,
+    /// Entries behind the cursor (undoable steps).
+    pub undo_depth: usize,
+    /// Entries ahead of the cursor (redoable steps).
+    pub redo_depth: usize,
+    /// Sorted, de-duplicated union of `affected_layer_ids` over the whole stream.
+    pub affected_layer_ids: Vec<String>,
+}
+
 /// Canonical pixel owner, namespaced by document id. This is the long-term owner
 /// (replacing the flat process-global `PIXEL_STORE`). Lifecycle is driven from
 /// TS via the `rust_pixels_*` commands: open/close/add/remove/resize manage
@@ -684,6 +699,38 @@ impl PixelStoreRegistry {
     /// Current `DocumentVersion` for the document.
     pub fn get_history_version(&self, doc_id: &str) -> Option<u64> {
         self.docs.get(doc_id).map(|d| d.history.version())
+    }
+
+    /// Read-only depth report for the document's unified history stream.
+    ///
+    /// `total_depth` is the stream length, `undo_depth` the applied entries
+    /// behind the cursor, `redo_depth` the entries ahead of it (so
+    /// `total_depth == undo_depth + redo_depth`), and `affected_layer_ids` the
+    /// sorted, de-duplicated union of every entry's affected layers across the
+    /// whole stream (both branches - a layer can be reachable again via redo).
+    ///
+    /// `&self` only: no cursor pop, tile write, `version()` bump, or
+    /// `Arc<StateNode>` mutation, and no pixel bytes are returned, so two calls
+    /// on an unchanged document are byte-identical.
+    pub fn get_history_depth(&self, doc_id: &str) -> Option<HistoryDepth> {
+        let doc = self.docs.get(doc_id)?;
+        let history = &doc.history;
+        let total_depth = history.entries.len();
+        let undo_depth = history.cursor();
+        let redo_depth = total_depth - undo_depth.min(total_depth);
+        let mut affected_layer_ids: Vec<String> = history
+            .entries
+            .iter()
+            .flat_map(|e| e.affected_layer_ids.iter().cloned())
+            .collect();
+        affected_layer_ids.sort();
+        affected_layer_ids.dedup();
+        Some(HistoryDepth {
+            total_depth,
+            undo_depth,
+            redo_depth,
+            affected_layer_ids,
+        })
     }
 
     /// Route a TS (non-pixel) logical mutation into the SAME unified

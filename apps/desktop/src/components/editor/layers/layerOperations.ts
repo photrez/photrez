@@ -10,6 +10,7 @@ import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/ru
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
 import { showToast } from "../Toast";
+import { ipcErrorMessage } from "@/tauri/native";
 
 export function mergeActiveLayerDown(
   engine: DocumentEngine,
@@ -234,6 +235,7 @@ export function fillActiveLayerWithColor(
     void (async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
+        const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
         // C5.4 ensure-if-absent: a Fill Layer can be the FIRST raster op on a
         // layer, so seed the canonical store from the current derived pixels when
         // Rust has no entry yet (mirrors the brush/bucket; never overwrites).
@@ -277,7 +279,7 @@ export function fillActiveLayerWithColor(
         // the fill gesture's undo (pixel composites for fill/bake stay host-side
         // until pixel authority).
         if (layer.basicAdjustment) engine.clearBasicAdjustments(activeId);
-        const res = (await invoke("rust_pixels_write_region", {
+        const res = (await pixelInvoke("rust_pixels_write_region", {
           docId,
           layerId: activeId,
           x: changed.x,
@@ -313,7 +315,7 @@ export function fillActiveLayerWithColor(
         };
         history.commit(preSnapshot, "Fill Layer", imperative, true);
       } catch (err) {
-        showToast(`Fill Layer failed: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
+        showToast(`Fill Layer failed: ${ipcErrorMessage(err)}`, "error");
       }
     })();
     return true;

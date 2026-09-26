@@ -787,6 +787,7 @@ export interface PaintCacheLike {
 export async function getRustEpoch(docId: string, layerId: string): Promise<number | null> {
   try {
     const invoke = await getInvoke();
+    // Read-only probe: stays outside the six-command census by design.
     const res = await invoke("rust_pixels_get_epoch", { docId, layerId });
     return typeof res === "number" ? res : null;
   } catch {
@@ -807,6 +808,7 @@ export async function rehydratePaintSurfaceFromRust(
   if (surface.pixelEpoch === rustEpoch) return false;
   try {
     const invoke = await getInvoke();
+    // Read-only probe: stays outside the six-command census by design.
     const tiles = (await invoke("rust_pixels_snapshot_layer", { docId, layerId })) as
       | { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[]
       | null;

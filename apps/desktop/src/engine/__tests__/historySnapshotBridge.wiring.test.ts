@@ -4,6 +4,7 @@ import type { SnapshotPayload } from "../history";
 import type { DocumentModel } from "../types";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { bitmapStoreFor, releaseBitmapStore, tokenForBitmap } from "../bitmapStore";
 
 // Mock the Tauri-runtime detector so the history bridge gate can be forced on/off.
@@ -92,12 +93,17 @@ describe("snapshot history bridge (bitmap-token) wiring", () => {
     const history = new CommandHistory();
     history.attachDocIdGetter(() => "doc-1");
     const bm = fakeBitmap();
+    const censusBefore = (await flushPixelInvokeCensus()).entries.length;
     // Pre-action state is empty (no layers); the action produces the bm layer.
     history.recordSnapshotHistory(makeModel([]), makeModel([makeLayer("l1", bm)]), "Action");
     await waitFor(() => vi.mocked(invoke).mock.calls.length >= 1);
 
     const rec = vi.mocked(invoke).mock.calls.filter(([c]) => c === "rust_pixels_record_snapshot");
     expect(rec.length).toBe(1);
+    const census = await flushPixelInvokeCensus();
+    expect(census.entries.slice(censusBefore)).toEqual([
+      { order: expect.any(Number), command: "rust_pixels_record_snapshot", phase: "resolved" },
+    ]);
     const args = rec[0][1] as { docId: string; before: SnapshotPayload; after: SnapshotPayload };
     expect(args.docId).toBe("doc-1");
     // The after snapshot carries the layer's bitmap token (the stable token for bm).
@@ -223,10 +229,10 @@ describe("snapshot history bridge (bitmap-token) wiring", () => {
     }
   });
 
-  it("mock-fidelity: invoke REJECTS with a Tauri error envelope â†’ re-attach is safe (no detach)", async () => {
+  it("mock-fidelity: invoke REJECTS with the bare Err(String) payload -> re-attach is safe (no detach)", async () => {
     gateOn(true);
-    // Tauri v2 invoke() REJECTS with an error-envelope OBJECT on a Rust Err.
-    vi.mocked(invoke).mockRejectedValue({ code: "E_RUST", message: "boom", details: null });
+    // Tauri v2 invoke() REJECTS with the bare `Err(String)` payload on a Rust Err.
+    vi.mocked(invoke).mockRejectedValue("E_RUST: boom");
     const store = bitmapStoreFor("doc-1");
     const set = vi.fn(() => true);
     const applied = await restoreSnapshotBitmapsByToken("undo", "doc-1", (t) => store.get(t), set);

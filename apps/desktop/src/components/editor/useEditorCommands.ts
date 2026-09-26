@@ -364,8 +364,8 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         if (rustPixelsFlag) {
           try {
             const docId = editor.workspace.getActiveDocumentId() ?? "";
-            const { invoke } = await import("@tauri-apps/api/core");
-            rustRes = (await invoke(
+            const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
+            rustRes = (await pixelInvoke(
               direction === "undo" ? "rust_pixels_undo" : "rust_pixels_redo",
               { docId, layerId: patches.layerId },
             )) as { tiles: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number };
@@ -453,10 +453,10 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         if (!rustPixelsFlag && historyBridgeEnabled()) {
           try {
             const docId = editor.workspace.getActiveDocumentId() ?? "";
-            const { invoke } = await import("@tauri-apps/api/core");
+            const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
             const activeId = engine.getActiveLayerId();
             if (activeId) {
-              await invoke(
+              await pixelInvoke(
                 direction === "undo" ? "rust_pixels_undo" : "rust_pixels_redo",
                 { docId, layerId: activeId },
               );

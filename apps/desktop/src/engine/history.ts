@@ -464,11 +464,12 @@ export class CommandHistory {
     // (plus isTauriRuntime, folded into historyBridgeEnabled()).
     if (historyBridgeEnabled() && this.docIdGetter) {
       const docId = this.docIdGetter();
-      // Dynamic import (matching document.ts) keeps the Tauri API out of the
-      // module graph at import time so browser/test imports stay side-effect free.
+      // Fire-and-forget through the shared bridge entry, so the census registrar
+      // is installed and the invoke carries one monotonic order. A failure must
+      // never break TS history.
       const fire = (cmd: string, args: Record<string, unknown>) =>
-        import("@tauri-apps/api/core")
-          .then(({ invoke }) => invoke(cmd, args))
+        import("@/lib/protocol/bridge")
+          .then(({ invokePixelCommand }) => invokePixelCommand(cmd, args))
           .catch(() => {});
       try {
         if (imperative && !alreadyRecordedInRust) {
@@ -550,11 +551,10 @@ export class CommandHistory {
       // object). before = the PRE-action state, after = the POST-action state.
       const beforePayload = this.buildSnapshotPayload(before);
       const afterPayload = this.buildSnapshotPayload(after);
-      // Dynamic import (matching document.ts) keeps the Tauri API out of the
-      // module graph at import time so browser/test imports stay side-effect free.
+      // Fire-and-forget through the shared bridge entry (census order + registrar).
       const fire = (cmd: string, args: Record<string, unknown>) =>
-        import("@tauri-apps/api/core")
-          .then(({ invoke }) => invoke(cmd, args))
+        import("@/lib/protocol/bridge")
+          .then(({ invokePixelCommand }) => invokePixelCommand(cmd, args))
           .catch(() => {});
       try {
         fire("rust_pixels_record_snapshot", { docId, before: beforePayload, after: afterPayload })

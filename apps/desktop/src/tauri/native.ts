@@ -20,10 +20,16 @@ function asError(result: ApiError): Error {
 }
 
 /** Extract a human-readable message from any invoke rejection.
- *  Rust commands return `Err(Value)` via err_response/error_value on failure,
- *  which makes the JS promise reject with an OBJECT envelope ({ok,error:{...}},
- *  NOT with an Error instance and NOT with {ok:false} — so `asError()` above never runs
- *  and the raw object leaks to callers. Normalize to a readable Error and export.
+ *  The three shapes that actually reach this function:
+ *  - a bare string, which is how Tauri v2 surfaces Rust `Result<_, String>`
+ *    rejections;
+ *  - an error-shaped object (rejection with `{ code, message }` or
+ *    `{ error: { code, message } }`), so the raw object never leaks to callers;
+ *  - an `Error` (e.g. thrown by `invokeApi`'s normalizer), read via `.message`.
+ *  A `{ ok: false }` response body is a RESOLVED value, not a rejection: it is
+ *  converted by `asError()` (`:18-20`) before callers see it, and arrives here
+ *  as an `Error`. Every path yields a readable `code: message` so callers never
+ *  see `[object Object]`.
  */
 export function ipcErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -60,6 +66,11 @@ async function invokeApi<T = unknown>(
   if (!result.ok) throw asError(result);
   return result;
 }
+
+// Test-only alias: the same function, exported under an explicit name so the
+// native-boundary tests can assert on its rejection MESSAGES without touching
+// the locked throw type. Production callers keep using `invokeApi`.
+export { invokeApi as __invokeApiRaw };
 
 // ─── File Dialog ───
 export async function showOpenImageDialog(): Promise<string[] | null> {

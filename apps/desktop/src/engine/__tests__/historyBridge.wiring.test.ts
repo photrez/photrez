@@ -4,6 +4,7 @@ import type { HistoryTilePatches } from "../history";
 import type { DocumentModel } from "../types";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 
 // Mock the Tauri-runtime detector so the test can force the runtime on/off.
 vi.mock("@/lib/desktop/tauriWindow", () => ({
@@ -40,6 +41,11 @@ const makePatches = (): HistoryTilePatches => ({
 
 // Let the dynamic-import + invoke microtask chain settle before asserting.
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+// Census read for one action: flush drains the fire-and-forget invokes first,
+// then the slice gives exactly the entries this action recorded.
+const censusCount = async () => (await flushPixelInvokeCensus()).entries.length;
+const censusSince = async (before: number) => (await flushPixelInvokeCensus()).entries.slice(before);
 
 describe("history bridge gating", () => {
   beforeEach(() => {
@@ -96,6 +102,7 @@ describe("history bridge gating", () => {
 
     const history = new CommandHistory();
     history.attachDocIdGetter(() => "doc-1");
+    const before = await censusCount();
     history.commit(createMockModel("Meta"), "Add Layer");
 
     await flush();
@@ -106,6 +113,9 @@ describe("history bridge gating", () => {
       adapterId: "ts",
       token: "Add Layer",
     });
+    expect(await censusSince(before)).toEqual([
+      { order: expect.any(Number), command: "rust_pixels_record_external", phase: "resolved" },
+    ]);
   });
 
   it("fires apply_tile_patch for an imperative commit when gate ON", async () => {
@@ -115,6 +125,7 @@ describe("history bridge gating", () => {
 
     const history = new CommandHistory();
     history.attachDocIdGetter(() => "doc-1");
+    const before = await censusCount();
     history.commit(createMockModel("Paint"), "Brush", makePatches(), false);
 
     await flush();
@@ -124,6 +135,9 @@ describe("history bridge gating", () => {
       before: [],
       after: [],
     });
+    expect(await censusSince(before)).toEqual([
+      { order: expect.any(Number), command: "apply_tile_patch", phase: "resolved" },
+    ]);
   });
 
   it("does NOT fire any command when alreadyRecordedInRust=true (no double-count)", async () => {
@@ -142,13 +156,14 @@ describe("history bridge gating", () => {
   it("swallows a Tauri invoke rejection (best-effort bridge must not break TS history)", async () => {
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     localStorage.setItem(GATE_KEY, "1");
-    // Mock-fidelity: Tauri v2 invoke() REJECTS with an error-envelope OBJECT
-    // when a Rust command returns Err(...). Exercise that real rejection path.
-    const errorEnvelope = { code: "E_RUST", message: "boom", details: null };
-    vi.mocked(invoke).mockRejectedValue(errorEnvelope);
+    // Mock-fidelity: Tauri v2 invoke() REJECTS with the bare `Err(String)`
+    // payload ("E_RUST: boom"), not an object envelope. Exercise that real
+    // rejection path.
+    vi.mocked(invoke).mockRejectedValue("E_RUST: boom");
 
     const history = new CommandHistory();
     history.attachDocIdGetter(() => "doc-1");
+    const before = await censusCount();
     history.commit(createMockModel("Meta"), "Add Layer");
 
     await flush();
@@ -156,5 +171,9 @@ describe("history bridge gating", () => {
     // was swallowed. TS history is still the authority and committed the entry.
     expect(invoke).toHaveBeenCalledWith("rust_pixels_record_external", expect.anything());
     expect(history.getUndoCount()).toBe(1);
+    // The census keeps the failed invoke visible instead of dropping it.
+    expect(await censusSince(before)).toEqual([
+      { order: expect.any(Number), command: "rust_pixels_record_external", phase: "rejected" },
+    ]);
   });
 });
