@@ -86,6 +86,35 @@ describe("BrushOptionBar", () => {
     vi.restoreAllMocks();
   });
 
+  it("size input clamps a non-finite parse before the brush-size signal write", () => {
+    const mock = createMockEditor({ activeTool: "brush", brushSize: 20 });
+    mockUseEditor(mock);
+
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(() => <BrushOptionBar />, root);
+
+    const input = root.querySelector<HTMLInputElement>("[data-paint-size]")!;
+    // The HTML value-sanitization rule keeps any grammar-valid floating-point
+    // literal, so "1e999" reaches the handler as a string that parses to
+    // Infinity. jsdom's number input clears it instead (probe: value becomes ""),
+    // so the literal is delivered through the value getter to reproduce what a
+    // spec-conforming browser hands to onInput.
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      get: () => "1e999",
+      set: () => {},
+    });
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(Number.isFinite(mock.brushSize())).toBe(true);
+    expect(mock.brushSize()).toBe(1);
+
+    dispose();
+    root.remove();
+    vi.restoreAllMocks();
+  });
+
   it("renders flow and smoothing inputs", () => {
     const mock = createMockEditor({ activeTool: "brush", brushFlow: 0.8, brushSmoothing: 25 });
     mockUseEditor(mock);
