@@ -11,6 +11,7 @@ import {
   type TileKeyed,
 } from "@/lib/paint/paintTileSurface";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { computeDirtyRegion } from "@/lib/paint/regionProducer";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
 import { mapPaintPointToLayerLocal } from "./paintStrokeCoordinates";
@@ -173,9 +174,13 @@ export function useBrushOverlay() {
       const snapCtx = snapCanvas.getContext("2d")!;
       snapCtx.putImageData(job.scratchSnap, 0, 0);
       sctx.drawImage(snapCanvas, 0, 0, dw, dh, dx0, dy0, dw, dh);
-      const region = surface.readRect(dx0, dy0, dw, dh);
+      // One producer call owns the region arithmetic; a null result means there
+      // is no dirty area, so the stroke stops before any IPC.
+      const dirtyRegion = computeDirtyRegion({ x: dx0, y: dy0, w: dw, h: dh }, null);
+      if (!dirtyRegion) return;
+      const region = surface.readRect(dirtyRegion.x, dirtyRegion.y, dirtyRegion.w, dirtyRegion.h);
       const res = (await pixelInvoke("rust_pixels_write_region", {
-        docId, layerId, x: dx0, y: dy0, w: dw, h: dh,
+        docId, layerId, x: dirtyRegion.x, y: dirtyRegion.y, w: dirtyRegion.w, h: dirtyRegion.h,
         rgba: new Uint8Array(region.data.buffer, region.data.byteOffset, region.data.byteLength),
       })) as { before: { x: number; y: number; w: number; h: number; data: number[] }[]; after: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number };
       applyRustTilesToSurface(sctx, res.after);

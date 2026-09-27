@@ -9,6 +9,7 @@ import type { PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
+import { computeDirtyRegion } from "@/lib/paint/regionProducer";
 
 /**
  * Paint Bucket: click-to-fill. Runs flood fill on the active layer at the
@@ -116,14 +117,24 @@ export function applyPaintBucketFill(
         floodFill(imgData, lx, ly, fillR, fillG, fillB, 255, fillTolerance(), fillMask ?? null, fillContiguous());
         const changed = computeChangedRegion(before, imgData.data, layer.width, layer.height);
         if (!changed) return;
+        // The byte-diff oracle above stays the authority for WHAT changed; the
+        // producer owns the region arithmetic. A non-inverted fill only touches
+        // pixels inside the fill mask, so the mask bounds contain the changed
+        // box and the intersection below is that same box - the shipped rgba
+        // therefore always matches the region (rust_pixels_write_region
+        // rejects any length mismatch).
+        const region = computeDirtyRegion(changed, fillMask && !fillMask.inverted
+          ? { x: fillMask.x, y: fillMask.y, w: fillMask.w, h: fillMask.h }
+          : null);
+        if (!region) return;
         const preSnapshot = engine.snapshot();
         const res = (await pixelInvoke("rust_pixels_write_region", {
           docId,
           layerId,
-          x: changed.x,
-          y: changed.y,
-          w: changed.w,
-          h: changed.h,
+          x: region.x,
+          y: region.y,
+          w: region.w,
+          h: region.h,
           rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
         })) as {
           before: { x: number; y: number; w: number; h: number; data: number[] }[];

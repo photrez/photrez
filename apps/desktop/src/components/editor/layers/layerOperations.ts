@@ -9,6 +9,8 @@ import type { LayerNode } from "@/engine/types";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
+import { selectionUploadRect } from "@/components/editor/canvas/keyboardShortcuts/selectionTool";
+import { computeDirtyRegion } from "@/lib/paint/regionProducer";
 import { showToast } from "../Toast";
 import { ipcErrorMessage } from "@/tauri/native";
 
@@ -271,6 +273,18 @@ export function fillActiveLayerWithColor(
           .getImageData(0, 0, layer.width, layer.height).data as Uint8ClampedArray;
         const changed = computeChangedRegion(before, after, layer.width, layer.height);
         if (!changed) return;
+        // The byte-diff oracle stays the authority for WHAT changed; the producer
+        // owns the region arithmetic. applyFillToContext only paints inside the
+        // same rounded selection rect selectionUploadRect returns, so for a
+        // non-inverted selection that rect contains the changed box and the
+        // intersection below is that same box - the shipped rgba therefore
+        // always matches the region (rust_pixels_write_region rejects any
+        // length mismatch). Inverted/absent selections pass null.
+        const selRect = selectionUploadRect(engine);
+        const region = computeDirtyRegion(changed, selRect
+          ? { x: selRect.x, y: selRect.y, w: selRect.width, h: selRect.height }
+          : null);
+        if (!region) return;
         // Capture pre-fill state BEFORE clearing the adjustment so undo restores it.
         const preSnapshot = engine.snapshot();
         // Host pixel composite: this metadata clear rides the SAME single history
@@ -282,10 +296,10 @@ export function fillActiveLayerWithColor(
         const res = (await pixelInvoke("rust_pixels_write_region", {
           docId,
           layerId: activeId,
-          x: changed.x,
-          y: changed.y,
-          w: changed.w,
-          h: changed.h,
+          x: region.x,
+          y: region.y,
+          w: region.w,
+          h: region.h,
           rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
         })) as {
           before: { x: number; y: number; w: number; h: number; data: number[] }[];
