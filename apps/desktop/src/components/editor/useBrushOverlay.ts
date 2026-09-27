@@ -11,7 +11,7 @@ import {
   type TileKeyed,
 } from "@/lib/paint/paintTileSurface";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
-import { computeDirtyRegion } from "@/lib/paint/regionProducer";
+import { computeDirtyRegion, assertWriteRegionTarget, assertWriteRegionBytes, type DirtyRect, emptyDirtyRect, expandDirtyRect } from "@/lib/paint/regionProducer";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
 import { mapPaintPointToLayerLocal } from "./paintStrokeCoordinates";
@@ -23,10 +23,6 @@ import {
   getBrushDabSpacing,
   getBrushTip,
   getEffectiveFlowMultiplier,
-  type DirtyRect,
-  emptyDirtyRect,
-  expandDirtyRect,
-  clampDirtyRect,
   parsePaintColor,
 } from "./brushTipMask";
 import { createDabProducer, type DabProducer } from "./brushDabProducer";
@@ -146,6 +142,11 @@ export function useBrushOverlay() {
     const runCore = async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
+      // Pre-IPC fence: identity and geometry run BEFORE the epoch read, so a
+      // malformed target is a RangeError with zero Rust traffic (empty docId
+      // is the proven pre-IPC case). The byte fence further down sits after
+      // the epoch read and only fences rust_pixels_write_region.
+      assertWriteRegionTarget(docId, layerId, { x: dx0, y: dy0, w: dw, h: dh }, w, h);
       // One store epoch read serves both checks below. When it matches the
       // surface epoch the surface already holds the store pixels, so the full
       // layer read inside the rehydrate helper is skipped. The skip is safe
@@ -179,6 +180,12 @@ export function useBrushOverlay() {
       const dirtyRegion = computeDirtyRegion({ x: dx0, y: dy0, w: dw, h: dh }, null);
       if (!dirtyRegion) return;
       const region = surface.readRect(dirtyRegion.x, dirtyRegion.y, dirtyRegion.w, dirtyRegion.h);
+      // Payload fence: the bytes about to be sent must exactly cover the
+      // region. Position matters: this runs AFTER the epoch read and the
+      // optional seed upload, so an oversize payload is rejected post-epoch
+      // (a rust_pixels_get_epoch already happened) but still before any
+      // rust_pixels_write_region attempt.
+      assertWriteRegionBytes(region.data.byteLength, dirtyRegion);
       const res = (await pixelInvoke("rust_pixels_write_region", {
         docId, layerId, x: dirtyRegion.x, y: dirtyRegion.y, w: dirtyRegion.w, h: dirtyRegion.h,
         rgba: new Uint8Array(region.data.buffer, region.data.byteOffset, region.data.byteLength),
@@ -237,15 +244,30 @@ export function useBrushOverlay() {
     try {
       await runCore();
     } catch (err) {
+      // Fence-in-catch (documented, test-pinned, deliberately unchanged): a
+      // RangeError from assertWriteRegionTarget or assertWriteRegionBytes
+      // lands here too, so a rejected target or payload recovers through this
+      // fallback — one TS history entry, one recorded Rust apply — instead of
+      // dropping the stroke. Cases: brushCommitHotPath.test.ts empty-docId and
+      // oversize readRect.
       // surface already holds the composited after-pixels; mirror them to TS via
       // history.commit + tile upload (no cachedTileScratch dependency).
       console.warn("[paint] async deferred commit failed — synchronous fallback:", err);
       try {
-        const region = surface.readRect(dx0, dy0, dw, dh);
+        // Same producer contract as the primary path: a null region means
+        // there is no dirty area, so there is nothing to mirror into history.
+        const fallbackRegion = computeDirtyRegion({ x: dx0, y: dy0, w: dw, h: dh }, null);
+        if (!fallbackRegion) {
+          // Empty/non-finite dirty rect: nothing to mirror. Warn so a dropped
+          // commit is visible instead of silently returning.
+          console.warn("[paint] fallback skipped: no dirty region", docId, layerId, { dx0, dy0, dw, dh });
+          return;
+        }
+        const region = surface.readRect(fallbackRegion.x, fallbackRegion.y, fallbackRegion.w, fallbackRegion.h);
         const afterData = new Uint8ClampedArray(region.data);
-        const afterPatches = [{ x: dx0, y: dy0, width: dw, height: dh, data: afterData }];
-        const rectUploads = [{ x: dx0, y: dy0, width: dw, height: dh, data: afterData }];
-        applyRustTilesToSurface(sctx, [{ x: dx0, y: dy0, w: dw, h: dh, data: Array.from(afterData) }]);
+        const afterPatches = [{ x: fallbackRegion.x, y: fallbackRegion.y, width: fallbackRegion.w, height: fallbackRegion.h, data: afterData }];
+        const rectUploads = [{ x: fallbackRegion.x, y: fallbackRegion.y, width: fallbackRegion.w, height: fallbackRegion.h, data: afterData }];
+        applyRustTilesToSurface(sctx, [{ x: fallbackRegion.x, y: fallbackRegion.y, w: fallbackRegion.w, h: fallbackRegion.h, data: Array.from(afterData) }]);
         history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", {
           layerId, surfaceWidth: w, surfaceHeight: h,
           before: beforePatches.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
@@ -854,9 +876,22 @@ export function useBrushOverlay() {
       curve: "soft",
     });
 
-    const dirty = clampDirtyRect(session.dirtyRect, overlayCanvasRef?.width ?? 1, overlayCanvasRef?.height ?? 1);
-    const hasDirty = dirty.x1 > dirty.x0 && dirty.y1 > dirty.y0 && session.dabPositions.length > 0;
-    if (!hasDirty) return;
+    // One producer call owns the arithmetic behind this clear rect and behind
+    // the committed rect, so the two agree on flooring, clamping, and the
+    // non-finite/empty drop while the overlay canvas still carries the layer
+    // dims (onPaintStroke resizes it; commitBrushStroke reads the same dims
+    // as its w/h). That canvas==layer coupling is an invariant of this hook,
+    // not something the producer can see.
+    const dirty = computeDirtyRegion(
+      {
+        x: session.dirtyRect.x0,
+        y: session.dirtyRect.y0,
+        w: session.dirtyRect.x1 - session.dirtyRect.x0,
+        h: session.dirtyRect.y1 - session.dirtyRect.y0,
+      },
+      { x: 0, y: 0, w: overlayCanvasRef?.width ?? 1, h: overlayCanvasRef?.height ?? 1 },
+    );
+    if (!dirty || session.dabPositions.length === 0) return;
 
     // ── Preview tip canvas ──
     // Non-final strokes: use downscaled preview tip so drawImage of
@@ -935,9 +970,7 @@ export function useBrushOverlay() {
       const startFrom = session.dabsRendered;
       if (startFrom === 0 && session.dabPositions.length > 0) {
         // First composite this stroke: clear dirty rect then draw all
-        const subW = dirty.x1 - dirty.x0;
-        const subH = dirty.y1 - dirty.y0;
-        overlayCtx!.clearRect(dirty.x0, dirty.y0, subW, subH);
+        overlayCtx!.clearRect(dirty.x, dirty.y, dirty.w, dirty.h);
       }
       for (let i = startFrom; i < session.dabPositions.length; i++) {
         drawDab(session.dabPositions[i]);
@@ -1007,6 +1040,11 @@ export function useBrushOverlay() {
     }
     if (prevStrokePointCount === 0) return;
     if (!overlayCanvasRef) return;
+    // These two come from the overlay canvas, which onPaintStroke keeps at the
+    // layer dims. Everything below (region clamp, pre-IPC fences, tile rects,
+    // history surfaceWidth/Height) treats them as the layer dims, so
+    // canvas==layer is an invariant this hook maintains, not a property the
+    // fences can verify on their own.
     const w = overlayCanvasRef.width;
     const h = overlayCanvasRef.height;
     if (w === 0 || h === 0) return;
@@ -1035,8 +1073,20 @@ export function useBrushOverlay() {
     }
     const sCtx = cachedCommitCtx!;
     sCtx.clearRect(0, 0, w, h);
-    const dirty = clampDirtyRect(paintSession.dirtyRect, w, h);
-    const hasDirt = dirty.x1 > dirty.x0 && dirty.y1 > dirty.y0 && paintSession.dabPositions.length > 0;
+    // One producer call owns the stroke's dirty region: it drops empty or
+    // invalid rects, clamps to the surface, and every commit exit below (tile
+    // loop, deferred enqueue, fallback, legacy commit) derives its rect from
+    // this single result.
+    const strokeRegion = computeDirtyRegion(
+      {
+        x: paintSession.dirtyRect.x0,
+        y: paintSession.dirtyRect.y0,
+        w: paintSession.dirtyRect.x1 - paintSession.dirtyRect.x0,
+        h: paintSession.dirtyRect.y1 - paintSession.dirtyRect.y0,
+      },
+      { x: 0, y: 0, w, h },
+    );
+    const hasDirt = strokeRegion !== null && paintSession.dabPositions.length > 0;
 
     // ── Fase 1 tile-commit path (flag photrez.tileCommit=1) ───────────────
     // Dabs go straight onto the engine's persistent paint surface; only
@@ -1049,7 +1099,7 @@ export function useBrushOverlay() {
     // Legacy single-PATCH path retained for lockTransparency/preBake guards.
     // Rollback: localStorage.setItem("photrez.tileCommit", "0").
     try { useTileCommit = localStorage.getItem("photrez.tileCommit") !== "0"; } catch { useTileCommit = true; }
-    if (useTileCommit && hasDirt && !layer.lockTransparency && !(preBake && preBake.layerId === layerId)) {
+    if (useTileCommit && strokeRegion && paintSession.dabPositions.length > 0 && !layer.lockTransparency && !(preBake && preBake.layerId === layerId)) {
       const surface = (engine as {
         getPaintSurface?: (id: string) => {
           context: OffscreenCanvasRenderingContext2D;
@@ -1074,7 +1124,7 @@ export function useBrushOverlay() {
         let perfTiles = 0, perfRects = 0, perfYields = 0, perfDabs = 0;
         let tP0 = 0, tP2 = 0, tP3 = 0, tP4 = 0;
         try {
-        const tiles = tilesInRect(dirty.x0, dirty.y0, dirty.x1, dirty.y1, w, h);
+        const tiles = tilesInRect(strokeRegion.x, strokeRegion.y, strokeRegion.x + strokeRegion.w, strokeRegion.y + strokeRegion.h, w, h);
         perfTiles = tiles.length;
         const rects = mergeTilesToRects(tiles);
         perfRects = rects.length;
@@ -1094,6 +1144,10 @@ export function useBrushOverlay() {
         // the rect loop (the software surface costs ~0.5-1ms CPU PER dab,
         // measured 2026-08-22 — same reason as the original tile path).
         let scratchReady = false;
+        // Zero on purpose: only the non-eraser branch below fills these, so an
+        // eraser stroke keeps a 0x0 dirty rect and scratchReady=false. The
+        // deferred Rust commit must stay excluded for erasers — see the guard
+        // at its enqueue branch.
         let dx0 = 0, dy0 = 0, dw = 0, dh = 0;
         // R2 Step2 DEV-only forensics carriers (no production effect; populated only when shadow flag on)
         let scratchSnap: ImageData | null = null;
@@ -1111,10 +1165,10 @@ export function useBrushOverlay() {
         if (!effectiveIsEraser) {
           const tip = getBrushTip({ size: paintSession.tipSize, hardness: paintSession.tipHardness, curve: "soft" });
           if (tip) {
-            dx0 = dirty.x0;
-            dy0 = dirty.y0;
-            dw = Math.max(1, dirty.x1 - dx0);
-            dh = Math.max(1, dirty.y1 - dy0);
+            dx0 = strokeRegion.x;
+            dy0 = strokeRegion.y;
+            dw = strokeRegion.w;
+            dh = strokeRegion.h;
             if (!cachedTileScratch || cachedTileScratch.width !== dw || cachedTileScratch.height !== dh) {
               cachedTileScratch = new OffscreenCanvas(dw, dh);
               cachedTileScratchCtx = cachedTileScratch.getContext("2d");
@@ -1238,6 +1292,13 @@ export function useBrushOverlay() {
         const rustPixelsFlag = (() => {
           try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
         })();
+        // Eraser exclusion: an eraser stroke has no scratch block (dx0..dh
+        // still 0, scratchReady false). Enqueueing it anyway would hand
+        // c4CoreCommit an empty region — the target fence rejects w=0 and the
+        // fallback then finds no dirty region — so the stroke would be
+        // discarded instead of landing one history entry. Both conditions
+        // below are that exclusion; pinned by the eraser-guard case in
+        // brushStrokeCommitOrdering.test.ts.
         if (rustPixelsFlag && !c3Flag && !effectiveIsEraser && scratchReady) {
           // Async-deferred Rust dirty-region commit. The pointerup
           // handler returns immediately after enqueue; the canonical write, tile
@@ -1588,8 +1649,8 @@ export function useBrushOverlay() {
           layerId,
           bitmap: newBitmap,
           label: effectiveIsEraser ? "Eraser" : "Brush Stroke",
-          dirtyRect: hasDirt
-            ? { x: dirty.x0, y: dirty.y0, width: dirty.x1 - dirty.x0, height: dirty.y1 - dirty.y0 }
+          dirtyRect: strokeRegion && paintSession && paintSession.dabPositions.length > 0
+            ? { x: strokeRegion.x, y: strokeRegion.y, width: strokeRegion.w, height: strokeRegion.h }
             : undefined,
           // Attach the pre-bake snapshot (if this stroke followed a confirmed
           // bake) so a single undo restores the live adjustment.
@@ -1695,6 +1756,13 @@ export function useBrushOverlay() {
       }
     },
     getOverlayCanvasRef: () => overlayCanvasRef,
+    /** Test-only: zero the cached dab scratch so a deferred-commit test can prove the enqueue-time snapshot outlives a later scratch clear/reuse. DEV-gated so production builds never expose a scratch-clearing entry point. */
+    __clearScratchForTests: () => {
+      if (!(import.meta as any).env?.DEV) return;
+      if (cachedTileScratch && cachedTileScratchCtx) {
+        cachedTileScratchCtx.clearRect(0, 0, cachedTileScratch.width, cachedTileScratch.height);
+      }
+    },
     clearPrevStrokePointCount: () => {
       stopHoldTimer();
       prevStrokePointCount = 0;

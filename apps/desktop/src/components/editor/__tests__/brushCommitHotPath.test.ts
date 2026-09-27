@@ -20,6 +20,15 @@
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { PaintTileSurface } from "@/lib/paint/paintTileSurface";
+import { assertWriteRegionTarget, assertWriteRegionBytes } from "@/lib/paint/regionProducer";
+import * as regionProducerModule from "@/lib/paint/regionProducer";
+
+// Call-through spy on the region producer: every production consumer keeps the
+// real implementation, tests only observe which call sites reach it.
+vi.mock("@/lib/paint/regionProducer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/paint/regionProducer")>();
+  return { ...actual, computeDirtyRegion: vi.fn(actual.computeDirtyRegion) };
+});
 import { useBrushOverlay, flushC4Commits, c4PendingCommits } from "../useBrushOverlay";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
 import * as brushToolStateModule from "../brushToolState";
@@ -138,7 +147,7 @@ function makeSim(opts?: { delayFirstWriteMs?: number; failWriteRegion?: boolean 
       if (failWriteRegion) {
         // Mirrors Tauri v2 rejecting with the Rust `Err(String)` payload; the
         // production catch does not inspect the shape, only that it rejected.
-        throw "rust ipc unavailable";
+        throw "E_RUST: rust ipc unavailable";
       }
       const layer = store.get(k);
       if (!layer) throw new Error("no layer");
@@ -413,7 +422,7 @@ function makeHarness(surface: any, uploadSurfaceTiles = vi.fn()) {
   canvas.height = 512;
   const overlay = useBrushOverlay();
   overlay.setOverlayCanvasRef(canvas);
-  return { overlay, layer, engine, history, uploadSurfaceTiles, surface };
+  return { overlay, layer, engine, history, uploadSurfaceTiles, surface, setDocId: (d: string) => { doc.id = d; } };
 }
 
 const settings = { size: 20, hardness: 1, opacity: 1, flow: 1, smoothing: 0.5 };
@@ -521,6 +530,23 @@ describe("brush commit hot path", () => {
     expect(firstAfter.x).toBeLessThan(secondAfter.x);
     expect(c4PendingCommits("doc-test", "layer-1")).toBe(0);
     expect(c4PendingCommits()).toBe(0);
+  });
+
+  it("part 7: a final composite derives its clear rect from computeDirtyRegion with no commit", () => {
+    const spy = vi.mocked(regionProducerModule.computeDirtyRegion);
+    spy.mockClear();
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, true);
+
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const [scratch, bounds] = spy.mock.calls[0];
+    expect(bounds).toEqual({ x: 0, y: 0, w: 512, h: 512 });
+    expect(scratch?.w ?? 0).toBeGreaterThan(0);
+    expect(scratch?.h ?? 0).toBeGreaterThan(0);
+    // Composite only: the funnel must not need a commit to reach the producer.
+    expect(history.commit).not.toHaveBeenCalled();
   });
 
   it("part 4: two strokes with overlapping dirty rects accumulate byte-exact through the commit seam", async () => {
@@ -718,8 +744,154 @@ describe("part 5: commit fallback frequency baseline (counts only)", () => {
     await runCommits(overlay, engine, history, surface, 10);
 
     expect(fallbackWarnCount(warns)).toBe(10);
+    // The faithful bare-string rejection reaches the fallback handler intact
+    // (production never wraps it into an Error instance).
+    const fallbackRejections = warns.mock.calls
+      .filter((c) => String(c[0]).includes(FALLBACK_WARN))
+      .map((c) => c[1]);
+    expect(fallbackRejections).toContain("E_RUST: rust ipc unavailable");
     expect(history.commit).toHaveBeenCalledTimes(10);
     expect(count(hoist.getSim(), "rust_pixels_write_region")).toBe(10); // attempted, none succeeded
     expect(c4PendingCommits("doc-test", "layer-1")).toBe(0);
+  });
+});
+
+// Part 6: write-region guards. Two different positions, named honestly:
+// the target fence runs before any Rust traffic, so only the empty-docId path
+// case is "stops before IPC"; the byte fence sits AFTER the epoch read, so a
+// bad payload stops before write_region only (post-epoch). The post-IPC Rust
+// failure shape (bare string) is covered by part 5 above and the recovery
+// test — the two families never share an input.
+describe("write-region guards: only the empty-docId case stops before IPC; the rest stop before write_region", () => {
+  beforeEach(() => {
+    vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
+    vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation(() => null);
+    vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation(() => false);
+    hoist.setSim(makeSim());
+    localStorage.setItem("photrez.rustPixels", "1");
+    localStorage.removeItem("photrez.canonicalCommit");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  const region = { x: 10, y: 10, w: 20, h: 20 };
+
+  it("assertWriteRegionTarget rejects empty ids, zero/negative size, NaN, x+w overflow, and off-surface rects", () => {
+    expect(() => assertWriteRegionTarget("", "layer-1", region, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "", region, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "layer-1", { x: 0, y: 0, w: 0, h: 10 }, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "layer-1", { x: 0, y: 0, w: -5, h: 10 }, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "layer-1", { x: NaN, y: 0, w: 10, h: 10 }, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "layer-1", { x: Number.MAX_VALUE, y: 0, w: Number.MAX_VALUE, h: 10 }, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "layer-1", { x: 600, y: 0, w: 10, h: 10 }, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "layer-1", { x: 500, y: 0, w: 100, h: 10 }, 512, 512)).toThrow(RangeError);
+    expect(() => assertWriteRegionTarget("doc-test", "layer-1", region, 512, 512)).not.toThrow();
+  });
+
+  it("assertWriteRegionBytes rejects oversize and undersize rgba, accepts the exact byte count", () => {
+    const expected = region.w * region.h * 4;
+    expect(() => assertWriteRegionBytes(expected + 4, region)).toThrow(RangeError);
+    expect(() => assertWriteRegionBytes(expected - 4, region)).toThrow(RangeError);
+    expect(() => assertWriteRegionBytes(expected, region)).not.toThrow();
+  });
+
+  it("path: an empty docId stops before getRustEpoch and write_region (zero write attempts)", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history, setDocId } = makeHarness(surface);
+    const sim = hoist.getSim();
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setDocId("");
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    await overlay.commitBrushStroke(engine, history as any, "layer-1", false);
+    await flushC4Commits();
+    expect(count(sim, "rust_pixels_write_region")).toBe(0);
+    expect(count(sim, "rust_pixels_get_epoch")).toBe(0);
+    const fallbackErrors = warns.mock.calls
+      .filter((c) => String(c[0]).includes(FALLBACK_WARN))
+      .map((c) => c[1]);
+    expect(fallbackErrors.some((e) => e instanceof RangeError)).toBe(true);
+    // Recovery contract: the fence RangeError must still land the stroke in
+    // history exactly once, not drop it.
+    expect(history.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("path: an oversize readRect buffer is rejected after the epoch read and stops before write_region (post-epoch, zero write attempts)", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const sim = hoist.getSim();
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+    surface.readRect.mockImplementation((_x: number, _y: number, w: number, h: number) => ({
+      width: w,
+      height: h,
+      data: new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4 + 64),
+    }));
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    await overlay.commitBrushStroke(engine, history as any, "layer-1", false);
+    await flushC4Commits();
+    expect(count(sim, "rust_pixels_write_region")).toBe(0);
+    // Post-epoch, not pre-IPC: the byte fence runs after this read, so the
+    // epoch probe already happened once.
+    expect(count(sim, "rust_pixels_get_epoch")).toBe(1);
+    const fallbackErrors = warns.mock.calls
+      .filter((c) => String(c[0]).includes(FALLBACK_WARN))
+      .map((c) => c[1]);
+    expect(fallbackErrors.some((e) => e instanceof RangeError)).toBe(true);
+    // Recovery contract: the sync fallback still lands the stroke in history.
+    // Its readRect is NOT byte-fenced (fencing there is a separate decision),
+    // so the same oversize buffer reaches history intact.
+    expect(history.commit).toHaveBeenCalledTimes(1);
+    const after = history.commit.mock.calls[0][2].after[0] as { width: number; height: number; data: Uint8ClampedArray };
+    expect(after.data.byteLength).toBeGreaterThan(after.width * after.height * 4);
+  });
+});
+
+// Flag-OFF parity pinned while the migration flag exists: every case below is
+// deleted in the same change that retires the photrez.rustPixels flag.
+describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the flag is retired)", () => {
+  beforeEach(() => {
+    vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
+    vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation(() => null);
+    vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation(() => false);
+    hoist.setSim(makeSim());
+    localStorage.removeItem("photrez.rustPixels");
+    localStorage.removeItem("photrez.canonicalCommit");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("a committed stroke takes the legacy path: no write_region, no queued commit, one history entry", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const sim = hoist.getSim();
+
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    await overlay.commitBrushStroke(engine, history as any, "layer-1", false);
+    await flushC4Commits();
+
+    expect(count(sim, "rust_pixels_write_region")).toBe(0);
+    expect(c4PendingCommits("doc-test", "layer-1")).toBe(0);
+    expect(history.commit).toHaveBeenCalledTimes(1);
+    expect(history.entries).toHaveLength(1);
+  });
+
+  it("two flag-OFF strokes still land as two separate history entries with no Rust store traffic", async () => {
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const sim = hoist.getSim();
+
+    for (const point of [{ x: 30, y: 30 }, { x: 60, y: 60 }]) {
+      overlay.onPaintStroke([point], false, settings, false);
+      await overlay.commitBrushStroke(engine, history as any, "layer-1", false);
+      await flushC4Commits();
+    }
+
+    expect(count(sim, "rust_pixels_write_region")).toBe(0);
+    expect(count(sim, "rust_pixels_init")).toBe(0);
+    expect(history.commit).toHaveBeenCalledTimes(2);
+    expect(history.entries).toHaveLength(2);
   });
 });

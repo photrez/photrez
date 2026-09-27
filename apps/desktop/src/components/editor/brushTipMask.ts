@@ -4,6 +4,7 @@ import {
   brushAlpha,
   getBrushProfileSupportNorm,
 } from "./brushHardnessProfile";
+import { type DirtyRect, clampDirtyRect } from "@/lib/paint/regionProducer";
 
 export type BrushFalloffCurve = "cosine" | "smoothstep" | "quadratic" | "soft";
 
@@ -379,49 +380,6 @@ export function stampTerminalBrushTip(
 
   stampBrushTip(mask, maskWidth, maskHeight, tip, endpoint.x, endpoint.y, alphaScale);
   return true;
-}
-
-export interface DirtyRect {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-}
-
-export function emptyDirtyRect(): DirtyRect {
-  return { x0: Number.MAX_SAFE_INTEGER, y0: Number.MAX_SAFE_INTEGER, x1: -1, y1: -1 };
-}
-
-export function expandDirtyRect(
-  rect: DirtyRect,
-  x: number,
-  y: number,
-  radius: number,
-): DirtyRect {
-  return {
-    x0: Math.min(rect.x0, Math.floor(x - radius)),
-    y0: Math.min(rect.y0, Math.floor(y - radius)),
-    x1: Math.max(rect.x1, Math.ceil(x + radius) + 1),
-    y1: Math.max(rect.y1, Math.ceil(y + radius) + 1),
-  };
-}
-
-export function clampDirtyRect(rect: DirtyRect, w: number, h: number): DirtyRect {
-  return {
-    x0: Math.max(0, rect.x0),
-    y0: Math.max(0, rect.y0),
-    x1: Math.min(w, rect.x1),
-    y1: Math.min(h, rect.y1),
-  };
-}
-
-export function unionDirtyRect(a: DirtyRect, b: DirtyRect): DirtyRect {
-  return {
-    x0: Math.min(a.x0, b.x0),
-    y0: Math.min(a.y0, b.y0),
-    x1: Math.max(a.x1, b.x1),
-    y1: Math.max(a.y1, b.y1),
-  };
 }
 
 export interface RgbaColor {

@@ -19,17 +19,21 @@ import {
   buildGradientStops,
   paintMaskToContextDirty,
   compositeMaskToImageDataDirty,
-  emptyDirtyRect,
-  expandDirtyRect,
-  clampDirtyRect,
-  unionDirtyRect,
   getEffectiveFlowMultiplier,
   clamp01,
   brushPointsEqual,
   parsePaintColor,
+  rasterizeBrushTip,
+  getCachedBrushTip,
   type BrushTip,
-  type DirtyRect,
 } from "../brushTipMask";
+import {
+  emptyDirtyRect,
+  expandDirtyRect,
+  clampDirtyRect,
+  unionDirtyRect,
+  type DirtyRect,
+} from "@/lib/paint/regionProducer";
 
 describe("brushTipMask falloff", () => {
   it("uses cosine falloff by default", () => {
@@ -100,6 +104,20 @@ describe("reference-calibrated soft round raster", () => {
     expect(centerAlpha).toBe(1);
     expect(boundaryAlpha).toBeGreaterThan(0);
     expect(boundaryAlpha).toBeLessThan(1);
+  });
+
+  it("reference: non-finite tip size falls back to a 1px tip instead of NaN/Infinity geometry", () => {
+    for (const bad of [Infinity, -Infinity, Number.NaN]) {
+      const direct = rasterizeBrushTip(bad, 0.5);
+      expect(Number.isFinite(direct.diameter)).toBe(true);
+      expect(direct.diameter).toBeGreaterThan(0);
+      expect(direct.data.length).toBeGreaterThan(0);
+
+      const cached = getCachedBrushTip(bad, 0.5);
+      expect(Number.isFinite(cached.diameter)).toBe(true);
+      expect(cached.diameter).toBeGreaterThan(0);
+      expect(cached.data.length).toBeGreaterThan(0);
+    }
   });
 
   it("reuses cached data until size or hardness changes", () => {

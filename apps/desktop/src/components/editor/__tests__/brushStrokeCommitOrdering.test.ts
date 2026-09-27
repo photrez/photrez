@@ -50,25 +50,139 @@ if (typeof (globalThis as any).ImageData === "undefined") {
   };
 }
 if (typeof (globalThis as any).OffscreenCanvas === "undefined") {
+  // Buffer-backed polyfill: the deferred-commit tests assert byte survival
+  // across a scratch clear, so putImageData must store, drawImage must copy,
+  // and getImageData must return what was actually drawn. A no-op mock would
+  // pass while hiding a lost snapshot.
+  class PolyfillCtx2D {
+    globalAlpha = 1;
+    globalCompositeOperation = "source-over";
+    private readonly stack: { alpha: number; op: string }[] = [];
+    constructor(private readonly canvas: { width: number; height: number; buf: Uint8ClampedArray }) {}
+    createImageData(w: number, h: number) {
+      return { data: new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4), width: w, height: h };
+    }
+    getImageData(sx: number, sy: number, sw: number, sh: number) {
+      const out = new Uint8ClampedArray(Math.max(0, sw) * Math.max(0, sh) * 4);
+      const { width: W, height: H, buf } = this.canvas;
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < sw; x++) {
+          const px = sx + x;
+          const py = sy + y;
+          if (px < 0 || py < 0 || px >= W || py >= H) continue;
+          const s = (py * W + px) * 4;
+          const d = (y * sw + x) * 4;
+          out[d] = buf[s];
+          out[d + 1] = buf[s + 1];
+          out[d + 2] = buf[s + 2];
+          out[d + 3] = buf[s + 3];
+        }
+      }
+      return new ImageData(out, Math.max(0, sw), Math.max(0, sh));
+    }
+    putImageData(img: { data: Uint8ClampedArray; width: number; height: number }, dx: number, dy: number): void {
+      const { width: W, height: H, buf } = this.canvas;
+      for (let y = 0; y < img.height; y++) {
+        for (let x = 0; x < img.width; x++) {
+          const px = dx + x;
+          const py = dy + y;
+          if (px < 0 || py < 0 || px >= W || py >= H) continue;
+          const s = (y * img.width + x) * 4;
+          const d = (py * W + px) * 4;
+          buf[d] = img.data[s];
+          buf[d + 1] = img.data[s + 1];
+          buf[d + 2] = img.data[s + 2];
+          buf[d + 3] = img.data[s + 3];
+        }
+      }
+    }
+    clearRect(x: number, y: number, w: number, h: number): void {
+      const { width: W, height: H, buf } = this.canvas;
+      const x0 = Math.max(0, Math.floor(x));
+      const y0 = Math.max(0, Math.floor(y));
+      const x1 = Math.min(W, Math.ceil(x + w));
+      const y1 = Math.min(H, Math.ceil(y + h));
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          const d = (py * W + px) * 4;
+          buf[d] = 0;
+          buf[d + 1] = 0;
+          buf[d + 2] = 0;
+          buf[d + 3] = 0;
+        }
+      }
+    }
+    save(): void {
+      this.stack.push({ alpha: this.globalAlpha, op: this.globalCompositeOperation });
+    }
+    restore(): void {
+      const s = this.stack.pop();
+      if (!s) return;
+      this.globalAlpha = s.alpha;
+      this.globalCompositeOperation = s.op;
+    }
+    drawImage(src: unknown, ...args: number[]): void {
+      // Only buffer-backed sources carry pixels in this environment; the
+      // HTMLCanvasElement 2d stub has none and acts as a no-op draw.
+      const s = src as { width?: number; height?: number; buf?: Uint8ClampedArray };
+      if (!s?.buf || typeof s.width !== "number" || typeof s.height !== "number") return;
+      let sx = 0;
+      let sy = 0;
+      let sw = s.width;
+      let sh = s.height;
+      let dx = 0;
+      let dy = 0;
+      let dw = s.width;
+      let dh = s.height;
+      if (args.length === 2) {
+        [dx, dy] = args;
+      } else if (args.length === 4) {
+        [dx, dy, dw, dh] = args;
+      } else if (args.length === 8) {
+        [sx, sy, sw, sh, dx, dy, dw, dh] = args;
+      } else {
+        return;
+      }
+      if (dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0) return;
+      const { width: W, height: H, buf } = this.canvas;
+      const sbuf = s.buf;
+      const x0 = Math.max(0, Math.round(dx));
+      const y0 = Math.max(0, Math.round(dy));
+      const x1 = Math.min(W, Math.round(dx + dw));
+      const y1 = Math.min(H, Math.round(dy + dh));
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          const fx = sx + Math.floor(((px - dx) * sw) / dw);
+          const fy = sy + Math.floor(((py - dy) * sh) / dh);
+          if (fx < 0 || fy < 0 || fx >= s.width || fy >= s.height) continue;
+          const src = (fy * s.width + fx) * 4;
+          const sa = (sbuf[src + 3] / 255) * this.globalAlpha;
+          if (sa <= 0) continue;
+          const d = (py * W + px) * 4;
+          const da = buf[d + 3] / 255;
+          const outA = sa + da * (1 - sa);
+          if (outA <= 0) continue;
+          buf[d] = Math.round((sbuf[src] * sa + buf[d] * da * (1 - sa)) / outA);
+          buf[d + 1] = Math.round((sbuf[src + 1] * sa + buf[d + 1] * da * (1 - sa)) / outA);
+          buf[d + 2] = Math.round((sbuf[src + 2] * sa + buf[d + 2] * da * (1 - sa)) / outA);
+          buf[d + 3] = Math.round(outA * 255);
+        }
+      }
+    }
+  }
   (globalThis as any).OffscreenCanvas = class {
     width: number;
     height: number;
+    buf: Uint8ClampedArray;
+    private ctx: PolyfillCtx2D | null = null;
     constructor(w: number, h: number) {
       this.width = w;
       this.height = h;
+      this.buf = new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4);
     }
     getContext() {
-      return {
-        drawImage: vi.fn(),
-        clearRect: vi.fn(),
-        save: vi.fn(),
-        restore: vi.fn(),
-        putImageData: vi.fn(),
-        createImageData: vi.fn((w: number, h: number) => ({ data: new Uint8ClampedArray((w || 1) * (h || 1) * 4), width: w, height: h })),
-        getImageData: vi.fn((x: number, y: number, w: number, h: number) => ({ data: new Uint8ClampedArray((w || 1) * (h || 1) * 4), width: w, height: h })),
-        globalCompositeOperation: "source-over",
-        globalAlpha: 1,
-      };
+      if (!this.ctx) this.ctx = new PolyfillCtx2D(this);
+      return this.ctx;
     }
     transferToImageBitmap() {
       return document.createElement("canvas");
@@ -204,7 +318,8 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
     // Deferred dirty-region migration: mirror write_region (region replace, one history step).
     if (cmd === "rust_pixels_write_region") {
       commitCount += 1;
-      if (commitCount === failCommitOnCall) throw new Error("simulated commit failure");
+      // Faithful Tauri v2 rejection shape: a bare string, never an Error instance.
+      if (commitCount === failCommitOnCall) throw "E_RUST: rust ipc unavailable";
       let layer = s;
       if (!layer) throw new Error("no layer");
       const x = args.x as number, y = args.y as number, rw = args.w as number, rh = args.h as number;
@@ -295,14 +410,67 @@ const hoist = vi.hoisted(() => {
 vi.mock("@tauri-apps/api/core", () => ({ invoke: hoist.invoke }));
 
 // ── harness (mirrors useBrushOverlay.tileGrad.test.ts) ──
-function makeSurface() {
+const SURFACE_W = 512;
+const SURFACE_H = 512;
+
+interface TestSurface {
+  snapshotted: unknown[];
+  restored: unknown[];
+  context: Record<string, unknown>;
+  pixelEpoch: number | undefined;
+  pixelVersion: number | undefined;
+  snapshotTile: ReturnType<typeof vi.fn>;
+  restoreTile: ReturnType<typeof vi.fn>;
+  readRect: ReturnType<typeof vi.fn>;
+  /** Zero the REAL cached dab scratch of the harness's brush overlay (wired by makeHarness). */
+  clearScratch: () => void;
+}
+
+function makeSurface(): TestSurface {
   const snapshotted: unknown[] = [];
   const restored: unknown[] = [];
-  const surface: any = {
+  // Stateful backing store: readRect must return the bytes drawImage actually
+  // composited, so deferred-commit assertions observe real pixels. The
+  // source-over copy mirrors the production composite under a transparent base.
+  const buf = new Uint8ClampedArray(SURFACE_W * SURFACE_H * 4);
+  const drawImageImpl = (src: unknown, ...args: number[]): void => {
+    const s = src as { width?: number; height?: number; buf?: Uint8ClampedArray };
+    if (!s?.buf || typeof s.width !== "number" || typeof s.height !== "number") return;
+    let sx = 0, sy = 0, sw = s.width, sh = s.height, dx = 0, dy = 0, dw = s.width, dh = s.height;
+    if (args.length === 2) [dx, dy] = args;
+    else if (args.length === 4) [dx, dy, dw, dh] = args;
+    else if (args.length === 8) [sx, sy, sw, sh, dx, dy, dw, dh] = args;
+    else return;
+    if (dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0) return;
+    const sbuf = s.buf;
+    const x0 = Math.max(0, Math.round(dx));
+    const y0 = Math.max(0, Math.round(dy));
+    const x1 = Math.min(SURFACE_W, Math.round(dx + dw));
+    const y1 = Math.min(SURFACE_H, Math.round(dy + dh));
+    for (let py = y0; py < y1; py++) {
+      for (let px = x0; px < x1; px++) {
+        const fx = sx + Math.floor(((px - dx) * sw) / dw);
+        const fy = sy + Math.floor(((py - dy) * sh) / dh);
+        if (fx < 0 || fy < 0 || fx >= s.width || fy >= s.height) continue;
+        const srcOff = (fy * s.width + fx) * 4;
+        const d = (py * SURFACE_W + px) * 4;
+        const sa = sbuf[srcOff + 3] / 255;
+        if (sa <= 0) continue;
+        const da = buf[d + 3] / 255;
+        const outA = sa + da * (1 - sa);
+        if (outA <= 0) continue;
+        buf[d] = Math.round((sbuf[srcOff] * sa + buf[d] * da * (1 - sa)) / outA);
+        buf[d + 1] = Math.round((sbuf[srcOff + 1] * sa + buf[d + 1] * da * (1 - sa)) / outA);
+        buf[d + 2] = Math.round((sbuf[srcOff + 2] * sa + buf[d + 2] * da * (1 - sa)) / outA);
+        buf[d + 3] = Math.round(outA * 255);
+      }
+    }
+  };
+  const surface: TestSurface = {
     snapshotted,
     restored,
     context: {
-      drawImage: vi.fn(),
+      drawImage: vi.fn(drawImageImpl),
       clearRect: vi.fn(),
       save: vi.fn(),
       restore: vi.fn(),
@@ -310,19 +478,36 @@ function makeSurface() {
       globalCompositeOperation: "source-over",
       globalAlpha: 1,
     },
-    pixelEpoch: undefined as number | undefined,
-    pixelVersion: undefined as number | undefined,
+    pixelEpoch: undefined,
+    pixelVersion: undefined,
     snapshotTile: vi.fn((t: { x: number; y: number; w: number; h: number }) => {
       const patch = { tx: t.x / 256, ty: t.y / 256, value: { width: t.w, height: t.h, data: new Uint8ClampedArray(t.w * t.h * 4).fill(7) } };
       snapshotted.push(patch);
       return patch;
     }),
     restoreTile: vi.fn((p: unknown) => restored.push(p)),
-    readRect: vi.fn((_x: number, _y: number, w: number, h: number) => ({
-      width: w,
-      height: h,
-      data: new Uint8ClampedArray(w * h * 4),
-    })),
+    readRect: vi.fn((x: number, y: number, w: number, h: number) => {
+      const out = new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4);
+      for (let row = 0; row < h; row++) {
+        for (let col = 0; col < w; col++) {
+          const px = x + col;
+          const py = y + row;
+          if (px < 0 || py < 0 || px >= SURFACE_W || py >= SURFACE_H) continue;
+          const s = (py * SURFACE_W + px) * 4;
+          const d = (row * w + col) * 4;
+          out[d] = buf[s];
+          out[d + 1] = buf[s + 1];
+          out[d + 2] = buf[s + 2];
+          out[d + 3] = buf[s + 3];
+        }
+      }
+      return { width: w, height: h, data: out };
+    }),
+    // Wired by makeHarness to the overlay that owns the scratch: a placeholder
+    // that fails loudly keeps a stale fixture from "clearing" an unrelated object.
+    clearScratch: () => {
+      throw new Error("clearScratch not wired to a brush overlay");
+    },
   };
   return surface;
 }
@@ -380,7 +565,8 @@ function makeHarness(surface: any, layerId = "layer-1", docId = "doc-test", uplo
   canvas.height = 512;
   const overlay = useBrushOverlay();
   overlay.setOverlayCanvasRef(canvas);
-  return { overlay, layer, engine, history, commit, uploadSurfaceTiles, surface, setDocId: (d: string) => { doc.id = d; } };
+  surface.clearScratch = () => overlay.__clearScratchForTests();
+  return { overlay, layer, engine, history, commit, uploadSurfaceTiles, surface, canvas, setDocId: (d: string) => { doc.id = d; } };
 }
 
 const settings = { size: 20, hardness: 1, opacity: 1, flow: 1, smoothing: 0.5 };
@@ -645,6 +831,27 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
     expect(sim.calls.filter((c) => c.cmd === "rust_pixels_write_region").length).toBe(1);
   });
 
+  it("deferred scratch snapshot survives scratch clear and readRect carries nonzero bytes", async () => {
+    hoist.setSim(makeSim());
+    localStorage.setItem("photrez.rustPixels", "1");
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const sim = hoist.getSim();
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    await overlay.commitBrushStroke(engine, history as any, LAYER, false);
+    // The deferred commit must read the snapshot captured at enqueue, not the
+    // shared scratch this clear just emptied.
+    surface.clearScratch();
+    await flushC4Commits();
+    const writes = sim.calls.filter((call) => call.cmd === "rust_pixels_write_region");
+    expect(writes).toHaveLength(1);
+    const bytes = Array.from(writes[0].args.rgba as number[]);
+    expect(bytes.some((byte) => byte !== 0)).toBe(true);
+    const entry = sim.store.get(`${DOC}|${LAYER}`);
+    expect(entry).toBeTruthy();
+    expect(entry!.pixels.some((byte) => byte !== 0)).toBe(true);
+  });
+
   it("ORDERED (VERIFIED): 3 rapid strokes serialize — canonical version 1→2→3, one history entry each, no interleave", async () => {
     hoist.setSim(makeSim());
     localStorage.setItem("photrez.rustPixels", "1");
@@ -677,6 +884,47 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
     const fullBytes = 512 * 512 * 4;
     expect((wr.args.rgba as number[]).length).toBe(wr.args.w * wr.args.h * 4);
     expect((wr.args.rgba as number[]).length).toBeLessThan(fullBytes);
+    // The bytes Rust receives were READ at the stroke-derived rect (same
+    // origin and size as the write), not from a full-layer read that later
+    // got sliced. The byte fence alone cannot catch a shifted origin.
+    const lastRead = surface.readRect.mock.calls[surface.readRect.mock.calls.length - 1];
+    expect(lastRead).toEqual([wr.args.x, wr.args.y, wr.args.w, wr.args.h]);
+    expect(lastRead[2] * lastRead[3]).toBeLessThan(512 * 512);
+  });
+
+  it("COUPLING: onPaintStroke re-syncs the overlay canvas to the layer dims that commitBrushStroke reads", async () => {
+    hoist.setSim(makeSim());
+    localStorage.setItem("photrez.rustPixels", "1");
+    const surface = makeSurface();
+    const { overlay, layer, engine, history, canvas } = makeHarness(surface);
+    const sim = hoist.getSim();
+    // Diverge on purpose: the commit path reads canvas dims as the layer dims
+    // (region clamp, pre-IPC fences, history surfaceWidth/Height), so the
+    // stroke must first pull the canvas back to the layer size.
+    canvas.width = 256;
+    canvas.height = 256;
+    overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
+    expect(canvas.width).toBe(layer.width);
+    expect(canvas.height).toBe(layer.height);
+    await overlay.commitBrushStroke(engine, history as any, LAYER, false);
+    await flushC4Commits();
+    const wr = sim.calls.find((c) => c.cmd === "rust_pixels_write_region")!;
+    expect(wr.args.x + wr.args.w).toBeLessThanOrEqual(layer.width);
+    expect(wr.args.y + wr.args.h).toBeLessThanOrEqual(layer.height);
+  });
+
+  it("ERASER GUARD: an eraser stroke never enters the deferred Rust region commit and still lands one history entry", async () => {
+    hoist.setSim(makeSim());
+    localStorage.setItem("photrez.rustPixels", "1");
+    const surface = makeSurface();
+    const { overlay, engine, history } = makeHarness(surface);
+    const sim = hoist.getSim();
+    overlay.onPaintStroke([{ x: 30, y: 30 }], true, settings, false);
+    await overlay.commitBrushStroke(engine, history as any, LAYER, true);
+    await flushC4Commits();
+    expect(sim.calls.filter((c) => c.cmd === "rust_pixels_write_region")).toHaveLength(0);
+    expect(sim.calls.filter((c) => c.cmd === "rust_pixels_init")).toHaveLength(0);
+    expect(history.entries).toHaveLength(1);
   });
 
   it("FALLBACK (VERIFIED): a deferred write_region failure still commits pixels — no silent drop, no unhandled rejection", async () => {
