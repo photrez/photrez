@@ -23,7 +23,8 @@
  *   5. Prints PASS/FAIL: PASS = no captured errors AND the layer-count sequence
  *      matches the expected facade path; FAIL lists the first error + the step
  *      where a digest diverged.
- *   6. Kills only the process tree it spawned (never a pre-existing instance).
+ *   6. Removes the dev-origin localStorage flag its pixel step set, then kills
+ *      only the process tree it spawned (never a pre-existing instance).
  *
  * Run (from repo root):
  *   PHOTREZ_FLAGS="facade=1" bun scripts/live-verify.mjs
@@ -42,6 +43,7 @@
 
 import { spawn } from "node:child_process";
 import net from "node:net";
+import { clearHarnessFlag } from "./harness-flag-cleanup.mjs";
 
 // ── config ────────────────────────────────────────────────────────────────
 const CDP_PORT = Number(process.env.PHOTREZ_CDP_PORT || 9222);
@@ -644,6 +646,9 @@ async function main() {
     exitCode = 1;
   } finally {
     // BUG 2 fix: cleanup runs on EVERY exit path (success, fail, timeout, throw).
+    // Clear the pixel flag while the page is still alive; the helper only
+    // reports failures, so it can never replace the run result in flight.
+    if (await clearHarnessFlag(cdp)) log("cleanup OK: photrez.rustPixels removed from the dev origin.");
     await cleanup();
   }
 
