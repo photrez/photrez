@@ -14,6 +14,8 @@ import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFrom
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { clampRegionToLayer, computeDirtyRegion } from "@/lib/paint/regionProducer";
+import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
 import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "./structuralRouting";
 
 // Ticket 2.1: single facade per document when photrez.facade=1. Rust is sole owner for addLayer.
@@ -288,13 +290,19 @@ export function useLayerActions() {
       // Nothing to bake if the layer has no live adjustment.
       if (!engine.getLayer(activeId)?.basicAdjustment) return;
 
-      // C5.4 canonical-pixel path (flag matches the brush/bucket/fill-layer gating).
+      // C5.4 canonical-pixel path (flag matches the brush/bucket/fill-layer gating). The
+      // shared operation arm decides legacy/rust/blocked for all three call sites.
       const rustPixelsFlag = (() => {
         try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
       })();
       const surface = engine.getPaintSurface(activeId);
+      const arm = resolveRustPixelOperationArm("bake", rustPixelsFlag, surface !== null);
 
-      if (rustPixelsFlag && surface) {
+      if (arm !== "legacy") {
+        if (!surface) {
+          showToast("Rust pixel surface not ready", "warn");
+          return;
+        }
         // Capture pre-bake state BEFORE mutation so undo restores it.
         const preSnapshot = engine.snapshot();
         const layer = engine.getLayer(activeId);
@@ -326,6 +334,15 @@ export function useLayerActions() {
             bakeCtx.drawImage(bakedLayer.imageBitmap!, 0, 0);
             const bakedImageData = bakeCtx.getImageData(0, 0, bakedLayer.width, bakedLayer.height);
             const bakedRgba = new Uint8Array(bakedImageData.data.buffer, bakedImageData.data.byteOffset, bakedImageData.data.byteLength);
+            // Bounded write region derived from the post-bake bytes. The bake canvas is
+            // built at the layer size, so the box is the whole layer; clampRegionToLayer
+            // still rejects non-finite or overflowing dimensions before IPC.
+            const dirty = computeDirtyRegion(
+              { x: 0, y: 0, w: bakedImageData.width, h: bakedImageData.height },
+              null,
+            );
+            if (!dirty) throw new RangeError("adjustment bake produced an empty region");
+            const region = clampRegionToLayer(dirty, bakedLayer.width, bakedLayer.height);
 
             // C5.4 ensure-if-absent: Adjustment Bake may be the FIRST raster op on a layer,
             // so seed the canonical store from the PRE-bake bitmap when Rust has no entry yet.
@@ -356,10 +373,10 @@ export function useLayerActions() {
             const res = (await pixelInvoke("rust_pixels_write_region", {
               docId,
               layerId: activeId,
-              x: 0,
-              y: 0,
-              w: bakedLayer.width,
-              h: bakedLayer.height,
+              x: region.x,
+              y: region.y,
+              w: region.w,
+              h: region.h,
               rgba: bakedRgba,
             })) as {
               before: { x: number; y: number; w: number; h: number; data: number[] }[];

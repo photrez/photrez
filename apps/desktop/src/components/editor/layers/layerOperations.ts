@@ -11,6 +11,7 @@ import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
 import { selectionUploadRect } from "@/components/editor/canvas/keyboardShortcuts/selectionTool";
 import { computeDirtyRegion } from "@/lib/paint/regionProducer";
+import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
 import { showToast } from "../Toast";
 import { ipcErrorMessage } from "@/tauri/native";
 
@@ -225,12 +226,15 @@ export function fillActiveLayerWithColor(
 
   const sel = engine.getSelection();
 
-  // C5.4 canonical-pixel path (flag matches the brush/bucket/undo gating).
+  // C5.4 canonical-pixel path (flag matches the brush/bucket/undo gating). The
+  // shared operation arm decides legacy/rust/blocked for all three call sites.
   const rustPixelsFlag = (() => {
     try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
   })();
   const surface = engine.getPaintSurface(activeId);
-  if (rustPixelsFlag && surface) {
+  const arm = resolveRustPixelOperationArm("fill", rustPixelsFlag, surface !== null);
+  if (arm !== "legacy") {
+    if (!surface) { showToast("Rust pixel surface not ready", "warn"); return true; }
     const docId = engine.getId();
     // Fire-and-forget keeps the Alt+Del handler synchronous so it can
     // requestRender immediately; the canonical write + cache sync complete async.

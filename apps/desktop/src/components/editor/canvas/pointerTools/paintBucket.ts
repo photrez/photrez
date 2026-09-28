@@ -10,6 +10,7 @@ import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/ru
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
 import { computeDirtyRegion } from "@/lib/paint/regionProducer";
+import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
 
 /**
  * Paint Bucket: click-to-fill. Runs flood fill on the active layer at the
@@ -69,12 +70,15 @@ export function applyPaintBucketFill(
     };
   }
 
-  // C5.4 canonical-pixel path (flag matches the brush + undo gating).
+  // C5.4 canonical-pixel path (flag matches the brush + undo gating). The shared
+  // operation arm decides legacy/rust/blocked; the surface is only resolved when
+  // the flag is on, so the flag-off path stays byte-identical.
   const rustPixelsFlag = (() => {
     try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
   })();
-  if (rustPixelsFlag) {
-    const surface = engine.getPaintSurface(layerId);
+  const surface = rustPixelsFlag ? engine.getPaintSurface(layerId) : null;
+  const arm = resolveRustPixelOperationArm("bucket", rustPixelsFlag, surface !== null);
+  if (arm !== "legacy") {
     if (!surface) { showToast("Rust pixel surface not ready", "warn"); trySetPointerCapture(ctx.getCanvasRef(), e.pointerId); return true; }
     const docId = workspace.getActiveDocumentId() ?? "";
     // Kick off the async canonical fill; the pointer event is already handled

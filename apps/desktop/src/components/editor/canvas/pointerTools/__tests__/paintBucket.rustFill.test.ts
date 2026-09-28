@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { applyPaintBucketFill, computeChangedRegion } from "../paintBucket";
 
 // jsdom lacks ImageData; stub it (floodFill mutates .data in place).
@@ -336,4 +336,63 @@ describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () =>
     }, { timeout: 2000 });
   });
 });
+});
+
+// The flag is still OFF in production, so these two arms are pinned here and the
+// whole block is deleted when the flag is retired.
+describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the flag is retired)", () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    applyCalls.length = 0;
+    showToastMock.mockClear();
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.rustPixels");
+  });
+
+  function event(): PointerEvent {
+    const e = new MouseEvent("pointerdown", { bubbles: true }) as PointerEvent;
+    Object.defineProperty(e, "pointerId", { value: 1 });
+    return e;
+  }
+
+  function legacyBitmapFakes() {
+    const base = makeFakes();
+    const bitmap = { width: 8, height: 8 };
+    base.engine.getLayerImageBitmap = vi.fn(() => bitmap);
+    base.editor.renderer = { uploadImage: vi.fn() };
+    return base;
+  }
+
+  it("flag ON routes the bucket through Rust; flag OFF keeps the legacy bitmap arm", async () => {
+    localStorage.setItem("photrez.rustPixels", "1");
+    const on = makeFakes();
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "rust_pixels_get_epoch") return 0;
+      if (command === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
+      if (command === "rust_pixels_write_region") return { before: [], after: [], epoch: 1, version: 1 };
+      return undefined;
+    });
+    applyPaintBucketFill(on.ctx, event());
+    await vi.waitFor(() =>
+      expect(mockInvoke.mock.calls.filter(([c]) => c === "rust_pixels_write_region")).toHaveLength(1),
+      { timeout: 2000 },
+    );
+    // Mutually exclusive on observed state: the Rust arm never sets the bitmap,
+    // and its one history step carries the tile memento (legacy commits 2 args).
+    expect(on.engine.setLayerImageBitmap).not.toHaveBeenCalled();
+    expect(on.commit).toHaveBeenCalledTimes(1);
+    expect(on.commit.mock.calls[0][1]).toBe("Paint Bucket Fill");
+    expect(on.commit.mock.calls[0][2]).toBeTruthy();
+
+    localStorage.removeItem("photrez.rustPixels");
+    const off = legacyBitmapFakes();
+    mockInvoke.mockClear();
+    mockInvoke.mockImplementation(async () => undefined);
+    applyPaintBucketFill(off.ctx, event());
+    await vi.waitFor(() => expect(off.commit).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(mockInvoke.mock.calls.some(([c]) => c === "rust_pixels_write_region")).toBe(false);
+    expect(off.engine.setLayerImageBitmap).toHaveBeenCalledTimes(1);
+    expect(off.commit.mock.calls[0][2]).toBeUndefined();
+  });
 });

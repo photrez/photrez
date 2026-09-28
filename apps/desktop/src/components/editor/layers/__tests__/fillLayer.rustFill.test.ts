@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fillActiveLayerWithColor } from "../layerOperations";
 import { CommandHistory } from "@/engine/history";
 
@@ -336,15 +336,6 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     await vi.waitFor(() => expect(commit).toHaveBeenCalledTimes(1), { timeout: 2000 });
   });
 
-  it("shape/text layer (no PaintTileSurface) → legacy path, NOT rust write_region, setLayerImageBitmap called", () => {
-    const { commit, engine, renderer, history } = makeFakes({ surfaceNull: true });
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
-    expect(ok).toBe(true);
-    expect(mockInvoke).not.toHaveBeenCalled();
-    expect(engine.setLayerImageBitmap).toHaveBeenCalled();
-    expect(commit).toHaveBeenCalledTimes(1);
-  });
-
   it("one undo step restores basicAdjustment (metadata) via history.undo + restore", async () => {
     const { engine, renderer } = makeFakes({ basicAdjustment: { brightness: 0.5 } });
     const history = new CommandHistory();
@@ -361,7 +352,91 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     engine.restore(undone);
     expect(engine.getLayer().basicAdjustment).not.toBeNull();
   });
+});
 
+// The flag is still OFF in production, so these routing cases are pinned here and
+// the whole block is deleted when the flag is retired.
+describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the flag is retired)", () => {
+  beforeEach(() => {
+    installOffscreenCanvas();
+    mockInvoke.mockReset();
+    applyCalls.length = 0;
+    showToastMock.mockClear();
+    localStorage.setItem("photrez.rustPixels", "1");
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.rustPixels");
+  });
+
+  it("flag ON routes the fill through Rust; flag OFF keeps the legacy bitmap arm", async () => {
+    const on = makeFakes();
+    mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+      if (cmd === "rust_pixels_get_epoch") return 0;
+      if (cmd === "rust_pixels_snapshot_layer") {
+        return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
+      }
+      if (cmd === "rust_pixels_write_region") {
+        return {
+          before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
+          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
+          epoch: 1,
+          version: 1,
+        };
+      }
+      return undefined;
+    });
+
+    expect(fillActiveLayerWithColor(on.engine, on.history, on.renderer, "#ff0000")).toBe(true);
+    await vi.waitFor(
+      () => expect(mockInvoke.mock.calls.filter(([c]) => c === "rust_pixels_write_region")).toHaveLength(1),
+      { timeout: 2000 },
+    );
+    // The two arms are mutually exclusive on observed state: the Rust arm never
+    // replaces the bitmap and its single history step carries the tile memento.
+    expect(on.engine.setLayerImageBitmap).not.toHaveBeenCalled();
+    expect(on.commit).toHaveBeenCalledTimes(1);
+    expect(on.commit.mock.calls[0][1]).toBe("Fill Layer");
+    expect(on.commit.mock.calls[0][2]).toBeTruthy();
+
+    localStorage.removeItem("photrez.rustPixels");
+    const off = makeFakes();
+    mockInvoke.mockClear();
+    mockInvoke.mockImplementation(async () => undefined);
+
+    expect(fillActiveLayerWithColor(off.engine, off.history, off.renderer, "#ff0000")).toBe(true);
+    await vi.waitFor(() => expect(off.commit).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(mockInvoke.mock.calls.some(([c]) => c === "rust_pixels_write_region")).toBe(false);
+    expect(off.engine.setLayerImageBitmap).toHaveBeenCalledTimes(1);
+    expect(off.commit.mock.calls[0][2]).toBeUndefined();
+  });
+
+  // Flag ON with no surface must fail visibly instead of quietly writing through
+  // the legacy arm while the flag says Rust is authoritative.
+  it("flag ON with no paint surface: visible error, zero write_region, no silent legacy write", () => {
+    const { commit, engine, renderer, history } = makeFakes({ surfaceNull: true });
+    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+    expect(ok).toBe(true);
+    expect(showToastMock).toHaveBeenCalledWith("Rust pixel surface not ready", "warn");
+    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(engine.setLayerImageBitmap).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  // Moved from the main describe (former lines 335-343): it pins the flag-OFF
+  // legacy arm for a layer with no paint surface.
+  it("shape/text layer (no PaintTileSurface) with the flag OFF → legacy path, NOT rust write_region, setLayerImageBitmap called", () => {
+    localStorage.setItem("photrez.rustPixels", "0");
+    const { commit, engine, renderer, history } = makeFakes({ surfaceNull: true });
+    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+    expect(ok).toBe(true);
+    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(engine.setLayerImageBitmap).toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  // Flag-OFF arm characterization: only valid while the photrez.rustPixels gate
+  // exists. Retiring the gate removes the flag-OFF arm from production, so this
+  // case fails there and is deleted together with this block.
   it("legacy behavior unchanged when flag OFF (setLayerImageBitmap, no rust write_region)", () => {
     localStorage.setItem("photrez.rustPixels", "0");
     const { commit, engine, renderer, history } = makeFakes();
