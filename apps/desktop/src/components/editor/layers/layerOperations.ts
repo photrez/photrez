@@ -1,11 +1,11 @@
 import type { DocumentEngine } from "@/engine/document";
-import type { CommandHistory } from "@/engine/history";
+import type { CommandHistory, HistoryTilePatches } from "@/engine/history";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import { compositeAllLayers } from "@/engine/layerComposite";
 import { applyBasicAdjustmentToColor } from "@/engine/layerAdjustments";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import type { SelectionState } from "@/features/selection/SelectionTypes";
-import type { LayerNode } from "@/engine/types";
+import type { LayerNode, DocumentModel } from "@/engine/types";
 import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
@@ -239,6 +239,13 @@ export function fillActiveLayerWithColor(
     // Fire-and-forget keeps the Alt+Del handler synchronous so it can
     // requestRender immediately; the canonical write + cache sync complete async.
     void (async () => {
+      // Hoisted out of the try: the adjustment clear below mutates the document
+      // BEFORE the write, so the catch must be able to record a history entry
+      // even when the write (or anything after it) rejects.
+      let preSnapshot: DocumentModel | undefined;
+      let mutationLanded = false;
+      let writeLanded = false;
+      let imperative: HistoryTilePatches | undefined;
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
@@ -290,13 +297,16 @@ export function fillActiveLayerWithColor(
           : null);
         if (!region) return;
         // Capture pre-fill state BEFORE clearing the adjustment so undo restores it.
-        const preSnapshot = engine.snapshot();
+        preSnapshot = engine.snapshot();
         // Host pixel composite: this metadata clear rides the SAME single history
         // entry as the Rust pixel write below, so it stays on the host path. A
         // routed SetAdjustment clear would add a separate native entry and split
         // the fill gesture's undo (pixel composites for fill/bake stay host-side
         // until pixel authority).
-        if (layer.basicAdjustment) engine.clearBasicAdjustments(activeId);
+        if (layer.basicAdjustment) {
+          engine.clearBasicAdjustments(activeId);
+          mutationLanded = true;
+        }
         const res = (await pixelInvoke("rust_pixels_write_region", {
           docId,
           layerId: activeId,
@@ -311,6 +321,19 @@ export function fillActiveLayerWithColor(
           epoch: number;
           version: number;
         };
+        writeLanded = true;
+        // Imperative is entry-owned (tile-memento model): history stores it and
+        // replays its before/after tiles on undo/redo; the Rust entry is synced
+        // via `rust_pixels_undo` (single step, no second TS-visible entry).
+        // Built straight off the write result so a throw further down still
+        // leaves the catch with a complete memento to record.
+        imperative = {
+          layerId: activeId,
+          surfaceWidth: layer.width,
+          surfaceHeight: layer.height,
+          before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+          after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+        };
         // TS derived cache updated from Rust's authoritative returned `after` tiles + epoch.
         applyRustTilesToSurface(surface.context, res.after);
         surface.pixelEpoch = res.epoch;
@@ -321,19 +344,16 @@ export function fillActiveLayerWithColor(
         // Now that write_region succeeded, bitmap and Rust are proven identical.
         const fillLayer = engine.getLayer(activeId);
         if (fillLayer) fillLayer.bitmapEpoch = res.epoch;
-        // Imperative is entry-owned (tile-memento model): history stores it and
-        // replays its before/after tiles on undo/redo; the Rust entry is synced
-        // via `rust_pixels_undo` (single step, no second TS-visible entry).
-        const imperative = {
-          layerId: activeId,
-          surfaceWidth: layer.width,
-          surfaceHeight: layer.height,
-          before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
-          after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
-        };
-        history.commit(preSnapshot, "Fill Layer", imperative, true);
+        history.commit(preSnapshot!, "Fill Layer", imperative, true);
       } catch (err) {
         showToast(`Fill Layer failed: ${ipcErrorMessage(err)}`, "error");
+        // The adjustment clear above already mutated the document. When the write
+        // never landed there is no Rust entry for that mutation, so record a
+        // metadata entry (no imperative) instead of leaving it unundoable. A
+        // landed write already owns its Rust entry, so it is flagged as such.
+        if (mutationLanded && preSnapshot) {
+          history.commit(preSnapshot, "Fill Layer", writeLanded ? imperative : undefined, writeLanded);
+        }
       }
     })();
     return true;

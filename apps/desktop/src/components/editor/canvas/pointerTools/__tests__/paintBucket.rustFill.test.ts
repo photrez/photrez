@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { applyPaintBucketFill, computeChangedRegion } from "../paintBucket";
+import { CommandHistory, historyBridgeEnabled } from "@/engine/history";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
+
+// The history bridge fires through a dynamic import + fire-and-forget invoke, so
+// draining the census once can still miss a command that has not started yet.
+const settleBridge = async () => {
+  for (let i = 0; i < 3; i++) {
+    await new Promise((r) => setTimeout(r, 0));
+    await flushPixelInvokeCensus();
+  }
+};
+
+const countInvoke = (cmd: string) => mockInvoke.mock.calls.filter((c) => c[0] === cmd).length;
 
 // jsdom lacks ImageData; stub it (floodFill mutates .data in place).
 class FakeImageData {
@@ -394,5 +407,54 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
     expect(mockInvoke.mock.calls.some(([c]) => c === "rust_pixels_write_region")).toBe(false);
     expect(off.engine.setLayerImageBitmap).toHaveBeenCalledTimes(1);
     expect(off.commit.mock.calls[0][2]).toBeUndefined();
+  });
+});
+
+// The bridge gate must be ON for this pin to mean anything: with it off,
+// commit() skips the Rust append entirely and a zero count proves nothing.
+describe("paint bucket commit pin (history bridge ON)", () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    applyCalls.length = 0;
+    localStorage.setItem("photrez.rustPixels", "1");
+    localStorage.setItem("photrez.historyBridge", "1");
+    (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.rustPixels");
+    localStorage.removeItem("photrez.historyBridge");
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it("records ZERO apply_tile_patch: rust_pixels_write_region already owns the entry", async () => {
+    const { ctx, workspace } = makeFakes();
+    const history = new CommandHistory();
+    history.attachDocIdGetter(() => "doc1");
+    workspace.getActiveHistory = () => history;
+
+    mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+      if (cmd === "rust_pixels_get_epoch") return 0;
+      if (cmd === "rust_pixels_snapshot_layer") {
+        return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
+      }
+      if (cmd === "rust_pixels_write_region") {
+        return {
+          before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
+          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+          epoch: 1,
+          version: 1,
+        };
+      }
+      return undefined;
+    });
+
+    expect(historyBridgeEnabled()).toBe(true);
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+
+    await vi.waitFor(() => expect(history.getUndoCount()).toBe(1), { timeout: 2000 });
+    await settleBridge();
+    // Positive control first: the fill reached Rust exactly once.
+    expect(countInvoke("rust_pixels_write_region")).toBe(1);
+    expect(countInvoke("apply_tile_patch")).toBe(0);
   });
 });

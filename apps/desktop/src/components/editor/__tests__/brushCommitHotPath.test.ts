@@ -808,6 +808,7 @@ describe("write-region guards: only the empty-docId case stops before IPC; the r
     await flushC4Commits();
     expect(count(sim, "rust_pixels_write_region")).toBe(0);
     expect(count(sim, "rust_pixels_get_epoch")).toBe(0);
+    expect(sim.calls.length, "pre-IPC guard: zero invokes of any kind").toBe(0);
     const fallbackErrors = warns.mock.calls
       .filter((c) => String(c[0]).includes(FALLBACK_WARN))
       .map((c) => c[1]);

@@ -1,7 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fillActiveLayerWithColor } from "../layerOperations";
-import { CommandHistory } from "@/engine/history";
+import { CommandHistory, historyBridgeEnabled } from "@/engine/history";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
+
+// The history bridge fires through a dynamic import + fire-and-forget invoke, so
+// draining the census once can still miss a command that has not started yet.
+const settleBridge = async () => {
+  for (let i = 0; i < 3; i++) {
+    await new Promise((r) => setTimeout(r, 0));
+    await flushPixelInvokeCensus();
+  }
+};
+
+const enableHistoryBridge = () => {
+  localStorage.setItem("photrez.historyBridge", "1");
+  (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+};
+
+const disableHistoryBridge = () => {
+  localStorage.removeItem("photrez.historyBridge");
+  delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+};
+
+const countInvoke = (cmd: string) => mockInvoke.mock.calls.filter((c) => c[0] === cmd).length;
 
 // jsdom lacks ImageData / createImageBitmap / OffscreenCanvas — stub them.
 class FakeImageData {
@@ -351,6 +373,64 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     expect(undone).not.toBeNull();
     engine.restore(undone);
     expect(engine.getLayer().basicAdjustment).not.toBeNull();
+  });
+
+  // RED-first: before the fallback fix the catch only toasts, so the adjustment
+  // cleared above write_region is unreachable by undo (undo count stays 0).
+  it("records a fallback history entry when the adjustment clear lands but write_region rejects", async () => {
+    const { engine, renderer } = makeFakes({ basicAdjustment: { brightness: 0.5 } });
+    const history = new CommandHistory();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "rust_pixels_get_epoch") return 0;
+      if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
+      if (cmd === "rust_pixels_write_region") throw "E_RUST: boom";
+      return undefined;
+    });
+
+    fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+
+    await vi.waitFor(() => {
+      expect(showToastMock).toHaveBeenCalledWith("Fill Layer failed: E_RUST: boom", "error");
+    }, { timeout: 2000 });
+    // The clear DID land before the rejected write; it must still be undoable.
+    expect(engine.getLayer().basicAdjustment).toBeNull();
+    expect(history.getUndoCount()).toBe(1);
+    const undone = history.undo(engine.snapshot());
+    expect(undone).not.toBeNull();
+    engine.restore(undone);
+    expect(engine.getLayer().basicAdjustment).not.toBeNull();
+  });
+
+  // The bridge gate must be ON for this pin to mean anything: with it off,
+  // commit() skips the Rust append entirely and a zero count proves nothing.
+  describe("fill commit pin (history bridge ON)", () => {
+    afterEach(() => {
+      disableHistoryBridge();
+    });
+
+    it("records ZERO apply_tile_patch: rust_pixels_write_region already owns the entry", async () => {
+      enableHistoryBridge();
+      const { engine, renderer } = makeFakes();
+      const history = new CommandHistory();
+      history.attachDocIdGetter(() => "doc1");
+      mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+        if (cmd === "rust_pixels_get_epoch") return 0;
+        if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
+        if (cmd === "rust_pixels_write_region") {
+          return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+        }
+        return undefined;
+      });
+
+      expect(historyBridgeEnabled()).toBe(true);
+      fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+
+      await vi.waitFor(() => expect(history.getUndoCount()).toBe(1), { timeout: 2000 });
+      await settleBridge();
+      // Positive control first: the op ran and reached Rust exactly once.
+      expect(countInvoke("rust_pixels_write_region")).toBe(1);
+      expect(countInvoke("apply_tile_patch")).toBe(0);
+    });
   });
 });
 

@@ -7,6 +7,8 @@ import { EditorProvider } from "../../shell/EditorContext";
 import { DialogProvider } from "../../dialogs/DialogProvider";
 import { WorkspaceManager } from "@/engine/workspace";
 import { useLayerActions } from "../useLayerActions";
+import { historyBridgeEnabled } from "@/engine/history";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { showToast } from "../../Toast";
 
 const mockInvoke = vi.fn();
@@ -252,5 +254,78 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
       expect(vi.mocked(showToast)).toHaveBeenCalledWith("Rust pixel surface not ready", "warn");
     });
     expect(mockInvoke.mock.calls.filter((c) => c[0] === "rust_pixels_write_region")).toHaveLength(0);
+  });
+});
+
+// The bridge gate must be ON for this pin to mean anything: with it off,
+// commit() skips the Rust append entirely and a zero count proves nothing.
+describe("adjustment bake commit pin (history bridge ON)", () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    localStorage.setItem("photrez.rustPixels", "1");
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    localStorage.setItem("photrez.historyBridge", "1");
+    (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+  });
+  afterEach(() => {
+    localStorage.removeItem("photrez.rustPixels");
+    localStorage.removeItem("photrez.facade");
+    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.removeItem("photrez.historyBridge");
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    vi.restoreAllMocks();
+  });
+
+  it("records ZERO apply_tile_patch: rust_pixels_write_region already owns the entry", async () => {
+    const ws = new WorkspaceManager();
+    ws.addDocument(WorkspaceManager.createBlankDocument("doc-bake", "Bake", 100, 100));
+    ws.switchDocument("doc-bake");
+    const engine = ws.getEngine("doc-bake")!;
+    const layer = engine.addLayer("Bake", 100, 100);
+    engine.setActiveLayer(layer.id);
+    layer.basicAdjustment = { brightness: 20, contrast: 0, saturation: 0 };
+    engine.setLayerImageBitmap(layer.id, { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap);
+    vi.spyOn(engine, "commitBasicAdjustment").mockResolvedValue("cpu");
+    const surface = { context: { putImageData: vi.fn() }, pixelEpoch: 0, pixelVersion: 0 };
+    vi.spyOn(engine, "getPaintSurface").mockReturnValue(surface as never);
+
+    mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+      if (cmd === "rust_pixels_get_epoch") throw new Error("layer not initialized");
+      if (cmd === "rust_pixels_init") return undefined;
+      if (cmd === "rust_pixels_write_region") {
+        return {
+          before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
+          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
+          epoch: 1,
+          version: 1,
+        };
+      }
+      return undefined;
+    });
+
+    const renderer: any = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
+    const scheduler: any = { requestRender: vi.fn() };
+    const wrapper = (props: { children: any }) => (
+      <DialogProvider>
+        <EditorProvider workspace={ws} renderer={renderer} scheduler={scheduler}>
+          {props.children}
+        </EditorProvider>
+      </DialogProvider>
+    );
+    const { result } = renderHook(() => useLayerActions(), { wrapper });
+
+    expect(historyBridgeEnabled()).toBe(true);
+    await result.handleApplyAdjustment();
+
+    const history = ws.getActiveHistory()!;
+    await vi.waitFor(() => expect(history.getUndoCount()).toBe(1), { timeout: 2000 });
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      await flushPixelInvokeCensus();
+    }
+    // Positive control first: the bake reached Rust exactly once.
+    expect(mockInvoke.mock.calls.filter((c) => c[0] === "rust_pixels_write_region")).toHaveLength(1);
+    expect(mockInvoke.mock.calls.filter((c) => c[0] === "apply_tile_patch")).toHaveLength(0);
   });
 });
