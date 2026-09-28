@@ -1,4 +1,12 @@
 #!/bin/sh
 # Enforce Conventional Commits on every commit message. The message file path is
 # passed as $1 by husky. See commitlint.config.cjs.
+
+# Public-artifact terminology guard: runs here because this hook receives the
+# NEW message file as $1. pre-commit cannot do it — git runs pre-commit before
+# it writes .git/COMMIT_EDITMSG, so that file still holds the previous commit's
+# message during pre-commit. Same shared check used by CI.
+MSG=$(grep -v '^#' "$1" || true)
+sh scripts/check-public-terminology.sh --msg "$MSG" || exit 1
+
 bunx commitlint --edit "$1"

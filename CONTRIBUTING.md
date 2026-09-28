@@ -56,7 +56,7 @@ Examples:
 
 ### Public terminology
 
-Internal planning and milestone terminology that lives in gitignored project docs must **never** appear in public artifacts — source code, commit messages, PR titles, or committed documentation. Describe the change using product/technical terms instead. This rule is enforced by a shared check (`scripts/check-public-terminology.sh`) in both the local pre-commit hook and CI, so it cannot be bypassed.
+Internal planning and milestone terminology that lives in gitignored project docs must **never** appear in public artifacts — source code, commit messages, PR titles, or committed documentation. Describe the change using product/technical terms instead. This rule is enforced by a shared check (`scripts/check-public-terminology.sh`) in both the local `commit-msg` hook and CI, so it cannot be bypassed.
 
 ## Code Standards
 

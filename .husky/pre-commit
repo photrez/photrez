@@ -26,10 +26,11 @@ if [ -f ".husky/internal-blocklist" ]; then
   fi
 fi
 
-# 0d. Public-artifact terminology guard — commit message (single source of truth)
-if [ -f ".git/COMMIT_EDITMSG" ]; then
-  sh scripts/check-public-terminology.sh --msg "$(cat .git/COMMIT_EDITMSG)" || exit 1
-fi
+# 0d. Commit-message terminology check lives in .husky/commit-msg, not here:
+# git runs pre-commit BEFORE it writes .git/COMMIT_EDITMSG, so at this point
+# that file still holds the PREVIOUS commit's message (it blocked every commit
+# whenever the last message contained a banned term). The commit-msg hook gets
+# the new message file as $1 and runs the same shared check on it.
 
 # 0e. Public-artifact terminology guard — staged source
 if git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(ts|tsx|rs)$'; then
