@@ -110,3 +110,8 @@ export function pixelInvoke(command: string, args: Record<string, unknown>): Pro
   void settled.then(() => { inFlight.delete(settled); });
   return started;
 }
+
+// Install the readers at import time: a freshly opened session reads the census
+// before it has changed a single pixel, so waiting for the first pixelInvoke
+// would leave that read pointing at a global that does not exist yet.
+registerPixelInvokeCensus();
