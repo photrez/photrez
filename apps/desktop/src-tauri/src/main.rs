@@ -59,6 +59,13 @@ fn validate_cli_open_path(p: &str) -> Option<String> {
     }
 }
 
+// Census readers (window.__photrezPixelCensus / window.__photrezPixelFlush)
+// must exist from document start: a CDP census drain can be evaluated before
+// the frontend module graph executes pixelInvokeCensus.ts (measured ~76s after
+// window creation on a cold dev launch). Same file the frontend contract test
+// executes, so there is one source for the injected text.
+const CENSUS_PRELOAD_JS: &str = include_str!("../../src/lib/protocol/censusPreload.js");
+
 fn main() {
     // Accept file path as first CLI argument, but only after trust-boundary
     // validation: it must be an existing file with a readable extension.
@@ -96,6 +103,12 @@ fn main() {
                     Target::new(TargetKind::LogDir { file_name: None }),
                 ])
                 .level(log::LevelFilter::Info)
+                .build(),
+        )
+        // Document-start census readers; contract documented in censusPreload.js.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("photrez-census-preload")
+                .js_init_script(CENSUS_PRELOAD_JS)
                 .build(),
         )
         .setup(|app| {
@@ -260,7 +273,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_cli_open_path;
+    use super::{validate_cli_open_path, CENSUS_PRELOAD_JS};
     use std::io::Write;
 
     fn touch(name: &str) -> std::path::PathBuf {
@@ -303,5 +316,26 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         assert!(validate_cli_open_path(&dir.to_string_lossy()).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The text injected at document start is only wired correctly if it is
+    // present at all and installs both readers the census drain requires; an
+    // empty or renamed include_str!() would still compile and would silently
+    // leave the CDP drain without a primitive.
+    #[test]
+    fn census_preload_injects_both_readers() {
+        assert!(
+            !CENSUS_PRELOAD_JS.is_empty(),
+            "injected census preload is empty"
+        );
+        assert!(
+            CENSUS_PRELOAD_JS.contains("__photrezPixelCensus")
+                && CENSUS_PRELOAD_JS.contains("__photrezPixelFlush"),
+            "injected census preload does not install both census readers"
+        );
+        assert!(
+            CENSUS_PRELOAD_JS.contains("__photrezPixelCensusPreload"),
+            "injected census preload does not set the document-start marker"
+        );
     }
 }

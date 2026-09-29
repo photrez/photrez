@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 type CensusWindow = {
   __photrezPixelCensus?: () => { entries: { order: number; command: string; phase: string }[]; pending: number };
   __photrezPixelFlush?: () => Promise<{ entries: { order: number; command: string; phase: string }[]; pending: number }>;
+  __photrezPixelCensusReady?: boolean;
 };
 const w = () => window as unknown as CensusWindow;
 
@@ -22,6 +23,15 @@ describe("pixelInvokeCensus", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
     registerPixelInvokeCensus();
+  });
+
+  it("marks the census ready for a drain as soon as the registrar installs the readers", () => {
+    delete w().__photrezPixelCensusReady;
+    expect(w().__photrezPixelCensusReady).toBeUndefined();
+
+    registerPixelInvokeCensus();
+
+    expect(w().__photrezPixelCensusReady).toBe(true);
   });
 
   it("installs the census globals BEFORE the underlying invoke runs", async () => {

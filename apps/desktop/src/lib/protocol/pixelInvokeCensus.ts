@@ -10,9 +10,11 @@
  *  - the underlying value or rejection is passed through untouched, so routing a
  *    call site through this wrapper cannot change what the caller observes;
  *  - registering installs `window.__photrezPixelCensus()` (sync snapshot) and the
- *    CDP drain alias `window.__photrezPixelFlush()`. Reading through a missing
- *    global throws instead of returning an empty snapshot that would read as
- *    "zero pixel invokes";
+ *    CDP drain alias `window.__photrezPixelFlush()`, and sets
+ *    `window.__photrezPixelCensusReady = true` so a drain can prove it read the
+ *    real readers rather than a pre-registration placeholder. Reading through a
+ *    missing global throws instead of returning an empty snapshot that would
+ *    read as "zero pixel invokes";
  *  - `flushPixelInvokeCensus()` awaits every in-flight invoke first. Callers such
  *    as `history.ts` fire and forget, so a raw read there can race.
  */
@@ -50,6 +52,8 @@ export interface PixelCensusSnapshot {
 interface CensusGlobals {
   __photrezPixelCensus?: () => PixelCensusSnapshot;
   __photrezPixelFlush?: () => Promise<PixelCensusSnapshot>;
+  /** Set only when the real readers above are installed, never by a placeholder. */
+  __photrezPixelCensusReady?: boolean;
 }
 
 const entries: PixelCensusEntry[] = [];
@@ -66,6 +70,7 @@ export function registerPixelInvokeCensus(): void {
   if (!target) return;
   target.__photrezPixelCensus = getPixelCensusSnapshot;
   target.__photrezPixelFlush = flushPixelInvokeCensus;
+  target.__photrezPixelCensusReady = true;
 }
 
 export function getPixelCensusSnapshot(): PixelCensusSnapshot {
