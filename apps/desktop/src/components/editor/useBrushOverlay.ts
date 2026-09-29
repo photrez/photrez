@@ -140,6 +140,25 @@ export function useBrushOverlay() {
     const { docId, layerId, dx0, dy0, dw, dh, w, h, surface, engine, history, requestRender, beforePatches, effectiveIsEraser } = job;
     const sctx = surface.context;
     const runCore = async () => {
+      // Kill-switch recheck: a commit queued while photrez.rustPixels was ON
+      // only starts once the per-document queue drains, so a flip to OFF that
+      // landed first must cancel it here - before the epoch read, the surface
+      // composite, or any pixel IPC. The queued stroke is dropped whole: it
+      // reaches neither Rust nor TS history, because a half-applied stroke
+      // would leave the two stores disagreeing. A flip that lands after this
+      // check cannot abort a write already in flight. Pinned by the ON-to-OFF
+      // case in rustPixels.transitionGates.test.tsx.
+      try {
+        if (localStorage.getItem("photrez.rustPixels") !== "1") {
+          // A dropped commit stays visible (same norm as the skipped-fallback
+          // warn further down): console-only, no semantics change.
+          console.warn("[paint] queued brush commit cancelled - photrez.rustPixels is not ON", docId, layerId);
+          return;
+        }
+      } catch (err) {
+        console.warn("[paint] queued brush commit cancelled - flag read failed:", err);
+        return;
+      }
       const { invoke } = await import("@tauri-apps/api/core");
       const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
       // Pre-IPC fence: identity and geometry run BEFORE the epoch read, so a

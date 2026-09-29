@@ -80,6 +80,40 @@ fn remove_layer_releases_storage() {
     assert!(r.get_layer("docA", "L1").is_none());
 }
 
+// Removal drops pixel storage but NOT the document-level history stream
+// (pixel_store.rs:197-200 vs :715-734): the epoch probe must reject the gone
+// layer while the read-only depth probe keeps reporting the entry, so a failed
+// epoch read can never be read back as "no history exists".
+#[test]
+fn removed_layer_epoch_rejects_but_history_depth_survives() {
+    let mut r = reg();
+    r.open_document("docA");
+    r.add_layer("docA", "L1", 64, 64, vec![0; 64 * 64 * 4])
+        .unwrap();
+    let seeded = r.apply_pixel_patch(
+        "docA",
+        "L1",
+        vec![tile(0, 0, 8, 8, 0)],
+        vec![tile(0, 0, 8, 8, 9)],
+    );
+    assert!(
+        seeded.is_some(),
+        "the patch applies while the layer is alive"
+    );
+
+    r.remove_layer("docA", "L1");
+
+    assert_eq!(
+        r.get_epoch("docA", "L1").unwrap_err(),
+        "layer not initialized: L1"
+    );
+    let first = r.get_history_depth("docA").expect("depth stays readable");
+    let second = r.get_history_depth("docA").expect("depth stays readable");
+    assert_eq!(first, second, "two identical read-only calls agree");
+    assert_eq!(first.total_depth, 1, "the entry survives the layer removal");
+    assert_eq!(first.affected_layer_ids, vec!["L1".to_string()]);
+}
+
 #[test]
 fn resize_layer_recreates_dimensions() {
     let mut r = reg();
