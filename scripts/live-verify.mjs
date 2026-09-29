@@ -23,8 +23,11 @@
  *   5. Prints PASS/FAIL: PASS = no captured errors AND the layer-count sequence
  *      matches the expected facade path; FAIL lists the first error + the step
  *      where a digest diverged.
- *   6. Removes the dev-origin localStorage flag its pixel step set, then kills
- *      only the process tree it spawned (never a pre-existing instance).
+ *   6. Removes the dev-origin localStorage pixel flag before killing only the
+ *      process tree it spawned (never a pre-existing instance). PHOTREZ_FLAGS
+ *      refuses that key, so this runner can never set it; the per-step code
+ *      reads it, never writes it. The tests/validation smokes set the same key
+ *      and remove it the same way.
  *
  * Run (from repo root):
  *   PHOTREZ_FLAGS="facade=1" bun scripts/live-verify.mjs
@@ -43,7 +46,7 @@
 
 import { spawn } from "node:child_process";
 import net from "node:net";
-import { clearHarnessFlag } from "./harness-flag-cleanup.mjs";
+import { clearHarnessFlag, parseHarnessFlags } from "./harness-flag-cleanup.mjs";
 
 // ── config ────────────────────────────────────────────────────────────────
 const CDP_PORT = Number(process.env.PHOTREZ_CDP_PORT || 9222);
@@ -51,20 +54,9 @@ const LAUNCH_TIMEOUT_MS = Number(process.env.PHOTREZ_LAUNCH_TIMEOUT_MS || 240000
 const REPO_ROOT = process.cwd();
 
 // Parse PHOTREZ_FLAGS -> localStorage entries (only the "photrez.<key>" shape
-// the app already reads). Known keys: facade, facadeAuthority.
-const FLAG_PAIRS = (process.env.PHOTREZ_FLAGS || "facade=1")
-  .split(/[\s,]+/)
-  .map((s) => s.trim())
-  .filter(Boolean)
-  .map((kv) => {
-    const i = kv.indexOf("=");
-    if (i < 0) return null;
-    const k = kv.slice(0, i).trim();
-    const v = kv.slice(i + 1).trim();
-    if (!k) return null;
-    return { key: `photrez.${k}`, value: v };
-  })
-  .filter(Boolean);
+// the app already reads). Known keys: facade, facadeAuthority. The reserved
+// pixel enablement is refused by the shared parser, with a stderr warning.
+const FLAG_PAIRS = parseHarnessFlags(process.env.PHOTREZ_FLAGS || "facade=1");
 
 // ── tiny helpers ───────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -364,8 +356,10 @@ const STEP_PIXELCOMMIT = stepFn(`
   }
   // The fill operates on the active layer; make it the added layer.
   engine.setActiveLayer(targetId);
-  // Enable the canonical pixel path so the fill routes through rust_pixels_write_region.
-  localStorage.setItem('photrez.rustPixels', '1');
+  // This step never enables the rust pixel path. It reads the key and reports
+  // the state instead; PHOTREZ_FLAGS refuses the key, so a "1" here can only be
+  // a leftover on the dev origin from an earlier run.
+  const rustPathOn = localStorage.getItem('photrez.rustPixels') === '1';
   if (typeof ed.setActiveTool === 'function') ed.setActiveTool('paintBucket');
   const { applyPaintBucketFill } = await import(location.origin + '/src/components/editor/canvas/pointerTools/paintBucket.ts');
   const ctx = {
@@ -398,6 +392,7 @@ const STEP_PIXELCOMMIT = stepFn(`
   dig.followOk = !followError;
   dig.followError = followError;
   dig.committed = committed;
+  dig.rustPath = rustPathOn;
   dig.note = 'rvBefore=' + rvBefore + ' rvAfterFill=' + rvAfterFill + ' followOk=' + (!followError) + (followError ? (' err=' + followError) : '') + ' committed=' + committed;
   return dig;
 `);
@@ -624,6 +619,11 @@ async function main() {
 
             const pixelCommit = captured.find((c) => c.step === "pixelCommit");
             const pixelCommitOk = !pixelCommit || (pixelCommit.digest && pixelCommit.digest.committed !== false);
+            if (pixelCommit && pixelCommit.digest && pixelCommit.digest.rustPath === false) {
+              log("NOTE: photrez.rustPixels is not enabled on the dev origin, so pixelCommit ran the legacy fill path");
+              log("      and the rust pixel bridge was NOT exercised. PHOTREZ_FLAGS refuses that key now;");
+              log("      run tests/validation/bitmap-sync.mjs or tests/validation/restore-sync.mjs, which set and clear it.");
+            }
             const pass = consoleErrors.length === 0 && !divergence && isolationOk && tauriErrors.length === 0 && pixelCommitOk;
             log("");
             if (pass) {

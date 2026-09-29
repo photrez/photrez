@@ -54,6 +54,7 @@ import net from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parseHarnessFlags } from "./harness-flag-cleanup.mjs";
 
 const DEFAULT_PORT = 9224;
 const CDP_PORT = Number(process.env.PHOTREZ_CDP_PORT || DEFAULT_PORT);
@@ -115,20 +116,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 }
 
 function flagPairsFor(raw) {
-  if (process.env.PHOTREZ_FLAGS) raw = process.env.PHOTREZ_FLAGS;
-  return String(raw || "")
-    .split(/[\s,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((kv) => {
-      const i = kv.indexOf("=");
-      if (i < 0) return null;
-      const k = kv.slice(0, i).trim();
-      const v = kv.slice(i + 1).trim();
-      if (!k) return null;
-      return { key: `photrez.${k}`, value: v };
-    })
-    .filter(Boolean);
+  return parseHarnessFlags(process.env.PHOTREZ_FLAGS || raw);
 }
 
 const OUT_PATH =
