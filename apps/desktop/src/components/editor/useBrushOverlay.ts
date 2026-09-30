@@ -1449,12 +1449,7 @@ export function useBrushOverlay() {
           // (same gen-guard as the legacy commitPaintBitmap path): skip this
           // commit and let the newer stroke's own snapshot capture both changes.
           if (syncGen === strokeGen) {
-            // alreadyRecordedInRust=false: reaching this commit means c4Deferred is
-            // false, i.e. the enqueue branch that owns the only
-            // rust_pixels_write_region for a stroke never ran, so Rust holds no
-            // entry for this one. Claiming otherwise makes the commit shim skip its
-            // External mirror and leaves the Rust cursor a step behind the TS stack.
-            history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative, false);
+            history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", imperative, true);
             histCommitted = true;
           }
         }

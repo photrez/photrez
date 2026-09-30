@@ -1118,9 +1118,8 @@ export function installFacadeCommitShim(providers: {
     // alreadyRecordedInRust=true because Rust already owns that op's Pixel cursor
     // entry via rust_pixels_write_region. Mirroring it here too would put two
     // entries on the unified cursor for one stroke, and the next undo would step
-    // the External mirror instead of the Rust pixels. The flag is the caller's
-    // statement of that fact, so honour it as given: a caller that owns nothing in
-    // Rust must not pass true, or the Rust cursor falls behind the TS undo stack.
+    // the External mirror instead of the Rust pixels. Skip the mirror for exactly
+    // the commits Rust already recorded; every other commit mirrors as before.
     if (alreadyRecordedInRust === true) return;
     try {
       const engine = providers.getEngine();
