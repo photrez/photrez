@@ -29,6 +29,7 @@
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { CommandHistory } from "@/engine/history";
 import { runFacadeExternalHandoff } from "../facadeHistoryHandoff";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -100,11 +101,12 @@ function makeEngine(layerId: string, surface: unknown, calls: Calls) {
   };
 }
 
-function makeCtx(engine: unknown, calls: Calls) {
+function makeCtx(engine: unknown, calls: Calls, history?: unknown) {
   return {
     workspace: {
       getActiveEngine: () => engine,
       getActiveDocumentId: () => DOC_ID,
+      getActiveHistory: () => history ?? null,
       notifyVisualChange: vi.fn(),
     },
     renderer: {
@@ -295,5 +297,217 @@ describe("rust pixel undo/redo is the single executor; the host projects it", ()
     // The non-empty delta branch still owns a metadata step.
     expect(handled).toBe(true);
     expect(calls).not.toContain("uploadSurfaceTiles");
+  });
+});
+
+// ── depth lockstep ────────────────────────────────────────────────────────
+// A pixel step Rust already recorded has a TS twin that is a cursor token: it
+// must be drained in lockstep with the Rust cursor or the TS depth stops
+// describing the real history. Defect under test (measured in the real app at
+// 70ea270, artifact sha256 93eb399406c5709442ae3f768aef1bc9dd6baa00ea26b524eb61d210f1ac80ef
+// case 2): 5 strokes then 5 undos returned the Rust cursor to its start
+// (6 -> 1) while ts_undo stayed at 5 and canUndo() kept reporting true, so a
+// 6th press was dispatched and walked the cursor 1 -> 0, past the start.
+//
+// The Rust stream here holds ONLY the 5 pixel entries, matching what this fix
+// owns. A document-open metadata entry would be a separate, legitimate step.
+
+/** One tile per step, distinct bytes so a wrong-step projection is visible. */
+function pixelStepTile(n: number) {
+  return { x: 0, y: 0, w: 1, h: 1, data: [n, n, n, 255] };
+}
+
+/**
+ * Rust reply for a pixel undo/redo of entry `n` (1-based), cursor advanced.
+ * `data` crosses the wire as a plain number array; the TS memento twin the same
+ * step carries is typed Uint8ClampedArray, so each side converts its own way.
+ */
+function pixelStepJson(n: number) {
+  return JSON.stringify({
+    documentVersion: n,
+    delta: { baseVersion: n - 1, version: n, changes: [] },
+    pixelPatches: { layerId: "L1", tiles: [pixelStepTile(n)], epoch: n, version: n },
+  });
+}
+
+/** Same tile in the memento shape `HistoryTilePatches` requires. */
+function mementoTile(n: number) {
+  return {
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 1,
+    data: Uint8ClampedArray.from(pixelStepTile(n).data),
+  };
+}
+
+/** Rust reply for a step past the end of the stream: nothing to take. */
+function exhaustedJson() {
+  return JSON.stringify({
+    documentVersion: 0,
+    delta: { baseVersion: 0, version: 0, changes: [] },
+  });
+}
+
+describe("the TS twin drains in lockstep with a Rust pixel step", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    invokeMock.mockReset();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  /** Real CommandHistory holding `n` rustOwned pixel twins, newest last. */
+  function makeTwinHistory(n: number) {
+    const history = new CommandHistory();
+    for (let i = 1; i <= n; i++) {
+      history.commit(
+        { layers: [], activeLayerId: "L1" } as never,
+        "Brush Stroke",
+        {
+          layerId: "L1",
+          surfaceWidth: 1,
+          surfaceHeight: 1,
+          before: [mementoTile(i)],
+          after: [mementoTile(i)],
+          rustOwned: true,
+        },
+        true,
+      );
+    }
+    return history;
+  }
+
+  it("five rustOwned steps then six undos: depth tracks the cursor, the 6th changes nothing", async () => {
+    const calls: Calls = [];
+    const history = makeTwinHistory(5);
+    const surface = makeSurface(calls);
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls, history);
+
+    // The Rust stream: one pixel entry per stroke, consumed newest-first.
+    let cursor = 5;
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_apply_command_native":
+          if (cursor === 0) return exhaustedJson();
+          cursor -= 1;
+          return pixelStepJson(cursor + 1);
+        default:
+          throw `unexpected invoke in the pixel undo path: ${cmd}`;
+      }
+    });
+
+    // Non-vacuity: five twins exist and nothing has been drained yet.
+    expect(history.getUndoCount()).toBe(5);
+    expect(history.canUndo()).toBe(true);
+
+    for (let i = 1; i <= 5; i++) {
+      const handled = await runFacadeExternalHandoff(ctx, "undo");
+      expect(handled, `undo ${i} is a pixel step Rust took`).toBe(true);
+      expect(history.getUndoCount(), `TS depth after undo ${i}`).toBe(5 - i);
+    }
+
+    // (a) After 5 undos the TS depth and the Rust cursor agree at the start.
+    expect(cursor, "Rust cursor back at its start").toBe(0);
+    expect(history.canUndo(), "no pixel work left, so the gate is closed").toBe(false);
+    // The drained entries move to the redo stack, not the bin: canRedo() must
+    // still describe the work the Rust cursor holds.
+    expect(history.getRedoCount()).toBe(5);
+    expect(history.canRedo()).toBe(true);
+
+    // (b) The 6th press: Rust has nothing left, so the step is refused.
+    const callsBefore = calls.length;
+    const uploadsBefore = (
+      ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.length;
+    const sixth = await runFacadeExternalHandoff(ctx, "undo");
+
+    expect(sixth, "a step past the start is NOT claimed").toBe(false);
+    expect(cursor, "the Rust cursor did not move").toBe(0);
+    expect(calls.slice(callsBefore), "no pixel projection ran").toEqual([]);
+    expect(
+      (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } }).mock.calls.length,
+      "no tile upload ran",
+    ).toBe(uploadsBefore);
+    expect(history.getUndoCount(), "the TS depth is unchanged").toBe(0);
+    expect(
+      invokeMock.mock.calls.map((c) => c[0]),
+      "this path never runs a second pixel executor",
+    ).not.toContain("rust_pixels_undo");
+    expect(
+      invokeMock.mock.calls.map((c) => c[0]),
+      "nor redo",
+    ).not.toContain("rust_pixels_redo");
+  });
+
+  it("a redo step drains the redo stack so canRedo() stops lying in the other direction", async () => {
+    const calls: Calls = [];
+    const history = makeTwinHistory(2);
+    const surface = makeSurface(calls);
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls, history);
+
+    let cursor = 0;
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_apply_command_native":
+          cursor += 1;
+          return pixelStepJson(cursor);
+        default:
+          throw `unexpected invoke in the pixel redo path: ${cmd}`;
+      }
+    });
+
+    await runFacadeExternalHandoff(ctx, "undo");
+    await runFacadeExternalHandoff(ctx, "undo");
+    expect(history.getUndoCount()).toBe(0);
+    expect(history.getRedoCount(), "both drained entries sit on the redo stack").toBe(2);
+
+    const handled = await runFacadeExternalHandoff(ctx, "redo");
+    expect(handled, "redo is a pixel step Rust took").toBe(true);
+    expect(history.getRedoCount(), "the redo twin drained too").toBe(1);
+    expect(history.canRedo()).toBe(true);
+    expect(history.getUndoCount(), "and it moved to the undo stack").toBe(1);
+  });
+
+  it("a metadata step drains nothing: the TS store still owns that entry", async () => {
+    const calls: Calls = [];
+    // No rustOwned mark: a TS-owned metadata entry the TS store must execute.
+    const history = new CommandHistory();
+    history.commit({ layers: [], activeLayerId: "L1" } as never, "Add Layer");
+    const surface = makeSurface(calls);
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls, history);
+
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_apply_command_native":
+          return JSON.stringify({
+            documentVersion: 1,
+            delta: {
+              baseVersion: 0,
+              version: 1,
+              changes: [{ kind: "upsert", layer: { id: "L1", name: "L1", width: 1, height: 1, opacity: 1, visible: true } }],
+            },
+          });
+        default:
+          throw `unexpected invoke: ${cmd}`;
+      }
+    });
+
+    const handled = await runFacadeExternalHandoff(ctx, "undo");
+
+    expect(handled, "the metadata step is the handoff's own").toBe(true);
+    expect(history.getUndoCount(), "the TS entry survived for the TS store").toBe(1);
+    expect(history.canUndo()).toBe(true);
   });
 });

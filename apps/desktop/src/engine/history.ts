@@ -706,6 +706,41 @@ export class CommandHistory {
     return p;
   }
 
+  /**
+   * Drain the TS twin of a pixel step RUST ALREADY TOOK.
+   *
+   * `useEditorCommands`'s tile path pops the twin with `undo()`/`redo()` and
+   * then fetches pixels from Rust, so that path drains itself. The facade
+   * handoff is the other executor of the same pixel step and has no such pop:
+   * leaving its twin in place froze the TS depth while the Rust cursor
+   * advanced (measured at 70ea270 - 5 strokes, 5 undos, ts_undo stuck at 5
+   * with `canUndo()` still true, so a 6th press was dispatched and walked the
+   * cursor past the start). The handoff calls this to advance the TS cursor
+   * with the Rust one.
+   *
+   * ONLY ever touches an entry marked `imperative.rustOwned`: that mark is the
+   * single source saying "Rust recorded this step", so a metadata or TS-owned
+   * entry - which the TS store still has to execute - is never drained here.
+   * Returns whether a twin was drained, so a caller can tell "step taken" from
+   * "no twin for this step" (a stream whose Pixel entries have no TS twin).
+   *
+   * The entry MOVES to the opposite stack, it is not discarded: the work is
+   * still undoable/redoable in the other direction, and throwing it away would
+   * make `canRedo()` lie instead of `canUndo()`. Its `imperative` memento
+   * travels with it, which is safe because a `rustOwned` entry's tiles are
+   * stale pixels by construction and every consumer of a popped `rustOwned`
+   * entry refuses them in favour of Rust's bytes.
+   */
+  discardRustOwnedPixelStep(direction: "undo" | "redo"): boolean {
+    const from = direction === "undo" ? this.undoStack : this.redoStack;
+    const to = direction === "undo" ? this.redoStack : this.undoStack;
+    const top = from[from.length - 1];
+    if (!top || top.imperative?.rustOwned !== true) return false;
+    from.pop();
+    to.push(top);
+    return true;
+  }
+
   getHistoryStack(): HistoryItem[] {
     const items: HistoryItem[] = [];
 

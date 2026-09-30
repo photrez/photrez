@@ -17,18 +17,26 @@ import { applyRustTilesToSurface } from "@/lib/rustShadow";
 import type { EditorContextValue } from "./shell/EditorContext";
 
 /**
- * Project the tiles Rust returned for a pixel undo/redo step.
+ * Project the tiles Rust returned for a pixel undo/redo step, and drain the TS
+ * twin of that step.
  *
  * Rust is the executor: `Command::Undo`/`Command::Redo` already moved the
  * cursor and wrote the canonical buffer, so the host only mirrors the bytes
  * into its derived caches (paint surface + GPU textures). Returns true when
  * the step is fully handled - the caller must NOT fall through to the TS
  * history store, which would pop a second entry for a step already taken.
+ *
+ * THIS IS THE SINGLE SITE a `rustOwned` pixel step is consumed through when
+ * the facade executor runs, for undo and for redo alike: it is the only
+ * caller of the pixel-patches branch, and `direction` selects which stack the
+ * twin moves off. The tile path in useEditorCommands reaches the same
+ * conclusion by popping through `undo()`/`redo()` itself.
  */
 async function projectRustPixelHandoff(
   editor: EditorContextValue,
   engine: NonNullable<ReturnType<EditorContextValue["workspace"]["getActiveEngine"]>>,
   handoff: NonNullable<ReturnType<typeof getFacade>["lastPixelPatches"]>,
+  direction: "undo" | "redo",
 ): Promise<boolean> {
   const toSurface = handoff.tiles.map((t) => ({
     x: t.x, y: t.y, w: t.w, h: t.h, data: new Uint8ClampedArray(t.data),
@@ -63,6 +71,21 @@ async function projectRustPixelHandoff(
     // is intentionally skipped for a pixel step), so ask the engine to re-read
     // the canonical buffer. Same repair the flag-ON rust_pixels path uses.
     await engine.ensureBitmapCurrent(editor.workspace.getActiveDocumentId() ?? "", handoff.layerId);
+  }
+  // Drain the TS twin now that the canonical pixels are projected. Without it
+  // the TS depth freezes while the Rust cursor advances, so `canUndo()` keeps
+  // reporting work that no longer exists and a press past the end is dispatched
+  // (70ea270, real-app artifact case 2). Refused for a step Rust took that has
+  // no twin here: that is a Pixel entry from a producer that pushes none, and
+  // draining some other entry would silently drop real TS history.
+  const history = editor.workspace.getActiveHistory?.();
+  const drained = history?.discardRustOwnedPixelStep?.(direction) ?? false;
+  if (!drained) {
+    console.warn(
+      "[facade-history] Rust took a pixel step with no TS twin to drain",
+      direction,
+      handoff.layerId,
+    );
   }
   editor.scheduler.requestRender();
   editor.workspace.notifyVisualChange();
@@ -118,7 +141,7 @@ export async function runFacadeExternalHandoff(
     // longer evidence that "Rust had nothing". Returning true here is what
     // keeps the step single - falling through would pop a second entry.
     if (facade.lastPixelPatches) {
-      return await projectRustPixelHandoff(editor, engine, facade.lastPixelPatches);
+      return await projectRustPixelHandoff(editor, engine, facade.lastPixelPatches, direction);
     }
     // External history handoff: the walker landed on a legacy (external) entry
     // and set the engine's pending-external barrier (the wedge). The ONLY
