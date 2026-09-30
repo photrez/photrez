@@ -1,12 +1,15 @@
 /**
- * Routing matrix for the TILE/PIXEL undo/redo cursor-sync step.
+ * Ownership of the brush pixel path: Rust records it, and at most one site
+ * moves the Rust cursor for one undo/redo step.
  *
+ * Part 1 - the TILE/PIXEL undo/redo routing matrix.
  * Two production sites can fire rust_pixels_undo / rust_pixels_redo for ONE
  * step (both inside the tile-patch branch of useEditorCommands):
- *   - the photrez.rustPixels tile path: reads the flag with no runtime gate,
+ *   - the pixel-path tile fetch: armed by the popped entry's `rustOwned` mark
+ *     (Rust already recorded that Pixel entry) or by photrez.rustPixels,
  *   - the photrez.historyBridge cursor-sync site: needs historyBridgeEnabled(),
- *     i.e. the gate key AND the Tauri runtime, and it is skipped while the flag
- *     is on so a step can never take two Rust cursor steps.
+ *     i.e. the gate key AND the Tauri runtime, and it is skipped when the first
+ *     site already stepped the cursor, so a step can never take two cursor steps.
  * Exactly one site may fire per direction, so all eight
  * flag x gate x runtime combinations are pinned here:
  *
@@ -22,6 +25,16 @@
  *
  * Census reads go through flushPixelInvokeCensus(), which awaits in-flight
  * invokes first; a sleep is not a drain.
+ *
+ * Part 2 - Rust-owned entries: the TS twin is a cursor token, so one undo
+ * fetches the pixels from Rust and never replays the memento it carries.
+ *
+ * Part 3 - the default-path gate: the brush commit path must not read
+ * photrez.rustPixels at all, so a real pointer chain with the key absent still
+ * reaches rust_pixels_write_region.
+ *
+ * Part 4 - the census oracle counterexample: history can grow through a command
+ * the six-command census does not count.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "solid-js/web";
@@ -142,8 +155,13 @@ type WirePatch = {
   layerId: string;
   surfaceWidth: number;
   surfaceHeight: number;
-  before: { x: number; y: number; w: number; h: number; data: number[] }[];
-  after: { x: number; y: number; w: number; h: number; data: number[] }[];
+  before: { x: number; y: number; width?: number; height?: number; data: number[] }[];
+  after: { x: number; y: number; width?: number; height?: number; data: number[] }[];
+  /**
+   * Set by the commit that rust_pixels_write_region already recorded in Rust.
+   * The twin is then a cursor token for the step, never a pixel source.
+   */
+  rustOwned?: boolean;
 };
 
 const makePatches = (): WirePatch => ({
@@ -370,17 +388,106 @@ describe("metadata-only steps fire no cursor-sync invoke from either site", () =
   }
 });
 
-// -- Flip-ordering transition gates (both directions) ----------------------
-// The two describes above set every flag BEFORE the action and never flip one
-// mid-flight, so they cannot express the two directions the pixel flag needs:
-//  - ON-to-OFF: a brush commit already waiting in the per-document queue must
-//    cancel when photrez.rustPixels flips to OFF, so no state-changing pixel
-//    invoke lands after the flip marker;
-//  - OFF-to-ON: the legacy arm must enqueue nothing while OFF, and the next
-//    pointer chain after the flip must produce the Rust region write.
-// Both gates read their verdict from the six-command census (one monotonic
-// order per state-changing pixel command) split at the marker, plus the store
-// emulator below, which counts raw IPC writes independently of the census.
+// -- Rust-owned pixel entries: drained in lockstep, never re-painted ----------
+// `rustOwned` marks a TS history entry whose Pixel step Rust ALREADY recorded
+// (rust_pixels_write_region). Such a twin is a cursor token: it says a step
+// exists, and the step's pixels are whatever Rust returns. Replaying its own
+// memento would repaint the surface from bytes no store holds, so that fallback
+// is refused for a Rust-owned entry - it stays available for every entry Rust
+// does not own (the transitional rows below).
+
+const MEMENTO_TILE = { x: 0, y: 0, width: 1, height: 1, data: [7, 7, 7, 255] };
+const RUST_TILE = { x: 3, y: 4, w: 1, h: 1, data: [1, 2, 3, 255] };
+
+function uploadCalls(ctx: ReturnType<typeof makeEditorContext>): unknown[][] {
+  return (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+}
+
+describe("a Rust-owned pixel entry takes its pixels from Rust, never from its memento", () => {
+  beforeEach(() => {
+    vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
+      {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
+    );
+    vi.mocked(invoke).mockReset();
+    vi.mocked(isTauriRuntime).mockReset();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("one undo fetches from Rust with the flag at its default, and uploads only Rust's tiles", async () => {
+    const ctx = makeEditorContext(
+      makeHistory({ ...makePatches(), rustOwned: true, before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
+      makeEngine(),
+    );
+    mockUseEditor(ctx);
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === "rust_pixels_undo"
+        ? { tiles: [RUST_TILE], epoch: 4, version: 9 }
+        : { version: 1 },
+    );
+
+    const commands = useEditorCommands(() => {});
+    commands.undo();
+    await flush();
+
+    expect(countInvokes("rust_pixels_undo"), "the Rust-owned entry steps the Rust cursor once").toBe(1);
+    const uploads = uploadCalls(ctx);
+    expect(uploads).toHaveLength(1);
+    const tiles = uploads[0][3] as { x: number; y: number }[];
+    expect(tiles.map((t) => [t.x, t.y]), "Rust's tile, not the memento's").toEqual([[3, 4]]);
+  });
+
+  it("Rust has no tiles for the step: the stale memento is refused instead of replayed", async () => {
+    const ctx = makeEditorContext(
+      makeHistory({ ...makePatches(), rustOwned: true, before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
+      makeEngine(),
+    );
+    mockUseEditor(ctx);
+    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 4, version: 9 });
+
+    const commands = useEditorCommands(() => {});
+    commands.undo();
+    await flush();
+
+    expect(countInvokes("rust_pixels_undo")).toBe(1);
+    expect(
+      uploadCalls(ctx).every((call) => ((call[3] as unknown[]) ?? []).length === 0),
+      "no stale memento bytes reached the surface or the GPU",
+    ).toBe(true);
+  });
+
+  it("keeps photrez.rustPixels-OFF memento replay for entries Rust does not own (transitional; delete when the flag is retired)", async () => {
+    const ctx = makeEditorContext(
+      makeHistory({ ...makePatches(), before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
+      makeEngine(),
+    );
+    mockUseEditor(ctx);
+    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 4, version: 9 });
+
+    const commands = useEditorCommands(() => {});
+    commands.undo();
+    await flush();
+
+    expect(countInvokes("rust_pixels_undo"), "no Rust cursor step for a TS-owned entry").toBe(0);
+    const uploads = uploadCalls(ctx);
+    expect(uploads).toHaveLength(1);
+    const tiles = uploads[0][3] as { x: number; y: number }[];
+    expect(tiles.map((t) => [t.x, t.y]), "the memento still replays").toEqual([[0, 0]]);
+  });
+});
+
+// -- Default-path gate (real brush pointer chain, flag never set) ------------
+// The matrix above set photrez.rustPixels explicitly. This gate covers the state
+// every user is actually in: the key is absent, so nothing may be gated on it.
+// One real pointer chain must reach rust_pixels_write_region, record exactly one
+// Pixel entry, and leave exactly one owner of the stroke (no apply_tile_patch
+// twin). The verdict comes from the six-command census (one monotonic order per
+// state-changing pixel command) plus the store emulator below, which counts raw
+// IPC writes independently of the census.
 
 const SIX_COMMAND_ALLOWLIST: readonly string[] = [
   "rust_pixels_write_region",
@@ -391,7 +498,7 @@ const SIX_COMMAND_ALLOWLIST: readonly string[] = [
   "rust_pixels_record_snapshot",
 ];
 
-const FLIP_DOC = 256;
+const DOC_PX = 256;
 
 type StoredWrite = { x: number; y: number; w: number; h: number; rgba: Uint8Array };
 
@@ -410,11 +517,14 @@ function createPixelStore(width: number, height: number) {
   // and SURVIVES a layer removal, which drops storage only
   // (crates/core/src/pixel_store.rs:197-200). That asymmetry is what the
   // oracle counterexample test below reads.
-  const docs = new Map<string, { history: string[]; removedLayers: Set<string> }>();
+  // Entries carry their payload kind, because the unified stream also holds
+  // metadata (native) entries the six-command census never sees: a document's
+  // total depth is NOT the number of Pixel steps it can undo.
+  const docs = new Map<string, { history: { kind: "pixel" | "native"; layerId: string }[]; removedLayers: Set<string> }>();
   const docOf = (id: string) => {
     const hit = docs.get(id);
     if (hit) return hit;
-    const fresh = { history: [] as string[], removedLayers: new Set<string>() };
+    const fresh = { history: [] as { kind: "pixel" | "native"; layerId: string }[], removedLayers: new Set<string>() };
     docs.set(id, fresh);
     return fresh;
   };
@@ -438,7 +548,7 @@ function createPixelStore(width: number, height: number) {
     if (command === "rust_pixels_get_epoch") {
       // A removed layer rejects with the bare string Tauri surfaces
       // (paint_parity_cmds.rs:310-316 -> pixel_store.rs:396-400). Layers the
-      // harness never modeled keep the resolve path: the two flip gates seed
+      // harness never modeled keep the resolve path: the path gates seed
       // the store from the TS bitmap without an init call, and changing that
       // answer would move their rehydrate branch.
       if (docs.get(String(a.docId))?.removedLayers.has(String(a.layerId))) {
@@ -457,7 +567,7 @@ function createPixelStore(width: number, height: number) {
         total_depth: doc.history.length,
         undo_depth: doc.history.length,
         redo_depth: 0,
-        affected_layer_ids: [...new Set(doc.history)].sort(),
+        affected_layer_ids: [...new Set(doc.history.map((e) => e.layerId))].sort(),
       };
     }
     if (command === "protocol_apply_command_native") {
@@ -478,7 +588,7 @@ function createPixelStore(width: number, height: number) {
       // the affected layer id rides at `command.id` - the same id the real
       // apply records on the history entry (document_core.rs begin_forward).
       const body = envelope.command;
-      storeDoc.history.push(typeof body?.id === "string" ? body.id : "");
+      storeDoc.history.push({ kind: "native", layerId: typeof body?.id === "string" ? body.id : "" });
       return JSON.stringify({ documentVersion: storeDoc.history.length, delta: {} });
     }
     if (command === "rust_pixels_init") {
@@ -518,7 +628,7 @@ function createPixelStore(width: number, height: number) {
       writes.push({ x, y, w, h, rgba });
       // One write_region opens one canonical Pixel history entry
       // (paint_parity_cmds.rs:318-322).
-      storeDoc.history.push(String(a.layerId));
+      storeDoc.history.push({ kind: "pixel", layerId: String(a.layerId) });
       epoch += 1;
       return { before: [before], after: [after], epoch, version: epoch };
     }
@@ -533,29 +643,43 @@ function createPixelStore(width: number, height: number) {
     rejections,
     seed: (pixels: Uint8ClampedArray) => buffer.set(pixels.subarray(0, buffer.length)),
     epoch: () => epoch,
+    /** Entries of one payload kind in a document's unified stream. */
+    entriesOfKind: (id: string, kind: "pixel" | "native") =>
+      docs.get(id)?.history.filter((e) => e.kind === kind).length ?? 0,
+    /** Pixel history entries the emulator recorded for a document. */
+    historyDepth: (id: string) => docs.get(id)?.history.length ?? 0,
+    /** FNV-1a over the canonical buffer - a stroke must move it. */
+    hash: (): string => {
+      let h = 0x811c9dc5;
+      for (let i = 0; i < buffer.length; i++) {
+        h ^= buffer[i];
+        h = Math.imul(h, 0x01000193) >>> 0;
+      }
+      return h.toString(16).padStart(8, "0");
+    },
   };
 }
 
-let flipSetTool: (tool: string) => void = () => {};
-let flipSetFgColor: (color: string) => void = () => {};
-let flipSetZoom: (zoom: number) => void = () => {};
-let flipSetPan: (pan: { x: number; y: number }) => void = () => {};
+let setTool: (tool: string) => void = () => {};
+let setFgColor: (color: string) => void = () => {};
+let setZoom: (zoom: number) => void = () => {};
+let setPan: (pan: { x: number; y: number }) => void = () => {};
 
-const FlipConsumer = () => {
+const PathConsumer = () => {
   const editor = useEditor();
-  flipSetTool = editor.setActiveTool;
-  flipSetFgColor = editor.setFgColor;
-  flipSetZoom = editor.setZoom;
-  flipSetPan = editor.setPan;
+  setTool = editor.setActiveTool;
+  setFgColor = editor.setFgColor;
+  setZoom = editor.setZoom;
+  setPan = editor.setPan;
   return null;
 };
 
-let flipStore: ReturnType<typeof createPixelStore>;
-let flipContainer: HTMLDivElement;
-let flipDispose: (() => void) | undefined;
-let flipRect: ReturnType<typeof vi.spyOn> | undefined;
+let store: ReturnType<typeof createPixelStore>;
+let pathContainer: HTMLDivElement;
+let pathDispose: (() => void) | undefined;
+let rectStub: ReturnType<typeof vi.spyOn> | undefined;
 
-function mountFlipViewport() {
+function mountPathViewport() {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const workspace = new WorkspaceManager();
@@ -568,60 +692,60 @@ function mountFlipViewport() {
     uploadSurfaceTiles: vi.fn(),
   };
   const scheduler: Record<string, unknown> = { requestRender: vi.fn() };
-  const session = WorkspaceManager.createBlankDocument("doc-flip", "Flip", FLIP_DOC, FLIP_DOC);
+  const session = WorkspaceManager.createBlankDocument("doc-owner", "Owner", DOC_PX, DOC_PX);
   workspace.addDocument(session);
-  flipDispose = render(
+  pathDispose = render(
     () => (
       <EditorProvider
         workspace={workspace}
         renderer={renderer as never}
         scheduler={scheduler as never}
       >
-        <FlipConsumer />
+        <PathConsumer />
         <CanvasViewport />
       </EditorProvider>
     ),
     container,
   );
-  flipContainer = container;
+  pathContainer = container;
   return { session, container };
 }
 
-function makeFlipCanvas(fill: string): HTMLCanvasElement {
+function makeLayerCanvas(fill: string): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = FLIP_DOC;
-  canvas.height = FLIP_DOC;
+  canvas.width = DOC_PX;
+  canvas.height = DOC_PX;
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
   ctx.fillStyle = fill;
-  ctx.fillRect(0, 0, FLIP_DOC, FLIP_DOC);
+  ctx.fillRect(0, 0, DOC_PX, DOC_PX);
   return canvas;
 }
 
 /** Paint layer + matching store seed, then install the cached paint surface. */
-function prepareFlipLayer(session: ReturnType<typeof WorkspaceManager.createBlankDocument>) {
+function preparePaintLayer(session: ReturnType<typeof WorkspaceManager.createBlankDocument>) {
   const layerId = session.engine.getLayers()[0].id;
-  const bitmap = makeFlipCanvas("#ffffff");
+  const bitmap = makeLayerCanvas("#ffffff");
   session.engine.setLayerImageBitmap(layerId, bitmap as unknown as ImageBitmap);
   session.engine.setActiveLayer(layerId);
   const pixels = (bitmap.getContext("2d") as CanvasRenderingContext2D).getImageData(
     0,
     0,
-    FLIP_DOC,
-    FLIP_DOC,
+    DOC_PX,
+    DOC_PX,
   ).data;
-  flipStore.seed(pixels);
+  store.seed(pixels);
   const surface = session.engine.getPaintSurface(layerId);
   if (!surface) throw new Error("paint surface not created (layer bitmap missing?)");
   return { layerId, surface };
 }
 
-function flipCanvas(): HTMLCanvasElement {
-  const c = flipContainer.querySelector("canvas:not([data-overlay-canvas])") as HTMLCanvasElement | null;
+function pathCanvas(): HTMLCanvasElement {
+  const c = pathContainer.querySelector("canvas:not([data-overlay-canvas])") as HTMLCanvasElement | null;
   if (!c) throw new Error("viewport canvas not found");
   return c;
 }
 
-function fireFlip(type: string, el: Element, clientX: number, clientY: number, pointerId = 11) {
+function firePointer(type: string, el: Element, clientX: number, clientY: number, pointerId = 11) {
   el.dispatchEvent(
     new PointerEvent(type, {
       bubbles: true,
@@ -640,12 +764,12 @@ async function tick(ms = 0) {
 
 /** One real brush pointer chain: down -> move -> up, ending in a c4 enqueue. */
 function brushChain(el: Element, from: [number, number], to: [number, number]) {
-  fireFlip("pointerdown", el, from[0], from[1]);
-  fireFlip("pointermove", el, to[0], to[1]);
-  fireFlip("pointerup", el, to[0], to[1]);
+  firePointer("pointerdown", el, from[0], from[1]);
+  firePointer("pointermove", el, to[0], to[1]);
+  firePointer("pointerup", el, to[0], to[1]);
 }
 
-function setupFlipHarness() {
+function setupPathHarness() {
   vi.mocked(invoke).mockReset();
   vi.mocked(isTauriRuntime).mockReturnValue(true);
   // History bridge armed: whatever history fires shows up in the census, so a
@@ -654,132 +778,40 @@ function setupFlipHarness() {
   localStorage.setItem(GATE_KEY, "1");
   localStorage.removeItem("photrez.tileCommit");
   localStorage.removeItem("photrez.canonicalCommit");
-  flipStore = createPixelStore(FLIP_DOC, FLIP_DOC);
-  flipRect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-    left: 0, top: 0, right: FLIP_DOC, bottom: FLIP_DOC, width: FLIP_DOC, height: FLIP_DOC,
+  store = createPixelStore(DOC_PX, DOC_PX);
+  rectStub = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    left: 0, top: 0, right: DOC_PX, bottom: DOC_PX, width: DOC_PX, height: DOC_PX,
     x: 0, y: 0, toJSON: () => ({}),
   } as DOMRect);
   Element.prototype.setPointerCapture = vi.fn();
   Element.prototype.releasePointerCapture = vi.fn();
 }
 
-function teardownFlipHarness() {
-  flipDispose?.();
-  flipDispose = undefined;
-  flipContainer?.parentNode?.removeChild(flipContainer);
-  flipRect?.mockRestore();
-  flipRect = undefined;
+function teardownPathHarness() {
+  pathDispose?.();
+  pathDispose = undefined;
+  pathContainer?.parentNode?.removeChild(pathContainer);
+  rectStub?.mockRestore();
+  rectStub = undefined;
   localStorage.clear();
 }
 
-describe("ON-to-OFF flip gate (queued brush commit cancels before any pixel invoke)", () => {
-  let cancelWarns: ReturnType<typeof vi.spyOn> | null = null;
+describe("brush strokes are Rust-canonical with photrez.rustPixels at its default", () => {
+  beforeEach(setupPathHarness);
+  afterEach(teardownPathHarness);
 
-  beforeEach(() => {
-    setupFlipHarness();
-    cancelWarns = vi.spyOn(console, "warn").mockImplementation(() => {});
-  });
-  afterEach(() => {
-    cancelWarns?.mockRestore();
-    cancelWarns = null;
-    teardownFlipHarness();
-  });
-
-  it("arm guard sees the queued commit, the queue drains, and nothing fires after the marker", async () => {
-    localStorage.setItem(RUST_PIXELS_KEY, "1");
-    const { session } = mountFlipViewport();
+  it("one pointer chain writes one region, records one Pixel entry, and moves the canonical bytes", async () => {
+    // Default state for every user: the key was never set. The brush Rust path
+    // is NOT gated on it, so this chain must reach rust_pixels_write_region.
+    localStorage.removeItem(RUST_PIXELS_KEY);
+    const { session } = mountPathViewport();
     await tick();
-    flipSetZoom(1);
-    flipSetPan({ x: 0, y: 0 });
-    flipSetTool("brush");
-    flipSetFgColor("#ff0000");
-    prepareFlipLayer(session);
-    const canvas = flipCanvas();
-
-    // Census entries are file-global: pin this test's own starting order so
-    // every count below only sees what THIS chain recorded.
-    const drainedBaseline = await flushPixelInvokeCensus();
-    const startOrder = drainedBaseline.entries.length
-      ? drainedBaseline.entries[drainedBaseline.entries.length - 1].order
-      : 0;
-
-    // Stroke 1 runs to completion, so a resolved state-changing entry exists
-    // BEFORE the marker - a zero late count would otherwise be vacuous.
-    brushChain(canvas, [40, 40], [70, 60]);
-    await flushC4Commits();
-    await tick();
-    const drained = await flushPixelInvokeCensus();
-    expect(
-      drained.entries.filter(
-        (e) => e.order > startOrder && e.command === "rust_pixels_write_region" && e.phase === "resolved",
-      ).length,
-      "stroke 1 wrote one region before the flip",
-    ).toBeGreaterThanOrEqual(1);
-    expect(flipStore.writes.length).toBe(1);
-
-    // Stroke 2 enqueues and must still be waiting when the flip lands: from
-    // pointerup to the marker there is no await, so the commit has not had a
-    // single microtask yet.
-    brushChain(canvas, [120, 120], [170, 160]);
-    expect(c4PendingCommits(), "arm guard: a commit is queued before the marker").toBeGreaterThanOrEqual(1);
-
-    // Sync census read is safe here only because nothing is in flight.
-    const markerSnapshot = getPixelCensusSnapshot();
-    expect(markerSnapshot.pending, "marker read needs zero in-flight invokes").toBe(0);
-    const markerOrder = markerSnapshot.entries.length
-      ? markerSnapshot.entries[markerSnapshot.entries.length - 1].order
-      : 0;
-
-    // THE FLIP: kill switch to OFF while stroke 2 waits for the queue.
-    localStorage.setItem(RUST_PIXELS_KEY, "0");
-
-    await flushC4Commits();
-    expect(c4PendingCommits(), "the queue drained - otherwise zero late invokes proves nothing").toBe(0);
-    const census = await flushPixelInvokeCensus();
-    expect(census.pending).toBe(0);
-
-    expect(
-      census.entries.every((e) => SIX_COMMAND_ALLOWLIST.includes(e.command)),
-      "census stays on the six-command allowlist",
-    ).toBe(true);
-    const orders = census.entries.map((e) => e.order);
-    expect(new Set(orders).size, "orders are unique").toBe(orders.length);
-    expect([...orders].sort((a, b) => a - b), "orders are monotonic").toEqual(orders);
-
-    const before = census.entries.filter((e) => e.order > startOrder && e.order <= markerOrder);
-    const late = census.entries.filter((e) => e.order > markerOrder);
-    expect(
-      before.some((e) => e.command === "rust_pixels_write_region" && e.phase === "resolved"),
-      "a state-changing entry sits before the marker",
-    ).toBe(true);
-    expect(late.length, "lateInvokeCount after the flip marker").toBe(0);
-    // Independent oracle: the store counts raw IPC writes, census or not.
-    expect(flipStore.writes.length, "only stroke 1 reached rust_pixels_write_region").toBe(1);
-    expect(flipStore.rejections).toEqual([]);
-
-    // The cancel must be audible: a silently swallowed commit leaves the same
-    // visible outcome as a queue that never held one.
-    expect(
-      cancelWarns?.mock.calls.some((c: unknown[]) => String(c[0]).includes("queued brush commit cancelled")),
-      "the ON-to-OFF cancel path warned",
-    ).toBe(true);
-  });
-});
-
-describe("OFF-to-ON flip gate (legacy arm writes nothing, the flip arms the next chain)", () => {
-  beforeEach(setupFlipHarness);
-  afterEach(teardownFlipHarness);
-
-  it("zero enqueues and zero writes while OFF, then post-flip write_region and no apply_tile_patch", async () => {
-    localStorage.setItem(RUST_PIXELS_KEY, "0");
-    const { session } = mountFlipViewport();
-    await tick();
-    flipSetZoom(1);
-    flipSetPan({ x: 0, y: 0 });
-    flipSetTool("brush");
-    flipSetFgColor("#ff0000");
-    prepareFlipLayer(session);
-    const canvas = flipCanvas();
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setTool("brush");
+    setFgColor("#ff0000");
+    preparePaintLayer(session);
+    const canvas = pathCanvas();
 
     // Census entries are file-global: pin this test's own starting order so
     // every count below only sees what THIS chain recorded.
@@ -787,59 +819,38 @@ describe("OFF-to-ON flip gate (legacy arm writes nothing, the flip arms the next
     const startOrder = baseline.entries.length
       ? baseline.entries[baseline.entries.length - 1].order
       : 0;
+    const seedHash = store.hash();
 
     brushChain(canvas, [40, 40], [70, 60]);
-    expect(c4PendingCommits(), "flag OFF enqueues no deferred commit").toBe(0);
+    expect(c4PendingCommits(), "the stroke enqueued a deferred Rust commit").toBe(1);
     await flushC4Commits();
-    await tick();
-    const pre = await flushPixelInvokeCensus();
-    expect(
-      pre.entries.filter((e) => e.order > startOrder && e.command === "rust_pixels_write_region").length,
-      "preFlipWriteRegionCount",
-    ).toBe(0);
-    expect(flipStore.writes.length, "the legacy arm never reached the pixel store").toBe(0);
+    expect(c4PendingCommits(), "the commit drained").toBe(0);
 
-    // Census-alive proof, labeled harness-driven: the test itself drives one
-    // bridge write, so every zero above and below cannot come from a recorder
-    // that never records. It also pins that apply_tile_patch IS recordable in
-    // this test, which is what makes the post-flip zero meaningful.
-    await invokePixelCommand("apply_tile_patch", {
-      docId: "doc-flip",
-      layerId: "l1",
-      before: [],
-      after: [],
-    });
-    const alive = await flushPixelInvokeCensus();
-    const last = alive.entries[alive.entries.length - 1];
-    expect(last, "harness-driven bridge write is recorded").toMatchObject({
-      command: "apply_tile_patch",
-      phase: "resolved",
-    });
-    expect(alive.entries.every((e) => SIX_COMMAND_ALLOWLIST.includes(e.command))).toBe(true);
-    const markerOrder = last.order;
+    // Non-vacuity: nothing is left in flight, so the census read below cannot
+    // race past a pending invoke.
+    expect(getPixelCensusSnapshot().pending, "marker read needs zero in-flight invokes").toBe(0);
 
-    // THE FLIP: kill switch to ON.
-    localStorage.setItem(RUST_PIXELS_KEY, "1");
+    // Independent oracle first (raw IPC writes, census or not).
+    expect(store.writes.length, "exactly one rust_pixels_write_region reached the store").toBe(1);
+    expect(
+      store.entriesOfKind("doc-owner", "pixel"),
+      "one Pixel entry in the Rust history (the stream also holds native entries the census never sees)",
+    ).toBe(1);
+    expect(store.hash(), "the canonical buffer now holds the stroke").not.toBe(seedHash);
+    expect(store.rejections).toEqual([]);
 
-    brushChain(canvas, [180, 180], [220, 210]);
-    await flushC4Commits();
-    expect(c4PendingCommits(), "the post-flip commit drained").toBe(0);
-    const post = await flushPixelInvokeCensus();
-    const postEntries = post.entries.filter((e) => e.order > markerOrder);
-    expect(postEntries.every((e) => SIX_COMMAND_ALLOWLIST.includes(e.command))).toBe(true);
+    const census = await flushPixelInvokeCensus();
+    expect(census.pending).toBe(0);
+    const delta = census.entries.filter((e) => e.order > startOrder);
     expect(
-      postEntries.filter((e) => e.command === "rust_pixels_write_region").length,
-      "postFlipWriteRegionCount",
-    ).toBeGreaterThanOrEqual(1);
-    expect(
-      postEntries.filter((e) => e.command === "apply_tile_patch").length,
-      "postFlipApplyTilePatchCount",
-    ).toBe(0);
-    expect(flipStore.writes.length, "exactly the post-flip stroke reached the store").toBe(1);
-    expect(flipStore.rejections).toEqual([]);
+      delta.filter((e) => e.command === "rust_pixels_write_region" && e.phase === "resolved"),
+      "one resolved region write in the six-command census",
+    ).toHaveLength(1);
+    // One owner only: the TS twin records the entry, a second write must not.
+    expect(delta.filter((e) => e.command === "apply_tile_patch")).toEqual([]);
+    expect(delta.every((e) => SIX_COMMAND_ALLOWLIST.includes(e.command))).toBe(true);
   });
 });
-
 describe("oracle counterexample: removed-layer history the six-command census never counts", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
@@ -851,7 +862,7 @@ describe("oracle counterexample: removed-layer history the six-command census ne
   });
 
   it("keeps the enablement event blocked: epoch rejects, depth reads 1 twice, census window reads 0", async () => {
-    createPixelStore(FLIP_DOC, FLIP_DOC);
+    createPixelStore(DOC_PX, DOC_PX);
     const docId = "doc-oracle";
     const layerId = "layer-oracle";
 

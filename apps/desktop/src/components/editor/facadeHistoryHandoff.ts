@@ -96,9 +96,21 @@ export async function runFacadeExternalHandoff(
       if (before.get(layer.id) !== layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
     }
   };
+  // The Rust command is the only fall-through trigger. If IT fails, the cursor
+  // did not move and the legacy TS store still owns the step. Once it resolves,
+  // Rust HAS moved for this step: every branch below must report handled, so a
+  // projection failure can never send the caller on to pop a TS entry AND fire
+  // rust_pixels_undo - two extra undo steps for one press.
+  let facade: ReturnType<typeof getFacade>;
+  let snap: unknown;
   try {
-    const facade = getFacade(engine.getId());
-    const snap = await (direction === "undo" ? facade.undo() : facade.redo());
+    facade = getFacade(engine.getId());
+    snap = await (direction === "undo" ? facade.undo() : facade.redo());
+  } catch {
+    // Rust command rejected - fall through to legacy TS history.
+    return false;
+  }
+  try {
     // Rust pixel handoff: the walker stepped a Rust PIXEL entry, so the cursor
     // has ALREADY moved and the tiles came back with the result. This branch
     // runs before the empty-delta check on purpose: a pixel step produces an
@@ -152,8 +164,11 @@ export async function runFacadeExternalHandoff(
       return true;
     }
     return false; // fall through to legacy TS history
-  } catch {
-    // Rust command rejected - fall through to legacy TS history.
-    return false;
+  } catch (err) {
+    // Rust already moved its cursor for this step, so "handled" is the only
+    // safe answer: returning false here would make the caller pop a TS entry
+    // and fire rust_pixels_undo for a step already taken.
+    console.warn("[facade-history] projection failed after the Rust cursor moved:", err);
+    return true;
   }
 }

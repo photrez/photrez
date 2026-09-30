@@ -171,6 +171,9 @@ type SimLayer = { w: number; h: number; pixels: Uint8ClampedArray; undo: any[]; 
 
 function makeSim() {
   const store = new Map<string, SimLayer>();
+  // Raw IPC counters, independent of any census: a zero here cannot come from a
+  // recorder that was never watching.
+  const counts = { writeRegion: 0, undo: 0, redo: 0 };
   const invoke = async (cmd: string, args: any): Promise<any> => {
     if (cmd === "rust_pixels_open_document" || cmd === "rust_pixels_close_document") return;
     const k = `${args.docId}|${args.layerId}`;
@@ -189,6 +192,7 @@ function makeSim() {
     }
     if (cmd === "rust_pixels_write_region") {
       if (!s) throw new Error("no layer");
+      counts.writeRegion += 1;
       const beforePx = s.pixels.slice();
       const afterPx = s.pixels.slice();
       for (let row = 0; row < args.h; row++) {
@@ -206,6 +210,8 @@ function makeSim() {
     if (cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo") {
       if (!s) throw new Error("no layer");
       const undo = cmd === "rust_pixels_undo";
+      if (undo) counts.undo += 1;
+      else counts.redo += 1;
       const e = (undo ? s.undo : s.redo).pop();
       if (!e) return { tiles: [], epoch: s.epoch, version: s.version, layerId: args.layerId };
       s.pixels = (undo ? e.before : e.after).slice();
@@ -217,7 +223,7 @@ function makeSim() {
     }
     throw new Error("unknown cmd " + cmd);
   };
-  return { invoke, store };
+  return { invoke, store, counts };
 }
 
 const hoist = vi.hoisted(() => {
@@ -253,7 +259,7 @@ function seedPixels(): Uint8ClampedArray {
 
 const settings = { size: 20, hardness: 1, opacity: 1, flow: 1, smoothing: 0.5 };
 
-describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
+describe("pixel undo leaves layer.imageBitmap truthful", () => {
   beforeAll(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
   });
@@ -270,14 +276,15 @@ describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
    * Real chain: DocumentEngine + CommandHistory + useBrushOverlay +
    * useEditorCommands, one brush stroke, then a real undo.
    *
-   * `rustPixels: "1"` seeds the Rust canonical store, so the stroke takes the
-   * C4 deferred commit path and the undo reverts through `rust_pixels_undo`.
-   * `rustPixels: "0"` leaves the store uninitialised (the state measured in the
-   * real app: `rust_pixels_get_epoch` rejects "layer not initialized" and the
-   * stroke census is all zeros), so the stroke and undo stay purely TS/legacy.
+   * `rustPixels: "1"` seeds the Rust canonical store, so the stroke records its
+   * region against existing storage. `rustPixels: "absent"` is the DEFAULT state
+   * for every user (the key was never set): the stroke still has to record the
+   * region - the commit path is not gated on the flag - and Rust seeds the layer
+   * on first write. `seedRust` false leaves the store uninitialised up front.
    */
-  function makeFixture(opts: { rustPixels: "0" | "1"; seedRust: boolean }) {
-    localStorage.setItem("photrez.rustPixels", opts.rustPixels);
+  function makeFixture(opts: { rustPixels: "1" | "absent"; seedRust: boolean }) {
+    if (opts.rustPixels === "absent") localStorage.removeItem("photrez.rustPixels");
+    else localStorage.setItem("photrez.rustPixels", opts.rustPixels);
     const sim = makeSim();
     hoist.setSim(sim);
 
@@ -432,7 +439,8 @@ describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
     commands.undo();
     for (let i = 0; i < 40; i++) await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
-    return { postHash, epochAfterCommit, rustUndoDepth, live: engine.getLayer(layerId)! };
+    const postUndoRustDepth = sim.store.get(`${DOC}|${layerId}`)?.undo.length ?? 0;
+    return { postHash, epochAfterCommit, rustUndoDepth, postUndoRustDepth, live: engine.getLayer(layerId)! };
   }
 
   it("rustPixels=1: model bitmap hash returns to the pre-stroke hash and the epoch is never stamped over a stale bitmap", async () => {
@@ -463,27 +471,31 @@ describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
     expect(live.imageBitmap).not.toBeNull();
   });
 
-  it("rustPixels=0: the legacy/TS undo path reverts the model bitmap without inventing a Rust epoch", async () => {
-    // No Rust canonical store exists on this path (measured: rust_pixels_get_epoch
-    // rejects "layer not initialized"), so ensureBitmapCurrent is a no-op here
-    // and the memento tiles are the only record of what the step changed.
-    const f = makeFixture({ rustPixels: "0", seedRust: false });
-    const { sim, layerId, preHash } = f;
-    expect(sim.store.size, "PROBE no Rust pixel store on the legacy path").toBe(0);
+  it("photrez.rustPixels absent (default): the stroke is recorded in Rust and ONE undo reverts exactly it", async () => {
+    // The DEFAULT state for every user: the flag key was never set. Nothing may
+    // be gated on it, so the stroke must record its region and the single undo
+    // press must step that Rust entry - the defect this pins is a stroke that
+    // reaches neither Rust history nor a drainable twin.
+    const f = makeFixture({ rustPixels: "absent", seedRust: false });
+    const { sim, history, layerId, preHash } = f;
+    expect(sim.store.size, "PROBE no Rust pixel store before the stroke").toBe(0);
 
-    const { postHash, epochAfterCommit, live } = await strokeThenUndo(f);
+    const { postHash, rustUndoDepth, postUndoRustDepth, live } = await strokeThenUndo(f);
+
+    // 1. Exactly one owner recorded the stroke: one canonical region write and
+    //    one Rust Pixel entry - never two, never zero.
+    expect(sim.counts.writeRegion, "one rust_pixels_write_region for the stroke").toBe(1);
+    expect(rustUndoDepth, "one Rust Pixel entry for the stroke").toBe(1);
     expect(postHash, "PROBE the stroke is visible in the model bitmap").not.toBe(preHash);
 
-    // 1. The model bitmap must show the un-stroked pixels, not the stroke.
+    // 2. One press takes one Rust step and drains the TS twin in lockstep.
+    expect(sim.counts.undo, "one Rust cursor step for one undo press").toBe(1);
+    expect(sim.counts.redo, "an undo press never steps redo").toBe(0);
+    expect(postUndoRustDepth, "the Rust Pixel entry was consumed").toBe(0);
+    expect(history.getUndoCount(), "the TS twin drained with the Rust step").toBe(0);
+
+    // 3. And the visible result is the un-stroked document.
     expect(hash(live.imageBitmap)).toBe(preHash);
-
-    // 2. No Rust store means no epoch to report. The legacy path must not invent
-    //    one: stamping an epoch here is the same lie as on the Rust path, and it
-    //    would make a later ensureBitmapCurrent skip a real repair.
-    expect(live.bitmapEpoch, "legacy path must not stamp a Rust epoch").toBe(epochAfterCommit);
-
-    // 3. Re-derived, not dropped - see the rustPixels=1 case for why nulling the
-    //    bitmap is the wrong repair.
     expect(live.imageBitmap).not.toBeNull();
   });
 });

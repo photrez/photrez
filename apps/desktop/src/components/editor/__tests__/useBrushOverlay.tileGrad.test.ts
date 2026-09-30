@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
-import { useBrushOverlay } from "../useBrushOverlay";
+import { useBrushOverlay, flushC4Commits } from "../useBrushOverlay";
 import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
 
@@ -36,6 +36,68 @@ if (typeof globalThis.OffscreenCanvas === "undefined") {
     return c;
   };
 }
+// jsdom has no ImageData; the Rust commit path builds one per returned tile.
+if (typeof (globalThis as any).ImageData === "undefined") {
+  (globalThis as any).ImageData = class {
+    data: Uint8ClampedArray;
+    width: number;
+    height: number;
+    constructor(data: ArrayLike<number> | number, width?: number, height?: number) {
+      if (typeof data === "number") {
+        this.width = data;
+        this.height = width!;
+        this.data = new Uint8ClampedArray(data * width! * 4);
+      } else {
+        this.data = Uint8ClampedArray.from(data);
+        this.width = width!;
+        this.height = height!;
+      }
+    }
+  };
+}
+
+// Every brush stroke is recorded by Rust on the default path, so the harness
+// has to answer the Rust IPC surface the commit issues. Byte-faithful enough to
+// prove the canonical buffer moved; not a pixel-parity oracle.
+const rust = vi.hoisted(() => ({
+  pixels: new Uint8ClampedArray(512 * 512 * 4),
+  epoch: 0,
+  writes: 0,
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string, args: any) => {
+    if (cmd === "rust_pixels_get_epoch") return rust.epoch;
+    if (cmd === "rust_pixels_init") {
+      rust.pixels = new Uint8ClampedArray(args.bytes as ArrayLike<number>);
+      rust.epoch = 0;
+      return null;
+    }
+    if (cmd === "rust_pixels_snapshot_layer") {
+      return [{ x: 0, y: 0, w: 512, h: 512, data: Array.from(rust.pixels) }];
+    }
+    if (cmd === "rust_pixels_write_region") {
+      const before = Array.from(rust.pixels);
+      const after = new Uint8ClampedArray(rust.pixels);
+      for (let row = 0; row < args.h; row++) {
+        after.set(
+          args.rgba.subarray(row * args.w * 4, (row + 1) * args.w * 4),
+          ((args.y + row) * 512 + args.x) * 4,
+        );
+      }
+      rust.pixels = after;
+      rust.epoch += 1;
+      rust.writes += 1;
+      const tile = { x: args.x, y: args.y, w: args.w, h: args.h };
+      return {
+        before: [{ ...tile, data: before }],
+        after: [{ ...tile, data: Array.from(after) }],
+        epoch: rust.epoch,
+        version: rust.epoch,
+      };
+    }
+    return null;
+  }),
+}));
 
 const dialogConfirm = vi.fn();
 beforeAll(() => {
@@ -77,6 +139,14 @@ function makeSurface() {
       clearRect: vi.fn(),
       save: vi.fn(),
       restore: vi.fn(),
+      // applyRustTilesToSurface paints the tiles Rust returned through these,
+      // so the Rust commit path needs both to exist.
+      putImageData: vi.fn(),
+      getImageData: vi.fn((_x: number, _y: number, w: number, h: number) => ({
+        width: w,
+        height: h,
+        data: new Uint8ClampedArray(w * h * 4),
+      })),
       globalCompositeOperation: "source-over",
       globalAlpha: 1,
     },
@@ -121,7 +191,10 @@ function makeHarness(surface: ReturnType<typeof makeSurface> | null, uploadSurfa
   const uploadImage = vi.fn();
   showToast.mockClear();
   mockUseEditor({
-    workspace: { getActiveEngine: () => engine, getActiveHistory: () => history },
+    // getActiveDocumentId is read by the Rust commit path, which now owns
+    // every brush stroke by default (photrez.rustPixels gates bucket/fill/bake
+    // only), so the harness has to answer it or the stroke dies on a TypeError.
+    workspace: { getActiveEngine: () => engine, getActiveHistory: () => history, getActiveDocumentId: () => "doc-tilegrad" },
     renderer: { uploadImage, uploadSurfaceTiles },
     scheduler: { requestRender: vi.fn() },
     fgColor: () => "#ff0000",
@@ -144,6 +217,13 @@ function makeHarness(surface: ReturnType<typeof makeSurface> | null, uploadSurfa
 
 const settings = { size: 20, hardness: 1, opacity: 1, flow: 1, smoothing: 0.5 };
 
+// The brush stroke now always takes the deferred Rust commit path (nothing
+// gates it on photrez.rustPixels), so the commit runs after commitBrushStroke
+// returns. Every assertion below must drain that queue first, or it would read
+// a half-finished stroke. The synchronous tile-commit arm is reached only when
+// photrez.canonicalCommit is on (C3 mode) or the brush produced no scratch.
+afterEach(async () => { await flushC4Commits(); });
+
 describe("photrez.tileCommit graduation (default ON, opt-out 0)", () => {
   beforeEach(() => { localStorage.removeItem("photrez.tileCommit"); });
   afterEach(() => { localStorage.removeItem("photrez.tileCommit"); });
@@ -151,10 +231,14 @@ describe("photrez.tileCommit graduation (default ON, opt-out 0)", () => {
   it("default (no localStorage entry) uses the tile-commit path", async () => {
     const surface = makeSurface();
     const { overlay, engine, history, commit, uploadSurfaceTiles } = makeHarness(surface);
+    const writesBefore = rust.writes;
 
     overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
     await overlay.commitBrushStroke(engine, history, "layer-1", false);
+    await flushC4Commits();
 
+    // Non-vacuity: this commit came from the Rust path, not the recovery arm.
+    expect(rust.writes - writesBefore, "the stroke recorded one region in Rust").toBe(1);
     expect(surface.snapshotTile).toHaveBeenCalled();
     expect(commit).toHaveBeenCalledTimes(1);
     const imperative = commit.mock.calls[0][2];
@@ -179,12 +263,20 @@ describe("brush commit failure recovery (pre-H exception)", () => {
   beforeEach(() => { localStorage.removeItem("photrez.tileCommit"); });
 
   it("readRect failure restores every before-patch, writes NO history entry, shows toast", async () => {
+    // Targets the SYNCHRONOUS tile-commit arm: photrez.canonicalCommit keeps the
+    // Rust deferred arm out of this stroke (C3 mode owns it there instead), so
+    // the sync readRect that this recovery guards is the one that runs. Under
+    // the default Rust arm the same readRect failure is caught inside the
+    // deferred commit, which reports it and records nothing - a different
+    // contract, covered by the Rust-path tests.
+    localStorage.setItem("photrez.canonicalCommit", "1");
     const surface = makeSurface();
     surface.failReadRect();
     const { overlay, engine, history, commit } = makeHarness(surface);
 
     overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
     await overlay.commitBrushStroke(engine, history, "layer-1", false);
+    localStorage.removeItem("photrez.canonicalCommit");
 
     expect(surface.snapshotTile).toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();               // no entry
@@ -204,8 +296,9 @@ describe("context-loss upload handling", () => {
     window.dispatchEvent(new Event("webglcontextlost"));
     overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
     await overlay.commitBrushStroke(engine, history, "layer-1", false);
+    await flushC4Commits();
 
-    expect(uploadSurfaceTiles).not.toHaveBeenCalled();   // held
+    expect(uploadSurfaceTiles).not.toHaveBeenCalled();   // held (and the commit already ran)
 
     window.dispatchEvent(new Event("webglcontextrestored"));
     expect(uploadSurfaceTiles).toHaveBeenCalledTimes(1); // flushed
@@ -268,6 +361,7 @@ describe("tile-path model-sync invariant (regression f48f5b6)", () => {
 
     overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);
     await overlay.commitBrushStroke(engine, history, "layer-1", false);
+    await flushC4Commits();
 
     // Model sync happened with the painted bitmap.
     expect(engine.setLayerImageBitmap).toHaveBeenCalledTimes(1);

@@ -299,6 +299,14 @@ export interface HistoryTilePatches {
   before: TileUploadLike[];
   /** Post-stroke pixels of every touched tile (redo direction). */
   after: TileUploadLike[];
+  /**
+   * Set when Rust ALREADY recorded this pixel step (rust_pixels_write_region
+   * succeeded). The entry is then a cursor token for a step Rust holds, not a
+   * second copy of it: the undo/redo dispatch takes the pixels from Rust and
+   * refuses to replay `before`/`after`, which no store has. Entries Rust does
+   * not own keep replaying their own tiles.
+   */
+  rustOwned?: boolean;
 }
 
 /**

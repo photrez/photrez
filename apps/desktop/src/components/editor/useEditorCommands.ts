@@ -353,16 +353,19 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         : history.consumeLastRedoPatches();
       if (patches) {
         let tiles = direction === "undo" ? patches.before : patches.after;
-        // ── When the Rust pixel path is enabled, Rust is authoritative ──
-        // When photrez.rustPixels is ON, pull the authoritative tiles from Rust
-        // (undo/redo restores the canonical buffer) and sync the derived TS
-        // cache from them. Falls back to the local memento if Rust has no entry.
+        // ── Rust is authoritative for every entry it owns ──
+        // A Rust-owned entry (rust_pixels_write_region recorded it) is a cursor
+        // token, not a second copy of the pixels: this branch always takes the
+        // Rust tiles and steps the Rust cursor once, which drains the twin in
+        // lockstep. For an entry Rust does NOT own, photrez.rustPixels still
+        // arms the Rust fetch, and the local memento remains the fallback.
         let rustRes: { tiles: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number } | null = null;
         const activeDocId = editor.workspace.getActiveDocumentId() ?? "";
         const rustPixelsFlag = (() => {
           try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
         })();
-        if (rustPixelsFlag) {
+        const rustOwned = patches.rustOwned === true;
+        if (rustOwned || rustPixelsFlag) {
           try {
             const docId = editor.workspace.getActiveDocumentId() ?? "";
             const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
@@ -393,8 +396,18 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
               }));
             }
           } catch (err) {
-            console.warn("[paint] undo/redo sync failed — using local patches:", err);
+            // The refusal below decides what a Rust-owned entry does with this
+            // failure; for every other entry the memento still replays.
+            console.warn("[paint] undo/redo Rust sync failed:", err);
           }
+        }
+        if (rustOwned && (!rustRes || rustRes.tiles.length === 0)) {
+          // Rust took the cursor step but produced no tiles for it. The memento
+          // this entry carries describes a step Rust already owns, so replaying
+          // it would repaint the surface from bytes no store holds — the second
+          // pixel-history owner this branch exists to remove. Upload nothing.
+          tiles = [];
+          console.warn("[paint] Rust-owned step returned no tiles — refusing the stale memento", patches.layerId);
         }
         editor.renderer.uploadSurfaceTiles?.(patches.layerId, patches.surfaceWidth, patches.surfaceHeight, tiles);
         // Imperative paint entries replay pixels via tiles above, but the model
@@ -483,9 +496,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // is off (default production), NO Rust entry exists and TS must NOT
         // move the Rust cursor — otherwise TS independently restores pixels
         // while Rust also steps, causing a real TS/Rust double-undo.
-        // When rustPixels=1: rust_pixels_undo/redo was already called above
-        // (for tile data); skip to avoid a double cursor step.
-        if (!rustPixelsFlag && historyBridgeEnabled()) {
+        // When rustPixels=1 or the entry is Rust-owned: rust_pixels_undo/redo was
+        // already called above (for tile data); skip to avoid a double cursor step.
+        if (!rustPixelsFlag && !rustOwned && historyBridgeEnabled()) {
           try {
             const docId = editor.workspace.getActiveDocumentId() ?? "";
             const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");

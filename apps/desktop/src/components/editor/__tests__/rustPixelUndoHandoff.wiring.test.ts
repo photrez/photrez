@@ -24,6 +24,8 @@
  *      caller cannot pop a second history entry for a step already taken.
  *   3. `rust_pixels_undo` is never invoked - the host must not run a second
  *      pixel step over the same cursor.
+ *   4. A projection failure AFTER Rust moved the cursor still reports handled:
+ *      "fall through" is only correct while the Rust command itself failed.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -223,6 +225,43 @@ describe("rust pixel undo/redo is the single executor; the host projects it", ()
     expect(calls).not.toContain("uploadSurfaceTiles");
     const invoked = invokeMock.mock.calls.map((c) => c[0]);
     expect(invoked).not.toContain("rust_pixels_undo");
+  });
+
+  it("reports the step handled when the projection throws AFTER Rust moved its cursor", async () => {
+    const calls: Calls = [];
+    // putImageData is the first thing the projection does with Rust's tiles.
+    // It throws here, i.e. AFTER the Rust command resolved and moved the cursor.
+    const surface = {
+      pixelEpoch: 0,
+      pixelVersion: undefined as number | undefined,
+      context: {
+        putImageData: () => {
+          throw new Error("paint surface lost");
+        },
+      },
+    };
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls);
+
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_apply_command_native":
+          return pixelUndoResultJson();
+        default:
+          throw `unexpected invoke in the pixel undo path: ${cmd}`;
+      }
+    });
+
+    const handled = await runFacadeExternalHandoff(ctx, "undo");
+
+    // Rust owns the step now. Reporting false would make the caller pop a TS
+    // entry AND fire rust_pixels_undo - two more undo steps for one press.
+    expect(handled).toBe(true);
+    const invoked = invokeMock.mock.calls.map((c) => c[0]);
+    expect(invoked).not.toContain("rust_pixels_undo");
+    expect(invoked).not.toContain("rust_pixels_redo");
   });
 
   it("still falls through to the TS store when Rust steps a metadata entry", async () => {

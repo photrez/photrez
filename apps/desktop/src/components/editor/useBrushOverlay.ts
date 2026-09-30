@@ -143,25 +143,10 @@ export function useBrushOverlay() {
     const { docId, layerId, dx0, dy0, dw, dh, w, h, surface, engine, history, requestRender, beforePatches, effectiveIsEraser } = job;
     const sctx = surface.context;
     const runCore = async () => {
-      // Kill-switch recheck: a commit queued while photrez.rustPixels was ON
-      // only starts once the per-document queue drains, so a flip to OFF that
-      // landed first must cancel it here - before the epoch read, the surface
-      // composite, or any pixel IPC. The queued stroke is dropped whole: it
-      // reaches neither Rust nor TS history, because a half-applied stroke
-      // would leave the two stores disagreeing. A flip that lands after this
-      // check cannot abort a write already in flight. Pinned by the ON-to-OFF
-      // case in rustPixels.transitionGates.test.tsx.
-      try {
-        if (localStorage.getItem("photrez.rustPixels") !== "1") {
-          // A dropped commit stays visible (same norm as the skipped-fallback
-          // warn further down): console-only, no semantics change.
-          console.warn("[paint] queued brush commit cancelled - photrez.rustPixels is not ON", docId, layerId);
-          return;
-        }
-      } catch (err) {
-        console.warn("[paint] queued brush commit cancelled - flag read failed:", err);
-        return;
-      }
+      // No flag recheck here. The queued commit no longer reads photrez.rustPixels
+      // at all: gating the flush on it made the DEFAULT state (key absent) drop
+      // every stroke on the floor, which is what left the store with no Pixel entry
+      // and no drainable twin. A commit that is queued must run.
       const { invoke } = await import("@tauri-apps/api/core");
       const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
       // Pre-IPC fence: identity and geometry run BEFORE the epoch read, so a
@@ -259,10 +244,14 @@ export function useBrushOverlay() {
       // SECOND state-changing apply (apply_tile_patch) for the same stroke.
       // The failed-write fallback below must keep it false — a rejected write
       // owns no Rust state, so that path still records the one recoverable apply.
+      // rustOwned travels with the memento: it marks this TS entry as a cursor
+      // token for a step Rust already holds, so the undo/redo dispatch takes the
+      // pixels from Rust instead of replaying these tiles.
       history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", {
         layerId, surfaceWidth: w, surfaceHeight: h,
         before: beforePatches.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
         after: afterPatches,
+        rustOwned: true,
       }, true);
       queueOrUploadTiles(layerId, w, h, rectUploads);
       requestRender();
@@ -301,6 +290,18 @@ export function useBrushOverlay() {
         const afterPatches = [{ x: fallbackRegion.x, y: fallbackRegion.y, width: fallbackRegion.w, height: fallbackRegion.h, data: afterData }];
         const rectUploads = [{ x: fallbackRegion.x, y: fallbackRegion.y, width: fallbackRegion.w, height: fallbackRegion.h, data: afterData }];
         applyRustTilesToSurface(sctx, [{ x: fallbackRegion.x, y: fallbackRegion.y, w: fallbackRegion.w, h: fallbackRegion.h, data: Array.from(afterData) }]);
+        // Same model sync the synchronous arm does (and that the retired
+        // legacy arm did for every stroke until the Rust path became
+        // unconditional): the surface holds the post-stroke pixels, so
+        // layer.imageBitmap must carry them BEFORE the snapshot is taken or
+        // undo/redo/save all read the pre-stroke raster.
+        if (surface.toImageBitmap) {
+          try {
+            engine.setLayerImageBitmap(layerId, await surface.toImageBitmap());
+          } catch (err) {
+            console.warn("[paint] fallback model bitmap sync failed - committed snapshot may be stale:", err);
+          }
+        }
         history.commit(engine.snapshot(), effectiveIsEraser ? "Eraser" : "Brush Stroke", {
           layerId, surfaceWidth: w, surfaceHeight: h,
           before: beforePatches.map((p) => ({ x: p.tx * PAINT_TILE_SIZE, y: p.ty * PAINT_TILE_SIZE, width: p.value.width, height: p.value.height, data: p.value.data })),
@@ -1318,14 +1319,16 @@ export function useBrushOverlay() {
         // (no dab re-composite: the surface already holds the composited after-pixels)
         // and returns the exact pre-stroke (`before`) and (`after`) tiles. The TS
         // cache is synced from Rust's returned `after` (single source of truth).
-        // OFF unless photrez.rustPixels === "1". Mutually exclusive with
-        // the C3 canonical path by *mode* — gated on c3Flag (photrez.canonicalCommit),
-        // not on c3Applied — so the two modes never both apply to the same stroke.
-        // c3Applied is set true by the deferred Rust commit below; that must NOT disable
-        // later strokes on the Rust path, so the entry guard uses c3Flag, not c3Applied.
-        const rustPixelsFlag = (() => {
-          try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
-        })();
+        // UNCONDITIONAL: a brush or eraser stroke is always recorded by Rust, so
+        // the default state of photrez.rustPixels (key absent / "0") takes the same
+        // path as "1" instead of falling through to a TS-only commit that no Rust
+        // entry exists for. The flag still gates bucket/fill/bake, which have their
+        // own producers.
+        // Mutually exclusive with the C3 canonical path by *mode* — gated on c3Flag
+        // (photrez.canonicalCommit), not on c3Applied — so the two modes never both
+        // apply to the same stroke. c3Applied is set true by the deferred Rust commit
+        // below; that must NOT disable later strokes on the Rust path, so the entry
+        // guard uses c3Flag, not c3Applied.
         // An eraser qualifies on its stroke region rather than on scratchReady:
         // its snapshot is read from the overlay (see below), so the scratch block
         // does not run and scratchReady stays false. Excluding erasers here left
@@ -1333,7 +1336,7 @@ export function useBrushOverlay() {
         // it onto the earlier brush entry and dropped the erase instead of undoing
         // it. Pinned by the eraser case in brushStrokeCommitOrdering.test.ts and by
         // the pointer-chain case in CanvasViewport.paintRegionWiring.test.tsx.
-        if (rustPixelsFlag && !c3Flag && (effectiveIsEraser || scratchReady)) {
+        if (!c3Flag && (effectiveIsEraser || scratchReady)) {
           // Async-deferred Rust dirty-region commit. The pointerup
           // handler returns immediately after enqueue; the canonical write, tile
           // rehydration, and history.commit run off-path via a per-document queue
