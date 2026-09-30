@@ -30,6 +30,17 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { CommandHistory } from "@/engine/history";
+import * as backgroundFlagRouting from "@/lib/protocol/backgroundFlagRouting";
+
+// The baseline record is module state the undo gate reads. These wrappers are
+// optional-call so that reverting the PRODUCTION side of that record does not
+// turn this fixture into a TypeError: a missing recorder must surface as the
+// BEHAVIOURAL failure under test (the gate not refusing), which is the point of
+// the RED proof, not as a harness crash that proves nothing.
+const recordTestBaseline = (docId: string) =>
+  backgroundFlagRouting.recordOpenBaselineEntry?.(docId);
+const clearTestBaseline = (docId: string) =>
+  backgroundFlagRouting.__clearOpenBaselineForTests?.(docId);
 import { runFacadeExternalHandoff } from "../facadeHistoryHandoff";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -509,5 +520,326 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
     expect(handled, "the metadata step is the handoff's own").toBe(true);
     expect(history.getUndoCount(), "the TS entry survived for the TS store").toBe(1);
     expect(history.canUndo()).toBe(true);
+  });
+});
+
+// ── the open baseline: the cursor must not walk in front of history ────────
+// The Rust stream of every document opens at cursor 1, not 0. That first entry
+// is the factory's own SetBackgroundFlag commit (WorkspaceManager.
+// createBlankDocument -> commitFacadeBackgroundFlag), not a user edit, so it is
+// the floor of history: undoing past it means undoing the document's creation.
+//
+// Defect under test (measured in the real app at 9403949, artifact sha256
+// b62a22d57a3388933d1e139b5e9a09a1b61bfe513f17ee71b1633c6a4b28b28b case 1):
+// after 5 strokes and 5 undos everything is correct (ts_undo 5 -> 0, canUndo
+// false, Rust cursor back at 1), but the 6th Ctrl+Z still stepped that baseline
+// entry and walked the cursor 1 -> 0, stealing a redo slot so 5 redos reached
+// only the 4-stroke state.
+
+/**
+ * The facade's own history stream, as `getHistoryQuery` reports it. Entry 1 is
+ * the document-open baseline (the factory's SetBackgroundFlag commit); every
+ * entry above it is user work.
+ */
+function historyQueryJson(cursor: number, total: number): string {
+  return JSON.stringify({
+    cursor,
+    lastSeq: total,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: Array.from({ length: total }, (_, i) => ({
+      seq: i + 1,
+      groupId: "g1",
+      origin: "native",
+      label: i === 0 ? "Set Background Flag" : "pixel",
+      affectedLayerIds: ["L1"],
+      versionBefore: i,
+      versionAfter: i + 1,
+      memoryCostBytes: 0,
+      payloadRef: null,
+    })),
+  });
+}
+
+/** Rust reply for stepping the open baseline: a real entry, real cursor move. */
+function baselineStepJson() {
+  return JSON.stringify({
+    documentVersion: 1,
+    delta: { baseVersion: 0, version: 1, changes: [] },
+    // A metadata entry produces a real delta (the background flag is restated),
+    // which is exactly why it is claimed as a handled step today.
+    pixelPatches: undefined,
+  });
+}
+
+describe("the undo dispatch will not step the Rust cursor past the open baseline", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    invokeMock.mockReset();
+    // Module-global, like every other registry in this app: each test starts
+    // from "no baseline recorded" so the over-gating guards below really do
+    // exercise the floor-is-0 branch.
+    clearTestBaseline(DOC_ID);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    clearTestBaseline(DOC_ID);
+  });
+
+  it("five rustOwned steps then a 6th undo: nothing moves, and redo round-trips", async () => {
+    const calls: Calls = [];
+    const history = new CommandHistory();
+    for (let i = 1; i <= 5; i++) {
+      history.commit(
+        { layers: [], activeLayerId: "L1" } as never,
+        "Brush Stroke",
+        {
+          layerId: "L1",
+          surfaceWidth: 1,
+          surfaceHeight: 1,
+          before: [mementoTile(i)],
+          after: [mementoTile(i)],
+          rustOwned: true,
+        },
+        true,
+      );
+    }
+    const surface = makeSurface(calls);
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls, history);
+
+    // The document-open baseline occupies history position 1, so the stream
+    // starts at cursor 1 and the five pixel entries are positions 2..6. Record
+    // it the way the factory does (a real SetBackgroundFlag apply), because the
+    // gate asks "does this doc HAVE a baseline", not "assume it does".
+    recordTestBaseline(DOC_ID);
+    let cursor = 6;
+    const applyNativeUndo = () => {
+      if (cursor <= 1) return baselineStepJson();
+      cursor -= 1;
+      return pixelStepJson(cursor);
+    };
+    // The dispatch gate reads the facade's OWN stream: entries[] is the whole
+    // history (6 = 1 baseline + 5 pixel) and cursor is the position in it.
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_history_query_native":
+          return historyQueryJson(cursor, 6);
+        case "protocol_apply_command_native":
+          return applyNativeUndo();
+        default:
+          throw `unexpected invoke in the pixel undo path: ${cmd}`;
+      }
+    });
+
+    for (let i = 1; i <= 5; i++) {
+      expect(await runFacadeExternalHandoff(ctx, "undo"), `undo ${i}`).toBe(true);
+    }
+    expect(cursor, "Rust cursor back at the baseline").toBe(1);
+    expect(history.getUndoCount(), "TS depth drained with the cursor").toBe(0);
+    expect(history.canUndo(), "the gate is closed").toBe(false);
+    expect(history.getRedoCount(), "the twins are redoable, not binned").toBe(5);
+
+    // The 6th press: nothing sits above the baseline, so the Rust cursor must
+    // not move. Everything below is asserted against a snapshot taken first.
+    const before6 = {
+      cursor,
+      undoCount: history.getUndoCount(),
+      redoCount: history.getRedoCount(),
+      calls: calls.length,
+      uploads: (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } }).mock.calls.length,
+      // The depth probe is a READ, and reading is exactly what the gate is
+      // supposed to do. What must not happen is a cursor command.
+      cursorCommands: invokeMock.mock.calls.filter((c) => c[0] === "protocol_apply_command_native").length,
+      invokeCount: invokeMock.mock.calls.length,
+    };
+
+    const handled6 = await runFacadeExternalHandoff(ctx, "undo");
+
+    expect(handled6, "the press past the baseline is refused, not claimed").toBe(false);
+    expect(cursor, "the baseline entry was NOT stepped").toBe(1);
+    expect(history.getUndoCount(), "TS depth unchanged").toBe(before6.undoCount);
+    expect(history.getRedoCount(), "no redo slot stolen").toBe(before6.redoCount);
+    expect(calls.slice(before6.calls), "no pixel projection ran").toEqual([]);
+    expect(
+      (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } }).mock.calls.length,
+      "no tile upload ran",
+    ).toBe(before6.uploads);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "protocol_apply_command_native").length,
+      "the press never issued a cursor command",
+    ).toBe(before6.cursorCommands);
+    // The six-command census counts state-changing pixel commands. This path
+    // never issues any (the cursor is the only executor), and a refused press
+    // must not add one.
+    const SIX_COMMAND_ALLOWLIST = [
+      "rust_pixels_write_region",
+      "rust_pixels_record_external",
+      "rust_pixels_undo",
+      "rust_pixels_redo",
+      "apply_tile_patch",
+      "rust_pixels_record_snapshot",
+    ];
+    expect(
+      invokeMock.mock.calls
+        .slice(before6.invokeCount)
+        .map((c) => c[0])
+        .filter((c) => SIX_COMMAND_ALLOWLIST.includes(c)),
+      "no six-command census entry was produced",
+    ).toEqual([]);
+
+    // Round trip: five redos must return to the 5-stroke state, which requires
+    // that no extra redo slot was banked by the 6th press.
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_history_query_native":
+          return historyQueryJson(cursor, 6);
+        case "protocol_apply_command_native":
+          cursor += 1;
+          return pixelStepJson(cursor);
+        default:
+          throw `unexpected invoke in the pixel redo path: ${cmd}`;
+      }
+    });
+
+    for (let i = 1; i <= 5; i++) {
+      expect(await runFacadeExternalHandoff(ctx, "redo"), `redo ${i}`).toBe(true);
+    }
+    expect(cursor, "back at the 5-stroke position").toBe(6);
+    expect(history.getUndoCount(), "five twins back on the undo stack").toBe(5);
+    expect(history.getRedoCount(), "nothing left to redo").toBe(0);
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(false);
+  });
+
+  // ── over-gating guards ──────────────────────────────────────────────────
+  // The dispatch gate must refuse ONLY the open baseline. Everything else in
+  // the Rust stream is user work, including entries that deliberately have no
+  // TS twin (routed canvas ops, transforms, External steps) - a document whose
+  // only work was a routed resize has canUndo() === false, so a TS-gate
+  // implementation would swallow that undo. See routedCanvasUndo.wiring.test.ts
+  // driving exactly that shape with an empty TS stack.
+
+  it("a facade-only entry above the baseline still steps: no TS twin, must not be gated", async () => {
+    const calls: Calls = [];
+    // TS store EMPTY - this is the routed-canvas shape. The gate must still let
+    // Rust undo its own entry.
+    const history = new CommandHistory();
+    const surface = makeSurface(calls);
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls, history);
+    expect(history.canUndo(), "PROBE the TS store is empty here").toBe(false);
+
+    // NO baseline recorded: this document never got one, so the undo floor is 0
+    // and every entry in the stream is user work. That is the over-gating guard.
+    let cursor = 3; // a routed canvas entry + a Native entry + one more
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_history_query_native":
+          return historyQueryJson(cursor, 3);
+        case "protocol_apply_command_native":
+          cursor -= 1;
+          return JSON.stringify({
+            documentVersion: cursor,
+            delta: {
+              baseVersion: cursor - 1,
+              version: cursor,
+              changes: [{ kind: "upsert", layer: { id: "L1", name: "L1", width: 4, height: 4, opacity: 1, visible: true } }],
+            },
+          });
+        default:
+          throw `unexpected invoke: ${cmd}`;
+      }
+    });
+
+    expect(await runFacadeExternalHandoff(ctx, "undo"), "a user entry above the baseline is claimed").toBe(true);
+    expect(cursor, "the cursor stepped that entry").toBe(2);
+    expect(history.canUndo(), "PROBE nothing was drained (no twin), as required").toBe(false);
+  });
+
+  it("an External entry with no TS twin still steps the cursor", async () => {
+    const calls: Calls = [];
+    const history = new CommandHistory();
+    const surface = makeSurface(calls);
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls, history);
+
+    let cursor = 2;
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_history_query_native":
+          return historyQueryJson(cursor, 2);
+        case "protocol_apply_command_native":
+          cursor -= 1;
+          // status "external" is how the walker reports a legacy host entry; the
+          // artifact's gradient case (case 5) is exactly this shape.
+          return JSON.stringify({
+            documentVersion: cursor,
+            delta: { baseVersion: cursor - 1, version: cursor, changes: [] },
+            status: "external",
+            externalSeq: 1,
+          });
+        default:
+          throw `unexpected invoke: ${cmd}`;
+      }
+    });
+
+    // The External branch calls confirmExternalCursor, mocked to ok at module scope.
+    // It returns FALSE on purpose here: an External step with an empty delta
+    // clears the barrier but must NOT claim the model restore was finished
+    // (see the branch comment in facadeHistoryHandoff). What this test owns is
+    // that the gate let the step through at all - the cursor moved.
+    const handled = await runFacadeExternalHandoff(ctx, "undo");
+
+    expect(cursor, "the External entry above the baseline still stepped the cursor").toBe(1);
+    expect(
+      invokeMock.mock.calls.filter((c) => c[0] === "protocol_apply_command_native").length,
+      "a cursor command was issued",
+    ).toBe(1);
+    // Documented existing behaviour, pinned so a future change is deliberate.
+    expect(handled, "an empty-delta External step does not claim the restore").toBe(false);
+  });
+
+  it("a depth probe failure never blocks an undo (fail-open, not fail-closed)", async () => {
+    const calls: Calls = [];
+    const history = new CommandHistory();
+    const surface = makeSurface(calls);
+    const engine = makeEngine("L1", surface, calls);
+    const ctx = makeCtx(engine, calls, history);
+
+    let cursor = 2;
+    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+      switch (cmd) {
+        case "protocol_version_native":
+          return "1";
+        case "protocol_history_query_native":
+          // The real command rejects with a bare string on an unknown doc.
+          throw "document not open: docPixelHandoff";
+        case "protocol_apply_command_native":
+          cursor -= 1;
+          return JSON.stringify({
+            documentVersion: cursor,
+            delta: {
+              baseVersion: cursor - 1,
+              version: cursor,
+              changes: [{ kind: "upsert", layer: { id: "L1", name: "L1", width: 1, height: 1, opacity: 1, visible: true } }],
+            },
+          });
+        default:
+          throw `unexpected invoke: ${cmd}`;
+      }
+    });
+
+    expect(await runFacadeExternalHandoff(ctx, "undo"), "a probe failure must not swallow the undo").toBe(true);
+    expect(cursor, "the cursor still stepped").toBe(1);
   });
 });

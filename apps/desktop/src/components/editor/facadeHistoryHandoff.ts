@@ -92,12 +92,97 @@ async function projectRustPixelHandoff(
   return true;
 }
 
+/**
+ * Is the Rust stream's next step one the user actually performed?
+ *
+ * The stream does not start at zero. Every document opens at cursor 1, because
+ * the factory commits its own SetBackgroundFlag entry
+ * (`createBlankDocument` -> `commitFacadeBackgroundFlag`) before the user
+ * touches anything. That entry is the FLOOR of history, not a user edit, and
+ * Rust reports a real handled step for undoing it - so a press that has run out
+ * of user work will happily step it, walk the cursor in front of history, and
+ * bank a redo slot the user can never spend. Measured at 9403949: 5 strokes,
+ * 5 undos (all six assertions correct), then a 6th press moved the cursor
+ * 1 -> 0 and left the 5-redo round trip one step short of the 5-stroke state.
+ *
+ * So the question is only ever "does the stream hold anything ABOVE that
+ * baseline", and the baseline is the one entry the host itself created at open
+ * time. Anything the user did - a pixel stroke, a routed canvas op, a
+ * transform, an External step - adds an entry above it.
+ *
+ * This is deliberately NOT a TS-gate query. Routed ops write no TS history
+ * entry by design (paramsRouting, canvasRouting, structuralRouting all say so),
+ * so `canUndo()` is false on a document whose only work was a routed canvas
+ * resize; treating that as "nothing to undo" would swallow a legitimate undo
+ * (see `routedCanvasUndo.wiring.test.ts`, which drives exactly that with an
+ * empty TS stack). The TS store and the Rust stream count different things, so
+ * the TS gate cannot answer for the stream. The stream can, and it does.
+ */
+async function rustStreamHoldsUserWork(
+  editor: EditorContextValue,
+  direction: "undo" | "redo",
+): Promise<boolean> {
+  // Every failure mode here resolves to "assume there is work", never to
+  // "refuse": a read that cannot be completed is not evidence of an empty
+  // stream, and blocking an undo on missing evidence would lose the user's
+  // work. That includes a partial editor double without the accessor, and an
+  // empty/unknown doc id.
+  let docId = "";
+  try {
+    docId = editor.workspace.getActiveDocumentId?.() ?? "";
+  } catch {
+    return true;
+  }
+  if (!docId) return true;
+  let query: { cursor: number; entries: unknown[] };
+  try {
+    // getHistoryQuery is authority-aware: it answers for whichever store backs
+    // the facade cursor (native ProtocolEngine or wasm). The pixel-store depth
+    // probe would be the WRONG source - that is a different history under wasm
+    // authority, and gating on it refuses legitimate facade-only undos there.
+    const { getHistoryQuery } = await import("@/lib/protocol/bridge_emu");
+    query = await getHistoryQuery(docId);
+  } catch {
+    return true;
+  }
+  const entries = Array.isArray(query?.entries) ? query.entries : null;
+  const cursor = query?.cursor;
+  if (!entries || typeof cursor !== "number") return true;
+  if (direction === "redo") {
+    // Entries AHEAD of the cursor. The baseline is always behind it, so any
+    // entry at all is user work.
+    return entries.length > cursor;
+  }
+  // Entries BELOW the cursor. How many of those are the document-open baseline?
+  // Exactly one, and only if this document actually got one - which the host
+  // knows because the factory's commit recorded it. Assuming "always 1" would
+  // refuse a legitimate undo on any document that never had a baseline (a
+  // document opened without the route armed, or with authority off).
+  let floor = 0;
+  try {
+    const { hasOpenBaselineEntry } = await import("@/lib/protocol/backgroundFlagRouting");
+    if (hasOpenBaselineEntry(docId)) floor = 1;
+  } catch {
+    floor = 0; // cannot prove a baseline exists -> assume none -> never refuse wrongly
+  }
+  return cursor > floor;
+}
+
 export async function runFacadeExternalHandoff(
   editor: EditorContextValue,
   direction: "undo" | "redo",
 ): Promise<boolean> {
   const engine = editor.workspace.getActiveEngine();
   if (!engine) return false;
+  // Refuse BEFORE driving the cursor. Once facade.undo() runs, Rust has moved
+  // and there is no undoing that from the host side without a second step.
+  if (!(await rustStreamHoldsUserWork(editor, direction))) {
+    console.info(
+      "[facade-history] nothing above the document-open baseline; not driving the cursor",
+      direction,
+    );
+    return false;
+  }
   // Mirror useEditorCommands restore sweep: after projecting the facade snapshot
   // onto the engine, re-upload any layer that now carries a retained bitmap so
   // the renderer's texture cache matches the engine's (dropped-node reuse keeps

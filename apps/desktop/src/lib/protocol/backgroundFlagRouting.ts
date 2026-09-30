@@ -53,7 +53,48 @@ export async function awaitBackgroundFlagCommit(docId: string): Promise<void> {
 }
 
 export function clearBackgroundFlagCommit(docId: string): void {
-  bgFlagCommitByDoc.delete(docId === "" ? "default" : docId);
+  const key = docId === "" ? "default" : docId;
+  bgFlagCommitByDoc.delete(key);
+  delete openBaselineByDoc[key];
+}
+
+/** Test-only reset of the baseline record, so each case starts clean. */
+export function __clearOpenBaselineForTests(docId: string): void {
+  delete openBaselineByDoc[docId === "" ? "default" : docId];
+}
+
+/**
+ * Did this document actually get a document-open baseline history entry?
+ *
+ * Set only when `commitFacadeBackgroundFlag` reports "applied" - i.e. the
+ * factory's own SetBackgroundFlag apply landed in Rust's stream as history
+ * position 1. That entry is not a user edit, so the undo cursor must not step
+ * past it.
+ *
+ * It is NOT recorded when the route is off, when authority is not native, or
+ * when the apply rejected and the factory fell back to the direct setter: in
+ * those cases no Rust entry exists, so position 1 (if anything) IS user work.
+ * The undo dispatch reads this to know whether its "nothing left to undo"
+ * floor is 1 or 0 - assuming a floor of 1 unconditionally would refuse a
+ * legitimate undo on any document that never had one.
+ */
+const openBaselineByDoc: Record<string, true> = Object.create(null);
+
+export function hasOpenBaselineEntry(docId: string): boolean {
+  return openBaselineByDoc[docId === "" ? "default" : docId] === true;
+}
+
+/**
+ * Record that this document's open-time baseline entry exists.
+ *
+ * Called by `commitFacadeBackgroundFlag` when the factory's apply landed. A
+ * test that drives the undo dispatch directly calls this too, because the gate
+ * asks "does this doc HAVE a baseline" rather than assuming one - so a test
+ * that does NOT call it exercises the "no baseline, floor is 0" branch, which
+ * is the one that must never refuse a legitimate undo.
+ */
+export function recordOpenBaselineEntry(docId: string): void {
+  openBaselineByDoc[docId === "" ? "default" : docId] = true;
 }
 
 // Optimistic TS-model projection of the background flag, used by the document
@@ -118,5 +159,10 @@ export async function commitFacadeBackgroundFlag(
       );
     }
   }
+  // This apply landed, so the document now HAS a history entry at position 1
+  // that the user never made. Recording it is what lets the undo dispatch
+  // refuse a press that would walk the cursor in front of that entry - without
+  // guessing, and without refusing a document that never got one.
+  recordOpenBaselineEntry(f.docId);
   return { status: "applied", count: ids.length };
 }
