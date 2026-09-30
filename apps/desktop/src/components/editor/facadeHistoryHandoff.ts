@@ -12,8 +12,62 @@
 // which is what makes it correct on redo-truncated (non-dense) streams where
 // entries[i].seq != i+1.
 
-import { getFacade, confirmExternalCursor } from "@/lib/protocol/facadeRegistry";
+import { getFacade, confirmExternalCursor, syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { applyRustTilesToSurface } from "@/lib/rustShadow";
 import type { EditorContextValue } from "./shell/EditorContext";
+
+/**
+ * Project the tiles Rust returned for a pixel undo/redo step.
+ *
+ * Rust is the executor: `Command::Undo`/`Command::Redo` already moved the
+ * cursor and wrote the canonical buffer, so the host only mirrors the bytes
+ * into its derived caches (paint surface + GPU textures). Returns true when
+ * the step is fully handled - the caller must NOT fall through to the TS
+ * history store, which would pop a second entry for a step already taken.
+ */
+async function projectRustPixelHandoff(
+  editor: EditorContextValue,
+  engine: NonNullable<ReturnType<EditorContextValue["workspace"]["getActiveEngine"]>>,
+  handoff: NonNullable<ReturnType<typeof getFacade>["lastPixelPatches"]>,
+): Promise<boolean> {
+  const toSurface = handoff.tiles.map((t) => ({
+    x: t.x, y: t.y, w: t.w, h: t.h, data: new Uint8ClampedArray(t.data),
+  }));
+  const surf = engine.getPaintSurface(handoff.layerId) as
+    | {
+        context: { putImageData(img: { width: number; height: number; data: Uint8ClampedArray }, x: number, y: number): void };
+        pixelEpoch: number;
+        pixelVersion?: number;
+      }
+    | null
+    | undefined;
+  if (surf) {
+    applyRustTilesToSurface(surf.context, toSurface);
+    // Stamp the exact canonical state these tiles reflect so a later derived
+    // cache read knows it is current instead of re-fetching.
+    surf.pixelEpoch = handoff.epoch;
+    surf.pixelVersion = handoff.version;
+    syncFacadeVersionFromPixel(engine.getId() ?? "default", handoff.version);
+  }
+  if (handoff.tiles.length > 0) {
+    // Same call shape the Rust paint/fill commits use: the layer's own dims
+    // are the paint-surface dims, and the GPU upload shape is width/height.
+    const layer = engine.getLayer(handoff.layerId);
+    editor.renderer.uploadSurfaceTiles?.(
+      handoff.layerId,
+      layer?.width ?? 0,
+      layer?.height ?? 0,
+      toSurface.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: t.data })),
+    );
+    // The layer's model bitmap still holds the pre-step pixels (engine.restore
+    // is intentionally skipped for a pixel step), so ask the engine to re-read
+    // the canonical buffer. Same repair the flag-ON rust_pixels path uses.
+    await engine.ensureBitmapCurrent(editor.workspace.getActiveDocumentId() ?? "", handoff.layerId);
+  }
+  editor.scheduler.requestRender();
+  editor.workspace.notifyVisualChange();
+  return true;
+}
 
 export async function runFacadeExternalHandoff(
   editor: EditorContextValue,
@@ -45,6 +99,15 @@ export async function runFacadeExternalHandoff(
   try {
     const facade = getFacade(engine.getId());
     const snap = await (direction === "undo" ? facade.undo() : facade.redo());
+    // Rust pixel handoff: the walker stepped a Rust PIXEL entry, so the cursor
+    // has ALREADY moved and the tiles came back with the result. This branch
+    // runs before the empty-delta check on purpose: a pixel step produces an
+    // empty RenderDelta (it changes no layer metadata), so an empty delta is no
+    // longer evidence that "Rust had nothing". Returning true here is what
+    // keeps the step single - falling through would pop a second entry.
+    if (facade.lastPixelPatches) {
+      return await projectRustPixelHandoff(editor, engine, facade.lastPixelPatches);
+    }
     // External history handoff: the walker landed on a legacy (external) entry
     // and set the engine's pending-external barrier (the wedge). The ONLY
     // guaranteed effect here is clearing that barrier; we must not claim the

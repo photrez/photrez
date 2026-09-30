@@ -54,8 +54,7 @@ pub fn protocol_apply_command_native(
         .get_mut(&doc_key)
         .ok_or_else(|| format!("document not open: {doc_key}"))?;
     engine
-        .history
-        .apply(env)
+        .apply_command(env)
         .map(|r: CommandResult| serde_json::to_string(&r).unwrap())
         .map_err(|e: ProtocolError| format!("{}: {}", e.code, e.message))
 }
@@ -536,6 +535,9 @@ mod tests {
     // whole process-global registry with reset(), so registry-touching tests
     // run one at a time like the paint_parity and document_snapshot suites.
 
+    use crate::paint_parity_cmds::{
+        apply_tile_patch, rust_pixels_init, rust_pixels_snapshot_tile, TilePatchWire,
+    };
     use photrez_core::protocol::CONTRACT_VERSION;
 
     const SEQ_DOC: &str = "apply-sequence-native-test-doc";
@@ -595,8 +597,102 @@ mod tests {
         )
     }
 
-    /// Stable digest of the observable engine state: layers in engine order,
-    /// selection, and document dimensions. Version and the per-layer
+    /// The real IPC path for a pixel undo, end to end: a real pixel commit
+    /// (the Rust canonical-owner brush path the brush uses), then a
+    /// `Command::Undo` through `protocol_apply_command_native` - the exact
+    /// command the TS bridge invokes.
+    ///
+    /// This is the seam that used to hand the host an empty delta and leave the
+    /// cursor put. It now returns the tiles under `pixelPatches`, moves the
+    /// cursor by one, and writes the restored bytes into the canonical buffer.
+    /// Asserted on the raw JSON (not the parsed struct) so the keys the HOST
+    /// reads are what is being checked.
+    #[test]
+    fn native_apply_command_undo_of_a_pixel_entry_returns_the_tiles() {
+        const PIXEL_UNDO_DOC: &str = "pixel-undo-native-test-doc";
+        const LAYER: &str = "px1";
+        let _registry_guard = TEST_REGISTRY_LOCK.lock().unwrap();
+        open_doc(PIXEL_UNDO_DOC);
+        // Real canonical pixel buffer + a real stroke through the same commit
+        // path the brush uses (before/after tile patches into the history).
+        rust_pixels_init(
+            PIXEL_UNDO_DOC.to_string(),
+            LAYER.to_string(),
+            1u32,
+            1u32,
+            vec![0, 0, 0, 255],
+        )
+        .expect("init layer");
+        let patch = |v: u8| TilePatchWire {
+            x: 0,
+            y: 0,
+            w: 1,
+            h: 1,
+            data: vec![v, v, v, v],
+        };
+        apply_tile_patch(
+            PIXEL_UNDO_DOC.to_string(),
+            LAYER.to_string(),
+            vec![patch(0)],
+            vec![patch(9)],
+        )
+        .expect("commit stroke");
+        let read_first = || {
+            rust_pixels_snapshot_tile(PIXEL_UNDO_DOC.to_string(), LAYER.to_string(), 0, 0, 1, 1)
+                .expect("read canonical buffer")
+                .data[0] as u64
+        };
+        assert_eq!(
+            read_first(),
+            9,
+            "the stroke must be in the buffer before the undo"
+        );
+
+        let version = protocol_version_native(PIXEL_UNDO_DOC.to_string()).expect("version");
+        let raw = protocol_apply_command_native(
+            envelope_json(r#"{"type":"undo"}"#, version),
+            PIXEL_UNDO_DOC.to_string(),
+        )
+        .expect("undo through the real command");
+
+        // The host reads exactly these keys off the raw JSON.
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("CommandResult parses");
+        assert_eq!(v["documentVersion"].as_u64(), Some(version + 1));
+        let p = &v["pixelPatches"];
+        assert!(!p.is_null(), "a pixel undo must hand tiles back: {raw}");
+        assert_eq!(p["layerId"].as_str(), Some(LAYER));
+        assert_eq!(p["tiles"][0]["w"].as_u64(), Some(1));
+        assert_eq!(
+            p["tiles"][0]["data"][0].as_u64(),
+            Some(0),
+            "undo returns the BEFORE bytes: {raw}"
+        );
+        assert!(p["epoch"].as_u64().is_some());
+        assert!(p["version"].as_u64().is_some());
+
+        // The canonical buffer really changed - a cursor move without a pixel
+        // write is a silent no-op undo.
+        assert_eq!(
+            read_first(),
+            0,
+            "the canonical buffer must carry the restored pixels"
+        );
+
+        // One cursor entry, one step: a second undo must NOT step again.
+        let version2 = protocol_version_native(PIXEL_UNDO_DOC.to_string()).expect("version");
+        let raw2 = protocol_apply_command_native(
+            envelope_json(r#"{"type":"undo"}"#, version2),
+            PIXEL_UNDO_DOC.to_string(),
+        )
+        .expect("second undo");
+        let v2: serde_json::Value = serde_json::from_str(&raw2).expect("parses");
+        assert!(
+            v2.get("pixelPatches").is_none(),
+            "an exhausted stack steps nothing: {raw2}"
+        );
+    }
+
+    /// Stable digest of the observable engine state: layers in engine order,    /// selection, and document dimensions. Version and the per-layer
     /// `resourceId` / `dirtyRect` are excluded because the version counter
     /// changes on every accepted undo/redo and the resource/dirty values are
     /// engine-internal bookkeeping, not canonical state.

@@ -297,6 +297,18 @@ export type CommandResult = {
    *  adapter then confirm with historyCursorCommit. Absent = applied. */
   status?: "external" | "external-recorded" | "external-confirmed";
   externalSeq?: number;
+  /** Present iff the step landed on a Rust PIXEL history entry. The Rust
+   *  cursor has already moved, so the host must project these tiles and must
+   *  NOT run a pixel step of its own. An empty `tiles` array still means "the
+   *  step is done" - do not treat it as "Rust had nothing". */
+  pixelPatches?: {
+    layerId: string;
+    tiles: { x: number; y: number; w: number; h: number; data: number[] }[];
+    /** Canonical pixel epoch these tiles belong to; stamp the derived surface. */
+    epoch: number;
+    /** History cursor version these tiles belong to. */
+    version: number;
+  };
 };
 
 // ── History query/projection (ADR 0008 H0) ───────────────────────────────

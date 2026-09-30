@@ -304,6 +304,52 @@ impl DocumentPixelStore {
             .collect();
         Some(ls.cow_batch(&regions, epoch))
     }
+
+    /// Execute one protocol command for this document and COMPLETE any pixel
+    /// step the engine started.
+    ///
+    /// `ProtocolEngine::apply` owns the history cursor but not the pixel
+    /// buffer, so when the cursor tip is a `Pixel` entry the walker moves the
+    /// cursor and parks `(layer, tiles, node)` in `pending_pixel`. This method
+    /// is the other half: it replays the tiles into the canonical `PixelLayer`,
+    /// re-anchors the layer's `StateNode` canon so the next commit COWs from the
+    /// restored state, bumps the epoch, and reports the tiles to the host on
+    /// `CommandResult::pixel_patches`.
+    ///
+    /// The host is the PROJECTION for that result: it must upload these tiles
+    /// and must not run a pixel step of its own, or one press undoes twice.
+    pub fn apply_command(
+        &mut self,
+        envelope: crate::command::CommandEnvelope,
+    ) -> Result<crate::command::CommandResult, crate::protocol::ProtocolError> {
+        let mut result = self.history.apply(envelope)?;
+        let Some((layer_id, tiles, node)) = self.history.pending_pixel.take() else {
+            return Ok(result);
+        };
+        // A layer with no canonical buffer in this store has nothing to restore
+        // into. Report the step with no tiles rather than undoing the cursor
+        // move the engine already made - the cursor is the authority.
+        let epoch = match self.layers.get_mut(&layer_id) {
+            Some(layer) => {
+                for t in &tiles {
+                    layer.write_tile(t);
+                }
+                layer.epoch += 1;
+                layer.epoch
+            }
+            None => 0,
+        };
+        if let Some(ls) = self.state_nodes.get_mut(&layer_id) {
+            ls.set_current(node);
+        }
+        result.pixel_patches = Some(crate::command::PixelPatchHandoff {
+            layer_id,
+            tiles,
+            epoch,
+            version: self.history.version(),
+        });
+        Ok(result)
+    }
 }
 
 /// Read-only depth report for one document's unified history stream, as returned

@@ -9,6 +9,7 @@ use crate::canonical_model::{CanonicalDocument, SelectionState};
 use crate::command::*;
 use crate::history::*;
 use crate::model::*;
+use crate::pixel_store::TilePatch;
 use crate::projection::*;
 use crate::state_node::StateNode;
 use std::collections::HashSet;
@@ -40,6 +41,13 @@ pub struct ProtocolEngine {
     // through apply() is rejected with E_EXTERNAL_PENDING until then — the
     // host must not stack a pending external transition with new work.
     pub(crate) pending_external: Option<(u64, String)>,
+    // Set by the Undo/Redo walker when it steps a `Pixel` entry: the layer id,
+    // the tiles to replay, and the canonical node to re-anchor. The engine owns
+    // NO pixel buffer, so it cannot write the tiles itself - the enclosing
+    // `DocumentPixelStore` drains this right after `apply()` (see
+    // `DocumentPixelStore::apply_command`). This is the seam that lets the Rust
+    // stream own the pixel step without the engine owning the pixels.
+    pub(crate) pending_pixel: Option<(String, Vec<TilePatch>, Arc<StateNode>)>,
     // Engine-local selection state (selection is core document state). Selection is NOT an
     // undoable transition in the command stream; it rides Model-A snapshots and is
     // reconciled onto the canonical shadow when one is seeded.
@@ -70,6 +78,7 @@ impl Default for ProtocolEngine {
             max_depth: 50,
             adapters: Vec::new(),
             pending_external: None,
+            pending_pixel: None,
             canonical: None,
             selection: None,
             doc_size: None,

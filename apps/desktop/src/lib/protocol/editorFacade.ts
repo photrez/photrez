@@ -6,7 +6,7 @@ import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNati
 import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentEngine } from "@/engine/document";
-import type { Command, DocumentVersion, RenderSnapshot, RenderDelta, RenderLayer, TransformPatch, LockKind, SelectionState, LayerParamsPatch } from "./types";
+import type { Command, CommandResult, DocumentVersion, RenderSnapshot, RenderDelta, RenderLayer, TransformPatch, LockKind, SelectionState, LayerParamsPatch } from "./types";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
 import { isDeltaApplicable } from "./types";
 
@@ -45,6 +45,12 @@ export class EditorFacade {
   // confirmExternalCursor) before issuing another facade command, or every
   // subsequent facade command permanently rejects with E_EXTERNAL_PENDING.
   lastExternalHandoff: { seq: number; direction: "undo" | "redo" } | null = null;
+  // Rust pixel handoff: set by undo()/redo() when the history tip is a Rust
+  // PIXEL entry. Rust executed the step and already moved its cursor, so the
+  // host's ONLY remaining job is to project these tiles (upload + derived
+  // surface). An empty `tiles` array still means the step is done - falling
+  // through to the TS history store on empty tiles would undo a second time.
+  lastPixelPatches: NonNullable<CommandResult["pixelPatches"]> | null = null;
   private nextSeq = 1;
 
   constructor(initial?: RenderSnapshot, readonly docId = "default") {
@@ -391,6 +397,7 @@ export class EditorFacade {
 
   async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
+    this.lastPixelPatches = null;
     await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "undo" } });
     // External history handoff: the walker landed on a legacy (external) entry
@@ -398,6 +405,11 @@ export class EditorFacade {
     // production path can clear the barrier via confirmExternalCursor.
     if (res.status === "external" && res.externalSeq !== undefined) {
       this.lastExternalHandoff = { seq: res.externalSeq, direction: "undo" };
+    }
+    // Rust pixel handoff: the walker stepped a PIXEL entry, so the cursor moved
+    // and the tiles come back here. The host projects them; it does not step.
+    if (res.pixelPatches) {
+      this.lastPixelPatches = res.pixelPatches;
     }
     // Ticket 2.2 mixed-history routing: Rust Undo on an empty stack is a NO-OP
     // success (empty delta, version still bumps). Callers must treat this flag
@@ -418,10 +430,14 @@ export class EditorFacade {
   }
   async redo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
+    this.lastPixelPatches = null;
     await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "redo" } });
     if (res.status === "external" && res.externalSeq !== undefined) {
       this.lastExternalHandoff = { seq: res.externalSeq, direction: "redo" };
+    }
+    if (res.pixelPatches) {
+      this.lastPixelPatches = res.pixelPatches;
     }
     this.lastHistoryDeltaWasEmpty =
       res.delta.changes.length === 0 && res.delta.width === undefined && res.delta.height === undefined;

@@ -130,6 +130,41 @@ type PixelTxn = (
     Option<Arc<StateNode>>,
 );
 impl ProtocolEngine {
+    /// The pixel step for the `Pixel` entry at `idx`: undo replays `before`,
+    /// redo replays `after`. Returns the affected layer, the dirty-region tiles
+    /// to replay, and the canonical node to re-anchor.
+    ///
+    /// Pure: it does NOT move the cursor or bump the version, so every caller
+    /// owns both. This is the single definition of "what a pixel step is" — the
+    /// `Command::Undo`/`Command::Redo` walker and `undo_pixel`/`redo_pixel` must
+    /// not each grow their own copy, or the two executors drift apart.
+    pub(crate) fn pixel_step_at(
+        &self,
+        idx: usize,
+        redo: bool,
+    ) -> Option<(String, Vec<TilePatch>, Arc<StateNode>)> {
+        let entry = self.entries.get(idx)?;
+        match &entry.payload {
+            EntryPayload::Pixel {
+                layer_id,
+                before,
+                after,
+            } => {
+                let (node, other) = if redo {
+                    (after, before)
+                } else {
+                    (before, after)
+                };
+                Some((
+                    layer_id.clone(),
+                    state_node_touched_patches(node, other),
+                    node.clone(),
+                ))
+            }
+            // Every other payload keeps the caller's existing behaviour.
+            _ => None,
+        }
+    }
     /// Undo the entry just below the cursor. For `Pixel` entries returns the
     /// affected layer id, the materialized `before` tiles (to replay onto
     /// `PixelLayer.pixels`), and the `before` `Arc<StateNode>` (so the
@@ -147,23 +182,13 @@ impl ProtocolEngine {
             return Ok((None, None, None));
         }
         let idx = self.cursor - 1;
-        let entry = match self.entries.get(idx) {
-            Some(e) => e,
-            None => return Ok((None, None, None)),
-        };
-        match &entry.payload {
-            EntryPayload::Pixel {
-                layer_id,
-                before,
-                after,
-            } => {
-                let layer = Some(layer_id.clone());
-                let tiles = Some(state_node_touched_patches(before, after));
-                let node = Some(before.clone());
-                self.cursor -= 1;
-                self.version += 1;
-                Ok((layer, tiles, node))
-            }
+        if let Some(txn) = self.pixel_step_at(idx, false) {
+            self.cursor -= 1;
+            self.version += 1;
+            let (layer_id, tiles, node) = txn;
+            return Ok((Some(layer_id), Some(tiles), Some(node)));
+        }
+        match &self.entries[idx].payload {
             // External (TS host-handoff) entries still step the unified cursor
             // so the ordering stays unified (the host executes + commits later);
             // no tiles are produced.
@@ -178,6 +203,8 @@ impl ProtocolEngine {
             // cursor; the caller MUST route by `tip_payload_kind()` to
             // `undo_snapshot` / the metadata undo path.
             EntryPayload::Snapshot { .. } | EntryPayload::Native { .. } => Ok((None, None, None)),
+            // Pixel is handled above.
+            EntryPayload::Pixel { .. } => Ok((None, None, None)),
         }
     }
 
@@ -193,34 +220,20 @@ impl ProtocolEngine {
             return Ok((None, None, None));
         }
         let idx = self.cursor;
-        let entry = match self.entries.get(idx) {
-            Some(e) => e,
-            None => return Ok((None, None, None)),
-        };
-        match &entry.payload {
-            EntryPayload::Pixel {
-                layer_id,
-                before,
-                after,
-            } => {
-                let layer = Some(layer_id.clone());
-                let tiles = Some(state_node_touched_patches(after, before));
-                let node = Some(after.clone());
-                self.cursor += 1;
-                self.version += 1;
-                Ok((layer, tiles, node))
-            }
-            // External (TS host-handoff) entries still step the unified cursor.
+        if let Some(txn) = self.pixel_step_at(idx, true) {
+            self.cursor += 1;
+            self.version += 1;
+            let (layer_id, tiles, node) = txn;
+            return Ok((Some(layer_id), Some(tiles), Some(node)));
+        }
+        match &self.entries[idx].payload {
             EntryPayload::External { .. } => {
                 self.cursor += 1;
                 self.version += 1;
                 Ok((None, None, None))
             }
-            // Snapshot / Native (metadata) entries are NOT owned by `redo_pixel`
-            // — refuse (no-op, no cursor move) so a caller driving `redo_pixel`
-            // alone cannot eat an atomic Snapshot/meta step. Route by
-            // `tip_payload_kind()` instead.
             EntryPayload::Snapshot { .. } | EntryPayload::Native { .. } => Ok((None, None, None)),
+            EntryPayload::Pixel { .. } => Ok((None, None, None)),
         }
     }
     pub fn record_external(
@@ -429,6 +442,7 @@ impl ProtocolEngine {
             },
             status: Some("external-confirmed".to_string()),
             external_seq: Some(seq),
+            pixel_patches: None,
         })
     }
 }

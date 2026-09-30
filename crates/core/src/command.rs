@@ -297,4 +297,24 @@ pub struct CommandResult {
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_seq: Option<u64>,
+    // Present iff this step stepped a `Pixel` history entry. The cursor has
+    // ALREADY moved when the host sees this, so the host must project these
+    // tiles and must NOT run a pixel step of its own. `epoch`/`version` name
+    // the canonical state the tiles belong to, so the host can stamp its
+    // derived cache against it instead of guessing. Absent for every other
+    // step, so no existing producer's serialized shape changes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pixel_patches: Option<PixelPatchHandoff>,
+}
+
+/// Pixel tiles one undo/redo step must replay on the host. Produced by the
+/// Rust history executor when the tip is a `Pixel` entry; the host uploads them
+/// and mirrors them into its derived paint surface.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PixelPatchHandoff {
+    pub layer_id: String,
+    pub tiles: Vec<crate::pixel_store::TilePatch>,
+    pub epoch: u64,
+    pub version: u64,
 }

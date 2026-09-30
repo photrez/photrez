@@ -49,7 +49,7 @@ fn all_tiles_covers_full_layer() {
     assert_eq!(cover, layer.pixels);
 }
 
-// ΓöÇΓöÇ Lifecycle ΓöÇΓöÇ
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Lifecycle Î“Ã¶Ã‡Î“Ã¶Ã‡
 
 fn reg() -> PixelStoreRegistry {
     PixelStoreRegistry::new()
@@ -120,7 +120,7 @@ fn resize_layer_recreates_dimensions() {
     r.open_document("docA");
     r.add_layer("docA", "L1", 64, 64, vec![0; 64 * 64 * 4])
         .unwrap();
-    // Mutate, then "resize" to 32x32 ΓÇö old 64x64 index math must no longer apply.
+    // Mutate, then "resize" to 32x32 Î“Ã‡Ã¶ old 64x64 index math must no longer apply.
     r.resize_layer("docA", "L1", 32, 32, vec![1; 32 * 32 * 4])
         .unwrap();
     let layer = r.get_layer("docA", "L1").unwrap();
@@ -149,7 +149,7 @@ fn same_layer_id_in_different_documents_isolated() {
     assert_eq!(a.pixels[0], 42);
 }
 
-// ΓöÇΓöÇ Epoch ΓöÇΓöÇ
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Epoch Î“Ã¶Ã‡Î“Ã¶Ã‡
 
 #[test]
 fn epoch_starts_zero_and_increments_on_mutation() {
@@ -191,7 +191,7 @@ fn registry_epoch_per_layer_independent() {
     assert_eq!(r.get_epoch("docA", "L2").unwrap(), 0);
 }
 
-// ΓöÇΓöÇ Unified pixel history (ProtocolEngine is the sole authoritative cursor) ΓöÇΓöÇ
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Unified pixel history (ProtocolEngine is the sole authoritative cursor) Î“Ã¶Ã‡Î“Ã¶Ã‡
 
 #[test]
 fn apply_pixel_patch_moves_cursor_and_bumps_version_once() {
@@ -302,7 +302,7 @@ fn cross_layer_undo_reverts_only_last_entry_layer() {
 fn apply_pixel_patch_missing_layer_does_not_move_cursor() {
     let mut r = reg();
     r.open_document("docA");
-    // No layer seeded ΓÇö the command must fail WITHOUT pushing a history entry.
+    // No layer seeded Î“Ã‡Ã¶ the command must fail WITHOUT pushing a history entry.
     let res = r.apply_pixel_patch(
         "docA",
         "L-missing",
@@ -397,13 +397,13 @@ fn deep_history_cursor_unchanged_across_many_entries() {
     assert_eq!(r.get_layer("docA", "L1").unwrap().pixels[0], n);
 }
 
-// ΓöÇΓöÇ Bug 1: overlapping strokes must composite onto canonical, not wipe ΓöÇΓöÇ
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Bug 1: overlapping strokes must composite onto canonical, not wipe Î“Ã¶Ã‡Î“Ã¶Ã‡
 #[test]
 fn commit_pixels_composites_onto_canonical_overlapping() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     let _ = r.add_layer("d", "L", 4, 4, vec![255; 4 * 4 * 4]); // white 4x4
-                                                               // stroke A: 2x2 red opaque dab at (1,1) ΓÇö covers (0,0) within tile (0,0).
+                                                               // stroke A: 2x2 red opaque dab at (1,1) Î“Ã‡Ã¶ covers (0,0) within tile (0,0).
     let mut tip_a_data = Vec::new();
     for _ in 0..4 {
         tip_a_data.extend_from_slice(&[255u8, 0, 0, 255]);
@@ -437,7 +437,7 @@ fn commit_pixels_composites_onto_canonical_overlapping() {
     assert_eq!(l.pixels[1], 0); // G (red) at corner (0,0)
     assert_eq!(l.pixels[(3 * 4 + 3) * 4 + 1], 255); // far corner white
 
-    // stroke B: 1x1 blue opaque dab at (1,1) ΓÇö overlaps A within the same tile.
+    // stroke B: 1x1 blue opaque dab at (1,1) Î“Ã‡Ã¶ overlaps A within the same tile.
     let tip_b = ParityTip {
         width: 1,
         height: 1,
@@ -528,7 +528,7 @@ fn commit_pixels_doc_namespace_independent() {
     assert_eq!(r.get_layer("A", "L").unwrap().pixels[0], 1);
 }
 
-// ΓöÇΓöÇ Fill write_region ΓöÇΓöÇ
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Fill write_region Î“Ã¶Ã‡Î“Ã¶Ã‡
 
 #[test]
 fn c5_4_write_region_writes_canonical_and_advances_history_once() {
@@ -543,8 +543,8 @@ fn c5_4_write_region_writes_canonical_and_advances_history_once() {
     }
     let (b, a, epoch, version) = r.write_region("d", "L", 2, 2, 4, 4, rgba).expect("write");
     let px = r.get_layer("d", "L").unwrap().pixels.clone();
-    assert_eq!(px[108], 255, "inside region ΓåÆ filled");
-    assert_eq!(px[0], 0, "outside region ΓåÆ untouched");
+    assert_eq!(px[108], 255, "inside region Î“Ã¥Ã† filled");
+    assert_eq!(px[0], 0, "outside region Î“Ã¥Ã† untouched");
     // Exactly ONE history step + ONE epoch bump.
     assert_eq!(version, before_ver + 1, "version +1");
     assert_eq!(epoch, before_epoch + 1, "epoch +1");
@@ -611,7 +611,7 @@ fn c5_4_write_region_new_write_truncates_redo() {
     r.write_region("d", "L", 0, 0, 4, 4, red.clone()).unwrap();
     r.undo_pixel("d");
     assert!(r.redo_pixel("d").is_some(), "redo available after undo");
-    // New write after undo ΓåÆ future redo severed.
+    // New write after undo Î“Ã¥Ã† future redo severed.
     r.write_region("d", "L", 4, 4, 4, 4, red.clone()).unwrap();
     assert!(
         r.redo_pixel("d").is_none(),
@@ -729,7 +729,7 @@ fn c4_dirty_region_brush_contract() {
     );
 }
 
-// ΓöÇΓöÇ History unification ΓöÇΓöÇ
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ History unification Î“Ã¶Ã‡Î“Ã¶Ã‡
 // Proof target: TS (non-pixel) and Rust (pixel) operations share EXACTLY ONE
 // logical history cursor. The Rust `ProtocolEngine` already routes both
 // `apply_pixel_patch` (Pixel entry) and `record_external` (External entry)
@@ -934,7 +934,7 @@ fn phase1_e_partial_undo_then_new_severs_redo() {
     r.undo_pixel("d"); // undo the TS meta entry -> cursor 1
     let after_undo = r.get_history_cursor("d").unwrap();
     // External redo returns no pixel tiles (TS reverts its own metadata) but the
-    // UNIFIED cursor MUST advance ΓÇö that is the real redo signal.
+    // UNIFIED cursor MUST advance Î“Ã‡Ã¶ that is the real redo signal.
     let redone = r.redo_pixel("d");
     assert_eq!(
         r.get_history_cursor("d"),
@@ -1010,7 +1010,7 @@ fn phase1_randomized_mixed_ops_pass() {
     }
 }
 
-// ── Resize corrective: layer resize drops pixel history (no stale resurrect) ──
+// â”€â”€ Resize corrective: layer resize drops pixel history (no stale resurrect) â”€â”€
 // Resizing a layer MUST drop its pixel-history entries so undo/redo CANNOT
 // replay a stale-dim `Arc<StateNode>` onto the new buffer. Before the fix
 // this panicked (write out of bounds) or silently resurrected pre-resize
@@ -1109,7 +1109,7 @@ fn row_major_default_patches_byte_identical() {
     );
 }
 
-// Malformed input at the registry seam MUST be gracefully skipped —
+// Malformed input at the registry seam MUST be gracefully skipped â€”
 // no panic, no cursor move, no history entry. `cow_batch`'s internal asserts
 // are now a safety net only, because this boundary validates first.
 #[test]
@@ -1227,10 +1227,10 @@ fn write_region_parity_with_oracle() {
     assert_byte_eq(&l.pixels, &oracle, "write_region canonical parity");
 }
 
-// ── native authority command surface ──────────────────────────────────────────
+// â”€â”€ native authority command surface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Proves the per-document native `ProtocolEngine` serves the AUTHORITY methods
 // (apply / history_query / history_cursor_commit / register_adapter / snapshot)
-// through the REAL `PixelStoreRegistry` + per-doc engine — the exact code path
+// through the REAL `PixelStoreRegistry` + per-doc engine â€” the exact code path
 // the Tauri `protocol_*_native` commands invoke. No mocks; drives the real
 // engine + real registry (mirrors the c4_runtime_tests headless-pipeline style).
 #[cfg(test)]
@@ -1323,6 +1323,218 @@ mod protocol_native_authority_tests {
             .expect("redo");
         let q2: HistoryQuery = reg.docs.get("d").unwrap().history.history_query();
         assert_eq!(q2.cursor, 1, "redo moved cursor back to tip");
+    }
+
+    /// One cursor, one executor: `Command::Undo`/`Command::Redo` must step the
+    /// pixel history cursor when the tip is a `Pixel` entry. Before this,
+    /// `Command::Undo` returned an empty delta and left the cursor put while
+    /// `undo_pixel` moved it, so which side executed a pixel step depended on
+    /// the payload kind at the call site instead of on a contract.
+    #[test]
+    fn undo_command_steps_the_pixel_cursor_and_returns_the_before_tiles() {
+        let mut reg = PixelStoreRegistry::new();
+        reg.open_document("d");
+        reg.add_layer("d", "L1", 8, 8, vec![0; 8 * 8 * 4]).unwrap();
+        // One stroke: all-zero tile -> all-10 tile.
+        reg.apply_pixel_patch(
+            "d",
+            "L1",
+            vec![super::tile(0, 0, 8, 8, 0)],
+            vec![super::tile(0, 0, 8, 8, 10)],
+        );
+        assert_eq!(reg.get_history_cursor("d"), Some(1), "stroke recorded");
+
+        let res: CommandResult = reg
+            .docs
+            .get_mut("d")
+            .unwrap()
+            .apply_command(envelope(Command::Undo))
+            .expect("undo onto a pixel entry");
+
+        assert_eq!(
+            reg.get_history_cursor("d"),
+            Some(0),
+            "Command::Undo must step the pixel cursor by exactly 1"
+        );
+
+        let handoff = res
+            .pixel_patches
+            .as_ref()
+            .expect("Command::Undo must hand the pixel tiles back to the host");
+        assert_eq!(handoff.layer_id, "L1");
+        assert_eq!(handoff.tiles.len(), 1, "one dirty tile for an 8x8 layer");
+        let t = &handoff.tiles[0];
+        assert_eq!((t.x, t.y, t.w, t.h), (0, 0, 8, 8));
+        assert!(
+            t.data.iter().all(|b| *b == 0),
+            "undo hands back the BEFORE tile bytes, not the after bytes"
+        );
+        assert_eq!(
+            handoff.epoch,
+            reg.get_epoch("d", "L1").unwrap(),
+            "handoff epoch names the canonical state the tiles belong to"
+        );
+        assert_eq!(
+            handoff.version,
+            reg.get_history_version("d").unwrap(),
+            "handoff version names the cursor the step landed on"
+        );
+
+        // Redo is symmetric and returns the after bytes.
+        let res: CommandResult = reg
+            .docs
+            .get_mut("d")
+            .unwrap()
+            .apply_command(envelope(Command::Redo))
+            .expect("redo onto a pixel entry");
+        assert_eq!(reg.get_history_cursor("d"), Some(1), "redo steps forward");
+        let handoff = res.pixel_patches.as_ref().expect("redo hands tiles back");
+        assert_eq!(handoff.tiles.len(), 1);
+        assert!(
+            handoff.tiles[0].data.iter().all(|b| *b == 10),
+            "redo hands back the AFTER tile bytes"
+        );
+    }
+
+    /// The exact JSON key names the host parses. Pins the wire contract: a
+    /// host mock that guesses different keys is testing a shape the engine
+    /// never emits, which is how a green jsdom test can hide a broken app.
+    #[test]
+    fn pixel_handoff_serializes_to_the_keys_the_host_parses() {
+        let mut reg = PixelStoreRegistry::new();
+        reg.open_document("d");
+        reg.add_layer("d", "L1", 1, 1, vec![0, 0, 0, 255]).unwrap();
+        reg.apply_pixel_patch(
+            "d",
+            "L1",
+            vec![tile(0, 0, 1, 1, 0)],
+            vec![tile(0, 0, 1, 1, 7)],
+        );
+        let res: CommandResult = reg
+            .docs
+            .get_mut("d")
+            .unwrap()
+            .apply_command(envelope(Command::Undo))
+            .expect("undo");
+        let v: serde_json::Value = serde_json::to_value(&res).expect("serialize");
+        let p = &v["pixelPatches"];
+        assert!(!p.is_null(), "pixelPatches must be present on the wire");
+        assert!(p["layerId"].is_string(), "camelCase layerId");
+        assert!(p["tiles"].is_array(), "tiles array");
+        // TilePatch keeps its Rust field names - the host already parses this
+        // shape from rust_pixels_undo, so the two paths agree.
+        assert!(p["tiles"][0]["x"].is_i64());
+        assert!(p["tiles"][0]["y"].is_i64());
+        assert!(p["tiles"][0]["w"].is_u64());
+        assert!(p["tiles"][0]["h"].is_u64());
+        assert!(p["tiles"][0]["data"].is_array());
+        assert!(p["epoch"].is_u64());
+        assert!(p["version"].is_u64());
+        assert_eq!(v["documentVersion"].is_u64(), true, "camelCase on result");
+
+        // A metadata step must OMIT the key entirely (skip_serializing_if), so
+        // the host can tell "no pixel step" from "a pixel step with no tiles".
+        reg.docs
+            .get_mut("d")
+            .unwrap()
+            .apply_command(envelope(Command::AddLayer {
+                id: "L2-id".to_string(),
+                name: "L2".to_string(),
+                width: 10.0,
+                height: 10.0,
+                index: 0,
+                layer_type: None,
+                shape_params: None,
+                text_data: None,
+            }))
+            .expect("addLayer");
+        let meta: serde_json::Value = serde_json::to_value(
+            reg.docs
+                .get_mut("d")
+                .unwrap()
+                .apply_command(envelope(Command::Undo))
+                .expect("undo metadata"),
+        )
+        .expect("serialize");
+        assert!(
+            meta.get("pixelPatches").is_none(),
+            "metadata step must omit pixelPatches entirely"
+        );
+    }
+
+    /// The canonical buffer is the pixel owner, so a `Command::Undo` pixel step
+    /// must land in the `PixelLayer` itself. Without this the cursor moves but
+    /// the pixels do not, which is a silent no-op undo.
+    #[test]
+    fn undo_command_writes_the_before_pixels_into_the_canonical_buffer() {
+        let mut reg = PixelStoreRegistry::new();
+        reg.open_document("d");
+        reg.add_layer("d", "L1", 1, 1, vec![0, 0, 0, 255]).unwrap();
+        reg.apply_pixel_patch(
+            "d",
+            "L1",
+            vec![super::tile(0, 0, 1, 1, 0)],
+            vec![super::tile(0, 0, 1, 1, 11)],
+        );
+        assert_eq!(reg.get_layer("d", "L1").unwrap().pixels[0], 11);
+
+        let res: CommandResult = reg
+            .docs
+            .get_mut("d")
+            .unwrap()
+            .apply_command(envelope(Command::Undo))
+            .expect("undo");
+        assert!(res.pixel_patches.is_some(), "tiles handed back");
+        assert_eq!(
+            reg.get_layer("d", "L1").unwrap().pixels[0],
+            0,
+            "canonical buffer must carry the restored pixels"
+        );
+
+        let epoch_after_undo = reg.get_epoch("d", "L1").unwrap();
+        let _: CommandResult = reg
+            .docs
+            .get_mut("d")
+            .unwrap()
+            .apply_command(envelope(Command::Redo))
+            .expect("redo");
+        assert_eq!(
+            reg.get_epoch("d", "L1").unwrap(),
+            epoch_after_undo + 1,
+            "each pixel step bumps the layer epoch so the TS cache re-reads"
+        );
+        assert_eq!(reg.get_layer("d", "L1").unwrap().pixels[0], 11);
+    }
+
+    /// A metadata tip keeps the existing walker behaviour: no pixel handoff at
+    /// all, so the host can still tell "Rust restored metadata" from "Rust
+    /// restored pixels".
+    #[test]
+    fn undo_command_on_a_metadata_entry_returns_no_pixel_handoff() {
+        let mut reg = PixelStoreRegistry::new();
+        let eng = engine_for(&mut reg, "d");
+        eng.apply(envelope(Command::AddLayer {
+            id: "L-id".to_string(),
+            name: "L".to_string(),
+            width: 100.0,
+            height: 100.0,
+            index: 0,
+            layer_type: None,
+            shape_params: None,
+            text_data: None,
+        }))
+        .expect("apply addLayer");
+
+        let res: CommandResult = reg
+            .docs
+            .get_mut("d")
+            .unwrap()
+            .apply_command(envelope(Command::Undo))
+            .expect("undo onto metadata");
+        assert!(
+            res.pixel_patches.is_none(),
+            "a metadata undo must not claim a pixel step"
+        );
     }
 
     #[test]

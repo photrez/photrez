@@ -81,6 +81,7 @@ impl ProtocolEngine {
                 },
                 status: Some("external-recorded".to_string()),
                 external_seq: None,
+                pixel_patches: None,
             });
         }
         // Walker handoff marker: set when an undo/redo step lands on an
@@ -800,9 +801,22 @@ impl ProtocolEngine {
                             changes
                         }
                         EntryPayload::Pixel { .. } => {
-                            // Pixel undo is handled by undo_pixel/redo_pixel
-                            // (the separate authoritative path); the metadata
-                            // apply walker leaves pixel entries untouched.
+                            // Pixel entries live in this same stream, so the
+                            // walker is their executor: step the cursor here and
+                            // hand the tiles to the enclosing DocumentPixelStore
+                            // via `pending_pixel`. That store owns the pixel
+                            // buffer, so it writes the tiles and returns them to
+                            // the host on `CommandResult::pixel_patches`.
+                            // A pixel step changes no layer metadata, so the
+                            // RenderDelta stays empty - emptiness is no longer a
+                            // signal that "Rust had nothing", which is why the
+                            // host must read `pixel_patches`, not the delta.
+                            if let Some((layer_id, tiles, node)) =
+                                self.pixel_step_at(self.cursor - 1, false)
+                            {
+                                self.pending_pixel = Some((layer_id, tiles, node));
+                                self.cursor -= 1;
+                            }
                             Vec::new()
                         }
                         EntryPayload::Snapshot { .. } => {
@@ -878,8 +892,15 @@ impl ProtocolEngine {
                             changes
                         }
                         EntryPayload::Pixel { .. } => {
-                            // See undo branch: pixel entries are owned by
-                            // undo_pixel/redo_pixel, not the metadata walker.
+                            // See the undo branch: the walker executes the pixel
+                            // step (cursor + tiles) and the enclosing
+                            // DocumentPixelStore completes the buffer write.
+                            if let Some((layer_id, tiles, node)) =
+                                self.pixel_step_at(self.cursor, true)
+                            {
+                                self.pending_pixel = Some((layer_id, tiles, node));
+                                self.cursor += 1;
+                            }
                             Vec::new()
                         }
                         EntryPayload::Snapshot { .. } => {
@@ -911,6 +932,7 @@ impl ProtocolEngine {
                 },
                 status: Some("external".to_string()),
                 external_seq: Some(seq),
+                pixel_patches: None,
             });
         }
         self.version += 1;
@@ -930,6 +952,7 @@ impl ProtocolEngine {
             },
             status: None,
             external_seq: None,
+            pixel_patches: None,
         })
     }
 }
