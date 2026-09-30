@@ -756,7 +756,7 @@ impl ProtocolEngine {
                             ..
                         } => {
                             let new_layers =
-                                Self::restore_with_foreign(&self.layers, before, after);
+                                Self::restore_with_foreign(&self.layers, before, after, true);
                             // `new_layers` is the merged end state (captured entry
                             // vector + foreign survivors). `diff_walker` emits Remove
                             // for ids the entry introduced (current \ merged) and an
@@ -841,7 +841,7 @@ impl ProtocolEngine {
                             ..
                         } => {
                             let new_layers =
-                                Self::restore_with_foreign(&self.layers, after, before);
+                                Self::restore_with_foreign(&self.layers, after, before, true);
                             // `new_layers` is the merged end state; `diff_walker`
                             // emits the authoritative full-vector delta (see undo arm).
                             let changes = Self::diff_walker(&self.layers, &new_layers);

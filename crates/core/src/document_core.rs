@@ -544,8 +544,10 @@ impl ProtocolEngine {
         let new_ids: HashSet<&str> = new.iter().map(|a| a.id.as_str()).collect();
         let mut changes = Vec::new();
         // Remove layers the entry introduced: present in `old` (current) but gone
-        // from the merged `new`. Foreign survivors live in `new` already, so they
-        // are never removed here (data-loss class dead).
+        // from the merged `new`. What lands in `new` is decided by
+        // `restore_with_foreign`, which keeps every current layer the entry is
+        // not proven to have created - so this loop only reaches ids the entry
+        // itself brought in.
         for o in old.iter() {
             if !new_ids.contains(o.id.as_str()) {
                 changes.push(RenderLayerChange::Remove {
@@ -574,24 +576,43 @@ impl ProtocolEngine {
         Self::diff_walker(old, new)
     }
 
-    /// Walker-state restore that PRESERVES foreign layers. Undo/redo restores
-    /// the entry's captured vector, but layers introduced since then by a
-    /// canonical re-push (TS-originated structural commits the engine learned
-    /// through the mirror) belong to NEITHER side of this entry - dropping
-    /// them here would silently delete live layers from the native set. Result:
-    /// the captured order first, foreign survivors appended in current order (a
-    /// bounded placement for layers the entry's capture predates). Shared by
-    /// the native walker and the host-handoff (external) entry restore.
+    /// Walker-state restore that PRESERVES layers this entry did not create.
+    /// Undo/redo restores the entry's captured vector, but layers the host
+    /// created since then (a canonical re-push the engine learned through the
+    /// mirror) are not part of this entry's own transition - dropping them here
+    /// would silently delete live layers from the native set. Result: the
+    /// captured order first, survivors appended in current order (a bounded
+    /// placement for layers the entry's capture predates). Shared by the native
+    /// walker and the host-handoff (external) entry restore.
+    ///
+    /// `other_side_proves_creation` states whether `other_side` is
+    /// authoritative evidence of which ids THIS entry's transition brought into
+    /// existence: on undo that is the post-state, on redo it is the set the
+    /// transition destroyed and the redo must destroy again. A Native entry
+    /// captures both sides at commit time, so it is always `true`. An External
+    /// entry records only its pre-sync vector at `record_external`; its
+    /// post-sync slot is filled later by `seed_canonical` from a WHOLE-DOCUMENT
+    /// push, so that side also carries layers the host created outside this
+    /// entry and cannot prove the entry created them. Reading it as a creation
+    /// set makes the undo emit `Remove` for a live host layer, and the host
+    /// applies the delta as the authoritative whole layer list - the layer and
+    /// its bitmap are deleted.
     fn restore_with_foreign(
         current: &LayerSet,
         captured: &LayerSet,
         other_side: &LayerSet,
+        other_side_proves_creation: bool,
     ) -> LayerSet {
         let captured_ids: HashSet<&str> = captured.iter().map(|a| a.id.as_str()).collect();
         let other_ids: HashSet<&str> = other_side.iter().map(|a| a.id.as_str()).collect();
         let mut v: Vec<Arc<LayerMeta>> = captured.0.to_vec();
         for arc in current.iter() {
-            if !captured_ids.contains(arc.id.as_str()) && !other_ids.contains(arc.id.as_str()) {
+            let id = arc.id.as_str();
+            if captured_ids.contains(id) {
+                continue;
+            }
+            // Survivor unless the entry is proven to have brought it in.
+            if !other_ids.contains(id) || !other_side_proves_creation {
                 v.push(arc.clone());
             }
         }
@@ -603,17 +624,19 @@ impl ProtocolEngine {
     ///
     /// An External entry records a mirrored TS commit. Its captured `before` is
     /// the engine's layer set at record time - the pre-sync state, i.e. exactly
-    /// what an undo of this entry restores to. Its `after` is the post-sync
-    /// state, captured when the mirrored commit is up-projected
-    /// (`seed_canonical`); undo restores `before`, redo restores `after`. Both
-    /// are `Arc` clones under structural sharing.
+    /// what an undo of this entry restores to. Its `after` slot is filled later,
+    /// from the next canonical push (`seed_canonical`); undo restores `before`,
+    /// redo restores `after`. Both are `Arc` clones under structural sharing.
     ///
-    /// The same membership-safety rule as the native walker applies: the merged
-    /// result is the captured side plus any layer that belongs to neither side
-    /// of this entry (a foreign survivor introduced by a later re-push), so the
-    /// delta's Remove set is scoped to ids this entry itself introduced and
-    /// foreign layers are never dropped. Foreign survivors are appended in
-    /// current order - a bounded placement for layers the capture predates.
+    /// Because `after` is a whole-document observation rather than this entry's
+    /// own creation set, the undo does not treat an id that appears only there
+    /// as one this entry created: such a layer is kept as a survivor, so the
+    /// delta carries no `Remove` for it and the host - which adopts the delta as
+    /// the authoritative whole layer list - keeps the layer and its bitmap. The
+    /// redo still restores the pre-sync vector as its removal source, so
+    /// re-applying a mirrored delete destroys the layer again. Survivors are
+    /// appended in current order - a bounded placement for layers the capture
+    /// predates.
     ///
     /// Returns an empty delta (handoff-only, no state change) when the post-sync
     /// side was never captured (a handoff that did not pass through a canonical
@@ -633,12 +656,21 @@ impl ProtocolEngine {
             Some(a) => a,
             None => return (seq, Vec::new()),
         };
-        let (captured, other_side) = if direction == "undo" {
-            (&before, &after)
+        let (captured, other_side, other_side_proves_creation) = if direction == "undo" {
+            // The post-sync side is a whole-document observation, not this
+            // entry's own creation set (see `restore_with_foreign`).
+            (&before, &after, false)
         } else {
-            (&after, &before)
+            // The pre-sync side names the ids this entry destroyed; the redo
+            // must destroy them again.
+            (&after, &before, true)
         };
-        let new_layers = Self::restore_with_foreign(&self.layers, captured, other_side);
+        let new_layers = Self::restore_with_foreign(
+            &self.layers,
+            captured,
+            other_side,
+            other_side_proves_creation,
+        );
         let changes = Self::diff_walker(&self.layers, &new_layers);
         self.layers = new_layers;
         // The layer vector changed natively, so keep the shadow consistent

@@ -904,3 +904,53 @@ fn external_undo_retains_foreign_survivor_and_restores_captured_order() {
         "delta restates the merged order"
     );
 }
+
+/// The data-loss guard for an External undo whose post-sync vector carries a
+/// layer the entry itself did not create. An External entry records only its
+/// PRE-sync vector at `record_external`; its post-sync side is filled later by
+/// `seed_canonical` from a WHOLE-DOCUMENT push, so that vector is a snapshot of
+/// the host's stack at sync time, not a per-entry delta. A layer that appears
+/// only in that post-sync vector (here `d2`, created host-side) is therefore not
+/// evidence that this entry created it.
+///
+/// Undo must keep `d2`: the host applies the delta as the authoritative whole
+/// layer list, so a `Remove{d2}` deletes the live host layer with its bitmap.
+/// Observed in the running app on the default path - a brush stroke, then a
+/// gradient fill, then one Ctrl+Z left the layer's bitmap absent instead of
+/// restored.
+#[test]
+fn external_undo_keeps_host_layer_absent_from_the_captured_pre_sync_vector() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(vec![mk_layer("A", "A", 1), mk_layer("B", "B", 2)], 0);
+    // Host op with no per-entry layer delta: record (captures [A, B]) ...
+    record_external(&mut e, "Gradient Fill", &["B"], "tok-grad");
+    // ... then the sync push carries the host's whole stack, including `d2`,
+    // which the host created outside this entry. d2 lands in the entry's
+    // post-sync slot (after) but not in its captured pre-sync slot (before).
+    e.seed_canonical(canon_doc("doc", 100.0, 100.0, &["A", "B", "d2"]));
+    assert_eq!(layer_ids(&e), vec!["A", "B", "d2"], "d2 synced host-side");
+
+    let res = e.apply(env(Command::Undo)).unwrap();
+    let changes = res.delta.changes;
+    assert!(
+        !changes
+            .iter()
+            .any(|c| matches!(c, RenderLayerChange::Remove { id, .. } if id == "d2")),
+        "undo must NOT remove a layer this entry never created (host data loss)"
+    );
+    // d2 survives in the engine set, after the restored captured vector.
+    assert_eq!(
+        layer_ids(&e),
+        vec!["A", "B", "d2"],
+        "captured pre-sync order restored with the host layer kept as a survivor"
+    );
+    // The host, whose projection is the authoritative whole layer list, keeps d2.
+    let host_after = apply_delta_to_ids(
+        &["A".to_string(), "B".to_string(), "d2".to_string()],
+        &changes,
+    );
+    assert!(
+        host_after.contains(&"d2".to_string()),
+        "host keeps d2 (and therefore its bitmap) after the undo"
+    );
+}
