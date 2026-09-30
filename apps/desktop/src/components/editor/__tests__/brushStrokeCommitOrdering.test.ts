@@ -913,7 +913,7 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
     expect(wr.args.y + wr.args.h).toBeLessThanOrEqual(layer.height);
   });
 
-  it("ERASER GUARD: an eraser stroke never enters the deferred Rust region commit and still lands one history entry", async () => {
+  it("ERASER CANONICAL: an eraser stroke enters the deferred Rust region commit as ONE write and ONE history entry", async () => {
     hoist.setSim(makeSim());
     localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
@@ -922,9 +922,24 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
     overlay.onPaintStroke([{ x: 30, y: 30 }], true, settings, false);
     await overlay.commitBrushStroke(engine, history as any, LAYER, true);
     await flushC4Commits();
-    expect(sim.calls.filter((c) => c.cmd === "rust_pixels_write_region")).toHaveLength(0);
-    expect(sim.calls.filter((c) => c.cmd === "rust_pixels_init")).toHaveLength(0);
+    // ONE region write, not zero. With no Rust entry for the erase the unified
+    // cursor never moved for it, so a single undo stepped past the erase onto
+    // the earlier brush entry and dropped it instead of undoing it.
+    const wr = sim.calls.filter((c) => c.cmd === "rust_pixels_write_region");
+    expect(wr).toHaveLength(1);
+    // The store held no layer for this stroke, so the seed path fired once.
+    expect(sim.calls.filter((c) => c.cmd === "rust_pixels_init")).toHaveLength(1);
+    // The write carries the stroke region: non-empty (an empty region is what the
+    // target fence rejects) and inside the layer.
+    expect(wr[0].args.w).toBeGreaterThan(0);
+    expect(wr[0].args.h).toBeGreaterThan(0);
+    expect(wr[0].args.x + wr[0].args.w).toBeLessThanOrEqual(SURFACE_W);
+    expect(wr[0].args.y + wr[0].args.h).toBeLessThanOrEqual(SURFACE_H);
+    // One history entry, flagged already-recorded-in-Rust: the facade commit
+    // wrapper skips its mirror for this commit, so the erase owns exactly one
+    // cursor entry instead of two.
     expect(history.entries).toHaveLength(1);
+    expect((history.commit.mock.calls[0] as unknown[])[3]).toBe(true);
   });
 
   it("FALLBACK (VERIFIED): a deferred write_region failure still commits pixels — no silent drop, no unhandled rejection", async () => {

@@ -115,6 +115,9 @@ interface C4CommitJob {
   effectiveIsEraser: boolean;
   /** Dirty-rect scratch snapshot captured synchronously at enqueue (aliasing-safe). */
   scratchSnap: ImageData;
+  /** True when `scratchSnap` already holds the FINAL post-stroke pixels for the
+   *  region (an eraser), so the commit replaces the region instead of stamping it. */
+  snapIsRegionReplace: boolean;
   seq: number;
 }
 
@@ -190,10 +193,21 @@ export function useBrushOverlay() {
       // The snapshot was captured synchronously at enqueue (see the deferred-commit branch), so it
       // is immune to cachedTileScratch being reused/resized by later strokes. Source-over
       // preserves existing surface pixels under transparent scratch regions.
-      const snapCanvas = new OffscreenCanvas(dw, dh);
-      const snapCtx = snapCanvas.getContext("2d")!;
-      snapCtx.putImageData(job.scratchSnap, 0, 0);
-      sctx.drawImage(snapCanvas, 0, 0, dw, dh, dx0, dy0, dw, dh);
+      if (job.snapIsRegionReplace) {
+        // Eraser: the snapshot IS the post-erase result for this region (the eraser
+        // overlay is rebuilt from the layer plus every dab on pointerup), so it
+        // replaces the region - the same absolute per-tile copy the synchronous
+        // eraser path used. A source-over stamp would leave the pre-erase pixels
+        // showing through the transparent holes. It travels in the job rather than
+        // being pre-composited onto the surface because the rehydrate above just
+        // overwrote the surface with the pre-stroke canonical pixels.
+        sctx.putImageData(job.scratchSnap, dx0, dy0);
+      } else {
+        const snapCanvas = new OffscreenCanvas(dw, dh);
+        const snapCtx = snapCanvas.getContext("2d")!;
+        snapCtx.putImageData(job.scratchSnap, 0, 0);
+        sctx.drawImage(snapCanvas, 0, 0, dw, dh, dx0, dy0, dw, dh);
+      }
       // One producer call owns the region arithmetic; a null result means there
       // is no dirty area, so the stroke stops before any IPC.
       const dirtyRegion = computeDirtyRegion({ x: dx0, y: dy0, w: dw, h: dh }, null);
@@ -1163,11 +1177,12 @@ export function useBrushOverlay() {
         // the rect loop (the software surface costs ~0.5-1ms CPU PER dab,
         // measured 2026-08-22 — same reason as the original tile path).
         let scratchReady = false;
-        // Zero on purpose: only the non-eraser branch below fills these, so an
-        // eraser stroke keeps a 0x0 dirty rect and scratchReady=false. The
-        // deferred Rust commit must stay excluded for erasers — see the guard
-        // at its enqueue branch.
-        let dx0 = 0, dy0 = 0, dw = 0, dh = 0;
+        // Seeded from the stroke region, which is the one rect every commit exit
+        // below derives from. An eraser has no scratch block (its commit ships the
+        // overlay's erased result, not dabs), so this seed is what gives the
+        // deferred Rust commit a non-empty region to write. The non-eraser branch
+        // below re-seeds the same values.
+        let dx0 = strokeRegion.x, dy0 = strokeRegion.y, dw = strokeRegion.w, dh = strokeRegion.h;
         // R2 Step2 DEV-only forensics carriers (no production effect; populated only when shadow flag on)
         let scratchSnap: ImageData | null = null;
         let emulFull: Uint8ClampedArray | null = null;
@@ -1311,14 +1326,14 @@ export function useBrushOverlay() {
         const rustPixelsFlag = (() => {
           try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
         })();
-        // Eraser exclusion: an eraser stroke has no scratch block (dx0..dh
-        // still 0, scratchReady false). Enqueueing it anyway would hand
-        // c4CoreCommit an empty region — the target fence rejects w=0 and the
-        // fallback then finds no dirty region — so the stroke would be
-        // discarded instead of landing one history entry. Both conditions
-        // below are that exclusion; pinned by the eraser-guard case in
-        // brushStrokeCommitOrdering.test.ts.
-        if (rustPixelsFlag && !c3Flag && !effectiveIsEraser && scratchReady) {
+        // An eraser qualifies on its stroke region rather than on scratchReady:
+        // its snapshot is read from the overlay (see below), so the scratch block
+        // does not run and scratchReady stays false. Excluding erasers here left
+        // the unified cursor with no entry for the erase, so one undo stepped past
+        // it onto the earlier brush entry and dropped the erase instead of undoing
+        // it. Pinned by the eraser case in brushStrokeCommitOrdering.test.ts and by
+        // the pointer-chain case in CanvasViewport.paintRegionWiring.test.tsx.
+        if (rustPixelsFlag && !c3Flag && (effectiveIsEraser || scratchReady)) {
           // Async-deferred Rust dirty-region commit. The pointerup
           // handler returns immediately after enqueue; the canonical write, tile
           // rehydration, and history.commit run off-path via a per-document queue
@@ -1329,7 +1344,12 @@ export function useBrushOverlay() {
           // module singleton reused/resized by later strokes, so the deferred commit must
           // not read it at flush time (aliasing hazard). c4CoreCommit composites this
           // snapshot onto the rehydrated surface before the readRect.
-          const c4ScratchSnap = cachedTileScratchCtx!.getImageData(0, 0, dw, dh);
+          // Brush: the shared scratch at its own origin. Eraser: the overlay's
+          // erased result at the stroke origin - the same pixels the synchronous
+          // eraser path copied tile by tile, so the two paths cannot diverge.
+          const c4ScratchSnap = effectiveIsEraser
+            ? overlayCtx!.getImageData(dx0, dy0, dw, dh)
+            : cachedTileScratchCtx!.getImageData(0, 0, dw, dh);
           c4SkipPhaseB = true;
           c4Deferred = true;
           histCommitted = true;
@@ -1347,6 +1367,7 @@ export function useBrushOverlay() {
             beforePatches,
             effectiveIsEraser,
             scratchSnap: c4ScratchSnap,
+            snapIsRegionReplace: effectiveIsEraser,
             seq: 0,
           });
           if ((import.meta as any).env?.DEV) {

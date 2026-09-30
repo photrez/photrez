@@ -99,6 +99,11 @@ function createStore(width: number, height: number) {
   const rejections: string[] = [];
   let initCalls = 0;
   let epoch = 0;
+  // Undo/redo stacks of whole-layer snapshots. Every successful region write is
+  // ONE history entry, so the depth of this stack is the number of cursor steps
+  // a user has to walk back - the same accounting the Rust pixel store keeps.
+  const undoStack: Uint8ClampedArray[] = [];
+  const redoStack: Uint8ClampedArray[] = [];
   // When set, rust_pixels_get_epoch rejects with this message instead of
   // returning the store epoch: Tauri v2 surfaces a Rust Err("layer not
   // initialized") as a bare-string rejection, which is the signal the
@@ -145,6 +150,8 @@ function createStore(width: number, height: number) {
         return Promise.reject("Invalid region length");
       }
       const before = readTile(x, y, w, h);
+      undoStack.push(buffer.slice());
+      redoStack.length = 0; // a new entry truncates redo, like the Rust store
       for (let row = 0; row < h; row++) {
         const dst = ((y + row) * width + x) * 4;
         buffer.set(rgba.subarray(row * w * 4, (row + 1) * w * 4), dst);
@@ -153,6 +160,16 @@ function createStore(width: number, height: number) {
       writes.push({ x, y, w, h, rgba });
       epoch += 1;
       return { before: [before], after: [after], epoch, version: epoch };
+    }
+    if (cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo") {
+      const from = cmd === "rust_pixels_undo" ? undoStack : redoStack;
+      const to = cmd === "rust_pixels_undo" ? redoStack : undoStack;
+      const entry = from.pop();
+      if (!entry) return { tiles: [], epoch, version: epoch, layerId: args.layerId };
+      to.push(buffer.slice());
+      buffer.set(entry);
+      epoch += 1;
+      return { tiles: [readTile(0, 0, width, height)], epoch, version: epoch, layerId: args.layerId };
     }
     return undefined;
   });
@@ -164,6 +181,10 @@ function createStore(width: number, height: number) {
     initCalls: () => initCalls,
     epoch: () => epoch,
     rejectEpoch: (message: string | null) => { epochRejection = message; },
+    /** Pixel-entry count: how many undo steps the cursor currently holds. */
+    undoDepth: () => undoStack.length,
+    /** Whole-layer bytes, for comparing pre/post states across an undo. */
+    snapshot: () => buffer.slice(),
   };
 }
 
@@ -176,7 +197,7 @@ function makeCanvas(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) 
   return canvas;
 }
 
-function containsPixel(rgba: Uint8Array, match: (r: number, g: number, b: number, a: number) => boolean): boolean {
+function containsPixel(rgba: ArrayLike<number>, match: (r: number, g: number, b: number, a: number) => boolean): boolean {
   for (let i = 0; i + 3 < rgba.length; i += 4) {
     if (match(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3])) return true;
   }
@@ -487,5 +508,91 @@ describe("CanvasViewport paint-region wiring (real brush + paint-bucket pointer 
     expect(store.initCalls()).toBe(0);
     expect(readSpy).not.toHaveBeenCalled();
     expect(store.epoch()).toBe(1);
+  });
+
+  // An eraser stroke must reach Rust on the SAME single region commit the brush
+  // uses. Before it did, the stroke committed to the TS history store only, so
+  // the unified cursor held no entry for the erase at all: one Ctrl+Z stepped
+  // past it onto the earlier brush entry and the erase stayed on screen.
+  it("eraser pointerup ships exactly one region write, and ONE undo restores the painted stroke", async () => {
+    const { session } = renderViewport();
+    await tick();
+    setZoomState(1);
+    setPanState({ x: 0, y: 0 });
+
+    const drawWhite = (ctx: CanvasRenderingContext2D) => {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, DOC, DOC);
+    };
+    const white = makeCanvas(DOC, DOC, drawWhite);
+    // A NON-background layer: on the document Background layer the eraser
+    // paints the background swatch (resolveEraserFill -> isEraser:false), which
+    // is the source-over path, not the transparent cut this test pins.
+    const layerId = session.engine.addLayer("Paint").id;
+    session.engine.setLayerImageBitmap(layerId, white as unknown as ImageBitmap);
+    session.engine.setActiveLayer(layerId);
+    store.seed(white.getContext("2d")!.getImageData(0, 0, DOC, DOC).data);
+    if (!session.engine.getPaintSurface(layerId)) throw new Error("paint surface not created");
+    const commitSpy = vi.spyOn(ws.getActiveHistory()!, "commit");
+
+    const canvas = getCanvas();
+    // down + 2 moves + up over one path; the eraser replays the SAME path so the
+    // erase lands entirely on the stroke it has to undo.
+    const path: [string, number, number][] = [
+      ["pointerdown", 60, 60],
+      ["pointermove", 100, 80],
+      ["pointermove", 140, 100],
+      ["pointerup", 140, 100],
+    ];
+    const replay = () => path.forEach(([type, x, y]) => fire(type, canvas, x, y));
+
+    // 1) Paint. One region write, one cursor entry.
+    setTool("brush");
+    setFgColor("#ff0000");
+    replay();
+    await flushC4Commits();
+    await vi.waitFor(() => expect(store.writes.length).toBe(1), { timeout: 3000 });
+    const painted = store.snapshot();
+    expect(containsPixel(painted, (r, g, b) => r === 255 && g === 0 && b === 0)).toBe(true);
+    expect(store.undoDepth()).toBe(1);
+
+    // 2) Erase the same path. The erase is ONE more region write - not zero
+    //    (which strands the cursor before it) and not two (two owners).
+    setTool("eraser");
+    replay();
+    await flushC4Commits();
+    await vi.waitFor(() => expect(store.writes.length).toBe(2), { timeout: 3000 });
+    await tick(50);
+
+    expect(store.rejections).toEqual([]);
+    const eraseWrite = store.writes[1];
+    expect(eraseWrite.w * eraseWrite.h).toBeLessThan(DOC * DOC);
+    expect(eraseWrite.rgba.length).toBe(eraseWrite.w * eraseWrite.h * 4);
+    // The erase reached Rust as pixels: the stroke is punched transparent.
+    expect(containsPixel(eraseWrite.rgba, (_r, _g, _b, a) => a < 255)).toBe(true);
+    expect(containsPixel(store.snapshot(), (_r, _g, _b, a) => a < 255)).toBe(true);
+    // The cursor advanced by exactly one entry for the erase.
+    expect(store.undoDepth()).toBe(2);
+    // One history commit per stroke, each flagged as already owned by Rust, so
+    // the facade mirror never adds a second entry for the same stroke.
+    expect(commitSpy).toHaveBeenCalledTimes(2);
+    for (const call of commitSpy.mock.calls) expect(call[3]).toBe(true);
+    // One owner: rust_pixels_write_region recorded the entries, so history
+    // fired no second state-changing apply for either stroke.
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "apply_tile_patch")).toHaveLength(0);
+
+    // 3) ONE undo. rust_pixels_undo is the command the history walker issues
+    //    for a Pixel entry, so this is the pixel half of a single Ctrl+Z: it
+    //    must land on the erase and bring the painted stroke back.
+    await invokeMock("rust_pixels_undo", { docId: "doc-region", layerId });
+    const afterOneUndo = store.snapshot();
+    expect(Array.from(afterOneUndo)).toEqual(Array.from(painted));
+    expect(store.undoDepth()).toBe(1);
+
+    // The brush entry is still underneath, one step further back.
+    await invokeMock("rust_pixels_undo", { docId: "doc-region", layerId });
+    const afterTwoUndos = store.snapshot();
+    expect(containsPixel(afterTwoUndos, (r, g, b, a) => a === 255 && r === 255 && g === 255 && b === 255)).toBe(true);
+    expect(containsPixel(afterTwoUndos, (r, g) => r === 255 && g === 0)).toBe(false);
   });
 });
