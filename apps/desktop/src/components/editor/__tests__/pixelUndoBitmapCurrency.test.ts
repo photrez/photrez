@@ -260,14 +260,24 @@ describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
   afterAll(() => vi.restoreAllMocks());
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
     localStorage.removeItem("photrez.canonicalCommit"); // C3 off -> C4 deferred commit path
   });
   afterEach(() => localStorage.clear());
 
-  it("model bitmap hash returns to the pre-stroke hash and the epoch is never stamped over a stale bitmap", async () => {
+  /**
+   * Real chain: DocumentEngine + CommandHistory + useBrushOverlay +
+   * useEditorCommands, one brush stroke, then a real undo.
+   *
+   * `rustPixels: "1"` seeds the Rust canonical store, so the stroke takes the
+   * C4 deferred commit path and the undo reverts through `rust_pixels_undo`.
+   * `rustPixels: "0"` leaves the store uninitialised (the state measured in the
+   * real app: `rust_pixels_get_epoch` rejects "layer not initialized" and the
+   * stroke census is all zeros), so the stroke and undo stay purely TS/legacy.
+   */
+  function makeFixture(opts: { rustPixels: "0" | "1"; seedRust: boolean }) {
+    localStorage.setItem("photrez.rustPixels", opts.rustPixels);
     const sim = makeSim();
     hoist.setSim(sim);
 
@@ -276,14 +286,22 @@ describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
     const layer = engine.addLayer("L");
     engine.setActiveLayer(layer.id);
 
-    // Seed Rust canonical + the model bitmap from the same non-zero pattern.
+    // Seed the model bitmap (both paths) and, when Rust is authoritative, the
+    // Rust canonical with the same non-zero pattern.
     const seed = seedPixels();
-    sim.store.set(`${DOC}|${layer.id}`, { w: SIZE, h: SIZE, pixels: seed.slice(), undo: [], redo: [], epoch: 0, version: 0 });
+    if (opts.seedRust) {
+      sim.store.set(`${DOC}|${layer.id}`, { w: SIZE, h: SIZE, pixels: seed.slice(), undo: [], redo: [], epoch: 0, version: 0 });
+    }
     engine.setLayerImageBitmap(layer.id, carrier(SIZE, SIZE, seed.slice()));
 
     // Paint surface: a real byte-backed store. The C4 commit path rehydrates it
     // from Rust, composites dabs, and reads the dirty rect back out.
+    // Seeded from the layer bitmap because the production PaintTileSurface is
+    // constructed from it (DocumentEngine.getPaintSurface), so its snapshotTile
+    // bytes are the layer's pre-stroke pixels. Without this the memento's
+    // `before` tiles would read as empty and the undo would composite zeros.
     const buf = new Uint8ClampedArray(SIZE * SIZE * 4);
+    buf.set(seed);
     const surface = {
       context: {
         putImageData: (img: { data: Uint8ClampedArray; width: number; height: number }, x: number, y: number) => {
@@ -397,23 +415,35 @@ describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
     overlay.setOverlayCanvasRef(canvas);
     const commands = useEditorCommands(() => {});
 
-    const preHash = hash(engine.getLayer(layer.id)!.imageBitmap);
+    return { sim, engine, history, layerId: layer.id, overlay, commands, preHash: hash(engine.getLayer(layer.id)!.imageBitmap) };
+  }
 
-    overlay.onPaintStroke([{ x: 20, y: 20 }], false, settings, false);
-    await overlay.commitBrushStroke(engine as never, history as never, layer.id, false);
+  /** One dab on a seeded layer, then the real undo. */
+  async function strokeThenUndo(f: ReturnType<typeof makeFixture>) {
+    const { overlay, engine, history, layerId, commands, sim } = f;
+    f.overlay.onPaintStroke([{ x: 20, y: 20 }], false, settings, false);
+    await overlay.commitBrushStroke(engine as never, history as never, layerId, false);
     await flushC4Commits();
-
-    const rust = sim.store.get(`${DOC}|${layer.id}`)!;
-    expect(rust.undo.length, "PROBE the stroke recorded one Rust Pixel entry").toBe(1);
-    const postHash = hash(engine.getLayer(layer.id)!.imageBitmap);
-    expect(postHash, "PROBE the stroke is visible in the model bitmap").not.toBe(preHash);
-
+    // Probes are read BEFORE the undo: undoing pops the Rust entry, so counting
+    // it afterwards would always read zero.
+    const postHash = hash(engine.getLayer(layerId)!.imageBitmap);
+    const epochAfterCommit = engine.getLayer(layerId)!.bitmapEpoch;
+    const rustUndoDepth = sim.store.get(`${DOC}|${layerId}`)?.undo.length ?? 0;
     commands.undo();
     for (let i = 0; i < 40; i++) await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
+    return { postHash, epochAfterCommit, rustUndoDepth, live: engine.getLayer(layerId)! };
+  }
 
-    const postUndoRustEpoch = sim.store.get(`${DOC}|${layer.id}`)!.epoch;
-    const live = engine.getLayer(layer.id)!;
+  it("rustPixels=1: model bitmap hash returns to the pre-stroke hash and the epoch is never stamped over a stale bitmap", async () => {
+    const f = makeFixture({ rustPixels: "1", seedRust: true });
+    const { sim, layerId, preHash } = f;
+
+    const { postHash, rustUndoDepth, live } = await strokeThenUndo(f);
+    expect(rustUndoDepth, "PROBE the stroke recorded one Rust Pixel entry").toBe(1);
+    expect(postHash, "PROBE the stroke is visible in the model bitmap").not.toBe(preHash);
+
+    const postUndoRustEpoch = sim.store.get(`${DOC}|${layerId}`)!.epoch;
 
     // 1. The model bitmap must show the un-stroked pixels, not the stroke.
     expect(hash(live.imageBitmap)).toBe(preHash);
@@ -430,6 +460,30 @@ describe("pixel undo leaves layer.imageBitmap truthful (rustPixels=1)", () => {
     // 3. The repair must not blank the layer: Navigator/Adjustments guard on
     //    imageBitmap, so dropping it would hide the layer until some consumer
     //    happened to call ensureBitmapCurrent.
+    expect(live.imageBitmap).not.toBeNull();
+  });
+
+  it("rustPixels=0: the legacy/TS undo path reverts the model bitmap without inventing a Rust epoch", async () => {
+    // No Rust canonical store exists on this path (measured: rust_pixels_get_epoch
+    // rejects "layer not initialized"), so ensureBitmapCurrent is a no-op here
+    // and the memento tiles are the only record of what the step changed.
+    const f = makeFixture({ rustPixels: "0", seedRust: false });
+    const { sim, layerId, preHash } = f;
+    expect(sim.store.size, "PROBE no Rust pixel store on the legacy path").toBe(0);
+
+    const { postHash, epochAfterCommit, live } = await strokeThenUndo(f);
+    expect(postHash, "PROBE the stroke is visible in the model bitmap").not.toBe(preHash);
+
+    // 1. The model bitmap must show the un-stroked pixels, not the stroke.
+    expect(hash(live.imageBitmap)).toBe(preHash);
+
+    // 2. No Rust store means no epoch to report. The legacy path must not invent
+    //    one: stamping an epoch here is the same lie as on the Rust path, and it
+    //    would make a later ensureBitmapCurrent skip a real repair.
+    expect(live.bitmapEpoch, "legacy path must not stamp a Rust epoch").toBe(epochAfterCommit);
+
+    // 3. Re-derived, not dropped - see the rustPixels=1 case for why nulling the
+    //    bitmap is the wrong repair.
     expect(live.imageBitmap).not.toBeNull();
   });
 });

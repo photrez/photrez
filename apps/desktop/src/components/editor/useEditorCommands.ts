@@ -445,6 +445,30 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           // present. It stamps only an epoch it actually rebuilt for.
           if (rustRes && rustRes.tiles.length > 0) {
             await engine.ensureBitmapCurrent(activeDocId, patches.layerId);
+          } else if (tiles.length > 0 && liveLayer.imageBitmap) {
+            // No authoritative Rust pixels were applied, so the same staleness
+            // applies with no Rust repair available: the epoch probe rejects
+            // ("layer not initialized") and ensureBitmapCurrent returns early.
+            // The model bitmap is then the only pixel source of truth and the
+            // entry's memento tiles are the only record of what this step
+            // changed. A paint op writes just those tiles, so restoring their
+            // bytes over the current bitmap yields the exact pre-step (undo) /
+            // post-step (redo) pixels. No epoch is stamped: with no Rust store
+            // there is none to report, and inventing one would make a later
+            // ensureBitmapCurrent skip a real repair.
+            const canvas = new OffscreenCanvas(liveLayer.width, liveLayer.height);
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(liveLayer.imageBitmap as CanvasImageSource, 0, 0);
+              for (const t of tiles) {
+                ctx.putImageData(new ImageData(new Uint8ClampedArray(t.data), t.width, t.height), t.x, t.y);
+              }
+              liveLayer.imageBitmap = canvas.transferToImageBitmap();
+              // The cached paint surface is derived from the bitmap we just
+              // replaced, so it is now drifted; drop it rather than let a later
+              // paint op composite onto the stale copy.
+              engine.invalidatePaintSurface(patches.layerId);
+            }
           }
         }
         const perfDone = performance.now();
