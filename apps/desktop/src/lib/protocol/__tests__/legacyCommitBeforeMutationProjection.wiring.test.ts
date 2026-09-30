@@ -26,6 +26,7 @@ import { addLayerFromCrossDoc } from "@/components/editor/crossDocLayerOps";
 import {
   commitFacadeOpacity,
   getFacade,
+  getHistoryProjection,
   installFacadeCommitShim,
   recordExternalTransitionFor,
   seedFacadeFromEngine,
@@ -34,13 +35,20 @@ import {
 
 // The shim reads getEngine()/getId() at commit time; hand it the per-test engine.
 let liveEngine: DocumentEngine | null = null;
+// Counts how often the shim decided to mirror: providers.getEngine() is reached
+// only AFTER the alreadyRecordedInRust skip, so this is the shim's own decision,
+// observable without the Tauri native protocol the cursor read needs.
+let engineProbeCount = 0;
 
 beforeAll(async () => {
   await getWasmExportModule();
   // Install the production shim once (shimInstalled is module-sticky; production
   // installs it once at EditorShell boot).
   installFacadeCommitShim({
-    getEngine: () => liveEngine as never,
+    getEngine: () => {
+      engineProbeCount++;
+      return liveEngine as never;
+    },
     getDocId: () => liveEngine?.getId() ?? "default",
   });
 });
@@ -188,5 +196,102 @@ describe("photrez.facade=0 opt-out is byte-identical", () => {
     engine.restore(preAdd);
 
     expect(JSON.stringify(facade.snapshot)).toBe(before);
+  });
+});
+
+// The commit shim mirrors legacy commits into the unified cursor as External
+// entries. A pixel-path commit (brush/fill/adjustment bake) calls
+// CommandHistory.commit with alreadyRecordedInRust=true because Rust already owns
+// that stroke's Pixel entry (rust_pixels_write_region). Mirroring it AGAIN as
+// External gives one stroke two cursor entries, and the next undo steps the
+// External mirror instead of the Rust pixels. Counted off the real cursor, not a
+// spy: the assertion must be able to see a mirror the shim really recorded.
+describe("commit shim skips the External mirror for an already-Rust-recorded commit", () => {
+  const externalCount = async (docId: string) => {
+    const proj = await getHistoryProjection(docId);
+    return proj.entries.filter((e) => String(e.origin).startsWith("external")).length;
+  };
+
+  it("alreadyRecordedInRust=true mirrors nothing; false and absent still mirror", async () => {
+    const docId = "docPixelCommitMirror";
+    const { engine } = await setupDoc(docId);
+    liveEngine = engine;
+    const history = new CommandHistory();
+    const imperative = {
+      layerId: engine.getLayers()[0].id,
+      before: [],
+      after: [],
+    };
+
+    history.commit(engine.snapshot(), "Brush Stroke", imperative as never, true);
+    // Sleep once, then assert: the mirror is a fire-and-forget record, so poll
+    // until the cursor is dirty would hide the failure. 50ms is long enough for an
+    // unconditional mirror to land (the "false" commit below proves that).
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await externalCount(docId)).toBe(0);
+
+    // The mirror must still happen for commits Rust does not already own, or the
+    // fix would be "return early always" rather than an honour-the-flag skip.
+    history.commit(engine.snapshot(), "Move Layer");
+    await vi.waitFor(async () => {
+      expect(await externalCount(docId)).toBe(1);
+    });
+
+    // The imperative/3rd-argument path keeps mirroring: the tile memento it
+    // carries is the only undo payload for that shape.
+    history.commit(engine.snapshot(), "Add Shape", imperative as never);
+    await vi.waitFor(async () => {
+      expect(await externalCount(docId)).toBe(2);
+    });
+  });
+
+  it("the 4th argument alone decides: a truthy imperative payload changes nothing", async () => {
+    const docId = "docPixelCommitArg";
+    const { engine } = await setupDoc(docId);
+    liveEngine = engine;
+    const history = new CommandHistory();
+
+    // Truthy imperative payload, explicit false: mirrors, as before.
+    history.commit(engine.snapshot(), "Add Shape", { layerId: "x", before: [], after: [] } as never, false);
+    await vi.waitFor(async () => {
+      expect(await externalCount(docId)).toBe(1);
+    });
+
+    // Explicit true: the pixel path's own shape, no mirror.
+    history.commit(engine.snapshot(), "Brush Stroke", { layerId: "x", before: [], after: [] } as never, true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await externalCount(docId)).toBe(1);
+  });
+
+  // The defect was measured with the authority flag absent, which is the shipped
+  // default (isNativeAuthority() is true when localStorage has no entry). The file
+  // beforeEach pins it to "wasm", so drop it here to cover the real default; the
+  // shim branch does not read authority, so the outcome must be identical.
+  // The defect was measured with photrez.facadeAuthority absent, which is the
+  // shipped default (isNativeAuthority() is true with no entry, see
+  // bridge.nativeAuthority.test.ts). The cursor READ path under native authority
+  // goes through the Tauri native protocol, which a jsdom test has no runtime for,
+  // so the cursor itself is not observable here - the shim's own decision is.
+  // The shim reaches providers.getEngine() only after the alreadyRecordedInRust
+  // skip, so the probe below reads the production branch directly and does not
+  // depend on the authority flag.
+  it("skips the mirror branch for a pixel commit under the default native authority", async () => {
+    localStorage.removeItem("photrez.facadeAuthority");
+    const docId = "docPixelCommitNative";
+    const engine = new DocumentEngine(docId, docId, 800, 600);
+    engine.addLayer("Base");
+    liveEngine = engine;
+    const history = new CommandHistory();
+
+    engineProbeCount = 0;
+    history.commit(engine.snapshot(), "Brush Stroke", { layerId: "x", before: [], after: [] } as never, true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(engineProbeCount).toBe(0);
+
+    // The same authority setting must still mirror a commit Rust does not own,
+    // or the zero above would pass because the branch is dead, not skipped.
+    history.commit(engine.snapshot(), "Move Layer");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(engineProbeCount).toBe(1);
   });
 });

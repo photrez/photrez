@@ -1087,7 +1087,13 @@ export function installFacadeCommitShim(providers: {
   if (shimInstalled) return;
   shimInstalled = true;
   const proto = CommandHistory.prototype as unknown as {
-    commit: (snap: unknown, label?: string) => void;
+    commit: (
+      snap: unknown,
+      label?: string,
+      imperative?: unknown,
+      alreadyRecordedInRust?: boolean,
+      pixelLayerIds?: string[] | null,
+    ) => void;
     recordSnapshotHistory: (
       before: unknown,
       after: unknown,
@@ -1096,13 +1102,25 @@ export function installFacadeCommitShim(providers: {
   };
 
   const originalCommit = proto.commit;
-  // Forward ALL arguments — callers may pass a third `imperative` payload
+  // Forward ALL arguments - callers may pass a third `imperative` payload
   // (HistoryTilePatches) that the tile-memento undo/redo model requires.
   proto.commit = function (this: unknown, ...args: unknown[]) {
-    const [snap, label] = args as [unknown, string | undefined];
+    const [snap, label, , alreadyRecordedInRust] = args as [
+      unknown,
+      string | undefined,
+      unknown,
+      boolean | undefined,
+    ];
     (originalCommit as unknown as (...callArgs: unknown[]) => void).apply(this, args);
     // Feature gate + zero-cost when OFF:
     if (!isFacadeEnabled()) return;
+    // The pixel path (brush/fill/adjustment bake) commits with
+    // alreadyRecordedInRust=true because Rust already owns that op's Pixel cursor
+    // entry via rust_pixels_write_region. Mirroring it here too would put two
+    // entries on the unified cursor for one stroke, and the next undo would step
+    // the External mirror instead of the Rust pixels. Skip the mirror for exactly
+    // the commits Rust already recorded; every other commit mirrors as before.
+    if (alreadyRecordedInRust === true) return;
     try {
       const engine = providers.getEngine();
       if (!engine) return;
