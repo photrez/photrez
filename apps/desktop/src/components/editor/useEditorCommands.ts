@@ -358,6 +358,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // (undo/redo restores the canonical buffer) and sync the derived TS
         // cache from them. Falls back to the local memento if Rust has no entry.
         let rustRes: { tiles: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number } | null = null;
+        const activeDocId = editor.workspace.getActiveDocumentId() ?? "";
         const rustPixelsFlag = (() => {
           try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
         })();
@@ -429,11 +430,21 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
           if (snapBitmap && snapBitmap !== liveBitmap) {
             liveLayer.imageBitmap = snapBitmap;
           }
-          // Bitmap sync: after imperative undo/redo, bitmap from snapshot
-          // matches Rust reverted state. Set bitmapEpoch to the new Rust epoch
-          // (forward-only: epoch advanced even though pixel state reverted).
+          // Bitmap repair: the authoritative tiles just uploaded changed pixels,
+          // so `layer.imageBitmap` is now stale - it still holds the pixels from
+          // before this step. It must NOT be stamped with the post-step Rust
+          // epoch: `ensureBitmapCurrent` (engine/document.ts) short-circuits on
+          // a matching epoch, so the stamp would permanently disable the repair
+          // and export/save would ship the reverted pixels. The snapshot cannot
+          // supply them either - a paint commit writes the post-stroke surface
+          // into the model bitmap BEFORE history.commit, so the popped entry
+          // holds that same object and the snap/live comparison above is a
+          // no-op. Re-derive through the designated repair instead: the surface
+          // was just synced to the authoritative tiles above, and the repair
+          // falls back to a full Rust canonical read when no surface cache is
+          // present. It stamps only an epoch it actually rebuilt for.
           if (rustRes && rustRes.tiles.length > 0) {
-            liveLayer.bitmapEpoch = rustRes.epoch;
+            await engine.ensureBitmapCurrent(activeDocId, patches.layerId);
           }
         }
         const perfDone = performance.now();
