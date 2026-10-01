@@ -236,70 +236,6 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
-describe("applyPaintBucketFill — legacy path upload granularity", () => {
-  beforeEach(() => {
-    localStorage.removeItem("photrez.rustPixels");
-    (globalThis as any).OffscreenCanvas = class {
-      width: number; height: number; _buffer: Uint8ClampedArray;
-      constructor(w: number, h: number) {
-        this.width = w; this.height = h;
-        this._buffer = new Uint8ClampedArray(w * h * 4);
-      }
-      getContext() {
-        const self = this;
-        return {
-          drawImage(img: any) {
-            const d = img?._buffer;
-            if (d && d.length === self._buffer.length) self._buffer.set(d);
-          },
-          getImageData() {
-            return new FakeImageData(self._buffer, self.width, self.height);
-          },
-          putImageData: () => {},
-        };
-      }
-      transferToImageBitmap() {
-        return { width: this.width, height: this.height, close: () => {} };
-      }
-    };
-  });
-
-  function legacyFakes(sel: any) {
-    const base = makeFakes();
-    const bitmap = { width: 8, height: 8, _buffer: new Uint8ClampedArray(8 * 8 * 4) };
-    base.engine.getLayerImageBitmap = vi.fn(() => bitmap);
-    base.engine.setLayerImageBitmap = vi.fn();
-    base.engine.getSelection = () => sel;
-    base.engine.snapshot = () => ({});
-    const uploadImage = vi.fn();
-    base.editor.renderer = { uploadImage };
-    return { ...base, uploadImage };
-  }
-
-  const rectSel = { x: 1, y: 1, width: 3, height: 3, angle: 0, shape: "rect", inverted: false };
-
-  it("passes the fill AABB as dirtyRect for a non-inverted selection", () => {
-    const { ctx, uploadImage } = legacyFakes(rectSel);
-    expect(applyPaintBucketFill(ctx, { pointerId: 1 } as any)).toBe(true);
-    expect(uploadImage).toHaveBeenCalledTimes(1);
-    expect(uploadImage.mock.calls[0][2]).toEqual({ x: 1, y: 1, width: 3, height: 3 });
-  });
-
-  it("stays FULL for an inverted selection (fill can touch the whole layer)", () => {
-    const { ctx, uploadImage } = legacyFakes({ ...rectSel, inverted: true });
-    expect(applyPaintBucketFill(ctx, { pointerId: 1 } as any)).toBe(true);
-    expect(uploadImage).toHaveBeenCalledTimes(1);
-    expect(uploadImage.mock.calls[0].length).toBe(2);
-  });
-
-  it("stays FULL with no selection", () => {
-    const { ctx, uploadImage } = legacyFakes(null);
-    expect(applyPaintBucketFill(ctx, { pointerId: 1 } as any)).toBe(true);
-    expect(uploadImage).toHaveBeenCalledTimes(1);
-    expect(uploadImage.mock.calls[0].length).toBe(2);
-  });
-});
-
 describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () => {
   it("seeds the canonical store via rust_pixels_init when the layer has no Rust entry yet", async () => {
     localStorage.setItem("photrez.rustPixels", "1");
@@ -349,65 +285,6 @@ describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () =>
     }, { timeout: 2000 });
   });
 });
-});
-
-// The flag is still OFF in production, so these two arms are pinned here and the
-// whole block is deleted when the flag is retired.
-describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the flag is retired)", () => {
-  beforeEach(() => {
-    mockInvoke.mockReset();
-    applyCalls.length = 0;
-    showToastMock.mockClear();
-  });
-  afterEach(() => {
-    localStorage.removeItem("photrez.rustPixels");
-  });
-
-  function event(): PointerEvent {
-    const e = new MouseEvent("pointerdown", { bubbles: true }) as PointerEvent;
-    Object.defineProperty(e, "pointerId", { value: 1 });
-    return e;
-  }
-
-  function legacyBitmapFakes() {
-    const base = makeFakes();
-    const bitmap = { width: 8, height: 8 };
-    base.engine.getLayerImageBitmap = vi.fn(() => bitmap);
-    base.editor.renderer = { uploadImage: vi.fn() };
-    return base;
-  }
-
-  it("flag ON routes the bucket through Rust; flag OFF keeps the legacy bitmap arm", async () => {
-    localStorage.setItem("photrez.rustPixels", "1");
-    const on = makeFakes();
-    mockInvoke.mockImplementation(async (command: string) => {
-      if (command === "rust_pixels_get_epoch") return 0;
-      if (command === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
-      if (command === "rust_pixels_write_region") return { before: [], after: [], epoch: 1, version: 1 };
-      return undefined;
-    });
-    applyPaintBucketFill(on.ctx, event());
-    await vi.waitFor(() =>
-      expect(mockInvoke.mock.calls.filter(([c]) => c === "rust_pixels_write_region")).toHaveLength(1),
-      { timeout: 2000 },
-    );
-    // Mutually exclusive on observed state: the Rust arm never sets the bitmap,
-    // and its one history step carries the tile memento (legacy commits 2 args).
-    expect(on.engine.setLayerImageBitmap).not.toHaveBeenCalled();
-    expect(on.commit).toHaveBeenCalledTimes(1);
-    expect(on.commit.mock.calls[0][1]).toBe("Paint Bucket Fill");
-    expect(on.commit.mock.calls[0][2]).toBeTruthy();
-
-    localStorage.removeItem("photrez.rustPixels");
-    const off = legacyBitmapFakes();
-    mockInvoke.mockClear();
-    mockInvoke.mockImplementation(async () => undefined);
-    applyPaintBucketFill(off.ctx, event());
-    await vi.waitFor(() => expect(off.commit).toHaveBeenCalledTimes(1), { timeout: 2000 });
-    expect(mockInvoke.mock.calls.some(([c]) => c === "rust_pixels_write_region")).toBe(false);
-    expect(off.engine.setLayerImageBitmap).toHaveBeenCalledTimes(1);
-    expect(off.commit.mock.calls[0][2]).toBeUndefined();
-  });
 });
 
 // The bridge gate must be ON for this pin to mean anything: with it off,

@@ -11,6 +11,45 @@ import { mergeActiveLayerDown, flattenAllLayers, fillActiveLayerWithColor, merge
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import * as Toast from "../../Toast";
 
+// Rust owns the fill pixels, so the fill path talks to the canonical store over
+// IPC. This file exercises that store directly; assertions read the CANONICAL
+// buffer, because that is where a filled layer's pixels now live (the layer
+// bitmap is a derived cache the fill path refreshes lazily, not the owner).
+const canonical = { bytes: new Uint8ClampedArray(100 * 100 * 4), epoch: 0, inited: false };
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string, args: any) => {
+    if (cmd === "rust_pixels_get_epoch") {
+      if (!canonical.inited) return Promise.reject("layer not initialized");
+      return canonical.epoch;
+    }
+    if (cmd === "rust_pixels_init") {
+      canonical.bytes.set((args.bytes as Uint8Array).subarray(0, canonical.bytes.length));
+      canonical.inited = true;
+      return null;
+    }
+    if (cmd === "rust_pixels_snapshot_layer") {
+      return [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(canonical.bytes) }];
+    }
+    if (cmd === "rust_pixels_write_region") {
+      const { x, y, w, h } = args;
+      const rgba = args.rgba as Uint8Array;
+      if (rgba.length !== w * h * 4) return Promise.reject("Invalid region length");
+      const before = Array.from(canonical.bytes);
+      for (let row = 0; row < h; row++) {
+        canonical.bytes.set(rgba.subarray(row * w * 4, (row + 1) * w * 4), ((y + row) * 100 + x) * 4);
+      }
+      canonical.epoch += 1;
+      return {
+        before: [{ x, y, w, h, data: before }],
+        after: [{ x, y, w, h, data: Array.from(canonical.bytes) }],
+        epoch: canonical.epoch,
+        version: canonical.epoch,
+      };
+    }
+    return { version: canonical.epoch };
+  }),
+}));
+
 // Polyfill OffscreenCanvas for jsdom — DocumentEngine.mergeDown and
 // flattenLayers use OffscreenCanvas internally for pixel compositing.
 // The 2D context mock must support all operations used by drawLayerToContext:
@@ -133,6 +172,34 @@ describe("mergeActiveLayerDown", () => {
 describe("fillActiveLayerWithColor (selection-aware)", () => {
   let prevOffscreenCanvas: any;
 
+  // jsdom has neither; the Rust fill arm builds an ImageData from the canonical
+  // snapshot and hands it to createImageBitmap before compositing the fill.
+  class ShimImageData {
+    data: Uint8ClampedArray;
+    width: number;
+    height: number;
+    constructor(data: Uint8ClampedArray | number, w?: number, h?: number) {
+      if (typeof data === "number") {
+        this.width = data;
+        this.height = w!;
+        this.data = new Uint8ClampedArray(data * w! * 4);
+      } else {
+        this.width = w!;
+        this.height = h!;
+        this.data = data;
+      }
+    }
+  }
+
+  function installPlatformShims() {
+    (globalThis as any).ImageData = ShimImageData;
+    (globalThis as any).createImageBitmap = async (src: any) => ({
+      width: src.width,
+      height: src.height,
+      getImageData: () => ({ data: src.data, width: src.width, height: src.height }),
+    });
+  }
+
   function installPixelMock() {
     prevOffscreenCanvas = (globalThis as any).OffscreenCanvas;
     (globalThis as any).OffscreenCanvas = class {
@@ -207,6 +274,7 @@ describe("fillActiveLayerWithColor (selection-aware)", () => {
 
   function setup() {
     installPixelMock();
+    installPlatformShims();
     const engine = new DocumentEngine("fill-doc", "Fill", 100, 100);
     const layer = engine.addLayer("Target", 100, 100);
     engine.setActiveLayer(layer.id);
@@ -215,110 +283,127 @@ describe("fillActiveLayerWithColor (selection-aware)", () => {
     return { engine, layer, history, renderer };
   }
 
-  function pixel(bitmap: any, x: number, y: number) {
-    const d = (bitmap.getImageData as any)(0, 0, 100, 100).data;
+  /** Read one pixel out of the CANONICAL Rust buffer - the fill's pixel owner. */
+  function pixel(x: number, y: number) {
+    const d = canonical.bytes;
     const idx = (y * 100 + x) * 4;
     return [d[idx], d[idx + 1], d[idx + 2], d[idx + 3]];
   }
 
-  it("fills the entire layer when no selection is active", () => {
-    const { engine, layer, history, renderer } = setup();
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+  /**
+   * Run the fill and wait for the canonical write. The Rust arm is
+   * fire-and-forget, so every assertion below has to read the store AFTER it
+   * resolves - reading the layer bitmap synchronously would race the write and
+   * could only ever observe the un-filled starting state.
+   */
+  async function fillAndSettle(
+    engine: DocumentEngine,
+    history: CommandHistory,
+    renderer: WebGL2Backend,
+    color: string,
+  ) {
+    const ok = fillActiveLayerWithColor(engine, history, renderer, color);
     expect(ok).toBe(true);
-    // Top-left and bottom-right corners both painted.
-    expect(pixel(layer.imageBitmap, 0, 0)).toEqual([255, 0, 0, 255]);
-    expect(pixel(layer.imageBitmap, 99, 99)).toEqual([255, 0, 0, 255]);
+    await vi.waitFor(() => expect(canonical.epoch).toBeGreaterThan(0), { timeout: 2000 });
+  }
+
+  beforeEach(() => {
+    canonical.bytes = new Uint8ClampedArray(100 * 100 * 4);
+    canonical.epoch = 0;
+    canonical.inited = false;
   });
 
-  it("fills only the selection bounds when a selection is active", () => {
+  it("fills the entire layer when no selection is active", async () => {
+    const { engine, history, renderer } = setup();
+    await fillAndSettle(engine, history, renderer, "#ff0000");
+    // Top-left and bottom-right corners both painted.
+    expect(pixel(0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(99, 99)).toEqual([255, 0, 0, 255]);
+  });
+
+  it("fills only the selection bounds when a selection is active", async () => {
     const { engine, layer, history, renderer } = setup();
     engine.createSelection(10, 10, 20, 20, 0);
 
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#00ff00");
-    expect(ok).toBe(true);
+    await fillAndSettle(engine, history, renderer, "#00ff00");
 
     // Inside selection → green
-    expect(pixel(layer.imageBitmap, 15, 15)).toEqual([0, 255, 0, 255]);
+    expect(pixel(15, 15)).toEqual([0, 255, 0, 255]);
     // Outside selection → untouched (transparent)
-    expect(pixel(layer.imageBitmap, 0, 0)).toEqual([0, 0, 0, 0]);
-    expect(pixel(layer.imageBitmap, 99, 99)).toEqual([0, 0, 0, 0]);
+    expect(pixel(0, 0)).toEqual([0, 0, 0, 0]);
+    expect(pixel(99, 99)).toEqual([0, 0, 0, 0]);
   });
 
-  it("fills everything EXCEPT the bounds when the selection is inverted", () => {
+  it("fills everything EXCEPT the bounds when the selection is inverted", async () => {
     const { engine, layer, history, renderer } = setup();
     engine.createSelection(10, 10, 20, 20, 0);
     engine.invertSelection();
 
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#0000ff");
-    expect(ok).toBe(true);
+    await fillAndSettle(engine, history, renderer, "#0000ff");
 
     // Inside excluded rect → untouched
-    expect(pixel(layer.imageBitmap, 15, 15)).toEqual([0, 0, 0, 0]);
+    expect(pixel(15, 15)).toEqual([0, 0, 0, 0]);
     // Outside → blue
-    expect(pixel(layer.imageBitmap, 0, 0)).toEqual([0, 0, 255, 255]);
-    expect(pixel(layer.imageBitmap, 99, 99)).toEqual([0, 0, 255, 255]);
+    expect(pixel(0, 0)).toEqual([0, 0, 255, 255]);
+    expect(pixel(99, 99)).toEqual([0, 0, 255, 255]);
   });
 
-  it("fills the layer-local rect under a (translated) marquee, not the doc-space rect", () => {
+  it("fills the layer-local rect under a (translated) marquee, not the doc-space rect", async () => {
     const { engine, layer, history, renderer } = setup();
     // Translate the layer by (+50,+50); the marquee in doc space (60,60,20,20)
     // maps to layer-local (10,10,20,20).
     engine.transformLayer(layer.id, { x: 50, y: 50, scaleX: 1, scaleY: 1, rotation: 0 });
     engine.createSelection(60, 60, 20, 20, 0);
 
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#00ff00");
-    expect(ok).toBe(true);
+    await fillAndSettle(engine, history, renderer, "#00ff00");
 
     // Inside the mapped layer-local rect → green
-    expect(pixel(layer.imageBitmap, 15, 15)).toEqual([0, 255, 0, 255]);
-    expect(pixel(layer.imageBitmap, 25, 25)).toEqual([0, 255, 0, 255]);
+    expect(pixel(15, 15)).toEqual([0, 255, 0, 255]);
+    expect(pixel(25, 25)).toEqual([0, 255, 0, 255]);
     // Outside it (the un-translated part of the layer) → untouched
-    expect(pixel(layer.imageBitmap, 5, 5)).toEqual([0, 0, 0, 0]);
-    expect(pixel(layer.imageBitmap, 95, 95)).toEqual([0, 0, 0, 0]);
+    expect(pixel(5, 5)).toEqual([0, 0, 0, 0]);
+    expect(pixel(95, 95)).toEqual([0, 0, 0, 0]);
   });
 
-  it("fills the layer-local rect under a (scaled) marquee", () => {
+  it("fills the layer-local rect under a (scaled) marquee", async () => {
     const { engine, layer, history, renderer } = setup();
     // Scale 2x, no translate. Doc-space (60,60,20,20) → layer-local (30,30,10,10).
     engine.transformLayer(layer.id, { x: 0, y: 0, scaleX: 2, scaleY: 2, rotation: 0 });
     engine.createSelection(60, 60, 20, 20, 0);
 
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ffff00");
-    expect(ok).toBe(true);
+    await fillAndSettle(engine, history, renderer, "#ffff00");
 
-    expect(pixel(layer.imageBitmap, 35, 35)).toEqual([255, 255, 0, 255]); // inside
-    expect(pixel(layer.imageBitmap, 5, 5)).toEqual([0, 0, 0, 0]);          // outside
+    expect(pixel(35, 35)).toEqual([255, 255, 0, 255]); // inside
+    expect(pixel(5, 5)).toEqual([0, 0, 0, 0]);          // outside
   });
 
-  it("fills only INSIDE the ellipse when selection shape is ellipse", () => {
+  it("fills only INSIDE the ellipse when selection shape is ellipse", async () => {
     const { engine, layer, history, renderer } = setup();
     engine.createSelection(20, 20, 60, 60, 0, "ellipse");
 
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
-    expect(ok).toBe(true);
+    await fillAndSettle(engine, history, renderer, "#ff0000");
 
     // Center of ellipse → inside → filled red.
-    expect(pixel(layer.imageBitmap, 50, 50)).toEqual([255, 0, 0, 255]);
+    expect(pixel(50, 50)).toEqual([255, 0, 0, 255]);
     // Corner of AABB (outside ellipse) → untouched (transparent).
-    expect(pixel(layer.imageBitmap, 21, 21)).toEqual([0, 0, 0, 0]);
-    expect(pixel(layer.imageBitmap, 78, 78)).toEqual([0, 0, 0, 0]);
+    expect(pixel(21, 21)).toEqual([0, 0, 0, 0]);
+    expect(pixel(78, 78)).toEqual([0, 0, 0, 0]);
   });
 
-  it("fills everything OUTSIDE the ellipse when selection is inverted + ellipse", () => {
+  it("fills everything OUTSIDE the ellipse when selection is inverted + ellipse", async () => {
     const { engine, layer, history, renderer } = setup();
     engine.createSelection(20, 20, 60, 60, 0, "ellipse");
     engine.invertSelection();
 
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#00ff00");
-    expect(ok).toBe(true);
+    await fillAndSettle(engine, history, renderer, "#00ff00");
 
     // Center of ellipse → inside → untouched (transparent).
-    expect(pixel(layer.imageBitmap, 50, 50)).toEqual([0, 0, 0, 0]);
+    expect(pixel(50, 50)).toEqual([0, 0, 0, 0]);
     // Corner of AABB (outside ellipse) → filled green.
-    expect(pixel(layer.imageBitmap, 21, 21)).toEqual([0, 255, 0, 255]);
+    expect(pixel(21, 21)).toEqual([0, 255, 0, 255]);
     // Far corner (outside AABB entirely) → filled green.
-    expect(pixel(layer.imageBitmap, 1, 1)).toEqual([0, 255, 0, 255]);
-    expect(pixel(layer.imageBitmap, 95, 95)).toEqual([0, 255, 0, 255]);
+    expect(pixel(1, 1)).toEqual([0, 255, 0, 255]);
+    expect(pixel(95, 95)).toEqual([0, 255, 0, 255]);
   });
 });
 

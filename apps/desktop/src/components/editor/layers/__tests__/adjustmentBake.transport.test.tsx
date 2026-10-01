@@ -232,18 +232,6 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
     });
   });
 
-  it("flag OFF keeps the legacy bitmap arm with zero write_region calls", async () => {
-    localStorage.removeItem("photrez.rustPixels");
-    const h = await renderBakeHandler(true);
-
-    await h.result.handleApplyAdjustment();
-
-    await vi.waitFor(() => expect(h.renderer.uploadImage).toHaveBeenCalledTimes(1));
-    expect(mockInvoke.mock.calls.filter((c) => c[0] === "rust_pixels_write_region")).toHaveLength(0);
-    expect(h.commitSpy).toHaveBeenCalledTimes(1);
-    expect(h.renderer.uploadSurfaceTiles).not.toHaveBeenCalled();
-  });
-
   it("flag ON without a ready surface surfaces an error instead of a silent legacy write", async () => {
     localStorage.setItem("photrez.rustPixels", "1");
     const h = await renderBakeHandler(false);

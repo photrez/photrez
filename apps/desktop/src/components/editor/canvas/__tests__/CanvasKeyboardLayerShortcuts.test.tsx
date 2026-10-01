@@ -10,6 +10,52 @@ import { WorkspaceManager } from "@/engine/workspace";
 import { easeOutCubic } from "@/viewport/easing";
 import * as Toast from "../../Toast";
 
+// Fill Layer records its pixels in the canonical Rust store over IPC. This file
+// asserts the keyboard SHORTCUT reaches that fill, so it needs the store to
+// answer. Only the pixel commands are served: every other command REJECTS,
+// which is what the unmocked Tauri invoke already did in jsdom (no
+// __TAURI_INTERNALS__), so the surrounding shortcut tests keep the exact
+// failure semantics they had before.
+const canonicalPixels = {
+  bytes: new Uint8ClampedArray(800 * 600 * 4),
+  epoch: 0,
+  writes: 0,
+};
+function resetCanonicalPixels() {
+  canonicalPixels.bytes = new Uint8ClampedArray(800 * 600 * 4);
+  canonicalPixels.epoch = 0;
+  canonicalPixels.writes = 0;
+}
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string, args: any) => {
+    if (cmd === "rust_pixels_get_epoch") return canonicalPixels.epoch;
+    if (cmd === "rust_pixels_init") {
+      canonicalPixels.bytes.set((args.bytes as Uint8Array).subarray(0, canonicalPixels.bytes.length));
+      return null;
+    }
+    if (cmd === "rust_pixels_snapshot_layer") {
+      return [{ x: 0, y: 0, w: 800, h: 600, data: Array.from(canonicalPixels.bytes) }];
+    }
+    if (cmd === "rust_pixels_write_region") {
+      const { x, y, w, h } = args;
+      const rgba = args.rgba as Uint8Array;
+      const before = Array.from(canonicalPixels.bytes);
+      for (let row = 0; row < h; row++) {
+        canonicalPixels.bytes.set(rgba.subarray(row * w * 4, (row + 1) * w * 4), ((y + row) * 800 + x) * 4);
+      }
+      canonicalPixels.epoch += 1;
+      canonicalPixels.writes += 1;
+      return {
+        before: [{ x, y, w, h, data: before }],
+        after: [{ x, y, w, h, data: Array.from(canonicalPixels.bytes) }],
+        epoch: canonicalPixels.epoch,
+        version: canonicalPixels.epoch,
+      };
+    }
+    return Promise.reject(`no IPC in jsdom: ${cmd}`);
+  }),
+}));
+
 function installOffscreenCanvasMock(bitmap: ImageBitmap) {
   vi.stubGlobal("OffscreenCanvas", class {
     width: number;
@@ -1091,22 +1137,70 @@ function KeyUpHarness(props: {
 
 // ─── Fill layer keyboard shortcuts (Alt+Del / Ctrl+Del) ─────────────────────
 
-/** OffscreenCanvas mock that records the fill color passed to `fillStyle`. */
+/**
+ * OffscreenCanvas mock that records the fill color passed to `fillStyle` AND
+ * keeps a real pixel buffer, because the canonical fill arm reads the composited
+ * result back with getImageData to diff against the store before writing.
+ */
 function installFillCaptureMock(fillRef: { color: string | null }) {
+  class ShimImageData {
+    data: Uint8ClampedArray;
+    width: number;
+    height: number;
+    constructor(data: Uint8ClampedArray | number, w?: number, h?: number) {
+      if (typeof data === "number") {
+        this.width = data;
+        this.height = w!;
+        this.data = new Uint8ClampedArray(data * w! * 4);
+      } else {
+        this.width = w!;
+        this.height = h!;
+        this.data = data;
+      }
+    }
+  }
+  vi.stubGlobal("ImageData", ShimImageData);
+  vi.stubGlobal("createImageBitmap", async (src: any) => ({
+    width: src.width,
+    height: src.height,
+    getImageData: () => ({ data: src.data, width: src.width, height: src.height }),
+  }));
+
   vi.stubGlobal("OffscreenCanvas", class {
     width: number;
     height: number;
+    buffer: Uint8ClampedArray;
     constructor(width: number, height: number) {
       this.width = width;
       this.height = height;
+      this.buffer = new Uint8ClampedArray(width * height * 4);
     }
     getContext() {
+      const self = this;
       return {
         _fs: "" as string,
-        set fillStyle(v: string) { fillRef.color = v; },
+        set fillStyle(v: string) { fillRef.color = v; (this as any)._fs = v; },
         get fillStyle() { return fillRef.color ?? ""; },
-        fillRect: vi.fn(),
+        fillRect(x: number, y: number, w: number, h: number) {
+          const hex = ((this as any)._fs as string).replace("#", "");
+          const r = parseInt(hex.slice(0, 2), 16);
+          const g = parseInt(hex.slice(2, 4), 16);
+          const b = parseInt(hex.slice(4, 6), 16);
+          for (let row = y; row < y + h; row++)
+            for (let col = x; col < x + w; col++) {
+              if (row < 0 || row >= self.height || col < 0 || col >= self.width) continue;
+              const i = (row * self.width + col) * 4;
+              self.buffer[i] = r;
+              self.buffer[i + 1] = g;
+              self.buffer[i + 2] = b;
+              self.buffer[i + 3] = 255;
+            }
+        },
         drawImage: vi.fn(),
+        getImageData(_x: number, _y: number, w: number, h: number) {
+          return { data: self.buffer, width: w, height: h, colorSpace: "srgb" };
+        },
+        putImageData(img: any) { if (img?.data) self.buffer.set(img.data); },
         save: vi.fn(),
         restore: vi.fn(),
         translate: vi.fn(),
@@ -1142,7 +1236,7 @@ function FillKeyboardHarness(props: {
   return null;
 }
 
-function setupFill(renderer: { uploadImage: ReturnType<typeof vi.fn>; destroyTexture: ReturnType<typeof vi.fn> }, fillRef: { color: string | null }) {
+function setupFill(renderer: { uploadImage: ReturnType<typeof vi.fn>; uploadSurfaceTiles: ReturnType<typeof vi.fn>; destroyTexture: ReturnType<typeof vi.fn> }, fillRef: { color: string | null }) {
   installFillCaptureMock(fillRef);
   const ws = new WorkspaceManager();
   const session = WorkspaceManager.createBlankDocument("fill-doc", "Fill", 800, 600);
@@ -1174,14 +1268,15 @@ function setupFill(renderer: { uploadImage: ReturnType<typeof vi.fn>; destroyTex
 }
 
 describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
+  beforeEach(resetCanonicalPixels);
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     clearRegistry();
   });
 
-  it("Alt+Delete fills the active layer with the foreground color", () => {
-    const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+  it("Alt+Delete fills the active layer with the foreground color", async () => {
+    const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
     const { getEditor, scheduler, dispose } = setupFill(renderer, fillRef);
 
@@ -1193,21 +1288,29 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", altKey: true, bubbles: true }));
 
+    // The fill records through the canonical Rust store asynchronously, so the
+    // observable has to be awaited - reading synchronously would only ever see
+    // the pre-fill state.
+    await vi.waitFor(() => expect(canonicalPixels.writes).toBe(1), { timeout: 2000 });
+
     // Fill used the foreground color through real production code.
     expect(fillRef.color).toBe("#ff0000");
-    expect(renderer.uploadImage).toHaveBeenCalledWith(activeId, expect.anything());
+    // Rust owns the pixels, so the canonical tiles are uploaded - not a layer
+    // bitmap replacement (uploadImage), which would be a second pixel owner.
+    expect(renderer.uploadSurfaceTiles).toHaveBeenCalled();
+    expect(renderer.uploadImage).not.toHaveBeenCalled();
     expect(scheduler.requestRender).toHaveBeenCalled();
-    // History committed BEFORE the layer bitmap was mutated/uploaded.
     expect(commitSpy).toHaveBeenCalled();
-    expect(commitSpy.mock.invocationCallOrder[0]).toBeLessThan(
-      (renderer.uploadImage as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
-    );
+    // The undo token is committed AFTER the canonical write: its memento is
+    // built from the write result, and it is marked rustOwned so undo takes the
+    // pixels back from Rust instead of replaying them.
+    expect(commitSpy.mock.calls[0][2]?.rustOwned).toBe(true);
     expect(engine.getLayer(activeId!)?.imageBitmap).toBeTruthy();
     dispose();
   });
 
-  it("Ctrl+Delete fills the active layer with the background color", () => {
-    const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+  it("Ctrl+Delete fills the active layer with the background color", async () => {
+    const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
     const { getEditor, dispose } = setupFill(renderer, fillRef);
 
@@ -1216,13 +1319,14 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", ctrlKey: true, bubbles: true }));
 
+    await vi.waitFor(() => expect(canonicalPixels.writes).toBe(1), { timeout: 2000 });
     expect(fillRef.color).toBe("#00ff00");
-    expect(renderer.uploadImage).toHaveBeenCalled();
+    expect(renderer.uploadSurfaceTiles).toHaveBeenCalled();
     dispose();
   });
 
-  it("Alt+Backspace also fills with the foreground color", () => {
-    const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+  it("Alt+Backspace also fills with the foreground color", async () => {
+    const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
     const { getEditor, dispose } = setupFill(renderer, fillRef);
 
@@ -1231,13 +1335,14 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true, bubbles: true }));
 
+    await vi.waitFor(() => expect(canonicalPixels.writes).toBe(1), { timeout: 2000 });
     expect(fillRef.color).toBe("#123456");
-    expect(renderer.uploadImage).toHaveBeenCalled();
+    expect(renderer.uploadSurfaceTiles).toHaveBeenCalled();
     dispose();
   });
 
   it("plain Delete/Backspace does NOT fill the layer (falls through to delete behavior)", () => {
-    const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+    const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
     const { dispose } = setupFill(renderer, fillRef);
 
@@ -1252,7 +1357,7 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
   });
 
   it("Alt+Delete with no active layer shows a warning toast (no silent no-op)", () => {
-    const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+    const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
     const { getEditor, dispose } = setupFill(renderer, fillRef);
 

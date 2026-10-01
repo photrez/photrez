@@ -157,14 +157,16 @@ describe("pixel-tool guard on text layers", () => {
   it("paintBucket on a NON-text layer bypasses the dialog and proceeds to fill", () => {
     const { signals, mockEngine } = createMockEditorParams("paintBucket");
     mockEngine.isTextLayer = vi.fn(() => false);
-    const readBitmapSpy = vi.spyOn(mockEngine, "getLayerImageBitmap");
+    // The fill reads the canonical pixel owner, not a layer bitmap: Rust records
+    // the bucket unconditionally, so resolving the paint surface is what proves
+    // the guard did not swallow the click.
+    const surfaceSpy = vi.spyOn(mockEngine, "getPaintSurface");
 
     const { tools, dispose } = createTool(signals);
     tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
 
     expect(confirmSpy).not.toHaveBeenCalled();
-    // applyPaintBucketFill ran and read the layer bitmap (guard did not swallow it)
-    expect(readBitmapSpy).toHaveBeenCalled();
+    expect(surfaceSpy).toHaveBeenCalled();
 
     dispose();
   });

@@ -63,7 +63,13 @@ describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
   });
 
   describe("Paint Bucket Tool Pointer Dispatch", () => {
-    it("executes flood fill on canvas click with signals context", () => {
+    // The bucket claims the click and refuses VISIBLY rather than committing:
+    // this harness' layer carries no raster, so there is no paint surface to
+    // seed the canonical store from, and a silent TS-bitmap commit would be a
+    // second pixel owner with no Rust Pixel entry to undo against. The
+    // commit-on-a-raster-layer contract is pinned end to end in
+    // rustPixelOpsUnconditional.test.tsx.
+    it("claims the canvas click on a layer with no raster, without committing", async () => {
       const { signals, dispose } = createMockEditorParams("paintBucket");
       const commitSpy = vi.fn();
       signals.workspace.getActiveHistory = () => ({
@@ -85,9 +91,9 @@ describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
         commitBrushStroke: vi.fn(),
       });
 
-      // Pointer down should process flood fill and commit to history
+      // Pointer down must be consumed by the bucket (no fall-through).
       tools.onCanvasPointerDown(makePointerEvent({ clientX: 50, clientY: 50 }));
-      expect(commitSpy).toHaveBeenCalled();
+      expect(commitSpy).not.toHaveBeenCalled();
 
       disposeTools();
       dispose();

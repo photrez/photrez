@@ -196,14 +196,12 @@ export function stampVisibleLayers(
  * locked layers and layers with no active id. Commits history BEFORE mutation
  * so the fill is undoable/redoable, then uploads the new bitmap to the renderer.
  *
- * C5.4 (Fill Layer): when the canonical Rust pixel owner is enabled
- * (localStorage "photrez.rustPixels" === "1") and the layer has a PaintTileSurface,
- * the fill writes through `rust_pixels_write_region` (one canonical `Pixel` history
- * entry) and drives the derived TS PaintTileSurface + history memento from the Rust
- * result — mirroring the brush/bucket. A single user Fill yields exactly ONE
- * user-visible undo step (the Rust history entry is subordinate to the TS
- * `history.commit` that drives undo/redo; there is no second step). Legacy path
- * (flag off, or no surface e.g. shape/text layers) is preserved unchanged.
+ * Rust records the fill: it writes through `rust_pixels_write_region` (one
+ * canonical `Pixel` history entry) and drives the derived TS PaintTileSurface +
+ * history memento from the Rust result. A single user Fill yields exactly ONE
+ * user-visible undo step: the TS entry is a cursor token marked `rustOwned`, and
+ * the undo/redo dispatch takes the pixels from Rust while draining that token in
+ * lockstep. A layer with no paint surface (no raster yet) is a visible error.
  */
 export function fillActiveLayerWithColor(
   engine: DocumentEngine,
@@ -226,13 +224,27 @@ export function fillActiveLayerWithColor(
 
   const sel = engine.getSelection();
 
-  // C5.4 canonical-pixel path (flag matches the brush/bucket/undo gating). The
-  // shared operation arm decides legacy/rust/blocked for all three call sites.
-  const rustPixelsFlag = (() => {
-    try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
-  })();
-  const surface = engine.getPaintSurface(activeId);
-  const arm = resolveRustPixelOperationArm("fill", rustPixelsFlag, surface !== null);
+  // UNCONDITIONAL: a Fill Layer is always recorded by Rust, so the default
+  // state of photrez.rustPixels (key absent or "0") takes the same path as "1".
+  // Gating on it sent the default state down the TS-only commit, which recorded
+  // no Rust Pixel entry and therefore had no twin for the undo drain to move in
+  // lockstep. The shared operation arm still decides rust/blocked: a missing
+  // paint surface is a visible error, never a silent second pixel owner.
+  let surface = engine.getPaintSurface(activeId);
+  if (!surface && layer.width > 0 && layer.height > 0) {
+    // A layer with no raster yet (a freshly added blank layer) has nothing to
+    // seed the canonical store from, and `getPaintSurface` is what the Rust
+    // entry is seeded from. Materialise the empty raster so the surface and the
+    // Rust entry both exist and the fill runs through the same single-owner
+    // path as any other layer - the pixels it fills are opaque, so nothing of
+    // the blank starting state survives. Without this, Alt+Del on a new layer
+    // silently did nothing. setLayerImageBitmap drops the cached surface, so
+    // this must run BEFORE the getPaintSurface above is reused.
+    const blank = new OffscreenCanvas(layer.width, layer.height);
+    engine.setLayerImageBitmap(activeId, blank.transferToImageBitmap());
+    surface = engine.getPaintSurface(activeId);
+  }
+  const arm = resolveRustPixelOperationArm("fill", true, surface !== null);
   if (arm !== "legacy") {
     if (!surface) { showToast("Rust pixel surface not ready", "warn"); return true; }
     const docId = engine.getId();
@@ -327,12 +339,16 @@ export function fillActiveLayerWithColor(
         // via `rust_pixels_undo` (single step, no second TS-visible entry).
         // Built straight off the write result so a throw further down still
         // leaves the catch with a complete memento to record.
+        // `rustOwned` marks it a cursor token for a step Rust already holds, so
+        // the undo/redo dispatch takes the pixels from Rust and drains this twin
+        // in lockstep instead of replaying tiles no store holds.
         imperative = {
           layerId: activeId,
           surfaceWidth: layer.width,
           surfaceHeight: layer.height,
           before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
           after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+          rustOwned: true,
         };
         // TS derived cache updated from Rust's authoritative returned `after` tiles + epoch.
         applyRustTilesToSurface(surface.context, res.after);
@@ -359,7 +375,12 @@ export function fillActiveLayerWithColor(
     return true;
   }
 
-  // ── Legacy path (TS-authoritative bitmap) ──
+  // ── Legacy arm (TS-authoritative bitmap) ──
+  // UNREACHABLE now that the Rust arm above is unconditional: `arm` is "rust"
+  // whenever a paint surface exists and "blocked" when it does not, so
+  // resolveRustPixelOperationArm never returns "legacy" for this call site.
+  // Kept verbatim pending the retirement phase, which deletes it together with
+  // the "legacy" member of RustPixelOperationArm.
   let bitmap: ImageBitmap | null = null;
   try {
     const offscreen = buildFilledCanvas(layer, fillColor, sel, engine.getLayerImageBitmap(activeId));

@@ -119,7 +119,7 @@ function installOffscreenCanvas() {
 
 function makeFakes(opts: {
   w?: number; h?: number; sel?: any; locked?: boolean; visible?: boolean;
-  basicAdjustment?: any; surfaceNull?: boolean;
+  basicAdjustment?: any; surfaceNull?: boolean; noBitmap?: boolean;
 } = {}) {
   const w = opts.w ?? 100, h = opts.h ?? 100;
   const surface = { context: { putImageData: vi.fn(), getImageData: vi.fn((_x: number, _y: number, ww: number, hh: number) => new FakeImageData(ww, hh)) }, pixelEpoch: 0, pixelVersion: 0 } as any;
@@ -133,17 +133,21 @@ function makeFakes(opts: {
   };
   let basicAdj = layer.basicAdjustment;
   const clearBasicAdjustments = vi.fn(() => { basicAdj = null; layer.basicAdjustment = null; });
+  // `noBitmap` models a freshly added layer: getPaintSurface has nothing to seed
+  // from until a raster is set, exactly like DocumentEngine.
+  let hasBitmap = !opts.noBitmap;
+  const setLayerImageBitmap = vi.fn(() => { hasBitmap = true; });
   const engine: any = {
     getActiveLayerId: () => "L1",
     getLayer: () => layer,
     getSelection: () => opts.sel ?? null,
-    getPaintSurface: () => (opts.surfaceNull ? null : surface),
+    getPaintSurface: () => (opts.surfaceNull || !hasBitmap ? null : surface),
     getId: () => "doc1",
     snapshot: () => ({ basicAdjustment: basicAdj }),
     restore: (s: any) => { basicAdj = s.basicAdjustment; layer.basicAdjustment = basicAdj; },
     clearBasicAdjustments,
-    getLayerImageBitmap: vi.fn(),
-    setLayerImageBitmap: vi.fn(),
+    getLayerImageBitmap: vi.fn(() => (hasBitmap ? ({ close: vi.fn() } as unknown as ImageBitmap) : null)),
+    setLayerImageBitmap,
   };
   const renderer: any = { uploadImage: vi.fn(), uploadSurfaceTiles };
   return { w, h, surface, commit, history, uploadSurfaceTiles, engine, renderer, layer, surfaceNull: opts.surfaceNull };
@@ -434,22 +438,43 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
   });
 });
 
-// The flag is still OFF in production, so these routing cases are pinned here and
-// the whole block is deleted when the flag is retired.
-describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the flag is retired)", () => {
+// A layer that cannot host a raster at all must fail visibly rather than quietly
+// writing through the legacy arm, which would be a second pixel owner with no
+// Rust Pixel entry to undo against. This fake engine never yields a surface (its
+// getPaintSurface ignores the bitmap it was handed), so it stands in for that.
+describe("fillActiveLayerWithColor with no paint surface", () => {
   beforeEach(() => {
     installOffscreenCanvas();
     mockInvoke.mockReset();
     applyCalls.length = 0;
     showToastMock.mockClear();
-    localStorage.setItem("photrez.rustPixels", "1");
-  });
-  afterEach(() => {
-    localStorage.removeItem("photrez.rustPixels");
   });
 
-  it("flag ON routes the fill through Rust; flag OFF keeps the legacy bitmap arm", async () => {
-    const on = makeFakes();
+  it("surfaces a visible error, zero write_region, and no silent legacy write", () => {
+    const { commit, engine, renderer, history } = makeFakes({ surfaceNull: true });
+    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
+    expect(ok).toBe(true);
+    expect(showToastMock).toHaveBeenCalledWith("Rust pixel surface not ready", "warn");
+    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+});
+
+// A freshly added layer has no raster, and Alt+Del on it must still fill. The
+// fill materialises the empty raster first so the canonical store has something
+// to seed from, then records through Rust like any other layer.
+// RED-first: before the blank raster was materialised, the surface stayed null,
+// the op took the "surface not ready" exit and committed nothing.
+describe("fillActiveLayerWithColor on a layer with no raster yet", () => {
+  beforeEach(() => {
+    installOffscreenCanvas();
+    mockInvoke.mockReset();
+    applyCalls.length = 0;
+    showToastMock.mockClear();
+  });
+
+  it("materialises the empty raster and records one rustOwned canonical write", async () => {
+    const { commit, engine, renderer, history } = makeFakes({ noBitmap: true });
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") {
@@ -459,71 +484,20 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
         return {
           before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
-          epoch: 1,
-          version: 1,
+          epoch: 1, version: 1,
         };
       }
       return undefined;
     });
 
-    expect(fillActiveLayerWithColor(on.engine, on.history, on.renderer, "#ff0000")).toBe(true);
-    await vi.waitFor(
-      () => expect(mockInvoke.mock.calls.filter(([c]) => c === "rust_pixels_write_region")).toHaveLength(1),
-      { timeout: 2000 },
-    );
-    // The two arms are mutually exclusive on observed state: the Rust arm never
-    // replaces the bitmap and its single history step carries the tile memento.
-    expect(on.engine.setLayerImageBitmap).not.toHaveBeenCalled();
-    expect(on.commit).toHaveBeenCalledTimes(1);
-    expect(on.commit.mock.calls[0][1]).toBe("Fill Layer");
-    expect(on.commit.mock.calls[0][2]).toBeTruthy();
+    expect(fillActiveLayerWithColor(engine, history, renderer, "#ff0000")).toBe(true);
 
-    localStorage.removeItem("photrez.rustPixels");
-    const off = makeFakes();
-    mockInvoke.mockClear();
-    mockInvoke.mockImplementation(async () => undefined);
-
-    expect(fillActiveLayerWithColor(off.engine, off.history, off.renderer, "#ff0000")).toBe(true);
-    await vi.waitFor(() => expect(off.commit).toHaveBeenCalledTimes(1), { timeout: 2000 });
-    expect(mockInvoke.mock.calls.some(([c]) => c === "rust_pixels_write_region")).toBe(false);
-    expect(off.engine.setLayerImageBitmap).toHaveBeenCalledTimes(1);
-    expect(off.commit.mock.calls[0][2]).toBeUndefined();
-  });
-
-  // Flag ON with no surface must fail visibly instead of quietly writing through
-  // the legacy arm while the flag says Rust is authoritative.
-  it("flag ON with no paint surface: visible error, zero write_region, no silent legacy write", () => {
-    const { commit, engine, renderer, history } = makeFakes({ surfaceNull: true });
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
-    expect(ok).toBe(true);
-    expect(showToastMock).toHaveBeenCalledWith("Rust pixel surface not ready", "warn");
-    expect(mockInvoke).not.toHaveBeenCalled();
-    expect(engine.setLayerImageBitmap).not.toHaveBeenCalled();
-    expect(commit).not.toHaveBeenCalled();
-  });
-
-  // Moved from the main describe (former lines 335-343): it pins the flag-OFF
-  // legacy arm for a layer with no paint surface.
-  it("shape/text layer (no PaintTileSurface) with the flag OFF → legacy path, NOT rust write_region, setLayerImageBitmap called", () => {
-    localStorage.setItem("photrez.rustPixels", "0");
-    const { commit, engine, renderer, history } = makeFakes({ surfaceNull: true });
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
-    expect(ok).toBe(true);
-    expect(mockInvoke).not.toHaveBeenCalled();
-    expect(engine.setLayerImageBitmap).toHaveBeenCalled();
-    expect(commit).toHaveBeenCalledTimes(1);
-  });
-
-  // Flag-OFF arm characterization: only valid while the photrez.rustPixels gate
-  // exists. Retiring the gate removes the flag-OFF arm from production, so this
-  // case fails there and is deleted together with this block.
-  it("legacy behavior unchanged when flag OFF (setLayerImageBitmap, no rust write_region)", () => {
-    localStorage.setItem("photrez.rustPixels", "0");
-    const { commit, engine, renderer, history } = makeFakes();
-    const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
-    expect(ok).toBe(true);
-    expect(mockInvoke).not.toHaveBeenCalled();
-    expect(engine.setLayerImageBitmap).toHaveBeenCalled();
-    expect(commit).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(engine.setLayerImageBitmap, "the empty raster was materialised").toHaveBeenCalledTimes(1);
+      expect(mockInvoke.mock.calls.map((c) => c[0]), "recorded through Rust").toContain("rust_pixels_write_region");
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(commit.mock.calls[0][2]?.rustOwned, "the twin is a cursor token").toBe(true);
+    }, { timeout: 2000 });
+    expect(showToastMock, "no refusal toast").not.toHaveBeenCalled();
   });
 });

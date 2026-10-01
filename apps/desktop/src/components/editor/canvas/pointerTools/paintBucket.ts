@@ -17,13 +17,12 @@ import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm"
  * clicked document point, honoring the selection mask and fill tolerance.
  * Returns true when the bucket tool handled the event.
  *
- * C5.4 (pilot): when the canonical Rust pixel owner is enabled
- * (localStorage "photrez.rustPixels" === "1"), the fill writes the changed
- * region through `rust_pixels_write_region` (one canonical `Pixel` history
- * entry) and drives the derived TS PaintTileSurface + history memento from the
- * Rust result — mirroring the brush. A single user Fill yields exactly ONE
- * user-visible undo step (the Rust history entry is subordinate to the TS
- * `history.commit` that drives undo/redo; there is no second step).
+ * Rust records the fill: it writes the changed region through
+ * `rust_pixels_write_region` (one canonical `Pixel` history entry) and drives
+ * the derived TS PaintTileSurface + history memento from the Rust result.
+ * A single user Fill yields exactly ONE user-visible undo step: the TS entry is
+ * a cursor token marked `rustOwned`, and the undo/redo dispatch takes the pixels
+ * from Rust while draining that token in lockstep.
  */
 export function applyPaintBucketFill(
   ctx: PointerToolContext,
@@ -70,14 +69,14 @@ export function applyPaintBucketFill(
     };
   }
 
-  // C5.4 canonical-pixel path (flag matches the brush + undo gating). The shared
-  // operation arm decides legacy/rust/blocked; the surface is only resolved when
-  // the flag is on, so the flag-off path stays byte-identical.
-  const rustPixelsFlag = (() => {
-    try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
-  })();
-  const surface = rustPixelsFlag ? engine.getPaintSurface(layerId) : null;
-  const arm = resolveRustPixelOperationArm("bucket", rustPixelsFlag, surface !== null);
+  // UNCONDITIONAL: a Paint Bucket Fill is always recorded by Rust, so the
+  // default state of photrez.rustPixels (key absent or "0") takes the same path
+  // as "1". Gating on it sent the default state down the TS-only commit, which
+  // recorded no Rust Pixel entry and therefore had no twin for the undo drain
+  // to move in lockstep. The surface is resolved unconditionally now; a missing
+  // one is a visible error, never a silent second pixel owner.
+  const surface = engine.getPaintSurface(layerId);
+  const arm = resolveRustPixelOperationArm("bucket", true, surface !== null);
   if (arm !== "legacy") {
     if (!surface) { showToast("Rust pixel surface not ready", "warn"); trySetPointerCapture(ctx.getCanvasRef(), e.pointerId); return true; }
     const docId = workspace.getActiveDocumentId() ?? "";
@@ -159,12 +158,16 @@ export function applyPaintBucketFill(
         // Imperative is entry-owned (tile-memento model): history stores it and
         // replays its before/after tiles on undo/redo; the Rust entry is synced
         // via `rust_pixels_undo` (single step, no second TS-visible entry).
+        // `rustOwned` marks it a cursor token for a step Rust already holds, so
+        // the undo/redo dispatch takes the pixels from Rust and drains this twin
+        // in lockstep instead of replaying tiles no store holds.
         const imperative = {
           layerId,
           surfaceWidth: layer.width,
           surfaceHeight: layer.height,
           before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
           after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+          rustOwned: true,
         };
         history.commit(preSnapshot, "Paint Bucket Fill", imperative, true);
         scheduler.requestRender();
@@ -177,7 +180,12 @@ export function applyPaintBucketFill(
     return true;
   }
 
-  // ── Legacy path (canonical TS bitmap) ──
+  // ── Legacy arm (canonical TS bitmap) ──
+  // UNREACHABLE now that the Rust arm above is unconditional: `arm` is "rust"
+  // whenever a paint surface exists and "blocked" when it does not, so
+  // resolveRustPixelOperationArm never returns "legacy" for this call site.
+  // Kept verbatim pending the retirement phase, which deletes it together with
+  // the "legacy" member of RustPixelOperationArm.
   const bitmap = engine.getLayerImageBitmap(layerId);
   if (!bitmap) { showToast("Layer has no image data", "warn"); return true; }
 

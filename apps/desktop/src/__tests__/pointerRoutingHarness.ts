@@ -25,6 +25,10 @@ export function createMockEditorParams(toolId: string) {
     getSelection: () => null,
     getLayerImageBitmap: () => (typeof document !== "undefined" ? document.createElement("canvas") : ({} as any)),
     setLayerImageBitmap: vi.fn(),
+    // This harness asserts pointer ROUTING, not pixels, and its layer has no
+    // raster - so no paint surface. The pixel tools resolve one unconditionally
+    // and take the visible "surface not ready" exit on null.
+    getPaintSurface: () => null,
     transformLayer: vi.fn(),
     isShapeLayer: vi.fn(() => false),
     addShapeLayer: vi.fn(() => ({ id: "shape-1", type: "shape", width: 1, height: 1 })),

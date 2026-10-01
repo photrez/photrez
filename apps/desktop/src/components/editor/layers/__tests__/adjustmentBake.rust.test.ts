@@ -364,26 +364,4 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
     engine.restore(preSnapshot);
     expect(layer.basicAdjustment).toEqual(originalAdj);
   });
-
-  it("keeps legacy path unchanged when rustPixels=0", async () => {
-    const { engine, history, renderer, layer } = makeFakes();
-    layer.basicAdjustment = { brightness: 20, contrast: 0, saturation: 0 };
-    localStorage.removeItem("photrez.rustPixels");
-
-    // Simulate legacy path
-    history.commit(engine.snapshot(), "Apply Adjustment");
-    const result = await engine.commitBasicAdjustment("L1");
-
-    // Legacy: uploadImage is called
-    const bakedLayer = engine.getLayer("L1");
-    if (bakedLayer?.imageBitmap) renderer.uploadImage("L1", bakedLayer.imageBitmap);
-
-    expect(history.commit).toHaveBeenCalledTimes(1);
-    expect(history.commit.mock.calls[0][1]).toBe("Apply Adjustment");
-    // No imperative memento in legacy path
-    expect(history.commit.mock.calls[0][2]).toBeUndefined();
-    expect(renderer.uploadImage).toHaveBeenCalledWith("L1", bakedLayer.imageBitmap);
-    // No Rust calls
-    expect(mockInvoke).not.toHaveBeenCalled();
-  });
 });

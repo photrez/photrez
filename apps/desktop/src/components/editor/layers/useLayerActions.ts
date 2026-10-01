@@ -290,13 +290,15 @@ export function useLayerActions() {
       // Nothing to bake if the layer has no live adjustment.
       if (!engine.getLayer(activeId)?.basicAdjustment) return;
 
-      // C5.4 canonical-pixel path (flag matches the brush/bucket/fill-layer gating). The
-      // shared operation arm decides legacy/rust/blocked for all three call sites.
-      const rustPixelsFlag = (() => {
-        try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
-      })();
+      // UNCONDITIONAL: an Adjustment Bake is always recorded by Rust, so the
+      // default state of photrez.rustPixels (key absent or "0") takes the same
+      // path as "1". Gating on it sent the default state down the TS-only
+      // commit, which recorded no Rust Pixel entry and therefore had no twin for
+      // the undo drain to move in lockstep. The shared operation arm still
+      // decides rust/blocked: a missing paint surface is a visible error, never a
+      // silent second pixel owner.
       const surface = engine.getPaintSurface(activeId);
-      const arm = resolveRustPixelOperationArm("bake", rustPixelsFlag, surface !== null);
+      const arm = resolveRustPixelOperationArm("bake", true, surface !== null);
 
       if (arm !== "legacy") {
         if (!surface) {
@@ -397,8 +399,10 @@ export function useLayerActions() {
             // Now that write_region succeeded, bitmap and Rust are proven identical.
             bakedLayer.bitmapEpoch = res.epoch;
 
-            // Imperative memento: single user-visible history step.
-            // history stores before/after tiles; Rust entry synced via rust_pixels_undo.
+            // Imperative memento: single user-visible history step. The TS entry
+            // is a cursor token marked `rustOwned` for a step Rust already holds,
+            // so the undo/redo dispatch takes the pixels from Rust and drains this
+            // twin in lockstep instead of replaying tiles no store holds.
             const imperative = {
               layerId: activeId,
               surfaceWidth: bakedLayer.width,
@@ -411,6 +415,7 @@ export function useLayerActions() {
                 x: t.x, y: t.y, width: t.w, height: t.h,
                 data: new Uint8ClampedArray(t.data),
               })),
+              rustOwned: true,
             };
             history.commit(preSnapshot, "Apply Adjustment", imperative, true);
           } catch (err) {
@@ -428,7 +433,12 @@ export function useLayerActions() {
         }
         scheduler.requestRender();
       } else {
-        // Legacy path (TS-authoritative bitmap).
+        // Legacy arm (TS-authoritative bitmap). UNREACHABLE now that the Rust arm
+        // above is unconditional: `arm` is "rust" whenever a paint surface exists
+        // and "blocked" when it does not, so resolveRustPixelOperationArm never
+        // returns "legacy" for this call site. Kept verbatim pending the retirement
+        // phase, which deletes it together with the "legacy" member of
+        // RustPixelOperationArm.
         history.commit(engine.snapshot(), "Apply Adjustment");
         // Calm status-bar loading — only shows if >200ms (Material: <200ms no indicator to avoid flicker)
         let t: number | null = window.setTimeout(() => setStatusLoadingMessage("Applying adjustment..."), 200);

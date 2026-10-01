@@ -7,7 +7,55 @@ import { WorkspaceManager } from "@/engine/workspace";
 import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
 
+// Adjustment Bake records the baked pixels in the canonical Rust store over
+// IPC. Only the pixel commands are served; everything else REJECTS, which is
+// what the unmocked Tauri invoke already did in jsdom, so the rest of this file
+// keeps its current failure semantics.
+const canonicalBake = { epoch: 0, writes: 0 };
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string, args: any) => {
+    if (cmd === "rust_pixels_get_epoch") return canonicalBake.epoch;
+    if (cmd === "rust_pixels_init") return null;
+    if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 800, h: 600, data: [] }];
+    if (cmd === "rust_pixels_write_region") {
+      const { x, y, w, h } = args;
+      const rgba = Array.from(args.rgba as Uint8Array);
+      canonicalBake.epoch += 1;
+      canonicalBake.writes += 1;
+      return {
+        before: [{ x, y, w, h, data: new Array(w * h * 4).fill(0) }],
+        after: [{ x, y, w, h, data: rgba }],
+        epoch: canonicalBake.epoch,
+        version: canonicalBake.epoch,
+      };
+    }
+    return Promise.reject(`no IPC in jsdom: ${cmd}`);
+  }),
+}));
+
 function installCanvasMocks(bitmap: ImageBitmap) {
+  // The canonical bake projects Rust's returned tiles into the derived surface
+  // through applyRustTilesToSurface, which constructs a global ImageData - jsdom
+  // has none, so without this the projection throws and the arm silently stops
+  // before the upload.
+  class ShimImageData {
+    data: Uint8ClampedArray;
+    width: number;
+    height: number;
+    constructor(data: Uint8ClampedArray | number, w?: number, h?: number) {
+      if (typeof data === "number") {
+        this.width = data;
+        this.height = w!;
+        this.data = new Uint8ClampedArray(data * w! * 4);
+      } else {
+        this.width = w!;
+        this.height = h!;
+        this.data = data;
+      }
+    }
+  }
+  vi.stubGlobal("ImageData", ShimImageData);
+
   vi.spyOn(HTMLCanvasElement.prototype, "getContext")
     .mockImplementation(((type: string) => {
       if (type !== "2d") return null;
@@ -42,13 +90,24 @@ function installCanvasMocks(bitmap: ImageBitmap) {
     }
 
     getContext() {
+      const self = this;
       return {
         drawImage: vi.fn(),
+        // The bake extracts the baked RGBA with getImageData before handing it
+        // to the canonical store, so a context without it cannot bake at all.
+        getImageData: (_x: number, _y: number, w: number, h: number) => ({
+          data: new Uint8ClampedArray(w * h * 4),
+          width: w,
+          height: h,
+          colorSpace: "srgb",
+        }),
+        putImageData: vi.fn(),
         save: vi.fn(),
         restore: vi.fn(),
         translate: vi.fn(),
         rotate: vi.fn(),
         scale: vi.fn(),
+        set fillStyle(_value: string) {},
         set globalAlpha(_value: number) {},
         set globalCompositeOperation(_value: string) {},
       };
@@ -103,6 +162,8 @@ describe("LayersPanel interactions", () => {
   beforeEach(() => {
     localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
+    canonicalBake.epoch = 0;
+    canonicalBake.writes = 0;
   });
   afterEach(() => {
     localStorage.removeItem("photrez.facade");
@@ -172,6 +233,7 @@ describe("LayersPanel interactions", () => {
     installCanvasMocks(bakedBitmap);
     const renderer = {
       uploadImage: vi.fn(),
+      uploadSurfaceTiles: vi.fn(),
       destroyTexture: vi.fn(),
       bakeLayerToBitmap: vi.fn(() => bakedBitmap),
     };
@@ -215,15 +277,22 @@ describe("LayersPanel interactions", () => {
     expect(applyItem.disabled).toBe(false);
 
     applyItem.click();
-    // The apply handler is async (PBO readback resolves on a microtask).
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(renderer.bakeLayerToBitmap).toHaveBeenCalledWith(adjusted.id, 800, 600, {
-      brightness: 20,
-      contrast: 0,
-      saturation: 0,
-    });
-    expect(renderer.uploadImage).toHaveBeenCalledWith(adjusted.id, bakedBitmap);
+    // The apply handler is async (PBO readback resolves on a microtask), and the
+    // canonical bake write completes on a later one.
+    // The canonical upload is the LAST step of the bake, so waiting on it means
+    // the whole arm has run - waiting on the write alone would still be in flight.
+    await vi.waitFor(() => expect(renderer.uploadSurfaceTiles).toHaveBeenCalled(), { timeout: 2000 });
+    await vi.waitFor(() => expect(ws.getActiveHistory()?.canUndo()).toBe(true));
+    // Rust owns the baked pixels, so the canonical tiles are uploaded instead of
+    // a layer bitmap replacement - the latter would be a second pixel owner.
+    expect(renderer.uploadSurfaceTiles).toHaveBeenCalled();
+    expect(renderer.uploadImage).not.toHaveBeenCalled();
+    // Bake backend selection is deliberately NOT pinned here: the canonical bake
+    // needs a working getImageData on its scratch canvas, which is also what lets
+    // the wasm bake path succeed, so a backend pin would be asserting which mock
+    // happens to be complete. The backends have their own suites
+    // (document-bake.test.ts, webgl2-bake.test.ts). What this test owns is the
+    // menu action baking the layer and undo restoring it.
     expect(ws.getActiveHistory()?.canUndo()).toBe(true);
     // The live adjustment param is cleared after baking.
     expect(session.engine.getLayer(adjusted.id)?.basicAdjustment).toBeUndefined();
