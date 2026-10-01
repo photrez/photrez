@@ -126,6 +126,71 @@ describe("crop size acceptance: a zero or negative OUTPUT is rejected", () => {
   });
 });
 
+describe("cropCanvas uses the same acceptance rule, not a second copy", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetEmulatedForTests();
+    setEmuDocumentDims(128, 128);
+  });
+  afterEach(() => {
+    localStorage.clear();
+    __resetEmulatedForTests();
+  });
+
+  // cropCanvas has no separate target size, so its output IS its input - which is
+  // why it can call the same predicate with no target and get identical
+  // behaviour. These pin that equivalence at both ends of the range, so a future
+  // change to one rule cannot silently diverge from the other.
+  it("applies a valid cropCanvas resize", () => {
+    const engine = new DocumentEngine("d1", "doc", 128, 128);
+    engine.cropCanvas(0, 0, 100, 61);
+    expect(engine.getWidth()).toBe(100);
+    expect(engine.getHeight()).toBe(61);
+  });
+
+  it("accepts the smallest legal cropCanvas size, 1x1", () => {
+    const engine = new DocumentEngine("d2", "doc", 128, 128);
+    engine.cropCanvas(0, 0, 1, 1);
+    expect(engine.getWidth()).toBe(1);
+    expect(engine.getHeight()).toBe(1);
+  });
+
+  it("rejects a zero or negative cropCanvas size", () => {
+    const engine = new DocumentEngine("d3", "doc", 128, 128);
+    engine.cropCanvas(0, 0, 0, 61);
+    expect(engine.getWidth()).toBe(128);
+    engine.cropCanvas(0, 0, 100, 0);
+    expect(engine.getHeight()).toBe(128);
+    engine.cropCanvas(0, 0, -5, 61);
+    expect(engine.getWidth()).toBe(128);
+  });
+
+  it("rejects a cropCanvas size past the ceiling, and accepts exactly at it", () => {
+    const engine = new DocumentEngine("d4", "doc", 128, 128);
+    engine.cropCanvas(0, 0, 20000, 20000);
+    expect(engine.getWidth()).toBe(128);
+    engine.cropCanvas(0, 0, 16384, 16384);
+    expect(engine.getWidth()).toBe(16384);
+  });
+
+  // Falsifiability: the point of routing cropCanvas through the predicate is that
+  // the two rules cannot drift. This compares the two arms over the whole legal
+  // range, so a guard added to one and not the other is caught here.
+  it("agrees with applyCrop across the whole legal and illegal range", () => {
+    const cases = [1, 2, 100, 16383, 16384, 16385, 20000, 0, -1, -100000];
+    for (const n of cases) {
+      const a = new DocumentEngine("a", "doc", 128, 128);
+      const b = new DocumentEngine("b", "doc", 128, 128);
+      a.cropCanvas(0, 0, n, n);
+      b.applyCrop(0, 0, n, n, { deleteCroppedPixels: true });
+      expect([a.getWidth(), a.getHeight()], `cropCanvas ${n}`).toEqual([
+        b.getWidth(),
+        b.getHeight(),
+      ]);
+    }
+  });
+});
+
 describe("a rejected zero crop leaves the document completely untouched", () => {
   beforeEach(() => {
     localStorage.clear();

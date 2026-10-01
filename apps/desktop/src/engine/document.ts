@@ -1127,11 +1127,16 @@ export class DocumentEngine {
 
   // ─── Canvas Operations ───
   cropCanvas(x: number, y: number, width: number, height: number): void {
-    if (width <= 0 || height <= 0) return;
-    if (width > getEffectiveMaxDim() || height > getEffectiveMaxDim()) return;
+    // Same acceptance rule as applyCrop, via the same predicate - this arm has no
+    // separate target size, so its output IS its input and passing no target is
+    // exactly equivalent to the two inline guards it replaces. It used to be the
+    // second copy of a subset of the rules, which is the drift hazard the
+    // predicate exists to remove.
+    const output = resolveCropDocumentSize(width, height);
+    if (!output) return;
 
-    this.model.width = width;
-    this.model.height = height;
+    this.model.width = output.width;
+    this.model.height = output.height;
 
     performCropCanvas(this.model.layers, x, y);
 
