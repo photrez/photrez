@@ -26,8 +26,9 @@ import {
   setExternalTransitionPending,
   resetWasmDoc,
 } from "./bridge";
-import { repushCanonicalDocument } from "./canonicalSeed";
+import { buildCanonicalPayload, repushCanonicalDocument, repushCanonicalPayload } from "./canonicalSeed";
 import type { DocumentEngine } from "@/engine/document";
+import type { DocumentModel } from "@/engine/types";
 import { CONTRACT_VERSION } from "./types";
 import type { LockKind, LayerParamsPatch } from "./types";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
@@ -945,6 +946,20 @@ export function syncFacadeVersionFromPixel(docId: string, version: number): void
   if (f) f.syncRenderedVersionTo(version);
 }
 
+/**
+ * Narrow an `unknown` commit payload to a DocumentModel, or null when it is not
+ * one. The direct (non-shim) callers of recordExternalTransitionFor pass `{}`,
+ * `null`, or a partial object; those carry no layer vector, so the engine's own
+ * vector stays the capture source for them.
+ */
+function asDocumentModel(snapshot: unknown): DocumentModel | null {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const m = snapshot as Partial<DocumentModel>;
+  if (!Array.isArray(m.layers)) return null;
+  if (typeof m.width !== "number" || typeof m.height !== "number") return null;
+  return m as DocumentModel;
+}
+
 export async function recordExternalTransitionFor(
   docId: string,
   rec: { label: string; affectedLayerIds: string[]; snapshot: unknown },
@@ -954,6 +969,32 @@ export async function recordExternalTransitionFor(
   // further protocol attempts — fail fast without touching the engine.
   const deg = historyDegraded();
   if (deg) return { ok: false };
+  // The pre-op vector the record must capture. Serialized HERE, synchronously,
+  // because the mutation this entry undoes lands immediately after the commit
+  // that called us, and the push below is async.
+  //
+  // An External entry's undo point is the layer vector the engine held at
+  // record_external time (crates/core/src/history.rs: `before: self.layers`),
+  // and nothing after the record can change it. The engine's own vector is only
+  // as current as the last canonical push, so a legacy op the engine never saw
+  // (a flip on a host-added layer, a gradient's pixel commit) left the engine
+  // holding whatever the previous push carried: the capture then described a
+  // state the user was never in, and the undo restored THAT. Measured at 8441551
+  // - a titlebar "Flip horizontal" click, one Ctrl+Z, flipH still true, and the
+  // captured order moving Background above Paint.
+  //
+  // So the host's pre-op state is pushed into the engine BEFORE the record, and
+  // the record then captures it. This is the only state-changing apply on this
+  // path: the post-record re-push below is a shadow heal that must not run
+  // first, or the capture would read the post-op state instead.
+  //
+  // `rec.snapshot` is the commit's pre-action argument, which is exactly the undo
+  // point (both shim call sites pass the pre-action snapshot - see the
+  // recordSnapshotHistory comment). A caller that passes something else (the
+  // direct test callers pass `{}`/`null`) has no pre-op state to offer, so the
+  // engine keeps its existing vector and the record captures that, as before.
+  const preOpModel = asDocumentModel(rec.snapshot);
+  const preOpPayload = preOpModel ? buildCanonicalPayload(preOpModel) : null;
   const token = `ts:${docId}:${crypto.randomUUID()}`;
   tsPayloadStore.set(token, {
     label: rec.label,
@@ -980,6 +1021,23 @@ export async function recordExternalTransitionFor(
     // idempotent (protocol.rs) and the emulator Set dedupes, so this is a free
     // unconditional call that is safe even after a per-doc engine reset.
     registerPayloadAdapter("ts-external", docId);
+    // Give the engine the pre-op state BEFORE the record captures it (see the
+    // preOpPayload note above).
+    //
+    // Not awaited here, and that is load-bearing rather than lazy: awaiting would
+    // open a microtask gap between the adapter registration and the record, and a
+    // rejected registration (a doc with no reachable transport) would then land as
+    // an UNHANDLED rejection, because the only awaiter is the applyCommand below
+    // and it has not been reached yet. Instead the push registers itself on the
+    // per-doc seed barrier (seedNativeCanonical writes
+    // nativeCanonicalSeedPromiseByDoc synchronously), and the applyCommand below
+    // drains that same barrier before it dispatches. So the push still lands
+    // first, with no extra await on this path.
+    if (preOpPayload !== null) {
+      void repushCanonicalPayload(docId, preOpPayload).catch((e) =>
+        console.warn("[canonical-repush] pre-op capture push failed", e),
+      );
+    }
     const res = await applyCommand({
       contractVersion: CONTRACT_VERSION,
       expectedVersion: undefined, // mirrors may land after facade ops; engine DV is authority
@@ -1014,7 +1072,9 @@ export async function recordExternalTransitionFor(
     // external transition changes the TS model outside the facade command path, so
     // re-push the full canonical shadow so the native copy stays complete. The
     // commit shim passes the live engine; direct callers may omit it and skip the
-    // re-push. Fire-and-forget; a rejected re-push is logged, never surfaced as an
+    // re-push. Reads the LIVE model, so it carries the post-op state and lands
+    // after the pre-op push above - which is what fills this entry's post-sync
+    // slot. Fire-and-forget; a rejected re-push is logged, never surfaced as an
     // unhandled rejection.
     if (engine) {
       void repushCanonicalDocument(docId, engine).catch((e) =>

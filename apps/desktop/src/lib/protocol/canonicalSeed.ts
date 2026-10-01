@@ -65,15 +65,43 @@ function buildCanonicalLayer(layer: LayerNode): JsonObject {
  * that deserializes into `CanonicalDocument` on the native side.
  */
 export function buildCanonicalDocumentPayload(engine: DocumentEngine): string {
-  const doc: JsonObject = {
+  return buildCanonicalPayload({
     id: engine.getId(),
     name: engine.getName(),
     width: engine.getWidth(),
     height: engine.getHeight(),
-    layers: engine.getLayers().map(buildCanonicalLayer),
+    layers: engine.getLayers(),
+    selection: engine.getSelection(),
+  });
+}
+
+/**
+ * The same payload shape, built from an already-captured document state rather
+ * than the live engine. The two are interchangeable on the wire; the difference
+ * is WHEN the state is read.
+ *
+ * `buildCanonicalDocumentPayload` reads the engine at call time, so a payload
+ * built after a mutation carries the post-mutation state. A pre-op capture
+ * (CommandHistory.commit's snapshot argument) has to be serialized at the moment
+ * it was taken, or the async gap before the push lands lets the mutation in
+ * first. That is the whole reason this variant exists.
+ */
+export function buildCanonicalPayload(model: {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  layers: readonly LayerNode[];
+  selection: unknown;
+}): string {
+  const doc: JsonObject = {
+    id: model.id,
+    name: model.name,
+    width: model.width,
+    height: model.height,
+    layers: model.layers.map(buildCanonicalLayer),
   };
-  const selection = engine.getSelection();
-  if (selection) doc.selection = selection;
+  if (model.selection) doc.selection = model.selection;
   return JSON.stringify(doc);
 }
 
@@ -101,9 +129,17 @@ export function buildCanonicalDocumentPayload(engine: DocumentEngine): string {
 // because every payload is complete, never a delta. Coalescing widens a window
 // that already exists; it adds no new divergence class.
 export async function repushCanonicalDocument(docId: string, engine: DocumentEngine): Promise<void> {
+  return repushCanonicalPayload(docId, buildCanonicalDocumentPayload(engine));
+}
+
+/**
+ * Re-push a pre-built canonical payload (see `buildCanonicalPayload`). Split out
+ * so a caller that captured the document state EARLIER can push exactly that
+ * state instead of re-reading the live model after an async gap.
+ */
+export async function repushCanonicalPayload(docId: string, payload: string): Promise<void> {
   if (!isNativeAuthority()) return;
   const key = docId === "" ? "default" : docId;
-  const payload = buildCanonicalDocumentPayload(engine);
   // Cheap duplicate guard: a byte-identical payload means the shadow already
   // holds exactly this content, so skip the invoke AND the slot write. String
   // equality is a full-content compare far cheaper than an IPC round-trip.

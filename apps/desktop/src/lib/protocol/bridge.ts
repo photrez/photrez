@@ -201,7 +201,16 @@ export function seedNativeCanonical(docId: string, canonicalJson: string): Promi
     await (nativeSeedPromiseByDoc.get(key) ?? Promise.resolve());
     await nativeProtocol.protocol_seed_canonical_native(canonicalJson, key);
   })();
-  nativeCanonicalSeedPromiseByDoc.set(key, p);
+  // Store a GUARDED copy. This slot is an ORDERING barrier, not an error channel:
+  // its one job is to make awaitNativeSeed wait for the push. The push's own
+  // failure is reported to whoever awaited the returned `p`, and storing the raw
+  // promise here as well would make a failed push reject a second time with no
+  // handler - an unhandled rejection that fails a test run for a push the caller
+  // already saw fail. Measured while adding the pre-op capture push: a document
+  // with no reachable transport rejected here, the barrier rejected in
+  // awaitNativeSeed, the applyCommand that would have awaited the adapter
+  // registration bailed, and the adapter promise surfaced unhandled.
+  nativeCanonicalSeedPromiseByDoc.set(key, p.then(() => {}).catch(() => {}));
   return p;
 }
 
