@@ -60,10 +60,19 @@ vi.mock("@/components/editor/Toast", async (importOriginal) => {
   return { ...actual, showToast: (...args: Parameters<typeof actual.showToast>) => showToastMock(...args) };
 });
 
-function makeFakes() {
-  const surface = { context: { putImageData: vi.fn(), getImageData: vi.fn((_x: number, _y: number, w: number, h: number) => new FakeImageData(w, h)) }, pixelEpoch: 0, pixelVersion: 0 } as any;
+function makeFakes(opts: { sel?: any } = {}) {
+  // toImageBitmap is part of the real PaintTileSurface contract and is what the
+  // visible projection reads. Without it the projection is skipped, which is
+  // correct but would let this suite pass without ever proving visibility.
+  const surface = {
+    context: { putImageData: vi.fn(), getImageData: vi.fn((_x: number, _y: number, w: number, h: number) => new FakeImageData(w, h)) },
+    pixelEpoch: 0,
+    pixelVersion: 0,
+    toImageBitmap: vi.fn(async () => ({ width: 8, height: 8, close: vi.fn() })),
+  } as any;
   const commit = vi.fn();
   const uploadSurfaceTiles = vi.fn();
+  const uploadImage = vi.fn();
   const layer = {
     id: "L1", width: 8, height: 8, locked: false, visible: true, lockTransparency: false,
     transform: { scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false, x: 0, y: 0 },
@@ -71,11 +80,12 @@ function makeFakes() {
   const engine: any = {
     getActiveLayerId: () => "L1",
     getLayer: (id: string) => (id === "L1" ? layer : null),
-    getSelection: () => null,
+    getSelection: () => opts.sel ?? null,
     getPaintSurface: (id: string) => (id === "L1" ? surface : null),
     snapshot: () => ({ __snap: true }),
     getLayerImageBitmap: vi.fn(),
     setLayerImageBitmap: vi.fn(),
+    notifyVisualChange: vi.fn(),
   };
   const workspace: any = {
     getActiveEngine: () => engine,
@@ -85,7 +95,7 @@ function makeFakes() {
   const editor: any = {
     activeTool: () => "paintBucket",
     workspace,
-    renderer: { uploadSurfaceTiles },
+    renderer: { uploadSurfaceTiles, uploadImage },
     scheduler: { requestRender: vi.fn() },
     fgColor: () => "#ff0000",
     fillTolerance: () => 0,
@@ -96,7 +106,7 @@ function makeFakes() {
     getDocCoords: () => ({ x: 1, y: 1 }),
     getCanvasRef: () => ({ current: null }),
   };
-  return { surface, commit, uploadSurfaceTiles, engine, workspace, editor, ctx, surfaceRef: surface };
+  return { surface, commit, uploadSurfaceTiles, uploadImage, engine, workspace, editor, ctx, surfaceRef: surface };
 }
 
 describe("computeChangedRegion (pure)", () => {
@@ -285,6 +295,99 @@ describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () =>
     }, { timeout: 2000 });
   });
 });
+});
+
+// ── Restored coverage ───────────────────────────────────────────────────────
+// 2143dcd deleted this file's "legacy path upload granularity" block and its
+// flag ON/OFF routing test. The granularity assertions pinned REAL product
+// behaviour (how much of the layer a fill touches), so they are re-pinned here
+// against the canonical Rust arm, which is where the region is computed now.
+// The routing half of the deleted flag test asserted the flag-OFF arm, which no
+// longer exists; that half is retired on purpose and is NOT restored.
+
+// A full-layer write is what an unconstrained fill produces, so a zeroed source
+// and an 8x8 layer give a known region to assert against.
+function okFillInvoke() {
+  mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+    if (cmd === "rust_pixels_get_epoch") return 0;
+    if (cmd === "rust_pixels_snapshot_layer") {
+      return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
+    }
+    if (cmd === "rust_pixels_write_region") {
+      return {
+        before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
+        after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+        epoch: 1, version: 1,
+      };
+    }
+    return undefined;
+  });
+}
+
+const writeRegionArgs = () =>
+  mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1] as
+    { x: number; y: number; w: number; h: number };
+
+describe("paint bucket write-region granularity (canonical Rust arm)", () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    applyCalls.length = 0;
+    showToastMock.mockClear();
+  });
+
+  it("scopes the region to the fill AABB for a non-inverted selection", async () => {
+    // The marquee must CONTAIN the click point (1,1): a fill started outside a
+    // non-inverted mask changes nothing and correctly writes no region at all.
+    const { ctx } = makeFakes({ sel: { x: 0, y: 0, width: 4, height: 4, angle: 0, shape: "rect", inverted: false } });
+    okFillInvoke();
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+    await vi.waitFor(() => {
+      const wr = writeRegionArgs();
+      // Bounded by the marquee: the fill may only touch pixels inside it.
+      expect(wr.x).toBeGreaterThanOrEqual(0);
+      expect(wr.y).toBeGreaterThanOrEqual(0);
+      expect(wr.x + wr.w, "the region stops at the marquee edge").toBeLessThanOrEqual(4);
+      expect(wr.y + wr.h, "the region stops at the marquee edge").toBeLessThanOrEqual(4);
+    }, { timeout: 2000 });
+  });
+
+  it("spans the whole layer for an inverted selection", async () => {
+    const { ctx } = makeFakes({ sel: { x: 2, y: 2, width: 4, height: 4, angle: 0, shape: "rect", inverted: true } });
+    okFillInvoke();
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+    await vi.waitFor(() => {
+      const wr = writeRegionArgs();
+      expect([wr.x, wr.y, wr.w, wr.h], "an inverted fill can touch the whole layer").toEqual([0, 0, 8, 8]);
+    }, { timeout: 2000 });
+  });
+
+  it("spans the whole layer with no selection", async () => {
+    const { ctx } = makeFakes();
+    okFillInvoke();
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+    await vi.waitFor(() => {
+      const wr = writeRegionArgs();
+      expect([wr.x, wr.y, wr.w, wr.h], "an unconstrained fill can touch the whole layer").toEqual([0, 0, 8, 8]);
+    }, { timeout: 2000 });
+  });
+
+  // Re-pins the deleted flag-ON half of the routing test, with one assertion
+  // deliberately inverted: the Rust arm NOW installs a layer raster, because the
+  // drawn layer comes from layer.imageBitmap and the op must be visible when it
+  // runs. The deleted test asserted setLayerImageBitmap was never called, which
+  // is exactly what made a recorded fill invisible until undo+redo.
+  it("commits exactly one rustOwned entry and makes the fill visible", async () => {
+    const { ctx, commit, uploadImage } = makeFakes();
+    okFillInvoke();
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+    await vi.waitFor(() => {
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(commit.mock.calls[0][1]).toBe("Paint Bucket Fill");
+      expect(commit.mock.calls[0][2]?.rustOwned).toBe(true);
+      // The visible texture is refreshed from the canonical pixels.
+      expect(uploadImage).toHaveBeenCalled();
+    }, { timeout: 2000 });
+  });
 });
 
 // The bridge gate must be ON for this pin to mean anything: with it off,

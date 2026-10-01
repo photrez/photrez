@@ -782,6 +782,75 @@ export interface PaintCacheLike {
   pixelVersion?: number;
 }
 
+/** The slice of DocumentEngine this projection needs. */
+export interface BitmapProjectableEngine {
+  setLayerImageBitmap(layerId: string, bitmap: ImageBitmap): void;
+  notifyVisualChange?: () => void;
+}
+/** The slice of the render backend this projection needs. */
+export interface VisibleTextureRenderer {
+  uploadImage?: (
+    layerId: string,
+    source: ImageBitmap,
+    dirtyRect?: { x: number; y: number; width: number; height: number },
+  ) => unknown;
+}
+/** A derived surface that can hand back a bitmap of what it now holds. */
+export interface BitmapProducingSurface {
+  toImageBitmap?: () => Promise<ImageBitmap>;
+}
+
+/**
+ * Make a pixel op VISIBLE at op time, not only after some later consumer happens
+ * to rebuild the layer bitmap.
+ *
+ * The write to Rust is authoritative but it is not what the user looks at: the
+ * viewport renderer builds the drawn layer from `layer.imageBitmap`
+ * (useViewportRenderer uploads it through `uploadImage`). An op that writes Rust
+ * and stops leaves the canvas showing the pre-op raster until something calls
+ * `ensureBitmapCurrent` - which is why a recorded fill was invisible until the
+ * user pressed undo and redo.
+ *
+ * This closes that gap the same way for every op: the derived surface has
+ * already been given Rust's authoritative `after` tiles, so it can be converted
+ * back to a bitmap, installed as the layer's raster and uploaded to the texture
+ * the renderer draws from.
+ *
+ * Call AFTER applyRustTilesToSurface, and set `layer.bitmapEpoch` only AFTER this
+ * returns: the epoch marks the installed bitmap as matching Rust, and claiming
+ * it before the bitmap actually changed is what made the stale raster
+ * unrecoverable - ensureBitmapCurrent skips the rebuild whenever
+ * `bitmapEpoch === rustEpoch`.
+ *
+ * `setLayerImageBitmap` drops the engine's cached paint surface (a non-paint
+ * bitmap replacement invalidates it), which is correct here: the next
+ * getPaintSurface rebuilds from the raster that now holds the canonical pixels.
+ * The surface reference the caller already holds stays valid.
+ */
+export async function projectRustPixelsToVisibleSurface(
+  engine: BitmapProjectableEngine,
+  renderer: VisibleTextureRenderer | null | undefined,
+  layerId: string,
+  surface: BitmapProducingSurface,
+  epoch: number,
+): Promise<void> {
+  if (typeof surface.toImageBitmap !== "function") return;
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await surface.toImageBitmap();
+  } catch (err) {
+    // The raster stays stale but the canonical record is intact; the next
+    // ensureBitmapCurrent will rebuild it. Not fatal to the op.
+    console.warn("[rust-shadow] visible projection could not read the derived surface:", err);
+    return;
+  }
+  engine.setLayerImageBitmap(layerId, bitmap);
+  renderer?.uploadImage?.(layerId, bitmap);
+  const layer = (engine as unknown as { getLayer?: (id: string) => { bitmapEpoch?: number } | null }).getLayer?.(layerId);
+  if (layer) layer.bitmapEpoch = epoch;
+  engine.notifyVisualChange?.();
+}
+
 /** Current canonical epoch for (docId, layerId), or null when Rust has no pixel
  *  storage for that layer yet (e.g. before the Rust init path has seeded it). */
 export async function getRustEpoch(docId: string, layerId: string): Promise<number | null> {

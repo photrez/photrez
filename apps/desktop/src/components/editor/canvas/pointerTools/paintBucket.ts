@@ -6,7 +6,7 @@ import { showToast } from "../../Toast";
 import { ipcErrorMessage } from "@/tauri/native";
 import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { PointerToolContext } from "./pointerToolContext";
-import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
 import { computeDirtyRegion } from "@/lib/paint/regionProducer";
@@ -151,10 +151,14 @@ export function applyPaintBucketFill(
         surface.pixelVersion = res.version;
         syncFacadeVersionFromPixel(docId, res.version);
         renderer?.uploadSurfaceTiles?.(layerId, layer.width, layer.height, res.after.map(t => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
-        // C5.4 bitmap sync: bitmap was set before Rust write (setLayerImageBitmap).
-        // Now that write_region succeeded, bitmap and Rust are proven identical.
-        const bucketLayer = engine.getLayer(layerId);
-        if (bucketLayer) bucketLayer.bitmapEpoch = res.epoch;
+        // Rust is authoritative but it is not what the user looks at: the drawn
+        // layer comes from layer.imageBitmap. Rebuild that raster from the surface
+        // Rust's tiles were just applied to, so the fill is visible NOW instead of
+        // only after an undo/redo. This also installs bitmapEpoch, and only once
+        // the bitmap genuinely holds the post-fill pixels - setting the epoch
+        // against an unchanged bitmap made ensureBitmapCurrent skip the rebuild
+        // and left the pre-fill raster permanently on screen.
+        await projectRustPixelsToVisibleSurface(engine, renderer, layerId, surface, res.epoch);
         // Imperative is entry-owned (tile-memento model): history stores it and
         // replays its before/after tiles on undo/redo; the Rust entry is synced
         // via `rust_pixels_undo` (single step, no second TS-visible entry).

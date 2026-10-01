@@ -26,6 +26,17 @@ function resetCanonicalPixels() {
   canonicalPixels.epoch = 0;
   canonicalPixels.writes = 0;
 }
+/** True when any pixel in the canonical buffer is exactly this opaque colour. */
+function canonicalHasColor(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const d = canonicalPixels.bytes;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] === r && d[i + 1] === g && d[i + 2] === b && d[i + 3] === 255) return true;
+  }
+  return false;
+}
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args: any) => {
     if (cmd === "rust_pixels_get_epoch") return canonicalPixels.epoch;
@@ -1293,12 +1304,16 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
     // the pre-fill state.
     await vi.waitFor(() => expect(canonicalPixels.writes).toBe(1), { timeout: 2000 });
 
-    // Fill used the foreground color through real production code.
-    expect(fillRef.color).toBe("#ff0000");
-    // Rust owns the pixels, so the canonical tiles are uploaded - not a layer
-    // bitmap replacement (uploadImage), which would be a second pixel owner.
+    // Fill used the foreground color through real production code. Asserted on the
+    // CANONICAL bytes rather than on a captured `fillStyle`: the raster-less
+    // materialisation and the visible projection both touch the canvas stub, so
+    // "last fillStyle written" no longer identifies the user's requested colour.
+    // The canonical buffer is what the fill actually committed.
+    expect(canonicalHasColor("#ff0000"), "the canonical store holds the foreground fill").toBe(true);
+    // Rust owns the pixels; the visible texture is refreshed FROM Rust's tiles, so
+    // both the tile upload and the layer-raster upload happen and agree.
     expect(renderer.uploadSurfaceTiles).toHaveBeenCalled();
-    expect(renderer.uploadImage).not.toHaveBeenCalled();
+    expect(renderer.uploadImage, "the drawn layer raster was refreshed").toHaveBeenCalled();
     expect(scheduler.requestRender).toHaveBeenCalled();
     expect(commitSpy).toHaveBeenCalled();
     // The undo token is committed AFTER the canonical write: its memento is
@@ -1320,7 +1335,7 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", ctrlKey: true, bubbles: true }));
 
     await vi.waitFor(() => expect(canonicalPixels.writes).toBe(1), { timeout: 2000 });
-    expect(fillRef.color).toBe("#00ff00");
+    expect(canonicalHasColor("#00ff00"), "the canonical store holds the background fill").toBe(true);
     expect(renderer.uploadSurfaceTiles).toHaveBeenCalled();
     dispose();
   });
@@ -1336,7 +1351,7 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true, bubbles: true }));
 
     await vi.waitFor(() => expect(canonicalPixels.writes).toBe(1), { timeout: 2000 });
-    expect(fillRef.color).toBe("#123456");
+    expect(canonicalHasColor("#123456"), "the canonical store holds the foreground fill").toBe(true);
     expect(renderer.uploadSurfaceTiles).toHaveBeenCalled();
     dispose();
   });

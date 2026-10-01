@@ -28,6 +28,7 @@ import { useEditorCommands } from "../useEditorCommands";
 import { useLayerActions } from "../layers/useLayerActions";
 import { applyPaintBucketFill } from "../canvas/pointerTools/paintBucket";
 import { fillActiveLayerWithColor } from "../layers/layerOperations";
+import { installFaithfulCanvas } from "@/__tests__/faithfulOffscreenCanvas";
 
 const DOC = "doc-ops";
 const SIZE = 16;
@@ -65,86 +66,11 @@ vi.mock("@/engine/document", async (importOriginal) => {
 
 // ---- jsdom shims ----------------------------------------------------------
 
-class FakeImageData {
-  data: Uint8ClampedArray;
-  width: number;
-  height: number;
-  constructor(data: Uint8ClampedArray | number, w?: number, h?: number) {
-    if (typeof data === "number") {
-      this.width = data;
-      this.height = w!;
-      this.data = new Uint8ClampedArray(data * w! * 4);
-    } else {
-      this.width = w!;
-      this.height = h!;
-      this.data = data;
-    }
-  }
-}
+// Faithful canvas: transferToImageBitmap() throws InvalidStateError when no 2d
+// context was ever obtained, exactly like the real WebView2 canvas. A lenient
+// stub is what let the empty-raster crash ship with every suite green.
+let restoreCanvas: (() => void) | undefined;
 
-const originalOffscreen = (globalThis as any).OffscreenCanvas;
-const originalImageData = (globalThis as any).ImageData;
-const originalCreateBitmap = (globalThis as any).createImageBitmap;
-
-/** Software OffscreenCanvas whose 2D context really paints, so fillRect lands. */
-function installCanvasShims() {
-  (globalThis as any).ImageData = FakeImageData;
-  (globalThis as any).createImageBitmap = async (src: any) => {
-    const data = src?.data ?? new Uint8ClampedArray((src?.width ?? 1) * (src?.height ?? 1) * 4);
-    return { width: src.width, height: src.height, getImageData: () => ({ data, width: src.width, height: src.height }) };
-  };
-  (globalThis as any).OffscreenCanvas = class {
-    width: number;
-    height: number;
-    _buffer: Uint8ClampedArray;
-    constructor(w: number, h: number) {
-      this.width = w;
-      this.height = h;
-      this._buffer = new Uint8ClampedArray(w * h * 4);
-    }
-    getContext() {
-      const self = this;
-      return {
-        // `_fs` lives on the CONTEXT: the setter writes it here and fillRect
-        // reads it from the same object. Splitting the two made fillRect read
-        // undefined and the fill silently throw instead of painting.
-        _fs: "#000000" as string,
-        get fillStyle() { return (this as any)._fs; },
-        set fillStyle(v: string) { (this as any)._fs = v; },
-        fillRect(x: number, y: number, w: number, h: number) {
-          const hex = ((this as any)._fs as string).replace("#", "");
-          const r = parseInt(hex.slice(0, 2), 16);
-          const g = parseInt(hex.slice(2, 4), 16);
-          const b = parseInt(hex.slice(4, 6), 16);
-          for (let row = y; row < y + h; row++)
-            for (let col = x; col < x + w; col++) {
-              if (row < 0 || row >= self.height || col < 0 || col >= self.width) continue;
-              const i = (row * self.width + col) * 4;
-              self._buffer[i] = r;
-              self._buffer[i + 1] = g;
-              self._buffer[i + 2] = b;
-              self._buffer[i + 3] = 255;
-            }
-        },
-        drawImage(img: any) {
-          const d = img?.getImageData ? img.getImageData().data : img?.data;
-          if (d && d.length === self._buffer.length) self._buffer.set(d);
-        },
-        getImageData() {
-          return { data: self._buffer, width: self.width, height: self.height, colorSpace: "srgb" };
-        },
-        putImageData(v: any) { if (v && v.data) self._buffer.set(v.data); },
-        save: () => {}, restore: () => {}, translate: () => {}, rotate: () => {}, scale: () => {},
-        globalAlpha: 1,
-        globalCompositeOperation: "source-over",
-      };
-    }
-    transferToImageBitmap() {
-      const buf = this._buffer;
-      return { width: this.width, height: this.height, getImageData: () => ({ data: buf, width: this.width, height: this.height }), close: () => {} } as any;
-    }
-  };
-}
 
 // ---- Rust pixel store fake ------------------------------------------------
 
@@ -367,7 +293,7 @@ beforeEach(() => {
   localStorage.clear();
   // The facade cursor must not own the step under test.
   localStorage.setItem("photrez.facade", "0");
-  installCanvasShims();
+  restoreCanvas = installFaithfulCanvas();
   store = createStore(SIZE, SIZE);
 });
 
@@ -376,9 +302,8 @@ afterEach(() => {
   dispose = undefined;
   container?.parentNode?.removeChild(container);
   container = undefined;
-  (globalThis as any).OffscreenCanvas = originalOffscreen;
-  (globalThis as any).ImageData = originalImageData;
-  (globalThis as any).createImageBitmap = originalCreateBitmap;
+  restoreCanvas?.();
+  restoreCanvas = undefined;
   localStorage.clear();
   vi.restoreAllMocks();
 });
@@ -451,5 +376,138 @@ describe("bucket, fill and bake are Rust-canonical with photrez.rustPixels at it
     await layerActions!.handleApplyAdjustment();
 
     await expectOneUndoableRustStep("bake", beforeHash);
+  });
+});
+
+/**
+ * The layer bitmap hash is what the visible canvas is built from - the viewport
+ * renderer uploads `layer.imageBitmap` (useViewportRenderer calls uploadImage with
+ * it). Hashing it is how a fill is proven VISIBLE, not merely recorded.
+ *
+ * Reads both bitmap shapes the engine holds: a transferred ImageBitmap-like
+ * (getImageData) and a live canvas element (getContext).
+ */
+function bitmapHash(engine: ReturnType<WorkspaceManager["getActiveEngine"]>, layerId: string): string {
+  const bitmap = engine!.getLayerImageBitmap(layerId) as any;
+  if (!bitmap) return "no-bitmap";
+  let bytes: ArrayLike<number> | null = null;
+  if (typeof bitmap.getImageData === "function") {
+    bytes = bitmap.getImageData(0, 0, SIZE, SIZE).data;
+  } else if (typeof bitmap.getContext === "function") {
+    const c = bitmap.getContext("2d");
+    if (c) bytes = c.getImageData(0, 0, SIZE, SIZE).data;
+  }
+  if (!bytes) return "unreadable-bitmap";
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+describe("a fill is visible at op time, not only after an undo/redo round trip", () => {
+  it("Paint Bucket Fill refreshes the layer bitmap and the visible texture", async () => {
+    const { workspace, engine, history, renderer } = mount();
+    await tick();
+    setTool("paintBucket");
+    setFgColor("#ff0000");
+    const layerId = primeLayer(engine);
+    const beforeHash = bitmapHash(engine, layerId);
+
+    const editor: any = {
+      activeTool: () => "paintBucket",
+      workspace,
+      renderer,
+      scheduler: { requestRender: vi.fn() },
+      fgColor: () => "#ff0000",
+      fillTolerance: () => 0,
+      fillContiguous: () => true,
+    };
+    const ctx: any = { editor, getDocCoords: () => ({ x: 4, y: 4 }), getCanvasRef: () => ({ current: null }) };
+    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
+    await tick(30);
+
+    // The canonical write is not the visible surface: the viewport renderer draws
+    // from the layer bitmap, so an op that only writes Rust leaves the canvas
+    // showing the pre-fill pixels until something else rebuilds that bitmap.
+    expect(history.getHistoryStack().map((i) => i.label)).toContain("Paint Bucket Fill");
+    expect(bitmapHash(engine, layerId), "the layer bitmap carries the fill").not.toBe(beforeHash);
+    expect((renderer.uploadImage as any).mock.calls.length, "the visible texture was refreshed").toBeGreaterThan(0);
+  });
+
+  it("Fill Layer refreshes the layer bitmap and the visible texture", async () => {
+    const { engine, history, renderer } = mount();
+    await tick();
+    const layerId = primeLayer(engine);
+    const beforeHash = bitmapHash(engine, layerId);
+
+    expect(fillActiveLayerWithColor(engine, history, renderer as never, "#00ff00")).toBe(true);
+    await tick(30);
+
+    expect(bitmapHash(engine, layerId), "the layer bitmap carries the fill").not.toBe(beforeHash);
+    expect((renderer.uploadImage as any).mock.calls.length, "the visible texture was refreshed").toBeGreaterThan(0);
+  });
+});
+
+describe("Alt+Delete on a layer with no raster", () => {
+  it("materialises the raster and records one canonical write without throwing", async () => {
+    const { engine, history, renderer } = mount();
+    await tick();
+    const layerId = engine.getActiveLayerId()!;
+    // Premise, asserted so this can never silently stop testing the real flow.
+    expect(bitmapHash(engine, layerId), "the layer really has no raster to start from").toBe("no-bitmap");
+
+    let threw: unknown = null;
+    try {
+      expect(fillActiveLayerWithColor(engine, history, renderer as never, "#ff0000")).toBe(true);
+    } catch (err) {
+      threw = err;
+    }
+    await tick(30);
+
+    // The shipped crash: transferToImageBitmap() on a canvas whose 2d context was
+    // never obtained throws InvalidStateError and takes the canvas down with it.
+    expect(threw, "no exception escaped the fill").toBeNull();
+    expect(bitmapHash(engine, layerId), "the empty raster materialised").not.toBe("no-bitmap");
+    expect(countWrites(), "the fill recorded through Rust").toBe(1);
+  });
+
+  it("refuses a zero-size layer visibly instead of crashing on the transfer", async () => {
+    const { engine, history, renderer } = mount();
+    await tick();
+    const layerId = engine.getActiveLayerId()!;
+    engine.getLayer(layerId)!.width = 0;
+    engine.getLayer(layerId)!.height = 0;
+
+    let threw: unknown = null;
+    try {
+      fillActiveLayerWithColor(engine, history, renderer as never, "#ff0000");
+      await tick(20);
+    } catch (err) {
+      threw = err;
+    }
+
+    expect(threw, "a zero-size layer is refused, not crashed on").toBeNull();
+    expect(countWrites(), "nothing was written for a zero-size layer").toBe(0);
+  });
+
+  it("refuses a layer with negative dimensions visibly instead of crashing", async () => {
+    const { engine, history, renderer } = mount();
+    await tick();
+    const layerId = engine.getActiveLayerId()!;
+    engine.getLayer(layerId)!.width = -8;
+    engine.getLayer(layerId)!.height = 16;
+
+    let threw: unknown = null;
+    try {
+      fillActiveLayerWithColor(engine, history, renderer as never, "#ff0000");
+      await tick(20);
+    } catch (err) {
+      threw = err;
+    }
+
+    expect(threw, "negative dimensions are refused, not crashed on").toBeNull();
+    expect(countWrites(), "nothing was written for a negative-size layer").toBe(0);
   });
 });

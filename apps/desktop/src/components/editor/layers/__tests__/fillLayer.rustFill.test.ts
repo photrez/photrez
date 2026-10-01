@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fillActiveLayerWithColor } from "../layerOperations";
 import { CommandHistory, historyBridgeEnabled } from "@/engine/history";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
+import { FaithfulOffscreenCanvas } from "@/__tests__/faithfulOffscreenCanvas";
 
 // The history bridge fires through a dynamic import + fire-and-forget invoke, so
 // draining the census once can still miss a command that has not started yet.
@@ -73,49 +74,6 @@ vi.mock("@/components/editor/Toast", async (importOriginal) => {
   const data = src?.data ?? new Uint8ClampedArray((src?.width ?? 1) * (src?.height ?? 1) * 4);
   return { width: src.width, height: src.height, getImageData: () => ({ data, width: src.width, height: src.height }) };
 };
-
-// OffscreenCanvas mock with real pixel buffer + drawImage that copies the source.
-function installOffscreenCanvas() {
-  (globalThis as any).OffscreenCanvas = class {
-    width: number; height: number; _buffer: Uint8ClampedArray;
-    constructor(w: number, h: number) {
-      this.width = w; this.height = h;
-      this._buffer = new Uint8ClampedArray(w * h * 4);
-    }
-    getContext() {
-      const self = this;
-      return {
-        _fs: "" as string,
-        get fillStyle() { return (this as any)._fs; },
-        set fillStyle(v: string) { (this as any)._fs = v; },
-        fillRect(x: number, y: number, w: number, h: number) {
-          const hex = (this._fs as string).replace("#", "");
-          const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
-          for (let row = y; row < y + h; row++)
-            for (let col = x; col < x + w; col++) {
-              if (row < 0 || row >= self.height || col < 0 || col >= self.width) continue;
-              const idx = (row * self.width + col) * 4;
-              self._buffer[idx] = r; self._buffer[idx + 1] = g; self._buffer[idx + 2] = b; self._buffer[idx + 3] = 255;
-            }
-        },
-        drawImage(img: any) {
-          const d = img?.getImageData ? img.getImageData().data : (img?.data ?? []);
-          if (d && d.length === self._buffer.length) self._buffer.set(d);
-        },
-        getImageData(x: number, y: number, w: number, h: number) {
-          return { data: self._buffer, width: self.width, height: self.height, colorSpace: "srgb" };
-        },
-        putImageData(vi: any) { if (vi && vi.data) self._buffer.set(vi.data); },
-        save: () => {}, restore: () => {}, translate: () => {}, rotate: () => {}, scale: () => {},
-        globalAlpha: 1, globalCompositeOperation: "source-over",
-      };
-    }
-    transferToImageBitmap() {
-      const buf = this._buffer;
-      return { width: this.width, height: this.height, getImageData: () => ({ data: buf, width: this.width, height: this.height, colorSpace: "srgb" }), close: () => {} } as any;
-    }
-  };
-}
 
 function makeFakes(opts: {
   w?: number; h?: number; sel?: any; locked?: boolean; visible?: boolean;
@@ -501,3 +459,10 @@ describe("fillActiveLayerWithColor on a layer with no raster yet", () => {
     expect(showToastMock, "no refusal toast").not.toHaveBeenCalled();
   });
 });
+// Faithful canvas: transferToImageBitmap() throws InvalidStateError unless a 2d
+// context was obtained first, exactly like the real WebView2 canvas. The lenient
+// stub this replaces is what let a context-less transfer ship as a crash that no
+// suite could see.
+function installOffscreenCanvas() {
+  (globalThis as any).OffscreenCanvas = FaithfulOffscreenCanvas;
+}

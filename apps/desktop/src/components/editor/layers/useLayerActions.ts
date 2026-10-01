@@ -13,7 +13,7 @@ import { showToast } from "../Toast";
 import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests, commitFacadeVisibility, commitFacadeLock, commitFacadeReorder } from "@/lib/protocol/facadeRegistry";
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
-import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { clampRegionToLayer, computeDirtyRegion } from "@/lib/paint/regionProducer";
 import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
 import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "./structuralRouting";
@@ -395,9 +395,12 @@ export function useLayerActions() {
             renderer?.uploadSurfaceTiles?.(activeId, bakedLayer.width, bakedLayer.height,
               res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
 
-            // C5.4 bitmap sync: bitmap was set by commitBasicAdjustment before Rust write.
-            // Now that write_region succeeded, bitmap and Rust are proven identical.
-            bakedLayer.bitmapEpoch = res.epoch;
+            // The drawn layer comes from layer.imageBitmap, not from Rust, so rebuild
+            // that raster from the surface the canonical tiles were just applied to.
+            // Otherwise the bake is recorded correctly but stays invisible until a
+            // later consumer runs ensureBitmapCurrent. Installing bitmapEpoch is part
+            // of this step and only valid once the bitmap really changed.
+            await projectRustPixelsToVisibleSurface(engine, renderer, activeId, surface, res.epoch);
 
             // Imperative memento: single user-visible history step. The TS entry
             // is a cursor token marked `rustOwned` for a step Rust already holds,

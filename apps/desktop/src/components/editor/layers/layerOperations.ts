@@ -6,7 +6,7 @@ import { applyBasicAdjustmentToColor } from "@/engine/layerAdjustments";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import type { SelectionState } from "@/features/selection/SelectionTypes";
 import type { LayerNode, DocumentModel } from "@/engine/types";
-import { applyRustTilesToSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
 import { selectionUploadRect } from "@/components/editor/canvas/keyboardShortcuts/selectionTool";
@@ -240,7 +240,13 @@ export function fillActiveLayerWithColor(
     // the blank starting state survives. Without this, Alt+Del on a new layer
     // silently did nothing. setLayerImageBitmap drops the cached surface, so
     // this must run BEFORE the getPaintSurface above is reused.
+    //
+    // The context MUST be obtained before transferring. transferToImageBitmap()
+    // throws InvalidStateError on a canvas whose 2d context was never requested,
+    // which killed the canvas on the first use of this block; the same rule is
+    // honoured in useBrushOverlay for its scratch canvas.
     const blank = new OffscreenCanvas(layer.width, layer.height);
+    blank.getContext("2d");
     engine.setLayerImageBitmap(activeId, blank.transferToImageBitmap());
     surface = engine.getPaintSurface(activeId);
   }
@@ -356,10 +362,13 @@ export function fillActiveLayerWithColor(
         surface.pixelVersion = res.version;
         syncFacadeVersionFromPixel(docId, res.version);
         renderer?.uploadSurfaceTiles?.(activeId, layer.width, layer.height, res.after.map(t => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
-        // C5.4 bitmap sync: bitmap was set before Rust write (setLayerImageBitmap).
-        // Now that write_region succeeded, bitmap and Rust are proven identical.
-        const fillLayer = engine.getLayer(activeId);
-        if (fillLayer) fillLayer.bitmapEpoch = res.epoch;
+        // The drawn layer comes from layer.imageBitmap, not from Rust, so rebuild
+        // that raster from the surface the canonical tiles were just applied to.
+        // Otherwise the fill is recorded correctly but stays invisible until some
+        // later consumer runs ensureBitmapCurrent. Installing bitmapEpoch is part
+        // of this step and only valid once the bitmap really changed - setting it
+        // against an unchanged bitmap permanently pinned the pre-fill raster.
+        await projectRustPixelsToVisibleSurface(engine, renderer, activeId, surface, res.epoch);
         history.commit(preSnapshot!, "Fill Layer", imperative, true);
       } catch (err) {
         showToast(`Fill Layer failed: ${ipcErrorMessage(err)}`, "error");
