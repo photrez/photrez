@@ -56,16 +56,6 @@ pub(crate) enum EntryPayload {
         token: String,
         before: LayerSet,
         after: Option<LayerSet>,
-        // Document-size undo state, mirroring the `Native` payload's pair above.
-        // A host-handed crop changes the document dimensions without going
-        // through a canvas command arm (the pixel-baking variants are refused by
-        // the routed native arm), so the External entry is the only payload that
-        // can carry them. `before` is captured at record time; `after` is filled
-        // by the post-sync canonical push, exactly like `before`/`after` above -
-        // the host executes the mutation out-of-band, so the engine cannot know
-        // the post size at record time.
-        doc_size_before: Option<(f64, f64)>,
-        doc_size_after: Option<(f64, f64)>,
     },
     /// Native pixel-history entry. Carries before/after pixel
     /// states as immutable, byte-free `Arc<StateNode>`s (COW tile blocks
@@ -253,7 +243,6 @@ impl ProtocolEngine {
         adapter_id: &str,
         token: &str,
         memory_cost_bytes: u64,
-        doc_size_before: Option<(f64, f64)>,
     ) -> Result<(), ProtocolError> {
         // Barrier: no history mutation while a host handoff (pending_external)
         // is unconfirmed.
@@ -285,12 +274,6 @@ impl ProtocolEngine {
                 // restores. Arc clone under structural sharing - O(1), no deep copy.
                 before: self.layers().clone(),
                 after: None,
-                // Document size BEFORE the host applies its mutation. The host runs
-                // the mutation out-of-band, so the engine cannot observe the post
-                // size here; `doc_size_after` is filled by the post-sync push
-                // (document_core seed_canonical), mirroring `before`/`after`.
-                doc_size_before,
-                doc_size_after: None,
             },
         });
         self.cursor = self.entries.len();
@@ -467,7 +450,3 @@ impl ProtocolEngine {
 #[cfg(test)]
 #[path = "history_h0_tests.rs"]
 mod h0_tests;
-
-#[cfg(test)]
-#[path = "external_doc_size_cursor_tests.rs"]
-mod external_doc_size_cursor_tests;

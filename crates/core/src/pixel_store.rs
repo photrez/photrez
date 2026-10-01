@@ -800,20 +800,8 @@ impl PixelStoreRegistry {
         // TS ops are external to the Rust engine; register the adapter once so
         // record_external's adapter check passes.
         doc.history.register_adapter(adapter_id);
-        // The engine's CURRENT doc_size is the pre-mutation size: the host applies
-        // its own mutation out-of-band after this record, so this is the only
-        // point where the "before" size is observable. Capturing it here is what
-        // lets an External undo restore a host crop's document dimensions.
-        let doc_size_before = doc.history.doc_size;
         doc.history
-            .record_external(
-                label,
-                affected,
-                adapter_id,
-                token,
-                memory_cost_bytes,
-                doc_size_before,
-            )
+            .record_external(label, affected, adapter_id, token, memory_cost_bytes)
             .map_err(|e| e.message)
     }
 
