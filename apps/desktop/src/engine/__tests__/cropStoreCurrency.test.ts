@@ -18,6 +18,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DocumentEngine } from "../../engine/document";
+import { __setStoreCurrencyReporter } from "@/lib/paint/storeCurrency";
 import {
   createRustStoreEmulator,
   installCreateImageBitmapMock,
@@ -278,5 +279,109 @@ describe("store currency after a dimension-changing crop", () => {
     expect(layer.width).toBe(128);
     expect(store.layers.get(layerId)!.width).toBe(128);
     expect(store.layers.get(layerId)!.height).toBe(128);
+  });
+
+  it("a stroke lands at the right GEOMETRY, not just inside the store", async () => {
+    // The measured failure was "write_region landed but the geometry was still
+    // wrong because the store was stale". This proves the store's tile grid is
+    // the post-crop grid, so a stroke at post-crop (40,40) is stored at exactly
+    // that offset rather than at a pre-crop offset.
+    const { engine, layerId } = makeEngine();
+    engine.applyCrop(32, 32, 64, 64, { deleteCroppedPixels: true });
+    await settlePixelOps();
+
+    // Whatever the crop produced is the baseline this test compares against:
+    // the content of a crop is the crop's business, not this test's.
+    const neighbourBefore = store.pixelAt(layerId, 39, 39);
+    const px = store.layers.get(layerId)!.pixels;
+
+    await store.invoke("rust_pixels_write_region", {
+      docId: "doc1",
+      layerId,
+      x: 40,
+      y: 40,
+      w: 2,
+      h: 2,
+      rgba: new Uint8Array(2 * 2 * 4).fill(255),
+    });
+
+    // The dab sits where it was painted.
+    expect(store.pixelAt(layerId, 40, 40)).toEqual([255, 255, 255, 255]);
+    expect(store.pixelAt(layerId, 41, 41)).toEqual([255, 255, 255, 255]);
+    // A neighbouring pixel is untouched.
+    expect(store.pixelAt(layerId, 39, 39)).toEqual(neighbourBefore);
+    // The store's own pixels prove the OFFSET: row-major index (40*64 + 40) of
+    // a 64-wide buffer. On the stale pre-crop grid the same dab would have been
+    // written into a 128-wide row at a different absolute index, which is the
+    // "landed but geometry wrong" symptom the real app showed.
+    expect(px[(40 * 64 + 40) * 4]).toBe(255);
+    expect(px[(41 * 64 + 41) * 4 + 3]).toBe(255);
+    expect(px[(40 * 64 + 39) * 4 + 3]).toBe(neighbourBefore[3]);
+  });
+
+  it("the active layer survives the crop (a stroke target still exists)", async () => {
+    // SEPARATE DEFECT, deliberately pinned here so the two are never confused.
+    // `applyCropPreview`'s UI teardown calls `engine.setActiveLayer(null)`
+    // (cropToolActions.ts:140, pinned by cropToolActions.test.ts:142), which
+    // leaves NO paint target until the user clicks a layer row. That is a
+    // crop-tool selection-policy decision in the UI layer, NOT pixel ownership,
+    // and the engine must not compound it: applyCrop leaves the active layer
+    // alone so the store fix and the selection policy stay separable.
+    const { engine, layerId } = makeEngine();
+    engine.setActiveLayer(layerId);
+    expect(engine.getActiveLayerId()).toBe(layerId);
+
+    engine.applyCrop(32, 32, 64, 64, { deleteCroppedPixels: true });
+    await settlePixelOps();
+
+    expect(engine.getActiveLayerId(), "applyCrop must not clear the active layer").toBe(layerId);
+    // And the store is current for that layer, so a stroke on it lands.
+    await store.invoke("rust_pixels_write_region", {
+      docId: "doc1",
+      layerId: engine.getActiveLayerId()!,
+      x: 1,
+      y: 1,
+      w: 2,
+      h: 2,
+      rgba: new Uint8Array(2 * 2 * 4).fill(255),
+    });
+    expect(store.count("rust_pixels_write_region")).toBe(1);
+  });
+
+  it("a reseed that FAILS at the boundary drops the store instead of leaving two owners", async () => {
+    // The swallowed-warning defect: a failed reseed used to be downgraded to a
+    // console.warn, so the document kept a stale store AND the user saw a
+    // flawless crop. The correct behaviour is to restore the single-owner
+    // contract by dropping the store (nothing usable is lost - a store that
+    // could not be resized was already wrong-dimensioned) and to say so.
+    const { engine, layerId } = makeEngine();
+    const failures: string[] = [];
+    __setStoreCurrencyReporter((m) => failures.push(m));
+
+    // Make the resize fail the way a real transport rejection does. The mock's
+    // `invoke` is bound into the hoisted Tauri mock in beforeEach, so that is
+    // what has to be swapped.
+    const realInvoke = hoist.invoke!;
+    hoist.invoke = async (cmd: string, args: any) => {
+      if (cmd === "rust_pixels_resize_layer") throw "E_RUST: invalid args `bytes`: invalid type: map";
+      return realInvoke(cmd, args);
+    };
+
+    try {
+      engine.applyCrop(32, 32, 64, 64, { deleteCroppedPixels: true });
+      await settlePixelOps();
+    } finally {
+      hoist.invoke = realInvoke;
+      __setStoreCurrencyReporter(null);
+    }
+
+    // The store is GONE, not stale: the model is unambiguously the sole owner.
+    expect(store.layers.has(layerId)).toBe(false);
+    // And the user was told, because dropping the store loses that layer's
+    // pixel history - a real consequence, not a silent internal detail.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/could not be re-recorded/i);
+    // No epoch is claimed against a store that no longer exists.
+    expect(engine.getLayer(layerId)!.bitmapEpoch).toBeUndefined();
   });
 });

@@ -4,9 +4,25 @@
  * A faithful in-process emulator of the Rust pixel store, for tests that must
  * observe the CANONICAL store rather than a mock that cannot see it.
  *
- * Mock fidelity (see AGENTS.md "Mock fidelity rule"): the behaviours emulated
- * here are the ones production actually depends on, copied from
- * crates/core/src/pixel_store.rs:
+ * MOCK FIDELITY (see AGENTS.md "Mock fidelity rule"). A mock that reads an IPC
+ * argument IN-PROCESS cannot reproduce a transport rejection, so every argument
+ * here is round-tripped through the REAL Tauri serializer first
+ * (`tauri-serialization`, scripts/process-ipc-message-fn.js in the tauri crate):
+ * a `Map` becomes an object, a `Uint8Array` becomes a sequence, an
+ * `ArrayBuffer` becomes a sequence, and EVERYTHING ELSE falls through to
+ * `JSON.stringify` - which turns a `Uint8ClampedArray` into `{"0":..,"1":..}`.
+ * serde then rejects that map against `Vec<u8>` with
+ * `invalid type: map, expected a sequence`.
+ *
+ * That last rule is not hypothetical: it is the shipped bug this emulator now
+ * reproduces. `ImageData.data` and a readback buffer are `Uint8ClampedArray`,
+ * which is NOT `instanceof Uint8Array`, so passing one straight to
+ * `rust_pixels_resize_layer` was rejected at the boundary and the store stayed
+ * at pre-crop dimensions. A mock that read `args.bytes` as an in-process
+ * ArrayLike could never have seen it.
+ *
+ * The pixel behaviours emulated are the ones production depends on, copied
+ * from crates/core/src/pixel_store.rs:
  *  - `rust_pixels_get_epoch` REJECTS for an unseeded layer ("layer not
  *    initialized"), so a caller can detect "no store yet" by catch, not by a
  *    sentinel value;
@@ -21,6 +37,33 @@
  *    epoch and version, and tiles are 256-grid.
  */
 import { vi } from "vitest";
+
+/**
+ * The real Tauri IPC replacer, transcribed from
+ * tauri-2.11.5/scripts/process-ipc-message-fn.js. Only `Map`, `Uint8Array` and
+ * `ArrayBuffer` are converted to sequences; a `Uint8ClampedArray` is none of
+ * those and is serialized by `JSON.stringify` as an index-keyed map.
+ */
+function tauriIpcReplacer(_key: string, value: unknown): unknown {
+  if (value instanceof Map) return Object.fromEntries(value.entries());
+  if (value instanceof Uint8Array) return Array.from(value);
+  if (value instanceof ArrayBuffer) return Array.from(new Uint8Array(value));
+  return value;
+}
+
+/**
+ * Round-trip an argument through the real transport, then decode it the way
+ * serde would. A value that does not survive as a JSON sequence is rejected
+ * with the same message the Rust boundary produces, so a caller that ships the
+ * wrong JS type fails in tests exactly as it does in the app.
+ */
+function transportDecode(bytes: unknown, param: string): number[] {
+  const wire = JSON.parse(JSON.stringify({ [param]: bytes }, tauriIpcReplacer));
+  if (!Array.isArray(wire[param])) {
+    throw `invalid args \`${param}\` for command: invalid type: map, expected a sequence`;
+  }
+  return wire[param];
+}
 
 export interface EmulatedTile {
   x: number;
@@ -139,7 +182,7 @@ export function createRustStoreEmulator(): RustStoreEmulator {
       case "rust_pixels_init": {
         const w = args.width as number;
         const h = args.height as number;
-        const pixels = new Uint8ClampedArray(args.bytes as ArrayLike<number>);
+        const pixels = new Uint8ClampedArray(transportDecode(args.bytes, "bytes"));
         layers.set(layerId, { width: w, height: h, pixels, epoch: 0, version: 0, history: [] });
         return undefined;
       }
@@ -150,7 +193,7 @@ export function createRustStoreEmulator(): RustStoreEmulator {
       case "rust_pixels_resize_layer": {
         const w = args.width as number;
         const h = args.height as number;
-        const pixels = new Uint8ClampedArray(args.bytes as ArrayLike<number>);
+        const pixels = new Uint8ClampedArray(transportDecode(args.bytes, "bytes"));
         if (pixels.length !== w * h * 4) {
           // PixelLayer::new asserts the buffer length; a mismatched reseed is a
           // bug, not something to paper over.
@@ -185,7 +228,7 @@ export function createRustStoreEmulator(): RustStoreEmulator {
         const y = args.y as number;
         const w = args.w as number;
         const h = args.h as number;
-        const rgba = args.rgba as ArrayLike<number>;
+        const rgba = transportDecode(args.rgba, "rgba");
         // DocumentPixelStore::write_region bounds/length validation. This is the
         // exact check a stale store failed after a dimension-changing crop.
         if (x < 0 || y < 0 || w === 0 || h === 0) {

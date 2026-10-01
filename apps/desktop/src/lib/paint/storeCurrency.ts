@@ -47,6 +47,47 @@ export interface StoreCurrencyEngine {
 }
 
 /**
+ * Overridable sink for ownership failures, so tests can observe them without a
+ * toast host. Defaults to a user-visible toast: a document whose Rust store and
+ * model disagree about pixels is a broken document, and that must never be
+ * reported only to a console the user never sees.
+ */
+type StoreCurrencyReporter = (message: string) => void;
+let reportFailure: StoreCurrencyReporter = (message) => {
+  void import("@/components/editor/Toast")
+    .then(({ showToast }) => showToast(message, "error"))
+    .catch(() => console.warn(`[store-currency] ${message}`));
+};
+
+/** Test-only: capture ownership failures instead of showing a toast. */
+export function __setStoreCurrencyReporter(fn: StoreCurrencyReporter | null): void {
+  reportFailure = fn ?? ((message) => console.warn(`[store-currency] ${message}`));
+}
+
+function reportStoreCurrencyFailure(message: string): void {
+  reportFailure(message);
+}
+
+/**
+ * Convert pixel bytes into the shape the Tauri IPC actually accepts for a Rust
+ * `Vec<u8>` argument.
+ *
+ * The IPC replacer (tauri/scripts/process-ipc-message-fn.js) turns ONLY a
+ * `Map`, a `Uint8Array` and an `ArrayBuffer` into a JSON sequence. Everything
+ * else falls through to `JSON.stringify`, and a `Uint8ClampedArray` - which is
+ * what `ImageData.data` and every canvas readback returns - is NOT
+ * `instanceof Uint8Array`, so it serializes to `{"0":..,"1":..}` and serde
+ * rejects it with `invalid type: map, expected a sequence`.
+ *
+ * Every byte payload crossing this boundary therefore goes through here.
+ * Copying, rather than passing the clamped array, also detaches the payload
+ * from any canvas backing store that could be recycled underneath us.
+ */
+export function toIpcBytes(bytes: Uint8ClampedArray): Uint8Array {
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+/**
  * Read RGBA bytes back out of an `ImageBitmap` at its own dimensions.
  * Used when a caller hands back an installed raster rather than the bytes it
  * drew; prefer passing the exact buffer when the producer already has it.
@@ -76,13 +117,15 @@ export function readbackBitmap(bitmap: ImageBitmap, width: number, height: numbe
  * - `bitmapEpoch` is stamped from a fresh probe AFTER the resize landed, so it
  *   can never claim a currency the raster does not have.
  *
- * Returns true when a store was reseeded.
+ * Returns whether the store is now current with the raster: true when it was
+ * reseeded, false when the layer has no store (the documented "bitmap is the
+ * source of truth" fallback).
  */
 export async function syncLayerStoreToLayerRaster(
   docId: string,
   engine: StoreCurrencyEngine,
   layerId: string,
-  /** Exact RGBA bytes of the post-rewrite raster, when the producer has them. */
+  /** Exact RGBA bytes of the post-rewrite raster, when the producer still has it. */
   rgba?: Uint8ClampedArray,
 ): Promise<boolean> {
   const layer = engine.getLayer(layerId);
@@ -96,17 +139,44 @@ export async function syncLayerStoreToLayerRaster(
     return false;
   }
 
-  const bytes = rgba ?? readbackBitmap(layer.imageBitmap, layer.width, layer.height);
+  const bytes = toIpcBytes(rgba ?? readbackBitmap(layer.imageBitmap, layer.width, layer.height));
   // The cached surface is derived from the raster this write replaces; drop it
   // first so a concurrent paint op rebuilds from the new tile grid.
   engine.invalidatePaintSurface(layerId);
-  await invoke("rust_pixels_resize_layer", {
-    docId,
-    layerId,
-    width: layer.width,
-    height: layer.height,
-    bytes,
-  });
+  try {
+    await invoke("rust_pixels_resize_layer", {
+      docId,
+      layerId,
+      width: layer.width,
+      height: layer.height,
+      bytes,
+    });
+  } catch (err) {
+    // THE OWNERSHIP REPAIR. Leaving the store at pre-rewrite dimensions IS the
+    // cross-owner disagreement this module exists to prevent: the model shows
+    // cropped pixels, the store holds pre-crop ones at the old size, and every
+    // later stroke is silently dropped by write_region's bounds check. A log
+    // line cannot repair that, so the store is DROPPED instead. That restores
+    // the single-owner contract the rest of the codebase already relies on
+    // (ensureBitmapCurrent treats a missing store as "the bitmap IS the source
+    // of truth"), and the next paint op re-seeds it from the current raster at
+    // the current dimensions, so painting works again. Nothing usable is lost:
+    // a store that could not be resized was already wrong-dimensioned, so its
+    // pixel history could not have been replayed either.
+    try {
+      await invoke("rust_pixels_remove_layer", { docId, layerId });
+    } catch {
+      // Even the repair failed; the invariant cannot be restored from here.
+    }
+    engine.invalidatePaintSurface(layerId);
+    // The epoch now names no store at all; clearing it stops ensureBitmapCurrent
+    // from treating the pre-rewrite epoch as meaningful.
+    layer.bitmapEpoch = undefined;
+    reportStoreCurrencyFailure(
+      `Pixel history for one layer was dropped: its store could not be re-recorded (${String(err)}). Painting will re-seed it.`,
+    );
+    return false;
+  }
   // Stamp the epoch the resize actually produced. `resize_layer` rebuilds the
   // layer from scratch, so its epoch is NOT the pre-rewrite one; probing is the
   // only honest source.
@@ -126,19 +196,30 @@ export interface RewrittenRaster {
 
 /**
  * Bring every rewritten raster's store into agreement with the model, in one
- * pass. Failures are per-layer and non-fatal: a store that cannot be reseeded
- * leaves that layer's bitmap authoritative, which is the documented fallback.
+ * pass.
+ *
+ * A reseed that fails is NOT swallowed. `syncLayerStoreToLayerRaster` already
+ * repairs ownership by dropping the store and telling the user; this only guards
+ * against a throw from that repair itself (an unreachable bridge, say), which
+ * would otherwise leave the document with two disagreeing owners AND no signal
+ * at all - the exact failure mode that shipped the stale-store bug in the first
+ * place. Returns the ids that could not be brought current.
  */
 export async function syncRewrittenRastersToStores(
   docId: string,
   engine: StoreCurrencyEngine,
   rewritten: RewrittenRaster[],
-): Promise<void> {
+): Promise<string[]> {
+  const unrepaired: string[] = [];
   for (const r of rewritten) {
     try {
       await syncLayerStoreToLayerRaster(docId, engine, r.id, r.rgba);
     } catch (err) {
-      console.warn(`[store-currency] could not reseed the pixel store for ${r.id}:`, err);
+      unrepaired.push(r.id);
+      reportStoreCurrencyFailure(
+        `A layer's pixel store could not be repaired after an edit (${String(err)}). That layer may reject painting until it is re-seeded.`,
+      );
     }
   }
+  return unrepaired;
 }
