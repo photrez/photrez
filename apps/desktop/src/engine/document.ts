@@ -108,6 +108,34 @@ export function resizeCanvasExceedsBudget(
   return memoryUsage + Math.max(0, estimatedGrowth) > MAX_PIXEL_BUDGET;
 }
 
+/**
+ * The document size a crop WOULD produce, or `null` when `applyCrop` would reject
+ * the crop and leave the document untouched.
+ *
+ * This is the single source of truth for the crop's acceptance rules, extracted
+ * so the caller can ask "will this crop actually resize the document?" WITHOUT
+ * re-implementing the guards. That matters because the crop commits its history
+ * entry BEFORE it calls `applyCrop`: if the caller had to guess the outcome, a
+ * rejected crop (zero-size rect, or a target size past the device/app ceiling)
+ * would still record a size the document never took, and a later redo would
+ * write that phantom size straight into the live model - e.g. a 20000px target
+ * on a 16384px ceiling, or width 0 from a sub-pixel rect rounding to zero.
+ *
+ * `applyCrop` below calls this, so the two can never disagree.
+ */
+export function resolveCropDocumentSize(
+  width: number,
+  height: number,
+  options?: { targetSize?: { w: number; h: number } | null },
+): { width: number; height: number } | null {
+  if (width <= 0 || height <= 0) return null;
+  const targetSize = options?.targetSize ?? null;
+  const finalW = targetSize ? targetSize.w : width;
+  const finalH = targetSize ? targetSize.h : height;
+  if (finalW > getEffectiveMaxDim() || finalH > getEffectiveMaxDim()) return null;
+  return { width: finalW, height: finalH };
+}
+
 export class DocumentEngine {
   private model: DocumentModel;
   private textureHandles: Map<LayerId, TextureHandle>;
@@ -1103,6 +1131,7 @@ export class DocumentEngine {
     this.notifyChange();
   }
 
+
   applyCrop(
     x: number,
     y: number,
@@ -1115,12 +1144,8 @@ export class DocumentEngine {
       fillBackgroundColor?: string | null;
     },
   ): void {
-    if (width <= 0 || height <= 0) return;
-
-    const targetSize = options?.targetSize ?? null;
-    const finalW = targetSize ? targetSize.w : width;
-    const finalH = targetSize ? targetSize.h : height;
-    if (finalW > getEffectiveMaxDim() || finalH > getEffectiveMaxDim()) return;
+    const output = resolveCropDocumentSize(width, height, options);
+    if (!output) return;
 
     // Store-currency invariant (lib/paint/storeCurrency.ts): the crop bake replaces
     // each layer's raster at NEW dimensions, so the cached PaintTileSurface is
@@ -1136,8 +1161,8 @@ export class DocumentEngine {
       void syncRewrittenRastersToStores(this.model.id, this, rewritten);
     }
 
-    this.model.width = finalW;
-    this.model.height = finalH;
+    this.model.width = output.width;
+    this.model.height = output.height;
 
     this.model.selection = null;
     this.model.dirty = true;

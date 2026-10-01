@@ -47,6 +47,13 @@ type EmuEntry = {
   docHBefore: number;
   docWAfter: number;
   docHAfter: number;
+  // The HOST-supplied document-size halves, verbatim as the record delivered them.
+  // Present only on a transition that declared a size change (a crop); absent on a
+  // size-neutral one. Undo/redo mirror the Rust emit rule exactly: a size is
+  // surfaced only when BOTH halves are present AND they differ, so equal or
+  // half-supplied halves stay a plain metadata step.
+  docSizeBefore?: [number, number];
+  docSizeAfter?: [number, number];
   token?: string;
 };
 let emuEntries: EmuEntry[] = [];
@@ -367,7 +374,14 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
     }
     emuEntries = emuEntries.slice(0, emuCursor);
     const seq = emuNextSeq++;
-    emuEntries.push({ seq, groupId: seq, origin: { external: adapterId }, label: cmd.label as string, affected: (cmd.affectedLayerIds as string[]) ?? [], vb: emuVersion, va: emuVersion + 1, bytes: (cmd.memoryCostBytes as number) ?? 0, before: [...emuLayers], after: [...emuLayers], docWBefore: emuDocWidth, docHBefore: emuDocHeight, docWAfter: emuDocWidth, docHAfter: emuDocHeight, token: cmd.token as string });
+    // The host-supplied size halves, read from the command exactly as the real
+    // bridge reads them off the serialized envelope. Hardcoding the current emu
+    // dims instead would make every external carry EQUAL halves, which the emit
+    // rule then suppresses - so a crop undo would silently carry no size and the
+    // emulator would disagree with the Rust engine it stands in for.
+    const hostBefore = cmd.docSizeBefore as [number, number] | null | undefined;
+    const hostAfter = cmd.docSizeAfter as [number, number] | null | undefined;
+    emuEntries.push({ seq, groupId: seq, origin: { external: adapterId }, label: cmd.label as string, affected: (cmd.affectedLayerIds as string[]) ?? [], vb: emuVersion, va: emuVersion + 1, bytes: (cmd.memoryCostBytes as number) ?? 0, before: [...emuLayers], after: [...emuLayers], docWBefore: emuDocWidth, docHBefore: emuDocHeight, docWAfter: emuDocWidth, docHAfter: emuDocHeight, ...(hostBefore ? { docSizeBefore: hostBefore } : {}), ...(hostAfter ? { docSizeAfter: hostAfter } : {}), token: cmd.token as string });
     emuCursor = emuEntries.length;
     emuVersion += 1;
     return {
@@ -983,6 +997,17 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       } else {
         externalSeq = e.seq; // host handoff - no cursor move, no DV bump here
         emuPendingExternal = { seq: e.seq, direction: "undo" };
+        // Document size, mirroring the Rust External undo arm: the host owns both
+        // halves, and a size is emitted only when BOTH are present and differ.
+        if (
+          e.docSizeBefore &&
+          e.docSizeAfter &&
+          (e.docSizeBefore[0] !== e.docSizeAfter[0] || e.docSizeBefore[1] !== e.docSizeAfter[1])
+        ) {
+          emuDocWidth = e.docSizeBefore[0];
+          emuDocHeight = e.docSizeBefore[1];
+          deltaDims = { w: emuDocWidth, h: emuDocHeight };
+        }
       }
     }
   } else if (cmd.type === "redo") {
@@ -1005,6 +1030,16 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       } else {
         externalSeq = e.seq;
         emuPendingExternal = { seq: e.seq, direction: "redo" };
+        // Symmetric to the undo arm: redo re-applies the AFTER half, same rule.
+        if (
+          e.docSizeBefore &&
+          e.docSizeAfter &&
+          (e.docSizeBefore[0] !== e.docSizeAfter[0] || e.docSizeBefore[1] !== e.docSizeAfter[1])
+        ) {
+          emuDocWidth = e.docSizeAfter[0];
+          emuDocHeight = e.docSizeAfter[1];
+          deltaDims = { w: emuDocWidth, h: emuDocHeight };
+        }
       }
     }
   } else {
@@ -1014,9 +1049,18 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
     throw new Error(`E_UNKNOWN_COMMAND: ${String((cmd as { type?: string }).type)}`);
   }
   if (externalSeq !== null) {
+    // The host-handoff early return must carry the document size too. Mirrors the
+    // Rust walker, which maps delta_dims onto the external delta before its own
+    // early return; dropping it here would make the emulator emit a size-less
+    // external delta while the engine it stands in for emits a sized one.
     return {
       documentVersion: emuVersion,
-      delta: { baseVersion: base, version: emuVersion, changes: [] },
+      delta: {
+        baseVersion: base,
+        version: emuVersion,
+        changes: [],
+        ...(deltaDims ? { width: deltaDims.w, height: deltaDims.h } : {}),
+      },
       status: "external",
       externalSeq,
     };

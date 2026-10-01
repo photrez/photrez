@@ -443,7 +443,13 @@ export async function getLayerIds(docId = "default"): Promise<string[]> {
   return ((JSON.parse(j) as RenderSnapshot).layers ?? []).map((l) => l.id);
 }
 
-function toRustEnvelope(env: CommandEnvelope): unknown {
+// Exported so the wire mapping can be tested directly. This function is where a
+// field gets DROPPED: it builds a loosely-typed object that is then stringified
+// and shipped, and the exhaustiveness guard below checks the variant TYPE, not
+// its fields - so a field the mapping forgets vanishes with no type error, no
+// runtime error, and (on the Rust side) no error at all, because `#[serde(default)]`
+// turns the absent key into None. Testing through the type-checker cannot see it.
+export function toRustEnvelope(env: CommandEnvelope): unknown {
   const c = env.command;
   let rustCmd: unknown;
   switch (c.type) {
@@ -518,6 +524,17 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
       rustCmd = { type: "redo" };
       break;
     case "recordExternalTransition":
+      // The command enum's VARIANT names are camelCase (serde rename_all) but its
+      // FIELD names are not renamed - hence the snake_case keys below, matching
+      // `affected_layer_ids` / `memory_cost_bytes`.
+      //
+      // doc_size_before / doc_size_after carry the HOST's document-size halves
+      // (`Option<(f64, f64)>`, i.e. a [width, height] array or null). They must be
+      // mapped here: the envelope is stringified and shipped as-is, and Rust's
+      // `#[serde(default)]` turns an ABSENT key into None with no error and no
+      // warning - so dropping them silently disarms the crop undo instead of
+      // failing. Rust's emit rule needs BOTH halves present and differing, so a
+      // size-neutral transition's `null` pair means "changes no size".
       rustCmd = {
         type: "recordExternalTransition",
         label: c.label,
@@ -525,6 +542,8 @@ function toRustEnvelope(env: CommandEnvelope): unknown {
         adapter_id: c.adapterId,
         token: c.token,
         memory_cost_bytes: c.memoryCostBytes,
+        doc_size_before: c.docSizeBefore ?? null,
+        doc_size_after: c.docSizeAfter ?? null,
       };
       break;
     // Selection arms: selection is engine-local; the nested SelectionState is a

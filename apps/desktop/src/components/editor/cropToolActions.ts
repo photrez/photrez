@@ -1,4 +1,5 @@
 import type { WorkspaceManager } from "@/engine/workspace";
+import { resolveCropDocumentSize } from "@/engine/document";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import type { RenderScheduler } from "@/renderer/scheduler";
 import type { CropPreview } from "./cropState";
@@ -143,18 +144,20 @@ export function applyCropPreview(params: {
   // Document-size halves for this crop, supplied together on the commit because
   // THIS caller is the only party that knows both: the commit happens BEFORE
   // applyCrop mutates, so the pre-mutation size is the current model, and the
-  // post-mutation size is the crop's own output size - the target size when the
-  // crop is resizing, otherwise the crop rectangle itself, mirroring how
-  // DocumentEngine.applyCrop derives finalW/finalH. Rust cannot derive either
-  // half: its own document size is baseline-only and is already stale by the
-  // time a second crop runs.
-  const docSizeChange = {
-    before: { width: engine.getWidth(), height: engine.getHeight() },
-    after: {
-      width: cropOptions.targetSize ? cropOptions.targetSize.w : cropW,
-      height: cropOptions.targetSize ? cropOptions.targetSize.h : cropH,
-    },
-  };
+  // post-mutation size is the crop's own output size.
+  //
+  // That output size comes from `resolveCropDocumentSize` - the SAME predicate
+  // `applyCrop` uses to decide whether to accept the crop - so a crop the engine
+  // will REJECT (a rect rounding to zero, or a target size past the device
+  // ceiling) records no size at all instead of a size the document never took.
+  // Recording one there would let a later redo write a phantom size into the live
+  // model: a 20000px target on a 16384px ceiling, or width 0 from a sub-pixel
+  // rect. The routed path returns "legacy" for the pixel-baking variants BEFORE
+  // its own size validation, so this is reachable on the default path.
+  const cropOutput = resolveCropDocumentSize(cropW, cropH, { targetSize: cropOptions.targetSize });
+  const docSizeChange = cropOutput
+    ? { before: { width: engine.getWidth(), height: engine.getHeight() }, after: cropOutput }
+    : undefined;
   const commitCrop = () =>
     history?.commit(engine.snapshot(), "Crop Canvas", undefined, false, null, docSizeChange);
 
