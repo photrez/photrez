@@ -118,7 +118,12 @@ async function projectRustPixelHandoff(
  * empty TS stack). The TS store and the Rust stream count different things, so
  * the TS gate cannot answer for the stream. The stream can, and it does.
  */
-async function rustStreamHoldsUserWork(
+// Exported so the refusal can be tested against the shipped predicate rather than
+// a reimplementation of it. A test-local copy of `cursor > floor` would keep
+// passing if this function changed - which is exactly the regression it guards:
+// a frozen cursor cannot surface as a dead undo button (the button is enabled
+// unconditionally under facade ownership), it silently undoes the wrong entry.
+export async function rustStreamHoldsUserWork(
   editor: EditorContextValue,
   direction: "undo" | "redo",
 ): Promise<boolean> {

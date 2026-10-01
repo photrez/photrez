@@ -792,6 +792,8 @@ impl PixelStoreRegistry {
         adapter_id: &str,
         token: &str,
         memory_cost_bytes: u64,
+        doc_size_before: Option<(f64, f64)>,
+        doc_size_after: Option<(f64, f64)>,
     ) -> Result<(), String> {
         let doc = self
             .docs
@@ -801,7 +803,15 @@ impl PixelStoreRegistry {
         // record_external's adapter check passes.
         doc.history.register_adapter(adapter_id);
         doc.history
-            .record_external(label, affected, adapter_id, token, memory_cost_bytes)
+            .record_external(
+                label,
+                affected,
+                adapter_id,
+                token,
+                memory_cost_bytes,
+                doc_size_before,
+                doc_size_after,
+            )
             .map_err(|e| e.message)
     }
 

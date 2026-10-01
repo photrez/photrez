@@ -415,6 +415,9 @@ fn noop_and_external_transition_leave_shadow_unchanged() {
         adapter_id: "a".to_string(),
         token: "t".to_string(),
         memory_cost_bytes: 0,
+        // Size-neutral transition: this test is about canonical-shadow refresh.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     assert_eq!(

@@ -269,12 +269,20 @@ pub enum Command {
     // H0: records a legacy TS transition into the canonical stream.
     // Advances DocumentVersion by exactly 1; payload stays behind the EXTERNAL
     // PayloadAdapter (token only) — never re-owned by Rust.
+    //
+    // `doc_size_before` / `doc_size_after` are the HOST's document-size halves,
+    // supplied TOGETHER by the caller that knows both (see the `External`
+    // payload's contract). Both are `None` for a transition that changes no size.
     RecordExternalTransition {
         label: String,
         affected_layer_ids: Vec<String>,
         adapter_id: String,
         token: String,
         memory_cost_bytes: u64,
+        #[serde(default)]
+        doc_size_before: Option<(f64, f64)>,
+        #[serde(default)]
+        doc_size_after: Option<(f64, f64)>,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -675,6 +675,10 @@ fn record_external(engine: &mut ProtocolEngine, label: &str, affected: &[&str], 
             adapter_id: "ts-external".to_string(),
             token: token.to_string(),
             memory_cost_bytes: 0,
+            // Size-neutral transition: this test exercises cursor/version
+            // accounting, not document size.
+            doc_size_before: None,
+            doc_size_after: None,
         }))
         .unwrap();
 }

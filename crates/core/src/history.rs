@@ -52,10 +52,33 @@ pub(crate) enum EntryPayload {
     /// set, captured when the mirrored commit reaches the engine
     /// (`seed_canonical`); it is `None` until then and for handoffs that never
     /// pass through a canonical push.
+    ///
+    /// `doc_size_before` / `doc_size_after` are the document WIDTH/HEIGHT halves
+    /// of the host's transition, mirroring the `Native` payload's pair above, and
+    /// they are HOST-OWNED: the caller supplies both together at record time.
+    ///
+    /// Host ownership is load-bearing, not incidental. A host crop changes the
+    /// document size without passing through a canvas command arm (the
+    /// pixel-baking variants are refused by the routed native arm), so no engine
+    /// command ever runs for it. The engine's own `doc_size` is baseline-only -
+    /// `seed_canonical` sets it once, when it is `None` - so after the first crop
+    /// it holds a STALE value. Deriving either half from that field therefore
+    /// mis-describes every crop after the first: a second crop would capture the
+    /// pre-first-crop size, and undoing it would resize the document to a size the
+    /// user was never in. The host is the only party that knows both halves (it
+    /// commits before it mutates, and computes the post size from its own
+    /// parameters), so it supplies both and the engine never guesses.
+    ///
+    /// BOTH are `None` for a transition that changes no size (a layer delete, a
+    /// move, a reorder) and `None` is a complete answer, not a pending state: the
+    /// undo arm emits no size delta at all then, which keeps such a step a
+    /// metadata no-op for the host.
     External {
         token: String,
         before: LayerSet,
         after: Option<LayerSet>,
+        doc_size_before: Option<(f64, f64)>,
+        doc_size_after: Option<(f64, f64)>,
     },
     /// Native pixel-history entry. Carries before/after pixel
     /// states as immutable, byte-free `Arc<StateNode>`s (COW tile blocks
@@ -236,6 +259,10 @@ impl ProtocolEngine {
             EntryPayload::Pixel { .. } => Ok((None, None, None)),
         }
     }
+    /// Record a host-handoff transition. `doc_size_before` / `doc_size_after` are
+    /// the HOST's document-size halves, supplied together (see the `External`
+    /// payload's contract); pass `None` for both on a transition that changes no
+    /// size.
     pub fn record_external(
         &mut self,
         label: &str,
@@ -243,6 +270,8 @@ impl ProtocolEngine {
         adapter_id: &str,
         token: &str,
         memory_cost_bytes: u64,
+        doc_size_before: Option<(f64, f64)>,
+        doc_size_after: Option<(f64, f64)>,
     ) -> Result<(), ProtocolError> {
         // Barrier: no history mutation while a host handoff (pending_external)
         // is unconfirmed.
@@ -274,6 +303,11 @@ impl ProtocolEngine {
                 // restores. Arc clone under structural sharing - O(1), no deep copy.
                 before: self.layers().clone(),
                 after: None,
+                // Host-supplied, both halves together (see the payload's contract:
+                // the engine's own doc_size is baseline-only and goes stale after
+                // the first host crop, so it must never be the capture source).
+                doc_size_before,
+                doc_size_after,
             },
         });
         self.cursor = self.entries.len();
@@ -450,3 +484,7 @@ impl ProtocolEngine {
 #[cfg(test)]
 #[path = "history_h0_tests.rs"]
 mod h0_tests;
+
+#[cfg(test)]
+#[path = "external_doc_size_tests.rs"]
+mod external_doc_size_tests;

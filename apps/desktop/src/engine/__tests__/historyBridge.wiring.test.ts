@@ -112,6 +112,11 @@ describe("history bridge gating", () => {
       affected: [],
       adapterId: "ts",
       token: "Add Layer",
+      // A metadata commit changes no document size, so it declares no size
+      // halves. Rust reads the absent pair as "this transition changes no size"
+      // and emits no size delta, keeping this a metadata step for the host.
+      docSizeBefore: null,
+      docSizeAfter: null,
     });
     expect(await censusSince(before)).toEqual([
       { order: expect.any(Number), command: "rust_pixels_record_external", phase: "resolved" },

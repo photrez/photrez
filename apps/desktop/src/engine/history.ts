@@ -459,6 +459,22 @@ export class CommandHistory {
     imperative?: HistoryTilePatches,
     alreadyRecordedInRust = false,
     pixelLayerIds: string[] | null = null,
+    /**
+     * The document-size halves of THIS commit, for a commit whose host mutation
+     * resizes the document (a crop). Supplied by the caller because only the
+     * caller knows both: it commits BEFORE it mutates, so the pre-mutation size
+     * is the `snapshot` argument, and it computes the post-mutation size from its
+     * own parameters.
+     *
+     * Left undefined for every size-neutral commit (delete, move, reorder, a
+     * metadata tweak). That is a complete answer, not a pending state: Rust then
+     * records an External entry with no size and its undo emits no size delta, so
+     * such a step stays an empty layer delta for the host. The engine cannot
+     * derive these itself - its own document size is baseline-only and goes stale
+     * after the first crop, so a second crop would otherwise capture the size
+     * from before the first and undo to a size the user was never in.
+     */
+    docSizeChange?: { before: { width: number; height: number }; after: { width: number; height: number } },
   ): void {
     // Append this commit to the unified Rust history cursor.
     //  - imperative TS pixel op NOT yet in Rust (text/shape/transform)
@@ -494,6 +510,14 @@ export class CommandHistory {
             affected: snapshot.activeLayerId ? [snapshot.activeLayerId] : [],
             adapterId: "ts",
             token: label ?? "ts-meta",
+            // Host-owned size halves. Both absent for a size-neutral commit; both
+            // present and differing for a commit that resizes the document.
+            docSizeBefore: docSizeChange
+              ? [docSizeChange.before.width, docSizeChange.before.height]
+              : null,
+            docSizeAfter: docSizeChange
+              ? [docSizeChange.after.width, docSizeChange.after.height]
+              : null,
           });
         }
       } catch {

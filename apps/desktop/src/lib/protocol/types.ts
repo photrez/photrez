@@ -242,6 +242,15 @@ export type Command =
       adapterId: string;
       token: string;
       memoryCostBytes: number;
+      /**
+       * Host-owned document-size halves, `[width, height]`, supplied TOGETHER for
+       * a transition that resizes the document (a crop). Both `null` for a
+       * size-neutral transition, which Rust reads as "changes no size" and answers
+       * with no size delta. The engine cannot derive them: its own document size
+       * is baseline-only and is stale by the time a second crop runs.
+       */
+      docSizeBefore?: [number, number] | null;
+      docSizeAfter?: [number, number] | null;
     }
   // Structural command arms (mirror the TS graph-mirror layer ops so the native
   // ProtocolEngine owns duplicate/merge/flatten/rasterize). Host owns identity:

@@ -140,6 +140,24 @@ export function applyCropPreview(params: {
     engine.setActiveLayer(null);
   };
 
+  // Document-size halves for this crop, supplied together on the commit because
+  // THIS caller is the only party that knows both: the commit happens BEFORE
+  // applyCrop mutates, so the pre-mutation size is the current model, and the
+  // post-mutation size is the crop's own output size - the target size when the
+  // crop is resizing, otherwise the crop rectangle itself, mirroring how
+  // DocumentEngine.applyCrop derives finalW/finalH. Rust cannot derive either
+  // half: its own document size is baseline-only and is already stale by the
+  // time a second crop runs.
+  const docSizeChange = {
+    before: { width: engine.getWidth(), height: engine.getHeight() },
+    after: {
+      width: cropOptions.targetSize ? cropOptions.targetSize.w : cropW,
+      height: cropOptions.targetSize ? cropOptions.targetSize.h : cropH,
+    },
+  };
+  const commitCrop = () =>
+    history?.commit(engine.snapshot(), "Crop Canvas", undefined, false, null, docSizeChange);
+
   // Routed path: the native applyCrop owns the document size and its undo entry,
   // so there is no TS history commit. On success the route has already re-uploaded
   // layer textures; "legacy" runs the default path below.
@@ -151,7 +169,7 @@ export function applyCropPreview(params: {
           return;
         }
         if (status === "legacy") {
-          history?.commit(engine.snapshot(), "Crop Canvas");
+          commitCrop();
           engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
           // The native crop arms clear the native selection, but this fallback
           // runs the HOST applyCrop (which nulls model.selection) with no native
@@ -169,7 +187,7 @@ export function applyCropPreview(params: {
   }
 
   // Default path (flag off) — unchanged.
-  history?.commit(engine.snapshot(), "Crop Canvas");
+  commitCrop();
   engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
   finish(true);
 }

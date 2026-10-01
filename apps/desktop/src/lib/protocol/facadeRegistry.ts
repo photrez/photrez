@@ -962,7 +962,22 @@ function asDocumentModel(snapshot: unknown): DocumentModel | null {
 
 export async function recordExternalTransitionFor(
   docId: string,
-  rec: { label: string; affectedLayerIds: string[]; snapshot: unknown },
+  rec: {
+    label: string;
+    affectedLayerIds: string[];
+    snapshot: unknown;
+    /**
+     * Host-owned document-size halves for a commit that resizes the document.
+     * Both present and differing on such a commit; absent (undefined) on every
+     * size-neutral one, which Rust reads as "this transition changes no size"
+     * and answers with no size delta. The engine cannot supply these itself: its
+     * own document size is baseline-only and goes stale after the first crop.
+     */
+    docSizeChange?: {
+      before: { width: number; height: number };
+      after: { width: number; height: number };
+    };
+  },
   engine?: DocumentEngine
 ): Promise<{ ok: boolean; seq?: number }> {
   // Deterministic degraded behavior (ADR 0008 H0 review): while degraded, no
@@ -1049,6 +1064,14 @@ export async function recordExternalTransitionFor(
         adapterId: "ts-external",
         token,
         memoryCostBytes: JSON.stringify(rec.snapshot ?? {}).length,
+        // Host-owned size halves, sent together. null (not undefined) for a
+        // size-neutral commit, matching the Rust `Option<(f64, f64)>` shape.
+        docSizeBefore: rec.docSizeChange
+          ? [rec.docSizeChange.before.width, rec.docSizeChange.before.height]
+          : null,
+        docSizeAfter: rec.docSizeChange
+          ? [rec.docSizeChange.after.width, rec.docSizeChange.after.height]
+          : null,
       },
     });
     // Authoritative-version refresh (ADR C2): mirrors advance DV outside
@@ -1153,6 +1176,10 @@ export function installFacadeCommitShim(providers: {
       imperative?: unknown,
       alreadyRecordedInRust?: boolean,
       pixelLayerIds?: string[] | null,
+      docSizeChange?: {
+        before: { width: number; height: number };
+        after: { width: number; height: number };
+      } | undefined,
     ) => void;
     recordSnapshotHistory: (
       before: unknown,
@@ -1165,11 +1192,13 @@ export function installFacadeCommitShim(providers: {
   // Forward ALL arguments - callers may pass a third `imperative` payload
   // (HistoryTilePatches) that the tile-memento undo/redo model requires.
   proto.commit = function (this: unknown, ...args: unknown[]) {
-    const [snap, label, , alreadyRecordedInRust] = args as [
+    const [snap, label, , alreadyRecordedInRust, , docSizeChange] = args as [
       unknown,
       string | undefined,
       unknown,
       boolean | undefined,
+      unknown,
+      { before: { width: number; height: number }; after: { width: number; height: number } } | undefined,
     ];
     (originalCommit as unknown as (...callArgs: unknown[]) => void).apply(this, args);
     // Feature gate + zero-cost when OFF:
@@ -1198,7 +1227,7 @@ export function installFacadeCommitShim(providers: {
         engine.getId(),
         recordExternalTransitionFor(
           engine.getId(),
-          { label: label ?? "Legacy Edit", affectedLayerIds: affected, snapshot: snap },
+          { label: label ?? "Legacy Edit", affectedLayerIds: affected, snapshot: snap, docSizeChange },
           engine as unknown as DocumentEngine,
         ).then(() => {}),
       );

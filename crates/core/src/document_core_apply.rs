@@ -58,6 +58,8 @@ impl ProtocolEngine {
             adapter_id,
             token,
             memory_cost_bytes,
+            doc_size_before,
+            doc_size_after,
         } = envelope.command
         {
             self.record_external(
@@ -66,6 +68,8 @@ impl ProtocolEngine {
                 &adapter_id,
                 &token,
                 memory_cost_bytes,
+                doc_size_before,
+                doc_size_after,
             )?;
             // Note: record_external already bumps version; do not bump again.
             // Layers unchanged here - reconcile intentionally skipped (host executes
@@ -744,6 +748,29 @@ impl ProtocolEngine {
                     // the host handoff so the TS side steps its own store (the
                     // cursor moves on the cursor commit, not here).
                     let (seq, changes) = self.restore_external_layers(self.cursor - 1, "undo");
+                    // Document size: both halves are HOST-supplied (the engine's
+                    // own `doc_size` is baseline-only and goes stale after the
+                    // first host crop, so it is never the source here). Surface a
+                    // size delta only when the host supplied BOTH halves and they
+                    // differ. BOTH is required: a half-supplied pair is an
+                    // incomplete answer, and restoring whichever half happens to be
+                    // present would resize the document to a size the host never
+                    // said this transition was undoing. A metadata External
+                    // (delete/move/reorder), an absent after half, or a size-neutral
+                    // mutation with equal halves therefore emits no size at all,
+                    // which keeps it an empty layer delta for the host and leaves
+                    // its fall-through routing untouched.
+                    let (before_size, after_size) = match &self.entries[self.cursor - 1].payload {
+                        EntryPayload::External {
+                            doc_size_before,
+                            doc_size_after,
+                            ..
+                        } => (*doc_size_before, *doc_size_after),
+                        _ => (None, None),
+                    };
+                    if before_size.is_some() && after_size.is_some() && before_size != after_size {
+                        delta_dims = before_size;
+                    }
                     external_handoff = Some(seq);
                     handoff_dir = "undo";
                     changes
@@ -842,6 +869,21 @@ impl ProtocolEngine {
                     // External (host-handoff) entry: see the undo arm. Redo
                     // restores the up-projected side captured at the sync.
                     let (seq, changes) = self.restore_external_layers(self.cursor, "redo");
+                    // Document size, symmetric to the undo arm and driven by the
+                    // same host-supplied pair: redo re-applies the AFTER half, and
+                    // both halves must be present for the same reason they must on
+                    // undo.
+                    let (before_size, after_size) = match &self.entries[self.cursor].payload {
+                        EntryPayload::External {
+                            doc_size_before,
+                            doc_size_after,
+                            ..
+                        } => (*doc_size_before, *doc_size_after),
+                        _ => (None, None),
+                    };
+                    if before_size.is_some() && after_size.is_some() && before_size != after_size {
+                        delta_dims = after_size;
+                    }
                     external_handoff = Some(seq);
                     handoff_dir = "redo";
                     changes
@@ -921,14 +963,23 @@ impl ProtocolEngine {
             // set, so this delta is the ordered restatement the host projection
             // reconstructs order from. The version still advances only on the
             // cursor commit; the cursor itself is moved there, not here.
+            //
+            // A host crop's document size rides the SAME early return: the arms
+            // above set `delta_dims` only when the host supplied a differing pair,
+            // so `None` here means "this transition changed no size" and the delta
+            // stays a pure layer restatement the host reads exactly as before.
+            let (width, height) = match delta_dims {
+                Some((w, h)) => (Some(w), Some(h)),
+                None => (None, None),
+            };
             return Ok(CommandResult {
                 document_version: self.version,
                 delta: RenderDelta {
                     base_version: base,
                     version: self.version,
                     changes,
-                    width: None,
-                    height: None,
+                    width,
+                    height,
                 },
                 status: Some("external".to_string()),
                 external_seq: Some(seq),

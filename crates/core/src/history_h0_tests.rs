@@ -146,6 +146,10 @@ fn external_record_requires_registered_adapter_and_advances_dv_once() {
             adapter_id: "ts-external".into(),
             token: "t1".into(),
             memory_cost_bytes: 10,
+            // Size-neutral transition: this test exercises cursor/version
+            // accounting, not document size.
+            doc_size_before: None,
+            doc_size_after: None,
         }))
         .unwrap_err();
     assert_eq!(err.code, "E_UNKNOWN_ADAPTER");
@@ -159,6 +163,10 @@ fn external_record_requires_registered_adapter_and_advances_dv_once() {
             adapter_id: "ts-external".into(),
             token: "tok-1".into(),
             memory_cost_bytes: 128,
+            // Size-neutral transition: this test exercises cursor/version
+            // accounting, not document size.
+            doc_size_before: None,
+            doc_size_after: None,
         }))
         .unwrap();
     assert_eq!(r.document_version, v0 + 1); // exactly once
@@ -179,6 +187,10 @@ fn external_handoff_status_then_cursor_commit_bumps_dv_once() {
         adapter_id: "ts-external".into(),
         token: "t".into(),
         memory_cost_bytes: 1,
+        // Size-neutral transition: this test exercises cursor/version
+        // accounting, not document size.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     let dv_before = eng.version();
@@ -239,6 +251,10 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
         adapter_id: "ts-external".into(),
         token: "t".into(),
         memory_cost_bytes: 1,
+        // Size-neutral transition: this test exercises cursor/version
+        // accounting, not document size.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     let q = eng.history_query();
@@ -304,6 +320,10 @@ fn history_cursor_commit_rejects_wrong_seq_on_non_dense_stream() {
         adapter_id: "ts-external".into(),
         token: "t".into(),
         memory_cost_bytes: 1,
+        // Size-neutral transition: this test exercises cursor/version
+        // accounting, not document size.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     let _hand = eng.apply(env(Command::Undo)).unwrap();
@@ -330,6 +350,10 @@ fn external_pending_barrier_blocks_forward_and_history_commands() {
         adapter_id: "ts-external".into(),
         token: "t".into(),
         memory_cost_bytes: 1,
+        // Size-neutral transition: this test exercises cursor/version
+        // accounting, not document size.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     let hand = eng.apply(env(Command::Undo)).unwrap();
@@ -389,6 +413,10 @@ fn query_exposes_pending_external_state() {
         adapter_id: "ts-external".into(),
         token: "t2".into(),
         memory_cost_bytes: 0,
+        // Size-neutral transition: this test exercises cursor/version
+        // accounting, not document size.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     let h = eng.apply(env(Command::Undo)).unwrap();
@@ -451,6 +479,10 @@ fn pixel_undo_redo_rejected_while_external_pending() {
         adapter_id: "ts-external".into(),
         token: "t".into(),
         memory_cost_bytes: 1,
+        // Size-neutral transition: this test exercises cursor/version
+        // accounting, not document size.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     let hand = eng.apply(env(Command::Undo)).unwrap();
@@ -478,6 +510,10 @@ fn snapshot_undo_redo_rejected_while_external_pending() {
         adapter_id: "ts-external".into(),
         token: "t".into(),
         memory_cost_bytes: 1,
+        // Size-neutral transition: this test exercises cursor/version
+        // accounting, not document size.
+        doc_size_before: None,
+        doc_size_after: None,
     }))
     .unwrap();
     let hand = eng.apply(env(Command::Undo)).unwrap();

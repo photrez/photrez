@@ -123,7 +123,12 @@ describe("cropToolActions", () => {
       recenterViewport,
     });
 
-    expect(history.commit).toHaveBeenCalledWith(snapshot, "Crop Canvas");
+    // The commit carries the host-owned document-size pair (see the docSizeChange
+    // parameter): the pre-crop model size and the crop's own output size.
+    expect(history.commit).toHaveBeenCalledWith(snapshot, "Crop Canvas", undefined, false, null, {
+      before: { width: 300, height: 200 },
+      after: { width: 300, height: 400 },
+    });
     expect(engine.applyCrop).toHaveBeenCalledWith(10, 20, 100, 200, {
       deleteCroppedPixels: true,
       targetSize: { w: 300, h: 400 },
@@ -140,6 +145,52 @@ describe("cropToolActions", () => {
     expect(setActiveTool).toHaveBeenCalledWith("move");
     expect(setSelectedLayerId).toHaveBeenCalledWith(null);
     expect(engine.setActiveLayer).toHaveBeenCalledWith(null);
+  });
+
+  it("supplies the host-owned size pair from the crop rect when there is no target size", () => {
+    // No cropSizeTarget -> the crop's output size IS the (rounded) crop rect, which
+    // is what DocumentEngine.applyCrop derives as finalW/finalH. Both halves must
+    // be right, or the undo resizes the document to a size the user was never in.
+    const history = { commit: vi.fn() };
+    const engine = {
+      snapshot: () => ({}),
+      applyCrop: vi.fn(),
+      setActiveLayer: vi.fn(),
+      getWidth: () => 512,
+      getHeight: () => 480,
+      getViewport: () => ({ zoom: 1 }),
+      getLayers: () => [],
+    };
+    const workspace = {
+      getActiveEngine: () => engine,
+      getActiveHistory: () => history,
+    };
+    const scheduler = { requestRender: vi.fn() };
+    const renderer = { uploadImage: vi.fn(), resize: vi.fn(), resizeToViewport: vi.fn() };
+
+    applyCropPreview({
+      workspace: workspace as any,
+      renderer: renderer as any,
+      viewport: { width: 800, height: 600 },
+      cropRect: { x: 10, y: 20, w: 100.4, h: 60.6 },
+      cropMode: "free",
+      cropSizeTarget: null,
+      cropDeletePixels: true,
+      cropRotation: 0,
+      scheduler: scheduler as any,
+      setCropRect: vi.fn(),
+      setCropRotation: vi.fn(),
+      setHiddenCropPreview: vi.fn(),
+      setActiveTool: vi.fn(),
+      setSelectedLayerId: vi.fn(),
+      recenterViewport: vi.fn(),
+    });
+
+    expect(history.commit).toHaveBeenCalledWith({}, "Crop Canvas", undefined, false, null, {
+      before: { width: 512, height: 480 },
+      // Rounded from 100.4 x 60.6, matching the rounded rect handed to applyCrop.
+      after: { width: 100, height: 61 },
+    });
   });
 
   it("rounds fractional crop rect to integers before committing", () => {
@@ -396,10 +447,18 @@ describe("applyCropPreview routed path (flag ON + native)", () => {
     await vi.waitFor(() => {
       expect(applyCropSpy).toHaveBeenCalled();
     });
-    // History sees the PRE-crop snapshot (800x600), committed before the mutation.
+    // History sees the PRE-crop snapshot (800x600), committed before the mutation,
+    // plus the host-owned size pair for the crop that is about to run.
     expect(historyCommit).toHaveBeenCalledWith(
       expect.objectContaining({ width: 800, height: 600 }),
       "Crop Canvas",
+      undefined,
+      false,
+      null,
+      {
+        before: { width: 800, height: 600 },
+        after: { width: 100, height: 100 },
+      },
     );
     expect(applyCropSpy).toHaveBeenCalledWith(
       10,

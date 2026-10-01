@@ -242,11 +242,22 @@ pub fn rust_pixels_record_external(
     affected: Vec<String>,
     adapter_id: String,
     token: String,
+    doc_size_before: Option<(f64, f64)>,
+    doc_size_after: Option<(f64, f64)>,
 ) -> Result<PatchResultJson, String> {
     let mut reg = registry();
     let reg = reg.get_or_insert_with(Default::default);
-    reg.record_external(&doc_id, &label, &affected, &adapter_id, &token, 0)
-        .map_err(|e| e)?;
+    reg.record_external(
+        &doc_id,
+        &label,
+        &affected,
+        &adapter_id,
+        &token,
+        0,
+        doc_size_before,
+        doc_size_after,
+    )
+    .map_err(|e| e)?;
     let version = reg.get_history_version(&doc_id).unwrap_or(0);
     let epoch = affected
         .first()

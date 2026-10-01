@@ -116,6 +116,12 @@ pub fn document_restore(
         })
         .unwrap_or_default();
     let token = format!("snapshot-{}", snapshot.version);
+    // Size-neutral by construction: `DocumentSnapshotDto` carries no doc-level
+    // width/height (only per-layer dims), so this producer does not know the
+    // document size it is restoring and must NOT claim one. Both halves are
+    // absent, which is a complete answer meaning "this transition changes no
+    // size" - the entry then emits no size delta and the host keeps its current
+    // size, exactly as before this change.
     reg.record_external(
         &doc_id,
         "document_restore",
@@ -123,6 +129,8 @@ pub fn document_restore(
         "restore-adapter",
         &token,
         0,
+        None,
+        None,
     )?;
     let version = reg.get_history_version(&doc_id).unwrap_or(0);
     let max_layer_epoch = reg
