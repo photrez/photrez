@@ -116,10 +116,18 @@ export function resizeCanvasExceedsBudget(
  * so the caller can ask "will this crop actually resize the document?" WITHOUT
  * re-implementing the guards. That matters because the crop commits its history
  * entry BEFORE it calls `applyCrop`: if the caller had to guess the outcome, a
- * rejected crop (zero-size rect, or a target size past the device/app ceiling)
- * would still record a size the document never took, and a later redo would
- * write that phantom size straight into the live model - e.g. a 20000px target
- * on a 16384px ceiling, or width 0 from a sub-pixel rect rounding to zero.
+ * rejected crop would still record a size the document never took, and a later
+ * redo would write that phantom size straight into the live model - e.g. a
+ * 20000px target on a 16384px ceiling, or a 0 width from the size fields.
+ *
+ * TWO guards are needed, not one, and neither subsumes the other:
+ *  - the INPUT rect must be positive. It comes from a selection drag, so it is
+ *    positive in practice, and a sub-pixel drag rounding to 0 is the case here.
+ *  - the OUTPUT size must be positive. `CropSizeInputs` renders both size fields
+ *    through `EditableNumField` with no min and no max, so a typed `0` or a
+ *    negative value arrives here as a real target size and bypasses the input
+ *    guard entirely. Checking only the ceiling missed this: `0 > 16384` is false,
+ *    so a crop to 0x600 was ACCEPTED and left model.width = 0.
  *
  * `applyCrop` below calls this, so the two can never disagree.
  */
@@ -132,6 +140,7 @@ export function resolveCropDocumentSize(
   const targetSize = options?.targetSize ?? null;
   const finalW = targetSize ? targetSize.w : width;
   const finalH = targetSize ? targetSize.h : height;
+  if (finalW <= 0 || finalH <= 0) return null;
   if (finalW > getEffectiveMaxDim() || finalH > getEffectiveMaxDim()) return null;
   return { width: finalW, height: finalH };
 }

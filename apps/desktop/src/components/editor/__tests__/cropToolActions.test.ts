@@ -241,6 +241,32 @@ describe("cropToolActions", () => {
     expect(JSON.stringify(call)).not.toContain("20000");
   });
 
+  // The same contract for a ZERO explicit size. This is the required half of the
+  // zero-size fix: rejecting the crop in the engine is not enough on its own,
+  // because the history commit happens FIRST. If the entry recorded a 0-wide pair,
+  // the crop would no-op but a later REDO would still write 0 into model.width.
+  it("records NO size when the explicit target size is 0", () => {
+    const call = cropWithTarget({ w: 0, h: 600 });
+    expect(call[5]).toBeUndefined();
+    expect(JSON.stringify(call)).not.toContain('"w":0');
+  });
+
+  it("records NO size when the explicit target size is negative", () => {
+    const call = cropWithTarget({ w: -5, h: 600 });
+    expect(call[5]).toBeUndefined();
+    expect(JSON.stringify(call)).not.toContain("-5");
+  });
+
+  // The other direction: the smallest legal size must still record its pair, or a
+  // guard that over-rejects would silently break the valid-crop size-pair undo.
+  it("still records the size pair for the smallest legal target, 1x1", () => {
+    const call = cropWithTarget({ w: 1, h: 1 });
+    expect(call[5]).toEqual({
+      before: { width: 128, height: 128 },
+      after: { width: 1, height: 1 },
+    });
+  });
+
   it("records NO size when the crop rect rounds to zero", () => {
     const history = { commit: vi.fn() };
     const engine = {
