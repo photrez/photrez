@@ -461,7 +461,7 @@ export class CommandHistory {
     pixelLayerIds: string[] | null = null,
   ): void {
     // Append this commit to the unified Rust history cursor.
-    //  - imperative TS pixel op NOT yet in Rust (text/gradient/shape/transform)
+    //  - imperative TS pixel op NOT yet in Rust (text/shape/transform)
     //    -> `apply_tile_patch` (Pixel entry, same command Rust strokes use).
     //  - non-pixel TS (metadata) op -> `rust_pixels_record_external` (External entry).
     //  - `alreadyRecordedInRust` (brush/fill/adjustment bake) -> Rust already owns

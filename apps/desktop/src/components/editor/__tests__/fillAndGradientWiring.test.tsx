@@ -156,11 +156,18 @@ describe("Paint Bucket & Gradient Wiring & Regression Suite", () => {
         })
       );
 
-      // 4. Pointer Up (commits to history & resets drag line signal)
-      // Gradient bake is now async (GPU 6.3×) — await the handler's promise.
+      // 4. Pointer Up (resets the drag line signal)
+      // Gradient bake is async (the canonical pixel write is off-path) — await
+      // the handler's promise.
       await tools.onCanvasPointerUp(makePointerEvent({ clientX: 200, clientY: 120 }));
       expect(setGradientDragLineSpy).toHaveBeenLastCalledWith(null);
-      expect(commitSpy).toHaveBeenCalled();
+      // This harness' layer carries no raster, so there is no paint surface to
+      // seed the canonical pixel store from. The gradient claims the release and
+      // refuses VISIBLY rather than committing: a TS-bitmap commit would be a
+      // second pixel owner with no Rust Pixel entry to undo against. The
+      // commit-on-a-raster-layer contract (one write, one Pixel entry, one
+      // Ctrl+Z) is pinned end to end in rustPixelOpsUnconditional.test.tsx.
+      expect(commitSpy).not.toHaveBeenCalled();
 
       disposeTools();
       dispose();

@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { documentToLayerLocal } from "@/viewport/transformGeometry";
-import { gradientFill, gradientFillAsync, warmupGradientRenderer, type FillMask, type ColorStop } from "@/features/fill/fillOperations";
+import { gradientFill, type FillMask, type ColorStop } from "@/features/fill/fillOperations";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import { showToast } from "../../Toast";
 import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { GradientDragState, PointerToolContext } from "./pointerToolContext";
+import { applyRustTilesToSurface, getRustEpoch, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
+import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { assertWriteRegionBytes, assertWriteRegionTarget, computeDirtyRegion } from "@/lib/paint/regionProducer";
+import { ipcErrorMessage } from "@/tauri/native";
+import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
+import { computeChangedRegion } from "./paintBucket";
 
 /**
  * Gradient tool: start drag (pointer down), track end point during drag
@@ -35,8 +41,6 @@ export function startGradientDrag(
   state.start = { x: coords.x, y: coords.y };
   state.end = { x: coords.x, y: coords.y };
   state.isDragging = true;
-  // Warmup WebGPU pipeline in background so the first gradient doesn't stutter at 472×709
-  if (layer) void warmupGradientRenderer(layer.width, layer.height);
   const gType = typeof gradientType === "function" ? gradientType() : "linear";
   if (typeof setGradientDragLine === "function") {
     setGradientDragLine({ start: coords, end: coords, type: gType, angle: 0, distance: 0 });
@@ -95,8 +99,16 @@ export function trackGradientDrag(
 /**
  * Apply gradient on pointer up. Reads the drag start/end from `state`,
  * builds color stops from the active preset, applies a selection mask, and
- * commits the resulting bitmap. Returns true when handled.
- * GPU path (WebGPU A, 6.3× at 12 Mpx) is tried first for 2-stop unmasked gradients.
+ * records the changed pixels in the Rust canonical store. Returns true when
+ * handled.
+ *
+ * Rust records the gradient: it takes the changed region through
+ * `rust_pixels_write_region` (one canonical `Pixel` history entry) and drives
+ * the derived surface + visible raster from the Rust result, so one gradient is
+ * exactly one byte-exact undo step. The raster is computed on the CPU from the
+ * canonical read; the WebGPU gradient kernel stays a preview-tier rasteriser
+ * because GPU-produced bytes that reach the model are bytes no canonical entry
+ * can undo.
  */
 export async function applyGradientFill(
   ctx: PointerToolContext,
@@ -120,7 +132,7 @@ export async function applyGradientFill(
   const dragStart = state.start;
   const dragEnd = state.end;
   // Reset the drag line SYNCHRONOUSLY — the line must vanish the instant the
-  // pointer releases, even though the pixel bake below is async (GPU/WASM).
+  // pointer releases, even though the canonical pixel write below is async.
   state.start = null;
   state.end = null;
   if (typeof setGradientDragLine === "function") {
@@ -146,14 +158,15 @@ export async function applyGradientFill(
   const layer = engine.getLayer(layerId);
   if (!layer) { resetGradientState(); return true; }
 
-  const bitmap = engine.getLayerImageBitmap(layerId);
-  if (!bitmap) { showToast("Layer has no image data", "warn"); resetGradientState(); return true; }
-
-  const offscreen = new OffscreenCanvas(layer.width, layer.height);
-  const ctx2d = offscreen.getContext("2d");
-  if (!ctx2d) { resetGradientState(); return true; }
-  ctx2d.drawImage(bitmap, 0, 0);
-  const imgData = ctx2d.getImageData(0, 0, layer.width, layer.height);
+  // UNCONDITIONAL: a gradient is always recorded by the Rust canonical pixel
+  // store, so the default state of photrez.rustPixels (key absent or "0") takes
+  // the same path as "1". Gating on it sent the default state down a TypeScript
+  // bitmap commit that recorded no Rust Pixel entry, so one undo stepped past the
+  // gradient onto the previous entry and left its pixels on the canvas. A layer
+  // with no derived surface has no pixels to seed the store from either, so that
+  // case is a visible refusal, never a silent second pixel owner.
+  const surface = engine.getPaintSurface(layerId);
+  if (!surface) { showToast("Rust pixel surface not ready", "warn"); resetGradientState(); return true; }
 
   // Build color stops from preset
   const hex = fgColor().replace("#", "");
@@ -195,34 +208,109 @@ export async function applyGradientFill(
   const endLocal = documentToLayerLocal(dragEnd.x, dragEnd.y, layer.transform, layer.width, layer.height);
 
   // Calm inline loading in status bar (200ms delay per Material/Carbon — avoids flicker on 31ms, shows on 81ms+).
-  let loadingTimer: number | null = window.setTimeout(() => ctx.editor.setStatusLoadingMessage?.("Applying gradient..."), 200);
+  const loadingTimer: number | null = window.setTimeout(() => ctx.editor.setStatusLoadingMessage?.("Applying gradient..."), 200);
   try {
-    // GPU first for 2-stop unmasked (6.3× at 12 Mpx), falls back to WASM/TS inside gradientFillAsync
-    await gradientFillAsync(
-      imgData, gradientType(),
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
+    const docId = workspace.getActiveDocumentId() ?? "";
+    const w = layer.width;
+    const h = layer.height;
+    // One store epoch read serves both steps below. When it matches the surface
+    // epoch the surface already holds the store pixels, so the full-layer
+    // rehydration is skipped.
+    const storeEpoch = await getRustEpoch(docId, layerId);
+    if (storeEpoch !== null && surface.pixelEpoch !== storeEpoch) {
+      await rehydratePaintSurfaceFromRust(docId, layerId, surface);
+    }
+    if (storeEpoch === null) {
+      const seed = surface.readRect(0, 0, w, h);
+      await invoke("rust_pixels_init", {
+        docId,
+        layerId,
+        width: w,
+        height: h,
+        bytes: new Uint8Array(seed.data.buffer, seed.data.byteOffset, seed.data.byteLength),
+      });
+    }
+    // CANONICAL RASTER: the gradient is computed on the CPU from the canonical
+    // bytes read out of the derived surface, never from a GPU readback. The
+    // WebGPU gradient kernel is a preview-tier rasteriser; letting its output
+    // become the model raster made the document hold pixels no canonical entry
+    // could undo, and the two owners disagreed. gradientFill is the same kernel
+    // the masked and multi-stop cases already used, on a copy of the canonical
+    // read, so the surface itself is untouched until Rust returns its tiles.
+    const canonical = surface.readRect(0, 0, w, h);
+    const before = new Uint8ClampedArray(canonical.data);
+    const raster = gradientFill(
+      canonical, gradientType(),
       startLocal.x, startLocal.y,
       endLocal.x, endLocal.y,
       stops, fillMask ?? null,
     );
+    const changed = computeChangedRegion(before, raster.data, w, h);
+    // A gradient whose result equals the layer already is not an edit, and a
+    // drag of zero length paints the first stop everywhere: either way there is
+    // nothing to record, so it stops before any write.
+    if (!changed) return true;
+    // The byte diff stays the authority for WHAT changed; this call only owns
+    // the region arithmetic. A non-inverted mask bounds the raster, so the
+    // intersection below is that same box and the shipped rgba always covers the
+    // region exactly.
+    const selRect = selectionUploadRect(engine);
+    const region = computeDirtyRegion(changed, selRect
+      ? { x: selRect.x, y: selRect.y, w: selRect.width, h: selRect.height }
+      : null);
+    if (!region) return true;
+    assertWriteRegionTarget(docId, layerId, region, w, h);
+    assertWriteRegionBytes(changed.rgba.byteLength, region);
+    const preSnapshot = engine.snapshot();
+    const res = (await pixelInvoke("rust_pixels_write_region", {
+      docId,
+      layerId,
+      x: region.x,
+      y: region.y,
+      w: region.w,
+      h: region.h,
+      rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
+    })) as {
+      before: { x: number; y: number; w: number; h: number; data: number[] }[];
+      after: { x: number; y: number; w: number; h: number; data: number[] }[];
+      epoch: number;
+      version: number;
+    };
+    // Imperative is entry-owned (tile-memento model): history stores it and
+    // replays its before/after tiles on undo/redo; the Rust entry is synced via
+    // `rust_pixels_undo` (single step, no second TS-visible entry). `rustOwned`
+    // marks it a cursor token for a step Rust already holds, so the undo/redo
+    // dispatch takes the pixels from Rust and drains this twin in lockstep
+    // instead of replaying tiles no store holds.
+    const imperative = {
+      layerId,
+      surfaceWidth: w,
+      surfaceHeight: h,
+      before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+      after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+      rustOwned: true,
+    };
+    // TS derived cache updated from Rust's authoritative returned `after` tiles + epoch.
+    applyRustTilesToSurface(surface.context, res.after);
+    surface.pixelEpoch = res.epoch;
+    surface.pixelVersion = res.version;
+    syncFacadeVersionFromPixel(docId, res.version);
+    renderer?.uploadSurfaceTiles?.(layerId, w, h, res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })));
+    // The drawn layer comes from layer.imageBitmap, not from Rust, so rebuild
+    // that raster from the surface the canonical tiles were just applied to.
+    // Without this the gradient is recorded correctly but stays invisible until
+    // an undo/redo happens to rebuild the bitmap.
+    await projectRustPixelsToVisibleSurface(engine, renderer, layerId, surface, res.epoch);
+    history.commit(preSnapshot, "Gradient Fill", imperative, true);
+    scheduler.requestRender();
+  } catch (err) {
+    showToast(`Gradient fill failed: ${ipcErrorMessage(err)}`, "error");
   } finally {
     if (loadingTimer !== null) clearTimeout(loadingTimer);
     ctx.editor.setStatusLoadingMessage?.(null);
   }
 
-  const preSnapshot = engine.snapshot();
-  ctx2d.putImageData(imgData, 0, 0);
-  const newBitmap = offscreen.transferToImageBitmap();
-  try {
-    engine.setLayerImageBitmap(layerId, newBitmap);
-    renderer?.uploadImage(layerId, newBitmap);
-  } catch (err) {
-    showToast(`Gradient fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`, "error");
-    resetGradientState();
-    return true;
-  }
-  history.commit(preSnapshot, "Gradient Fill");
-  scheduler.requestRender();
-
-  resetGradientState();
   return true;
 }

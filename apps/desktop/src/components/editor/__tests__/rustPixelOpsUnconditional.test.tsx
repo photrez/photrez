@@ -1,6 +1,7 @@
 /**
- * Paint Bucket Fill, Fill Layer and Adjustment Bake are Rust-canonical at the
- * DEFAULT state of photrez.rustPixels (the key a normal user never sets).
+ * Paint Bucket Fill, Fill Layer, Adjustment Bake and Gradient Fill are
+ * Rust-canonical at the DEFAULT state of photrez.rustPixels (the key a normal
+ * user never sets).
  *
  * Each test drives the real production entry, then asserts the four properties
  * that make one op exactly one undoable step:
@@ -27,8 +28,10 @@ import { DialogProvider } from "../dialogs/DialogProvider";
 import { useEditorCommands } from "../useEditorCommands";
 import { useLayerActions } from "../layers/useLayerActions";
 import { applyPaintBucketFill } from "../canvas/pointerTools/paintBucket";
+import { applyGradientFill } from "../canvas/pointerTools/gradientTool";
 import { fillActiveLayerWithColor } from "../layers/layerOperations";
 import { installFaithfulCanvas } from "@/__tests__/faithfulOffscreenCanvas";
+import { gradientFillTs } from "@/features/fill/fillOperations";
 
 const DOC = "doc-ops";
 const SIZE = 16;
@@ -253,6 +256,63 @@ function primeLayer(engine: ReturnType<WorkspaceManager["getActiveEngine"]>) {
 
 const tick = async (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * The gradient raster these tests drive: a radial gradient of radius 2 over a
+ * white layer, red at the centre fading to the white it already is. Only the
+ * disc actually changes, so a correct producer sends a PARTIAL region - a
+ * full-layer write would mean the region was assumed instead of measured, and
+ * the untouched white around the disc would be re-shipped as if it were edited.
+ *
+ * The drag points are document-space, so they are offset by the layer position
+ * to land on the layer-local points named above. The premise is asserted so this
+ * helper can never quietly stop mapping to the intended local coordinates.
+ */
+const GRADIENT_LOCAL = { start: { x: 8, y: 8 }, end: { x: 8, y: 10 } };
+function driveGradient(
+  editorCtx: { workspace: unknown; renderer: unknown; scheduler: unknown },
+  engine: NonNullable<ReturnType<WorkspaceManager["getActiveEngine"]>>,
+  opts: { gradientType?: "linear" | "radial"; fgColor?: string; bgColor?: string } = {},
+) {
+  const layerId = engine!.getActiveLayerId()!;
+  const layer = engine!.getLayer(layerId)!;
+  expect(layer.transform.rotation, "the drag->layer mapping assumes no rotation").toBe(0);
+  expect(layer.transform.scaleX, "the drag->layer mapping assumes unit scale").toBe(1);
+  expect(layer.transform.scaleY, "the drag->layer mapping assumes unit scale").toBe(1);
+  const toDoc = (p: { x: number; y: number }) => ({ x: p.x + layer.transform.x, y: p.y + layer.transform.y });
+  const editor: any = {
+    ...editorCtx,
+    activeTool: () => "gradient",
+    fgColor: () => opts.fgColor ?? "#ff0000",
+    bgColor: () => opts.bgColor ?? "#ffffff",
+    gradientPreset: () => "fg-bg",
+    gradientType: () => opts.gradientType ?? "radial",
+    setGradientDragLine: vi.fn(),
+    setStatusLoadingMessage: vi.fn(),
+  };
+  const state: any = {
+    start: toDoc(GRADIENT_LOCAL.start),
+    end: toDoc(GRADIENT_LOCAL.end),
+    isDragging: true,
+    reset: vi.fn(),
+  };
+  return applyGradientFill({ editor, getDocCoords: () => state.start, getCanvasRef: () => ({ current: null }) } as any, state);
+}
+
+const writeRegionArgs = () =>
+  (vi.mocked(invoke).mock.calls as [string, Record<string, unknown>][])
+    .filter(([c]) => c === "rust_pixels_write_region")
+    .map(([, a]) => a as { x: number; y: number; w: number; h: number; rgba: Uint8Array });
+
+/** Same FNV-1a the store fake hashes its canonical buffer with. */
+function fnv1a(bytes: ArrayLike<number>): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 /** Real Ctrl+Z / Ctrl+Shift+Z on window, the keys useEditorCommands binds. */
 async function pressUndo() {
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }));
@@ -377,6 +437,85 @@ describe("bucket, fill and bake are Rust-canonical with photrez.rustPixels at it
 
     await expectOneUndoableRustStep("bake", beforeHash);
   });
+
+  it("Gradient Fill: one write, one Pixel entry, Ctrl+Z reverts, redo restores", async () => {
+    expect(localStorage.getItem("photrez.rustPixels")).toBeNull();
+    const { workspace, engine, history, renderer } = mount();
+    await tick();
+    primeLayer(engine);
+    const commitSpy = vi.spyOn(history, "commit");
+    const beforeHash = store.hash();
+
+    expect(await driveGradient({ workspace, renderer, scheduler: { requestRender: vi.fn() } }, engine)).toBe(true);
+    await tick(50);
+
+    await expectOneUndoableRustStep("gradient", beforeHash);
+    // The TS twin must be a cursor token, not a second copy of the pixels.
+    expect(history.getHistoryStack().map((i) => i.label)).toContain("Gradient Fill");
+    expect(commitSpy, "the gradient committed exactly once").toHaveBeenCalledTimes(1);
+    expect(commitSpy.mock.calls[0][1], "the entry is labelled for the history UI").toBe("Gradient Fill");
+    const twin = commitSpy.mock.calls[0][2] as { rustOwned?: boolean } | undefined;
+    expect(twin?.rustOwned, "the twin is a cursor token, not a pixel source").toBe(true);
+    expect(commitSpy.mock.calls[0][3], "Rust already owns the Pixel entry").toBe(true);
+    expect(store.rejections, "the region write was accepted").toEqual([]);
+  });
+
+  it("Gradient Fill sends the region it actually touched, not the whole layer", async () => {
+    const { workspace, engine, renderer } = mount();
+    await tick();
+    primeLayer(engine);
+    // A selection bounds the raster, so the changed box is the selection rect
+    // while the layer is 4x larger. A producer that assumed "a gradient writes
+    // the full layer" would ship all 16x16 pixels and re-write the untouched
+    // white around the selection as if the op had edited it.
+    engine.createSelection(2, 2, 4, 4);
+    const beforeHash = store.hash();
+
+    expect(await driveGradient({ workspace, renderer, scheduler: { requestRender: vi.fn() } }, engine, { bgColor: "#0000ff" })).toBe(true);
+    await tick(50);
+
+    const wr = writeRegionArgs();
+    expect(wr.length, "exactly one region write").toBe(1);
+    expect({ x: wr[0].x, y: wr[0].y, w: wr[0].w, h: wr[0].h }, "the write is the selection, not the layer").toEqual({ x: 2, y: 2, w: 4, h: 4 });
+    expect(wr[0].rgba.byteLength, "the payload covers exactly the region").toBe(4 * 4 * 4);
+
+    // The whole canonical buffer, not just the written region: white everywhere
+    // the gradient was not allowed to paint, blue inside the selection. This is
+    // what proves the pixels outside the region were left alone.
+    const expected = new Uint8ClampedArray(SIZE * SIZE * 4);
+    for (let i = 0; i < SIZE * SIZE; i++) {
+      expected[i * 4] = 255; expected[i * 4 + 1] = 255;
+      expected[i * 4 + 2] = 255; expected[i * 4 + 3] = 255;
+    }
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 4; col++) {
+        const i = ((2 + row) * SIZE + (2 + col)) * 4;
+        expected[i] = 0; expected[i + 1] = 0; expected[i + 2] = 255; expected[i + 3] = 255;
+      }
+    }
+    expect(store.hash(), "only the selected pixels changed in the canonical buffer").toBe(fnv1a(expected));
+    expect(beforeHash, "premise: the gradient moved the buffer").not.toBe(store.hash());
+  });
+
+  it("Gradient Fill on a layer with no raster refuses visibly instead of committing", async () => {
+    const { workspace, engine, history, renderer } = mount();
+    await tick();
+    const layerId = engine.getActiveLayerId()!;
+    expect(bitmapHash(engine, layerId), "premise: the layer has no raster to seed from").toBe("no-bitmap");
+
+    expect(await driveGradient({ workspace, renderer, scheduler: { requestRender: vi.fn() } }, engine)).toBe(true);
+    await tick(30);
+
+    expect(countWrites(), "nothing was written without a canonical surface").toBe(0);
+    expect(history.getHistoryStack().map((i) => i.label)).not.toContain("Gradient Fill");
+    // The refusal must be visible AND must name the missing surface. A silent
+    // no-op, or one that fails later with a different message, is the failure
+    // this pins: the user would see the gradient do nothing with no reason.
+    expect(
+      toasts.some(([msg, kind]) => kind === "warn" && String(msg).includes("surface")),
+      `a visible refusal naming the missing surface, got ${JSON.stringify(toasts)}`,
+    ).toBe(true);
+  });
 });
 
 /**
@@ -448,6 +587,29 @@ describe("a fill is visible at op time, not only after an undo/redo round trip",
     expect(bitmapHash(engine, layerId), "the layer bitmap carries the fill").not.toBe(beforeHash);
     expect((renderer.uploadImage as any).mock.calls.length, "the visible texture was refreshed").toBeGreaterThan(0);
   });
+
+  it("Gradient Fill refreshes the layer bitmap and the visible texture", async () => {
+    const { workspace, engine, history, renderer } = mount();
+    await tick();
+    const layerId = primeLayer(engine);
+    const beforeBitmap = engine.getLayerImageBitmap(layerId);
+
+    expect(await driveGradient({ workspace, renderer, scheduler: { requestRender: vi.fn() } }, engine)).toBe(true);
+    await tick(50);
+
+    // The viewport renderer draws from layer.imageBitmap, so an op that only
+    // writes the canonical store leaves the canvas showing the pre-gradient
+    // raster until an undo/redo happens to rebuild it. Identity is the honest
+    // check here: the raster the texture was built from must be a NEW object.
+    expect(history.getHistoryStack().map((i) => i.label)).toContain("Gradient Fill");
+    const afterBitmap = engine.getLayerImageBitmap(layerId);
+    expect(afterBitmap, "the layer bitmap was rebuilt").not.toBe(beforeBitmap);
+    expect((renderer.uploadImage as any).mock.calls.length, "the visible texture was refreshed").toBeGreaterThan(0);
+    expect(
+      (renderer.uploadImage as any).mock.calls.some((c: unknown[]) => c[0] === layerId && c[1] === afterBitmap),
+      "the visible texture received the layer's current raster",
+    ).toBe(true);
+  });
 });
 
 describe("Alt+Delete on a layer with no raster", () => {
@@ -509,5 +671,91 @@ describe("Alt+Delete on a layer with no raster", () => {
 
     expect(threw, "negative dimensions are refused, not crashed on").toBeNull();
     expect(countWrites(), "nothing was written for a negative-size layer").toBe(0);
+  });
+});
+
+/**
+ * The GPU boundary. A WebGPU device IS available here and a wasm module that
+ * would hand the gradient a working GPU rasteriser IS installed, painting a
+ * value the CPU kernel can never produce. The gradient must ignore both: the
+ * canonical bytes have to come from the CPU read of the canonical surface.
+ *
+ * The poison exists so this test cannot pass vacuously. Without it, a GPU path
+ * that silently fell back to the CPU would produce byte-identical output and
+ * these assertions would hold whether or not the GPU was consulted.
+ */
+const gpuRasterCalls: string[] = [];
+vi.mock("@/components/editor/wasmExport", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/editor/wasmExport")>();
+  return {
+    ...actual,
+    // Keep the reference CPU kernel: the expected bytes below are computed with
+    // it, so shipping anything else is a mismatch rather than a silent pass.
+    gradientFillWithWasm: () => null,
+    getWasmExportModule: async () => ({
+      WebGpuAdjustRenderer: {
+        create: async (w: number, h: number) => {
+          gpuRasterCalls.push(`create ${w}x${h}`);
+          return {
+            gradient: async (_data: Uint8Array, ...rest: number[]) => {
+              gpuRasterCalls.push(`gradient ${rest.length} args`);
+              return new Uint8Array(SIZE * SIZE * 4).fill(0xab);
+            },
+          };
+        },
+      },
+    }),
+  };
+});
+
+describe("the gradient's canonical bytes never come from the GPU", () => {
+  const installGpu = () => {
+    const nav = navigator as unknown as { gpu?: unknown };
+    const previous = nav.gpu;
+    nav.gpu = { requestAdapter: async () => ({}) };
+    return () => { nav.gpu = previous; };
+  };
+
+  it("records the CPU raster even with a working WebGPU gradient kernel installed", async () => {
+    const restoreGpu = installGpu();
+    try {
+      const { workspace, engine, renderer } = mount();
+      await tick();
+      primeLayer(engine);
+
+      expect(await driveGradient({ workspace, renderer, scheduler: { requestRender: vi.fn() } }, engine)).toBe(true);
+      await tick(50);
+
+      expect(gpuRasterCalls, "the GPU gradient kernel was never the canonical rasteriser").toEqual([]);
+
+      const wr = writeRegionArgs();
+      expect(wr.length, "one canonical region write").toBe(1);
+      // Independently recompute the expected payload with the reference CPU
+      // kernel over a white layer, then compare the shipped bytes exactly.
+      const expected = { data: new Uint8ClampedArray(SIZE * SIZE * 4), width: SIZE, height: SIZE };
+      for (let i = 0; i < SIZE * SIZE; i++) {
+        expected.data[i * 4] = 255; expected.data[i * 4 + 1] = 255;
+        expected.data[i * 4 + 2] = 255; expected.data[i * 4 + 3] = 255;
+      }
+      gradientFillTs(
+        expected as unknown as ImageData,
+        "radial",
+        GRADIENT_LOCAL.start.x, GRADIENT_LOCAL.start.y,
+        GRADIENT_LOCAL.end.x, GRADIENT_LOCAL.end.y,
+        [{ offset: 0, r: 255, g: 0, b: 0, a: 255 }, { offset: 1, r: 255, g: 255, b: 255, a: 255 }],
+        null,
+      );
+      const { x, y, w, h, rgba } = wr[0];
+      const want = new Uint8ClampedArray(w * h * 4);
+      for (let row = 0; row < h; row++) {
+        const src = ((y + row) * SIZE + x) * 4;
+        want.set(expected.data.subarray(src, src + w * 4), row * w * 4);
+      }
+      expect(Array.from(rgba), "the shipped bytes are the CPU gradient, not GPU output").toEqual(Array.from(want));
+      expect(Array.from(rgba).includes(0xab), "no GPU-poison byte reached the canonical store").toBe(false);
+    } finally {
+      restoreGpu();
+      gpuRasterCalls.length = 0;
+    }
   });
 });
