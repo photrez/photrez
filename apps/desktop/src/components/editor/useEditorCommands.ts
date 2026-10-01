@@ -927,9 +927,12 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         const engine = editor.workspace.getActiveEngine();
         const history = editor.workspace.getActiveHistory();
         if (!engine?.getSelection() || !history) break;
-        history.commit(engine.snapshot(), "Cut");
+        // The cut is recorded by Rust as one canonical pixel write, so the
+        // history entry (and its rustOwned cursor token) is committed inside the
+        // operation. Read the rect first: the mutation below clears the
+        // selection it maps from.
         const dirty = selectionUploadRect(engine);
-        SelectionOperations.cutSelection(engine);
+        SelectionOperations.cutSelection(engine, history, editor.renderer);
         uploadActiveLayerBitmap(dirty ?? undefined);
         editor.scheduler.requestRender();
         break;

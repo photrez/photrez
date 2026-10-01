@@ -8,7 +8,7 @@ import type { SelectionState } from "@/features/selection/SelectionTypes";
 import type { LayerNode, DocumentModel } from "@/engine/types";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
-import { computeChangedRegion, reconstructLayerBuffer } from "@/components/editor/canvas/pointerTools/paintBucket";
+import { computeChangedRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
 import { selectionUploadRect } from "@/components/editor/canvas/keyboardShortcuts/selectionTool";
 import { computeDirtyRegion } from "@/lib/paint/regionProducer";
 import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";

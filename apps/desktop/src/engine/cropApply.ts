@@ -2,6 +2,17 @@ import type { LayerNode } from "./types";
 import { createMergedLayerNode } from "./layerFactory";
 import { compositeTwoLayers } from "./layerComposite";
 import { normalizeRotation } from "@/viewport/transformGeometry";
+import type { RewrittenRaster } from "@/lib/paint/storeCurrency";
+
+/**
+ * Called for every layer whose raster this crop replaces at NEW dimensions.
+ *
+ * Store-currency invariant (see lib/paint/storeCurrency.ts): a rewritten raster
+ * leaves the cached `PaintTileSurface` derived from the pre-crop tiles, so the
+ * cache MUST be dropped here rather than left to composite a future stroke onto
+ * the discarded grid. `DocumentEngine.applyCrop` then reseeds the Rust store.
+ */
+export type OnRasterRewritten = (raster: RewrittenRaster) => void;
 
 export function performCropCanvas(layers: LayerNode[], x: number, y: number): void {
   for (const layer of layers) {
@@ -12,6 +23,15 @@ export function performCropCanvas(layers: LayerNode[], x: number, y: number): vo
   }
 }
 
+/**
+ * @param onRasterRewritten Invoked once per layer whose raster is replaced at
+ *   new dimensions (the delete-pixels bake, and the fill-background composite).
+ *   Callers MUST use it to invalidate the cached paint surface and reseed the
+ *   Rust pixel store; assigning `layer.imageBitmap/width/height` without it is
+ *   what left the store at pre-crop dimensions and killed painting.
+ * @returns The rewritten rasters, for callers that drive the store reseed
+ *   themselves instead of (or after) the callback.
+ */
 export function performApplyCrop(
   layers: LayerNode[],
   x: number,
@@ -23,8 +43,9 @@ export function performApplyCrop(
     targetSize?: { w: number; h: number } | null;
     rotation?: number;
     fillBackgroundColor?: string | null;
-  }
-): void {
+  },
+  onRasterRewritten?: OnRasterRewritten,
+): RewrittenRaster[] {
   const deleteCropped = options?.deleteCroppedPixels ?? false;
   const targetSize = options?.targetSize ?? null;
   const cropRotation = options?.rotation ?? 0;
@@ -41,6 +62,12 @@ export function performApplyCrop(
   const exportScaleX = finalW / width;
   const exportScaleY = finalH / height;
   const fillBackgroundColor = options?.fillBackgroundColor ?? null;
+  const rewritten: RewrittenRaster[] = [];
+  const report = (id: string, rgba?: Uint8ClampedArray) => {
+    const raster: RewrittenRaster = { id, width: finalW, height: finalH, rgba };
+    rewritten.push(raster);
+    onRasterRewritten?.(raster);
+  };
 
   for (const layer of layers) {
     if (layer.locked) continue;
@@ -93,6 +120,17 @@ export function performApplyCrop(
           ctx.drawImage(layer.imageBitmap, -lw / 2, -lh / 2, lw, lh);
           ctx.restore();
 
+          // Read the cropped bytes BEFORE the transfer: the store reseed must be
+          // seeded from exactly these pixels, not from a lossy readback of the
+          // transferred ImageBitmap. Non-fatal: a context without
+          // getImageData still crops correctly, and the store reseed falls back
+          // to reading the installed raster (storeCurrency.readbackBitmap).
+          let croppedBytes: Uint8ClampedArray | undefined;
+          try {
+            croppedBytes = ctx.getImageData(0, 0, finalW, finalH).data;
+          } catch {
+            croppedBytes = undefined;
+          }
           const newBitmap = offscreen.transferToImageBitmap();
           // NOTE: we intentionally do NOT close the old imageBitmap here.
           // applyCropPreview commits engine.snapshot() to history BEFORE
@@ -116,6 +154,7 @@ export function performApplyCrop(
           layer.imageBitmap = newBitmap;
           layer.width = finalW;
           layer.height = finalH;
+          report(layer.id, croppedBytes);
         }
       } catch (err) {
         console.error("Failed to crop layer bitmap:", err);
@@ -164,6 +203,10 @@ export function performApplyCrop(
           const created = createMergedLayerNode("Background", finalW, finalH, fillBitmap, false, "normal");
           created.isBackground = true;
           layers.push(created);
+          // A brand-new layer has no store to be stale, but its raster still
+          // enters the surface cache the moment anything reads it, so it is
+          // reported for uniformity with the rewritten case below.
+          report(created.id);
         } else {
           const fillLayer: LayerNode = {
             id: `layer-${crypto.randomUUID()}`,
@@ -192,6 +235,7 @@ export function performApplyCrop(
             bgLayer.transform.flipH = false;
             bgLayer.transform.flipV = false;
             bgLayer.baseImageBitmap = null;
+            report(bgLayer.id);
           }
         }
       }
@@ -199,4 +243,6 @@ export function performApplyCrop(
       console.error("Failed to bake crop fill background:", err);
     }
   }
+
+  return rewritten;
 }

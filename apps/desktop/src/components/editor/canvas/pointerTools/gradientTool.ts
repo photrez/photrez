@@ -10,7 +10,7 @@ import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { assertWriteRegionBytes, assertWriteRegionTarget, computeDirtyRegion } from "@/lib/paint/regionProducer";
 import { ipcErrorMessage } from "@/tauri/native";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
-import { computeChangedRegion } from "./paintBucket";
+import { computeChangedRegion } from "@/lib/paint/regionProducer";
 
 /**
  * Gradient tool: start drag (pointer down), track end point during drag

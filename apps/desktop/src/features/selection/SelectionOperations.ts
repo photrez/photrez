@@ -1,10 +1,21 @@
 import { SelectionState } from "./SelectionTypes";
 import { DocumentEngine } from "../../engine/document";
+import type { CommandHistory } from "../../engine/history";
+import type { WebGL2Backend } from "@/renderer/webgl2";
 import {
   commitFacadeClearSelection,
   mirrorSelectionCommand,
+  syncFacadeVersionFromPixel,
 } from "@/lib/protocol/facadeRegistry";
+import {
+  applyRustTilesToSurface,
+  projectRustPixelsToVisibleSurface,
+} from "@/lib/rustShadow";
+import { computeChangedRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
+import { showToast } from "@/components/editor/Toast";
+import { ipcErrorMessage } from "@/tauri/native";
 import type { Transform2D } from "../../engine/types";
+import type { LayerNode } from "../../engine/types";
 import { documentToLayerLocal } from "../../viewport/transformGeometry";
 
 /**
@@ -233,8 +244,19 @@ export class SelectionOperations {
 
   /**
    * Cut = copy + clear selection pixels + clear selection state.
+   *
+   * The clear is recorded by Rust as ONE canonical `Pixel` entry (see
+   * {@link recordSelectionClearRust}), exactly like Fill Layer: the TS history
+   * entry is a cursor token marked `rustOwned`, so one user Cut is one undo step
+   * whose pixels come from Rust. Writing the clear only to `layer.imageBitmap`
+   * left the store holding the PRE-delete bytes, and the next stroke rehydrated
+   * the surface from those bytes - deleted pixels came back.
    */
-  static cutSelection(engine: DocumentEngine): ImageData | null {
+  static cutSelection(
+    engine: DocumentEngine,
+    history: CommandHistory,
+    renderer?: WebGL2Backend | null,
+  ): ImageData | null {
     const sel = engine.getSelection();
     if (!sel) {
       throw new Error("no selection");
@@ -246,7 +268,7 @@ export class SelectionOperations {
 
     const copied = SelectionOperations.copySelection(engine);
     if (copied) {
-      SelectionOperations.fillSelectionWithTransparent(engine);
+      void SelectionOperations.recordSelectionClearRust(engine, history, renderer, "Cut", sel);
     }
     engine.clearSelection();
     mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
@@ -255,9 +277,13 @@ export class SelectionOperations {
 
   /**
    * Delete = clear pixels in selection (set transparent) + clear selection state.
-   * Does NOT copy to clipboard.
+   * Does NOT copy to clipboard. Recorded by Rust, same contract as {@link cutSelection}.
    */
-  static deleteSelection(engine: DocumentEngine): void {
+  static deleteSelection(
+    engine: DocumentEngine,
+    history: CommandHistory,
+    renderer?: WebGL2Backend | null,
+  ): void {
     const sel = engine.getSelection();
     if (!sel) {
       throw new Error("no selection");
@@ -266,9 +292,129 @@ export class SelectionOperations {
     if (!activeId) {
       throw new Error("no active layer");
     }
-    SelectionOperations.fillSelectionWithTransparent(engine);
+    void SelectionOperations.recordSelectionClearRust(engine, history, renderer, "Delete Pixels", sel);
     engine.clearSelection();
     mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
+  }
+
+  /**
+   * Record the selection clear as one canonical Rust pixel write over the
+   * byte-diff region, and make it visible + undoable as a single step.
+   *
+   * `before` is read back from the Rust store, never from `layer.imageBitmap`:
+   * the bitmap can lag the store (a paint stroke updates the store first), and
+   * diffing against a stale bitmap would ship bytes the store never held. The
+   * store-currency invariant in lib/paint/storeCurrency.ts is what keeps the
+   * two from diverging in the first place.
+   *
+   * `sel` is captured by the caller at gesture time: this runs after several
+   * awaits, by which point the caller has already cleared the selection the
+   * marquee maps from. Reading it here would silently clear nothing.
+   */
+  private static async recordSelectionClearRust(
+    engine: DocumentEngine,
+    history: CommandHistory,
+    renderer: WebGL2Backend | null | undefined,
+    label: string,
+    sel: SelectionState,
+  ): Promise<void> {
+    const activeId = engine.getActiveLayerId();
+    const layerId = activeId ?? "";
+    const layer = activeId ? engine.getLayer(activeId) : null;
+    if (!layer || !layer.imageBitmap || layer.width <= 0 || layer.height <= 0) return;
+    const docId = engine.getId();
+    // No document id means no canonical pixel namespace to write into; leaving
+    // the bitmap untouched keeps the layer self-consistent.
+    if (!docId) return;
+    const { width, height } = layer;
+    const surface = engine.getPaintSurface(layerId);
+    if (!surface) {
+      // No raster to clear from: nothing to record, and silently writing through
+      // a second pixel owner would be worse than doing nothing.
+      showToast("Rust pixel surface not ready", "warn");
+      return;
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
+      // Ensure-if-absent, mirroring the brush/bucket/fill arms: a delete can be
+      // the FIRST raster op on a layer, and there is no store to write into yet.
+      let layerReady = true;
+      try {
+        await invoke("rust_pixels_get_epoch", { docId, layerId });
+      } catch {
+        layerReady = false;
+      }
+      if (!layerReady) {
+        const seed = surface.context.getImageData(0, 0, width, height).data;
+        await invoke("rust_pixels_init", {
+          docId,
+          layerId,
+          width,
+          height,
+          bytes: new Uint8Array(seed.buffer, seed.byteOffset, seed.byteLength),
+        });
+      }
+      // Canonical pre-image straight from the store.
+      const tiles = (await invoke("rust_pixels_snapshot_layer", { docId, layerId })) as
+        { x: number; y: number; w: number; h: number; data: number[] }[];
+      const before = reconstructLayerBuffer(tiles ?? [], width, height);
+      // Copy before clearing: `clearSelectionPixelsFrom` works in place, and
+      // diffing a buffer against itself would report "nothing changed" and drop
+      // the delete entirely.
+      const cleared = SelectionOperations.clearSelectionPixelsFrom(
+        layer, sel, before.slice(), width, height,
+      );
+      if (!cleared) return;
+      const changed = computeChangedRegion(before, cleared, width, height);
+      if (!changed) return;
+      // Capture the pre-delete state BEFORE the write so undo restores it.
+      const preSnapshot = engine.snapshot();
+      const res = (await pixelInvoke("rust_pixels_write_region", {
+        docId,
+        layerId,
+        x: changed.x,
+        y: changed.y,
+        w: changed.w,
+        h: changed.h,
+        rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
+      })) as {
+        before: { x: number; y: number; w: number; h: number; data: number[] }[];
+        after: { x: number; y: number; w: number; h: number; data: number[] }[];
+        epoch: number;
+        version: number;
+      };
+      applyRustTilesToSurface(surface.context, res.after);
+      surface.pixelEpoch = res.epoch;
+      surface.pixelVersion = res.version;
+      syncFacadeVersionFromPixel(docId, res.version);
+      renderer?.uploadSurfaceTiles?.(
+        layerId,
+        width,
+        height,
+        res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+      );
+      // The drawn layer comes from layer.imageBitmap, so rebuild that raster
+      // from the surface Rust's tiles were just applied to; this also installs
+      // bitmapEpoch, and only once the bitmap genuinely holds the post-delete
+      // pixels (claiming it earlier permanently pinned the pre-delete raster).
+      await projectRustPixelsToVisibleSurface(engine, renderer, layerId, surface, res.epoch);
+      history.commit(
+        preSnapshot,
+        label,
+        {
+          layerId,
+          surfaceWidth: width,
+          surfaceHeight: height,
+          before: res.before.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+          after: res.after.map((t) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+          rustOwned: true,
+        },
+        true,
+      );
+    } catch (err) {
+      showToast(`${label} failed: ${ipcErrorMessage(err)}`, "error");
+    }
   }
 
   /**
@@ -340,91 +486,77 @@ export class SelectionOperations {
     }
   }
 
-  private static fillSelectionWithTransparent(engine: DocumentEngine): void {
-    const sel = engine.getSelection();
-    if (!sel) return;
-    const activeId = engine.getActiveLayerId();
-    if (!activeId) return;
-
-    const layer = engine.getLayer(activeId);
-    if (!layer) return;
-    const bitmap = layer.imageBitmap;
-    if (!bitmap) return;
-
-    // Use the layer's own bitmap size — the layer is the unit of truth.
-    const layerW = layer.width;
-    const layerH = layer.height;
-
+  /**
+   * Clear the selected pixels out of a full-layer RGBA buffer, in place.
+   * Pure over `source` (row-major `layerW*layerH*4`), which the caller supplies
+   * as the CANONICAL pre-image read back from the Rust store, never
+   * `layer.imageBitmap` - a bitmap that lags the store would otherwise produce
+   * a diff the store never held. `sel` and `layer` are captured at gesture time
+   * because the caller clears the selection before this async work runs.
+   *
+   * Clears either the selected rectangle or, for an inverted selection, the four
+   * bands outside the excluded rect; an ellipse marquee clears only pixels
+   * inside the ellipse, not its bounding box.
+   */
+  private static clearSelectionPixelsFrom(
+    layer: LayerNode,
+    sel: SelectionState,
+    source: Uint8ClampedArray,
+    layerW: number,
+    layerH: number,
+  ): Uint8ClampedArray | null {
     const aabb = SelectionOperations.selectionToLayerAabb(sel, layer.transform, layerW, layerH);
     const sx = Math.round(aabb.x);
     const sy = Math.round(aabb.y);
     const w = Math.max(0, Math.round(aabb.width));
     const h = Math.max(0, Math.round(aabb.height));
-    if (w === 0 || h === 0) return;
+    if (w === 0 || h === 0) return null;
 
-    const offscreen = new OffscreenCanvas(layerW, layerH);
-    const ctx = offscreen.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
+    const clearAt = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= layerW || y >= layerH) return;
+      const idx = (y * layerW + x) * 4 + 3;
+      source[idx] = 0;
+    };
 
-    // Copy the entire layer bitmap, then clear either the selected rectangle
-    // or, for an inverted selection, the four bands outside the excluded rect.
-    ctx.drawImage(bitmap, 0, 0);
     if (sel.inverted) {
       const left = Math.max(0, Math.min(layerW, sx));
       const top = Math.max(0, Math.min(layerH, sy));
       const right = Math.max(0, Math.min(layerW, sx + w));
       const bottom = Math.max(0, Math.min(layerH, sy + h));
-      ctx.clearRect(0, 0, layerW, top);
-      ctx.clearRect(0, bottom, layerW, layerH - bottom);
-      ctx.clearRect(0, top, left, bottom - top);
-      ctx.clearRect(right, top, layerW - right, bottom - top);
-      // Inverted ellipse: also clear the corners inside AABB but outside the ellipse
+      for (let y = 0; y < top; y++) for (let x = 0; x < layerW; x++) clearAt(x, y);
+      for (let y = bottom; y < layerH; y++) for (let x = 0; x < layerW; x++) clearAt(x, y);
+      for (let y = top; y < bottom; y++) {
+        for (let x = 0; x < left; x++) clearAt(x, y);
+        for (let x = right; x < layerW; x++) clearAt(x, y);
+      }
+      // Inverted ellipse: also clear the corners inside AABB but outside the ellipse.
       if (sel.shape === "ellipse") {
-        const img = ctx.getImageData(sx, sy, w, h);
         const localSel: SelectionState = {
-          x: aabb.x, y: aabb.y,
-          width: aabb.width, height: aabb.height,
+          x: aabb.x, y: aabb.y, width: aabb.width, height: aabb.height,
           angle: 0, shape: "ellipse",
         };
-        for (let py = 0; py < h; py++) {
-          for (let px = 0; px < w; px++) {
-            const docX = sx + px;
-            const docY = sy + py;
-            if (!SelectionOperations.isInsideEllipse(docX, docY, localSel)) {
-              img.data[(py * w + px) * 4 + 3] = 0;
-            }
-          }
-        }
-        ctx.putImageData(img, sx, sy);
-      }
-    } else {
-      if (sel.shape === "ellipse") {
-        // Clear only pixels inside the ellipse marquee (layer-local AABB space),
-        // not the whole bounding box.
-        const img = ctx.getImageData(0, 0, layerW, layerH);
-        const localSel: SelectionState = {
-          x: aabb.x,
-          y: aabb.y,
-          width: aabb.width,
-          height: aabb.height,
-          angle: 0,
-          shape: "ellipse",
-        };
+        // px/py are already layer-local absolutes here, so the ellipse test
+        // must not add the AABB origin a second time.
         for (let py = sy; py < sy + h; py++) {
           for (let px = sx; px < sx + w; px++) {
-            if (SelectionOperations.isInsideEllipse(px, py, localSel)) {
-              img.data[(py * layerW + px) * 4 + 3] = 0;
-            }
+            if (!SelectionOperations.isInsideEllipse(px, py, localSel)) clearAt(px, py);
           }
         }
-        ctx.putImageData(img, 0, 0);
-      } else {
-        ctx.clearRect(sx, sy, w, h);
       }
+    } else if (sel.shape === "ellipse") {
+      const localSel: SelectionState = {
+        x: aabb.x, y: aabb.y, width: aabb.width, height: aabb.height,
+        angle: 0, shape: "ellipse",
+      };
+      for (let py = sy; py < sy + h; py++) {
+        for (let px = sx; px < sx + w; px++) {
+          if (SelectionOperations.isInsideEllipse(px, py, localSel)) clearAt(px, py);
+        }
+      }
+    } else {
+      for (let py = sy; py < sy + h; py++) for (let px = sx; px < sx + w; px++) clearAt(px, py);
     }
-
-    const newBitmap = offscreen.transferToImageBitmap();
-    engine.setLayerImageBitmap(layer.id, newBitmap);
+    return source;
   }
 
   /**

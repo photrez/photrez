@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { applyPaintBucketFill, computeChangedRegion } from "../paintBucket";
+import { applyPaintBucketFill } from "../paintBucket";
+import { computeChangedRegion } from "@/lib/paint/regionProducer";
 import { CommandHistory, historyBridgeEnabled } from "@/engine/history";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 

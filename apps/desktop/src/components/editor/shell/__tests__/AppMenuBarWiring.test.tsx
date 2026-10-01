@@ -177,7 +177,9 @@ describe("custom application menu wiring", () => {
     button(host.container, "Paste").click();
 
     expect(copy).toHaveBeenCalledWith(session.engine);
-    expect(cut).toHaveBeenCalledWith(session.engine);
+    // Cut also carries the history store and renderer: it is recorded by Rust
+    // as one canonical pixel write, so it owns its history commit.
+    expect(cut).toHaveBeenCalledWith(session.engine, expect.anything(), expect.anything());
     expect(paste).toHaveBeenCalledWith(session.engine);
     host.dispose();
   });

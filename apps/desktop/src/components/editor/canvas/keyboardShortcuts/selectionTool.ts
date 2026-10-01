@@ -107,12 +107,12 @@ export function handleSelectionToolKey(
     e.preventDefault();
     e.stopPropagation();
     if (engine.getSelection()) {
-      // Commit pre-action snapshot so the cut is undoable AND redoable.
-      // Without this, the post-cut state was never pushed to the undo
-      // stack and redo had no entry to replay.
-      history.commit(engine.snapshot(), "Cut");
+      // Recorded by Rust as one canonical pixel write; the history entry (and its
+      // rustOwned cursor token) is committed inside the operation. Without a
+      // history store there is no entry, so the cut is a no-op rather than an
+      // unundoable pixel change.
       const dirty = selectionUploadRect(engine);
-      SelectionOperations.cutSelection(engine);
+      SelectionOperations.cutSelection(engine, history, renderer);
       // Re-upload the modified layer's bitmap to the renderer so the
       // canvas reflects the cut immediately (otherwise the GPU texture
       // still holds the pre-cut pixels until the next texture refresh).
@@ -169,10 +169,10 @@ export function handleSelectionToolKey(
     e.stopPropagation();
     const sel = engine.getSelection();
     if (sel) {
-      // Commit pre-action snapshot so the deletion is undoable/redoable.
-      history.commit(engine.snapshot(), "Delete Pixels");
+      // Recorded by Rust as one canonical pixel write; the history entry (and its
+      // rustOwned cursor token) is committed inside the operation.
       const dirty = selectionUploadRect(engine);
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
       // Re-upload the modified layer's bitmap to the renderer so the
       // canvas reflects the deletion immediately.
       const activeId = engine.getActiveLayerId();

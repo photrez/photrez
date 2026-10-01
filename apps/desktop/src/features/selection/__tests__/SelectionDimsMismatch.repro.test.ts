@@ -1,15 +1,31 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SelectionOperations } from "../SelectionOperations";
 import { DocumentEngine } from "../../../engine/document";
+import { CommandHistory } from "../../../engine/history";
+import {
+  createRustStoreEmulator,
+  installCreateImageBitmapMock,
+  settlePixelOps,
+  type RustStoreEmulator,
+} from "@/lib/paint/__tests__/rustStoreEmulator";
+
+// Delete pixels is recorded by Rust as one canonical pixel write, so the model
+// bitmap is rebuilt from the store's tiles asynchronously.
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any) => Promise<any>) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any) => hoist.invoke!(c, a) }));
+
+let store: RustStoreEmulator;
+const history = new CommandHistory(50);
+const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() } as any;
 
 /**
  * Diagnosis repro for: rect-marquee over the middle ~30% + Del destroys ~80%.
  *
- * Suspect: fillSelectionWithTransparent builds OffscreenCanvas(layer.width,
- * layer.height) from MODEL dims, draws the real bitmap 1:1 at the origin, and
- * replaces the bitmap — so any model-dims vs bitmap-dims divergence destroys
- * pixels far outside the marquee. These tests inject that divergence directly
- * (fault injection, not a production path) to prove the mechanism.
+ * Suspect: the clear used to build an OffscreenCanvas from MODEL dims, draw the
+ * real bitmap 1:1 at the origin, and replace the bitmap — so any model-dims vs
+ * bitmap-dims divergence destroyed pixels far outside the marquee. These tests
+ * inject that divergence directly (fault injection, not a production path) to
+ * prove the mechanism.
  */
 
 function setupOffscreenCanvasMock() {
@@ -71,7 +87,24 @@ function setupOffscreenCanvasMock() {
       getImageData: vi.fn(function (this: any) {
         return { data: this._buffer, width: this.width, height: this.height } as unknown as ImageData;
       }),
-      putImageData: vi.fn(),
+      // NOT a no-op: the Rust-recorded ops apply the store's returned tiles with
+      // putImageData, so a stub here would leave the surface un-cleared and make
+      // the delete look like it did nothing.
+      putImageData: vi.fn(function (this: any, imageData: any, dx: number, dy: number) {
+        for (let row = 0; row < imageData.height; row++) {
+          for (let col = 0; col < imageData.width; col++) {
+            const destCol = Math.round(dx + col);
+            const destRow = Math.round(dy + row);
+            if (destRow < 0 || destRow >= this.height || destCol < 0 || destCol >= this.width) continue;
+            const srcIdx = (row * imageData.width + col) * 4;
+            const dstIdx = (destRow * this.width + destCol) * 4;
+            this._buffer[dstIdx] = imageData.data[srcIdx];
+            this._buffer[dstIdx + 1] = imageData.data[srcIdx + 1];
+            this._buffer[dstIdx + 2] = imageData.data[srcIdx + 2];
+            this._buffer[dstIdx + 3] = imageData.data[srcIdx + 3];
+          }
+        }
+      }),
       save: vi.fn(),
       restore: vi.fn(),
       translate: vi.fn(),
@@ -114,20 +147,25 @@ function alphaAt(result: any, x: number, y: number): number | null {
 describe("selection delete under model-dims vs bitmap-dims divergence (diagnosis repro)", () => {
   beforeEach(() => {
     setupOffscreenCanvasMock();
+    installCreateImageBitmapMock();
+    store = createRustStoreEmulator();
+    hoist.invoke = store.invoke;
     SelectionOperations.__resetClipboard();
   });
 
   afterEach(() => {
+    store.dispose();
     vi.unstubAllGlobals();
   });
 
-  it("control: dims match, middle marquee clears only the marquee", () => {
+  it("control: dims match, middle marquee clears only the marquee", async () => {
     const engine = new DocumentEngine("test", "Test", 100, 100);
     const layer = engine.addLayer("Photo", 100, 100);
     engine.setLayerImageBitmap(layer.id, opaqueBitmap(100));
 
     engine.createSelection(35, 35, 30, 30);
-    SelectionOperations.deleteSelection(engine);
+    SelectionOperations.deleteSelection(engine, history, renderer);
+    await settlePixelOps();
 
     const result = engine.getLayerImageBitmap(layer.id) as any;
     expect(result.width).toBe(100);
@@ -140,7 +178,7 @@ describe("selection delete under model-dims vs bitmap-dims divergence (diagnosis
   });
 
   // Deferred: dims-divergence producer needs production measurement; pinned until fixed.
-  it.fails("mismatch model LARGER than bitmap: delete destroys far beyond the marquee", () => {
+  it.fails("mismatch model LARGER than bitmap: delete destroys far beyond the marquee", async () => {
     const engine = new DocumentEngine("test", "Test", 100, 100);
     const layer = engine.addLayer("Photo", 60, 60);
     engine.setLayerImageBitmap(layer.id, opaqueBitmap(60));
@@ -150,7 +188,8 @@ describe("selection delete under model-dims vs bitmap-dims divergence (diagnosis
     engine.getLayer(layer.id)!.height = 100;
 
     engine.createSelection(35, 35, 30, 30);
-    SelectionOperations.deleteSelection(engine);
+    SelectionOperations.deleteSelection(engine, history, renderer);
+    await settlePixelOps();
 
     const result = engine.getLayerImageBitmap(layer.id) as any;
     // A 9%-area marquee must not destroy a quarter of the photo. Measured
@@ -160,7 +199,7 @@ describe("selection delete under model-dims vs bitmap-dims divergence (diagnosis
   });
 
   // Deferred: dims-divergence producer needs production measurement; pinned until fixed.
-  it.fails("mismatch model SMALLER than bitmap: delete destroys far beyond the marquee", () => {
+  it.fails("mismatch model SMALLER than bitmap: delete destroys far beyond the marquee", async () => {
     const engine = new DocumentEngine("test", "Test", 100, 100);
     const layer = engine.addLayer("Photo", 100, 100);
     engine.setLayerImageBitmap(layer.id, opaqueBitmap(100));
@@ -169,14 +208,15 @@ describe("selection delete under model-dims vs bitmap-dims divergence (diagnosis
     engine.getLayer(layer.id)!.height = 60;
 
     engine.createSelection(35, 35, 30, 30);
-    SelectionOperations.deleteSelection(engine);
+    SelectionOperations.deleteSelection(engine, history, renderer);
+    await settlePixelOps();
 
     const result = engine.getLayerImageBitmap(layer.id) as any;
     // A 9%-area marquee must not destroy a quarter of the photo.
     expect(destroyedFraction(result, 10000)).toBeLessThan(0.25);
   });
 
-  it("scaled layer (production convention: base dims + scale in transform): delete clears only the marquee", () => {
+  it("scaled layer (production convention: base dims + scale in transform): delete clears only the marquee", async () => {
     const engine = new DocumentEngine("test", "Test", 100, 100);
     const layer = engine.addLayer("Photo", 100, 100);
     engine.setLayerImageBitmap(layer.id, opaqueBitmap(100));
@@ -186,7 +226,8 @@ describe("selection delete under model-dims vs bitmap-dims divergence (diagnosis
 
     // Displayed box is (0,0,50,50); marquee over its middle.
     engine.createSelection(17, 17, 16, 16);
-    SelectionOperations.deleteSelection(engine);
+    SelectionOperations.deleteSelection(engine, history, renderer);
+    await settlePixelOps();
 
     const result = engine.getLayerImageBitmap(layer.id) as any;
     expect(result.width).toBe(100);

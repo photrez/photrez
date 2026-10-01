@@ -1,6 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SelectionOperations } from "../SelectionOperations";
 import { DocumentEngine } from "../../../engine/document";
+import { CommandHistory } from "../../../engine/history";
+import {
+  createRustStoreEmulator,
+  installCreateImageBitmapMock,
+  settlePixelOps,
+  type RustStoreEmulator,
+} from "@/lib/paint/__tests__/rustStoreEmulator";
+
+// Delete pixels and Cut are recorded by Rust as one canonical pixel write, so
+// the model bitmap is rebuilt from the store's returned tiles asynchronously.
+// These tests therefore drive a faithful store emulator and await the write;
+// the assertions below still read the MODEL bitmap, which is what proves the
+// canonical pixels reached the visible raster.
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any) => Promise<any>) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any) => hoist.invoke!(c, a) }));
+
+let store: RustStoreEmulator;
+
+/** History + renderer the Rust-recorded ops commit through. */
+const history = new CommandHistory(50);
+const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() } as any;
 
 /**
  * OffscreenCanvas mock for jsdom (which has no OffscreenCanvas).
@@ -169,20 +190,24 @@ describe("SelectionOperations — real pixel operations", () => {
 
   beforeEach(() => {
     setupOffscreenCanvasMock();
+    installCreateImageBitmapMock();
+    store = createRustStoreEmulator();
+    hoist.invoke = store.invoke;
     engine = new DocumentEngine("test", "Test", 100, 100);
     SelectionOperations.__resetClipboard();
   });
 
   afterEach(() => {
+    store.dispose();
     vi.unstubAllGlobals();
   });
 
   describe("getSelectionBounds", () => {
-    it("returns null when no selection", () => {
+    it("returns null when no selection", async () => {
       expect(SelectionOperations.getSelectionBounds(engine)).toBeNull();
     });
 
-    it("returns bounds from engine selection", () => {
+    it("returns bounds from engine selection", async () => {
       engine.createSelection(10, 20, 50, 60);
       const bounds = SelectionOperations.getSelectionBounds(engine);
       expect(bounds).not.toBeNull();
@@ -194,16 +219,16 @@ describe("SelectionOperations — real pixel operations", () => {
   });
 
   describe("copySelection", () => {
-    it("returns null when no selection", () => {
+    it("returns null when no selection", async () => {
       expect(SelectionOperations.copySelection(engine)).toBeNull();
     });
 
-    it("returns null when no active layer", () => {
+    it("returns null when no active layer", async () => {
       engine.createSelection(0, 0, 50, 50);
       expect(SelectionOperations.copySelection(engine)).toBeNull();
     });
 
-    it("returns ImageData with correct dimensions when selection exists", () => {
+    it("returns ImageData with correct dimensions when selection exists", async () => {
       expect(SelectionOperations.hasClipboard()).toBe(false);
       const layer = engine.addLayer("Layer 1", 100, 100);
       // Create a bitmap and set it on the layer
@@ -222,7 +247,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result!.height).toBe(60);
     });
 
-    it("preserves pixel colors at selection coordinates", () => {
+    it("preserves pixel colors at selection coordinates", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -244,7 +269,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result!.data[idx + 3]).toBe(255);   // A
     });
 
-    it("does not modify the source layer", () => {
+    it("does not modify the source layer", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -265,7 +290,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(c[idx + 3]).toBe(255); // A channel still 255
     });
 
-    it("copies an inverted selection as the full layer with a transparent excluded hole", () => {
+    it("copies an inverted selection as the full layer with a transparent excluded hole", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -283,7 +308,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[4 * (50 * 100 + 50) + 3]).toBe(255);
     });
 
-    it("clamps selection to layer bounds when partially outside canvas (left edge)", () => {
+    it("clamps selection to layer bounds when partially outside canvas (left edge)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -302,7 +327,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[3]).toBe(255);
     });
 
-    it("clamps selection to layer bounds when partially outside canvas (right edge)", () => {
+    it("clamps selection to layer bounds when partially outside canvas (right edge)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -321,7 +346,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[1]).toBe(255);
     });
 
-    it("returns null when selection is fully outside canvas", () => {
+    it("returns null when selection is fully outside canvas", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -335,7 +360,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result).toBeNull();
     });
 
-    it("returns null when selection is fully below canvas", () => {
+    it("returns null when selection is fully below canvas", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -349,7 +374,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result).toBeNull();
     });
 
-    it("auto-trims transparent rows/columns from the edges", () => {
+    it("auto-trims transparent rows/columns from the edges", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -370,7 +395,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[3]).toBe(255);
     });
 
-    it("returns original data unchanged when content fully fills the selection", () => {
+    it("returns original data unchanged when content fully fills the selection", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -388,7 +413,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[3]).toBe(255);
     });
 
-    it("returns original data unchanged when content is fully transparent", () => {
+    it("returns original data unchanged when content is fully transparent", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -412,7 +437,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(allTransparent).toBe(true);
     });
 
-    it("clamps and auto-trims when selection partially outside canvas with partial content", () => {
+    it("clamps and auto-trims when selection partially outside canvas with partial content", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -431,7 +456,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[3]).toBe(255);
     });
 
-    it("copies a rotated selection correctly — angle does not affect pixel data", () => {
+    it("copies a rotated selection correctly — angle does not affect pixel data", async () => {
       // The copySelection operation reads from the layer bitmap in source space;
       // rotation angle is a visual property only and should not skew the copied pixels.
       const layer = engine.addLayer("Layer 1", 100, 100);
@@ -453,7 +478,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[3]).toBe(255);
     });
 
-    it("correctly handles selection at exact top-left corner (x=0, y=0)", () => {
+    it("correctly handles selection at exact top-left corner (x=0, y=0)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -469,7 +494,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[1]).toBe(255);
     });
 
-    it("handles selection larger than layer bounds — clamps on all four sides", () => {
+    it("handles selection larger than layer bounds — clamps on all four sides", async () => {
       const layer = engine.addLayer("Layer 1", 50, 50);
       const offscreen = new OffscreenCanvas(50, 50);
       const ctx = offscreen.getContext("2d")!;
@@ -487,7 +512,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[3]).toBe(255);
     });
 
-    it("skips auto-trim for inverted selections (regression test)", () => {
+    it("skips auto-trim for inverted selections (regression test)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -509,7 +534,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[4 * (5 * 100 + 5) + 3]).toBe(255);
     });
 
-    it("auto-trim works correctly when content touches the selection edge", () => {
+    it("auto-trim works correctly when content touches the selection edge", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -528,7 +553,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.data[2]).toBe(255);
     });
 
-    it("preserves clipboard across sequential copy operations", () => {
+    it("preserves clipboard across sequential copy operations", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -552,7 +577,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(clipboardResult).not.toBeNull();
     });
 
-    it("returns null when no layer image bitmap exists", () => {
+    it("returns null when no layer image bitmap exists", async () => {
       // Add a layer without setting an image bitmap
       engine.addLayer("Empty Layer", 100, 100);
       engine.createSelection(0, 0, 50, 50);
@@ -562,23 +587,24 @@ describe("SelectionOperations — real pixel operations", () => {
   });
 
   describe("cutSelection", () => {
-    it("throws when no selection", () => {
-      expect(() => SelectionOperations.cutSelection(engine)).toThrow("no selection");
+    it("throws when no selection", async () => {
+      expect(() => SelectionOperations.cutSelection(engine, history, renderer)).toThrow("no selection");
     });
 
-    it("throws when no active layer", () => {
+    it("throws when no active layer", async () => {
       engine.createSelection(0, 0, 50, 50);
-      expect(() => SelectionOperations.cutSelection(engine)).toThrow("no active layer");
+      expect(() => SelectionOperations.cutSelection(engine, history, renderer)).toThrow("no active layer");
     });
 
-    it("clears selection after cut", () => {
+    it("clears selection after cut", async () => {
       engine.addLayer("Layer 1", 100, 100);
       engine.createSelection(0, 0, 50, 50);
-      SelectionOperations.cutSelection(engine);
+      SelectionOperations.cutSelection(engine, history, renderer);
+      await settlePixelOps();
       expect(engine.getSelection()).toBeNull();
     });
 
-    it("actually removes pixels from the source layer (pixel verification)", () => {
+    it("actually removes pixels from the source layer (pixel verification)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -587,7 +613,8 @@ describe("SelectionOperations — real pixel operations", () => {
       engine.setLayerImageBitmap(layer.id, offscreen.transferToImageBitmap());
 
       engine.createSelection(10, 10, 30, 30);
-      SelectionOperations.cutSelection(engine);
+      SelectionOperations.cutSelection(engine, history, renderer);
+      await settlePixelOps();
 
       const bitmap = engine.getLayerImageBitmap(layer.id);
       const pixels = (bitmap as any)._buffer;
@@ -599,7 +626,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(pixels[4 * (5 * 100 + 5) + 3]).toBe(255);
     });
 
-    it("cut also populates the clipboard", () => {
+    it("cut also populates the clipboard", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -610,30 +637,32 @@ describe("SelectionOperations — real pixel operations", () => {
       SelectionOperations.__resetClipboard();
       expect(SelectionOperations.hasClipboard()).toBe(false);
 
-      SelectionOperations.cutSelection(engine);
+      SelectionOperations.cutSelection(engine, history, renderer);
+      await settlePixelOps();
 
       expect(SelectionOperations.hasClipboard()).toBe(true);
     });
   });
 
   describe("deleteSelection", () => {
-    it("throws when no selection", () => {
-      expect(() => SelectionOperations.deleteSelection(engine)).toThrow("no selection");
+    it("throws when no selection", async () => {
+      expect(() => SelectionOperations.deleteSelection(engine, history, renderer)).toThrow("no selection");
     });
 
-    it("throws when no active layer", () => {
+    it("throws when no active layer", async () => {
       engine.createSelection(0, 0, 50, 50);
-      expect(() => SelectionOperations.deleteSelection(engine)).toThrow("no active layer");
+      expect(() => SelectionOperations.deleteSelection(engine, history, renderer)).toThrow("no active layer");
     });
 
-    it("clears selection after delete", () => {
+    it("clears selection after delete", async () => {
       engine.addLayer("Layer 1", 100, 100);
       engine.createSelection(0, 0, 50, 50);
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
       expect(engine.getSelection()).toBeNull();
     });
 
-    it("fills selection with transparent pixels", () => {
+    it("fills selection with transparent pixels", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -643,7 +672,8 @@ describe("SelectionOperations — real pixel operations", () => {
       engine.setLayerImageBitmap(layer.id, bitmap);
 
       engine.createSelection(10, 10, 20, 20);
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       const srcBitmap = engine.getLayerImageBitmap(layer.id);
       expect(srcBitmap).not.toBeNull();
@@ -658,7 +688,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(c[outsideIdx + 3]).toBe(255);
     });
 
-    it("clears pixels outside the excluded bounds for an inverted selection", () => {
+    it("clears pixels outside the excluded bounds for an inverted selection", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -668,7 +698,8 @@ describe("SelectionOperations — real pixel operations", () => {
 
       engine.createSelection(10, 10, 20, 20);
       engine.invertSelection();
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       const pixels = (engine.getLayerImageBitmap(layer.id) as any)._buffer;
       expect(pixels[4 * (15 * 100 + 15) + 3]).toBe(255);
@@ -676,7 +707,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(engine.getSelection()).toBeNull();
     });
 
-    it("does NOT populate clipboard (unlike cut)", () => {
+    it("does NOT populate clipboard (unlike cut)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -686,12 +717,13 @@ describe("SelectionOperations — real pixel operations", () => {
       SelectionOperations.__resetClipboard();
 
       engine.createSelection(10, 10, 30, 30);
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       expect(SelectionOperations.hasClipboard()).toBe(false);
     });
 
-    it("handles delete when selection partially extends beyond layer bounds", () => {
+    it("handles delete when selection partially extends beyond layer bounds", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -702,7 +734,8 @@ describe("SelectionOperations — real pixel operations", () => {
       // Selection partially outside the layer
       engine.createSelection(-10, -10, 50, 50);
       // Should not throw
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       const pixels = (engine.getLayerImageBitmap(layer.id) as any)._buffer;
       // Pixel at (0,0) — inside the clamped selection area — should be transparent
@@ -714,12 +747,12 @@ describe("SelectionOperations — real pixel operations", () => {
   });
 
   describe("pasteSelection", () => {
-    it("does nothing with null data", () => {
+    it("does nothing with null data", async () => {
       SelectionOperations.pasteSelection(engine, null);
       expect(engine.getLayers().length).toBe(0);
     });
 
-    it("creates new layer from pasted data", () => {
+    it("creates new layer from pasted data", async () => {
       const data = {
         width: 50,
         height: 50,
@@ -730,7 +763,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(engine.getActiveLayerId()).not.toBeNull();
     });
 
-    it("pasted layer name contains Pasted", () => {
+    it("pasted layer name contains Pasted", async () => {
       const data = {
         width: 50,
         height: 50,
@@ -741,7 +774,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(layers[0].name).toContain("Pasted");
     });
 
-    it("pasted pixel data matches the original copied data (copy→paste roundtrip)", () => {
+    it("pasted pixel data matches the original copied data (copy→paste roundtrip)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -771,7 +804,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(pastedBitmap._buffer[4 * (15 * 40 + 20) + 3]).toBe(255); // A
     });
 
-    it("pastes from module-level clipboard when no data argument provided", () => {
+    it("pastes from module-level clipboard when no data argument provided", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -791,7 +824,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(layers[0].name).toContain("Pasted");
     });
 
-    it("pasted layer is created at the correct size (width and height from ImageData)", () => {
+    it("pasted layer is created at the correct size (width and height from ImageData)", async () => {
       const data = {
         width: 75,
         height: 25,
@@ -805,7 +838,7 @@ describe("SelectionOperations — real pixel operations", () => {
   });
 
   describe("copy → cut → paste sequence (integration)", () => {
-    it("copies content, cuts it from original, then pastes to a new layer — original region becomes transparent", () => {
+    it("copies content, cuts it from original, then pastes to a new layer — original region becomes transparent", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -817,7 +850,8 @@ describe("SelectionOperations — real pixel operations", () => {
       engine.createSelection(10, 10, 40, 40);
 
       // 2. Cut it (copies to clipboard + removes from source)
-      const cutData = SelectionOperations.cutSelection(engine);
+      const cutData = SelectionOperations.cutSelection(engine, history, renderer);
+      await settlePixelOps();
       expect(cutData).not.toBeNull();
 
       // 3. Verify original layer has transparent hole
@@ -834,7 +868,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(pastedLayer.height).toBe(40);
     });
 
-    it("delete removes pixels without storing in clipboard, then copy+paste retrieves earlier clipboard", () => {
+    it("delete removes pixels without storing in clipboard, then copy+paste retrieves earlier clipboard", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -848,7 +882,8 @@ describe("SelectionOperations — real pixel operations", () => {
 
       // 2. Delete a different region (does NOT overwrite clipboard)
       engine.createSelection(50, 50, 20, 20);
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       // 3. Clipboard should still hold the first copy, not the deleted region
       expect(SelectionOperations.hasClipboard()).toBe(true);
@@ -862,7 +897,7 @@ describe("SelectionOperations — real pixel operations", () => {
   });
 
   describe("edge cases — extreme values", () => {
-    it("handles selection with fractional coordinates (rounds to nearest pixel)", () => {
+    it("handles selection with fractional coordinates (rounds to nearest pixel)", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -878,7 +913,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result.height).toBeGreaterThan(0);
     });
 
-    it("handles empty layer when no bitmap is set on the active layer", () => {
+    it("handles empty layer when no bitmap is set on the active layer", async () => {
       engine.addLayer("Empty", 100, 100);
       engine.createSelection(0, 0, 50, 50);
       // No bitmap set on this layer
@@ -886,7 +921,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result).toBeNull();
     });
 
-    it("hasClipboard returns false after __resetClipboard", () => {
+    it("hasClipboard returns false after __resetClipboard", async () => {
       const layer = engine.addLayer("Layer 1", 100, 100);
       const offscreen = new OffscreenCanvas(100, 100);
       const ctx = offscreen.getContext("2d")!;
@@ -919,14 +954,15 @@ describe("SelectionOperations — real pixel operations", () => {
       return b._buffer[4 * (y * 100 + x) + 3];
     }
 
-    it("deleteSelection clears layer-local pixels under the (translated) marquee", () => {
+    it("deleteSelection clears layer-local pixels under the (translated) marquee", async () => {
       const layer = makeFilledLayer("#FF0000");
       // Translate the layer by (+50,+50) in document space; scale/rot identity.
       engine.transformLayer(layer.id, { x: 50, y: 50, scaleX: 1, scaleY: 1, rotation: 0 });
 
       // Document-space selection at (60,60,20,20) maps to layer-local (10,10,20,20).
       engine.createSelection(60, 60, 20, 20);
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       // Pixels inside the mapped layer-local rect must be cleared.
       expect(alphaAt(layer.id, 15, 15)).toBe(0);
@@ -936,20 +972,21 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(alphaAt(layer.id, 95, 95)).toBe(255);
     });
 
-    it("deleteSelection clears layer-local pixels under the (scaled) marquee", () => {
+    it("deleteSelection clears layer-local pixels under the (scaled) marquee", async () => {
       const layer = makeFilledLayer("#00FF00");
       // Scale 2x, no translate. Layer center stays at doc (50,50).
       engine.transformLayer(layer.id, { x: 0, y: 0, scaleX: 2, scaleY: 2, rotation: 0 });
 
       // Document-space selection (60,60,20,20) → layer-local (30,30,10,10).
       engine.createSelection(60, 60, 20, 20);
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       expect(alphaAt(layer.id, 35, 35)).toBe(0); // inside mapped rect
       expect(alphaAt(layer.id, 5, 5)).toBe(255);  // outside
     });
 
-    it("fillActiveLayerWithColor (via SelectionOperations path) scopes to layer-local rect", () => {
+    it("fillActiveLayerWithColor (via SelectionOperations path) scopes to layer-local rect", async () => {
       // The fill path lives in layerOperations; here we assert the shared
       // mapping helper yields the correct layer-local AABB for a rotated layer.
       const layer = makeFilledLayer("#0000FF");
@@ -969,7 +1006,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(Math.round(aabb.height)).toBe(40);
     });
 
-    it("identity transform yields the raw selection rect (no regression)", () => {
+    it("identity transform yields the raw selection rect (no regression)", async () => {
       const layer = makeFilledLayer("#FF0000");
       engine.createSelection(10, 20, 50, 60);
       const aabb = SelectionOperations.selectionToLayerAabb(
@@ -984,11 +1021,12 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(aabb.height).toBe(60);
     });
 
-    it("deleteSelection with ellipse shape clears only INSIDE the ellipse, keeps corners", () => {
+    it("deleteSelection with ellipse shape clears only INSIDE the ellipse, keeps corners", async () => {
       const layer = makeFilledLayer("#FF0000");
       // Identity transform. Ellipse marquee covering layer-local (20,20,60,60).
       engine.createSelection(20, 20, 60, 60, 0, "ellipse");
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       // Center of the ellipse → inside → cleared.
       expect(alphaAt(layer.id, 50, 50)).toBe(0);
@@ -997,7 +1035,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(alphaAt(layer.id, 78, 78)).toBe(255);
     });
 
-    it("copySelection with ellipse shape masks pixels OUTSIDE the ellipse to transparent", () => {
+    it("copySelection with ellipse shape masks pixels OUTSIDE the ellipse to transparent", async () => {
       const layer = makeFilledLayer("#00FF00");
       engine.createSelection(0, 0, 60, 60, 0, "ellipse");
       const result = SelectionOperations.copySelection(engine)!;
@@ -1012,11 +1050,12 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(result!.data[idx(0, 0)]).toBe(0);
     });
 
-    it("deleteSelection with INVERTED ellipse clears everything OUTSIDE the ellipse, keeps center", () => {
+    it("deleteSelection with INVERTED ellipse clears everything OUTSIDE the ellipse, keeps center", async () => {
       const layer = makeFilledLayer("#FF0000");
       engine.createSelection(20, 20, 60, 60, 0, "ellipse");
       engine.invertSelection();
-      SelectionOperations.deleteSelection(engine);
+      SelectionOperations.deleteSelection(engine, history, renderer);
+      await settlePixelOps();
 
       // Center of the ellipse → inside → kept (inverted = everything-except-ellipse).
       expect(alphaAt(layer.id, 50, 50)).toBe(255);
@@ -1027,7 +1066,7 @@ describe("SelectionOperations — real pixel operations", () => {
       expect(alphaAt(layer.id, 95, 95)).toBe(0);
     });
 
-    it("copySelection with INVERTED ellipse masks ellipse interior to transparent, keeps outside", () => {
+    it("copySelection with INVERTED ellipse masks ellipse interior to transparent, keeps outside", async () => {
       const layer = makeFilledLayer("#00FF00");
       engine.createSelection(20, 20, 60, 60, 0, "ellipse");
       engine.invertSelection();

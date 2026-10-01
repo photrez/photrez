@@ -4,7 +4,18 @@ import { EditorProvider, useEditor } from "../shell/EditorContext";
 import { useCanvasKeyboard } from "../canvas/useCanvasKeyboard";
 import { clearRegistry } from "../keyboardRegistry";
 import { WorkspaceManager } from "@/engine/workspace";
+import { settlePixelOps, createRustStoreEmulator, installCreateImageBitmapMock } from "@/lib/paint/__tests__/rustStoreEmulator";
 import type { ToolType } from "@/viewport/input-handler";
+
+// Delete pixels and Cut are recorded by Rust as one canonical pixel write, so
+// their history commit and bitmap projection land asynchronously. With no Tauri
+// runtime in jsdom there is no store to write into, so the op reports a visible
+// failure and never commits - these tests therefore drive a faithful store
+// emulator and await the write.
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any) => Promise<any>) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any) => hoist.invoke!(c, a) }));
+
+let store: ReturnType<typeof createRustStoreEmulator>;
 
 /**
  * OffscreenCanvas mock for jsdom (which has no OffscreenCanvas).
@@ -186,9 +197,13 @@ function setupHarness() {
 describe("selection tool — history + renderer integration on edit (regression: 2026-06-14)", () => {
   beforeEach(() => {
     setupOffscreenCanvasMock();
+    installCreateImageBitmapMock();
+    store = createRustStoreEmulator();
+    hoist.invoke = store.invoke;
   });
 
   afterEach(() => {
+    store.dispose();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     clearRegistry();
@@ -196,7 +211,7 @@ describe("selection tool — history + renderer integration on edit (regression:
 
   // ── Bug 1: redo doesn't work for selection edits ──
 
-  it("Delete commits pre-action snapshot to history (regression: redo broken)", () => {
+  it("Delete commits pre-action snapshot to history (regression: redo broken)", async () => {
     const { engine, editorRef, ws, dispose } = setupHarness();
     const history = ws.getActiveHistory()!;
     const commitSpy = vi.spyOn(history, "commit");
@@ -205,6 +220,7 @@ describe("selection tool — history + renderer integration on edit (regression:
     editorRef.setActiveTool("selection");
 
     fireKey(window, { key: "Delete" });
+    await settlePixelOps();
 
     // The bug was: no commit was called, so the pre-action state was never
     // recorded and undo+redo had nothing to restore.
@@ -216,7 +232,7 @@ describe("selection tool — history + renderer integration on edit (regression:
     dispose();
   });
 
-  it("Ctrl+X (cut) commits pre-action snapshot to history (regression: redo broken)", () => {
+  it("Ctrl+X (cut) commits pre-action snapshot to history (regression: redo broken)", async () => {
     const { engine, editorRef, ws, dispose } = setupHarness();
     const history = ws.getActiveHistory()!;
     const commitSpy = vi.spyOn(history, "commit");
@@ -225,12 +241,13 @@ describe("selection tool — history + renderer integration on edit (regression:
     editorRef.setActiveTool("selection");
 
     fireKey(window, { key: "x", ctrlKey: true });
+    await settlePixelOps();
 
     expect(commitSpy).toHaveBeenCalled();
     dispose();
   });
 
-  it("Ctrl+V (paste) commits pre-action snapshot to history (regression: redo broken)", () => {
+  it("Ctrl+V (paste) commits pre-action snapshot to history (regression: redo broken)", async () => {
     const { engine, editorRef, ws, dispose } = setupHarness();
     const history = ws.getActiveHistory()!;
     const commitSpy = vi.spyOn(history, "commit");
@@ -250,13 +267,14 @@ describe("selection tool — history + renderer integration on edit (regression:
 
   // ── Bug 2: canvas not updated after selection edit ──
 
-  it("Delete uploads new bitmap to renderer (regression: canvas stale)", () => {
+  it("Delete uploads new bitmap to renderer (regression: canvas stale)", async () => {
     const { engine, editorRef, renderer, dispose } = setupHarness();
 
     engine.createSelection(10, 10, 30, 30);
     editorRef.setActiveTool("selection");
 
     fireKey(window, { key: "Delete" });
+    await settlePixelOps();
 
     // The bug was: renderer's GPU texture still held the old bitmap because
     // no uploadImage call was made. The user had to switch tools to trigger
@@ -273,20 +291,21 @@ describe("selection tool — history + renderer integration on edit (regression:
     dispose();
   });
 
-  it("Ctrl+X (cut) uploads new bitmap to renderer (regression: canvas stale)", () => {
+  it("Ctrl+X (cut) uploads new bitmap to renderer (regression: canvas stale)", async () => {
     const { engine, editorRef, renderer, dispose } = setupHarness();
 
     engine.createSelection(10, 10, 30, 30);
     editorRef.setActiveTool("selection");
 
     fireKey(window, { key: "x", ctrlKey: true });
+    await settlePixelOps();
 
     const calls = (renderer.uploadImage as any).mock.calls as Array<[string, any]>;
     expect(calls.length).toBeGreaterThan(0);
     dispose();
   });
 
-  it("Ctrl+V (paste) uploads new bitmap to renderer for the new layer (regression: canvas stale)", () => {
+  it("Ctrl+V (paste) uploads new bitmap to renderer for the new layer (regression: canvas stale)", async () => {
     const { engine, editorRef, renderer, dispose } = setupHarness();
 
     // Copy first to populate clipboard
@@ -308,7 +327,7 @@ describe("selection tool — history + renderer integration on edit (regression:
 
   // ── End-to-end: undo + redo roundtrip actually restores the bitmap ──
 
-  it("Delete -> Undo -> Redo roundtrip restores bitmap (regression: full flow)", () => {
+  it("Delete -> Undo -> Redo roundtrip restores bitmap (regression: full flow)", async () => {
     const { engine, editorRef, ws, layer, originalBitmap, dispose } = setupHarness();
     const history = ws.getActiveHistory()!;
 
@@ -317,6 +336,7 @@ describe("selection tool — history + renderer integration on edit (regression:
 
     // 1. Action: Delete — bitmap should be replaced
     fireKey(window, { key: "Delete" });
+    await settlePixelOps();
     const afterDeleteBitmap = engine.getLayer(layer.id)!.imageBitmap;
     expect(afterDeleteBitmap).not.toBeNull();
     expect(afterDeleteBitmap).not.toBe(originalBitmap);

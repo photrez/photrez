@@ -32,6 +32,7 @@ export function hasFacadeOwnedLayers(): boolean { return isFacadeEnabled() && fa
 function clearFacadeOwnedForTests(): void { facadeOwnedIds.clear(); }
 if (typeof globalThis !== "undefined") (globalThis as unknown as Record<string, unknown>).__clearFacadeOwnedForTests = clearFacadeOwnedForTests;
 import { performCropCanvas, performApplyCrop } from "./cropApply";
+import { syncRewrittenRastersToStores, syncLayerStoreToLayerRaster } from "@/lib/paint/storeCurrency";
 import { createSnapshot, restoreSnapshot } from "./snapshot";
 import { performPixelSampling, sampleSingleLayerAlpha } from "./pixelSample";
 import { normalizeBasicAdjustment, bakeAdjustmentToBitmap, bakeAdjustmentToBitmapGpu, type BasicAdjustment } from "./layerAdjustments";
@@ -1121,7 +1122,19 @@ export class DocumentEngine {
     const finalH = targetSize ? targetSize.h : height;
     if (finalW > getEffectiveMaxDim() || finalH > getEffectiveMaxDim()) return;
 
-    performApplyCrop(this.model.layers, x, y, width, height, options);
+    // Store-currency invariant (lib/paint/storeCurrency.ts): the crop bake replaces
+    // each layer's raster at NEW dimensions, so the cached PaintTileSurface is
+    // derived from a tile grid that no longer exists. Invalidate it synchronously
+    // (before any render can read it) and reseed the Rust store from the exact
+    // cropped bytes, otherwise `rust_pixels_write_region` keeps validating
+    // against the pre-crop dimensions and every later stroke is rejected.
+    const rewritten = performApplyCrop(this.model.layers, x, y, width, height, options, (raster) => {
+      this.paintSurfaces.delete(raster.id);
+      this.markLayerDirty(raster.id);
+    });
+    if (rewritten.length > 0) {
+      void syncRewrittenRastersToStores(this.model.id, this, rewritten);
+    }
 
     this.model.width = finalW;
     this.model.height = finalH;
@@ -1709,6 +1722,13 @@ export class DocumentEngine {
     // by the snapshot restore.  Removed layers leave orphan PixelLayer entries
     // in the Rust PixelStoreRegistry — clean them up to prevent memory leaks.
     const oldLayerIds = new Set(this.model.layers.map(l => l.id));
+    // Captured BEFORE the model is replaced. A layer whose dimensions move
+    // across the restore (crop undo, resize undo) leaves its Rust store sized
+    // for the raster that was just discarded, so `rust_pixels_write_region`
+    // would validate every later stroke against the wrong grid. Comparing
+    // after the swap would compare the new dims with themselves and never
+    // detect anything.
+    const oldDims = new Map(this.model.layers.map((l) => [l.id, `${l.width}x${l.height}`]));
 
     this.model = restoreSnapshot(snapshot);
 
@@ -1719,13 +1739,24 @@ export class DocumentEngine {
     for (const id of oldLayerIds) {
       if (!newLayerIds.has(id)) removedIds.push(id);
     }
-    if (removedIds.length > 0) {
+    // Store-currency invariant (lib/paint/storeCurrency.ts): resync every layer
+    // whose dimensions moved, so the store, the raster, the cached surface and
+    // bitmapEpoch agree again on both sides of an undo.
+    const resizedIds = this.model.layers
+      .filter((l) => oldDims.has(l.id) && oldDims.get(l.id) !== `${l.width}x${l.height}`)
+      .map((l) => l.id);
+    if (removedIds.length > 0 || resizedIds.length > 0) {
       const docId = this.model.id;
       void (async () => {
         try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          for (const id of removedIds) {
-            await invoke("rust_pixels_remove_layer", { docId, layerId: id });
+          if (removedIds.length > 0) {
+            const { invoke } = await import("@tauri-apps/api/core");
+            for (const id of removedIds) {
+              await invoke("rust_pixels_remove_layer", { docId, layerId: id });
+            }
+          }
+          for (const id of resizedIds) {
+            await syncLayerStoreToLayerRaster(docId, this, id);
           }
         } catch (err) {
           console.warn("[c5.4] orphan pixel-store cleanup failed:", err);

@@ -135,11 +135,11 @@ export function SelectionOptionBar() {
     const e = engine();
     const h = historyGetter();
     if (e?.getSelection() && h) {
-      // Commit pre-action snapshot so the cut is undoable AND redoable.
-      h.commit(e.snapshot(), "Cut");
+      // The cut is recorded by Rust as one canonical pixel write, so the history
+      // entry (and its rustOwned cursor token) is committed inside the operation.
       // Read the rect first: the mutation below clears the selection it maps from.
       const dirty = selectionUploadRect(e);
-      SelectionOperations.cutSelection(e);
+      SelectionOperations.cutSelection(e, h, renderer);
       uploadActiveLayerBitmap(dirty ?? undefined);
       scheduler.requestRender();
     }
@@ -168,11 +168,11 @@ export function SelectionOptionBar() {
     const e = engine();
     const h = historyGetter();
     if (e?.getSelection() && h) {
-      // Commit pre-action snapshot so the deletion is undoable/redoable.
-      h.commit(e.snapshot(), "Delete Pixels");
-      // Read the rect first: the mutation below clears the selection it maps from.
+      // Recorded by Rust as one canonical pixel write; the history entry (and its
+      // rustOwned cursor token) is committed inside the operation. Read the rect
+      // first: the mutation below clears the selection it maps from.
       const dirty = selectionUploadRect(e);
-      SelectionOperations.deleteSelection(e);
+      SelectionOperations.deleteSelection(e, h, renderer);
       uploadActiveLayerBitmap(dirty ?? undefined);
       scheduler.requestRender();
     }
