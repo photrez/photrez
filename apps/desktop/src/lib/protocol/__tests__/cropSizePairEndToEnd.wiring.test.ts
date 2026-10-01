@@ -1,18 +1,24 @@
-// The crop undo, end to end through the REAL bridge - no fabricated delta.
+// WHAT THIS FILE PINS: the emulator's propagation of the host document-size pair
+// (FIX 2), end to end through the real record path.
 //
-// The previous attempt at this coverage stubbed the IPC and returned a delta it
-// had written by hand, so it passed identically with the pair deleted: it never
-// touched the serializer, which is exactly where the defect lived. This file
-// drives the shipped path instead:
+//   recordExternalTransitionFor -> applyCommand -> emulateApply -> undo
+//     -> delta carrying the restored document size -> engine dims updated
 //
-//   cropToolActions -> CommandHistory.commit -> recordExternalTransitionFor
-//     -> applyCommand -> toRustEnvelope (real) -> emulator/Rust stream
-//     -> undo -> delta carrying the restored document size
+// WHAT THIS FILE DOES NOT PIN: the wire mapping in toRustEnvelope. With the facade
+// off and wasm unarmed, applyCommand takes the emulator branch (bridge.ts:360-368)
+// and hands emulateApply the RAW camelCase envelope; the toRustEnvelope call on the
+// way there computes `json` and then discards it. So deleting the wire mapping
+// entirely would leave this file green.
 //
-// The emulator is the stand-in for the engine when wasm authority is unarmed, so
-// exercising it here also pins FIX 2 (the emulator must read the supplied pair,
-// not hardcode the current dims - which makes both halves equal and the delta
-// always suppressed).
+// The wire is covered where it actually happens, in
+// toRustEnvelopeCarriesDocSize.wiring.test.ts, which drives toRustEnvelope
+// directly. armMirror.test.ts separately binds the bridge's snake_case keys to the
+// Rust field names, so the two sides cannot drift apart unnoticed.
+//
+// Both halves are worth keeping. This file's coverage is real - the emulator must
+// read the supplied pair rather than hardcode the current dims, which would make
+// both halves equal and let the emit rule suppress the delta - and reverting that
+// fix does redden it.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";

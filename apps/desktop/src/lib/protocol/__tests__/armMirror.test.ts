@@ -1,7 +1,8 @@
 // Arm lockdown: every Rust `Command` variant must have exactly one TS `Command`
-// union arm, and the ARM_MIRROR routing list must match the Rust source. Both
-// sides are parsed from their source files at runtime, so adding a native arm
-// without a TS mapping (or dropping a mapping) fails here before it ships.
+// union arm, the ARM_MIRROR routing list must match the Rust source, and the
+// snake_case wire keys the bridge emits must match the Rust FIELD names. Every
+// name on every side is parsed from its source file at runtime, never restated,
+// so renaming a Rust field or a TS key without the other fails here first.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,6 +15,7 @@ const COMMAND_RS = resolve(
   "../../../../../../crates/core/src/command.rs",
 );
 const TYPES_TS = resolve(__dirname, "../types.ts");
+const BRIDGE_TS = resolve(__dirname, "../bridge.ts");
 
 // Wire name (serde camelCase rename) of a PascalCase Rust variant.
 function wireName(variant: string): string {
@@ -63,6 +65,57 @@ function unmappedArms(native: readonly string[], types: readonly string[]): stri
   return native.filter((arm) => !types.includes(arm));
 }
 
+/**
+ * Field names of one `pub enum Command` variant, as they appear on the wire.
+ *
+ * The command enum's VARIANT names are camelCase (serde rename_all) but its FIELD
+ * names are not renamed - so a Rust field is its own wire key verbatim.
+ */
+function rustVariantFields(variant: string): string[] {
+  const lines = readFileSync(COMMAND_RS, "utf8").split(/\r?\n/);
+  const start = lines.findIndex((line) => line === "pub enum Command {");
+  if (start < 0) throw new Error("pub enum Command not found in command.rs");
+  const open = lines.findIndex(
+    (line, i) => i > start && new RegExp(`^ {4}${variant} \\{$`).test(line),
+  );
+  if (open < 0) throw new Error(`Command variant ${variant} not found in command.rs`);
+  const fields: string[] = [];
+  for (let i = open + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line === "    }") break;
+    // Attributes (#[serde(...)]) and doc comments sit between fields; a field is
+    // 8-space-indented `name: Type,`.
+    const match = /^ {8}([a-z][a-z0-9_]*):\s/.exec(line);
+    if (match) fields.push(match[1]);
+  }
+  if (fields.length === 0) throw new Error(`no fields parsed for ${variant}`);
+  return fields;
+}
+
+/**
+ * The wire keys `toRustEnvelope` emits for one command variant.
+ *
+ * Read from the bridge source rather than from a serialized envelope, because the
+ * defect this guards is a MISSING key: calling toRustEnvelope would only prove the
+ * keys it does emit, and a dropped key would be invisible. Scanning the mapped
+ * object literal means a deleted mapping shows up as a missing key here.
+ */
+function bridgeMappedKeys(variant: string): string[] {
+  const lines = readFileSync(BRIDGE_TS, "utf8").split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `case "${variant}":`);
+  if (start < 0) throw new Error(`bridge.ts has no case for ${variant}`);
+  const keys: string[] = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (line === "break;") break;
+    // `key: value` inside the mapped object literal; `type:` is the discriminant
+    // and is not a field name.
+    const match = /^([a-z][a-z0-9_]*):\s/.exec(line);
+    if (match && match[1] !== "type") keys.push(match[1]);
+  }
+  return keys;
+}
+
 describe("arm lockdown: Rust Command enum mirrors the TS Command union", () => {
   it("maps every native arm to a TS union type", () => {
     expect(unmappedArms(NATIVE_ARMS, COMMAND_TYPES)).toEqual([]);
@@ -81,5 +134,61 @@ describe("arm lockdown: Rust Command enum mirrors the TS Command union", () => {
   it("reports the native arm whose TS mapping was removed", () => {
     const pruned = COMMAND_TYPES.filter((type) => type !== "addLayer");
     expect(unmappedArms(NATIVE_ARMS, pruned)).toEqual(["addLayer"]);
+  });
+});
+
+// The two sides of this binding each carry their literals independently: the Rust
+// field names in command.rs and the snake_case keys the bridge emits. Rename one
+// side and leave the other, and nothing in either suite notices - the bridge
+// builds a well-formed command with the wrong key, and Rust's #[serde(default)]
+// silently accepts the absence. That exact shape shipped green here before, so the
+// names are bound below rather than restated.
+describe("wire-key lockdown: bridge keys match the Rust field names", () => {
+  const VARIANT = "recordExternalTransition";
+  const RUST = "RecordExternalTransition";
+
+  it("emits exactly the field names the Rust variant declares", () => {
+    expect(bridgeMappedKeys(VARIANT).sort()).toEqual(rustVariantFields(RUST).sort());
+  });
+
+  it("carries the host document-size halves under their Rust names", () => {
+    const fields = rustVariantFields(RUST);
+    const keys = bridgeMappedKeys(VARIANT);
+    // Named explicitly because these are the two the type-checker cannot see:
+    // the mapped object is loosely typed, and an absent key is a legal command.
+    expect(fields).toContain("doc_size_before");
+    expect(fields).toContain("doc_size_after");
+    expect(keys).toContain("doc_size_before");
+    expect(keys).toContain("doc_size_after");
+  });
+
+  it("does not leak the camelCase TS field names onto the wire", () => {
+    const keys = bridgeMappedKeys(VARIANT);
+    expect(keys).not.toContain("docSizeBefore");
+    expect(keys).not.toContain("docSizeAfter");
+  });
+
+  // Falsifiability: the binding must actually fail on disagreement, in BOTH
+  // directions, instead of passing because the compared set happened to be
+  // empty. A Rust rename with the TS key left behind, and a TS rename with the
+  // Rust field left behind, both have to redden.
+  it("reddens when the Rust field is renamed and the bridge key is not", () => {
+    const renamedRust = rustVariantFields(RUST).map((f) =>
+      f === "doc_size_before" ? "doc_size_pre" : f,
+    );
+    const drifted = rustVariantFields(RUST).filter(
+      (f) => !bridgeMappedKeys(VARIANT).includes(f),
+    );
+    expect(drifted).toEqual([]);
+    // With the Rust side renamed, the key the bridge still sends no longer matches.
+    const mismatch = renamedRust.filter((f) => !bridgeMappedKeys(VARIANT).includes(f));
+    expect(mismatch).toEqual(["doc_size_pre"]);
+  });
+
+  it("reddens when a bridge mapping is deleted", () => {
+    const keys = bridgeMappedKeys(VARIANT);
+    const pruned = keys.filter((k) => k !== "doc_size_after");
+    const missing = rustVariantFields(RUST).filter((f) => !pruned.includes(f));
+    expect(missing).toEqual(["doc_size_after"]);
   });
 });
