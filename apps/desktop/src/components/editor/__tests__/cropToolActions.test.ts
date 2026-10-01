@@ -193,6 +193,86 @@ describe("cropToolActions", () => {
     });
   });
 
+  // The counter's concrete scenario, pinned. The crop commit happens BEFORE
+  // applyCrop runs, and applyCrop silently no-ops on a target size past the
+  // device/app ceiling. If the commit recorded that size anyway, undo would be a
+  // no-op and the following REDO would write 20000 into model.width - past
+  // MAX_CANVAS_DIM. cropDeletePixels defaults to true, and the routed path
+  // returns "legacy" BEFORE its own size validation, so this is the DEFAULT path.
+  function cropWithTarget(target: { w: number; h: number }) {
+    const history = { commit: vi.fn() };
+    const engine = {
+      snapshot: () => ({}),
+      applyCrop: vi.fn(),
+      setActiveLayer: vi.fn(),
+      getWidth: () => 128,
+      getHeight: () => 128,
+      getViewport: () => ({ zoom: 1 }),
+      getLayers: () => [],
+    };
+    applyCropPreview({
+      workspace: {
+        getActiveEngine: () => engine,
+        getActiveHistory: () => history,
+      } as any,
+      renderer: { uploadImage: vi.fn(), resize: vi.fn(), resizeToViewport: vi.fn() } as any,
+      viewport: { width: 800, height: 600 },
+      cropRect: { x: 10, y: 20, w: 100, h: 100 },
+      cropMode: "size",
+      cropSizeTarget: target,
+      cropDeletePixels: true,
+      cropRotation: 0,
+      scheduler: { requestRender: vi.fn() } as any,
+      setCropRect: vi.fn(),
+      setCropRotation: vi.fn(),
+      setHiddenCropPreview: vi.fn(),
+      setActiveTool: vi.fn(),
+      setSelectedLayerId: vi.fn(),
+      recenterViewport: vi.fn(),
+    });
+    return history.commit.mock.calls[0];
+  }
+
+  it("records NO size when the target size exceeds the canvas ceiling", () => {
+    const call = cropWithTarget({ w: 20000, h: 20000 });
+    // undefined, not a pair: the entry then carries no size, so neither undo nor
+    // redo can write a size the document never took.
+    expect(call[5]).toBeUndefined();
+    expect(JSON.stringify(call)).not.toContain("20000");
+  });
+
+  it("records NO size when the crop rect rounds to zero", () => {
+    const history = { commit: vi.fn() };
+    const engine = {
+      snapshot: () => ({}),
+      applyCrop: vi.fn(),
+      setActiveLayer: vi.fn(),
+      getWidth: () => 128,
+      getHeight: () => 128,
+      getViewport: () => ({ zoom: 1 }),
+      getLayers: () => [],
+    };
+    applyCropPreview({
+      workspace: { getActiveEngine: () => engine, getActiveHistory: () => history } as any,
+      renderer: { uploadImage: vi.fn(), resize: vi.fn(), resizeToViewport: vi.fn() } as any,
+      viewport: { width: 800, height: 600 },
+      // 0.4 x 0.4 rounds to 0 x 0 - applyCrop rejects it.
+      cropRect: { x: 10, y: 20, w: 0.4, h: 0.4 },
+      cropMode: "free",
+      cropSizeTarget: null,
+      cropDeletePixels: true,
+      cropRotation: 0,
+      scheduler: { requestRender: vi.fn() } as any,
+      setCropRect: vi.fn(),
+      setCropRotation: vi.fn(),
+      setHiddenCropPreview: vi.fn(),
+      setActiveTool: vi.fn(),
+      setSelectedLayerId: vi.fn(),
+      recenterViewport: vi.fn(),
+    });
+    expect(history.commit.mock.calls[0][5]).toBeUndefined();
+  });
+
   it("rounds fractional crop rect to integers before committing", () => {
     const engine = {
       snapshot: () => ({}),
