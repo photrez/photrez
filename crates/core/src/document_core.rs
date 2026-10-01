@@ -212,10 +212,21 @@ impl ProtocolEngine {
         // so a later unrelated push never overwrites the captured side.
         if self.cursor > 0 {
             let post_sync = self.layers.clone();
-            if let EntryPayload::External { after, .. } = &mut self.entries[self.cursor - 1].payload
+            if let EntryPayload::External {
+                after,
+                doc_size_after,
+                ..
+            } = &mut self.entries[self.cursor - 1].payload
             {
                 if after.is_none() {
                     *after = Some(post_sync);
+                }
+                // Same one-shot fill for the post-mutation document size. The host
+                // ran its crop out-of-band, so THIS push is where the engine first
+                // sees the new size - which is exactly what the entry's redo must
+                // restore, and what the undo compares against `doc_size_before`.
+                if doc_size_after.is_none() {
+                    *doc_size_after = Some(pushed_dims);
                 }
             }
         }

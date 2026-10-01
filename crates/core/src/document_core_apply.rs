@@ -66,6 +66,12 @@ impl ProtocolEngine {
                 &adapter_id,
                 &token,
                 memory_cost_bytes,
+                // The host applies its own mutation out-of-band AFTER this record,
+                // so the engine's current size IS the pre-mutation size. Capturing
+                // it here is the only point where the "before" size is observable,
+                // and it is what lets the undo arm restore a host crop's document
+                // dimensions. The post size arrives with the next canonical push.
+                self.doc_size,
             )?;
             // Note: record_external already bumps version; do not bump again.
             // Layers unchanged here - reconcile intentionally skipped (host executes
@@ -744,6 +750,40 @@ impl ProtocolEngine {
                     // the host handoff so the TS side steps its own store (the
                     // cursor moves on the cursor commit, not here).
                     let (seq, changes) = self.restore_external_layers(self.cursor - 1, "undo");
+                    // Restore the document size the host changed out-of-band. A
+                    // host crop mutates the document dimensions without passing
+                    // through a canvas command arm, so without this the undo would
+                    // restore layer order but leave the document size post-crop.
+                    // Same contract as the Native arm: assign unconditionally (a
+                    // None->Some crop must undo back to None) and only surface the
+                    // delta when the size actually changed, so a metadata External
+                    // entry stays a no-op.
+                    let (restore, after_size) = match &self.entries[self.cursor - 1].payload {
+                        EntryPayload::External {
+                            doc_size_before,
+                            doc_size_after,
+                            ..
+                        } => (*doc_size_before, *doc_size_after),
+                        _ => (None, None),
+                    };
+                    // Whether this undo changes the document size is a property of
+                    // THE ENTRY, not of the engine's live field: the host ran its
+                    // crop out-of-band, so `self.doc_size` still holds the PRE-crop
+                    // value and comparing against it would suppress the delta and
+                    // leave the host model cropped. `before != after` is the signal
+                    // that this entry carried a size change at all - a metadata
+                    // External entry (delete, move, reorder) has equal halves and
+                    // therefore still emits None/None exactly as before.
+                    if restore != after_size {
+                        delta_dims = restore;
+                    }
+                    self.doc_size = restore;
+                    if let Some(d) = restore {
+                        if let Some(sh) = &mut self.canonical {
+                            sh.doc.width = d.0;
+                            sh.doc.height = d.1;
+                        }
+                    }
                     external_handoff = Some(seq);
                     handoff_dir = "undo";
                     changes
@@ -842,6 +882,30 @@ impl ProtocolEngine {
                     // External (host-handoff) entry: see the undo arm. Redo
                     // restores the up-projected side captured at the sync.
                     let (seq, changes) = self.restore_external_layers(self.cursor, "redo");
+                    // Symmetric doc-size restore: redo re-applies the post-sync
+                    // size the host pushed, so a redone crop returns the document
+                    // to its cropped dimensions.
+                    let (restore, before_size) = match &self.entries[self.cursor].payload {
+                        EntryPayload::External {
+                            doc_size_before,
+                            doc_size_after,
+                            ..
+                        } => (*doc_size_after, *doc_size_before),
+                        _ => (None, None),
+                    };
+                    // Symmetric to the undo arm: the entry's own halves decide
+                    // whether this redo carries a size change, for the same reason
+                    // - the host applied the crop out-of-band.
+                    if restore != before_size {
+                        delta_dims = restore;
+                    }
+                    self.doc_size = restore;
+                    if let Some(d) = restore {
+                        if let Some(sh) = &mut self.canonical {
+                            sh.doc.width = d.0;
+                            sh.doc.height = d.1;
+                        }
+                    }
                     external_handoff = Some(seq);
                     handoff_dir = "redo";
                     changes
@@ -921,14 +985,22 @@ impl ProtocolEngine {
             // set, so this delta is the ordered restatement the host projection
             // reconstructs order from. The version still advances only on the
             // cursor commit; the cursor itself is moved there, not here.
+            // The document size rides the SAME early return: a host crop changed
+            // it out-of-band, and `delta_dims` is set only when the size actually
+            // changed, so a metadata External entry still emits None/None exactly
+            // as before.
+            let (width, height) = match delta_dims {
+                Some((w, h)) => (Some(w), Some(h)),
+                None => (None, None),
+            };
             return Ok(CommandResult {
                 document_version: self.version,
                 delta: RenderDelta {
                     base_version: base,
                     version: self.version,
                     changes,
-                    width: None,
-                    height: None,
+                    width,
+                    height,
                 },
                 status: Some("external".to_string()),
                 external_seq: Some(seq),
