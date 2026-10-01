@@ -192,8 +192,9 @@ function makeHarness(surface: ReturnType<typeof makeSurface> | null, uploadSurfa
   showToast.mockClear();
   mockUseEditor({
     // getActiveDocumentId is read by the Rust commit path, which now owns
-    // every brush stroke by default (photrez.rustPixels gates bucket/fill/bake
-    // only), so the harness has to answer it or the stroke dies on a TypeError.
+    // every brush stroke by default (photrez.rustPixels decides none of the
+    // raster producers), so the harness has to answer it or the stroke dies on
+    // a TypeError.
     workspace: { getActiveEngine: () => engine, getActiveHistory: () => history, getActiveDocumentId: () => "doc-tilegrad" },
     renderer: { uploadImage, uploadSurfaceTiles },
     scheduler: { requestRender: vi.fn() },

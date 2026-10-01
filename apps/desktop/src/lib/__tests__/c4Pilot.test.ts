@@ -4,7 +4,8 @@
 //  - only affected dirty tiles cross Rust->TS (gate 8 transport bounded)
 //  - history entry is a delta, not a full-layer clone (gate 2/3)
 //  - undo/redo round-trip restores pre/post-stroke bytes
-//  - photrez.rustPixels defaults OFF (gate 9 legacy default)
+//  - photrez.rustPixels decides no raster producer (bucket/fill/bake and
+//    brush/eraser are Rust-canonical at its default state)
 //  - canonical pixel owner is namespaced by (docId, layerId) (C5.1)
 
 import { describe, it, expect, beforeEach } from "vitest";

@@ -1322,8 +1322,10 @@ export function useBrushOverlay() {
         // UNCONDITIONAL: a brush or eraser stroke is always recorded by Rust, so
         // the default state of photrez.rustPixels (key absent / "0") takes the same
         // path as "1" instead of falling through to a TS-only commit that no Rust
-        // entry exists for. The flag still gates bucket/fill/bake, which have their
-        // own producers.
+        // entry exists for. The flag decides no raster producer: brush, eraser,
+        // bucket, fill and bake are all Rust-canonical at the default state, each
+        // passing enabled=true to resolveRustPixelOperationArm, so the operation arm
+        // only still returns "blocked" when a paint surface is missing.
         // Mutually exclusive with the C3 canonical path by *mode* — gated on c3Flag
         // (photrez.canonicalCommit), not on c3Applied — so the two modes never both
         // apply to the same stroke. c3Applied is set true by the deferred Rust commit

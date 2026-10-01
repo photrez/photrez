@@ -170,7 +170,9 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
       expect(commit).toHaveBeenCalledTimes(1);
       expect(commit.mock.calls[0][1]).toBe("Paint Bucket Fill");
 
-      // Imperative memento present (drives undo/redo; Rust entry is subordinate).
+      // Imperative memento present. For this Rust-owned entry the memento is a
+      // cursor token only: the Rust entry owns the pixels, and one undo reads
+      // them back from Rust instead of replaying the memento tiles.
       const imp = commit.mock.calls[0][2];
       expect(imp.layerId).toBe("L1");
       expect(imp.surfaceWidth).toBe(8);
