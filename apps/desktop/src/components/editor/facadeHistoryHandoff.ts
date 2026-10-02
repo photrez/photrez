@@ -12,7 +12,7 @@
 // which is what makes it correct on redo-truncated (non-dense) streams where
 // entries[i].seq != i+1.
 
-import { getFacade, confirmExternalCursor, syncFacadeVersionFromPixel, getExternalRecordSnapshot } from "@/lib/protocol/facadeRegistry";
+import { getFacade, confirmExternalCursor, syncFacadeVersionFromPixel, getExternalRecordSnapshot, parkExternalReplaySnapshot } from "@/lib/protocol/facadeRegistry";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
 import type { EditorContextValue } from "./shell/EditorContext";
 
@@ -251,20 +251,30 @@ export async function runFacadeExternalHandoff(
       engine.applyFacadeSnapshot(snap as never, {
         dimsAuthoritative: facade.lastProjectionDimsAuthoritative,
       });
-      // Raster half of a host-crop undo. The projection above restored the
-      // document size (via the External size pair) but deliberately never wrote a
-      // raster or a layer's pixel dims - those are model-owned and no facade
-      // command can write them - so the layers are still carrying post-crop
-      // pixels at post-crop dims. Rust hands back the entry's token; the host
-      // resolves it to the pre-op rasters it parked at record time.
+      // Raster half of a host-crop step, BOTH directions. The projection above
+      // restored the document size (via the External size pair) but deliberately
+      // never wrote a raster or a layer's pixel dims - those are model-owned and
+      // no facade command can write them - so the layers are still carrying
+      // post-crop pixels at post-crop dims. Rust hands back the entry's token on
+      // both arms; the host resolves it to the rasters for THIS direction.
+      //
+      // An undo resolves the pre-op half and, before overwriting it, parks the
+      // live model as the entry's post-op half - the same reason the record could
+      // not park it (the record runs before the mutation). A redo resolves that
+      // parked half. Replaying the pre-op half instead writes pre-crop rasters
+      // into a cropped document: a size that reads correct over layers and a
+      // pixel store that are all wrong.
       //
       // Runs AFTER applyFacadeSnapshot so the layer set is final: it only writes
       // pixels onto layers that already exist and can never add one. Runs BEFORE
       // reuploadAttachedImages so the re-upload sees the restored bitmaps -
       // comparing against `before` is what makes it upload them at all.
-      const preOp = getExternalRecordSnapshot(facade.lastExternalToken);
-      if (preOp) {
-        engine.applyExternalRasterRestore(preOp);
+      const raster = getExternalRecordSnapshot(facade.lastExternalToken, direction);
+      if (direction === "undo" && raster) {
+        parkExternalReplaySnapshot(facade.lastExternalToken, engine.snapshot());
+      }
+      if (raster) {
+        engine.applyExternalRasterRestore(raster);
       }
       reuploadAttachedImages(before);
       const committed = await confirmExternalCursor(

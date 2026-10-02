@@ -45,6 +45,9 @@ import { __resetEmulatedForTests } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import {
   __resetFacadeRegistryForTests,
+  confirmExternalCursor,
+  getExternalRecordSnapshot,
+  parkExternalReplaySnapshot,
   recordExternalTransitionFor,
 } from "@/lib/protocol/facadeRegistry";
 import { DocumentEngine } from "@/engine/document";
@@ -250,7 +253,6 @@ describe("crop undo restores the raster and the Rust store, not just the documen
     expect((res.externalToken ?? "").length).toBeGreaterThan(0);
 
     // The host's half of the handoff: resolve the token, then apply the rasters.
-    const { getExternalRecordSnapshot } = await import("@/lib/protocol/facadeRegistry");
     const stashed = getExternalRecordSnapshot(res.externalToken);
     expect(stashed, "the token must resolve to the pre-op snapshot").not.toBeNull();
     expect(fingerprint(stashed!.layers[0].imageBitmap as never)).toBe(preFp);
@@ -316,6 +318,143 @@ describe("crop undo restores the raster and the Rust store, not just the documen
     // dims-only check. `null - null = 0` and an all-zero buffer also look like real
     // values, so the digest is compared against the pre-crop raster's own bytes.
     expect(fingerprint({ width: 128, height: 128, data: new Uint8ClampedArray(reseed!.bytes) })).toBe(preFp);
+  });
+
+  /**
+   * The same contract, the replay direction. ONE redo after that undo must put
+   * the layer, its CONTENT and the Rust store back at the CROPPED size - leaving
+   * the document at 39x39 is only half the contract, and is exactly what the
+   * measured defect got right while every raster-bearing owner stayed 128x128.
+   *
+   * WHY THE PRE-OP HALF CANNOT SERVE HERE. The token resolves on redo just as it
+   * does on undo - `facade.redo()` assigns `lastExternalToken` from the same
+   * `CommandResult.externalToken`, and the redo arm sets it
+   * (document_core_apply.rs:895) - but the cell that token points at carries
+   * only the PRE-op half, because `recordExternalTransitionFor` runs BEFORE the
+   * mutation it records. So "the token is absent on the redo delta" is not the
+   * defect: it resolves, to the wrong half. Handing the pre-op half to the redo
+   * writes a 128x128 raster into a 39x39 document.
+   */
+  it("ONE redo returns layer dims, layer CONTENT and the Rust store to the CROPPED size", async () => {
+    const DOC = "docCropRaster";
+    const engine = new DocumentEngine(DOC, "P", 128, 128);
+    const paint = engine.addLayer("Paint");
+
+    await bridge.applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: undefined,
+      docId: DOC,
+      command: { type: "addLayer", id: paint.id, name: "Paint", width: 128, height: 128, index: 0 },
+    } as never);
+    expect((await bridge.getSnapshot(DOC)).layers.length).toBeGreaterThan(0);
+
+    const preFp = fingerprint(solidBitmap(128, 128, [37, 236, 205, 213]));
+    engine.setLayerImageBitmap(paint.id, solidBitmap(128, 128, [37, 236, 205, 213]));
+    const preOp = engine.snapshot();
+
+    await recordExternalTransitionFor(
+      DOC,
+      {
+        label: "Crop Canvas",
+        affectedLayerIds: [paint.id],
+        snapshot: preOp,
+        docSizeChange: { before: { width: 128, height: 128 }, after: { width: 39, height: 39 } },
+      },
+      engine,
+    );
+
+    engine.applyCrop(0, 0, 39, 39, {
+      deleteCroppedPixels: true,
+      targetSize: { w: 39, h: 39 },
+    });
+    expect(engine.getModel().width).toBe(39);
+    expect(engine.getLayer(paint.id)?.width).toBe(39);
+    // The cropped content, captured by digest, so the redo is pinned on BYTES and
+    // not merely on dims - a resize that never reseeded would pass a dims-only
+    // check.
+    const postFp = fingerprint(engine.getLayer(paint.id)!.imageBitmap as never);
+    expect(postFp, "premise: the crop really changed the content").not.toBe(preFp);
+
+    const undoRes = (await bridge.applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: undefined,
+      docId: DOC,
+      command: { type: "undo" },
+    } as never)) as unknown as {
+      status?: string;
+      externalSeq?: number;
+      externalToken?: string;
+      delta: { width?: number; height?: number };
+    };
+    expect(undoRes.status).toBe("external");
+
+    // The handoff's undo step, in production order: park what this step is about
+    // to overwrite, THEN hand back the pre-op half.
+    parkExternalReplaySnapshot(undoRes.externalToken!, engine.snapshot());
+    readbackBytes = new Uint8ClampedArray(
+      (preOp.layers[0].imageBitmap as unknown as { data: Uint8ClampedArray }).data,
+    );
+    engine.applyExternalRasterRestore(getExternalRecordSnapshot(undoRes.externalToken!)!);
+    expect(engine.getLayer(paint.id)?.width, "premise: the undo reached pre-crop").toBe(128);
+    // The external-pending barrier is armed by the External step and the redo
+    // cannot run at all until production clears it (runFacadeExternalHandoff).
+    expect((await confirmExternalCursor(DOC, undoRes.externalSeq!, "undo")).ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 0)); // drain the undo's store repair
+
+    // ── ONE redo, through the REAL engine.
+    const redoRes = (await bridge.applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: undefined,
+      docId: DOC,
+      command: { type: "redo" },
+    } as never)) as unknown as {
+      status?: string;
+      externalToken?: string;
+      delta: { width?: number; height?: number };
+    };
+
+    // The SIZE half already worked before this change and must keep working: the
+    // document really does go back to the cropped size on the redo.
+    expect(redoRes.status, "the redo must reach the same external entry").toBe("external");
+    expect(redoRes.delta.width).toBe(39);
+    expect(redoRes.delta.height).toBe(39);
+    expect(typeof redoRes.externalToken, "Rust must return the token on the redo arm too").toBe("string");
+    expect(redoRes.externalToken, "both directions must key the SAME cell").toBe(undoRes.externalToken);
+
+    // THE RASTER HALF. This is the assertion that carries the defect: the token
+    // resolves on the redo, but it must resolve to the POST-op half.
+    const replay = getExternalRecordSnapshot(redoRes.externalToken, "redo");
+    expect(replay, "the replay direction must resolve a raster at all").not.toBeNull();
+    expect(replay!.width, "the replay half is the POST-crop state, never the pre-op half").toBe(39);
+    expect(replay!.height).toBe(39);
+    expect(fingerprint(replay!.layers[0].imageBitmap as never)).toBe(postFp);
+
+    storeReseeds = [];
+    readbackBytes = new Uint8ClampedArray(
+      (replay!.layers[0].imageBitmap as unknown as { data: Uint8ClampedArray }).data,
+    );
+    engine.applyExternalRasterRestore(replay!);
+
+    // NARROWNESS, same contract as the undo case: this method owns layer rasters
+    // only. The document size arrives through the handoff's applyFacadeSnapshot,
+    // never from here.
+    expect(engine.getModel().width).toBe(39);
+    expect(engine.getLayer(paint.id)?.width, "layer dims must return to CROPPED").toBe(39);
+    expect(engine.getLayer(paint.id)?.height).toBe(39);
+    expect(
+      fingerprint(engine.getLayer(paint.id)!.imageBitmap as never),
+      "layer bitmap CONTENT must return to cropped, not merely its size",
+    ).toBe(postFp);
+
+    // WALL B, mirrored: the store is repaired only by applyExternalRasterRestore,
+    // so this reddens on its own when the redo's restore does not run, with the
+    // payload present and everything above it still green.
+    await new Promise((r) => setTimeout(r, 0));
+    const reseed = storeReseeds.find((s) => s.layerId === paint.id);
+    expect(reseed, "the Rust store must be reseeded after the redo raster swap").toBeTruthy();
+    expect(reseed!.width, "the STORE must be reseeded at the CROPPED width").toBe(39);
+    expect(reseed!.height).toBe(39);
+    expect(fingerprint({ width: 39, height: 39, data: new Uint8ClampedArray(reseed!.bytes) })).toBe(postFp);
   });
 
   /**

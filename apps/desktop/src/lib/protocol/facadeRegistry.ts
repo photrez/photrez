@@ -909,12 +909,21 @@ export interface ExternalRecordPayloadCell {
   label: string;
   affectedLayerIds: string[];
   snapshot: unknown; // scoped legacy payload (H0: whole pre-snapshot)
+  /**
+   * The post-op half of the same step: the rasters the step is leaving behind,
+   * captured by the handoff at UNDO time (see `parkExternalReplaySnapshot`). It
+   * cannot live in `snapshot` because the record runs before the mutation, so
+   * the state that half must describe does not exist yet when the record parks.
+   */
+  replaySnapshot?: DocumentModel;
 }
 const tsPayloadStore = new Map<string, ExternalRecordPayloadCell>();
 
 /**
  * The pre-op snapshot the host parked under an External entry's token when it
- * recorded that entry, or `null` when the token is unknown.
+ * recorded that entry, or `null` when the token is unknown. `direction: "redo"`
+ * resolves the post-op half instead, which the record could not have parked -
+ * see `parkExternalReplaySnapshot`.
  *
  * This is the raster carrier, and it is deliberately NOT a new store and NOT a new
  * payload field. The cell already existed and already holds the commit's
@@ -933,9 +942,38 @@ const tsPayloadStore = new Map<string, ExternalRecordPayloadCell>();
  * with no stashed rasters (a delete, a move) is a normal case that must fall
  * through the host's existing routing untouched.
  */
-export function getExternalRecordSnapshot(token: string | null | undefined): DocumentModel | null {
+export function getExternalRecordSnapshot(
+  token: string | null | undefined,
+  direction: "undo" | "redo" = "undo",
+): DocumentModel | null {
   if (!token) return null;
-  return asDocumentModel(tsPayloadStore.get(token)?.snapshot);
+  const cell = tsPayloadStore.get(token);
+  if (!cell) return null;
+  if (direction === "redo") return cell.replaySnapshot ?? null;
+  return asDocumentModel(cell.snapshot);
+}
+
+/**
+ * Park, under an External entry's token, the raster state its step is about to
+ * leave behind - the post-op half a later redo of that same entry must replay.
+ *
+ * Taken from the live model at UNDO time, because that IS the post-op state: the
+ * entry's own `doc_size_after` half exists for the same reason and is captured
+ * by the host at the same moment. The pre-op half cannot serve here. Handing it
+ * to the redo writes pre-crop rasters into a cropped document, which is a
+ * document size that reads correct over layers and a pixel store that are all
+ * wrong.
+ *
+ * `createSnapshot` copies every scalar and shares only the immutable
+ * `ImageBitmap` references, so the parked model survives the restore that
+ * follows it in the same tick.
+ */
+export function parkExternalReplaySnapshot(
+  token: string | null | undefined,
+  model: DocumentModel,
+): void {
+  const cell = token ? tsPayloadStore.get(token) : undefined;
+  if (cell) cell.replaySnapshot = model;
 }
 
 type Marker =
