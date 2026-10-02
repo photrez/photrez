@@ -2,6 +2,7 @@ import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory, HistoryTilePatches } from "@/engine/history";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import { compositeAllLayers } from "@/engine/layerComposite";
+import { seedCompositeCanonicalPixels } from "@/lib/paint/compositeCanonical";
 import { applyBasicAdjustmentToColor } from "@/engine/layerAdjustments";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import type { SelectionState } from "@/features/selection/SelectionTypes";
@@ -40,6 +41,17 @@ export function mergeActiveLayerDown(
   }
   renderer.uploadImage(mergedLayer.id, mergedLayer.imageBitmap);
 
+  // Canonical seeding: the composite is CPU-canvas pixels that reach Rust only
+  // through the model, so the store has no entry for this freshly minted layer.
+  // Fire-and-forget so the merge itself stays synchronous. The history entry is
+  // deliberately NOT marked rustOwned - see compositeCanonical.ts: an undo of a
+  // merge must RESTORE THE LAYER VECTOR, which the paint tile fast path skips.
+  void seedCompositeCanonicalPixels(engine, renderer, {
+    layerId: mergedLayer.id,
+    width: mergedLayer.width,
+    height: mergedLayer.height,
+  });
+
   return true;
 }
 
@@ -66,6 +78,15 @@ export function mergeSelectedLayers(
     return false;
   }
   renderer.uploadImage(mergedLayer.id, mergedLayer.imageBitmap);
+
+  // Canonical seeding, as in mergeActiveLayerDown. N layers were destroyed here,
+  // so the undo obligation is N layer RESURRECTIONS in order; that is why the
+  // history entry stays a snapshot rather than a rustOwned tile memento.
+  void seedCompositeCanonicalPixels(engine, renderer, {
+    layerId: mergedLayer.id,
+    width: mergedLayer.width,
+    height: mergedLayer.height,
+  });
 
   return true;
 }
@@ -161,6 +182,14 @@ export function flattenAllLayers(
     return false;
   }
   renderer.uploadImage(flattenedLayer.id, flattenedLayer.imageBitmap);
+
+  // Canonical seeding, as in the two merge ops. Flatten destroys EVERY layer, so
+  // its undo obligation is the whole stack; the snapshot entry is what carries it.
+  void seedCompositeCanonicalPixels(engine, renderer, {
+    layerId: flattenedLayer.id,
+    width: flattenedLayer.width,
+    height: flattenedLayer.height,
+  });
 
   return true;
 }

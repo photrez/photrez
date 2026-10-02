@@ -946,11 +946,49 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
 
     const merged = engine.getLayer(engine.getActiveLayerId() || "")!;
     expect(merged.name, "premise: the merged layer really is a new one").toContain("+");
+    await settlePixelOps();
     const measured = await measureConvergence(engine, merged.id);
     expect(
       measured.verdict,
       `MERGE DOWN measured: ${measured.detail}`,
-    ).toBe("RUST-HAS-NO-ENTRY");
+    ).toBe("CONVERGES");
+  });
+
+  it("MERGE DOWN undo resurrects BOTH layers, in order, with their own rasters", async () => {
+    // The STRUCTURAL contract. Pixels alone would pass this op while the user's
+    // stack silently reordered or lost a layer - invisible to any pixel check.
+    await seed();
+    const lower = engine.addLayer("Lower");
+    engine.setLayerImageBitmap(lower.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    const before = engine.getLayers().map((l) => l.id);
+    const lowerRaster = engine.getLayer(lower.id)!.imageBitmap;
+    const paintRaster = engine.getLayer(layerId)!.imageBitmap;
+    expect(before, "premise: two layers before the merge").toHaveLength(2);
+    engine.setActiveLayer(lower.id);
+
+    const history = makeHistory();
+    mergeActiveLayerDown(engine, history, makeRenderer(), lower.id);
+    await settlePixelOps();
+    expect(engine.getLayers().map((l) => l.id), "premise: one layer after").toHaveLength(1);
+
+    // Undo, exactly as restoreHistorySnapshot does it: pop the entry, then
+    // engine.restore the popped snapshot.
+    const restored = (history as unknown as { undo: (s: unknown) => unknown }).undo(
+      engine.snapshot(),
+    );
+    engine.restore(restored as never);
+    await settlePixelOps();
+
+    const after = engine.getLayers().map((l) => l.id);
+    expect(after, "undo must resurrect BOTH layers in the ORIGINAL order").toEqual(before);
+    // Each resurrected layer must carry ITS OWN raster, not a copy of its
+    // neighbour's - the order assertion above cannot see this.
+    expect(engine.getLayer(lower.id)?.imageBitmap).toBe(lowerRaster);
+    expect(engine.getLayer(layerId)?.imageBitmap).toBe(paintRaster);
+    // And the store must have dropped the merged layer's entry rather than
+    // leaving an orphan claiming ownership of a layer that no longer exists.
+    expect(store.layers.has(engine.getActiveLayerId() || "__none__"), "the merged layer's store entry is gone")
+      .toBe(false);
   });
 
   it("MERGE SELECTED: compositeAllLayers into a new layer, no store write", async () => {
@@ -963,11 +1001,37 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
 
     const merged = engine.getLayer(engine.getActiveLayerId() || "")!;
     expect(merged.name, "premise: the merged layer really is a new one").toContain("+");
+    await settlePixelOps();
     const measured = await measureConvergence(engine, merged.id);
     expect(
       measured.verdict,
       `MERGE SELECTED measured: ${measured.detail}`,
-    ).toBe("RUST-HAS-NO-ENTRY");
+    ).toBe("CONVERGES");
+  });
+
+  it("MERGE SELECTED undo resurrects BOTH selected layers, in order, with their rasters", async () => {
+    await seed();
+    const second = engine.addLayer("Second");
+    engine.setLayerImageBitmap(second.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    const before = engine.getLayers().map((l) => l.id);
+    const firstRaster = engine.getLayer(layerId)!.imageBitmap;
+    const secondRaster = engine.getLayer(second.id)!.imageBitmap;
+    expect(before, "premise: two layers before the merge").toHaveLength(2);
+
+    const history = makeHistory();
+    mergeSelectedLayers(engine, history, makeRenderer(), [layerId, second.id]);
+    await settlePixelOps();
+    expect(engine.getLayers().map((l) => l.id), "premise: one layer after").toHaveLength(1);
+
+    const restored = (history as unknown as { undo: (s: unknown) => unknown }).undo(
+      engine.snapshot(),
+    );
+    engine.restore(restored as never);
+    await settlePixelOps();
+
+    expect(engine.getLayers().map((l) => l.id), "undo must resurrect both, in order").toEqual(before);
+    expect(engine.getLayer(layerId)?.imageBitmap).toBe(firstRaster);
+    expect(engine.getLayer(second.id)?.imageBitmap).toBe(secondRaster);
   });
 
   it("FLATTEN IMAGE: compositeAllLayers into a new Background, no store write", async () => {
@@ -983,11 +1047,90 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
       engine.getLayers().length,
       "premise: flatten collapsed to one layer",
     ).toBe(1);
+    await settlePixelOps();
     const measured = await measureConvergence(engine, flattened.id);
     expect(
       measured.verdict,
       `FLATTEN IMAGE measured: ${measured.detail}`,
-    ).toBe("RUST-HAS-NO-ENTRY");
+    ).toBe("CONVERGES");
+  });
+
+  it("FLATTEN undo resurrects the WHOLE stack, in order, with every raster", async () => {
+    // Flatten destroys every layer, so this is the largest resurrection the app
+    // can ask for. Three layers so a middle-only restore cannot pass.
+    await seed();
+    const second = engine.addLayer("Second");
+    engine.setLayerImageBitmap(second.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    const third = engine.addLayer("Third");
+    engine.setLayerImageBitmap(third.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    const before = engine.getLayers().map((l) => l.id);
+    const rasters = new Map(before.map((id) => [id, engine.getLayer(id)!.imageBitmap]));
+    expect(before, "premise: three layers before the flatten").toHaveLength(3);
+
+    const history = makeHistory();
+    flattenAllLayers(engine, history, makeRenderer());
+    await settlePixelOps();
+    expect(engine.getLayers().map((l) => l.id), "premise: one layer after").toHaveLength(1);
+
+    const restored = (history as unknown as { undo: (s: unknown) => unknown }).undo(
+      engine.snapshot(),
+    );
+    engine.restore(restored as never);
+    await settlePixelOps();
+
+    expect(engine.getLayers().map((l) => l.id), "undo must resurrect the WHOLE stack in order")
+      .toEqual(before);
+    for (const id of before) {
+      expect(engine.getLayer(id)?.imageBitmap, `${id} keeps its OWN raster`).toBe(rasters.get(id));
+    }
+    // Flatten mints a Background, so the resurrected stack must not retain it.
+    expect(engine.getLayers().some((l) => l.isBackground)).toBe(false);
+  });
+
+  it("the three composite ops emit exactly ONE canonical write each, so the census has a WRITER site", async () => {
+    // The convergence verdict above is satisfied by a SEED alone, so it cannot
+    // see a missing `rust_pixels_write_region`. This case closes that gap: the
+    // census records NO writer for an op that never emits the command, which is
+    // prerequisite 2 from the measurement and the thing the next phase needs.
+    await seed();
+    const lower = engine.addLayer("Lower");
+    engine.setLayerImageBitmap(lower.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    engine.setActiveLayer(lower.id);
+
+    store.calls.length = 0;
+    mergeActiveLayerDown(engine, makeHistory(), makeRenderer(), lower.id);
+    await settlePixelOps();
+    const mergeDownWrites = store.calls.filter((c) => c.cmd === "rust_pixels_write_region");
+    expect(
+      mergeDownWrites.length,
+      "MERGE DOWN emits exactly one canonical write",
+    ).toBe(1);
+    // The payload must be the WHOLE layer, not a guess, and its bytes must be
+    // real - an all-zero rgba would still record a writer site.
+    const arg = mergeDownWrites[0].args as { x: number; y: number; w: number; h: number; rgba: Uint8Array };
+    expect({ x: arg.x, y: arg.y, w: arg.w, h: arg.h }, "the write covers the whole layer").toEqual({
+      x: 0, y: 0, w: SIZE, h: SIZE,
+    });
+    expect(arg.rgba.length, "the payload is a full RGBA buffer").toBe(SIZE * SIZE * 4);
+    expect(
+      Array.from(arg.rgba).some((b) => b !== 0),
+      "the payload carries real composite bytes, not an empty buffer",
+    ).toBe(true);
+
+    // Flatten refuses a single-layer document (it returns false before doing any
+    // work), so a second layer is added rather than reusing the merge's result.
+    const third = engine.addLayer("Third");
+    engine.setLayerImageBitmap(third.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    expect(engine.getLayers().length, "premise: flatten has more than one layer").toBeGreaterThan(1);
+
+    store.calls.length = 0;
+    const flattenedOk = flattenAllLayers(engine, makeHistory(), makeRenderer());
+    await settlePixelOps();
+    expect(flattenedOk, "premise: flattenAllLayers ran").toBe(true);
+    expect(
+      store.calls.filter((c) => c.cmd === "rust_pixels_write_region").length,
+      "FLATTEN emits exactly one canonical write",
+    ).toBe(1);
   });
 
   it("the five ops emit ZERO pixel-store commands, which is why Rust has no entry", async () => {
