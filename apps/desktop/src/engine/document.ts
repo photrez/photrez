@@ -272,6 +272,43 @@ export class DocumentEngine {
    * Bitmaps (imageBitmap/baseImageBitmap) live in the JS heap — re-attached by id
    * from the previous model so graph ops never detach pixels.
    */
+  /**
+   * Whether RUST currently holds a layer with this id, read from the SAME wasm
+   * mirror `pushModelToRust` writes to.
+   *
+   * Synchronous by construction: `get_layers_json` is a wasm call, used
+   * synchronously by `syncLayersFromRust` (document.ts:280). No IPC, no await,
+   * so this is safe to call from a pointer handler.
+   *
+   * Returns `null` for UNKNOWN, which callers must treat as "do not paint", never
+   * as "absent". `null` covers: no wasm engine bound (headless), the facade being
+   * off, and a mirror read that failed or returned an unexpected shape. That last
+   * one matters because `syncLayersFromRust` deliberately SWALLOWS a failed mirror
+   * read under facade authority (document.ts:281-286) - so an unreadable mirror
+   * presents as an empty layer list, and treating that as "Rust deleted
+   * everything" would refuse strokes on layers Rust still holds.
+   *
+   * Why this exists: `setLayerImageBitmap` always calls `pushModelToRust`
+   * (document.ts:1363), which replays the WHOLE model layer list into Rust
+   * (:1683-1685). A stroke on a layer Rust has deleted therefore resurrects it.
+   * The raster paths gate on this so the replay cannot resurrect, while a
+   * host-created layer Rust still holds paints normally.
+   */
+  rustHoldsLayer(id: string): boolean | null {
+    if (!this.rustEngine) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(this.rustEngine.get_layers_json());
+    } catch {
+      return null; // unreadable mirror -> unknown, not absent
+    }
+    // get_layers_json returns a BARE ARRAY (see syncLayersFromRust:280-288).
+    if (!Array.isArray(parsed)) return null; // unexpected shape -> unknown
+    const layers = parsed as Array<{ id?: unknown }>;
+    if (layers.some((l) => typeof l?.id !== "string")) return null;
+    return layers.some((l) => l.id === id);
+  }
+
   private syncLayersFromRust(): void {
     const prevById = new Map(this.model.layers.map(l => [l.id, l]));
     const facadeOn = isFacadeEnabled();

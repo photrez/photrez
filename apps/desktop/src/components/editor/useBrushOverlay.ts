@@ -16,7 +16,6 @@ import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } fr
 import { commitPaintBitmap } from "./paintCommitCommand";
 import { mapPaintPointToLayerLocal } from "./paintStrokeCoordinates";
 import { showToast } from "./Toast";
-import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyBasicAdjustmentToColor, inverseBasicAdjustmentToColor } from "@/engine/layerAdjustments";
 import { isRustShadowEnabled, runShadowForCommit, applyRustTilesToSurface, isPristineOpaqueWhite, rehydratePaintSurfaceFromRust, getRustEpoch } from "@/lib/rustShadow";
 import {
@@ -138,6 +137,54 @@ export function useBrushOverlay() {
   let overlayCtx: CanvasRenderingContext2D | null = null;
   let prevStrokePointCount = 0;
   let strokeGen = 0;
+
+  // ── Raster-path ownership fence ────────────────────────────────────────────
+  // The brush is a RUST-CANONICAL pixel path, not a graph mutator, so the
+  // graph-ownership flag (`isFacadeOwnedLayer`) was the wrong gate for it: it
+  // refused strokes on host-created layers forever, because a projection marks
+  // every id it carries and an id is only ever released by VANISHING.
+  //
+  // It cannot simply be removed, because the paint commit reaches
+  // setLayerImageBitmap -> pushModelToRust (document.ts:1363), which replays the
+  // WHOLE model layer list into Rust. A stroke on a layer Rust has deleted would
+  // resurrect it. Measured deterministically - see
+  // engine/__tests__/brushGuardResurrection.test.ts.
+  //
+  // So the decision is made ONCE PER STROKE, at the top of the first
+  // onPaintStroke call, from a SYNCHRONOUS read of the same wasm mirror the
+  // replay writes to (`DocumentEngine.rustHoldsLayer`). Both the composite path
+  // and the commit path then read this one boolean rather than re-deciding, so
+  // the pointer handler never goes async and the two paths can never disagree.
+  //
+  // ONLY A POSITIVE `false` BLOCKS. `null` - no mirror bound, or a read that
+  // failed - means the replay CANNOT run: `pushModelToRust` returns early when
+  // there is no wasm engine (document.ts:1676), so with no readable mirror there
+  // is nothing to resurrect and nothing is at risk. Blocking on `null` would kill
+  // painting outright in every environment without a live mirror, which is a far
+  // worse failure than the one being fixed - measured: the first version refused
+  // on `null` and broke 60 tests across 10 files, all of them painting on
+  // engines with no bound mirror.
+  //
+  // So the fence asks one narrow question - "does Rust positively NOT hold this
+  // layer?" - and otherwise lets the stroke through.
+  type StrokeRustPresence = true | false | null;
+  let strokeRustPresence: StrokeRustPresence = null;
+  let strokeRustPresenceResolved = false;
+
+  function strokeBlockedByRust(engine: DocumentEngine, layerId: string): boolean {
+    if (!strokeRustPresenceResolved) {
+      // Defensive on purpose: a partial/legacy engine object (test doubles, or an
+      // engine from before this method existed) has no mirror to ask, which is
+      // UNKNOWN - and unknown must paint. Calling through unconditionally turned
+      // "no mirror" into a hard TypeError that aborted the stroke.
+      strokeRustPresence =
+        typeof engine.rustHoldsLayer === "function"
+          ? (engine.rustHoldsLayer(layerId) as StrokeRustPresence)
+          : null;
+      strokeRustPresenceResolved = true;
+    }
+    return strokeRustPresence === false;
+  }
 
   async function c4CoreCommit(job: C4CommitJob): Promise<void> {
     const { docId, layerId, dx0, dy0, dw, dh, w, h, surface, engine, history, requestRender, beforePatches, effectiveIsEraser } = job;
@@ -437,6 +484,8 @@ export function useBrushOverlay() {
       overlayCtx.clearRect(0, 0, overlayCanvasRef.width, overlayCanvasRef.height);
     }
     prevStrokePointCount = 0;
+    strokeRustPresence = null;
+    strokeRustPresenceResolved = false;
     paintSession = null;
     return hadStroke;
   }
@@ -665,9 +714,18 @@ export function useBrushOverlay() {
     const activeId = activeEngine.getActiveLayerId();
     if (!activeId) return;
 
-    // Gate A: brush isolation — facade-owned layer cannot be painted via legacy path
-    if (isFacadeOwnedLayer(activeId)) {
-      showToast("This layer is owned by Rust facade — legacy brush blocked", "warn");
+    // Gate A: raster-path fence. Rust must actually HOLD this layer, because the
+    // paint commit replays the whole model into Rust and would otherwise
+    // resurrect one Rust deleted. Decided once per stroke from a synchronous
+    // mirror read - see the fence note above. A host-created layer Rust still
+    // holds paints normally, which is the bug this replaces.
+    if (strokeBlockedByRust(activeEngine, activeId)) {
+      showToast(
+        strokeRustPresence === false
+          ? "This layer is no longer in the Rust pixel store — brush blocked to avoid restoring a deleted layer"
+          : "Rust pixel store state is unknown — brush blocked to avoid restoring a deleted layer",
+        "warn",
+      );
       return;
     }
 
@@ -1066,9 +1124,20 @@ export function useBrushOverlay() {
       (window as unknown as Record<string, any>).__cpT0 = _t0;
       (window as unknown as Record<string, any>).__cpSize = (window as unknown as Record<string, any>).__probeSize ?? 0;
     }
-    if (isFacadeOwnedLayer(layerId)) {
-      showToast("This layer is owned by Rust facade — legacy brush commit blocked", "warn");
+    // Same fence as the composite path, reading the ONE per-stroke decision taken
+    // there - not re-deciding, so the two cannot disagree. Reaching here with
+    // `null` means onPaintStroke never ran (no dabs), which the count check below
+    // already handles; re-reading would only risk disagreeing with the composite.
+    if (strokeBlockedByRust(engine, layerId)) {
+      showToast(
+        strokeRustPresence === false
+          ? "This layer is no longer in the Rust pixel store — brush commit blocked to avoid restoring a deleted layer"
+          : "Rust pixel store state is unknown — brush commit blocked to avoid restoring a deleted layer",
+        "warn",
+      );
       prevStrokePointCount = 0;
+      strokeRustPresence = null;
+      strokeRustPresenceResolved = false;
       paintSession = null;
       return;
     }
@@ -1568,6 +1637,8 @@ export function useBrushOverlay() {
             }
             if (overlayCtx && overlayCanvasRef) overlayCtx.clearRect(0, 0, overlayCanvasRef.width, overlayCanvasRef.height);
             prevStrokePointCount = 0;
+            strokeRustPresence = null;
+            strokeRustPresenceResolved = false;
             paintSession = null;
             showToast(`Brush commit failed — stroke discarded (${err instanceof Error ? err.message : "unknown error"})`, "error");
             scheduler.requestRender();
@@ -1598,6 +1669,8 @@ export function useBrushOverlay() {
         } catch {}
         overlayCtx.clearRect(0, 0, w, h);
         prevStrokePointCount = 0;
+        strokeRustPresence = null;
+        strokeRustPresenceResolved = false;
         paintSession = null;
         // DEV-only: record pointerup synchronous-blocking sample (entry→return of commitBrushStroke).
         if ((import.meta as any).env?.DEV) {
@@ -1679,6 +1752,8 @@ export function useBrushOverlay() {
         newBitmap.close();
         overlayCtx.clearRect(0, 0, w, h);
         prevStrokePointCount = 0;
+        strokeRustPresence = null;
+        strokeRustPresenceResolved = false;
         paintSession = null;
         return;
       }
@@ -1720,6 +1795,8 @@ export function useBrushOverlay() {
         overlayCtx.clearRect(0, 0, w, h);
       }
       prevStrokePointCount = 0;
+      strokeRustPresence = null;
+      strokeRustPresenceResolved = false;
       paintSession = null;
     } catch (err) {
       showToast(`Brush stroke failed: ${err instanceof Error ? err.message : "unknown error"}`, "error");
@@ -1811,6 +1888,8 @@ export function useBrushOverlay() {
     clearPrevStrokePointCount: () => {
       stopHoldTimer();
       prevStrokePointCount = 0;
+      strokeRustPresence = null;
+      strokeRustPresenceResolved = false;
       paintSession = null;
     },
   };
