@@ -477,6 +477,7 @@ impl ProtocolEngine {
             status: Some("external-confirmed".to_string()),
             external_seq: Some(seq),
             pixel_patches: None,
+            external_token: None,
         })
     }
 }

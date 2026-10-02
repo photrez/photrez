@@ -313,6 +313,23 @@ pub struct CommandResult {
     // step, so no existing producer's serialized shape changes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pixel_patches: Option<PixelPatchHandoff>,
+    /// Present iff this step landed on an `External` entry. The host's
+    /// `token` for that entry, handed back verbatim.
+    ///
+    /// The host owns the pre-op rasters; Rust never sees an `ImageBitmap`, so it
+    /// cannot store or replay one. But the host minted the token and parked the
+    /// pre-op snapshot (rasters included) under it at record time, so returning
+    /// the token is what lets the host find and re-apply those rasters. No new
+    /// field is added to `EntryPayload::External`: `token` already rides there
+    /// and this merely routes it back out, so the raster carrier is the token
+    /// that already existed.
+    ///
+    /// Absent for every non-External step, so no other producer's serialized
+    /// shape changes. An External step that carries no rasters (a layer delete,
+    /// a move) still emits the token; the host finds no rasters for it and its
+    /// existing fall-through routing is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_token: Option<String>,
 }
 
 /// Pixel tiles one undo/redo step must replay on the host. Produced by the

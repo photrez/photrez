@@ -318,6 +318,16 @@ export type CommandResult = {
     /** History cursor version these tiles belong to. */
     version: number;
   };
+  /** Present iff the step landed on an `External` history entry: the host's own
+   *  `token` for that entry, handed back verbatim by Rust.
+   *
+   *  Rust never holds an `ImageBitmap`, so it cannot store or replay a raster.
+   *  The host minted this token and parked the entry's pre-op snapshot - live
+   *  raster references included - under it at record time, so returning the
+   *  token is what lets the host re-apply the pre-op pixels. A token whose cell
+   *  holds no rasters (a layer delete, a move) is still emitted; the host finds
+   *  nothing to restore and its routing is unchanged. */
+  externalToken?: string;
 };
 
 // ── History query/projection (ADR 0008 H0) ───────────────────────────────

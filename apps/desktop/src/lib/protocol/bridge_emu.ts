@@ -330,6 +330,9 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
   const base = emuVersion;
   let changes: CommandResult["delta"]["changes"] = [];
   let externalSeq: number | null = null;
+  // The host token for the External entry this step landed on, mirroring Rust's
+  // CommandResult::external_token. Absent for every non-External step.
+  let externalToken: string | undefined;
   // Document-size effect of this step, mirroring the Rust walker: a canvas arm
   // that records an entry reports the new size; undo/redo report the restored
   // size only when it differs from the pre-step size. Absent means the delta
@@ -996,6 +999,7 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
         emuCursor -= 1;
       } else {
         externalSeq = e.seq; // host handoff - no cursor move, no DV bump here
+        externalToken = e.token ?? undefined;
         emuPendingExternal = { seq: e.seq, direction: "undo" };
         // Document size, mirroring the Rust External undo arm: the host owns both
         // halves, and a size is emitted only when BOTH are present and differ.
@@ -1029,6 +1033,7 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
         emuCursor += 1;
       } else {
         externalSeq = e.seq;
+        externalToken = e.token ?? undefined;
         emuPendingExternal = { seq: e.seq, direction: "redo" };
         // Symmetric to the undo arm: redo re-applies the AFTER half, same rule.
         if (
@@ -1053,6 +1058,11 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
     // Rust walker, which maps delta_dims onto the external delta before its own
     // early return; dropping it here would make the emulator emit a size-less
     // external delta while the engine it stands in for emits a sized one.
+    //
+    // It must carry `externalToken` for the same reason: the token is how the host
+    // finds the entry's pre-op rasters, and an emulator that omitted it would make
+    // a crop undo look raster-correct under the emulator while the real engine
+    // restores pixels. Both arms below set `externalToken` from the entry.
     return {
       documentVersion: emuVersion,
       delta: {
@@ -1063,6 +1073,7 @@ export function emulateApply(env: CommandEnvelope, _docId?: string): CommandResu
       },
       status: "external",
       externalSeq,
+      ...(externalToken ? { externalToken } : {}),
     };
   }
   emuVersion += 1;

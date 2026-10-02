@@ -1896,6 +1896,79 @@ export class DocumentEngine {
     this.notifyVisualChange();
   }
 
+  /**
+   * Re-apply the pre-op PIXELS of a host-crop undo, without restoring anything
+   * else. This is the raster half of a crop undo, which `restore()` cannot supply
+   * on the facade handoff path: that path deliberately never calls `restore()` (it
+   * would throw `E_FACADE_OWNED`), so the document size came back from the
+   * External size pair while the layer rasters stayed at their post-crop size.
+   *
+   * DELIBERATELY NARROW, and that narrowness is the whole safety argument. It
+   * writes exactly four things per layer - `imageBitmap`, `width`, `height`,
+   * `bitmapEpoch` - plus the derived caches. It never touches the layer GRAPH
+   * (`facadeOwnedIds`, id, name, type, visible, opacity, the four locks,
+   * isBackground, blendMode, transform, layer order, activeLayerId, selection),
+   * never `model.width`/`model.height` (the External size pair owns those, and
+   * writing them here would double-own the one field that already has an owner),
+   * and never the viewport.
+   *
+   * WHY THAT CANNOT VIOLATE `E_FACADE_OWNED`. That guard exists because under
+   * facade authority Rust owns the layer graph, and a full-model restore would
+   * resurrect layers Rust deleted. The four fields written here are the four no
+   * facade command can write: the projection descriptor `applyFacadeSnapshot`
+   * consumes (document.ts:2069) has NO `imageBitmap` field at all, and its own
+   * source states that the existing-layer branch "must not write width/height"
+   * (:2141-2154) while the rebuild branch keeps `retained.width`/`retained.height`
+   * (:2180-2181) rather than the projected pair. So layer dims and rasters are
+   * model-owned with no facade writer, and restoring them cannot add, remove,
+   * reorder, or re-own a layer. The layer SET is left exactly as the projection
+   * left it.
+   *
+   * `snap` is a pre-op DocumentModel; layers it names that are absent from the
+   * live model are skipped, so this can never ADD a layer.
+   *
+   * STORE REPAIR runs last, and its ordering is load-bearing: the cached paint
+   * surface is derived from a tile grid that no longer exists once dims move, and
+   * `syncLayerStoreToLayerRaster` reads the CURRENT raster, so running it before
+   * the swap would re-seed the store from the OLD raster. Fire-and-forget with a
+   * catch, exactly as `restore()` does, so a store failure never breaks the undo.
+   */
+  applyExternalRasterRestore(snap: DocumentModel): void {
+    const byId = new Map(this.model.layers.map((l) => [l.id, l] as const));
+    const resizedIds: string[] = [];
+    for (const src of snap.layers) {
+      const live = byId.get(src.id);
+      if (!live) continue; // never add a layer
+      const dimsMoved = live.width !== src.width || live.height !== src.height;
+      if (src.imageBitmap) {
+        // The pre-op bitmaps are the ones restore()'s note promises are still
+        // live; register them so a later replaceLayerBitmap cannot close one.
+        this.snapshotRetainedBitmaps.add(src.imageBitmap);
+        live.imageBitmap = src.imageBitmap;
+      }
+      live.width = src.width;
+      live.height = src.height;
+      // The epoch described the pre-crop store, which is about to be replaced;
+      // clearing it stops ensureBitmapCurrent trusting a stale currency stamp.
+      live.bitmapEpoch = undefined;
+      // Surface cache is derived from the tile grid the new dims invalidate.
+      this.paintSurfaces.delete(src.id);
+      this.markLayerDirty(src.id);
+      if (dimsMoved) resizedIds.push(src.id);
+    }
+    if (resizedIds.length === 0) return;
+    const docId = this.model.id;
+    void (async () => {
+      try {
+        for (const id of resizedIds) {
+          await syncLayerStoreToLayerRaster(docId, this, id);
+        }
+      } catch (err) {
+        console.warn("[external-raster] pixel-store repair failed after undo:", err);
+      }
+    })();
+  }
+
   // Cheap structural equality (no pixel compare) used for dirty detection
   // against the saved baseline. Compares refs for immutable ImageBitmaps;
   // enough to catch any real edit.

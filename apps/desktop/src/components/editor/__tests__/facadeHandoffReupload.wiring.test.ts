@@ -24,6 +24,12 @@ import { runFacadeExternalHandoff } from "../facadeHistoryHandoff";
 vi.mock("@/lib/protocol/facadeRegistry", () => ({
   getFacade: vi.fn(),
   confirmExternalCursor: vi.fn(),
+  // The external-handoff branch also resolves the entry's token to the pre-op
+  // rasters. These cases carry no token, so the real function's null answer is
+  // the faithful one and the raster half is skipped entirely - this file pins the
+  // re-upload sweep, which cropRasterUndo.wiring.test.ts covers with the real
+  // registry.
+  getExternalRecordSnapshot: vi.fn(() => null),
 }));
 
 import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
@@ -40,6 +46,7 @@ function makeEditor(layers: StubLayer[], onProject?: () => void) {
     applyFacadeSnapshot: vi.fn(() => {
       onProject?.();
     }),
+    applyExternalRasterRestore: vi.fn(),
   };
   const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() };
   const ctx = {
@@ -53,9 +60,10 @@ function makeEditor(layers: StubLayer[], onProject?: () => void) {
   return { engine, renderer, ctx };
 }
 
-function makeFacade(flags: { external: boolean; emptyDelta: boolean }) {
+function makeFacade(flags: { external: boolean; emptyDelta: boolean; token?: string | null }) {
   return {
     lastExternalHandoff: flags.external ? { seq: 1, direction: "undo" as const } : null,
+    lastExternalToken: flags.token ?? null,
     lastHistoryDeltaWasEmpty: flags.emptyDelta,
     undo: vi.fn(async () => ({ version: 1, layers: [] })),
     redo: vi.fn(async () => ({ version: 1, layers: [] })),
@@ -138,5 +146,42 @@ describe("facade handoff re-upload sweep", () => {
     expect(renderer.uploadImage).toHaveBeenCalledTimes(1);
     expect(renderer.uploadImage).toHaveBeenCalledWith("sw", swapped);
     for (const call of renderer.uploadImage.mock.calls) expect(call.length).toBe(2);
+  });
+
+  // The crop-undo raster half. cropRasterUndo.wiring.test.ts exercises the engine
+  // method end to end against the REAL Rust engine, but it invokes that method
+  // directly - which cannot see whether the production handoff calls it at all.
+  // Deleting the call site would leave that suite green over a document whose size
+  // came back while its pixels did not, so the seam is pinned here.
+  it("external handoff resolves the entry token and restores the pre-op rasters", async () => {
+    const preOp = { layers: [{ id: "l1", imageBitmap: bitmap }] };
+    vi.mocked(facadeRegistry.getExternalRecordSnapshot).mockReturnValue(preOp as never);
+    const facade = makeFacade({ external: true, emptyDelta: true, token: "ts:doc:1" });
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(facade as never);
+
+    const { ctx, engine } = makeEditor([{ id: "l1", imageBitmap: null }]);
+    await runFacadeExternalHandoff(ctx, "undo");
+
+    // The token is the carrier: an unresolvable one must not invent rasters.
+    expect(facadeRegistry.getExternalRecordSnapshot).toHaveBeenCalledWith("ts:doc:1");
+    expect(engine.applyExternalRasterRestore).toHaveBeenCalledWith(preOp);
+    // AFTER the projection, so the layer set is final and the restore can only
+    // write pixels onto layers that already exist.
+    const order = [
+      ...(engine.applyFacadeSnapshot as unknown as { mock: { invocationCallOrder: number[] } }).mock.invocationCallOrder,
+      ...(engine.applyExternalRasterRestore as unknown as { mock: { invocationCallOrder: number[] } }).mock.invocationCallOrder,
+    ];
+    expect(order[0]).toBeLessThan(order[1]);
+  });
+
+  it("external handoff without a resolvable token restores nothing", async () => {
+    vi.mocked(facadeRegistry.getExternalRecordSnapshot).mockReturnValue(null);
+    const facade = makeFacade({ external: true, emptyDelta: true });
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(facade as never);
+
+    const { ctx, engine } = makeEditor([{ id: "l1", imageBitmap: null }]);
+    await runFacadeExternalHandoff(ctx, "undo");
+
+    expect(engine.applyExternalRasterRestore).not.toHaveBeenCalled();
   });
 });

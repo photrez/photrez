@@ -45,6 +45,9 @@ export class EditorFacade {
   // confirmExternalCursor) before issuing another facade command, or every
   // subsequent facade command permanently rejects with E_EXTERNAL_PENDING.
   lastExternalHandoff: { seq: number; direction: "undo" | "redo" } | null = null;
+  /** The host token Rust handed back for the External entry this step landed on,
+   *  or null. Resolves the entry's pre-op rasters via the facade registry. */
+  lastExternalToken: string | null = null;
   // Rust pixel handoff: set by undo()/redo() when the history tip is a Rust
   // PIXEL entry. Rust executed the step and already moved its cursor, so the
   // host's ONLY remaining job is to project these tiles (upload + derived
@@ -397,6 +400,7 @@ export class EditorFacade {
 
   async undo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
+    this.lastExternalToken = null;
     this.lastPixelPatches = null;
     await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "undo" } });
@@ -405,6 +409,7 @@ export class EditorFacade {
     // production path can clear the barrier via confirmExternalCursor.
     if (res.status === "external" && res.externalSeq !== undefined) {
       this.lastExternalHandoff = { seq: res.externalSeq, direction: "undo" };
+      this.lastExternalToken = res.externalToken ?? null;
     }
     // Rust pixel handoff: the walker stepped a PIXEL entry, so the cursor moved
     // and the tiles come back here. The host projects them; it does not step.
@@ -430,11 +435,13 @@ export class EditorFacade {
   }
   async redo(): Promise<RenderSnapshot> {
     this.lastExternalHandoff = null;
+    this.lastExternalToken = null;
     this.lastPixelPatches = null;
     await this.syncFromEngine();
     const res = await applyCommand({ contractVersion: CONTRACT_VERSION, expectedVersion: this.renderedVersion, docId: this.docId, command: { type: "redo" } });
     if (res.status === "external" && res.externalSeq !== undefined) {
       this.lastExternalHandoff = { seq: res.externalSeq, direction: "redo" };
+      this.lastExternalToken = res.externalToken ?? null;
     }
     if (res.pixelPatches) {
       this.lastPixelPatches = res.pixelPatches;

@@ -912,6 +912,32 @@ export interface ExternalRecordPayloadCell {
 }
 const tsPayloadStore = new Map<string, ExternalRecordPayloadCell>();
 
+/**
+ * The pre-op snapshot the host parked under an External entry's token when it
+ * recorded that entry, or `null` when the token is unknown.
+ *
+ * This is the raster carrier, and it is deliberately NOT a new store and NOT a new
+ * payload field. The cell already existed and already holds the commit's
+ * pre-action `snapshot` - a `DocumentModel` whose layers carry live
+ * `imageBitmap` references (types.ts `LayerNode.imageBitmap`). Those bitmaps are
+ * the pre-op rasters, and they survive the mutation they undo because
+ * `DocumentEngine.restore` never closes a current model's bitmaps and
+ * `snapshot()` registers them in `snapshotRetainedBitmaps` so
+ * `replaceLayerBitmap` cannot close one a committed snapshot still references.
+ *
+ * Rust therefore needs to know only the token, which `EntryPayload::External`
+ * already carries - hence `CommandResult.external_token` routes it back and
+ * nothing else was added to the payload.
+ *
+ * Returns `null` for an unknown token rather than throwing: an External step
+ * with no stashed rasters (a delete, a move) is a normal case that must fall
+ * through the host's existing routing untouched.
+ */
+export function getExternalRecordSnapshot(token: string | null | undefined): DocumentModel | null {
+  if (!token) return null;
+  return asDocumentModel(tsPayloadStore.get(token)?.snapshot);
+}
+
 type Marker =
   | { kind: "pendingRecord"; token: string; label: string }
   | { kind: "pendingConfirm"; seq: number; direction: "undo" | "redo" };

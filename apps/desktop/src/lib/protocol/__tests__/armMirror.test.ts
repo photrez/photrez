@@ -192,3 +192,80 @@ describe("wire-key lockdown: bridge keys match the Rust field names", () => {
     expect(missing).toEqual(["doc_size_after"]);
   });
 });
+
+/**
+ * Wire-key lockdown for the RESULT direction, which the `Command` lockdown above
+ * does not cover: that one binds the keys the bridge EMITS, while these bind the
+ * keys Rust RETURNS against the ones the TS `CommandResult` declares.
+ *
+ * This exists because the crop-undo raster carrier is a returned field
+ * (`CommandResult::external_token` -> `CommandResult.externalToken`). That is the
+ * same class of silent break as the size pair: `#[serde(skip_serializing_if)]`
+ * plus an optional TS field means a rename on either side drops the field with no
+ * error anywhere, and the host then simply never restores the pixels - a green
+ * suite over a wrong picture. Both names are parsed from source, never restated.
+ */
+describe("result wire-key lockdown: CommandResult fields match the TS result type", () => {
+  /** Field names of `pub struct CommandResult` in command.rs, as serde emits them. */
+  function rustResultFields(): string[] {
+    const lines = readFileSync(COMMAND_RS, "utf8").split(/\r?\n/);
+    const start = lines.findIndex((line) => line.startsWith("pub struct CommandResult {"));
+    if (start < 0) throw new Error("pub struct CommandResult not found in command.rs");
+    const fields: string[] = [];
+    for (let i = start + 1; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (line === "}") break;
+      // Field lines sit at 4-space indent; attributes and comments do not.
+      const match = /^ {4}pub ([a-z][A-Za-z0-9_]*):/.exec(line);
+      if (match) {
+        // `#[serde(rename_all = "camelCase")]` on the struct makes every field
+        // camelCase on the wire, which is what the TS side declares.
+        const snake = match[1];
+        fields.push(snake.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase()));
+      }
+    }
+    if (fields.length === 0) throw new Error("no CommandResult fields parsed from command.rs");
+    return fields;
+  }
+
+  /** Field names declared by the TS `CommandResult` type. */
+  function tsResultFields(): string[] {
+    const lines = readFileSync(TYPES_TS, "utf8").split(/\r?\n/);
+    const start = lines.findIndex((line) => line === "export type CommandResult = {");
+    if (start < 0) throw new Error("export type CommandResult not found in types.ts");
+    const fields: string[] = [];
+    for (let i = start + 1; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (line === "};") break;
+      const match = /^ {2}([a-zA-Z][A-Za-z0-9_]*)\??:/.exec(line);
+      if (match) fields.push(match[1]);
+    }
+    if (fields.length === 0) throw new Error("no CommandResult fields parsed from types.ts");
+    return fields;
+  }
+
+  it("emits exactly the field names the TS result type declares", () => {
+    expect(rustResultFields().sort()).toEqual(tsResultFields().sort());
+  });
+
+  it("carries the crop-undo raster token under both names", () => {
+    // Named explicitly: this is the field whose absence silently disables the
+    // raster restore, and neither the type-checker nor any error path sees it.
+    expect(rustResultFields()).toContain("externalToken");
+    expect(tsResultFields()).toContain("externalToken");
+  });
+
+  // Falsifiability, both directions - the same requirement the Command lockdown
+  // states. A rename on either side must be detected, not silently tolerated.
+  it("reddens when the Rust field is renamed and the TS field is not", () => {
+    const renamed = rustResultFields().map((f) => (f === "externalToken" ? "externalTok" : f));
+    const mismatch = renamed.filter((f) => !tsResultFields().includes(f));
+    expect(mismatch).toEqual(["externalTok"]);
+  });
+
+  it("reddens when the TS field is removed", () => {
+    const pruned = tsResultFields().filter((f) => f !== "externalToken");
+    const missing = rustResultFields().filter((f) => !pruned.includes(f));
+    expect(missing).toEqual(["externalToken"]);
+  });
+});

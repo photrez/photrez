@@ -86,6 +86,7 @@ impl ProtocolEngine {
                 status: Some("external-recorded".to_string()),
                 external_seq: None,
                 pixel_patches: None,
+                external_token: None,
             });
         }
         // Walker handoff marker: set when an undo/redo step lands on an
@@ -93,6 +94,11 @@ impl ProtocolEngine {
         // protocol_history_cursor_commit (which performs the DV bump).
         let mut external_handoff: Option<u64> = None;
         let mut handoff_dir = "";
+        // The host's token for the External entry this step landed on, handed
+        // back so the host can find the pre-op rasters it parked under that
+        // token at record time. Set by the undo and redo External arms; None for
+        // every other step.
+        let mut external_token: Option<String> = None;
         // Additive document-size signal for this delta: set by the canvas-size arms
         // and by the undo/redo walker when a canvas entry's dimensions are restored.
         // None for every other command, so the delta stays byte-identical.
@@ -760,14 +766,17 @@ impl ProtocolEngine {
                     // mutation with equal halves therefore emits no size at all,
                     // which keeps it an empty layer delta for the host and leaves
                     // its fall-through routing untouched.
-                    let (before_size, after_size) = match &self.entries[self.cursor - 1].payload {
-                        EntryPayload::External {
-                            doc_size_before,
-                            doc_size_after,
-                            ..
-                        } => (*doc_size_before, *doc_size_after),
-                        _ => (None, None),
-                    };
+                    let (before_size, after_size, token) =
+                        match &self.entries[self.cursor - 1].payload {
+                            EntryPayload::External {
+                                doc_size_before,
+                                doc_size_after,
+                                token,
+                                ..
+                            } => (*doc_size_before, *doc_size_after, Some(token.clone())),
+                            _ => (None, None, None),
+                        };
+                    external_token = token;
                     if before_size.is_some() && after_size.is_some() && before_size != after_size {
                         delta_dims = before_size;
                     }
@@ -873,14 +882,17 @@ impl ProtocolEngine {
                     // same host-supplied pair: redo re-applies the AFTER half, and
                     // both halves must be present for the same reason they must on
                     // undo.
-                    let (before_size, after_size) = match &self.entries[self.cursor].payload {
+                    let (before_size, after_size, token) = match &self.entries[self.cursor].payload
+                    {
                         EntryPayload::External {
                             doc_size_before,
                             doc_size_after,
+                            token,
                             ..
-                        } => (*doc_size_before, *doc_size_after),
-                        _ => (None, None),
+                        } => (*doc_size_before, *doc_size_after, Some(token.clone())),
+                        _ => (None, None, None),
                     };
+                    external_token = token;
                     if before_size.is_some() && after_size.is_some() && before_size != after_size {
                         delta_dims = after_size;
                     }
@@ -984,6 +996,9 @@ impl ProtocolEngine {
                 status: Some("external".to_string()),
                 external_seq: Some(seq),
                 pixel_patches: None,
+                // The token the host minted for this entry, handed back so the
+                // host can re-apply the pre-op rasters it parked under it.
+                external_token,
             });
         }
         self.version += 1;
@@ -1004,6 +1019,7 @@ impl ProtocolEngine {
             status: None,
             external_seq: None,
             pixel_patches: None,
+            external_token: None,
         })
     }
 }

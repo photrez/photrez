@@ -12,7 +12,7 @@
 // which is what makes it correct on redo-truncated (non-dense) streams where
 // entries[i].seq != i+1.
 
-import { getFacade, confirmExternalCursor, syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { getFacade, confirmExternalCursor, syncFacadeVersionFromPixel, getExternalRecordSnapshot } from "@/lib/protocol/facadeRegistry";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
 import type { EditorContextValue } from "./shell/EditorContext";
 
@@ -251,6 +251,21 @@ export async function runFacadeExternalHandoff(
       engine.applyFacadeSnapshot(snap as never, {
         dimsAuthoritative: facade.lastProjectionDimsAuthoritative,
       });
+      // Raster half of a host-crop undo. The projection above restored the
+      // document size (via the External size pair) but deliberately never wrote a
+      // raster or a layer's pixel dims - those are model-owned and no facade
+      // command can write them - so the layers are still carrying post-crop
+      // pixels at post-crop dims. Rust hands back the entry's token; the host
+      // resolves it to the pre-op rasters it parked at record time.
+      //
+      // Runs AFTER applyFacadeSnapshot so the layer set is final: it only writes
+      // pixels onto layers that already exist and can never add one. Runs BEFORE
+      // reuploadAttachedImages so the re-upload sees the restored bitmaps -
+      // comparing against `before` is what makes it upload them at all.
+      const preOp = getExternalRecordSnapshot(facade.lastExternalToken);
+      if (preOp) {
+        engine.applyExternalRasterRestore(preOp);
+      }
       reuploadAttachedImages(before);
       const committed = await confirmExternalCursor(
         engine.getId(),
