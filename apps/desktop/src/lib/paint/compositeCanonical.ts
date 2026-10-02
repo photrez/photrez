@@ -17,19 +17,19 @@
  *   2. `rust_pixels_write_region` is emitted, so the census records a WRITER
  *      call site for the op - one canonical `Pixel` history entry per merge.
  *
- * Prerequisite 3 - the history entry itself - is deliberately NOT done here, and
- * the reason is structural rather than an omission. These ops change the layer
- * VECTOR, not just a raster: merge down destroys two layers and mints one,
- * flatten destroys every layer and mints one. An undo of such a step is a
- * STRUCTURAL restore (the engine must resurrect N layers, in order, with their
- * rasters), and the tile-memento fast path in `useEditorCommands` deliberately
- * SKIPS `engine.restore` for entries that carry imperative patches. Marking
- * these steps `rustOwned` would therefore route undo down the paint fast path
- * and the resurrected layer vector would never happen. The history entry stays a
- * TypeScript snapshot; the Rust store is brought into agreement at op time and
- * re-agrees on both sides of the undo because `DocumentEngine.restore` already
- * reseeds every layer whose dimensions moved and drops the store of every layer
- * that vanished.
+ * Prerequisite 3 - a PIXEL history entry for the destination - is deliberately NOT
+ * left behind, and the reason is structural rather than an omission. These ops change
+ * the layer VECTOR, not just a raster: merge down destroys two layers and mints one,
+ * flatten destroys every layer and mints one. Their undo is therefore a STRUCTURAL
+ * restore, and the layer vector lives on the SAME per-document cursor the pixel store
+ * writes to. Leaving the canonical write's `Pixel` entry on top of the structural entry
+ * makes an undo press step the pixel entry instead, and the structural restore never
+ * runs - measured at `b124338` as `[facade-history] Rust took a pixel step with no TS
+ * twin to drain undo`. So the write is closed by re-asserting the store from the
+ * raster, which drops that entry: the composite's pixels are a projection under the
+ * structural step, and the structural entry is the gesture's only cursor step. The
+ * structural restore itself is Rust's - the routed command's own entry is undone
+ * natively and projected back through `applyFacadeSnapshot`.
  *
  * NO GPU BYTES ARE INVOLVED. The composite is produced by a CPU canvas and read
  * back through `readbackBitmap`'s exact path, so the defect class that damaged
@@ -39,6 +39,7 @@ import type { DocumentEngine } from "@/engine/document";
 import type { CommandHistory } from "@/engine/history";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import { clampRegionToLayer } from "@/lib/paint/regionProducer";
+import { syncLayerStoreToLayerRaster } from "@/lib/paint/storeCurrency";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 
 /** One composite destination, as the caller measured it. */
@@ -50,7 +51,7 @@ export interface CompositeDestination {
 }
 
 export type CompositeSeedResult =
-  | { status: "CONVERGED"; epoch: number; version: number }
+  | { status: "CONVERGED"; epoch: number; version: number; projected: boolean }
   | { status: "SKIPPED"; reason: string }
   | { status: "FAILED"; reason: string };
 
@@ -58,12 +59,28 @@ export type CompositeSeedResult =
  * Seed the Rust pixel store for a composite destination layer and record the
  * composite as one canonical `Pixel` entry.
  *
- * Order is load-bearing and mirrors the brush/bucket/fill arms exactly:
+ * Order is load-bearing and mirrors the brush/bucket/fill arms exactly, with one
+ * extra step at the end whose reason is structural:
  *   1. probe `rust_pixels_get_epoch`; on rejection the layer is NEW (a merged
  *      layer always is), so seed it with the composite bytes;
  *   2. `rust_pixels_write_region` over the whole layer, which is the single
- *      canonical write and the single history entry;
- *   3. stamp the epoch the write actually produced.
+ *      canonical write the census records;
+ *   3. re-assert the store from the raster through `syncLayerStoreToLayerRaster`,
+ *      which is the projection primitive crop's store-currency repair already uses.
+ *
+ * Step 3 is not tidiness - it is what keeps ONE gesture to ONE cursor step. The
+ * per-document cursor is shared between the pixel store and the graph commands
+ * (`crates/core/src/pixel_store.rs`: `DocumentPixelStore::history` is the same
+ * `ProtocolEngine` the registry hands `protocol_apply_command_native`), and
+ * `write_region` opens a `Pixel` entry on it. A merge/flatten/merge-selected
+ * records its STRUCTURAL change on that same cursor, so a `Pixel` entry left on top
+ * of it is the entry an undo press steps: the handoff claims the undo, returns true,
+ * `useEditorCommands` returns early, and the layer vector is never resurrected.
+ * `resize_layer` calls `history.invalidate_layer`, which drops the entry - and it is
+ * already the established way to say "this layer's raster is now exactly the model
+ * raster, wholesale", which is precisely what a composite destination is. Without
+ * step 3 the structural undo costs two presses: the first re-applies the composite's
+ * own no-op pixel step, the second restores the layers.
  *
  * The seed uses `rust_pixels_init` rather than a zero-filled `write_region`
  * because `init_layer` REPLACES the buffer wholesale and drops the layer's pixel
@@ -116,8 +133,8 @@ export async function seedCompositeCanonicalPixels(
       await invoke("rust_pixels_init", { docId, layerId, width, height, bytes: rgba });
     }
 
-    // One canonical write = one Pixel entry. The whole layer, because a
-    // composite destination has no prior content to diff against.
+    // One canonical write = the census WRITER site for the op. The whole layer,
+    // because a composite destination has no prior content to diff against.
     const region = clampRegionToLayer({ x: 0, y: 0, w: width, h: height }, width, height);
     const res = (await pixelInvoke("rust_pixels_write_region", {
       docId,
@@ -129,12 +146,22 @@ export async function seedCompositeCanonicalPixels(
       rgba,
     })) as { epoch: number; version: number };
 
-    // Only stamp an epoch the store actually reported.
-    layer.bitmapEpoch = res.epoch;
+    // Re-assert the projection: the destination's raster IS the model raster, so its
+    // store entry carries no independent cursor step (see the header). This also
+    // stamps `bitmapEpoch` from a fresh probe, so it cannot claim a currency the
+    // raster does not have after the buffer was replaced.
+    const projected = await syncLayerStoreToLayerRaster(
+      docId,
+      engine,
+      layerId,
+      new Uint8ClampedArray(rgba),
+    );
+
+    // Only stamp a version the write actually reported.
     syncFacadeVersionFromPixel(docId, res.version);
     renderer?.uploadImage?.(layerId, layer.imageBitmap);
     engine.notifyVisualChange();
-    return { status: "CONVERGED", epoch: res.epoch, version: res.version };
+    return { status: "CONVERGED", epoch: res.epoch, version: res.version, projected };
   } catch (err) {
     return { status: "FAILED", reason: String(err) };
   }
