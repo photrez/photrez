@@ -26,6 +26,7 @@ import { isFacadeOwnedLayer, type DocumentEngine } from "@/engine/document";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import { compositeTwoLayers, compositeAllLayers } from "@/engine/layerComposite";
 import { duplicateLayerNode } from "@/engine/layerFactory";
+import { seedCompositeCanonicalPixels } from "@/lib/paint/compositeCanonical";
 import { MAX_LAYERS } from "@/engine/types";
 import {
   commitFacadeDuplicate,
@@ -46,6 +47,36 @@ export type StructuralRouteStatus =
   | "legacy"
   | "mixed-rejected"
   | "error";
+
+/**
+ * Canonical seeding for a routed composite destination.
+ *
+ * These arms are the ones the SHIPPED DEFAULT takes: with the facade on and
+ * native authority active, `layerOps.ts` calls `routeFlatten` /
+ * `routeMergeSelected` / `routeMergeDown` FIRST and returns `"applied"`, so the
+ * legacy `layerOperations` helpers - which also carry this seeding - are never
+ * reached. Seeding here is what makes the default configuration converge.
+ *
+ * Fire-and-forget deliberately: the routed arms are async and already awaited by
+ * their caller, but the seed is best-effort by construction (it must never fail a
+ * merge the graph already applied) and the legacy control fires it the same way,
+ * so both arms behave identically. Fire-and-forget is NOT used to hide an await:
+ * `routeFlatten` returns a status the keyboard handler consumes, and making the
+ * status depend on an IPC round-trip would change its timing contract.
+ */
+function seedComposite(
+  engine: DocumentEngine,
+  renderer: WebGL2Backend,
+  mergedId: string,
+): void {
+  const merged = engine.getLayer(mergedId);
+  if (!merged?.imageBitmap) return;
+  void seedCompositeCanonicalPixels(engine, renderer, {
+    layerId: mergedId,
+    width: merged.width,
+    height: merged.height,
+  });
+}
 
 function mintLayerId(): string {
   // Host-owned identity: match the TS engine's id space so both engines share it.
@@ -194,6 +225,7 @@ export async function routeMergeDown(
   renderer.uploadImage(mergedId, composite);
   // Mirror legacy mergeDown: the merged node becomes the active layer.
   engine.setActiveLayer(mergedId);
+  seedComposite(engine, renderer, mergedId);
   return "applied";
 }
 
@@ -223,6 +255,7 @@ export async function routeMergeSelected(
   engine.setLayerImageBitmap(mergedId, composite);
   renderer.uploadImage(mergedId, composite);
   engine.setActiveLayer(mergedId);
+  seedComposite(engine, renderer, mergedId);
   return "applied";
 }
 
@@ -259,6 +292,7 @@ export async function routeFlatten(
     merged.type = "raster";
   }
   engine.setActiveLayer(mergedId);
+  seedComposite(engine, renderer, mergedId);
   return "applied";
 }
 
