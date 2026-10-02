@@ -130,6 +130,16 @@ function makeEngine() {
 // Let the async restoreHistorySnapshot's `await import(...)` + invoke chain settle.
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+// TRANSITIONAL - `photrez.rustPixels` gating. Every case below that names the
+// flag pins the flag's ON behaviour, which survives only because one production
+// read remains: the undo/redo tile-branch routing in useEditorCommands
+// (`rustOwned || rustPixelsFlag`). The other five former subjects (brush,
+// eraser, bucket, seeded fill, gradient) were deleted when those ops became
+// unconditionally Rust, so this file is the ONLY remaining flag-dependent
+// coverage and it must be DELETED when that last read retires - not kept "just in
+// case". The permanent owner-agreement oracle is `ownerConvergence.test.ts`; the
+// permanent writer enumeration is `pixelWriterCensus.test.ts`. Neither depends on
+// this flag, and neither should be made to.
 describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () => {
   beforeEach(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({} as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
@@ -175,7 +185,9 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     expect(invoke).toHaveBeenCalledWith("rust_pixels_redo", { docId: "doc-1", layerId: "l1" });
   });
 
-  it("rustPixels ON: the tile path fires exactly ONE undo/redo invoke and the census records it", async () => {
+  // TRANSITIONAL (photrez.rustPixels gating; delete with the flag): pins flag-ON
+  // tile-branch routing, the last behaviour that still reads the key.
+  it("TRANSITIONAL rustPixels ON: the tile path fires exactly ONE undo/redo invoke and the census records it", async () => {
     localStorage.setItem(RUST_PIXELS_KEY, "1");
     localStorage.setItem(GATE_KEY, "1");
     vi.mocked(isTauriRuntime).mockReturnValue(true);
@@ -201,7 +213,10 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     ]);
   });
 
-  it("historyBridgeEnabled predicate: default false, gate+tauri true, gate+non-tauri false", async () => {
+  // TRANSITIONAL (photrez.rustPixels gating; delete with the flag): its last two
+  // assertions assert the flag does NOT arm the bridge predicate, which is a
+  // statement about flag independence and therefore dies with the flag.
+  it("TRANSITIONAL historyBridgeEnabled predicate: default false, gate+tauri true, gate+non-tauri false", async () => {
     const { historyBridgeEnabled } = await import("@/engine/history");
 
     expect(historyBridgeEnabled()).toBe(false); // no gate, not tauri

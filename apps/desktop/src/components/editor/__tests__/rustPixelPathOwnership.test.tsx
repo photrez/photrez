@@ -2,6 +2,18 @@
  * Ownership of the brush pixel path: Rust records it, and at most one site
  * moves the Rust cursor for one undo/redo step.
  *
+ * TRANSITIONAL AUDIT (recorded, 2026-10-02). Every case below that names
+ * `photrez.rustPixels` pins the FLAG's behaviour and is transitional: brush,
+ * eraser, bucket, seeded fill, gradient and delete-pixels became unconditionally
+ * Rust, deleting five of the flag's six production subjects. Exactly one read
+ * survives - the undo/redo tile-branch routing in useEditorCommands
+ * (`rustOwned || rustPixelsFlag`) - so the flag matrix below is now the ONLY
+ * flag-dependent coverage in the tree and must be DELETED when that last read
+ * retires. The per-case TRANSITIONAL markers name the flag they pin; the
+ * permanent replacements are `ownerConvergence.test.ts` (do the two live owners
+ * agree?) and `pixelWriterCensus.test.ts` (is every writer declared?), neither of
+ * which reads the flag.
+ *
  * Part 1 - the TILE/PIXEL undo/redo routing matrix.
  * Two production sites can fire rust_pixels_undo / rust_pixels_redo for ONE
  * step (both inside the tile-patch branch of useEditorCommands):
@@ -272,7 +284,9 @@ function applyRowFlags(flags: { rustPixels: "0" | "1"; bridge: "0" | "1" }): voi
   localStorage.setItem(GATE_KEY, flags.bridge);
 }
 
-describe("TILE/PIXEL undo/redo routing matrix (flag x bridge gate x runtime)", () => {
+// TRANSITIONAL (photrez.rustPixels gating; delete with the flag). The flag is
+// the subject of every row, so the whole matrix dies with it.
+describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x bridge gate x runtime)", () => {
   beforeEach(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
       {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
@@ -460,7 +474,10 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
     ).toBe(true);
   });
 
-  it("keeps photrez.rustPixels-OFF memento replay for entries Rust does not own (transitional; delete when the flag is retired)", async () => {
+  // TRANSITIONAL (photrez.rustPixels gating; delete with the flag). This case
+  // pins flag-OFF memento replay: the fallback exists only while an entry can
+  // lack `rustOwned`, which the unconditional-Rust ops make unreachable.
+  it("TRANSITIONAL keeps photrez.rustPixels-OFF memento replay for entries Rust does not own (delete when the flag is retired)", async () => {
     const ctx = makeEditorContext(
       makeHistory({ ...makePatches(), before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
       makeEngine(),

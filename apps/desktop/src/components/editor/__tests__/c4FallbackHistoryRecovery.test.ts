@@ -302,6 +302,11 @@ const settings = { size: 20, hardness: 1, opacity: 1, flow: 1, smoothing: 0.5 };
 // flushPixelInvokeCensus).
 const flushBridge = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+// TRANSITIONAL-TEST AUDIT (2026-10-02): the `photrez.rustPixels` setItem below is
+// now INERT (the brush commit path never reads the key), so these cases pin a
+// permanent invariant of the unconditional Rust path and are NOT transitional.
+// The `photrez.historyBridge` setItem IS still live and is covered by the bridge
+// gating cases.
 describe("c4 recovery (approved caller predicate)", () => {
   beforeAll(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);

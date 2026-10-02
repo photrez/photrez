@@ -3,6 +3,12 @@
 // hook, with `@tauri-apps/api/core` invoke mocked by an in-test Rust store
 // emulator.
 //
+// TRANSITIONAL-TEST AUDIT (2026-10-02): the `photrez.rustPixels` setItem calls
+// below are now INERT. The brush commit path never reads the key, so these cases
+// pin permanent invariants of the unconditional Rust path rather than flag
+// behaviour. They are left in place so the diff against the measured baseline
+// stays minimal, and they are deliberately NOT labelled transitional.
+//
 // Covers:
 //   Overlap — every committed stroke composites onto the EXISTING canonical
 //           pixels (overlapping strokes accumulate; no wipe). Verified at the

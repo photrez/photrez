@@ -27,7 +27,7 @@ import { invoke } from "@tauri-apps/api/core";
  * and the document-open command - passes through without an entry, so probe
  * traffic can never be counted as a state change.
  */
-const CENSUS_COMMANDS = new Set([
+export const CENSUS_COMMANDS = new Set([
   "rust_pixels_write_region",
   "rust_pixels_record_external",
   "rust_pixels_undo",
