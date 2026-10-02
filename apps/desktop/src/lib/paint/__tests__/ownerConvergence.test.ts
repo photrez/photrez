@@ -51,6 +51,14 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import { reconstructLayerBuffer } from "@/lib/paint/regionProducer";
 import { DocumentEngine } from "@/engine/document";
+import { CommandHistory } from "@/engine/history";
+import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
+import {
+  flattenAllLayers,
+  mergeActiveLayerDown,
+  mergeSelectedLayers,
+  stampVisibleLayers,
+} from "@/components/editor/layers/layerOperations";
 import {
   createRustStoreEmulator,
   installCreateImageBitmapMock,
@@ -122,11 +130,39 @@ class CroppingCanvas {
       closePath() {},
       moveTo() {},
       lineTo() {},
+      // `fill()` paints the whole surface, not the path. The parametric
+      // rasterizers (shape, text) build a path this stub does not track, and
+      // leaving `fill()` a no-op would hand them a fully TRANSPARENT raster -
+      // which then compares equal to any other empty raster, and a convergence
+      // verdict drawn from an empty buffer is exactly the false negative this
+      // file exists to prevent.
+      fill() { ctx.fillRect(0, 0, self.width, self.height); },
       stroke() {},
-      fill() {},
       rect() {},
       clip() {},
       setTransform() {},
+      font: "",
+      textBaseline: "alphabetic",
+      letterSpacing: "0px",
+      // Deterministic metrics: width from the string length and the font size, so
+      // a measured text box is stable across runs and the rasterized layer has
+      // real dimensions. Never zero, so the box cannot collapse to nothing.
+      measureText(text: string) {
+        const px = parseFloat(String(ctx.font).match(/(\d+(?:\.\d+)?)px/)?.[1] ?? "48");
+        const width = Math.max(1, text.length * px * 0.5);
+        return {
+          width,
+          actualBoundingBoxAscent: px * 0.8,
+          actualBoundingBoxDescent: px * 0.25,
+          fontBoundingBoxAscent: px * 0.8,
+          fontBoundingBoxDescent: px * 0.25,
+        };
+      },
+      fillText(text: string, x: number, y: number) {
+        const m = ctx.measureText(text);
+        ctx.fillRect(x, y, m.width, parseFloat(String(ctx.font).match(/(\d+(?:\.\d+)?)px/)?.[1] ?? "48"));
+      },
+      strokeText() {},
       clearRect(x: number, y: number, w: number, h: number) {
         for (let r = y; r < y + h; r++) {
           for (let c = x; c < x + w; c++) self.setPx(c, r, 0, 0, 0, 0);
@@ -238,6 +274,37 @@ class CroppingCanvas {
   }
 }
 
+/** An ImageBitmap carrying the given RGBA bytes, via the canvas under test. */
+function rasterBitmap(w: number, h: number, pixels: Uint8ClampedArray): ImageBitmap {
+  const canvas = new CroppingCanvas(w, h);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage({ width: w, height: h, data: pixels } as never, 0, 0, w, h);
+  return canvas.transferToImageBitmap();
+}
+
+/**
+ * The renderer surface the layer operations touch: `uploadImage`,
+ * `uploadSurfaceTiles` and `destroyTexture`. GPU bookkeeping only - it cannot
+ * affect either pixel owner, and stubbing it keeps the measurement about the two
+ * owners rather than about WebGL.
+ */
+function makeRenderer(): never {
+  return {
+    uploadImage: vi.fn(),
+    uploadSurfaceTiles: vi.fn(),
+    destroyTexture: vi.fn(),
+  } as never;
+}
+
+/**
+ * A real `CommandHistory`. These five ops all call `history.commit(...)`, and the
+ * measurement must include that call - a stub that dropped it would measure a
+ * different operation than production runs.
+ */
+function makeHistory(): never {
+  return new CommandHistory(8) as never;
+}
+
 /** A non-uniform raster, so any reindexing or mirroring shows as a mismatch. */
 function gradientRaster(w: number, h: number): Uint8ClampedArray {
   const buf = new Uint8ClampedArray(w * h * 4);
@@ -309,6 +376,81 @@ function firstDifference(a: Owner, b: Owner): number {
   const n = Math.min(a.bytes.length, b.bytes.length);
   for (let i = 0; i < n; i++) if (a.bytes[i] !== b.bytes[i]) return i;
   return a.bytes.length === b.bytes.length ? -1 : n;
+}
+
+/**
+ * The Rust store's read, as a THREE-WAY result rather than a value.
+ *
+ * "Rust has no entry for this layer" and "Rust's entry matches" are DIFFERENT
+ * facts and only one of them is a pass, so they cannot share a return type that
+ * collapses a missing layer into an empty buffer: `null - null = 0` once fooled
+ * this repo. `NO-ENTRY` is therefore returned as itself and never as bytes.
+ */
+type StoreRead =
+  | { verdict: "HAS-ENTRY"; owner: Owner }
+  | { verdict: "NO-ENTRY"; reason: string };
+
+async function readStoreVerdict(layerId: string): Promise<StoreRead> {
+  try {
+    return { verdict: "HAS-ENTRY", owner: await readStore(layerId) };
+  } catch (err) {
+    return { verdict: "NO-ENTRY", reason: String(err) };
+  }
+}
+
+/**
+ * The measured outcome for one operation, as a single comparable string. The
+ * per-op cases assert the EXACT string, so a change in behaviour cannot pass
+ * silently - it fails and someone has to look at why.
+ */
+type ConvergenceVerdict =
+  | "CONVERGES"
+  | "DIVERGES-dimensions"
+  | "DIVERGES-bytes"
+  | "RUST-HAS-NO-ENTRY"
+  // A layer with no raster cannot be compared at all. Deliberately its OWN
+  // verdict: folding it into NO-ENTRY would let a harness that failed to
+  // rasterise anything report "Rust has no entry" and read as a measurement.
+  | "PROJECTION-UNREADABLE";
+
+async function measureConvergence(
+  engine: DocumentEngine,
+  layerId: string,
+): Promise<{ verdict: ConvergenceVerdict; detail: string }> {
+  let projection: Owner;
+  try {
+    projection = readProjection(engine, layerId);
+  } catch (err) {
+    return { verdict: "PROJECTION-UNREADABLE", detail: String(err) };
+  }
+  const storeRead = await readStoreVerdict(layerId);
+  if (storeRead.verdict === "NO-ENTRY") {
+    return {
+      verdict: "RUST-HAS-NO-ENTRY",
+      detail: `projection holds ${projection.width}x${projection.height} (${projection.bytes.length} bytes); ${storeRead.reason}`,
+    };
+  }
+  const rust = storeRead.owner;
+  if (projection.width !== rust.width || projection.height !== rust.height) {
+    return {
+      verdict: "DIVERGES-dimensions",
+      detail: `projection ${projection.width}x${projection.height} vs store ${rust.width}x${rust.height}`,
+    };
+  }
+  const at = firstDifference(projection, rust);
+  if (at !== -1) {
+    const px = Math.floor(at / 4);
+    return {
+      verdict: "DIVERGES-bytes",
+      detail:
+        `first difference at byte ${at} (pixel ${Math.floor(px / rust.width)},${px % rust.width}, ` +
+        `channel ${at % 4}): projection=${projection.bytes[at]} store=${rust.bytes[at]}`,
+    };
+  }
+  return {
+    verdict: "CONVERGES",
+    detail: `${rust.width}x${rust.height}, ${rust.bytes.length} bytes identical`,
+  };
 }
 
 /** The assertion under test, in one place so every case below shares it. */
@@ -514,6 +656,74 @@ describe("the two live pixel owners converge after every operation sequence", ()
     await expectConverged(engine, layerId, "second crop");
   });
 
+  it("the MEASUREMENT oracle sees every verdict class, not just agreement", async () => {
+    await seed();
+
+    // `measureConvergence` is what the five ops below are asserted through, so it
+    // needs its own proof: a verdict function that could only ever return
+    // CONVERGES would make all five measurements report the same thing without
+    // measuring anything. Each class is induced here.
+    //
+    // 1. CONVERGES.
+    expect(
+      (await measureConvergence(engine, layerId)).verdict,
+      "the seeded layer's two owners agree",
+    ).toBe("CONVERGES");
+
+    // 2. RUST-HAS-NO-ENTRY - a layer Rust never learned about, which is exactly
+    //    the state the five measured ops leave behind. Distinct from agreement:
+    //    the projection here holds real bytes and the store holds nothing.
+    // A shape layer is used because it is proven to install a raster on creation,
+    // with no store write - which is the exact state under test.
+    const stranger = engine.addShapeLayer("Stranger", {
+      kind: "rect", width: 40, height: 24, radius: 4,
+      fill: { kind: "solid", color: "#3366cc" },
+      stroke: { enabled: false, color: "#000000", width: 0 },
+      arrowHead: false,
+    } as never);
+    expect(
+      engine.getLayer(stranger.id)?.imageBitmap,
+      "premise: the stranger layer really carries a raster",
+    ).toBeTruthy();
+    const noEntry = await measureConvergence(engine, stranger.id);
+    expect(noEntry.verdict, "an unseeded layer reads as NO-ENTRY, not as agreement").toBe(
+      "RUST-HAS-NO-ENTRY",
+    );
+    expect(
+      noEntry.detail,
+      "the detail names the layer Rust has no entry for, so the verdict is not a bare label",
+    ).toContain("layer not initialized");
+
+    // 3. DIVERGES-bytes - move the store's content only.
+    const driftAt = 4 * 5 + 1;
+    const stored = store.layers.get(layerId)!;
+    stored.pixels[driftAt] = (stored.pixels[driftAt] + 7) & 0xff;
+    const byteDiverged = await measureConvergence(engine, layerId);
+    expect(byteDiverged.verdict).toBe("DIVERGES-bytes");
+    expect(byteDiverged.detail, "the byte signature names the exact offset").toContain(
+      `byte ${driftAt}`,
+    );
+    stored.pixels[driftAt] = (stored.pixels[driftAt] - 7) & 0xff;
+
+    // 4. DIVERGES-dimensions - right content, wrong geometry on the store side.
+    store.layers.set(layerId, {
+      ...stored,
+      width: CROP,
+      height: CROP,
+      pixels: new Uint8ClampedArray(CROP * CROP * 4),
+    });
+    const dimDiverged = await measureConvergence(engine, layerId);
+    expect(dimDiverged.verdict).toBe("DIVERGES-dimensions");
+    expect(dimDiverged.detail, "the dimension signature names both sizes").toContain(
+      `${CROP}x${CROP}`,
+    );
+
+    // 5. Back to agreement, so the three classes above were reached by MOVING the
+    //    owners rather than by a harness that simply always says one thing.
+    store.layers.set(layerId, stored);
+    expect((await measureConvergence(engine, layerId)).verdict).toBe("CONVERGES");
+  });
+
   it("a REAL cross-owner disagreement is caught: a store write the projection never saw", async () => {
     await seed();
     await expectConverged(engine, layerId, "premise");
@@ -535,5 +745,278 @@ describe("the two live pixel owners converge after every operation sequence", ()
       firstDifference(readProjection(engine, layerId), await readStore(layerId)),
       "the write really did move only one owner",
     ).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEASUREMENT: five pixel-producing operations that call NO pixel-store command.
+//
+// A scoping review established that these five rasterise on a CPU OffscreenCanvas
+// and reach Rust only through the MODEL - never through `rust_pixels_write_region`,
+// `rust_pixels_init` or `rust_pixels_resize_layer`. Each case below drives the op
+// exactly as it exists today (no production change) and records the measured
+// verdict.
+//
+// The verdict is asserted as an EXACT string, so these are measurements, not
+// aspirations: if an op starts converging, or starts diverging, the case fails
+// and someone has to look at why rather than let the number drift.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("MEASURED: convergence for ops that write pixels without a pixel-store command", () => {
+  it("ADD SHAPE: renderShapeToBitmap replaces the layer raster with no store write", async () => {
+    await seed();
+    const shape = engine.addShapeLayer("Rect", {
+      kind: "rect",
+      width: 40,
+      height: 24,
+      radius: 4,
+      fill: { kind: "solid", color: "#3366cc" },
+      stroke: { enabled: false, color: "#000000", width: 0 },
+      arrowHead: false,
+    } as never);
+
+    const measured = await measureConvergence(engine, shape.id);
+    expect(
+      shape.imageBitmap,
+      "premise: addShapeLayer really rasterised a layer",
+    ).not.toBeNull();
+    expect(
+      measured.verdict,
+      `ADD SHAPE measured: ${measured.detail}`,
+    ).toBe("RUST-HAS-NO-ENTRY");
+  });
+
+  // THE FALSIFIABILITY PROOF FOR THE MEASUREMENT ITSELF.
+//
+// The five verdicts below all read RUST-HAS-NO-ENTRY. That is only a
+// measurement if NO-ENTRY is caused by the missing store entry and not by a
+// comparator that reports NO-ENTRY for everything. So: seed the store for the
+// same shape layer, from the SAME bytes the projection holds, and the verdict
+// must move to CONVERGES. If it does not, the five measurements are an artefact
+// of the harness and must not be believed.
+//
+// This was run as the defeat for this task: with the seed added the verdict
+// changed, so the measurement was reading the store and not the harness.
+it("the NO-ENTRY verdict is caused by the missing store entry, not by the harness", async () => {
+    await seed();
+    const shape = engine.addShapeLayer("Rect", {
+      kind: "rect", width: 40, height: 24, radius: 4,
+      fill: { kind: "solid", color: "#3366cc" },
+      stroke: { enabled: false, color: "#000000", width: 0 },
+      arrowHead: false,
+    } as never);
+
+    // Before: exactly what the ADD SHAPE case measures.
+    const before = await measureConvergence(engine, shape.id);
+    expect(before.verdict, `before seeding: ${before.detail}`).toBe("RUST-HAS-NO-ENTRY");
+
+    // Seed the store from the projection's OWN bytes - no independent source, so
+    // the only thing that changed is the store's existence.
+    const projection = readProjection(engine, shape.id);
+    store.seed(shape.id, projection.width, projection.height, projection.bytes);
+
+    // After: identical pixels, and now there IS a store entry.
+    const after = await measureConvergence(engine, shape.id);
+    expect(
+      after.verdict,
+      `seeding the store moved the verdict to ${after.detail}`,
+    ).toBe("CONVERGES");
+    expect(
+      after.detail,
+      "the convergence is reported in bytes, not as a bare label",
+    ).toContain(`${projection.bytes.length} bytes identical`);
+
+    // And the store is genuinely readable now, which is the difference.
+    expect(store.layers.has(shape.id)).toBe(true);
+    expect((await readStoreVerdict(shape.id)).verdict).toBe("HAS-ENTRY");
+  });
+
+  it("EDIT SHAPE: updateShapeParams re-rasterises in place with no store write", async () => {
+    await seed();
+    const shape = engine.addShapeLayer("Rect", {
+      kind: "rect",
+      width: 40,
+      height: 24,
+      radius: 4,
+      fill: { kind: "solid", color: "#3366cc" },
+      stroke: { enabled: false, color: "#000000", width: 0 },
+      arrowHead: false,
+    } as never);
+    const afterAdd = await measureConvergence(engine, shape.id);
+
+    // The edit is what a user does second: a different fill AND a different box,
+    // so both the bytes and the dims move.
+    engine.updateShapeParams(shape.id, {
+      kind: "rect",
+      width: 56,
+      height: 33,
+      radius: 12,
+      fill: { kind: "solid", color: "#cc3366" },
+      stroke: { enabled: false, color: "#000000", width: 0 },
+      arrowHead: false,
+    } as never);
+
+    const measured = await measureConvergence(engine, shape.id);
+    expect(shape.imageBitmap, "premise: the shape layer carries a raster").not.toBeNull();
+    expect(
+      { add: afterAdd.verdict, edit: measured.verdict },
+      `EDIT SHAPE measured: add=${afterAdd.detail} | edit=${measured.detail}`,
+    ).toEqual({ add: "RUST-HAS-NO-ENTRY", edit: "RUST-HAS-NO-ENTRY" });
+  });
+
+  it("ADD TEXT: rasterizeText installs a raster with no store write", async () => {
+    await seed();
+    const text = engine.addTextLayer("Label", {
+      ...DEFAULT_TEXT_DATA,
+      content: "measure me",
+      fontSize: 24,
+      color: "#112233",
+    });
+
+    const measured = await measureConvergence(engine, text.id);
+    expect(text.imageBitmap, "premise: addTextLayer really rasterised a layer").not.toBeNull();
+    expect(
+      measured.verdict,
+      `ADD TEXT measured: ${measured.detail}`,
+    ).toBe("RUST-HAS-NO-ENTRY");
+  });
+
+  it("EDIT TEXT: updateTextData re-rasterises in place with no store write", async () => {
+    await seed();
+    const text = engine.addTextLayer("Label", {
+      ...DEFAULT_TEXT_DATA,
+      content: "before",
+      fontSize: 24,
+      color: "#112233",
+    });
+    const afterAdd = await measureConvergence(engine, text.id);
+
+    engine.updateTextData(text.id, {
+      ...DEFAULT_TEXT_DATA,
+      content: "after edit, longer",
+      fontSize: 40,
+      color: "#332211",
+    });
+
+    const measured = await measureConvergence(engine, text.id);
+    expect(
+      { add: afterAdd.verdict, edit: measured.verdict },
+      `EDIT TEXT measured: add=${afterAdd.detail} | edit=${measured.detail}`,
+    ).toEqual({ add: "RUST-HAS-NO-ENTRY", edit: "RUST-HAS-NO-ENTRY" });
+  });
+
+  it("STAMP VISIBLE: compositeAllLayers into a new layer, no store write", async () => {
+    await seed();
+    const stamp = engine.addLayer("Under");
+    engine.setLayerImageBitmap(stamp.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+
+    // The production function, with the renderer surface it touches stubbed: the
+    // measurement is about the two pixel owners, and `uploadImage`/`destroyTexture`
+    // are GPU bookkeeping that cannot affect either one.
+    const ok = stampVisibleLayers(engine, makeHistory(), makeRenderer());
+    expect(ok, "premise: stampVisibleLayers composited").toBe(true);
+
+    const stamped = engine.getLayers().find((l) => l.name === "Stamp Visible")!;
+    const measured = await measureConvergence(engine, stamped.id);
+    expect(
+      { width: stamped.width, height: stamped.height },
+      "premise: the stamped layer is document-sized",
+    ).toEqual({ width: SIZE, height: SIZE });
+    expect(
+      measured.verdict,
+      `STAMP VISIBLE measured: ${measured.detail}`,
+    ).toBe("RUST-HAS-NO-ENTRY");
+  });
+
+  it("MERGE DOWN: compositeTwoLayers into a new layer, no store write", async () => {
+    await seed();
+    const lower = engine.addLayer("Lower");
+    engine.setLayerImageBitmap(lower.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    // Stack order is top-first: `addLayer` inserts ABOVE the active layer, so the
+    // seeded Paint layer now sits at index 1. `mergeDown` takes the partner at
+    // `idx + 1`, so the layer being merged must be the one at index 0.
+    expect(
+      engine.getLayers().map((l) => l.name),
+      "premise: stack order is top-first",
+    ).toEqual(["Lower", "Paint"]);
+    engine.setActiveLayer(lower.id);
+
+    const ok = mergeActiveLayerDown(engine, makeHistory(), makeRenderer(), lower.id);
+    expect(ok, "premise: mergeActiveLayerDown merged").toBe(true);
+
+    const merged = engine.getLayer(engine.getActiveLayerId() || "")!;
+    expect(merged.name, "premise: the merged layer really is a new one").toContain("+");
+    const measured = await measureConvergence(engine, merged.id);
+    expect(
+      measured.verdict,
+      `MERGE DOWN measured: ${measured.detail}`,
+    ).toBe("RUST-HAS-NO-ENTRY");
+  });
+
+  it("MERGE SELECTED: compositeAllLayers into a new layer, no store write", async () => {
+    await seed();
+    const second = engine.addLayer("Second");
+    engine.setLayerImageBitmap(second.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+
+    const ok = mergeSelectedLayers(engine, makeHistory(), makeRenderer(), [layerId, second.id]);
+    expect(ok, "premise: mergeSelectedLayers merged").toBe(true);
+
+    const merged = engine.getLayer(engine.getActiveLayerId() || "")!;
+    expect(merged.name, "premise: the merged layer really is a new one").toContain("+");
+    const measured = await measureConvergence(engine, merged.id);
+    expect(
+      measured.verdict,
+      `MERGE SELECTED measured: ${measured.detail}`,
+    ).toBe("RUST-HAS-NO-ENTRY");
+  });
+
+  it("FLATTEN IMAGE: compositeAllLayers into a new Background, no store write", async () => {
+    await seed();
+    const second = engine.addLayer("Second");
+    engine.setLayerImageBitmap(second.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+
+    const ok = flattenAllLayers(engine, makeHistory(), makeRenderer());
+    expect(ok, "premise: flattenAllLayers flattened").toBe(true);
+
+    const flattened = engine.getLayers()[0];
+    expect(
+      engine.getLayers().length,
+      "premise: flatten collapsed to one layer",
+    ).toBe(1);
+    const measured = await measureConvergence(engine, flattened.id);
+    expect(
+      measured.verdict,
+      `FLATTEN IMAGE measured: ${measured.detail}`,
+    ).toBe("RUST-HAS-NO-ENTRY");
+  });
+
+  it("the five ops emit ZERO pixel-store commands, which is why Rust has no entry", async () => {
+    // THE CAUSE, not the symptom. If an op ever starts calling a store command,
+    // the NO-ENTRY verdicts above become stale, so this pins the census-visible
+    // fact directly: the ops write pixels and reach Rust only through the model.
+    await seed();
+    store.calls.length = 0;
+
+    const shape = engine.addShapeLayer("Rect", {
+      kind: "rect", width: 40, height: 24, radius: 4,
+      fill: { kind: "solid", color: "#3366cc" },
+      stroke: { enabled: false, color: "#000000", width: 0 },
+      arrowHead: false,
+    } as never);
+    engine.updateShapeParams(shape.id, {
+      kind: "rect", width: 56, height: 33, radius: 12,
+      fill: { kind: "solid", color: "#cc3366" },
+      stroke: { enabled: false, color: "#000000", width: 0 },
+      arrowHead: false,
+    } as never);
+    const text = engine.addTextLayer("Label", { ...DEFAULT_TEXT_DATA, content: "x", fontSize: 24 });
+    engine.updateTextData(text.id, { ...DEFAULT_TEXT_DATA, content: "yy", fontSize: 40 });
+    await settlePixelOps();
+
+    const storeCommands = store.calls.filter((c) => c.cmd.startsWith("rust_pixels_"));
+    expect(
+      storeCommands.map((c) => c.cmd),
+      "no pixel-store command is emitted by shape or text add/edit",
+    ).toEqual([]);
   });
 });
