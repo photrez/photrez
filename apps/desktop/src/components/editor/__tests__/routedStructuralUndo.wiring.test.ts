@@ -61,6 +61,7 @@ import {
   type RustStoreEmulator,
 } from "@/lib/paint/__tests__/rustStoreEmulator";
 import { runFacadeExternalHandoff } from "../facadeHistoryHandoff";
+import { toIpcBytes } from "@/lib/paint/storeCurrency";
 import type { EditorContextValue } from "../shell/EditorContext";
 import { installFaithfulCanvas } from "@/__tests__/faithfulOffscreenCanvas";
 
@@ -285,6 +286,81 @@ function storeEqualsBitmap(engine: Engine, layerId: string): boolean {
   return true;
 }
 
+/**
+ * "entry absent" and "read rejected" are DIFFERENT facts and must stay that way.
+ * A registry row the reader still serves is a live write-accepting entry; a
+ * rejected read is what a retired entry looks like. Collapsing them into one
+ * boolean would let a test pass while a store entry is still servable.
+ */
+async function storeEntryState(
+  layerId: string,
+): Promise<{ entryPresent: boolean; readRejected: boolean; steps: number; bytes: number }> {
+  const row = store.layers.get(layerId);
+  let readRejected = false;
+  try {
+    await store.invoke("rust_pixels_snapshot_layer", { docId: DOC, layerId });
+  } catch {
+    readRejected = true;
+  }
+  return {
+    entryPresent: row !== undefined,
+    readRejected,
+    steps: row?.history.length ?? -1,
+    bytes: row?.pixels.length ?? -1,
+  };
+}
+
+/** Poll until the entry stops being servable; production observers poll too. */
+async function retiredStoreEntry(layerId: string, attempts = 25): Promise<boolean> {
+  for (let i = 0; i < attempts; i += 1) {
+    if (await storeEntryState(layerId).then((s) => !s.entryPresent && s.readRejected)) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  return false;
+}
+
+/**
+ * Give a layer a real canonical store entry carrying its own brush history, the
+ * way a painted layer has one: the store is SEEDED and then written through the
+ * canonical write command, so the entry holds the layer's own pixels AND at least
+ * one replayable pixel step.
+ */
+async function giveLayerBrushHistory(
+  engine: Engine,
+  layerId: string,
+  fill: string,
+): Promise<void> {
+  const layer = engine.getLayer(layerId);
+  expect(layer, `layer ${layerId} exists`).toBeTruthy();
+  const canvas = new OffscreenCanvas(layer!.width, layer!.height);
+  const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
+  ctx.fillStyle = fill;
+  ctx.fillRect(0, 0, layer!.width, layer!.height);
+  engine.setLayerImageBitmap(layerId, canvas.transferToImageBitmap());
+  // `toIpcBytes`, because the transport only accepts a `Uint8Array`: a
+  // `Uint8ClampedArray` crosses real Tauri IPC as an index-keyed map and is
+  // rejected at the boundary, so handing one over would test nothing.
+  const bytes = toIpcBytes(rasterPixels(engine, layerId)!);
+  await store.invoke("rust_pixels_init", {
+    docId: DOC,
+    layerId,
+    width: layer!.width,
+    height: layer!.height,
+    bytes,
+  });
+  await store.invoke("rust_pixels_write_region", {
+    docId: DOC,
+    layerId,
+    x: 0,
+    y: 0,
+    w: layer!.width,
+    h: layer!.height,
+    rgba: bytes,
+  });
+}
+
 beforeAll(async () => {
   const mod = (await getWasmExportModule()) as WasmModule | null;
   expect(mod, "the REAL wasm pkg must load").not.toBeNull();
@@ -423,5 +499,133 @@ describe("routed composite op: one gesture, one undo, structure restored", () =>
       const topId = engine.getLayers()[0].id;
       return routeMergeDown(engine as never, null, makeRenderer(), topId);
     });
+  });
+});
+
+/**
+ * STORE RETIREMENT. A composite destination's Rust pixel-store entry is a
+ * projection of a raster whose whole life is the structural entry that minted it.
+ * When that structural entry is undone the destination is gone for good, so its
+ * store entry has to go with it - measured at `ab9c115` as a 65536-byte
+ * write-accepting entry still serving a retired id.
+ *
+ * The direction that matters: retirement must fire for a layer that is genuinely
+ * GONE, never for one the projection brought back. The counter-case below is the
+ * data-loss guard - if the scoping is inverted, two painted layers lose their
+ * store entries and their brush history with them.
+ */
+describe("store retirement on a routed composite undo", () => {
+  it("routeFlatten undo retires the destination's store entry", async () => {
+    const engine = await openSeededDocument();
+    await addOwnedLayer(engine, "Second", "#cc3366");
+    await addOwnedLayer(engine, "Third", "#33cc66");
+    const beforeIds = layerVector(engine);
+    store.calls.length = 0;
+
+    const status = await routeFlatten(engine as never, null, makeRenderer());
+    expect(status, "the routed arm ran, not the legacy fallback").toBe("applied");
+    const mergedId = engine.getLayer(engine.getActiveLayerId() || "")!.id;
+
+    // Premise: the entry EXISTS and is servable while the layer is live.
+    await settledPixelSteps(mergedId);
+    const live = await storeEntryState(mergedId);
+    expect(live.entryPresent, "premise: the live destination has a store entry").toBe(true);
+    expect(live.readRejected, "premise: the live destination's entry reads").toBe(false);
+
+    const handled = await runFacadeExternalHandoff(makeEditor(engine), "undo");
+    expect(handled, "the handoff owns the undo").toBe(true);
+    expect(layerVector(engine), "undo restored the layer vector").toEqual(beforeIds);
+    expect(
+      layerVector(engine).includes(mergedId),
+      "premise: the destination is no longer a live layer",
+    ).toBe(false);
+
+    expect(
+      await retiredStoreEntry(mergedId),
+      `the retired destination ${mergedId} has no servable store entry left`,
+    ).toBe(true);
+    const after = await storeEntryState(mergedId);
+    expect(after.entryPresent, "the store row is gone").toBe(false);
+    expect(after.readRejected, "a read for the retired id is rejected").toBe(true);
+  });
+
+  it("routeMergeSelected undo retires the destination's store entry", async () => {
+    const engine = await openSeededDocument();
+    await addOwnedLayer(engine, "Second", "#cc3366");
+    const ids = engine.getLayers().map((l) => l.id);
+    store.calls.length = 0;
+
+    const status = await routeMergeSelected(engine as never, null, makeRenderer(), ids);
+    expect(status, "the routed arm ran, not the legacy fallback").toBe("applied");
+    const mergedId = engine.getLayer(engine.getActiveLayerId() || "")!.id;
+    await settledPixelSteps(mergedId);
+
+    expect(await runFacadeExternalHandoff(makeEditor(engine), "undo")).toBe(true);
+    expect(
+      await retiredStoreEntry(mergedId),
+      `the retired destination ${mergedId} has no servable store entry left`,
+    ).toBe(true);
+  });
+
+  it("routeMergeDown undo retires the destination's store entry", async () => {
+    const engine = await openSeededDocument();
+    await addOwnedLayer(engine, "Below", "#cc3366");
+    const topId = engine.getLayers()[0].id;
+    store.calls.length = 0;
+
+    const status = await routeMergeDown(engine as never, null, makeRenderer(), topId);
+    expect(status, "the routed arm ran, not the legacy fallback").toBe("applied");
+    const mergedId = engine.getLayer(engine.getActiveLayerId() || "")!.id;
+    await settledPixelSteps(mergedId);
+
+    expect(await runFacadeExternalHandoff(makeEditor(engine), "undo")).toBe(true);
+    expect(
+      await retiredStoreEntry(mergedId),
+      `the retired destination ${mergedId} has no servable store entry left`,
+    ).toBe(true);
+  });
+
+  it("DATA-LOSS GUARD: merged-away layers the undo resurrects keep their own store entries", async () => {
+    const engine = await openSeededDocument();
+    await addOwnedLayer(engine, "Below", "#cc3366");
+    const topId = engine.getLayers()[0].id;
+    const belowId = engine.getLayers()[1].id;
+
+    // Both participants carry real brush history, so losing either store entry
+    // loses real pixel history - not just a cache.
+    await giveLayerBrushHistory(engine, topId, "#cc3366");
+    await giveLayerBrushHistory(engine, belowId, "#33cc66");
+    const beforeIds = layerVector(engine);
+    const beforeSignatures = beforeIds.map((id) => rasterSignature(engine, id));
+    const beforeStore = await storeEntryState(topId);
+    const beforeStoreBelow = await storeEntryState(belowId);
+    expect(beforeStore.steps, "premise: the top layer has pixel history").toBeGreaterThan(0);
+    expect(beforeStoreBelow.steps, "premise: the bottom layer has pixel history").toBeGreaterThan(0);
+
+    const status = await routeMergeDown(engine as never, null, makeRenderer(), topId);
+    expect(status, "the routed arm ran, not the legacy fallback").toBe("applied");
+
+    expect(await runFacadeExternalHandoff(makeEditor(engine), "undo")).toBe(true);
+    expect(layerVector(engine), "undo restored both participants").toEqual(beforeIds);
+    expect(
+      layerVector(engine).map((id) => rasterSignature(engine, id)),
+      "both restored layers carry their own raster",
+    ).toEqual(beforeSignatures);
+
+    for (const id of [topId, belowId]) {
+      const state = await storeEntryState(id);
+      expect(state.entryPresent, `resurrected ${id} keeps its store entry`).toBe(true);
+      expect(state.readRejected, `resurrected ${id}'s store entry is still servable`).toBe(false);
+      expect(state.steps, `resurrected ${id} keeps its own pixel history`).toBeGreaterThan(0);
+      expect(
+        storeEqualsBitmap(engine, id),
+        `resurrected ${id}'s store bytes are its OWN raster`,
+      ).toBe(true);
+    }
+    // The two entries must not have been swapped or collapsed into one.
+    expect(
+      store.layers.get(topId)!.pixels[0],
+      "the two resurrected layers hold different bytes",
+    ).not.toBe(store.layers.get(belowId)!.pixels[0]);
   });
 });

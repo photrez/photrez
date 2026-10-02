@@ -159,6 +159,11 @@ export async function seedCompositeCanonicalPixels(
 
     // Only stamp a version the write actually reported.
     syncFacadeVersionFromPixel(docId, res.version);
+    // The destination's store row is a projection, not a user edit, so the engine
+    // retires it when the projection that created the layer goes away (the undo of
+    // this structural step). Unmarked here it would outlive its layer and keep
+    // serving a retired id.
+    engine.markCompositeStoreProjection(layerId);
     renderer?.uploadImage?.(layerId, layer.imageBitmap);
     engine.notifyVisualChange();
     return { status: "CONVERGED", epoch: res.epoch, version: res.version, projected };

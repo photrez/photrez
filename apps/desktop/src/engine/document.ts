@@ -1826,10 +1826,7 @@ export class DocumentEngine {
       void (async () => {
         try {
           if (removedIds.length > 0) {
-            const { invoke } = await import("@tauri-apps/api/core");
-            for (const id of removedIds) {
-              await invoke("rust_pixels_remove_layer", { docId, layerId: id });
-            }
+            await this.retireRustStoreEntries(removedIds);
           }
           for (const id of resizedIds) {
             await syncLayerStoreToLayerRaster(docId, this, id);
@@ -2046,6 +2043,43 @@ export class DocumentEngine {
     this.droppedNodes.delete(id);
   }
 
+  /**
+   * Ids whose Rust pixel-store entry is a PROJECTION of a raster rather than a
+   * user edit: merge down / merge selected / flatten destinations, whose store
+   * entry exists only to hold the composite their structural entry minted, and
+   * carries no pixel history of its own.
+   *
+   * Such an entry must be retired with its layer. Without that, undoing the
+   * structural step restores the layer VECTOR but leaves a full-size,
+   * write-accepting store entry serving an id that no longer exists - measured
+   * at `ab9c115` as a 65536-byte entry still readable and still writable for a
+   * retired id.
+   *
+   * Only ids listed here are ever retired, and only once they are absent from a
+   * projection. A layer the projection brings BACK is present in that projection
+   * and never reaches the retirement; a pre-existing layer is never listed, so
+   * its brush history is never at risk.
+   */
+  private readonly compositeStoreIds = new Set<string>();
+
+  markCompositeStoreProjection(id: string): void {
+    if (id) this.compositeStoreIds.add(id);
+  }
+
+  /**
+   * Drop the Rust pixel-store rows for layers that have left the model. The
+   * single retirement command, shared by `restore` (legacy snapshot restore)
+   * and the facade projection (a layer the graph no longer lists) so neither
+   * path grows its own.
+   */
+  private async retireRustStoreEntries(ids: string[]): Promise<void> {
+    const docId = this.model.id;
+    const { invoke } = await import("@tauri-apps/api/core");
+    for (const id of ids) {
+      await invoke("rust_pixels_remove_layer", { docId, layerId: id });
+    }
+  }
+
   // ─── Facade Projection (Ticket 2.1) ───
   // Write the projected document size into the model when the projection is
   // authoritative and the size differs. See applyFacadeSnapshot.
@@ -2251,13 +2285,25 @@ export class DocumentEngine {
     // Reconcile per-layer resource maps for layer ids that vanished from the
     // projection (facade delete / undone add) — mirror legacy deleteLayer cleanup
     // so a deleted facade layer does not leak its surface/texture handles.
+    const retiredCompositeStores: string[] = [];
     for (const prev of existingById.keys()) {
       if (!nextIds.has(prev)) {
         const dropped = existingById.get(prev);
         if (dropped) this.recordDroppedNode(dropped);
         this.textureHandles.delete(prev);
         this.paintSurfaces.delete(prev);
+        // Retire the store row ONLY for a composite projection. Two guards keep
+        // this from touching live state: `prev` is absent from `nextIds` (so a
+        // layer the projection is bringing back never gets here), and `prev` is
+        // listed as a composite projection (so a pre-existing layer with real
+        // brush history is never dropped by an unrelated structural step).
+        if (this.compositeStoreIds.delete(prev)) retiredCompositeStores.push(prev);
       }
+    }
+    if (retiredCompositeStores.length > 0) {
+      void this.retireRustStoreEntries(retiredCompositeStores).catch((err) => {
+        console.warn("[facade-projection] composite store retirement failed:", err);
+      });
     }
     this.dirtyLayerIds.clear();
     for (const l of nextLayers) this.dirtyLayerIds.add(l.id);
