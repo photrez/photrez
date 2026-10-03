@@ -782,9 +782,52 @@ export function useLayerActions() {
         const layers = engine.getLayers();
         const activeIdx = activeId ? layers.findIndex((l) => l.id === activeId) : -1;
         const insertIdx = activeIdx < 0 ? 0 : activeIdx;
+        const beforeIds = new Set(layers.map((l) => l.id));
         const snap = await facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`, docW, docH, insertIdx);
         // Project facade snapshot into engine (engine becomes read-only view, no history)
         (engine as unknown as { applyFacadeSnapshot: (s: unknown) => void }).applyFacadeSnapshot(snap);
+        const added = engine.getLayers().filter((l) => !beforeIds.has(l.id));
+        const newId = added.length === 1 ? added[0].id : undefined;
+        if (newId) {
+          // A layer the graph invented arrives from the projection with NO raster:
+          // `applyFacadeSnapshot` rebuilds a layer it has no retained node for as
+          // metadata only (document.ts:2258-2268), because bitmaps live in the JS heap
+          // and are re-attached by id - and a graph-minted id has none. With no raster
+          // `getPaintSurface` returns null (document.ts:1447), so the brush's tile path
+          // is skipped (useBrushOverlay.ts:1205-1221) and the stroke commits through the
+          // LEGACY TYPESCRIPT path: a `ts:` payloadRef and no row in the Rust pixel
+          // store at all. Give it the transparent document-sized raster a new layer
+          // is, host-side after projecting, exactly as the routed composite arms do
+          // (structuralRouting.ts:224, :255, :283).
+          //
+          // The STORE is deliberately NOT seeded here. `c4CoreCommit` already seeds it
+          // from the surface on the first paint (`rust_pixels_init`,
+          // useBrushOverlay.ts:217-220), so seeding here too would make this a second
+          // owner of that step.
+          if (!added[0].imageBitmap) {
+            const canvas = new OffscreenCanvas(docW, docH);
+            // The 2d context must be obtained BEFORE the transfer: a real
+            // OffscreenCanvas throws InvalidStateError when it never had one, so
+            // transferring first would throw and skip the rest of this arm. Same
+            // order the document factory uses (workspace.ts:307-314).
+            if (!canvas.getContext("2d")) {
+              throw new Error("E_NO_2D_CONTEXT: cannot create the added layer's raster");
+            }
+            const blank = canvas.transferToImageBitmap();
+            engine.setLayerImageBitmap(newId, blank);
+            renderer.uploadImage(newId, blank);
+          }
+          // Both arms select the layer they just added: the flag-off arm's
+          // `engine.addLayer` selects, and the routed duplicate arm selects
+          // (`setSelectedLayerIds(res.newIds)`, :99). `applyFacadeSnapshot` only
+          // reassigns the active layer when the current one LEFT the projection
+          // (document.ts:2302-2304), so a plain add left the previous layer active -
+          // the user then painted on the layer they had not chosen. This mirrors the
+          // selection the graph already made, the way `routeMergeDown` mirrors its own
+          // (`engine.setActiveLayer(mergedId)`, structuralRouting.ts:227).
+          engine.setActiveLayer(newId);
+          setSelectedLayerId(newId);
+        }
         scheduler.requestRender();
       } catch (err) {
         const msg = (err as Error).message;
