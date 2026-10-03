@@ -37,6 +37,7 @@
  *    epoch and version, and tiles are 256-grid.
  */
 import { vi } from "vitest";
+import { snapshotBitmap } from "@/__tests__/faithfulOffscreenCanvas";
 
 /**
  * The real Tauri IPC replacer, transcribed from
@@ -319,20 +320,26 @@ export function createRustStoreEmulator(): RustStoreEmulator {
  * `createImageBitmap` shim for jsdom (which has none). `PaintTileSurface
  * .toImageBitmap()` routes through it, and the Rust-recorded ops project the
  * store's tiles back into `layer.imageBitmap` through exactly that call.
+ *
+ * MOCK FIDELITY: the bitmap carries the source's REAL pixels, read through the same
+ * reader the faithful canvas shim uses (`snapshotBitmap`) and COPIED at call time.
+ * The previous body read `src.data`, which a canvas does not have, so every bitmap
+ * this mock handed back reported a valid size over zeroed pixels: indistinguishable
+ * from a real bitmap by shape, and it painted nothing at all when a draw source was
+ * read through it. A helper whose canvas stand-in looks real and carries nothing is
+ * the same defect the faithful shim exists to eliminate, one layer over - and it is
+ * the layer a suite reaches when it installs this mock instead of that shim.
+ *
+ * `_buffer` and the `close` spy are kept because the per-suite canvas mocks in this
+ * repo read a draw source through `_buffer`, and callers assert on `close`.
  */
 export function installCreateImageBitmapMock(): void {
   (globalThis as any).createImageBitmap = async (src: any) => {
-    const w = src.width;
-    const h = src.height;
-    const buffer = (src as any)._buffer
-      ? new Uint8ClampedArray((src as any)._buffer)
-      : new Uint8ClampedArray(w * h * 4);
-    return {
-      width: w,
-      height: h,
-      _buffer: buffer,
-      close: vi.fn(),
-    } as unknown as ImageBitmap;
+    const bitmap = snapshotBitmap(src, Number(src?.width) || 0, Number(src?.height) || 0) as unknown as Record<string, unknown>;
+    const read = bitmap.getImageData as () => { data: Uint8ClampedArray };
+    bitmap._buffer = read().data;
+    bitmap.close = vi.fn();
+    return bitmap;
   };
   // `applyRustTilesToSurface` constructs `ImageData` directly, and jsdom has
   // none; without it the Rust-recorded ops throw while applying the store's

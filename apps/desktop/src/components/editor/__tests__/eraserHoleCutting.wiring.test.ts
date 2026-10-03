@@ -31,13 +31,22 @@
  * below has NO prior brush stroke at all, and still cuts holes. Prior history is not what
  * enables the erase.
  *
- * HARNESS FIDELITY. Real `DocumentEngine`, real wasm graph mirror, real `EditorFacade`,
- * the transport-faithful Rust store emulator (rejects where Rust rejects, including
- * `rust_pixels_get_epoch` for an unseeded layer), and the REAL `useBrushOverlay` hook
- * driven through its exported `onPaintStroke` / `commitBrushStroke`. The raster is read
- * back from the STORE, never from a downstream symptom. The tool is set INSIDE the helper:
- * a helper that sets the tool to brush and then strokes has shipped a false positive in
- * this repo before.
+ // WHAT THE PIXEL ASSERTIONS HERE ARE WORTH. The raster is read back from the store,
+// and each claim is pinned in a form that a wrong result CANNOT satisfy: the eraser
+// is measured with LOCALITY (holes inside the stroke's band, the off-band provably
+// untouched) rather than a whole-layer count that a one-pixel hole and a full wipe
+// share, and the brush is measured by an EXACT-COLOUR census rather than a colour
+// sum that a white dab moves just as much as the intended swatch. The shim itself is
+// pinned in __tests__/faithfulOffscreenCanvas.test.ts; if the shim draws nothing,
+// every assertion above is vacuous, so that file is not optional.
+//
+// HARNESS FIDELITY. Real `DocumentEngine`, real wasm graph mirror, real `EditorFacade`,
+// the transport-faithful Rust store emulator (rejects where Rust rejects, including
+// `rust_pixels_get_epoch` for an unseeded layer), and the REAL `useBrushOverlay` hook
+// driven through its exported `onPaintStroke` / `commitBrushStroke`. The raster is read
+// back from the STORE, never from a downstream symptom. The tool is set INSIDE the helper:
+// a helper that sets the tool to brush and then strokes has shipped a false positive in
+// this repo before.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -177,6 +186,12 @@ type Engine = ReturnType<WorkspaceManager["getActiveEngine"]> & object;
 /** Dims + content digest + alpha census, read back from the STORE. */
 type Raster = { sumRGB: number; nz: number; alphaZero: number; present: boolean; epoch: number };
 
+type StoreTiles = Array<{ x: number; y: number; w: number; h: number; data: number[] }>;
+
+async function storeTiles(docId: string, layerId: string): Promise<StoreTiles> {
+  return (await store.invoke("rust_pixels_snapshot_layer", { docId, layerId })) as StoreTiles;
+}
+
 async function readStoreRaster(docId: string, layerId: string): Promise<Raster> {
   let epoch = 0;
   try {
@@ -185,13 +200,7 @@ async function readStoreRaster(docId: string, layerId: string): Promise<Raster> 
     // The emulator REJECTS for an unseeded layer - that rejection IS the absence.
     return { sumRGB: 0, nz: 0, alphaZero: 0, present: false, epoch: 0 };
   }
-  const tiles = (await store.invoke("rust_pixels_snapshot_layer", { docId, layerId })) as Array<{
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    data: number[];
-  }>;
+  const tiles = await storeTiles(docId, layerId);
   let sumRGB = 0;
   let nz = 0;
   let alphaZero = 0;
@@ -209,6 +218,68 @@ async function readStoreRaster(docId: string, layerId: string): Promise<Raster> 
   return { sumRGB, nz, alphaZero, present: true, epoch };
 }
 
+/**
+ * The same census restricted to a rect. Locality is the whole point of an eraser
+ * measurement: "holes in the band" and "the entire layer destroyed" are both
+ * `alphaZero > 0`, so the band and the off-band have to be read separately or the
+ * assertion cannot tell them apart.
+ */
+async function readStoreRect(
+  docId: string,
+  layerId: string,
+  x0: number,
+  y0: number,
+  rw: number,
+  rh: number,
+): Promise<Raster & { pixels: number }> {
+  const tiles = await storeTiles(docId, layerId);
+  let sumRGB = 0;
+  let nz = 0;
+  let alphaZero = 0;
+  let pixels = 0;
+  for (const t of tiles) {
+    for (let row = 0; row < t.h; row++) {
+      const py = t.y + row;
+      if (py < y0 || py >= y0 + rh) continue;
+      for (let col = 0; col < t.w; col++) {
+        const px = t.x + col;
+        if (px < x0 || px >= x0 + rw) continue;
+        const i = (row * t.w + col) * 4;
+        const r = t.data[i];
+        const g = t.data[i + 1];
+        const b = t.data[i + 2];
+        const a = t.data[i + 3];
+        pixels += 1;
+        sumRGB += r + g + b;
+        if (r !== 0 || g !== 0 || b !== 0 || a !== 0) nz += 1;
+        if (a === 0) alphaZero += 1;
+      }
+    }
+  }
+  return { sumRGB, nz, alphaZero, present: true, epoch: 0, pixels };
+}
+
+/**
+ * How many store pixels match an exact predicate. This is what a colour claim has
+ * to be made of: a change in a colour SUM cannot tell #cc3300 from white, but an
+ * exact pixel match can, because a wrong-colour dab contributes to one count and
+ * not the other.
+ */
+async function readStoreMatching(
+  docId: string,
+  layerId: string,
+  match: (r: number, g: number, b: number, a: number) => boolean,
+): Promise<number> {
+  const tiles = await storeTiles(docId, layerId);
+  let n = 0;
+  for (const t of tiles) {
+    for (let i = 0; i + 3 < t.data.length; i += 4) {
+      if (match(t.data[i], t.data[i + 1], t.data[i + 2], t.data[i + 3])) n += 1;
+    }
+  }
+  return n;
+}
+
 const SETTINGS = { size: 32, hardness: 1, opacity: 1, flow: 1, smoothing: 0 };
 
 /**
@@ -223,6 +294,9 @@ async function eraseBandOn(
 ): Promise<{
   before: Raster;
   after: Raster;
+  /** The document and layer the store census must be re-read for. */
+  docId: string;
+  layerId: string;
   stages: string;
   /** What actually went on the wire. */
   payload: { sumRGB: number; alphaZero: number; w: number; h: number } | null;
@@ -338,6 +412,8 @@ async function eraseBandOn(
   return {
     before,
     after: await readStoreRaster(DOC, layer.id),
+    docId: DOC,
+    layerId: layer.id,
     stages: `overlay alphaZero=${oAlphaZero} surface alphaZero=${sAlphaZero} writes=${JSON.stringify(writes)}`,
     payload: writes[0]
       ? { sumRGB: writes[0].sumRGB, alphaZero: writes[0].alphaZero, w: writes[0].w, h: writes[0].h }
@@ -393,7 +469,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("eraser on an opaque white layer: what decides whether it cuts holes", () => {
+describe("eraser and brush on the store raster: what decides whether pixels change", () => {
   /**
    * THE REPORTED CASE. The real-app run erased the BACKGROUND layer, where the
    * eraser is a source-over paint of the background swatch, not a destination-out
@@ -467,13 +543,51 @@ describe("eraser on an opaque white layer: what decides whether it cuts holes", 
     // THE PIXEL-LEVEL ERASER ASSERTION. RED before the shim's `drawImage` could read a
     // canvas source (every dab silently drew nothing, so `destination-out` was inert and
     // the store came back byte-identical), GREEN after.
-    const { before, after } = await eraseBandOn({ isBackground: false, bgSwatch: "#ffffff" });
+    //
+    // The discriminating measurement is LOCALITY, and a whole-layer alphaZero rise
+    // cannot express it: `alphaZero > 0` is equally true for a one-pixel hole and for
+    // all 4096 pixels erased, so the band the stroke crossed and the band it did not
+    // are read separately and both are pinned.
+    const { before, after, docId, layerId } = await eraseBandOn({
+      isBackground: false,
+      bgSwatch: "#ffffff",
+    });
 
-    expect(after.alphaZero, "the erased band must become transparent IN THE STORE").toBeGreaterThan(
+    // The stroke runs along y = SIZE / 2 with a 32px tip, so rows [16,48) are the band
+    // and rows [0,8) are nine rows clear of the nearest dab.
+    const band = await readStoreRect(docId, layerId, 0, 16, SIZE, 32);
+    const offBand = await readStoreRect(docId, layerId, 0, 0, SIZE, 8);
+
+    expect(band.alphaZero, "the erased band must become transparent IN THE STORE").toBeGreaterThan(
+      0,
+    );
+    expect(after.alphaZero, "so the layer-wide transparent count must rise").toBeGreaterThan(
       before.alphaZero,
     );
+    // One 32px tip has ~750 pixels in its opaque core, so a single dab already erases
+    // far more than 512. A one-pixel hole cannot satisfy this.
+    expect(
+      after.alphaZero,
+      "a 32px tip erasing a 48px-long stroke must remove hundreds of pixels, not one",
+    ).toBeGreaterThanOrEqual(512);
+    expect(
+      after.alphaZero,
+      "and it must NOT be the whole layer: locality is what separates an erase from a wipe",
+    ).toBeLessThan(SIZE * SIZE);
     expect(after.nz, "and the opaque pixel count must fall").toBeLessThan(before.nz);
     expect(after.sumRGB, "so the colour sum must fall").toBeLessThan(before.sumRGB);
+
+    // The off-band is the part that makes the measurement mean something.
+    expect(offBand.pixels, "premise: the off-band rect is the size it claims to be").toBe(SIZE * 8);
+    expect(
+      offBand.alphaZero,
+      "the off-band must stay fully opaque: an erase that reached it was a wipe",
+    ).toBe(0);
+    expect(offBand.nz, "and every off-band pixel must still be non-zero").toBe(SIZE * 8);
+    expect(
+      offBand.sumRGB,
+      "and still white - the seeded store value, so nothing repainted or erased it",
+    ).toBe(SIZE * 8 * 3 * 255);
   });
 
   it("a BRUSH stroke deposits pixels in the store and leaves the rest untouched", async () => {
@@ -481,7 +595,7 @@ describe("eraser on an opaque white layer: what decides whether it cuts holes", 
     // project: every pre-existing paint test counts writes and call shapes, so none of
     // them could see that the shim was drawing nothing. RED before the shim's
     // `drawImage` learned to read a canvas source, GREEN after.
-    const { before, after } = await eraseBandOn({
+    const { before, after, docId, layerId } = await eraseBandOn({
       isBackground: false,
       bgSwatch: "#ffffff",
       tool: "brush",
@@ -495,8 +609,27 @@ describe("eraser on an opaque white layer: what decides whether it cuts holes", 
       before.alphaZero - after.alphaZero,
       "and the blank count must FALL by the deposited pixels",
     ).toBe(after.nz - before.nz);
-    // Not "a write happened": the painted colour must actually be in the buffer.
-    expect(after.sumRGB, "and the colour sum must change").not.toBe(before.sumRGB);
+
+    // Not "a write happened" and not "a colour sum moved": the deposited pixels must
+    // BE #cc3300. A colour sum rises just as happily for white, and on a blank layer
+    // any non-zero sum satisfies a sum-differs check, so the exact-colour census is
+    // the only form of this assertion that can fail on a wrong-colour dab.
+    const isFg = (r: number, g: number, b: number, a: number): boolean =>
+      r === 204 && g === 51 && b === 0 && a > 0;
+    const painted = await readStoreMatching(docId, layerId, isFg);
+    const deposited = after.nz - before.nz;
+
+    expect(deposited, "the stroke must deposit pixels at all").toBeGreaterThan(0);
+    expect(
+      painted,
+      "EVERY deposited pixel must be exactly the fg swatch #cc3300 - one white pixel would " +
+        "satisfy a colour-sum change while contributing nothing to this count",
+    ).toBe(deposited);
+    expect(
+      await readStoreMatching(docId, layerId, (r, g, b, a) => r !== 0 || g !== 0 || b !== 0 || a !== 0),
+      "and the store must hold no other coloured pixel at all: a stroke that deposited the " +
+        "right colour AND something else fails here",
+    ).toBe(deposited);
   });
 
   it("prior brush history is NOT the discriminator - the layer KIND is", () => {

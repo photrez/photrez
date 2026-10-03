@@ -209,6 +209,42 @@ describe("selection tool — history + renderer integration on edit (regression:
     clearRegistry();
   });
 
+  it("NON-VACUITY: the jsdom createImageBitmap mock carries this suite's canvas pixels", async () => {
+    // Every other case here asserts history entries, renderer uploads and bitmap
+    // IDENTITY (`lastCall[1] === layer.imageBitmap`), so none of them can see whether
+    // a bitmap has pixels at all - `toBe` on an opaque object passes just as well for
+    // an empty one. The mock is what `PaintTileSurface.toImageBitmap` routes through,
+    // so a bitmap reporting a valid size with no bytes would make every draw of it a
+    // silent no-op across this file. This suite's canvas mock has no fillRect, so the
+    // canvas is filled through its putImageData.
+    const canvas = new OffscreenCanvas(8, 8);
+    const ctx = canvas.getContext("2d") as any;
+    ctx.putImageData({ data: new Uint8ClampedArray(8 * 8 * 4).fill(255), width: 8, height: 8 }, 0, 0);
+
+    const bitmap = (await (globalThis as any).createImageBitmap(canvas)) as {
+      width: number;
+      _buffer: Uint8ClampedArray;
+    };
+    expect(bitmap.width, "the bitmap keeps the canvas geometry").toBe(8);
+    expect(bitmap._buffer.length, "and a full-size buffer, not a short one").toBe(8 * 8 * 4);
+    let painted = 0;
+    for (let i = 0; i + 3 < bitmap._buffer.length; i += 4) {
+      if (
+        bitmap._buffer[i] === 255 &&
+        bitmap._buffer[i + 1] === 255 &&
+        bitmap._buffer[i + 2] === 255 &&
+        bitmap._buffer[i + 3] === 255
+      ) {
+        painted += 1;
+      }
+    }
+    expect(
+      painted,
+      "every filled pixel must survive the mock, or a draw of this bitmap paints nothing " +
+        "and the identity assertions above still pass",
+    ).toBe(8 * 8);
+  });
+
   // ── Bug 1: redo doesn't work for selection edits ──
 
   it("Delete commits pre-action snapshot to history (regression: redo broken)", async () => {

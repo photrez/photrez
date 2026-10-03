@@ -165,6 +165,59 @@ afterEach(() => {
 });
 
 describe("store currency after a dimension-changing crop", () => {
+  it("NON-VACUITY: the jsdom createImageBitmap mock carries this suite's canvas pixels", async () => {
+    // The other assertions in this file are about store CURRENCY - dimensions, tile
+    // coverage, write geometry - and none of them looks at the pixels a bitmap
+    // carries. That left a hole: this suite's canvas stub exposes its raster as
+    // `_buffer`, and `createImageBitmap` is what `PaintTileSurface.toImageBitmap`
+    // routes through, so a bitmap reporting a valid size and no bytes made every
+    // draw in this file a silent no-op no assertion here could see.
+    // This pins the contract the rest of the file rests on: a filled canvas comes
+    // back out of the mock as a bitmap with a full-size buffer and those pixels in it.
+    // Filled through `putImageData`, NOT `fillRect`. Written with `fillStyle =
+    // "#ff0000"` + `fillRect` first, this assertion failed with `expected +0 to be
+    // 64` - and the reason is worth recording rather than working around silently:
+    // this stub's `fillRect` (`:75-84`) never reads `fillStyle` and always writes
+    // opaque BLACK (`_buffer[i..i+2] = 0`, `_buffer[i+3] = 255`). So a fill through
+    // it cannot produce a chosen colour at all, and `makeEngine()`'s
+    // `ctx.fillStyle = "#ff0000"` above does not do what it reads like it does - the
+    // layer's canvas is black while `redRaster()` seeds the STORE red. Any assertion
+    // about a specific colour in this suite must therefore go through `putImageData`
+    // (`:118-131`), which writes `_buffer` byte for byte. Recorded here so nobody
+    // reads a colour assertion in this file as covering the fill path.
+    const canvas = new OffscreenCanvas(8, 8);
+    const ctx = canvas.getContext("2d") as any;
+    const filled = new Uint8ClampedArray(8 * 8 * 4);
+    for (let i = 0; i < filled.length; i += 4) {
+      filled[i] = 255;
+      filled[i + 3] = 255;
+    }
+    ctx.putImageData({ data: filled, width: 8, height: 8 }, 0, 0);
+
+    const bitmap = (await (globalThis as any).createImageBitmap(canvas)) as {
+      width: number;
+      height: number;
+      _buffer: Uint8ClampedArray;
+    };
+    expect(bitmap.width, "the bitmap keeps the canvas geometry").toBe(8);
+    expect(bitmap.height).toBe(8);
+    expect(
+      bitmap._buffer.length,
+      "a full-size buffer: a short one reports a raster it does not have",
+    ).toBe(8 * 8 * 4);
+    let painted = 0;
+    for (let i = 0; i + 3 < bitmap._buffer.length; i += 4) {
+      const r = bitmap._buffer[i];
+      const g = bitmap._buffer[i + 1];
+      const b = bitmap._buffer[i + 2];
+      const a = bitmap._buffer[i + 3];
+      if (r === 255 && g === 0 && b === 0 && a === 255) painted += 1;
+    }
+    expect(
+      painted,
+      "every filled pixel must survive the mock, or a draw of this bitmap paints nothing",
+    ).toBe(8 * 8);
+  });
   it("reseeds the Rust store to the post-crop dimensions and tile coverage", async () => {
     const { engine, layerId } = makeEngine();
 

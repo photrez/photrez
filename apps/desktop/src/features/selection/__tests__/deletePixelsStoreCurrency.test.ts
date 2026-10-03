@@ -185,6 +185,55 @@ afterEach(() => {
 });
 
 describe("delete pixels / cut do not leave the Rust store stale", () => {
+  it("NON-VACUITY: the jsdom createImageBitmap mock carries this suite's canvas pixels", async () => {
+    // The rest of this file asserts store currency - write counts, hashes, alpha at
+    // chosen coordinates - and never looks at the pixels a minted bitmap carries. That
+    // left the mock unasserted, and it is what `PaintTileSurface.toImageBitmap` routes
+    // through: a bitmap reporting a valid size with no bytes turns every draw of it
+    // into a silent no-op that a write-count assertion cannot see.
+    // Filled through `putImageData`, NOT `fillRect`. Written with `fillStyle =
+    // "#ff0000"` + `fillRect` first, this assertion failed with `expected +0 to be
+    // 64`, and the reason is the useful part rather than an obstacle: this stub's
+    // `fillRect` (`:76-84`) never reads `fillStyle` and always writes opaque BLACK
+    // (`_buffer[i..i+2] = 0`, `_buffer[i+3] = 255`). The fill was painting all along -
+    // just not in the colour the assertion was asking for. So this suite cannot
+    // express a chosen colour through its fill path at all, and `makeEngine()`'s
+    // `ctx.fillStyle = "#ff0000"` does not do what it reads like it does: the layer's
+    // canvas is black while `redRaster()` seeds the STORE red. A colour assertion here
+    // has to go through `putImageData` (`:119-132`), which writes `_buffer` byte for
+    // byte. Recorded so a colour assertion in this file is not mistaken for coverage
+    // of the fill path.
+    const canvas = new OffscreenCanvas(8, 8);
+    const ctx = canvas.getContext("2d") as any;
+    const filled = new Uint8ClampedArray(8 * 8 * 4);
+    for (let i = 0; i < filled.length; i += 4) {
+      filled[i] = 255;
+      filled[i + 3] = 255;
+    }
+    ctx.putImageData({ data: filled, width: 8, height: 8 }, 0, 0);
+    const bitmap = (await (globalThis as any).createImageBitmap(canvas)) as {
+      width: number;
+      _buffer: Uint8ClampedArray;
+    };
+    expect(bitmap.width, "the bitmap keeps the canvas geometry").toBe(8);
+    expect(bitmap._buffer.length, "and a full-size buffer, not a short one").toBe(8 * 8 * 4);
+    let painted = 0;
+    for (let i = 0; i + 3 < bitmap._buffer.length; i += 4) {
+      if (
+        bitmap._buffer[i] === 255 &&
+        bitmap._buffer[i + 1] === 0 &&
+        bitmap._buffer[i + 2] === 0 &&
+        bitmap._buffer[i + 3] === 255
+      ) {
+        painted += 1;
+      }
+    }
+    expect(
+      painted,
+      "every filled pixel must survive the mock, or a delete re-seeding from it would " +
+        "clear the whole layer and no write count would notice",
+    ).toBe(8 * 8);
+  });
   it("deleteSelection records one rust_pixels_write_region over the deleted region", async () => {
     const { engine, history, layerId, renderer } = makeEngine();
     engine.createSelection(20, 20, 30, 30);
