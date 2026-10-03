@@ -173,9 +173,13 @@ jobs:
       - name: Bun audit (high/critical)
         # Ignored advisories (pre-existing, transitive-only; revisit 2026-10-01):
         #   GHSA-r28c-9q8g-f849, GHSA-2pvr-wf23-7pc7, GHSA-8hv8-536x-4wqp
+        #   GHSA-vfj7-8cjw-p6xm (braces), GHSA-ch52-4w7c-c8xp (http-cache-semantics)
+        #   Both have NO patched version published — braces' latest is 3.0.3 and
+        #   http-cache-semantics' latest is 4.2.0, which are the vulnerable ones.
         # Remove the --ignore flags once a patched version is published or the
-        # offending dependency is dropped from the lockfile.
-        run: bun audit --prod --audit-level=high --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp
+        # offending dependency is dropped from the lockfile. Keep this list and
+        # the one in .husky/pre-push identical.
+        run: bun audit --prod --audit-level=high --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp --ignore GHSA-vfj7-8cjw-p6xm --ignore GHSA-ch52-4w7c-c8xp
 
   # ─── COMPONENT TESTS: jsdom-based (now passing — blocks PR) ───
   component-tests:

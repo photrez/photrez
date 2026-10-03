@@ -33,13 +33,19 @@ cargo fmt --check || {
 
 # 4. Dependency audit — mirrors the CI Security audit job (bun side). Advisory
 #    must be patched via root "overrides" + `bun install` before pushing.
+#    Ignored advisories match the CI job's list exactly (see .github/workflows/ci.yml):
+#    transitive-only, no patched version published yet, revisit 2026-10-01.
 echo ""
 echo "[4/4] Running bun audit (high/critical)..."
-bun audit --prod --audit-level=high || {
+bun audit --prod --audit-level=high \
+  --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp \
+  --ignore GHSA-vfj7-8cjw-p6xm --ignore GHSA-ch52-4w7c-c8xp || {
   echo ""
   echo "ERROR: HIGH/CVSS advisory found. Bump the root 'overrides'"
   echo "       (e.g. undici, fast-uri) to the patched version,"
   echo "       run 'bun install', and re-stage bun.lock."
+  echo "       If no patched version exists, add the advisory to BOTH this"
+  echo "       ignore list and ci.yml with a revisit date."
   exit 1
 }
 
