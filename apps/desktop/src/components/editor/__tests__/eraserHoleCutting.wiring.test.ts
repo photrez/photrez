@@ -219,7 +219,15 @@ const SETTINGS = { size: 32, hardness: 1, opacity: 1, flow: 1, smoothing: 0 };
  */
 async function eraseBandOn(
   opts: { isBackground: boolean; bgSwatch: string },
-): Promise<{ before: Raster; after: Raster; stages: string }> {
+): Promise<{
+  before: Raster;
+  after: Raster;
+  stages: string;
+  /** Overlay census read AFTER the final composite, BEFORE the snapshot capture. */
+  overlayAtSnapshot: Raster;
+  /** What actually went on the wire. */
+  payload: { sumRGB: number; alphaZero: number; w: number; h: number } | null;
+}> {
   const wm = new WorkspaceManager();
   const session = WorkspaceManager.createBlankDocument(DOC, "Eraser", SIZE, SIZE);
   wm.addDocument(session);
@@ -292,6 +300,27 @@ async function eraseBandOn(
     SETTINGS,
     true,
   );
+  // THE SEAM MEASUREMENT. `onPaintStroke(..., isFinal=true)` runs the final composite
+  // synchronously (useBrushOverlay.ts:939-941) and the snapshot capture happens INSIDE
+  // `commitBrushStroke` (:1424-1426), so this read sits exactly between them and needs no
+  // trust in the dab path: it is the overlay the capture is about to copy.
+  //   overlay erased here, payload opaque  -> the SNAPSHOT CAPTURE is the defect
+  //   overlay pre-stroke here             -> the COMPOSITE is the defect
+  const snapshotCensus = (() => {
+    const ctx = overlayCanvas.getContext("2d") as unknown as {
+      getImageData(): { data: Uint8ClampedArray };
+    };
+    const d = ctx.getImageData().data;
+    let sumRGB = 0;
+    let alphaZero = 0;
+    for (let i = 0; i + 3 < d.length; i += 4) {
+      sumRGB += d[i] + d[i + 1] + d[i + 2];
+      if (d[i + 3] === 0) alphaZero += 1;
+    }
+    return { sumRGB, nz: d.length / 4 - alphaZero, alphaZero, present: true, epoch: 0 };
+  })();
+
+  writes = [];
   await overlay.commitBrushStroke(engine as never, history as never, layer.id, true);
   await flushC4Commits();
 
@@ -318,6 +347,10 @@ async function eraseBandOn(
     before,
     after: await readStoreRaster(DOC, layer.id),
     stages: `overlay alphaZero=${oAlphaZero} surface alphaZero=${sAlphaZero} writes=${JSON.stringify(writes)}`,
+    overlayAtSnapshot: snapshotCensus,
+    payload: writes[0]
+      ? { sumRGB: writes[0].sumRGB, alphaZero: writes[0].alphaZero, w: writes[0].w, h: writes[0].h }
+      : null,
   };
 }
 
@@ -389,8 +422,51 @@ describe("eraser on an opaque white layer: what decides whether it cuts holes", 
     ).toBeGreaterThan(before.epoch);
   });
 
+  it.fails("SEAM MEASUREMENT: a NON-background erase must reach the wire", async () => {
+    // THE MEASUREMENT, and the answer it gave.
+    //
+    // `onPaintStroke(..., isFinal=true)` runs the final composite synchronously
+    // (useBrushOverlay.ts:939-941); the snapshot capture happens INSIDE
+    // `commitBrushStroke` (:1424-1426). The census below is read between those two, so it
+    // needs no trust in the dab path.
+    //
+    //   overlayAtSnapshot = { sumRGB: 3133440, nz: 4096, alphaZero: 0 }   PRE-STROKE WHITE
+    //   payload           = { sumRGB: 1811520, alphaZero: 0, w: 64, h: 37 }
+    //   store after       = { sumRGB: 3133440, nz: 4096, alphaZero: 0, epoch: 1 }
+    //
+    // The overlay does NOT hold the erase at capture time and DOES hold it afterwards
+    // (post-commit `overlay alphaZero=4096`), so the erase is applied to the overlay after
+    // the payload was copied. THE SEAM IS THE COMPOSITE, not the snapshot capture: the
+    // final composite is not producing the erased overlay that `c4ScratchSnap` copies.
+    //
+    // `it.fails` pins the defect exactly and keeps the suite green; when the composite is
+    // fixed this test will fail loudly, which is the alarm we want. Delete it then.
+    const { before, after, overlayAtSnapshot, payload, stages } = await eraseBandOn({
+      isBackground: false,
+      bgSwatch: "#ffffff",
+    });
+
+    const report =
+      "overlayAtSnapshot=" + JSON.stringify(overlayAtSnapshot) +
+      " payload=" + JSON.stringify(payload) +
+      " store=" + JSON.stringify(after) +
+      " before=" + JSON.stringify(before) +
+      " " + stages;
+
+    // INVARIANT, stated once and true in both directions: the payload is a copy of the
+    // overlay region, so overlay-erased-but-payload-opaque names the SNAPSHOT CAPTURE,
+    // and overlay-pre-stroke names the COMPOSITE.
+    expect(
+      payload !== null && payload.alphaZero > 0,
+      "the payload must carry erased pixels; " + report,
+    ).toBe(true);
+    expect(
+      after.alphaZero,
+      "and the store must end up with holes; " + report,
+    ).toBeGreaterThan(before.alphaZero);
+  });
+
   it("prior brush history is NOT the discriminator - the layer KIND is", () => {
-    // The working measurement in the field brushed first and then erased; this one
     // erased an already-opaque layer. `resolveEraserFill` reads ONE field, and it is
     // not history.
     expect(resolveEraserFill({ isBackground: true } as never, true, "#ffffff")).toEqual({
