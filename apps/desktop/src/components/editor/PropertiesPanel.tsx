@@ -167,6 +167,45 @@ export function PropertiesPanel() {
   // triggers reactive cleanup while a child EditableNumField is still reading props.value.
   const safeLayer = createMemo(() => activeLayer());
 
+  // Null-tolerant read of everything the Transform and Appearance sections display.
+  //
+  // `<Show when={safeLayer()} fallback={<CanvasProperties />}>` already gates those sections
+  // for a missing layer, but a Show guards the FIRST render only. Closing the last document
+  // makes the outer `<Show when={activeDocumentId()}>` go null, which unmounts the tree, and
+  // a reactive prop inside the still-live Transform branch is read again on the way out: a
+  // field being committed reads `props.value` in EditableNumField.commit(). By then
+  // safeLayer() is null, so a non-null assertion there is a null dereference that takes the
+  // whole shell down. Same stale-getter class the comment above names, one level down.
+  //
+  // Reading through one memo that yields null hands the primitives the values they already
+  // accept - a number, and a boolean `disabled` - so a re-evaluation on the way out yields
+  // inert defaults instead of a TypeError. `locked` defaults to true so a field can never be
+  // committed against a layer that no longer exists.
+  const tf = createMemo(() => {
+    const l = safeLayer();
+    if (!l) return null;
+    return {
+      x: l.transform.x,
+      y: l.transform.y,
+      w: l.width * l.transform.scaleX,
+      h: l.height * l.transform.scaleY,
+      rotation: l.transform.rotation,
+      scaleX: l.transform.scaleX,
+      scaleY: l.transform.scaleY,
+      opacity: l.opacity,
+      name: l.name,
+      pxW: l.width,
+      pxH: l.height,
+      typeLabel:
+        l.type === "raster"
+          ? "Image layer"
+          : `${l.type.charAt(0).toUpperCase()}${l.type.slice(1)} layer`,
+      locked: l.locked,
+      lockPosition: l.lockPosition,
+      lockRotation: l.lockRotation,
+    };
+  });
+
   const safeText = createMemo(() => {
     const l = safeLayer();
     return l && l.type === "text" && l.textData ? (l as LayerNode & { type: "text"; textData: TextData }) : null;
@@ -416,13 +455,13 @@ export function PropertiesPanel() {
                       label={t("properties.selectedLayer", "Selected Layer")}
                     />
                     <div class="mt-2 flex items-center gap-2.5 rounded-[4px] border border-editor-divider bg-editor-field p-2">
-                      <LayerThumb layer={safeLayer()!} isActive={true} />
+                      <LayerThumb layer={safeLayer()} isActive={true} />
                       <div class="min-w-0 flex-1">
-                        <p class="truncate text-[11.5px] font-medium text-editor-text leading-tight" title={safeLayer()!.name}>
-                          {safeLayer()!.name}
+                        <p class="truncate text-[11.5px] font-medium text-editor-text leading-tight" title={tf()?.name ?? ""}>
+                          {tf()?.name ?? ""}
                         </p>
                         <p class="truncate text-[10.5px] text-editor-text-dim leading-snug mt-0.5">
-                          {safeLayer()!.type === "raster" ? "Image layer" : `${safeLayer()!.type.charAt(0).toUpperCase()}${safeLayer()!.type.slice(1)} layer`} · {safeLayer()!.width} × {safeLayer()!.height} px
+                          {tf()?.typeLabel ?? ""} · {tf()?.pxW ?? 0} × {tf()?.pxH ?? 0} px
                         </p>
                       </div>
                     </div>
@@ -446,7 +485,7 @@ export function PropertiesPanel() {
                               type="button"
                               data-font-picker-trigger-inspector
                               aria-label="Font family"
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               onClick={() => {
                                 setFontPickerOpen((v) => !v);
                                 setFontSearch("");
@@ -513,14 +552,14 @@ export function PropertiesPanel() {
                               min={1}
                               max={2000}
                               onSubmit={(v) => commitTextDataEdit({ fontSize: Math.max(1, Math.min(2000, Math.round(v))) }, "Change Font Size")}
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               class="w-20 shrink-0"
                             />
                             <SelectDropdown
                               value={String(textLayer().textData.fontWeight)}
                               options={FONT_WEIGHT_PRESETS.map((p) => ({ value: String(p.value), label: p.label }))}
                               onChange={(v) => commitTextDataEdit({ fontWeight: Number(v) }, "Change Font Weight")}
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               class="flex-1 min-w-0"
                             />
                           </div>
@@ -532,7 +571,7 @@ export function PropertiesPanel() {
                             type="button"
                             aria-label="Italic"
                             aria-pressed={textLayer().textData.fontStyle === "italic"}
-                            disabled={safeLayer()!.locked}
+                            disabled={tf()?.locked ?? true}
                             onClick={() => commitTextDataEdit({ fontStyle: textLayer().textData.fontStyle === "italic" ? "normal" : "italic" }, "Toggle Italic")}
                             class={clsx(
                               "flex h-[24px] w-[28px] shrink-0 items-center justify-center rounded-[3px] border text-[11px] font-medium transition-colors disabled:opacity-40",
@@ -550,7 +589,7 @@ export function PropertiesPanel() {
                                 type="button"
                                 aria-label={`Align ${a}`}
                                 aria-pressed={textLayer().textData.align === a}
-                                disabled={safeLayer()!.locked}
+                                disabled={tf()?.locked ?? true}
                                 onClick={() => commitTextDataEdit({ align: a }, `Align Text ${a}`)}
                                 class={clsx(
                                   "flex h-[24px] flex-1 items-center justify-center rounded-[3px] border text-[11px] transition-colors disabled:opacity-40",
@@ -582,7 +621,7 @@ export function PropertiesPanel() {
                                   commitTextDataEdit({ boxMode: "area", boxWidth: curW > 0 ? curW : 200 }, "Area Text Mode");
                                 }
                               }}
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               class="flex-1 min-w-0"
                             />
                             <Show when={textLayer().textData.boxMode === "area"}>
@@ -593,7 +632,7 @@ export function PropertiesPanel() {
                                 min={1}
                                 max={10000}
                                 onSubmit={(w) => commitTextDataEdit({ boxWidth: Math.max(1, Math.round(w)) }, "Change Box Width")}
-                                disabled={safeLayer()!.locked}
+                                disabled={tf()?.locked ?? true}
                                 class="w-20 shrink-0"
                               />
                             </Show>
@@ -610,7 +649,7 @@ export function PropertiesPanel() {
                               min={0.5}
                               max={5.0}
                               onSubmit={(v) => commitTextDataEdit({ lineHeight: Math.max(0.5, Math.min(5.0, v)) }, "Change Line Height")}
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               class="flex-1 min-w-0"
                             />
                             <EditableNumField
@@ -620,7 +659,7 @@ export function PropertiesPanel() {
                               min={-100}
                               max={500}
                               onSubmit={(v) => commitTextDataEdit({ letterSpacing: Math.max(-100, Math.min(500, Math.round(v))) }, "Change Letter Spacing")}
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               class="flex-1 min-w-0"
                             />
                           </div>
@@ -632,7 +671,7 @@ export function PropertiesPanel() {
                             <button
                               type="button"
                               aria-label="Text color"
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               onClick={() => textColors.pickTextColor(textLayer().textData.color)}
                               class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 disabled:opacity-40"
                               style={{ "background-color": textLayer().textData.color }}
@@ -641,7 +680,7 @@ export function PropertiesPanel() {
                               type="button"
                               aria-label="Toggle stroke"
                               aria-pressed={(textLayer().textData.stroke?.width ?? 0) > 0}
-                              disabled={safeLayer()!.locked}
+                              disabled={tf()?.locked ?? true}
                               onClick={() => commitTextDataEdit({ stroke: { width: (textLayer().textData.stroke?.width ?? 0) > 0 ? 0 : 4, color: textLayer().textData.stroke?.color ?? "#000000" } }, "Toggle Text Stroke")}
                               class={clsx(
                                 "flex h-[24px] flex-1 items-center justify-center gap-1 rounded-[3px] border text-[11px] font-bold transition-colors disabled:opacity-40",
@@ -660,13 +699,13 @@ export function PropertiesPanel() {
                                 min={1}
                                 max={100}
                                 onSubmit={(w) => commitTextDataEdit({ stroke: { ...textLayer().textData.stroke, width: Math.max(1, Math.min(100, Math.round(w))) } }, "Change Stroke Width")}
-                                disabled={safeLayer()!.locked}
+                                disabled={tf()?.locked ?? true}
                                 class="w-16"
                               />
                               <button
                                 type="button"
                                 aria-label="Stroke color"
-                                disabled={safeLayer()!.locked}
+                                disabled={tf()?.locked ?? true}
                                 onClick={() => textColors.pickTextStrokeColor(textLayer().textData.stroke.color, textLayer().textData.stroke)}
                                 class="size-[24px] shrink-0 cursor-pointer rounded-[3px] border border-editor-field-border p-0 disabled:opacity-40"
                                 style={{ "background-color": textLayer().textData.stroke.color }}
@@ -682,7 +721,7 @@ export function PropertiesPanel() {
                               <button
                                 type="button"
                                 aria-label="Stroke position outside"
-                                disabled={safeLayer()!.locked}
+                                disabled={tf()?.locked ?? true}
                                 onClick={() => commitTextDataEdit({ stroke: { ...textLayer().textData.stroke, align: "outside" } }, "Change Stroke Position")}
                                 class={clsx(
                                   "flex-1 rounded-[2px] text-[10px] font-semibold transition-colors disabled:opacity-40",
@@ -696,7 +735,7 @@ export function PropertiesPanel() {
                               <button
                                 type="button"
                                 aria-label="Stroke position center"
-                                disabled={safeLayer()!.locked}
+                                disabled={tf()?.locked ?? true}
                                 onClick={() => commitTextDataEdit({ stroke: { ...textLayer().textData.stroke, align: "center" } }, "Change Stroke Position")}
                                 class={clsx(
                                   "flex-1 rounded-[2px] text-[10px] font-semibold transition-colors disabled:opacity-40",
@@ -710,7 +749,7 @@ export function PropertiesPanel() {
                               <button
                                 type="button"
                                 aria-label="Stroke position inside"
-                                disabled={safeLayer()!.locked}
+                                disabled={tf()?.locked ?? true}
                                 onClick={() => commitTextDataEdit({ stroke: { ...textLayer().textData.stroke, align: "inside" } }, "Change Stroke Position")}
                                 class={clsx(
                                   "flex-1 rounded-[2px] text-[10px] font-semibold transition-colors disabled:opacity-40",
@@ -741,12 +780,12 @@ export function PropertiesPanel() {
                       {(message) => <StatusHint>{message()}</StatusHint>}
                     </Show>
                     <PropRow label={t("properties.position", "Position")}>
-                      <EditableNumField label="X" value={safeLayer()!.transform.x} suffix="px" onSubmit={handlePositionField("x")} disabled={safeLayer()!.lockPosition || safeLayer()!.locked} class="flex-1" />
-                      <EditableNumField label="Y" value={safeLayer()!.transform.y} suffix="px" onSubmit={handlePositionField("y")} disabled={safeLayer()!.lockPosition || safeLayer()!.locked} class="flex-1" />
+                      <EditableNumField label="X" value={tf()?.x ?? 0} suffix="px" onSubmit={handlePositionField("x")} disabled={(tf()?.lockPosition ?? false) || (tf()?.locked ?? true)} class="flex-1" />
+                      <EditableNumField label="Y" value={tf()?.y ?? 0} suffix="px" onSubmit={handlePositionField("y")} disabled={(tf()?.lockPosition ?? false) || (tf()?.locked ?? true)} class="flex-1" />
                     </PropRow>
                     <PropRow label={t("tools.options.size", "Size")}>
-                      <EditableNumField label="W" value={safeLayer()!.width * safeLayer()!.transform.scaleX} suffix="px" onSubmit={handleSizeField("w")} disabled={safeLayer()!.locked} class="flex-1" />
-                      <EditableNumField label="H" value={safeLayer()!.height * safeLayer()!.transform.scaleY} suffix="px" onSubmit={handleSizeField("h")} disabled={safeLayer()!.locked} class="flex-1" />
+                      <EditableNumField label="W" value={tf()?.w ?? 0} suffix="px" onSubmit={handleSizeField("w")} disabled={tf()?.locked ?? true} class="flex-1" />
+                      <EditableNumField label="H" value={tf()?.h ?? 0} suffix="px" onSubmit={handleSizeField("h")} disabled={tf()?.locked ?? true} class="flex-1" />
                       <button
                         class={`flex size-[26px] shrink-0 items-center justify-center ${constrainRatio() ? "text-editor-accent" : "text-editor-text-dim"}`}
                         aria-label="Constrain proportions"
@@ -757,17 +796,17 @@ export function PropertiesPanel() {
                       </button>
                     </PropRow>
                     <PropRow label={t("properties.rotation", "Rotation")}>
-                      <EditableNumField label="R" value={safeLayer()!.transform.rotation} suffix="deg" onSubmit={handleRotationField} disabled={safeLayer()!.lockRotation || safeLayer()!.locked} class="flex-1" />
+                      <EditableNumField label="R" value={tf()?.rotation ?? 0} suffix="deg" onSubmit={handleRotationField} disabled={(tf()?.lockRotation ?? false) || (tf()?.locked ?? true)} class="flex-1" />
                     </PropRow>
                     <PropRow label={t("properties.scale", "Scale")}>
-                      <NumField label="X" value={`${Math.round(safeLayer()!.transform.scaleX * 100)}`} suffix="%" class="flex-1" />
-                      <NumField label="Y" value={`${Math.round(safeLayer()!.transform.scaleY * 100)}`} suffix="%" class="flex-1" />
+                      <NumField label="X" value={`${Math.round((tf()?.scaleX ?? 1) * 100)}`} suffix="%" class="flex-1" />
+                      <NumField label="Y" value={`${Math.round((tf()?.scaleY ?? 1) * 100)}`} suffix="%" class="flex-1" />
                     </PropRow>
                     <PropRow label={t("tools.options.opacity", "Opacity")}>
                       <div class="flex-grow flex items-center gap-2.5">
                         <div class="relative flex-grow flex items-center h-[24px]">
                           <Slider
-                            percent={Math.round(safeLayer()!.opacity * 100)}
+                            percent={Math.round((tf()?.opacity ?? 1) * 100)}
                             type="opacity"
                           />
                           <input
@@ -775,8 +814,8 @@ export function PropertiesPanel() {
                             type="range"
                             min="0"
                             max="100"
-                            value={Math.round(safeLayer()!.opacity * 100)}
-                            disabled={safeLayer()!.locked}
+                            value={Math.round((tf()?.opacity ?? 1) * 100)}
+                            disabled={tf()?.locked ?? true}
                             onInput={(e) => handleOpacityChange(parseInt(e.currentTarget.value))}
                             onPointerUp={finishOpacityEdit}
                             onBlur={finishOpacityEdit}
@@ -785,7 +824,7 @@ export function PropertiesPanel() {
                           />
                         </div>
                         <span class="w-[44px] shrink-0 text-right text-[12px] text-editor-text">
-                          {Math.round(safeLayer()!.opacity * 100)} %
+                          {Math.round((tf()?.opacity ?? 1) * 100)} %
                         </span>
                       </div>
                     </PropRow>
@@ -794,7 +833,7 @@ export function PropertiesPanel() {
                       <button
                         type="button"
                         aria-label="Flip horizontal"
-                        disabled={safeLayer()!.locked}
+                        disabled={tf()?.locked ?? true}
                         onClick={() => handleFlip("h")}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                       >
@@ -804,7 +843,7 @@ export function PropertiesPanel() {
                       <button
                         type="button"
                         aria-label="Flip vertical"
-                        disabled={safeLayer()!.locked}
+                        disabled={tf()?.locked ?? true}
                         onClick={() => handleFlip("v")}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                       >
@@ -814,7 +853,7 @@ export function PropertiesPanel() {
                       <button
                         type="button"
                         aria-label="Reset transform"
-                        disabled={safeLayer()!.locked}
+                        disabled={tf()?.locked ?? true}
                         onClick={handleResetTransform}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                       >
@@ -824,55 +863,55 @@ export function PropertiesPanel() {
                     </PropRow>
 
                     <PropRow label={t("canvasProps.quickActions", "Quick")}>
-                      <Tooltip content={safeLayer()!.lockPosition ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.centerH", "Center horizontally on canvas")}>
+                      <Tooltip content={(tf()?.lockPosition ?? false) ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.centerH", "Center horizontally on canvas")}>
                         <button
                         type="button"
                         aria-label={t("properties.centerH", "Center horizontally on canvas")}
-                        disabled={safeLayer()!.locked || safeLayer()!.lockPosition}
+                        disabled={(tf()?.locked ?? true) || (tf()?.lockPosition ?? false)}
                         onClick={handleCenterHorizontal}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                         >
                           <Icon name="align-h" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockPosition ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.centerV", "Center vertically on canvas")}>
+                      <Tooltip content={(tf()?.lockPosition ?? false) ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.centerV", "Center vertically on canvas")}>
                         <button
                         type="button"
                         aria-label={t("properties.centerV", "Center vertically on canvas")}
-                        disabled={safeLayer()!.locked || safeLayer()!.lockPosition}
+                        disabled={(tf()?.locked ?? true) || (tf()?.lockPosition ?? false)}
                         onClick={handleCenterVertical}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                         >
                           <Icon name="align-v" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockPosition ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.fitCanvas", "Fit to canvas (scale + center)")}>
+                      <Tooltip content={(tf()?.lockPosition ?? false) ? t("properties.posLockedShort", "Position locked for this layer") : t("properties.fitCanvas", "Fit to canvas (scale + center)")}>
                         <button
                         type="button"
                         aria-label={t("properties.fitCanvas", "Fit to canvas (scale + center)")}
-                        disabled={safeLayer()!.locked || safeLayer()!.lockPosition}
+                        disabled={(tf()?.locked ?? true) || (tf()?.lockPosition ?? false)}
                         onClick={handleFitToCanvas}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                         >
                           <Icon name="maximize" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockRotation ? t("properties.rotLockedShort", "Rotation locked for this layer") : t("properties.rotateCCW", "Rotate 90° counterclockwise")}>
+                      <Tooltip content={(tf()?.lockRotation ?? false) ? t("properties.rotLockedShort", "Rotation locked for this layer") : t("properties.rotateCCW", "Rotate 90° counterclockwise")}>
                         <button
                         type="button"
                         aria-label={t("properties.rotateCCW", "Rotate 90° counterclockwise")}
-                        disabled={safeLayer()!.locked || safeLayer()!.lockRotation}
+                        disabled={(tf()?.locked ?? true) || (tf()?.lockRotation ?? false)}
                         onClick={() => handleRotate90("ccw")}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                         >
                           <Icon name="rotate-ccw" class="size-3.5" strokeWidth={1.75} />
                         </button>
                       </Tooltip>
-                      <Tooltip content={safeLayer()!.lockRotation ? t("properties.rotLockedShort", "Rotation locked for this layer") : t("properties.rotateCW", "Rotate 90° clockwise")}>
+                      <Tooltip content={(tf()?.lockRotation ?? false) ? t("properties.rotLockedShort", "Rotation locked for this layer") : t("properties.rotateCW", "Rotate 90° clockwise")}>
                         <button
                         type="button"
                         aria-label={t("properties.rotateCW", "Rotate 90° clockwise")}
-                        disabled={safeLayer()!.locked || safeLayer()!.lockRotation}
+                        disabled={(tf()?.locked ?? true) || (tf()?.lockRotation ?? false)}
                         onClick={() => handleRotate90("cw")}
                         class="flex h-[26px] flex-1 items-center justify-center gap-1 rounded-[4px] border border-editor-field-border bg-editor-field px-2 text-[11px] text-editor-text transition-colors hover:bg-editor-field-border disabled:pointer-events-none disabled:opacity-40"
                         >

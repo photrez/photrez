@@ -3,7 +3,10 @@ import { clsx } from "clsx";
 import { LayerNode } from "@/engine/types";
 
 interface LayerThumbProps {
-  layer: LayerNode;
+  // Nullable: the properties panel's layer header can be torn down while the layer is
+  // already gone, and this effect reads `props.layer` on the way out. A null layer
+  // renders the bare checkerboard, which is what an empty slot looks like anyway.
+  layer: LayerNode | null;
   isActive: boolean;
 }
 
@@ -11,7 +14,7 @@ export function LayerThumb(props: LayerThumbProps) {
   let canvasRef: HTMLCanvasElement | undefined;
 
   createEffect(() => {
-    const bitmap = props.layer.imageBitmap;
+    const bitmap = props.layer?.imageBitmap;
     if (!canvasRef) return;
 
     const ctx = canvasRef.getContext("2d");
