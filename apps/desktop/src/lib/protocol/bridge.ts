@@ -544,6 +544,10 @@ export function toRustEnvelope(env: CommandEnvelope): unknown {
         memory_cost_bytes: c.memoryCostBytes,
         doc_size_before: c.docSizeBefore ?? null,
         doc_size_after: c.docSizeAfter ?? null,
+        // Ids this transition minted. Mapped here for the same reason as the size
+        // halves: an ABSENT key is swallowed by Rust's `#[serde(default)]` with no
+        // error, so dropping it silently disarms the merge-destination undo.
+        minted_layer_ids: c.mintedLayerIds ?? [],
       };
       break;
     // Selection arms: selection is engine-local; the nested SelectionState is a

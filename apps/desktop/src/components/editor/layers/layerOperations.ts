@@ -16,6 +16,14 @@ import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm"
 import { showToast } from "../Toast";
 import { ipcErrorMessage } from "@/tauri/native";
 
+/**
+ * Host-owned destination identity for a composite op, minted in the same id space
+ * the engine uses so both sides share it.
+ */
+function mintLayerId(): string {
+  return `layer-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function mergeActiveLayerDown(
   engine: DocumentEngine,
   history: CommandHistory,
@@ -30,8 +38,14 @@ export function mergeActiveLayerDown(
     return false;
   }
 
-  history.commit(engine.snapshot(), "Merge Down");
-  engine.mergeDown(activeId);
+  // The destination id is minted HERE and declared on the commit below.
+  // `history.commit` runs before the mutation that creates the destination, and the
+  // engine's post-sync layer vector is a whole-document push - so without an explicit
+  // declaration the destination is indistinguishable from a layer the host pushed
+  // outside this entry, and the undo adopts it as a survivor.
+  const mergedId = mintLayerId();
+  history.commit(engine.snapshot(), "Merge Down", undefined, false, null, undefined, [mergedId]);
+  engine.mergeDown(activeId, mergedId);
   renderer.destroyTexture(activeId);
   renderer.destroyTexture(bottomLayer.id);
 
@@ -65,9 +79,9 @@ export function mergeSelectedLayers(
     return false;
   }
 
-  history.commit(engine.snapshot(), "Merge Selected Layers");
-  engine.mergeSelectedLayers(layerIds);
-
+  const mergedId = mintLayerId();
+  history.commit(engine.snapshot(), "Merge Selected Layers", undefined, false, null, undefined, [mergedId]);
+  engine.mergeSelectedLayers(layerIds, mergedId);
   for (const id of layerIds) {
     renderer.destroyTexture(id);
   }
@@ -170,8 +184,9 @@ export function flattenAllLayers(
     return false;
   }
 
-  history.commit(engine.snapshot(), "Flatten Image");
-  engine.flattenLayers();
+  const mergedId = mintLayerId();
+  history.commit(engine.snapshot(), "Flatten Image", undefined, false, null, undefined, [mergedId]);
+  engine.flattenLayers(mergedId);
 
   for (const id of oldLayerIds) {
     renderer.destroyTexture(id);

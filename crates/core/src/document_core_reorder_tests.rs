@@ -667,6 +667,16 @@ fn apply_ordered_delta_to_ids(ids: &[String], changes: &[RenderLayerChange]) -> 
 }
 
 fn record_external(engine: &mut ProtocolEngine, label: &str, affected: &[&str], token: &str) {
+    record_external_with_mints(engine, label, affected, token, &[]);
+}
+
+fn record_external_with_mints(
+    engine: &mut ProtocolEngine,
+    label: &str,
+    affected: &[&str],
+    token: &str,
+    minted: &[&str],
+) {
     engine.register_adapter("ts-external");
     engine
         .apply(env(Command::RecordExternalTransition {
@@ -679,6 +689,7 @@ fn record_external(engine: &mut ProtocolEngine, label: &str, affected: &[&str], 
             // accounting, not document size.
             doc_size_before: None,
             doc_size_after: None,
+            minted_layer_ids: minted.iter().map(|s| s.to_string()).collect(),
         }))
         .unwrap();
 }
@@ -686,6 +697,82 @@ fn record_external(engine: &mut ProtocolEngine, label: &str, affected: &[&str], 
 /// Undo of an external delete restores the deleted layer at its ORIGINAL
 /// mid-stack position (not tail-appended), and the delta is a full ordered
 /// restatement so the host's order-aware consumer reconstructs the same order.
+/// A merge/flatten destination is MINTED by the host, and the host says so.
+///
+/// The post-sync slot is a whole-document push, so "present only in `after`" cannot
+/// tell a minted destination from a host-pushed layer - which is why the survivor
+/// rule keeps an after-only id. Undo of a legacy merge therefore restored
+/// `[Paint, Background, destination]` and the host adopted all three, so one Ctrl+Z
+/// produced three layers instead of two.
+///
+/// The fix is a signal the survivor rule never had: the ids this entry minted. An
+/// undo drops exactly those and keeps every id nothing claimed.
+#[test]
+fn external_undo_drops_a_minted_destination_and_keeps_the_captured_set() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(
+        vec![
+            mk_layer("Paint", "Paint", 1),
+            mk_layer("Background", "Background", 2),
+        ],
+        0,
+    );
+    // A legacy merge: the commit records the PRE-OP vector [Paint, Background] and
+    // declares that it mints `dest`. The shim runs before the mutation, which is
+    // exactly why the id must be minted host-side and declared, not inferred.
+    record_external_with_mints(
+        &mut e,
+        "Merge Down",
+        &["Paint", "Background"],
+        "tok-merge",
+        &["dest"],
+    );
+    // The post-sync push carries the post-op vector: the destination alone.
+    e.seed_canonical(canon_doc("doc", 100.0, 100.0, &["dest"]));
+    assert_eq!(
+        layer_ids(&e),
+        vec!["dest"],
+        "post-merge the destination is alone"
+    );
+
+    let res = e.apply(env(Command::Undo)).unwrap();
+    // The LIST, not a count: "n=2" would also pass with the wrong two layers.
+    assert_eq!(
+        layer_ids(&e),
+        vec!["Paint", "Background"],
+        "undo restores EXACTLY the captured pre-sync set; the minted destination is gone"
+    );
+    assert!(
+        !res.delta
+            .changes
+            .iter()
+            .any(|c| matches!(c, RenderLayerChange::Remove { id, .. } if id == "Paint" || id == "Background")),
+        "no captured layer is removed by an undo of its own entry"
+    );
+    assert_eq!(
+        upsert_ids(&res.delta.changes),
+        vec!["Paint", "Background"],
+        "delta restates exactly the restored set"
+    );
+}
+
+/// The minted signal must not leak into the case it is NOT for: an entry that
+/// declares no mints keeps the survivor rule, so a host-pushed layer survives.
+#[test]
+fn external_undo_without_a_declared_mint_still_retains_the_after_only_layer() {
+    let mut e = ProtocolEngine::new();
+    e.seed_layers(vec![mk_layer("A", "A", 1), mk_layer("B", "B", 2)], 0);
+    record_external(&mut e, "Gradient Fill", &["B"], "tok-nomint");
+    e.seed_canonical(canon_doc("doc", 100.0, 100.0, &["A", "B", "host1"]));
+
+    e.apply(env(Command::Undo)).unwrap();
+    assert_eq!(
+        layer_ids(&e),
+        vec!["A", "B", "host1"],
+        "an unclaimed after-only layer is still a survivor"
+    );
+}
+
 #[test]
 fn external_delete_undo_restores_mid_stack_order() {
     let mut e = ProtocolEngine::new();

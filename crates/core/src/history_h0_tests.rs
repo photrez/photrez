@@ -150,6 +150,7 @@ fn external_record_requires_registered_adapter_and_advances_dv_once() {
             // accounting, not document size.
             doc_size_before: None,
             doc_size_after: None,
+            minted_layer_ids: vec![],
         }))
         .unwrap_err();
     assert_eq!(err.code, "E_UNKNOWN_ADAPTER");
@@ -167,6 +168,7 @@ fn external_record_requires_registered_adapter_and_advances_dv_once() {
             // accounting, not document size.
             doc_size_before: None,
             doc_size_after: None,
+            minted_layer_ids: vec![],
         }))
         .unwrap();
     assert_eq!(r.document_version, v0 + 1); // exactly once
@@ -191,6 +193,7 @@ fn external_handoff_status_then_cursor_commit_bumps_dv_once() {
         // accounting, not document size.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     let dv_before = eng.version();
@@ -255,6 +258,7 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
         // accounting, not document size.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     let q = eng.history_query();
@@ -324,6 +328,7 @@ fn history_cursor_commit_rejects_wrong_seq_on_non_dense_stream() {
         // accounting, not document size.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     let _hand = eng.apply(env(Command::Undo)).unwrap();
@@ -354,6 +359,7 @@ fn external_pending_barrier_blocks_forward_and_history_commands() {
         // accounting, not document size.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     let hand = eng.apply(env(Command::Undo)).unwrap();
@@ -417,6 +423,7 @@ fn query_exposes_pending_external_state() {
         // accounting, not document size.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     let h = eng.apply(env(Command::Undo)).unwrap();
@@ -483,6 +490,7 @@ fn pixel_undo_redo_rejected_while_external_pending() {
         // accounting, not document size.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     let hand = eng.apply(env(Command::Undo)).unwrap();
@@ -514,6 +522,7 @@ fn snapshot_undo_redo_rejected_while_external_pending() {
         // accounting, not document size.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     let hand = eng.apply(env(Command::Undo)).unwrap();

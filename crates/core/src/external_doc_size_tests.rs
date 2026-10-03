@@ -97,6 +97,7 @@ fn record_host_transition(
         memory_cost_bytes: 8,
         doc_size_before: before,
         doc_size_after: after,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
 }
@@ -248,6 +249,7 @@ fn external_with_absent_after_half_emits_no_size() {
         memory_cost_bytes: 8,
         doc_size_before: Some((128.0, 128.0)),
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
 

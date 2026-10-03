@@ -60,6 +60,7 @@ impl ProtocolEngine {
             memory_cost_bytes,
             doc_size_before,
             doc_size_after,
+            minted_layer_ids,
         } = envelope.command
         {
             self.record_external(
@@ -70,6 +71,7 @@ impl ProtocolEngine {
                 memory_cost_bytes,
                 doc_size_before,
                 doc_size_after,
+                &minted_layer_ids,
             )?;
             // Note: record_external already bumps version; do not bump again.
             // Layers unchanged here - reconcile intentionally skipped (host executes

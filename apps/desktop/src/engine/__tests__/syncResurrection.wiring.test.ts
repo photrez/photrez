@@ -35,11 +35,16 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceManager } from "@/engine/workspace";
-import { isFacadeOwnedLayer } from "@/engine/document";
+import { isFacadeOwnedLayer, hasFacadeOwnedLayers } from "@/engine/document";
+import { CommandHistory } from "@/engine/history";
+import { mergeActiveLayerDown } from "@/components/editor/layers/layerOperations";
+import { runFacadeExternalHandoff } from "@/components/editor/facadeHistoryHandoff";
+import type { EditorContextValue } from "@/components/editor/shell/EditorContext";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 import {
   __resetFacadeRegistryForTests,
   seedFacadeFromEngine,
+  installFacadeCommitShim,
   getFacade,
 } from "@/lib/protocol/facadeRegistry";
 import { __resetNativeAuthorityForTests, awaitNativeSeed } from "@/lib/protocol/bridge";
@@ -141,6 +146,58 @@ function installTransport(): void {
 
 type Engine = ReturnType<WorkspaceManager["getActiveEngine"]> & object;
 
+function makeRenderer(): never {
+  return {
+    uploadImage: vi.fn(),
+    uploadSurfaceTiles: vi.fn(),
+    destroyTexture: vi.fn(),
+    invalidatePaintSurface: vi.fn(),
+  } as never;
+}
+
+function makeEditor(engine: Engine, history: CommandHistory): EditorContextValue {
+  return {
+    workspace: {
+      getActiveEngine: () => engine,
+      getActiveHistory: () => history,
+      getActiveDocumentId: () => engine.getId(),
+      notifyVisualChange: vi.fn(),
+    },
+    renderer: { uploadImage: vi.fn() },
+    scheduler: { requestRender: vi.fn() },
+  } as unknown as EditorContextValue;
+}
+
+/**
+ * ONE undo press, replicated verbatim from `useEditorCommands.restoreHistorySnapshot`:
+ * the `hasFacadeOwnedLayers` gate, the production handoff unit, and the TS-history
+ * fall-through. The hook closure itself is not exported, so the branch is copied -
+ * the same approach `mixedHistory.test.ts` documents.
+ */
+async function pressUndo(engine: Engine, history: CommandHistory): Promise<"facade" | "ts" | "none"> {
+  const editor = makeEditor(engine, history);
+  if (hasFacadeOwnedLayers()) {
+    if (await runFacadeExternalHandoff(editor, "undo")) return "facade";
+  }
+  const popped = history.undo(engine.snapshot());
+  if (!popped) return "none";
+  try {
+    engine.restore(popped as never);
+    return "ts";
+  } catch {
+    // E_FACADE_OWNED while owned ids exist: the documented blocked fall-through.
+    return "none";
+  }
+}
+
+/** The facade's cursor as the real engine reports it: undo depth, entry count. */
+function cursorReading(): string {
+  const q = JSON.parse(
+    wasmMod.protocol_history_query_json(`${NS}${DOC}`),
+  ) as { cursor?: number; entries?: unknown[]; pendingExternal?: unknown };
+  return `cursor=${q.cursor} entries=${q.entries?.length ?? -1} pending=${q.pendingExternal ? 1 : 0}`;
+}
+
 function ids(engine: Engine): string[] {
   return engine.getLayers().map((l) => l.id);
 }
@@ -163,6 +220,7 @@ async function openSeededDocument(): Promise<Engine> {
   const session = WorkspaceManager.createBlankDocument(DOC, "Sync", SIZE, SIZE);
   wm.addDocument(session);
   const engine = session.engine as never as Engine;
+  liveEngine = engine as never;
   await seedFacadeFromEngine(engine as never, getFacade(DOC));
   await awaitNativeSeed(DOC);
   return engine;
@@ -231,11 +289,23 @@ async function openMixedPair(): Promise<{
   return { engine, ownedId, hostId, topId: order[0] };
 }
 
+// The commit shim resolves the engine at COMMIT time, so the holder is per test
+// while the shim install is per FILE (it is module-sticky, like EditorShell boot).
+let liveEngine: { getId(): string; getLayers(): Array<{ id: string }> } | null = null;
+
 beforeAll(async () => {
   const mod = (await getWasmExportModule()) as WasmModule | null;
   expect(mod, "the REAL wasm pkg must load").not.toBeNull();
   wasmMod = mod!;
   (globalThis as Record<string, unknown>)[TAURI_KEY] = { invoke: invokeMock };
+  // Production installs this once at EditorShell boot. WITHOUT it a legacy
+  // `history.commit` records nothing in the facade, so the undo silently takes the
+  // TypeScript path instead of the facade handoff - which is exactly the arm the
+  // shipped default takes and the reason this harness must have it.
+  installFacadeCommitShim({
+    getEngine: () => liveEngine,
+    getDocId: () => liveEngine?.getId() ?? "default",
+  });
 });
 
 let docSeq = 0;
@@ -356,10 +426,148 @@ describe("REGRESSION: the post-op vector is exactly the merged layer", () => {
   });
 });
 
+describe("MIXED OWNERSHIP: the undo of a legacy merge restores the vector exactly", () => {
+  it("ONE undo of a MIXED-ownership merge restores exactly the two pre-op ids", async () => {
+    const { engine, ownedId, hostId, topId } = await openMixedPair();
+    const history = new CommandHistory();
+    history.attachDocIdGetter(() => engine.getId());
+    const preOpIds = ids(engine).sort();
+    expect(preOpIds, "premise: a mixed-ownership pair").toEqual([ownedId, hostId].sort());
+    expect(isFacadeOwnedLayer(ownedId), "premise: one layer is owned").toBe(true);
+    expect(isFacadeOwnedLayer(hostId), "premise: one layer is NOT owned").toBe(false);
+
+    // The production path for a mixed selection: `resolveSelectionRoute` returns
+    // "legacy", so `layerOperations.mergeActiveLayerDown` runs - `history.commit`
+    // (mirrored into the facade as an External transition by the commit shim) and
+    // then the engine arm.
+    expect(
+      mergeActiveLayerDown(engine as never, history, makeRenderer(), topId),
+      "premise: the legacy merge-down ran",
+    ).toBe(true);
+
+    const postOp = ids(engine);
+    const mergedId = postOp[0];
+    expect(postOp, "premise: the merge left exactly the merged layer").toEqual([mergedId]);
+    expect(hasFacadeOwnedLayers(), "the facade gate is open (owned ids persist)").toBe(true);
+    // The commit shim records the transition FIRE-AND-FORGET, so settle before
+    // reading the wire and before the undo - the undo steps the entry this creates.
+    for (let i = 0; i < 8; i += 1) await new Promise((r) => setTimeout(r, 0));
+    // The signal must actually reach the wire, or the undo has nothing to act on.
+    const recordEnv = invokeMock.mock.calls
+      .map((c) => String(c[1]?.envelopeJson ?? ""))
+      .filter((j) => j.includes("recordExternalTransition"))
+      .map(
+        (j) =>
+          JSON.parse(j).command as {
+            minted_layer_ids?: string[];
+            mintedLayerIds?: string[];
+          },
+      );
+    expect(recordEnv.length, "an External transition was recorded").toBeGreaterThan(0);
+    expect(
+      // The wire key is snake_case: `toRustEnvelope` maps the command fields, and a
+      // dropped key is swallowed by Rust's serde default with no error.
+      recordEnv[recordEnv.length - 1].minted_layer_ids,
+      `the recorded transition declares the minted destination ${mergedId}`,
+    ).toEqual([mergedId]);
+
+    await pressUndo(engine, history);
+
+    // The LIST, never a count: "n=2" would also pass with the wrong two survivors.
+    expect(
+      ids(engine).sort(),
+      `after one undo [${names(engine).join(",")}]`,
+    ).toEqual(preOpIds);
+  });
+
+  it("a second merge/undo cycle on the SAME document is identical, with no destination carried over", async () => {
+    const { engine, ownedId, hostId, topId } = await openMixedPair();
+    const history = new CommandHistory();
+    history.attachDocIdGetter(() => engine.getId());
+    const preOpIds = ids(engine).sort();
+
+    const cycles: string[][] = [];
+    const destinationIds: string[] = [];
+    const trace: string[] = [];
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      // The armed layer is the current top of the stack each time.
+      const armed = ids(engine)[0];
+      expect(
+        mergeActiveLayerDown(engine as never, history, makeRenderer(), armed),
+        `cycle ${cycle}: the legacy merge-down ran`,
+      ).toBe(true);
+      const merged = ids(engine);
+      expect(merged.length, `cycle ${cycle}: the merge left exactly the merged layer`).toBe(1);
+      destinationIds.push(merged[0]);
+      // Settle BEFORE reading the declaration: the commit shim records fire-and-forget,
+      // so the declared id is not on the wire yet. The vector was read first, above,
+      // which is what the production caller does.
+      for (let i = 0; i < 8; i += 1) await new Promise((r) => setTimeout(r, 0));
+      // What the arm ACTUALLY declared, read off the serialized envelope rather than
+      // assumed - so the assertion compares two observed facts, not an expectation
+      // about one of them.
+      const declared = (
+        JSON.parse(
+          String(
+            invokeMock.mock.calls
+              .map((c) => String(c[1]?.envelopeJson ?? ""))
+              .filter((j) => j.includes("recordExternalTransition"))
+              .slice(-1)[0] ?? "{}",
+          ),
+        ) as { command: { minted_layer_ids?: string[] } }
+      ).command.minted_layer_ids;
+      expect(
+        declared?.[0],
+        `cycle ${cycle}: the commit declared exactly one minted destination`,
+      ).toBeTruthy();
+      // THE ASSERTION THAT CATCHES IT AT CYCLE 0, not two steps downstream at the undo.
+      // A declaration the engine ignored is worse than no declaration: it silently
+      // disables the External undo's minted-layer exclusion, so the destination
+      // survives its own undo. The tell is the id SHAPE - the engine's internal
+      // fallback mints `layer-<uuid>` while the arm declares `layer-<base36>`.
+      expect(
+        merged[0],
+        `cycle ${cycle}: the engine created the id the arm declared ` +
+          `(declared ${declared?.[0]}, created ${merged[0]})`,
+      ).toBe(declared?.[0]);
+      trace.push(
+        `cycle ${cycle} BEFORE undo: beforeMerge=[${armed}] dest=${merged[0]} ` +
+          `tsCanUndo=${history.canUndo()} ${await cursorReading()}`,
+      );
+      const branch = await pressUndo(engine, history);
+      const restored = ids(engine).sort();
+      cycles.push(restored);
+      trace.push(
+        `cycle ${cycle} AFTER  undo: branch=${branch} restored=[${restored.join(",")}] ` +
+          `tsCanUndo=${history.canUndo()} ${await cursorReading()}`,
+      );
+    }
+    const diagnosis = trace.join("\n");
+
+    // THE CONTRACT, per cycle: ONE undo restores the pre-merge set FOR THAT MERGE.
+    // Stated per cycle rather than as "both cycles equal each other", because the
+    // history state legitimately differs between them - the second merge is recorded
+    // on top of the first entry the first undo already stepped, so the streams are not
+    // the same depth. What must hold is that each undo restores ITS OWN pre-merge set.
+    expect(cycles[0], `cycle 1 restores its own pre-merge set\n${diagnosis}`).toEqual(preOpIds);
+    expect(cycles[1], `cycle 2 restores its own pre-merge set\n${diagnosis}`).toEqual(preOpIds);
+    for (const dest of destinationIds) {
+      expect(cycles[1], `destination ${dest} is gone after the undo`).not.toContain(dest);
+    }
+    expect(
+      destinationIds[0] === destinationIds[1],
+      `no destination id is carried into cycle 2: ${diagnosis}`,
+    ).toBe(false);
+    void ownedId;
+    void hostId;
+  });
+});
+
 describe("CONFIRMED UNAFFECTED: an op that destroys nothing records no victim", () => {
   it("duplicate adds a layer and resurrects nothing", async () => {
     const { engine, ownedId, hostId } = await openMixedPair();
-    const before = ids(engine);    const clone = engine.duplicateLayer(ownedId);
+    const before = ids(engine);
+    const clone = engine.duplicateLayer(ownedId);
     const after = ids(engine);
     expect(after.length, "duplicate adds exactly one").toBe(before.length + 1);
     expect(after).toContain(ownedId);

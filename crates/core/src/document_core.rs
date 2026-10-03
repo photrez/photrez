@@ -612,12 +612,42 @@ impl ProtocolEngine {
         other_side: &LayerSet,
         other_side_proves_creation: bool,
     ) -> LayerSet {
+        Self::restore_with_foreign_excluding_minted(
+            current,
+            captured,
+            other_side,
+            other_side_proves_creation,
+            &[],
+        )
+    }
+
+    /// `restore_with_foreign`, plus the set of ids the ENTRY itself minted.
+    ///
+    /// A minted id is dropped from the survivor set because the entry SAYS it created
+    /// it, not because it was inferred from `other_side`. That distinction is the
+    /// point: the survivor rule exists to preserve a host-pushed layer the captured
+    /// pre-sync vector predates, and it keeps doing exactly that. Only an id the host
+    /// names is dropped, so a merge destination stops surviving its own undo while
+    /// every unclaimed survivor is untouched. An empty set is the pre-existing
+    /// behaviour, byte for byte.
+    fn restore_with_foreign_excluding_minted(
+        current: &LayerSet,
+        captured: &LayerSet,
+        other_side: &LayerSet,
+        other_side_proves_creation: bool,
+        minted: &[String],
+    ) -> LayerSet {
         let captured_ids: HashSet<&str> = captured.iter().map(|a| a.id.as_str()).collect();
         let other_ids: HashSet<&str> = other_side.iter().map(|a| a.id.as_str()).collect();
+        let minted_ids: HashSet<&str> = minted.iter().map(|s| s.as_str()).collect();
         let mut v: Vec<Arc<LayerMeta>> = captured.0.to_vec();
         for arc in current.iter() {
             let id = arc.id.as_str();
             if captured_ids.contains(id) {
+                continue;
+            }
+            // Claimed by the entry that created it: never a survivor.
+            if minted_ids.contains(id) {
                 continue;
             }
             // Survivor unless the entry is proven to have brought it in.
@@ -657,8 +687,13 @@ impl ProtocolEngine {
     ) -> (u64, Vec<RenderLayerChange>) {
         let seq = self.entries[idx].seq;
         // Cheap Arc clones (structural sharing): no deep layer copy.
-        let (before, after) = match &self.entries[idx].payload {
-            EntryPayload::External { before, after, .. } => (before.clone(), after.clone()),
+        let (before, after, minted) = match &self.entries[idx].payload {
+            EntryPayload::External {
+                before,
+                after,
+                minted_layer_ids,
+                ..
+            } => (before.clone(), after.clone(), minted_layer_ids.clone()),
             _ => return (seq, Vec::new()),
         };
         let after = match after {
@@ -674,11 +709,12 @@ impl ProtocolEngine {
             // must destroy them again.
             (&after, &before, true)
         };
-        let new_layers = Self::restore_with_foreign(
+        let new_layers = Self::restore_with_foreign_excluding_minted(
             &self.layers,
             captured,
             other_side,
             other_side_proves_creation,
+            &minted,
         );
         let changes = Self::diff_walker(&self.layers, &new_layers);
         self.layers = new_layers;

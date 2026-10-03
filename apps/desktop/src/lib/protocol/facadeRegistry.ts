@@ -1041,6 +1041,12 @@ export async function recordExternalTransitionFor(
       before: { width: number; height: number };
       after: { width: number; height: number };
     };
+    /**
+     * Ids this transition MINTED. Normally supplied by the arm via
+     * `declareMintedLayerIds`; a direct caller may pass it explicitly. Omitted means
+     * nothing was minted, which leaves the pre-existing survivor rule in force.
+     */
+    mintedLayerIds?: string[];
   },
   engine?: DocumentEngine
 ): Promise<{ ok: boolean; seq?: number }> {
@@ -1128,6 +1134,13 @@ export async function recordExternalTransitionFor(
         adapterId: "ts-external",
         token,
         memoryCostBytes: JSON.stringify(rec.snapshot ?? {}).length,
+        // Ids THIS transition minted, declared by the arm about to create them.
+        // Empty when nothing was declared, which leaves the pre-existing survivor
+        // rule in force for a host-push.
+        // Ids THIS transition minted, carried by the commit that declares them.
+        // Empty when the commit declared none, which leaves the pre-existing survivor
+        // rule in force for a host-push.
+        mintedLayerIds: rec.mintedLayerIds ?? [],
         // Host-owned size halves, sent together. null (not undefined) for a
         // size-neutral commit, matching the Rust `Option<(f64, f64)>` shape.
         docSizeBefore: rec.docSizeChange
@@ -1256,13 +1269,14 @@ export function installFacadeCommitShim(providers: {
   // Forward ALL arguments - callers may pass a third `imperative` payload
   // (HistoryTilePatches) that the tile-memento undo/redo model requires.
   proto.commit = function (this: unknown, ...args: unknown[]) {
-    const [snap, label, , alreadyRecordedInRust, , docSizeChange] = args as [
+    const [snap, label, , alreadyRecordedInRust, , docSizeChange, mintedLayerIds] = args as [
       unknown,
       string | undefined,
       unknown,
       boolean | undefined,
       unknown,
       { before: { width: number; height: number }; after: { width: number; height: number } } | undefined,
+      string[] | undefined,
     ];
     (originalCommit as unknown as (...callArgs: unknown[]) => void).apply(this, args);
     // Feature gate + zero-cost when OFF:
@@ -1291,7 +1305,7 @@ export function installFacadeCommitShim(providers: {
         engine.getId(),
         recordExternalTransitionFor(
           engine.getId(),
-          { label: label ?? "Legacy Edit", affectedLayerIds: affected, snapshot: snap, docSizeChange },
+          { label: label ?? "Legacy Edit", affectedLayerIds: affected, snapshot: snap, docSizeChange, mintedLayerIds },
           engine as unknown as DocumentEngine,
         ).then(() => {}),
       );

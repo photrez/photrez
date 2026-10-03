@@ -131,6 +131,7 @@ pub fn document_restore(
         0,
         None,
         None,
+        &[],
     )?;
     let version = reg.get_history_version(&doc_id).unwrap_or(0);
     let max_layer_epoch = reg

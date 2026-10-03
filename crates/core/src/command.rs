@@ -283,6 +283,12 @@ pub enum Command {
         doc_size_before: Option<(f64, f64)>,
         #[serde(default)]
         doc_size_after: Option<(f64, f64)>,
+        /// Ids this transition MINTED (a merge/flatten destination). Only the host
+        /// that performed the op knows these; the engine cannot infer them from the
+        /// whole-document `after` push. Absent = nothing minted, which leaves the
+        /// pre-existing survivor rule in force.
+        #[serde(default)]
+        minted_layer_ids: Vec<String>,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

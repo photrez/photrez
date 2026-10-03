@@ -555,7 +555,7 @@ export class DocumentEngine {
     return duplicated;
   }
 
-  mergeDown(id: LayerId): void {
+  mergeDown(id: LayerId, mergedId?: string): void {
     // Rust graph op first — pixel composite stays TS (bitmaps are JS-heap).
     if (USE_RUST_SSOT && this.rustEngine) {
       try {
@@ -564,18 +564,20 @@ export class DocumentEngine {
         const bottom = this.model.layers[idx + 1];
         if (top && bottom && idx !== -1 && idx < this.model.layers.length - 1) {
           const mergedBitmap = compositeTwoLayers(top, bottom, this.model.width, this.model.height);
-          const mergedId = `layer-${crypto.randomUUID()}`;
+          // Host-supplied id, or mint one. The arm that declared this id on its
+          // commit needs the SAME id to be created, so both arms below use this one.
+          const mergedLayerId = mergedId ?? `layer-${crypto.randomUUID()}`;
           // Retain the victim nodes BEFORE the graph mutation: a later undo
           // re-adds these ids and must re-attach their bitmaps (graph ops never
           // detach pixels). Recorded again at drop time by the projection path.
           this.recordDroppedNode(top as never);
           this.recordDroppedNode(bottom as never);
           const ok: boolean = this.rustEngine.merge_down(
-            id, mergedId, `${top.name} + ${bottom.name}`, bottom.locked || top.locked,
+            id, mergedLayerId, `${top.name} + ${bottom.name}`, bottom.locked || top.locked,
           );
           if (ok) {
             this.syncLayersFromRust();
-            const merged = this.model.layers.find(l => l.id === mergedId)!;
+            const merged = this.model.layers.find(l => l.id === mergedLayerId)!;
             merged.imageBitmap = mergedBitmap;
             for (const removedId of [top.id, bottom.id]) {
               this.dirtyLayerIds.delete(removedId);
@@ -601,7 +603,14 @@ export class DocumentEngine {
     }
     const result = applyMergeDown(this.model, id);
     if (!result) return;
-
+    // The fallback mints its own id (createLayerNode -> crypto.randomUUID). Re-seat it
+    // onto the host-declared one so the id this arm DECLARED on its commit is the id
+    // that was actually created - a declaration the engine ignored silently disables the
+    // External undo's minted-layer exclusion.
+    if (mergedId) {
+      result.merged.id = mergedId;
+      this.model.activeLayerId = mergedId;
+    }
     // Clean up WebGL textures for merged layers
     for (const removedId of result.removedIds) {
       this.dirtyLayerIds.delete(removedId);
@@ -611,7 +620,7 @@ export class DocumentEngine {
     this.notifyChange();
   }
 
-  mergeSelectedLayers(ids: LayerId[]): void {
+  mergeSelectedLayers(ids: LayerId[], mergedId?: string): void {
     // Rust graph op first — pixel composite stays TS.
     if (USE_RUST_SSOT && this.rustEngine && ids.length >= 2) {
       try {
@@ -621,17 +630,17 @@ export class DocumentEngine {
           for (const v of selected) this.recordDroppedNode(v as never);
           const mergedBitmap = compositeAllLayers(selected, this.model.width, this.model.height);
           if (mergedBitmap) {
-            const mergedId = `layer-${crypto.randomUUID()}`;
+            const mergedLayerId = mergedId ?? `layer-${crypto.randomUUID()}`;
             const isLocked = selected.some(l => l.locked);
             const mergedName = selected.length === 2
               ? `${selected[0].name} + ${selected[1].name}`
               : `${selected[0].name} (+${selected.length - 1} merged)`;
             const ok: boolean = this.rustEngine.merge_selected(
-              [...ids], mergedId, mergedName, isLocked,
+              [...ids], mergedLayerId, mergedName, isLocked,
             );
             if (ok) {
               this.syncLayersFromRust();
-              const merged = this.model.layers.find(l => l.id === mergedId)!;
+              const merged = this.model.layers.find(l => l.id === mergedLayerId)!;
               merged.imageBitmap = mergedBitmap;
               for (const removedId of ids) {
                 this.dirtyLayerIds.delete(removedId);
@@ -651,6 +660,11 @@ export class DocumentEngine {
     }
     const result = applyMergeSelectedLayers(this.model, ids);
     if (!result) return;
+    // See mergeDown: the fallback mints its own id; re-seat it onto the declared one.
+    if (mergedId) {
+      result.merged.id = mergedId;
+      this.model.activeLayerId = mergedId;
+    }
 
     // Clean up WebGL textures for merged layers
     for (const removedId of result.removedIds) {
@@ -661,20 +675,20 @@ export class DocumentEngine {
     this.notifyChange();
   }
 
-  flattenLayers(): void {
+  flattenLayers(mergedId?: string): void {
     // Rust graph op first — pixel composite stays TS.
     if (USE_RUST_SSOT && this.rustEngine && this.model.layers.length > 1) {
       try {
         const mergedBitmap = compositeAllLayers(this.model.layers, this.model.width, this.model.height);
         if (mergedBitmap) {
-          const mergedId = `layer-${crypto.randomUUID()}`;
+          const mergedLayerId = mergedId ?? `layer-${crypto.randomUUID()}`;
           const removedIds = this.model.layers.map(l => l.id);
           // Retain every node before flatten collapses them (undo re-adds each).
           for (const l of this.model.layers) this.recordDroppedNode(l as never);
-          const ok: boolean = this.rustEngine.flatten(mergedId, "Background", false);
+          const ok: boolean = this.rustEngine.flatten(mergedLayerId, "Background", false);
           if (ok) {
             this.syncLayersFromRust();
-            const flattened = this.model.layers.find(l => l.id === mergedId)!;
+            const flattened = this.model.layers.find(l => l.id === mergedLayerId)!;
             flattened.imageBitmap = mergedBitmap;
             for (const removedId of removedIds) {
               this.dirtyLayerIds.delete(removedId);
@@ -691,6 +705,14 @@ export class DocumentEngine {
     // never consumed: reuse only fires for ids re-appearing after disappearance).
     for (const l of this.model.layers) this.recordDroppedNode(l as never);
     const removedIds = applyFlattenLayers(this.model);
+    // See mergeDown: the fallback mints its own id; re-seat it onto the declared one.
+    if (mergedId && this.model.activeLayerId) {
+      const dest = this.model.layers.find((l) => l.id === this.model.activeLayerId);
+      if (dest) {
+        dest.id = mergedId;
+        this.model.activeLayerId = mergedId;
+      }
+    }
     if (removedIds.length === 0) return;
 
     for (const removedId of removedIds) {

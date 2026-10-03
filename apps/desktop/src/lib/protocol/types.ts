@@ -251,6 +251,16 @@ export type Command =
        */
       docSizeBefore?: [number, number] | null;
       docSizeAfter?: [number, number] | null;
+      /**
+       * Ids this transition MINTED - a merge down / merge selected / flatten
+       * destination. Only the host knows these: it mints the id, and the engine's
+       * post-sync vector is a whole-document push in which "present only in after"
+       * is equally true of a minted destination and of a host-pushed layer.
+       *
+       * Empty or absent means nothing was minted, which leaves the pre-existing
+       * survivor rule in force.
+       */
+      mintedLayerIds?: string[];
     }
   // Structural command arms (mirror the TS graph-mirror layer ops so the native
   // ProtocolEngine owns duplicate/merge/flatten/rasterize). Host owns identity:

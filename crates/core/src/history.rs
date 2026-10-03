@@ -79,6 +79,17 @@ pub(crate) enum EntryPayload {
         after: Option<LayerSet>,
         doc_size_before: Option<(f64, f64)>,
         doc_size_after: Option<(f64, f64)>,
+        /// Ids THIS entry minted, supplied by the host that performed the op.
+        ///
+        /// The `after` slot is filled from a whole-document push, so "present only in
+        /// `after`" cannot tell an id this entry created from a layer the host pushed
+        /// outside it. A merge or flatten destination is the first case, and only the
+        /// host knows it because the host minted the id. Recorded here so the undo
+        /// REMOVES those ids instead of adopting them as survivors, without changing
+        /// the survivor rule for ids nothing claims.
+        ///
+        /// Defaults to empty: an entry that recorded no mints behaves exactly as before.
+        minted_layer_ids: Vec<String>,
     },
     /// Native pixel-history entry. Carries before/after pixel
     /// states as immutable, byte-free `Arc<StateNode>`s (COW tile blocks
@@ -272,6 +283,7 @@ impl ProtocolEngine {
         memory_cost_bytes: u64,
         doc_size_before: Option<(f64, f64)>,
         doc_size_after: Option<(f64, f64)>,
+        minted_layer_ids: &[String],
     ) -> Result<(), ProtocolError> {
         // Barrier: no history mutation while a host handoff (pending_external)
         // is unconfirmed.
@@ -308,6 +320,7 @@ impl ProtocolEngine {
                 // the first host crop, so it must never be the capture source).
                 doc_size_before,
                 doc_size_after,
+                minted_layer_ids: minted_layer_ids.to_vec(),
             },
         });
         self.cursor = self.entries.len();

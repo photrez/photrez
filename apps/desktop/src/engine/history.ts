@@ -475,6 +475,17 @@ export class CommandHistory {
      * from before the first and undo to a size the user was never in.
      */
     docSizeChange?: { before: { width: number; height: number }; after: { width: number; height: number } },
+    /**
+     * Layer ids THIS commit mints - a merge down / merge selected / flatten
+     * destination. The host mints the id and commits BEFORE the mutation that
+     * creates it, so the declaration travels with this call rather than in ambient
+     * state: the facade commit shim mirrors on EVERY commit, so a module-level
+     * declaration would be consumed by an unrelated commit.
+     *
+     * Undefined for every commit that mints nothing, which records an empty set and
+     * leaves the engine's survivor rule untouched for a host-pushed layer.
+     */
+    mintedLayerIds?: string[],
   ): void {
     // Append this commit to the unified Rust history cursor.
     //  - imperative TS pixel op NOT yet in Rust (text/shape/transform)

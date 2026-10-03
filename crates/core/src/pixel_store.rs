@@ -794,6 +794,7 @@ impl PixelStoreRegistry {
         memory_cost_bytes: u64,
         doc_size_before: Option<(f64, f64)>,
         doc_size_after: Option<(f64, f64)>,
+        minted_layer_ids: &[String],
     ) -> Result<(), String> {
         let doc = self
             .docs
@@ -811,6 +812,7 @@ impl PixelStoreRegistry {
                 memory_cost_bytes,
                 doc_size_before,
                 doc_size_after,
+                minted_layer_ids,
             )
             .map_err(|e| e.message)
     }

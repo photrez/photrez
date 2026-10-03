@@ -244,6 +244,7 @@ pub fn rust_pixels_record_external(
     token: String,
     doc_size_before: Option<(f64, f64)>,
     doc_size_after: Option<(f64, f64)>,
+    minted_layer_ids: Option<Vec<String>>,
 ) -> Result<PatchResultJson, String> {
     let mut reg = registry();
     let reg = reg.get_or_insert_with(Default::default);
@@ -256,6 +257,7 @@ pub fn rust_pixels_record_external(
         0,
         doc_size_before,
         doc_size_after,
+        minted_layer_ids.as_deref().unwrap_or(&[]),
     )
     .map_err(|e| e)?;
     let version = reg.get_history_version(&doc_id).unwrap_or(0);

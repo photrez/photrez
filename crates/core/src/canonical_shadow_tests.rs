@@ -418,6 +418,7 @@ fn noop_and_external_transition_leave_shadow_unchanged() {
         // Size-neutral transition: this test is about canonical-shadow refresh.
         doc_size_before: None,
         doc_size_after: None,
+        minted_layer_ids: vec![],
     }))
     .unwrap();
     assert_eq!(

@@ -808,6 +808,7 @@ fn run_single_cursor(ops: &[Op]) -> bool {
                     0,
                     None,
                     None,
+                    &[],
                 )
                 .expect("record_external");
                 cursor += 1;
@@ -938,7 +939,7 @@ fn phase1_e_partial_undo_then_new_severs_redo() {
         vec![tile(0, 0, 8, 8, 9)],
     )
     .unwrap();
-    r.record_external("d", "m", &["L".to_string()], "ts", "t", 0, None, None)
+    r.record_external("d", "m", &["L".to_string()], "ts", "t", 0, None, None, &[])
         .unwrap();
     r.undo_pixel("d"); // undo the TS meta entry -> cursor 1
     let after_undo = r.get_history_cursor("d").unwrap();
@@ -951,8 +952,18 @@ fn phase1_e_partial_undo_then_new_severs_redo() {
         "redo advances the unified cursor"
     );
     assert!(redone.is_none(), "external redo returns no pixel tiles");
-    r.record_external("d", "m2", &["L".to_string()], "ts", "t2", 0, None, None)
-        .unwrap(); // new op -> severs redo
+    r.record_external(
+        "d",
+        "m2",
+        &["L".to_string()],
+        "ts",
+        "t2",
+        0,
+        None,
+        None,
+        &[],
+    )
+    .unwrap(); // new op -> severs redo
     let at_tip = r.get_history_cursor("d").unwrap();
     assert!(r.redo_pixel("d").is_none(), "redo truncated after new op");
     assert_eq!(
@@ -1561,6 +1572,7 @@ mod protocol_native_authority_tests {
             // Size-neutral transition: this test is about cursor/version accounting.
             doc_size_before: None,
             doc_size_after: None,
+            minted_layer_ids: vec![],
         }))
         .expect("record external");
 
