@@ -79,6 +79,13 @@ export default defineConfig({
   ],
 
   test: {
+    // 'minimal' keeps the evidence a gate report needs — pass/fail counts, the
+    // failing tests and their logs — and drops the per-test console noise. The
+    // component project emits ~12.7k lines of it from tests that PASS: probes
+    // that deliberately trip a fallback ("device lost", "PoA path failed") and
+    // [perf] timings. That noise is worthless while green and only reappears on
+    // failure, which is exactly when the reporter surfaces it.
+    reporters: ["minimal"],
     projects: [
       {
         // extends:true inherits the root plugin chain (solidPlugin + tailwind)
