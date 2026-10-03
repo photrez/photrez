@@ -56,8 +56,36 @@ export class FaithfulOffscreenCanvas {
         }
       },
       drawImage(src: any, ...rest: number[]) {
-        const sd: ArrayLike<number> | undefined =
-          typeof src?.getImageData === "function" ? src.getImageData().data : src?.data;
+        // Read the source pixels. A canvas exposes them through its CONTEXT, not
+        // through itself: `OffscreenCanvas` has `getContext` and no `getImageData`.
+        // Probing only the source object therefore found nothing for every canvas
+        // source and this method returned early - silently drawing nothing. That is
+        // invisible for a re-seed from an ImageBitmap (which does have `getImageData`)
+        // and fatal for anything drawn from a canvas, e.g. a brush dab, so a correct
+        // erase was indistinguishable from a broken one.
+        const readSource = (s: any): ArrayLike<number> | undefined => {
+          if (!s) return undefined;
+          if (typeof s.getImageData === "function") return s.getImageData().data;
+          // Only reach for a context on something that actually looks like a canvas
+          // with a real size. Test doubles in other suites expose a `getContext` that
+          // is not a pixel source, and calling it blind threw IndexSizeError there.
+          const looksLikeCanvas =
+            typeof s.getContext === "function" &&
+            typeof s.width === "number" &&
+            typeof s.height === "number" &&
+            s.width > 0 &&
+            s.height > 0;
+          if (looksLikeCanvas) {
+            try {
+              const c = s.getContext("2d");
+              if (c && typeof c.getImageData === "function") return c.getImageData().data;
+            } catch {
+              return undefined;
+            }
+          }
+          return ArrayBuffer.isView(s.data) ? (s.data as unknown as ArrayLike<number>) : s.data;
+        };
+        const sd = readSource(src);
         if (!sd) return;
         const sw = src?.width ?? 0;
         const sh = src?.height ?? 0;

@@ -60,6 +60,7 @@ import {
   type RustStoreEmulator,
 } from "@/lib/paint/__tests__/rustStoreEmulator";
 import { installFaithfulCanvas } from "@/__tests__/faithfulOffscreenCanvas";
+import { getBrushTip } from "../brushTipMask";
 import { resolveEraserFill } from "../brushToolState";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -218,13 +219,11 @@ const SETTINGS = { size: 32, hardness: 1, opacity: 1, flow: 1, smoothing: 0 };
  * measurement in this repo before.
  */
 async function eraseBandOn(
-  opts: { isBackground: boolean; bgSwatch: string },
+  opts: { isBackground: boolean; bgSwatch: string; tool?: "brush" | "eraser"; fill?: string },
 ): Promise<{
   before: Raster;
   after: Raster;
   stages: string;
-  /** Overlay census read AFTER the final composite, BEFORE the snapshot capture. */
-  overlayAtSnapshot: Raster;
   /** What actually went on the wire. */
   payload: { sumRGB: number; alphaZero: number; w: number; h: number } | null;
 }> {
@@ -239,11 +238,16 @@ async function eraseBandOn(
 
   const layer = engine.getLayers()[0];
   layer.isBackground = opts.isBackground;
-  // Opaque white content, so "did the erase change anything" is unambiguous.
+  // An eraser needs known OPAQUE content so "did anything change" is unambiguous. A
+  // brush needs the opposite: a genuinely BLANK layer, so deposited pixels are a rise
+  // in the opaque count rather than a change hidden inside an already-white field.
+  const blank = opts.tool === "brush";
   const canvas = new OffscreenCanvas(SIZE, SIZE);
   const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, SIZE, SIZE);
+  if (!blank) {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, SIZE, SIZE);
+  }
   engine.setLayerImageBitmap(layer.id, canvas.transferToImageBitmap());
   engine.setActiveLayer(layer.id);
   // Seed the store so the layer is PRESENT before the stroke - a real document's
@@ -256,12 +260,15 @@ async function eraseBandOn(
     layerId: layer.id,
     width: SIZE,
     height: SIZE,
-    bytes: new Uint8Array(SIZE * SIZE * 4).fill(255),
+    bytes: blank ? new Uint8Array(SIZE * SIZE * 4) : new Uint8Array(SIZE * SIZE * 4).fill(255),
   });
 
   const before = await readStoreRaster(DOC, layer.id);
   expect(before.present, "premise: the store holds the layer").toBe(true);
-  expect(before.alphaZero, "premise: the layer starts fully opaque").toBe(0);
+  expect(
+    before.alphaZero,
+    blank ? "premise: the brush layer starts blank" : "premise: the erase layer starts opaque",
+  ).toBe(blank ? SIZE * SIZE : 0);
 
   const history = new CommandHistory();
   // A real OffscreenCanvas, so `installFaithfulCanvas` gives the overlay a genuine 2d
@@ -277,12 +284,12 @@ async function eraseBandOn(
     renderer: { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() },
     scheduler: { requestRender: vi.fn() },
     // TOOL SET INSIDE THE HELPER.
-    activeTool: () => "eraser",
+    activeTool: () => opts.tool ?? "eraser",
     eraserSize: () => SETTINGS.size,
     eraserHardness: () => SETTINGS.hardness,
     brushSize: () => SETTINGS.size,
     brushHardness: () => SETTINGS.hardness,
-    fgColor: () => "#000000",
+    fgColor: () => opts.fill ?? "#000000",
     bgColor: () => opts.bgSwatch,
     docWidth: () => SIZE,
     docHeight: () => SIZE,
@@ -295,32 +302,18 @@ async function eraseBandOn(
       { x: 8, y: SIZE / 2 },
       { x: SIZE - 8, y: SIZE / 2 },
     ],
-    true,
+    opts.tool === "brush" ? false : true,
     SETTINGS,
     true,
   );
-  // THE SEAM MEASUREMENT. `onPaintStroke(..., isFinal=true)` runs the final composite
-  // synchronously (useBrushOverlay.ts:939-941) and the snapshot capture happens INSIDE
-  // `commitBrushStroke` (:1424-1426), so this read sits exactly between them and needs no
-  // trust in the dab path: it is the overlay the capture is about to copy.
-  //   overlay erased here, payload opaque  -> the SNAPSHOT CAPTURE is the defect
-  //   overlay pre-stroke here             -> the COMPOSITE is the defect
-  const snapshotCensus = (() => {
-    const ctx = overlayCanvas.getContext("2d") as unknown as {
-      getImageData(): { data: Uint8ClampedArray };
-    };
-    const d = ctx.getImageData().data;
-    let sumRGB = 0;
-    let alphaZero = 0;
-    for (let i = 0; i + 3 < d.length; i += 4) {
-      sumRGB += d[i] + d[i + 1] + d[i + 2];
-      if (d[i + 3] === 0) alphaZero += 1;
-    }
-    return { sumRGB, nz: d.length / 4 - alphaZero, alphaZero, present: true, epoch: 0 };
-  })();
 
   writes = [];
-  await overlay.commitBrushStroke(engine as never, history as never, layer.id, true);
+  await overlay.commitBrushStroke(
+    engine as never,
+    history as never,
+    layer.id,
+    opts.tool === "brush" ? false : true,
+  );
   await flushC4Commits();
 
   // Where are the holes lost? The overlay is the eraser's carrier (the commit reads
@@ -346,7 +339,6 @@ async function eraseBandOn(
     before,
     after: await readStoreRaster(DOC, layer.id),
     stages: `overlay alphaZero=${oAlphaZero} surface alphaZero=${sAlphaZero} writes=${JSON.stringify(writes)}`,
-    overlayAtSnapshot: snapshotCensus,
     payload: writes[0]
       ? { sumRGB: writes[0].sumRGB, alphaZero: writes[0].alphaZero, w: writes[0].w, h: writes[0].h }
       : null,
@@ -420,10 +412,94 @@ describe("eraser on an opaque white layer: what decides whether it cuts holes", 
       "the store write is still recorded - the report saw PRESENT and an epoch bump",
     ).toBeGreaterThan(before.epoch);
   });
+  it("the tip mask rasterises to a real alpha ramp (not an empty mask)", () => {
+    // `rasterizeBrushTipWithCurve` is pure Float32Array math and never touches a
+    // canvas, so the mask was never one of the shim's unfaithfulnesses. Pinned so a
+    // future "the mask must be empty" theory dies here. Read off the real object, no
+    // hash channel over a possibly-undefined field.
+    const tip = getBrushTip({ size: 32, hardness: 1, curve: "soft" });
+    let max = 0;
+    let nonZero = 0;
+    for (let i = 0; i < tip.data.length; i += 1) {
+      if (tip.data[i] > max) max = tip.data[i];
+      if (tip.data[i] > 0) nonZero += 1;
+    }
+    expect(max, "the tip must have a solid core").toBe(1);
+    expect(nonZero, "and a non-empty footprint").toBeGreaterThan(0);
+  });
+
+  it("the shim's own destination-out cuts a hole in a known buffer", () => {
+    // Decides shim-vs-hook with no product code involved at all: paint an opaque white
+    // canvas, cut a hole in it with destination-out using a solid tip, and count
+    // alpha-zero. A shim that cannot do this cannot falsify any eraser claim.
+    const canvas = new OffscreenCanvas(32, 32);
+    const ctx = canvas.getContext("2d") as unknown as {
+      fillStyle: string;
+      globalAlpha: number;
+      globalCompositeOperation: string;
+      fillRect(x: number, y: number, w: number, h: number): void;
+      drawImage(src: unknown, ...rest: number[]): void;
+      getImageData(): { data: Uint8ClampedArray };
+    };
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 32, 32);
+
+    const tip = new OffscreenCanvas(16, 16);
+    const tctx = tip.getContext("2d") as unknown as {
+      fillStyle: string;
+      fillRect(x: number, y: number, w: number, h: number): void;
+    };
+    tctx.fillStyle = "#000000";
+    tctx.fillRect(0, 0, 16, 16);
+
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.globalAlpha = 1;
+    ctx.drawImage(tip, 0, 0, 16, 16, 8, 8, 16, 16);
+
+    const d = ctx.getImageData().data;
+    let alphaZero = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] === 0) alphaZero += 1;
+
+    expect(alphaZero, "destination-out must punch a hole").toBeGreaterThan(0);
+  });
+
+  it("a NON-background erase punches real holes in the Rust store", async () => {
+    // THE PIXEL-LEVEL ERASER ASSERTION. RED before the shim's `drawImage` could read a
+    // canvas source (every dab silently drew nothing, so `destination-out` was inert and
+    // the store came back byte-identical), GREEN after.
+    const { before, after } = await eraseBandOn({ isBackground: false, bgSwatch: "#ffffff" });
+
+    expect(after.alphaZero, "the erased band must become transparent IN THE STORE").toBeGreaterThan(
+      before.alphaZero,
+    );
+    expect(after.nz, "and the opaque pixel count must fall").toBeLessThan(before.nz);
+    expect(after.sumRGB, "so the colour sum must fall").toBeLessThan(before.sumRGB);
+  });
+
+  it("a BRUSH stroke deposits pixels in the store and leaves the rest untouched", async () => {
+    // THE PIXEL-LEVEL BRUSH ASSERTION, and the one that was missing for the whole
+    // project: every pre-existing paint test counts writes and call shapes, so none of
+    // them could see that the shim was drawing nothing. RED before the shim's
+    // `drawImage` learned to read a canvas source, GREEN after.
+    const { before, after } = await eraseBandOn({
+      isBackground: false,
+      bgSwatch: "#ffffff",
+      tool: "brush",
+      fill: "#cc3300",
+    });
+
+    expect(after.nz, "the store must gain opaque pixels under the stroke").toBeGreaterThan(
+      before.nz,
+    );
+    expect(
+      before.alphaZero - after.alphaZero,
+      "and the blank count must FALL by the deposited pixels",
+    ).toBe(after.nz - before.nz);
+    // Not "a write happened": the painted colour must actually be in the buffer.
+    expect(after.sumRGB, "and the colour sum must change").not.toBe(before.sumRGB);
+  });
 
   it("prior brush history is NOT the discriminator - the layer KIND is", () => {
-    // The working field measurement brushed first and then erased; the failing one erased
-    // an already-opaque layer. `resolveEraserFill` reads ONE field, and it is not history.
     expect(resolveEraserFill({ isBackground: true } as never, true, "#ffffff")).toEqual({
       isEraser: false,
       color: "#ffffff",
