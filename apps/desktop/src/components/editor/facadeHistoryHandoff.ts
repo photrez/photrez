@@ -209,18 +209,33 @@ export async function runFacadeExternalHandoff(
       if (before.get(layer.id) !== layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
     }
   };
-  // The Rust command is the only fall-through trigger. If IT fails, the cursor
-  // did not move and the legacy TS store still owns the step. Once it resolves,
-  // Rust HAS moved for this step: every branch below must report handled, so a
-  // projection failure can never send the caller on to pop a TS entry AND fire
-  // rust_pixels_undo - two extra undo steps for one press.
+  // The Rust command is the only fall-through trigger, and ONLY when the cursor
+  // genuinely did not move - i.e. Rust had no entry for this step and the legacy TS
+  // store really does own it. Once it resolves, Rust HAS moved for this step: every
+  // branch below must report handled, so a projection failure can never send the
+  // caller on to pop a TS entry AND fire rust_pixels_undo - two extra undo steps for
+  // one press.
   let facade: ReturnType<typeof getFacade>;
   let snap: unknown;
   try {
     facade = getFacade(engine.getId());
     snap = await (direction === "undo" ? facade.undo() : facade.redo());
-  } catch {
-    // Rust command rejected - fall through to legacy TS history.
+  } catch (err) {
+    // E_EXTERNAL_PENDING is NOT "Rust had nothing". It means a PREVIOUS external
+    // step already moved the cursor and its `confirmExternalCursor` failed, which is
+    // fail-fast and does NOT clear the barrier. The legacy store does not own this
+    // step: it holds entries recorded before the layers became facade-owned. Falling
+    // through pops one of those and `engine.restore` throws E_FACADE_OWNED - the
+    // shipped "Undo failed: E_FACADE_OWNED: legacy restore blocked while facade owns
+    // layers" message, arriving one press after the silent cursor-commit failure that
+    // caused it. Refuse this press instead: the step belongs to the facade and is only
+    // BLOCKED, so "handled" is the truthful answer, no unrelated legacy entry is spent,
+    // and the user keeps every step they still own.
+    if (/E_EXTERNAL_PENDING/.test(String((err as Error)?.message ?? err))) {
+      return true;
+    }
+    // Any other rejection: the cursor did not move and the legacy TS store still owns
+    // the step. Fall through to legacy TS history.
     return false;
   }
   try {
