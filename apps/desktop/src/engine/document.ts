@@ -377,6 +377,15 @@ export class DocumentEngine {
       const restatedById = new Map(restated.map(n => [n.id, n] as const));
       const survives = (id: string): boolean => {
         if (mirrorIds.has(id)) return true;
+        // The same dropped-id ledger the sibling re-add path below consults. Every
+        // intended disappearance records its node into it BEFORE the mutation
+        // (legacy delete / merge down / merge selected / flatten record their
+        // victims; the facade projection records a facade delete), so an id in the
+        // ledger is one this sync's op meant to destroy. Without this condition a
+        // facade-owned victim is preserved and comes straight back - measured as a
+        // merge down leaving `["Paint + Background", "Background"]`, and it fires on
+        // the FIRST sync after the op, not later.
+        if (this.everDroppedIds.has(id)) return false;
         if (!isFacadeOwned(id)) return false;
         if (this.facadeProjectedIds && !this.facadeProjectedIds.has(id)) return false;
         return true;
