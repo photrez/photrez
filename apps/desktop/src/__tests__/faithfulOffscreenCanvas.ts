@@ -55,11 +55,56 @@ export class FaithfulOffscreenCanvas {
           }
         }
       },
-      drawImage(src: any) {
-        const d: ArrayLike<number> | undefined =
+      drawImage(src: any, ...rest: number[]) {
+        const sd: ArrayLike<number> | undefined =
           typeof src?.getImageData === "function" ? src.getImageData().data : src?.data;
-        if (!d || d.length !== self.buffer.length) return;
-        for (let i = 0; i < d.length; i++) self.buffer[i] = d[i];
+        if (!sd) return;
+        const sw = src?.width ?? 0;
+        const sh = src?.height ?? 0;
+        if (!sw || !sh) return;
+        // Geometry: 3-arg draws the whole source at the origin; the 9-arg form
+        // (sx, sy, sw, sh, dx, dy, dw, dh) draws a sub-rect, scaled nearest-neighbour.
+        let sx = 0, sy = 0, cw = sw, ch = sh, dx = 0, dy = 0, dw = sw, dh = sh;
+        if (rest.length >= 8) {
+          [sx, sy, cw, ch, dx, dy, dw, dh] = rest;
+        }
+        const op = ctx.globalCompositeOperation;
+        const ga = ctx.globalAlpha;
+        for (let row = 0; row < dh; row++) {
+          for (let col = 0; col < dw; col++) {
+            const tx = dx + col;
+            const ty = dy + row;
+            if (tx < 0 || ty < 0 || tx >= self.width || ty >= self.height) continue;
+            const ux = Math.min(cw - 1, Math.floor((col * cw) / dw));
+            const uy = Math.min(ch - 1, Math.floor((row * ch) / dh));
+            const si = ((sy + uy) * sw + (sx + ux)) * 4;
+            const ti = (ty * self.width + tx) * 4;
+            const sa = (sd[si + 3] / 255) * ga;
+            if (op === "destination-out") {
+              // result.alpha = dst.alpha * (1 - src.alpha). Straight (non-premultiplied)
+              // RGBA keeps dst colour and drops alpha; a browser's result is the same
+              // shape, with colour collapsing once alpha reaches zero.
+              self.buffer[ti + 3] = Math.round(self.buffer[ti + 3] * (1 - sa));
+              if (self.buffer[ti + 3] === 0) {
+                self.buffer[ti] = 0;
+                self.buffer[ti + 1] = 0;
+                self.buffer[ti + 2] = 0;
+              }
+            } else if (op === "destination-in") {
+              self.buffer[ti + 3] = Math.round(self.buffer[ti + 3] * sa);
+            } else {
+              // source-over (and copy): blend src over dst by its alpha.
+              const da = self.buffer[ti + 3] / 255;
+              const oa = sa + da * (1 - sa);
+              for (let c = 0; c < 3; c++) {
+                self.buffer[ti + c] = Math.round(
+                  (sd[si + c] * sa + self.buffer[ti + c] * da * (1 - sa)) / (oa || 1),
+                );
+              }
+              self.buffer[ti + 3] = Math.round(oa * 255);
+            }
+          }
+        }
       },
       getImageData(x = 0, y = 0, w = self.width, h = self.height) {
         const out = new Uint8ClampedArray(w * h * 4);
@@ -108,6 +153,14 @@ export class FaithfulOffscreenCanvas {
       rect: () => {},
       clip: () => {},
       setTransform: () => {},
+      // The real 2d context has this; the brush/eraser commit path calls it, and its
+      // absence made every such path throw "ctx.createImageData is not a function".
+      createImageData: (w: number, h: number) => ({
+        data: new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4),
+        width: w,
+        height: h,
+        colorSpace: "srgb",
+      }),
     };
     return ctx as unknown as CanvasRenderingContext2D;
   }
