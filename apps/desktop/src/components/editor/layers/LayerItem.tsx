@@ -157,9 +157,11 @@ export function LayerItem(props: LayerItemProps) {
 
       if (hasDragged) {
         props.onPointerDragEnd?.(upEvent, props.layer, props.idx);
-      } else {
-        props.onSelect(props.layer.id, upEvent);
       }
+      // Selection lives on the click below. It used to also run here, and the pair made
+      // one click invoke the selector twice - invisible on a plain click (idempotent),
+      // self-cancelling under a modifier (a toggle). A cancelled pointer gesture must
+      // not select either, and no click follows a cancel.
     };
 
     targetEl.addEventListener("pointermove", onPointerMove);
