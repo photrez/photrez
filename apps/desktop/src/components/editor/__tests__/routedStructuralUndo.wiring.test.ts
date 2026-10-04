@@ -223,6 +223,38 @@ function rasterSignature(engine: Engine, layerId: string): string {
   return `painted=${painted}/${data.length / 4} digest=${digest}`;
 }
 
+/**
+ * A DISCRIMINATED raster state: "absent" when the layer carries no raster at all, and
+ * otherwise the real painted count plus digest.
+ *
+ * The distinction is load-bearing. A layer with NO raster and a layer with a TRANSPARENT
+ * FULL-SIZE raster both read as "zero painted pixels" to any count-only comparison, so a
+ * count alone would let a fabricated blank raster pass for an absent one. `absent` is its
+ * own token and can never equal a `painted=` string. A graph-minted layer now arrives with
+ * a transparent raster where it used to arrive with none, which is exactly the pair of
+ * states this token exists to tell apart.
+ */
+function rasterState(engine: Engine, layerId: string): string {
+  const data = rasterPixels(engine, layerId);
+  if (!data) return "absent";
+  let painted = 0;
+  let digest = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    if (r !== 0 || g !== 0 || b !== 0 || a !== 0) painted += 1;
+    digest = (digest * 31 + r + g * 3 + b * 7 + a * 11) >>> 0;
+  }
+  return `painted=${painted}/${data.length / 4} digest=${digest}`;
+}
+
+/** Who the Background layer is, by the flag rather than by position. */
+function backgroundId(engine: Engine): string | undefined {
+  return engine.getLayers().find((l) => l.isBackground)?.id;
+}
+
 function layerVector(engine: Engine): string[] {
   return engine.getLayers().map((l) => l.id);
 }
@@ -419,7 +451,22 @@ describe("routed composite op: one gesture, one undo, structure restored", () =>
     await addOwnedLayer(engine, "Second", "#cc3366");
     await addOwnedLayer(engine, "Third", "#33cc66");
     const beforeIds = layerVector(engine);
-    const beforeSignatures = beforeIds.map((id) => rasterSignature(engine, id));
+    // IDENTITY for every layer, order-sensitive: id, name and position. This comparison
+    // CAN fail, because the op is free to reorder or rename.
+    const beforeIdentity = beforeIds.map((id, i) => `${i}:${engine.getLayer(id)?.name ?? "?"}:${id}`);
+    // RASTER for every layer the contract says must carry one. The Background is
+    // deliberately excluded - see the absolute assertion after the undo.
+    const bgId = backgroundId(engine);
+    expect(bgId, `${name} premise: the document has a Background layer`).toBeTruthy();
+    const beforeRaster = beforeIds
+      .filter((id) => id !== bgId)
+      .map((id) => `${id}=${rasterState(engine, id)}`);
+    // Non-vacuous by construction: nothing in this comparison may be satisfied by an
+    // absent raster, which is what made the previous whole-vector form a tautology.
+    expect(
+      beforeIds.filter((id) => id !== bgId).map((id) => rasterState(engine, id)),
+      `${name} premise: every non-Background layer carries a real raster, so the before/after raster comparison cannot be satisfied by two absent rasters`,
+    ).not.toContain("absent");
     expect(beforeIds.length, `premise: ${name} needs more than one layer`).toBeGreaterThan(1);
     store.calls.length = 0;
 
@@ -467,10 +514,39 @@ describe("routed composite op: one gesture, one undo, structure restored", () =>
       beforeIds,
     );
     const afterIds = layerVector(engine);
-    const afterSignatures = afterIds.map((id) => rasterSignature(engine, id));
-    expect(afterSignatures, `${name}: every layer came back with its own raster`).toEqual(
-      beforeSignatures,
-    );
+    // Identity, order-sensitive: every layer back at its own index with its own name.
+    expect(
+      afterIds.map((id, i) => `${i}:${engine.getLayer(id)?.name ?? "?"}:${id}`),
+      `${name}: undo restored every layer's identity AND position`,
+    ).toEqual(beforeIdentity);
+
+    // Raster, for the layers whose contract is to carry one. Real pixel counts, equal on
+    // both sides because the undo must reproduce them exactly.
+    expect(
+      afterIds.filter((id) => id !== bgId).map((id) => `${id}=${rasterState(engine, id)}`),
+      `${name}: every layer that must carry a raster came back with its own, byte for byte`,
+    ).toEqual(beforeRaster);
+
+    // THIS BLOCK'S SETUP: `createBlankDocument` leaves the Background with no raster
+    // (workspace.ts:307-315) and NOTHING here paints it - `addOwnedLayer` fills only the two
+    // layers it adds. So the Background must still be absent after the undo. Asserted as an
+    // absolute contract, NOT against its own prior value: "no raster" compared to "no
+    // raster" could never detect the undo losing or fabricating one, which is the defect
+    // this whole change exists to remove. A fabricated blank raster reads "painted=..." and
+    // fails; the token cannot collide because absence is its own string.
+    //
+    // The DATA-LOSS GUARD block below states a DIFFERENT expectation (`painted=` full
+    // count) because its setup is different - it calls `giveLayerBrushHistory` on
+    // `getLayers()[0]` and `[1]`, and the Background is one of them. Two setups, two facts.
+    // Do not "fix" one to match the other.
+    expect(
+      {
+        backgroundId: bgId,
+        rasterState: bgId ? rasterState(engine, bgId) : "missing-layer",
+        isBackground: bgId ? engine.getLayer(bgId)?.isBackground : false,
+      },
+      `${name}: the Background must still be the Background and must still carry NO raster - a fabricated blank raster reads painted=... and fails, and "absent" cannot equal a painted signature`,
+    ).toEqual({ backgroundId: bgId, rasterState: "absent", isBackground: true });
 
     // --- redo re-collapses identically ----------------------------------------
     const redone = await runFacadeExternalHandoff(makeEditor(engine), "redo");
@@ -596,7 +672,34 @@ describe("store retirement on a routed composite undo", () => {
     await giveLayerBrushHistory(engine, topId, "#cc3366");
     await giveLayerBrushHistory(engine, belowId, "#33cc66");
     const beforeIds = layerVector(engine);
-    const beforeSignatures = beforeIds.map((id) => rasterSignature(engine, id));
+    // Same split as checkOp: the Background carries no raster by design
+    // (workspace.ts:307-315), so comparing its raster to its OWN prior value could never
+    // detect anything. It is excluded here and asserted against the contract below.
+    const bgIdHere = backgroundId(engine);
+    // WHY THIS BLOCK'S BACKGROUND IS PAINTED. `createBlankDocument` gives the Background no
+    // raster (workspace.ts:307-315), and this block then calls `giveLayerBrushHistory` on
+    // `getLayers()[0]` and `getLayers()[1]` - on WHICHEVER two layers exist, and the
+    // Background is one of them. `giveLayerBrushHistory` fills the whole surface opaquely
+    // and calls `engine.setLayerImageBitmap`, so the Background ends up FULLY PAINTED here.
+    // A reader who sees `painted=4096/4096` must NOT assume the undo fabricated it.
+    //
+    // This is a REAL premise, not a measurement: if the Background were a third layer the
+    // setup would not have painted it and the expectation below would be false.
+    expect(
+      {
+        bgIsOneOfThePaintedLayers: [topId, belowId].includes(bgIdHere as string),
+        bgId: bgIdHere,
+        layerCount: engine.getLayers().length,
+      },
+      "premise: this block paints getLayers()[0] and [1], and the Background is one of the two layers that exist, so it is painted fully opaque. If this is false the post-undo expectation below is asserting something untrue",
+    ).toMatchObject({ bgIsOneOfThePaintedLayers: true, layerCount: 2 });
+    const beforeSignatures = beforeIds
+      .filter((id) => id !== bgIdHere)
+      .map((id) => `${id}=${rasterState(engine, id)}`);
+    expect(
+      beforeIds.filter((id) => id !== bgIdHere).map((id) => rasterState(engine, id)),
+      "premise: no layer in this comparison is satisfied by an absent raster",
+    ).not.toContain("absent");
     const beforeStore = await storeEntryState(topId);
     const beforeStoreBelow = await storeEntryState(belowId);
     expect(beforeStore.steps, "premise: the top layer has pixel history").toBeGreaterThan(0);
@@ -608,9 +711,30 @@ describe("store retirement on a routed composite undo", () => {
     expect(await runFacadeExternalHandoff(makeEditor(engine), "undo")).toBe(true);
     expect(layerVector(engine), "undo restored both participants").toEqual(beforeIds);
     expect(
-      layerVector(engine).map((id) => rasterSignature(engine, id)),
+      layerVector(engine).filter((id) => id !== bgIdHere).map((id) => `${id}=${rasterState(engine, id)}`),
       "both restored layers carry their own raster",
     ).toEqual(beforeSignatures);
+    // Absolute, setup-derived, and NOT a comparison against its own prior value. This
+    // block's setup declares the Background's pixels: `giveLayerBrushHistory` fills the
+    // whole surface, so every one of the SIZE*SIZE pixels must carry colour. Asserting the
+    // full painted count is a fact about THIS setup, and it can fail - an undo that left
+    // the Background absent, transparent, or partly restored would all read a smaller count
+    // or "absent".
+    //
+    // The digest is deliberately not hardcoded: it is a constant nobody can derive without
+    // running the fill, and inventing one would be a fabricated oracle. The exact bytes of
+    // this layer are already pinned by the per-layer store checks further down
+    // (`storeEqualsBitmap` against `layer.imageBitmap` for each of topId/belowId, and the
+    // Background is one of those two) - so the digest is covered by id-addressed
+    // assertions, and this one covers presence plus completeness.
+    expect(
+      { backgroundId: bgIdHere, rasterState: bgIdHere ? rasterState(engine, bgIdHere) : "missing-layer", isBackground: bgIdHere ? engine.getLayer(bgIdHere)?.isBackground : false },
+      "this block's Background is painted by `giveLayerBrushHistory`, so the undo must bring back a FULLY painted layer. absent, a smaller painted count, or a layer that is no longer the Background all fail here. The digest is carried in the message for diagnosis and is pinned separately by the id-addressed store checks below",
+    ).toMatchObject({ backgroundId: bgIdHere, isBackground: true });
+    expect(
+      bgIdHere ? rasterState(engine, bgIdHere).startsWith(`painted=${SIZE * SIZE}/${SIZE * SIZE} `) : false,
+      "the Background must come back with every one of its pixels painted, because this block's setup filled every one of them. This is the assertion that can fail; the message above carries the digest for diagnosis",
+    ).toBe(true);
 
     for (const id of [topId, belowId]) {
       const state = await storeEntryState(id);
