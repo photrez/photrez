@@ -1,24 +1,38 @@
 /**
- * Regression wiring test for the undo/redo cursor-sync gate in useEditorCommands.
+ * Regression wiring test for the undo/redo cursor-sync gate.
  *
- * Coverage gap: historyBridge.wiring.test.ts only scopes
- * history.ts — it CANNOT catch a bypass where useEditorCommands calls
- * rust_pixels_undo/rust_pixels_redo UNGATED on the tile undo/redo path. This
- * file drives the REAL undo/redo path (via the hook's returned `undo`/`redo`)
- * and asserts that the Tauri `invoke` is ONLY fired when the history bridge is
- * enabled (the only thing that creates a Rust history entry on commit).
+ * Coverage gap: historyBridge.wiring.test.ts only scopes history.ts — it CANNOT
+ * catch a bypass where the undo/redo path calls rust_pixels_undo/rust_pixels_redo
+ * UNGATED. This file drives the REAL undo/redo path (via the hook's returned
+ * `undo`/`redo`) over a REAL `CommandHistory` — the pop owns the cursor step
+ * (`CommandHistory.stepRustCursor`), so a fake history would make every
+ * assertion here vacuous.
  *
- * Scenarios:
- *   1. Default production (no photrez.rustPixels, no bridge gate,
- *      isTauriRuntime false) → invoke is NEVER called with
- *      rust_pixels_undo/rust_pixels_redo (the old bug: it always fired).
- *   2. Bridge gate "1" + tauri → invoke("rust_pixels_undo", ...) / redo called.
+ * A step fires only when Rust recorded the popped entry, and there are exactly
+ * three ways that happens:
+ *   1. the history bridge, for a METADATA entry — `rust_pixels_record_external`
+ *      takes all-scalar args, so it really records;
+ *   2. `imperative.rustOwned`, for a brush-shaped pixel entry — the canonical
+ *      `rust_pixels_write_region` recorded it, whatever the bridge says (covered
+ *      in `rustPixelPathOwnership.test.tsx`);
+ *   3. TRANSITIONAL `photrez.rustPixels`, for a tile entry Rust does not own.
+ *
+ * Scenarios here:
+ *   - default production (no flag, no gate, not Tauri) → NEVER called;
+ *   - bridge ON + Tauri, METADATA entry → called once per direction;
+ *   - bridge ON, TS-OWNED tile entry → NOT called, because the bridge's tile arm
+ *     (`apply_tile_patch`) is rejected by the real command, so it recorded
+ *     nothing to step;
+ *   - TRANSITIONAL flag ON, tile entry → called once (the flag's last behaviour).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { useEditorCommands } from "../useEditorCommands";
+import { CommandHistory } from "@/engine/history";
+import type { HistoryTilePatches } from "@/engine/history";
+import type { DocumentModel } from "@/engine/types";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
 
@@ -51,13 +65,20 @@ vi.mock("@/engine/document", () => ({
 const GATE_KEY = "photrez.historyBridge";
 const RUST_PIXELS_KEY = "photrez.rustPixels";
 
-type WirePatch = {
-  layerId: string;
-  surfaceWidth: number;
-  surfaceHeight: number;
-  before: { x: number; y: number; w: number; h: number; data: number[] }[];
-  after: { x: number; y: number; w: number; h: number; data: number[] }[];
-};
+/** Minimal model the real `CommandHistory.commit` records. */
+const MODEL = {
+  id: "doc-1",
+  name: "d",
+  width: 10,
+  height: 10,
+  layers: [],
+  activeLayerId: null,
+  selection: null,
+  viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
+  dirty: false,
+} as unknown as DocumentModel;
+
+type WirePatch = HistoryTilePatches;
 
 const makePatches = (): WirePatch => ({
   layerId: "l1",
@@ -67,25 +88,30 @@ const makePatches = (): WirePatch => ({
   after: [],
 });
 
-/** Minimal TS CommandHistory shape the undo tile path consumes. */
-function makeHistory(patches: WirePatch) {
-  const snapshot = { layers: [], activeLayerId: null };
-  return {
-    canUndo: () => true,
-    canRedo: () => true,
-    undo: () => snapshot,
-    redo: () => snapshot,
-    consumeLastUndoPatches: () => patches,
-    consumeLastRedoPatches: () => patches,
-  };
+/**
+ * A REAL `CommandHistory` holding one entry, because the pop is what owns the
+ * Rust cursor step (`CommandHistory.stepRustCursor`). A hand-rolled `undo()`
+ * that returned a snapshot without a pop would make every assertion below
+ * vacuous: the step could not happen at all, so a zero would prove nothing about
+ * the gate and a one would prove nothing about the gate either.
+ */
+function makeHistory(patches: WirePatch | null) {
+  const history = new CommandHistory();
+  history.attachDocIdGetter(() => "doc-1");
+  history.commit(MODEL, "Op", patches ?? undefined);
+  return history;
 }
 
 /** The editor context the hook body + useLayerActions destructure need. */
-function makeEditorContext(patches: WirePatch, engine: Record<string, unknown>) {
+function makeEditorContext(patches: WirePatch | null, engine: Record<string, unknown>) {
+  // One history for the whole context: `getActiveHistory` is read on every
+  // command, and a fresh CommandHistory per read would commit a new entry each
+  // time, so the pop under test would not be the entry these cases set up.
+  const history = makeHistory(patches);
   return {
     workspace: {
       getActiveEngine: () => engine,
-      getActiveHistory: () => makeHistory(patches),
+      getActiveHistory: () => history,
       getActiveDocumentId: () => "doc-1",
       notifyVisualChange: () => {},
     },
@@ -168,21 +194,52 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     expect(undoRedoCalls).toHaveLength(0);
   });
 
-  it("bridge gate ON in Tauri: invoke is called once per undo/redo cursor-sync", async () => {
+  it("bridge gate ON in Tauri: a METADATA pop invokes once per direction", async () => {
+    // A metadata entry is the bridge's ONE arm that really records:
+    // `rust_pixels_record_external` takes all-scalar args, so serde accepts it
+    // and Rust holds a matching External entry for the pop to consume. Its tile
+    // counterpart is the next case.
     localStorage.setItem(GATE_KEY, "1");
     vi.mocked(isTauriRuntime).mockReturnValue(true);
-    mockUseEditor(makeEditorContext(makePatches(), makeEngine()));
+    mockUseEditor(makeEditorContext(null, makeEngine()));
     vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
+    await flush();
+    vi.mocked(invoke).mockClear();
 
     const commands = useEditorCommands(() => {});
     commands.undo();
     await flush();
-    expect(invoke).toHaveBeenCalledWith("rust_pixels_undo", { docId: "doc-1", layerId: "l1" });
+    expect(invoke).toHaveBeenCalledWith("rust_pixels_undo", { docId: "doc-1", layerId: "" });
 
     vi.mocked(invoke).mockClear();
     commands.redo();
     await flush();
-    expect(invoke).toHaveBeenCalledWith("rust_pixels_redo", { docId: "doc-1", layerId: "l1" });
+    expect(invoke).toHaveBeenCalledWith("rust_pixels_redo", { docId: "doc-1", layerId: "" });
+  });
+
+  it("bridge gate ON, TS-OWNED tile entry: NO invoke, because the bridge never recorded it", async () => {
+    // The bridge's tile arm is `apply_tile_patch`, and the host sends
+    // `TileUploadLike` {x, y, width, height, data} while the command deserializes
+    // `TilePatchWire` {x, y, w, h, data} with no serde alias - serde rejects it
+    // ("missing field `w`", pinned in Rust by
+    // `host_tile_shape_is_rejected_at_the_wire_and_records_nothing`). No Pixel
+    // entry exists, so the pop has nothing to consume and must not step: a step
+    // here would eat the nearest entry Rust does hold.
+    localStorage.setItem(GATE_KEY, "1");
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
+    mockUseEditor(makeEditorContext(makePatches(), makeEngine()));
+    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
+    await flush();
+    vi.mocked(invoke).mockClear();
+
+    const commands = useEditorCommands(() => {});
+    commands.undo();
+    await flush();
+
+    const undoRedoCalls = (vi.mocked(invoke).mock.calls as [string][]).filter(
+      ([cmd]) => cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo",
+    );
+    expect(undoRedoCalls, "the rejected record means there is no entry to step").toEqual([]);
   });
 
   // TRANSITIONAL (photrez.rustPixels gating; delete with the flag): pins flag-ON
@@ -193,6 +250,10 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     mockUseEditor(makeEditorContext(makePatches(), makeEngine()));
     vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
+    // The commit's fire-and-forget `apply_tile_patch` reaches the census one
+    // dynamic import later; drain it BEFORE reading the baseline, or it lands in
+    // the undo's census slice and this case reads the commit, not the step.
+    await flush();
     const censusBefore = (await flushPixelInvokeCensus()).entries.length;
 
     const commands = useEditorCommands(() => {});

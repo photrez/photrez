@@ -754,4 +754,94 @@ mod c4_runtime_tests {
         let snap = rust_pixels_snapshot_tile(doc.clone(), layer.clone(), 0, 0, 64, 64);
         assert!(snap.is_err(), "closed document has no pixel storage");
     }
+
+    /// WIRE CONTRACT: the tile shape the TypeScript host actually sends, at the
+    /// real JSON boundary.
+    ///
+    /// `CommandHistory.commit` hands a tile memento to `apply_tile_patch` as
+    /// `TileUploadLike[]` = `{x, y, width, height, data}`
+    /// (apps/desktop/src/renderer/types.ts), while this command deserializes
+    /// `Vec<TilePatchWire>` = `{x, y, w, h, data}` with no serde alias or rename.
+    /// Tauri deserializes command arguments with serde, so
+    /// `serde_json::from_value` IS that boundary - and it REJECTS the host's
+    /// shape. The bridge's tile arm therefore records NO Pixel entry in the app.
+    ///
+    /// This is the empirical pin for a blocking prerequisite of any bridge flip,
+    /// and it is what makes the frontend's own `apply_tile_patch` assertions
+    /// meaningful: `c4FallbackHistoryRecovery.test.ts` accepts `t.width` in its
+    /// emulator, so the real rejection is invisible there. Until the two shapes
+    /// are reconciled, the bridge's only recording arm is
+    /// `rust_pixels_record_external` (all-scalar args, asserted below to record).
+    #[test]
+    fn host_tile_shape_is_rejected_at_the_wire_and_records_nothing() {
+        let _g = super::TEST_REGISTRY_LOCK.lock().unwrap();
+        reset();
+
+        let host_value = serde_json::Value::Array(vec![serde_json::json!({
+            "x": 0, "y": 0, "width": 2, "height": 2,
+            "data": vec![1u8; 16]
+        })]);
+        let host_parsed: Result<Vec<TilePatchWire>, _> = serde_json::from_value(host_value);
+        let err = host_parsed
+            .err()
+            .expect("the host's TileUploadLike shape must not deserialize")
+            .to_string();
+        assert!(
+            err.contains("missing field `w`"),
+            "expected serde's missing-`w` rejection, got: {err}"
+        );
+
+        // The shape this command declares does deserialize, and a patch built
+        // from it DOES mint the entry the cursor steps - so the rejection above is
+        // about the wire shape, not about the command being inert.
+        let rust_value = serde_json::Value::Array(vec![serde_json::json!({
+            "x": 0, "y": 0, "w": 2, "h": 2,
+            "data": vec![1u8; 16]
+        })]);
+        let doc = "docwire".to_string();
+        let layer = "lw".to_string();
+        rust_pixels_open_document(doc.clone());
+        rust_pixels_init(doc.clone(), layer.clone(), 64, 64, vec![0; 64 * 64 * 4]).unwrap();
+        let patches: Vec<TilePatchWire> =
+            serde_json::from_value(rust_value.clone()).expect("rust shape");
+        let before: Vec<TilePatchWire> = serde_json::from_value(rust_value).expect("rust shape");
+        let res = apply_tile_patch(doc.clone(), layer.clone(), before, patches).expect("patch");
+        assert_eq!(res.tiles.len(), 1);
+        assert_eq!(
+            registry()
+                .as_ref()
+                .unwrap()
+                .get_history_depth(&doc)
+                .unwrap()
+                .total_depth,
+            1,
+            "a wire-accepted patch mints exactly one entry"
+        );
+
+        // The bridge's OTHER arm records: all-scalar args, so serde cannot reject
+        // it. This is the arm a metadata host commit relies on.
+        let doc2 = "docwire2".to_string();
+        rust_pixels_open_document(doc2.clone());
+        rust_pixels_record_external(
+            doc2.clone(),
+            "Add Layer".to_string(),
+            vec![],
+            "ts".to_string(),
+            "Add Layer".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("record_external");
+        assert_eq!(
+            registry()
+                .as_ref()
+                .unwrap()
+                .get_history_depth(&doc2)
+                .unwrap()
+                .total_depth,
+            1,
+            "rust_pixels_record_external records an External entry"
+        );
+    }
 }

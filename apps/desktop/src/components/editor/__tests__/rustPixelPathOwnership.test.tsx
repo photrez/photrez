@@ -6,8 +6,9 @@
  * `photrez.rustPixels` pins the FLAG's behaviour and is transitional: brush,
  * eraser, bucket, seeded fill, gradient and delete-pixels became unconditionally
  * Rust, deleting five of the flag's six production subjects. Exactly one read
- * survives - the undo/redo tile-branch routing in useEditorCommands
- * (`rustOwned || rustPixelsFlag`) - so the flag matrix below is now the ONLY
+ * survives - the undo/redo cursor-step arming in `CommandHistory.stepRustCursor`
+ * (it used to be `rustOwned || rustPixelsFlag` inside the tile branch of
+ * useEditorCommands) - so the flag matrix below is now the ONLY
  * flag-dependent coverage in the tree and must be DELETED when that last read
  * retires. The per-case TRANSITIONAL markers name the flag they pin; the
  * permanent replacements are `ownerConvergence.test.ts` (do the two live owners
@@ -15,25 +16,13 @@
  * which reads the flag.
  *
  * Part 1 - the TILE/PIXEL undo/redo routing matrix.
- * Two production sites can fire rust_pixels_undo / rust_pixels_redo for ONE
- * step (both inside the tile-patch branch of useEditorCommands):
- *   - the pixel-path tile fetch: armed by the popped entry's `rustOwned` mark
- *     (Rust already recorded that Pixel entry) or by photrez.rustPixels,
- *   - the photrez.historyBridge cursor-sync site: needs historyBridgeEnabled(),
- *     i.e. the gate key AND the Tauri runtime, and it is skipped when the first
- *     site already stepped the cursor, so a step can never take two cursor steps.
- * Exactly one site may fire per direction, so all eight
- * flag x gate x runtime combinations are pinned here:
- *
- *   flag 1 (any gate, any runtime) -> 1: the tile path fires and the bridge
- *     site stays skipped.
- *   flag 0 + gate 1 + Tauri -> 1: only the bridge site owns the cursor step.
- *   flag 0 + gate 1 + jsdom -> 0: the gate predicate also needs the runtime.
- *   flag 0 + gate 0 (any runtime) -> 0: no site is armed.
- *
- * A metadata-only step carries no tile patches, so both sites are unreachable
- * for it; those rows assert zero invokes AND that the model restore still ran
- * (otherwise a zero would only prove the step aborted early).
+ * One pop of a `CommandHistory` entry is ONE Rust cursor step, fired by the pop
+ * itself (`stepRustCursor`) whenever Rust recorded that entry; the tile branch
+ * only READS that step's tiles. All eight flag x gate x runtime combinations are
+ * pinned below, and they resolve on the flag alone - see the comment on ROWS for
+ * why the gate cannot arm a step for this entry shape. A metadata-only step
+ * carries no tile patches, so the tile branch is unreachable for it; the separate
+ * block below covers what its pop does instead.
  *
  * Census reads go through flushPixelInvokeCensus(), which awaits in-flight
  * invokes first; a sleep is not a drain.
@@ -57,6 +46,9 @@ import { getPixelHistoryDepth } from "@/lib/protocol/pixelHistoryDepth";
 import { invokePixelCommand } from "@/lib/protocol/bridge";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { WorkspaceManager } from "@/engine/workspace";
+import { CommandHistory } from "@/engine/history";
+import type { HistoryTilePatches } from "@/engine/history";
+import type { DocumentModel } from "@/engine/types";
 import { useEditorCommands } from "../useEditorCommands";
 import { EditorProvider, useEditor } from "../shell/EditorContext";
 import { CanvasViewport } from "../canvas/CanvasViewport";
@@ -163,18 +155,13 @@ if (typeof (globalThis as { createImageBitmap?: unknown }).createImageBitmap ===
 const GATE_KEY = "photrez.historyBridge";
 const RUST_PIXELS_KEY = "photrez.rustPixels";
 
-type WirePatch = {
-  layerId: string;
-  surfaceWidth: number;
-  surfaceHeight: number;
-  before: { x: number; y: number; width?: number; height?: number; data: number[] }[];
-  after: { x: number; y: number; width?: number; height?: number; data: number[] }[];
-  /**
-   * Set by the commit that rust_pixels_write_region already recorded in Rust.
-   * The twin is then a cursor token for the step, never a pixel source.
-   */
-  rustOwned?: boolean;
-};
+/**
+ * The tile memento exactly as `CommandHistory` records it. `rustOwned` is the
+ * real field (see `HistoryTilePatches`): set by the commit that
+ * rust_pixels_write_region already recorded in Rust, which makes the twin a
+ * cursor token for the step rather than a pixel source.
+ */
+type WirePatch = HistoryTilePatches;
 
 const makePatches = (): WirePatch => ({
   layerId: "l1",
@@ -184,17 +171,40 @@ const makePatches = (): WirePatch => ({
   after: [],
 });
 
-/** Minimal TS CommandHistory shape; `patches` null = metadata-only step. */
+const tile = (x: number, y: number, rgba: number[]) => ({
+  x,
+  y,
+  width: 1,
+  height: 1,
+  data: new Uint8ClampedArray(rgba),
+});
+
+/** Minimal model the real `CommandHistory.commit` records. */
+const MODEL = {
+  id: "doc-1",
+  name: "d",
+  width: 10,
+  height: 10,
+  layers: [],
+  activeLayerId: null,
+  selection: null,
+  viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
+  dirty: false,
+} as unknown as DocumentModel;
+
+/**
+ * A REAL `CommandHistory` holding one entry, because the pop is what owns the
+ * Rust cursor step (`CommandHistory.stepRustCursor`). A hand-rolled `undo()`
+ * that returned a snapshot without a pop would make every count below vacuous:
+ * the step could not happen at all.
+ * `patches` null = a metadata-only entry (no `imperative`), which is exactly the
+ * shape the tile branch can never reach.
+ */
 function makeHistory(patches: WirePatch | null) {
-  const snapshot = { layers: [], activeLayerId: null };
-  return {
-    canUndo: () => true,
-    canRedo: () => true,
-    undo: () => snapshot,
-    redo: () => snapshot,
-    consumeLastUndoPatches: () => patches,
-    consumeLastRedoPatches: () => patches,
-  };
+  const history = new CommandHistory();
+  history.attachDocIdGetter(() => "doc-1");
+  history.commit(MODEL, "Op", patches ?? undefined);
+  return history;
 }
 
 /** Editor context + engine the hook body and the metadata path consume. */
@@ -268,12 +278,25 @@ type Row = {
   expected: number;
 };
 
+// TRANSITIONAL (photrez.rustPixels gating; delete with the flag).
+//
+// The matrix collapsed from eight rows to two, and that collapse IS the finding.
+// For a TS-OWNED tile entry (`imperative` without `rustOwned`) the bridge's only
+// recording arm is `apply_tile_patch`, and the real command REJECTS the host's
+// tile shape - `TileUploadLike` {x, y, width, height, data} against
+// `TilePatchWire` {x, y, w, h, data}, no serde alias - so it mints no Pixel entry
+// (proved in Rust by `host_tile_shape_is_rejected_at_the_wire_and_records_nothing`,
+// and honoured in `historyCursorParity.wiring.test.ts`'s emulator). No Rust entry
+// means no cursor step, so neither the bridge gate nor the runtime can arm one,
+// and the flag is the only thing left that can. The bridge x runtime dimension
+// for this entry shape is not "uncovered": it is vacuous, and the metadata block
+// below is where the bridge genuinely decides.
 const ROWS: Row[] = [
   { rustPixels: "1", bridge: "0", tauri: true, expected: 1 },
   { rustPixels: "1", bridge: "1", tauri: true, expected: 1 },
   { rustPixels: "1", bridge: "0", tauri: false, expected: 1 },
   { rustPixels: "1", bridge: "1", tauri: false, expected: 1 },
-  { rustPixels: "0", bridge: "1", tauri: true, expected: 1 },
+  { rustPixels: "0", bridge: "1", tauri: true, expected: 0 },
   { rustPixels: "0", bridge: "1", tauri: false, expected: 0 },
   { rustPixels: "0", bridge: "0", tauri: true, expected: 0 },
   { rustPixels: "0", bridge: "0", tauri: false, expected: 0 },
@@ -312,6 +335,8 @@ describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x
       const engine = makeEngine();
       mockUseEditor(makeEditorContext(makeHistory(makePatches()), engine));
       vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
+      // Drain the commit's fire-and-forget record before reading the baseline.
+      await flush();
       const censusBefore = (await flushPixelInvokeCensus()).entries.length;
 
       const commands = useEditorCommands(() => {});
@@ -345,7 +370,12 @@ describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x
   }
 });
 
-describe("metadata-only steps fire no cursor-sync invoke from either site", () => {
+// A metadata-only step carries no tile patches, so it never reaches the tile
+// branch. Its cursor step belongs to the POP (CommandHistory.stepRustCursor),
+// which fires exactly when Rust recorded an entry for it - the bridge - and
+// never otherwise. Before that, the step lived in the tile branch, so these rows
+// read 0 for a bridge-ON metadata pop: the drift this effort fixed.
+describe("a metadata-only pop steps the Rust cursor exactly when Rust recorded the step", () => {
   beforeEach(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
       {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
@@ -361,9 +391,14 @@ describe("metadata-only steps fire no cursor-sync invoke from either site", () =
   });
 
   const combos = [
-    { rustPixels: "1", bridge: "1", tauri: true },
-    { rustPixels: "0", bridge: "1", tauri: true },
-    { rustPixels: "1", bridge: "0", tauri: false },
+    // Bridge ON: `commit` appended an External entry for this metadata step, so
+    // the pop has a Rust counterpart and must consume it.
+    { rustPixels: "1", bridge: "1", tauri: true, expected: 1 },
+    { rustPixels: "0", bridge: "1", tauri: true, expected: 1 },
+    // Bridge OFF: Rust holds no entry for a metadata step at all. Stepping would
+    // consume somebody else's, so the cursor must not move.
+    { rustPixels: "1", bridge: "0", tauri: false, expected: 0 },
+    { rustPixels: "1", bridge: "0", tauri: true, expected: 0 },
   ] as const;
 
   for (const combo of combos) {
@@ -371,12 +406,13 @@ describe("metadata-only steps fire no cursor-sync invoke from either site", () =
       `rustPixels=${combo.rustPixels} historyBridge=${combo.bridge} ` +
       `runtime=${combo.tauri ? "tauri" : "jsdom"}`;
 
-    it(`${label}: zero invokes while the model restore still runs`, async () => {
+    it(`${label}: ${combo.expected} cursor-sync invoke(s) while the model restore still runs`, async () => {
       applyRowFlags(combo);
       vi.mocked(isTauriRuntime).mockReturnValue(combo.tauri);
       const engine = makeEngine();
       mockUseEditor(makeEditorContext(makeHistory(null), engine));
       vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
+      await flush();
       const censusBefore = (await flushPixelInvokeCensus()).entries.length;
 
       const commands = useEditorCommands(() => {});
@@ -385,10 +421,11 @@ describe("metadata-only steps fire no cursor-sync invoke from either site", () =
       commands.redo();
       await flush();
 
-      // Non-vacuity: the step completed its model restore, so the zero below
-      // means "no site fired", not "the step aborted before either site".
+      // Non-vacuity: the step completed its model restore, so the count below
+      // means "the pop stepped (or did not)", not "the step aborted early".
       expect(engine.restore).toHaveBeenCalledTimes(2);
-      expect(countInvokes("rust_pixels_undo", "rust_pixels_redo")).toBe(0);
+      expect(countInvokes("rust_pixels_undo")).toBe(combo.expected);
+      expect(countInvokes("rust_pixels_redo")).toBe(combo.expected);
 
       const census = await flushPixelInvokeCensus();
       const delta = census.entries
@@ -397,7 +434,9 @@ describe("metadata-only steps fire no cursor-sync invoke from either site", () =
           (entry) =>
             entry.command === "rust_pixels_undo" || entry.command === "rust_pixels_redo",
         );
-      expect(delta).toEqual([]);
+      expect(delta.map((entry) => entry.command)).toEqual(
+        combo.expected === 1 ? ["rust_pixels_undo", "rust_pixels_redo"] : [],
+      );
     });
   }
 });
@@ -410,7 +449,7 @@ describe("metadata-only steps fire no cursor-sync invoke from either site", () =
 // is refused for a Rust-owned entry - it stays available for every entry Rust
 // does not own (the transitional rows below).
 
-const MEMENTO_TILE = { x: 0, y: 0, width: 1, height: 1, data: [7, 7, 7, 255] };
+const MEMENTO_TILE = tile(0, 0, [7, 7, 7, 255]);
 const RUST_TILE = { x: 3, y: 4, w: 1, h: 1, data: [1, 2, 3, 255] };
 
 function uploadCalls(ctx: ReturnType<typeof makeEditorContext>): unknown[][] {

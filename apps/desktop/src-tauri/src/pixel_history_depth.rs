@@ -72,9 +72,11 @@ pub fn rust_pixels_history_tip(doc_id: String) -> Result<HistoryTip, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document_snapshot_cmds::{rust_pixels_record_snapshot, DocumentSnapshotDto};
     use crate::paint_parity_cmds::{
         apply_tile_patch, rust_pixels_init, rust_pixels_open_document, rust_pixels_record_external,
-        rust_pixels_undo, rust_pixels_write_region, TilePatchWire, TEST_REGISTRY_LOCK,
+        rust_pixels_redo, rust_pixels_undo, rust_pixels_write_region, TilePatchWire,
+        TEST_REGISTRY_LOCK,
     };
 
     fn wire(x: i64, y: i64, w: usize, h: usize, data: Vec<u8>) -> TilePatchWire {
@@ -85,6 +87,14 @@ mod tests {
         let reg = registry();
         let reg = reg.as_ref().expect("registry initialized");
         (reg.get_history_cursor(doc), reg.get_history_version(doc))
+    }
+
+    fn cursor(doc: &str) -> usize {
+        cursor_and_version(doc).0.expect("cursor")
+    }
+
+    fn version(doc: &str) -> u64 {
+        cursor_and_version(doc).1.expect("version")
     }
 
     #[test]
@@ -356,5 +366,132 @@ mod tests {
         assert_eq!(empty.redo_depth, 0);
         assert_eq!(empty.undo_tip_kind, None);
         assert_eq!(empty.redo_tip_kind, None);
+    }
+
+    /// THE VERSION INVARIANT, executed rather than read off the source.
+    ///
+    /// `RustCursorStepper` (apps/desktop/src/engine/historyCursorStep.ts) infers "the
+    /// Rust cursor step did not move the cursor" from the command `version` NOT
+    /// advancing. That inference is sound only if `undo_pixel` / `redo_pixel` bump
+    /// `version` EXACTLY when they move the cursor - never otherwise. The source says
+    /// so (history.rs:220-223, :230-233, :258-261, :265-268), but a diagnostic that
+    /// silently cannot fire is worse than none, so it is pinned against the real
+    /// `PixelStoreRegistry` through the real commands here.
+    ///
+    /// Each case asserts the cursor and the version TOGETHER, so the two facts stay
+    /// distinguishable rather than merely correlated, and the closing control compares
+    /// the two DELTAS: a test that only asserted "a move increments" could not tell a
+    /// real no-op from a no-op that started from a different base.
+    #[test]
+    fn cursor_version_advances_exactly_when_the_cursor_moves() {
+        let _g = TEST_REGISTRY_LOCK.lock().unwrap();
+        *registry() = None;
+
+        // ---- CASE 1: undo over a PIXEL tip: cursor and version BOTH move ----
+        let doc = "ver-pixel".to_string();
+        let layer = "lp".to_string();
+        rust_pixels_open_document(doc.clone());
+        rust_pixels_init(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
+        apply_tile_patch(
+            doc.clone(),
+            layer.clone(),
+            vec![wire(0, 0, 4, 4, vec![0; 4 * 4 * 4])],
+            vec![wire(0, 0, 4, 4, vec![9; 4 * 4 * 4])],
+        )
+        .expect("patch");
+        let (px_c0, px_v0) = (cursor(&doc), version(&doc));
+        let px_undo = rust_pixels_undo(doc.clone(), layer.clone()).expect("undo a pixel tip");
+        let (px_c1, px_v1) = (cursor(&doc), version(&doc));
+        assert_eq!(px_c1, px_c0 - 1, "a Pixel tip: the cursor moves back one");
+        assert_eq!(px_v1, px_v0 + 1, "a Pixel tip: version STRICTLY increments");
+        assert_eq!(
+            px_undo.version, px_v1,
+            "the command reports the post-move version, which is what the host reads"
+        );
+        assert!(!px_undo.tiles.is_empty(), "a Pixel tip yields its tiles");
+
+        // ---- redo mirrors undo, on the same document and the same invariant ----
+        let px_redo = rust_pixels_redo(doc.clone(), layer.clone()).expect("redo");
+        let (px_c2, px_v2) = (cursor(&doc), version(&doc));
+        assert_eq!(px_c2, px_c1 + 1, "redo over a Pixel tip moves the cursor");
+        assert_eq!(px_v2, px_v1 + 1, "redo STRICTLY increments version too");
+        assert_eq!(px_redo.version, px_v2);
+
+        // ---- CASE 2: undo at CURSOR 0: neither moves ----
+        while cursor(&doc) > 0 {
+            rust_pixels_undo(doc.clone(), layer.clone()).expect("walk to cursor 0");
+        }
+        let (z_c0, z_v0) = (cursor(&doc), version(&doc));
+        let z_undo = rust_pixels_undo(doc.clone(), layer.clone()).expect("undo at cursor 0 is Ok");
+        let (z_c1, z_v1) = (cursor(&doc), version(&doc));
+        assert!(z_undo.tiles.is_empty(), "nothing to undo yields no tiles");
+        assert_eq!(z_c1, z_c0, "cursor 0: the cursor does NOT move");
+        assert_eq!(z_v1, z_v0, "cursor 0: version is UNCHANGED");
+
+        // ---- CASE 3: undo over an EXTERNAL tip: the cursor moves, tiles do not ----
+        // The case that made the original defect silent: an External step moves the
+        // cursor and yields nothing, so the tile yield alone could never detect it.
+        let ext = "ver-external".to_string();
+        rust_pixels_open_document(ext.clone());
+        rust_pixels_record_external(
+            ext.clone(),
+            "Add Layer".to_string(),
+            vec![],
+            "ts".to_string(),
+            "Add Layer".to_string(),
+            None,
+            None,
+            None,
+        )
+        .expect("record an External entry");
+        let (e_c0, e_v0) = (cursor(&ext), version(&ext));
+        let e_undo =
+            rust_pixels_undo(ext.clone(), "no-such-layer".to_string()).expect("undo an External");
+        let (e_c1, e_v1) = (cursor(&ext), version(&ext));
+        assert!(
+            e_undo.tiles.is_empty(),
+            "an External step yields no tiles - the tile yield cannot detect the move"
+        );
+        assert_eq!(e_c1, e_c0 - 1, "an External tip: the cursor DOES move");
+        assert_eq!(
+            e_v1,
+            e_v0 + 1,
+            "an External tip: version STRICTLY increments - the only observable"
+        );
+
+        // ---- CASE 4: undo over a SNAPSHOT tip: neither moves ----
+        let snap = "ver-snapshot".to_string();
+        rust_pixels_open_document(snap.clone());
+        let dto = DocumentSnapshotDto {
+            doc_id: snap.clone(),
+            version: 0,
+            layers: vec![],
+        };
+        rust_pixels_record_snapshot(snap.clone(), dto.clone(), dto).expect("record a Snapshot");
+        let (s_c0, s_v0) = (cursor(&snap), version(&snap));
+        let s_undo = rust_pixels_undo(snap.clone(), "no-such-layer".to_string())
+            .expect("undo over a Snapshot tip is Ok");
+        let (s_c1, s_v1) = (cursor(&snap), version(&snap));
+        assert!(s_undo.tiles.is_empty(), "a Snapshot tip yields no tiles");
+        assert_eq!(s_c1, s_c0, "a Snapshot tip: the cursor does NOT move");
+        assert_eq!(s_v1, s_v0, "a Snapshot tip: version is UNCHANGED");
+
+        // ---- CONTROL: the two outcomes are DISTINGUISHABLE, not correlated ----
+        // Deltas, not absolutes: the four documents start from different bases, so
+        // only the change is comparable.
+        let moved: u64 = e_v1 - e_v0;
+        let not_moved: u64 = s_v1 - s_v0;
+        assert_eq!(moved, 1, "a real move advances version by exactly one");
+        assert_eq!(not_moved, 0, "a real no-op advances it by none");
+        assert_ne!(
+            moved,
+            not_moved,
+            "the host separates the two ONLY because these differ; equal deltas would make the did-not-move diagnostic unable to ever fire"
+        );
+        assert_eq!(
+            px_v1 - px_v0,
+            moved,
+            "a Pixel move and an External move are indistinguishable by version alone, which is fine: both moved"
+        );
     }
 }

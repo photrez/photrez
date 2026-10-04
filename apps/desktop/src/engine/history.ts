@@ -10,6 +10,7 @@ import {
 } from "./bitmapStore";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { getSnapshot } from "@/lib/protocol/bridge";
+import { RustCursorStepper } from "./historyCursorStep";
 
 /**
  * Route every TS commit into the SAME Rust `ProtocolEngine` cursor so TS and Rust
@@ -35,6 +36,23 @@ export function historyBridgeEnabled(): boolean {
     localStorage.getItem(HISTORY_BRIDGE_GATE) === "1" &&
     isTauriRuntime()
   );
+}
+
+/**
+ * TRANSITIONAL (`photrez.rustPixels`): the flag's last surviving production read.
+ *
+ * It used to arm the undo/redo tile-branch fetch in useEditorCommands, i.e. "fetch
+ * this step's pixels from Rust instead of replaying the entry's own memento" for a
+ * tile entry Rust does NOT own. That decision now lives with the cursor step it was
+ * fused to (CommandHistory.stepRustCursor), so the flag cannot outlive the tile
+ * routing: retire it when the flag retires, and delete this read with it.
+ */
+function rustPixelsFlagEnabled(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("photrez.rustPixels") === "1";
+  } catch {
+    return false;
+  }
 }
 
 // ── Snapshot-token payloads (mirror the rust core DocumentSnapshot/LayerSnapshot
@@ -133,6 +151,14 @@ export async function restoreSnapshotBitmapsByToken(
   currentLayerIds?: () => Iterable<string>,
   currentLayerMeta?: (layerId: string) => SnapshotLayerIdentity | null,
 ): Promise<boolean> {
+  // Gated on `historyBridgeEnabled()` ALONE, where `commit` / `recordSnapshotHistory`
+  // gate on `bridgeRecordsFor()` (flag AND a doc-id getter). Tighter would be WRONG
+  // here: a document's `Snapshot` entries can come from the NATIVE WALKER rather than
+  // this history, so a getterless history can still own a Snapshot step to undo. Nor
+  // can the looser gate over-step: with no Snapshot at the cursor the command answers
+  // `Ok(None)` without moving (`rust_pixels_undo_snapshot`,
+  // document_snapshot_cmds.rs:224-225), and the identity gates below drop a payload
+  // this step did not produce.
   if (!historyBridgeEnabled()) return false;
   let snapshot: SnapshotPayload | null = null;
   try {
@@ -154,9 +180,18 @@ export async function restoreSnapshotBitmapsByToken(
       const engSnap = await getSnapshot(docId);
       syncFacadeVersionFromPixel(docId, engSnap.version);
     }
-  } catch {
-    // Tauri v2 invoke REJECTS with an error-envelope object on a Rust Err; the
-    // snapshot cursor is best-effort — a failure must never break undo/redo.
+  } catch (err) {
+    // Tauri v2 invoke REJECTS with an error-envelope object on a Rust Err, and the
+    // snapshot cursor is best-effort - a failure must never break undo/redo. But
+    // best-effort is not silent: this is the snapshot counterpart of the pixel step,
+    // and a step that never ran is what `[history-cursor-step] the Rust cursor step
+    // was rejected` now reports for its sibling. Reachable under facade+bridge via
+    // `external_barrier_check` (crates/core/src/history.rs:386, :412).
+    console.warn("[history-cursor-step] the Rust SNAPSHOT cursor step was rejected", {
+      docId,
+      direction,
+      error: String(err),
+    });
     return false;
   }
   if (!snapshot || !snapshot.layers || snapshot.layers.length === 0) return false;
@@ -388,6 +423,8 @@ export class CommandHistory {
   private lastPoppedIsSnapshot = false;
   /** Allowlist of the most recently popped entry (null = unknown). */
   private lastPoppedPixelLayerIds: string[] | null = null;
+  /** Ordering, unhandled-rejection and did-not-move diagnostics for the step. */
+  private readonly rustCursor = new RustCursorStepper();
 
   constructor(maxDepth: number = MAX_HISTORY_DEPTH) {
     this.maxDepth = maxDepth;
@@ -399,6 +436,27 @@ export class CommandHistory {
    */
   attachDocIdGetter(getter: () => string): void {
     this.docIdGetter = getter;
+  }
+
+  /**
+   * THE bridge precondition, in one place, because recording and stepping must never
+   * disagree: this history appends to a Rust stream only when the bridge is on AND a
+   * doc-id getter is attached, so only then may a pop step the cursor.
+   *
+   * `commit`/`recordSnapshotHistory` and `stepRustCursor` all gate on THIS, not on
+   * `historyBridgeEnabled()` alone. That asymmetry was a live defect:
+   * `editorOpenImage.loadProjectFile` builds a `CommandHistory` WITHOUT a getter
+   * (every other production history attaches one) and that is the File>Open path, so
+   * its step consumed a brush stroke's Pixel entry - recorded by the ungated
+   * `rust_pixels_write_region`.
+   */
+  private bridgeRecordsFor(): boolean {
+    // `!= null`, not `!== null`: the field is typed `(() => string) | null` today, but
+    // an `undefined` slipping in would make the strict form report "records" and then
+    // throw inside the caller's `try {} catch {}`, which swallows it - a silent
+    // no-record with a cursor step already fired, i.e. exactly the asymmetry this
+    // predicate exists to remove.
+    return historyBridgeEnabled() && this.docIdGetter != null;
   }
 
   /**
@@ -497,8 +555,8 @@ export class CommandHistory {
     //    this method — see its comment for the contract-correct before/after.
     // Gated by the runtime DEV flag localStorage["photrez.historyBridge"] === "1"
     // (plus isTauriRuntime, folded into historyBridgeEnabled()).
-    if (historyBridgeEnabled() && this.docIdGetter) {
-      const docId = this.docIdGetter();
+    if (this.bridgeRecordsFor()) {
+      const docId = this.docIdGetter!();
       // Fire-and-forget through the shared bridge entry, so the census registrar
       // is installed and the invoke carries one monotonic order. A failure must
       // never break TS history.
@@ -588,8 +646,8 @@ export class CommandHistory {
    * `disposeSnapshot(evicted.snapshot, live)` are enforced exactly as commit().
    */
   recordSnapshotHistory(before: DocumentModel, after: DocumentModel, label?: string, pixelLayerIds: string[] | null = null): void {
-    if (historyBridgeEnabled() && this.docIdGetter) {
-      const docId = this.docIdGetter();
+    if (this.bridgeRecordsFor()) {
+      const docId = this.docIdGetter!();
       // Registrations happen inside buildSnapshotPayload (idempotent per bitmap
       // object). before = the PRE-action state, after = the POST-action state.
       const beforePayload = this.buildSnapshotPayload(before);
@@ -656,7 +714,96 @@ export class CommandHistory {
   private lastUndoPatches?: HistoryTilePatches;
   private lastRedoPatches?: HistoryTilePatches;
 
-  undo(currentSnapshot: DocumentModel): DocumentModel | null {
+  /**
+   * Step the Rust undo cursor EXACTLY ONCE for the entry this pop consumed.
+   *
+   * The pop owns the step, not the UI dispatcher that called it. It used to be a
+   * side effect of the tile branch in useEditorCommands, and a metadata entry
+   * carries no tile patches, so it never reached that branch: every undone
+   * metadata step left the Rust cursor one behind, and the next pixel step's
+   * `rust_pixels_undo` then consumed THAT un-stepped entry instead of its own -
+   * `ProtocolEngine::undo_pixel` still moves the cursor over an External tip
+   * (crates/core/src/history.rs:229-233) while yielding no tiles, so the paint
+   * step was silently never reverted while the host reported success.
+   *
+   * A step with no counterpart would consume somebody else's entry, so it fires
+   * only for these three arms:
+   *  - `imperative.rustOwned`: `rust_pixels_write_region` recorded the Pixel entry
+   *    (brush, eraser, bucket, seeded fill, gradient, delete-pixels), whatever the
+   *    bridge flag says;
+   *  - TRANSITIONAL `photrez.rustPixels`, tile entries only. The one arm that can
+   *    step without a recorded counterpart, left as-is because it predates this
+   *    method and retiring the flag is a separate cleanup;
+   *  - a METADATA entry under the bridge, where `rust_pixels_record_external` did
+   *    append an External entry (all-scalar args, so it really records - proven
+   *    by `host_tile_shape_is_rejected_at_the_wire_and_records_nothing`).
+   *
+   * NOT the bridge's TILE arm: `commit` sends the memento to `apply_tile_patch`
+   * as `TileUploadLike[]` = `{x, y, width, height, data}` while that command
+   * deserializes `Vec<TilePatchWire>` = `{x, y, w, h, data}` with no serde alias,
+   * so serde rejects it ("missing field `w`") and mints no entry. The bridge arms
+   * are gated on `bridgeRecordsFor` - the same predicate `commit` records on - so
+   * a history with no doc-id getter records nothing and therefore steps nothing.
+   *
+   * A snapshot-typed entry is NOT stepped: its cursor step is the token re-attach's
+   * `rust_pixels_undo_snapshot` / `..._redo_snapshot`, and `undo_pixel` refuses to
+   * move the cursor for a Snapshot tip (crates/core/src/history.rs:239).
+   */
+  private stepRustCursor(entry: SnapshotEntry, direction: "undo" | "redo"): void {
+    this.rustCursor.take(); // never leave a previous pop's handle claimable
+    if (entry.snapshotType === "snapshot") return;
+    const rustRecorded =
+      entry.imperative?.rustOwned === true ||
+      (entry.imperative !== undefined && rustPixelsFlagEnabled()) ||
+      (entry.imperative === undefined && this.bridgeRecordsFor());
+    if (!rustRecorded) return;
+    const docId = entry.snapshot.id || this.docIdGetter?.();
+    if (!docId) return;
+    // "" is the honest "this step names no layer" answer for a metadata entry: the
+    // command only reads layer_id to report an epoch when it produced no tiles.
+    const layerId = entry.imperative?.layerId ?? entry.snapshot.activeLayerId ?? "";
+    this.rustCursor.fire({ direction, docId, layerId });
+  }
+
+  /**
+   * The Rust cursor step fired by the most recent undo()/redo(), or null when that
+   * pop owned no Rust entry. Consume-once.
+   *
+   * Awaiting it NEVER moves the cursor - the pop already did. The tile path awaits
+   * it for that step's authoritative tiles; the metadata path awaits it so the
+   * cursor-parity probe reads a settled cursor rather than one still in flight.
+   */
+  takeLastCursorStep(): Promise<unknown> | null {
+    return this.rustCursor.take();
+  }
+
+  /**
+   * Pop for a site that restores through the MODEL, never the Rust pixel path.
+   *
+   * The one such caller is the History panel's jump (`navigateHistory`), which loops
+   * up to `steps` times and restores with `engine.restore` + `uploadImage`. Stepping
+   * there would move Rust's canonical buffers and its cursor while the host restored
+   * pixels from the TS stack - the mirror image of the drift this class prevents.
+   *
+   * NAMED rather than `undo(snap, false)`: an audit of "which pop sites do not step
+   * the Rust cursor" must find them by grepping, and an anonymous boolean leaves
+   * `grep stepCursor` pointing only at the declaration. `undo`/`redo` still default
+   * `stepCursor` to true, so a pop that does not say otherwise owns its step.
+   */
+  undoThroughModel(currentSnapshot: DocumentModel): DocumentModel | null {
+    return this.undo(currentSnapshot, false);
+  }
+
+  /** `redoThroughModel` - see `undoThroughModel`. */
+  redoThroughModel(currentSnapshot: DocumentModel): DocumentModel | null {
+    return this.redo(currentSnapshot, false);
+  }
+
+  /**
+   * Pop the newest undo entry and return its snapshot. `stepCursor` is the
+   * internal switch behind `undoThroughModel`; prefer that named form.
+   */
+  undo(currentSnapshot: DocumentModel, stepCursor = true): DocumentModel | null {
     if (!this.canUndo()) {
       return null;
     }
@@ -686,10 +833,11 @@ export class CommandHistory {
     // Tile patches to execute for THIS undo (pre-stroke tiles of the entry).
     this.lastUndoPatches = previousEntry.imperative;
 
-    // NOTE: Rust cursor sync is NOT done here. It is done by useEditorCommands.ts
-    // after determining whether the operation is a pixel undo (rust_pixels_undo)
-    // or a metadata undo (no patches). Doing it here would cause DOUBLE UNDO
-    // when photrez.rustPixels=1.
+    // This pop owns the Rust cursor step for the entry it consumed - see
+    // stepRustCursor for why the step belongs here and not in the caller's
+    // tile/metadata branch split.
+    if (stepCursor) this.stepRustCursor(previousEntry, "undo");
+    else this.rustCursor.take();
 
     return previousEntry.snapshot;
   }
@@ -701,7 +849,8 @@ export class CommandHistory {
     return p;
   }
 
-  redo(currentSnapshot: DocumentModel): DocumentModel | null {
+  /** `redo(currentSnapshot, stepCursor)` - see `undo` for the flag's contract. */
+  redo(currentSnapshot: DocumentModel, stepCursor = true): DocumentModel | null {
     if (!this.canRedo()) {
       return null;
     }
@@ -729,7 +878,10 @@ export class CommandHistory {
     // Tile patches to execute for THIS redo (post-stroke tiles of the entry).
     this.lastRedoPatches = nextEntry.imperative;
 
-    // NOTE: Rust cursor sync is NOT done here. See undo() comment.
+    // This pop owns the Rust cursor step for the entry it consumed (symmetric
+    // with undo(); see stepRustCursor).
+    if (stepCursor) this.stepRustCursor(nextEntry, "redo");
+    else this.rustCursor.take();
 
     return nextEntry.snapshot;
   }
@@ -765,6 +917,11 @@ export class CommandHistory {
    * travels with it, which is safe because a `rustOwned` entry's tiles are
    * stale pixels by construction and every consumer of a popped `rustOwned`
    * entry refuses them in favour of Rust's bytes.
+   *
+   * NOT a cursor step: this drain runs on the facade handoff, where the walker
+   * (`Command::Undo`/`Command::Redo`) already moved the Rust cursor for the step
+   * before the twin was touched. Stepping here would be the double step that
+   * `undo()`/`redo()` exist to make impossible.
    */
   discardRustOwnedPixelStep(direction: "undo" | "redo"): boolean {
     const from = direction === "undo" ? this.undoStack : this.redoStack;

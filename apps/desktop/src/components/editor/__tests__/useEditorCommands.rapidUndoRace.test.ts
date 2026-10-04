@@ -80,6 +80,9 @@ function makeHistory() {
     // The re-attach gate runs only for Snapshot-typed entries; this mock drives
     // that path (bridge ON), so report a Snapshot entry.
     isLastPoppedSnapshotEntry: () => true,
+    // A real pop fires the Rust cursor step and hands it to the caller; a
+    // Snapshot-typed entry's step is the re-attach's, so there is none to take.
+    takeLastCursorStep: () => null,
   };
 }
 

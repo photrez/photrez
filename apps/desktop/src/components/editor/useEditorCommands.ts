@@ -36,7 +36,8 @@ import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
 import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
 import { observeHistoryCursorParity } from "@/engine/historyCursorParity";
 import { bitmapStoreFor } from "@/engine/bitmapStore";
-import { applyRustTilesToSurface } from "@/lib/rustShadow";
+import { projectRustTiles } from "./rustTileProjection";
+
 
 export const NATIVE_MENU_EVENT = "photrez://native-menu";
 export const EDITOR_COMMAND_EVENT = "photrez://editor-command";
@@ -319,8 +320,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // ── AUTHORITY CONVERGENCE ──
       // Rust ProtocolEngine is the single logical undo/redo executor.
       // TS history.canUndo()/canRedo() is used as pre-check (TS cursor ==
-      // Rust cursor by the cursor invariant). The actual Rust undo/redo
-      // is called FIRST in each path below (tile or metadata).
+      // Rust cursor by the cursor invariant). The actual Rust undo/redo is
+      // fired by the pop below, once per popped entry, before either restore
+      // path runs - not by the tile/metadata split that follows.
       // [perf] Issue C instrumentation: quantify snapshot vs restore cost on
       // large canvases before optimizing.
       const perfT0 = performance.now();
@@ -357,57 +359,33 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // ── Rust is authoritative for every entry it owns ──
         // A Rust-owned entry (rust_pixels_write_region recorded it) is a cursor
         // token, not a second copy of the pixels: this branch always takes the
-        // Rust tiles and steps the Rust cursor once, which drains the twin in
-        // lockstep. For an entry Rust does NOT own, photrez.rustPixels still
-        // arms the Rust fetch, and the local memento remains the fallback.
-        let rustRes: { tiles: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number } | null = null;
+        // Rust tiles, which drains the twin in lockstep. For an entry Rust does
+        // NOT own, photrez.rustPixels still arms the Rust fetch, and the local
+        // memento remains the fallback.
+        //
+        // The cursor STEP is a separate concern and belongs to the pop above
+        // (history.undo()/redo()): it fires exactly once per popped entry, for
+        // tile and metadata entries alike, chained behind any earlier step so two
+        // rapid presses cannot interleave their round-trips. This gate is the
+        // FETCH and stays exactly as it was - it decides whether Rust's pixels
+        // are this entry's source of truth, which is a different question from
+        // whether Rust recorded a step to consume.
         const activeDocId = editor.workspace.getActiveDocumentId() ?? "";
+        const rustOwned = patches.rustOwned === true;
         const rustPixelsFlag = (() => {
           try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
         })();
-        const rustOwned = patches.rustOwned === true;
-        if (rustOwned || rustPixelsFlag) {
-          try {
-            const docId = editor.workspace.getActiveDocumentId() ?? "";
-            const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
-            rustRes = (await pixelInvoke(
-              direction === "undo" ? "rust_pixels_undo" : "rust_pixels_redo",
-              { docId, layerId: patches.layerId },
-            )) as { tiles: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number };
-            if (rustRes && rustRes.tiles.length) {
-              // Authoritative bytes from Rust → update the derived TS cache (CPU surface).
-              const toSurface = rustRes.tiles.map((t) => ({
-                x: t.x, y: t.y, w: t.w, h: t.h, data: new Uint8ClampedArray(t.data),
-              }));
-              const engine = editor.workspace.getActiveEngine();
-              const surf = engine?.getPaintSurface(patches.layerId) as
-                | { context: { putImageData(img: { width: number; height: number; data: Uint8ClampedArray }, x: number, y: number): void }; pixelEpoch: number; pixelVersion?: number }
-                | null
-                | undefined;
-              if (surf) {
-                applyRustTilesToSurface(surf.context, toSurface);
-                surf.pixelEpoch = rustRes.epoch;
-                // Record which authoritative history cursor these pixels reflect.
-                surf.pixelVersion = rustRes.version;
-                syncFacadeVersionFromPixel(engine?.getId() ?? "default", rustRes.version);
-              }
-              // Re-map to the renderer's upload shape (width/height) for GPU upload.
-              tiles = rustRes.tiles.map((t) => ({
-                x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data),
-              }));
-            }
-          } catch (err) {
-            // The refusal below decides what a Rust-owned entry does with this
-            // failure; for every other entry the memento still replays.
-            console.warn("[paint] undo/redo Rust sync failed:", err);
-          }
-        }
+        const projected = await projectRustTiles({
+          takeCursorStep: () => history.takeLastCursorStep(),
+          getEngine: () => editor.workspace.getActiveEngine(),
+          layerId: patches.layerId,
+          rustOwned,
+          rustPixelsFlag,
+          fallbackTiles: tiles,
+        });
+        const rustRes = projected.step;
+        tiles = projected.tiles;
         if (rustOwned && (!rustRes || rustRes.tiles.length === 0)) {
-          // Rust took the cursor step but produced no tiles for it. The memento
-          // this entry carries describes a step Rust already owns, so replaying
-          // it would repaint the surface from bytes no store holds — the second
-          // pixel-history owner this branch exists to remove. Upload nothing.
-          tiles = [];
           console.warn("[paint] Rust-owned step returned no tiles — refusing the stale memento", patches.layerId);
         }
         editor.renderer.uploadSurfaceTiles?.(patches.layerId, patches.surfaceWidth, patches.surfaceHeight, tiles);
@@ -489,31 +467,9 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         console.info(
           `[perf] ${direction}(tiles): upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms tiles=${tiles.length}`,
         );
-        // CURSOR INVARIANT: sync the Rust cursor for tile operations so the
-        // TS cursor == Rust cursor, but ONLY when a Rust history entry actually
-        // exists for this undo/redo. The TS→Rust history bridge is the only
-        // thing that creates a Rust History entry on commit, and it is OFF by
-        // default in production (see historyBridgeEnabled). So when the bridge
-        // is off (default production), NO Rust entry exists and TS must NOT
-        // move the Rust cursor — otherwise TS independently restores pixels
-        // while Rust also steps, causing a real TS/Rust double-undo.
-        // When rustPixels=1 or the entry is Rust-owned: rust_pixels_undo/redo was
-        // already called above (for tile data); skip to avoid a double cursor step.
-        if (!rustPixelsFlag && !rustOwned && historyBridgeEnabled()) {
-          try {
-            const docId = editor.workspace.getActiveDocumentId() ?? "";
-            const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
-            const activeId = engine.getActiveLayerId();
-            if (activeId) {
-              await pixelInvoke(
-                direction === "undo" ? "rust_pixels_undo" : "rust_pixels_redo",
-                { docId, layerId: activeId },
-              );
-            }
-          } catch {
-            // Best-effort: cursor sync failure must not break TS undo/redo.
-          }
-        }
+        // CURSOR INVARIANT: the pop above already stepped the Rust cursor for
+        // this entry when Rust recorded one (see CommandHistory.stepRustCursor),
+        // for tile and metadata entries alike. Nothing to sync here.
         observeHistoryCursorParity(
           editor.workspace.getActiveDocumentId() ?? "",
           history.getUndoCount(),
@@ -683,9 +639,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         `[perf] ${direction}(snapshot): hist=${(perfTHist - perfT0).toFixed(1)}ms restore+upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms`,
       );
       // DIAGNOSTIC ONLY: measure whether this host's undo stack sits at the same
-      // history position as the Rust cursor, which nothing else compares. Fired
-      // and forgotten, so it adds no latency to the undo path, and the verdict is
-      // never branched on - the only output is one console.warn on divergence.
+      // history position as the Rust cursor, which nothing else compares. The
+      // verdict is never branched on - the only output is one console.warn on
+      // divergence, and the probe itself is still fired and forgotten. What is
+      // awaited here is NOT the probe: it is this entry's cursor step, which the
+      // pop above already fired and which must land before the read, or the probe
+      // would pair this step's depth with the PREVIOUS step's cursor. That await
+      // is the same one IPC round-trip the tile path above already waits on, and
+      // a no-op when this pop owned no Rust entry.
+      await history.takeLastCursorStep()?.catch(() => {});
       observeHistoryCursorParity(
         editor.workspace.getActiveDocumentId() ?? "",
         history.getUndoCount(),

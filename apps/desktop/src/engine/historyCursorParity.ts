@@ -16,28 +16,31 @@ import { requireHistoryDepthNumbers } from "@/lib/protocol/pixelHistoryDepth";
  * The probe observes only while the TS->Rust history bridge is RECORDING. With
  * that bridge OFF - the shipping default, since nothing in production sets the
  * `localStorage["photrez.historyBridge"]` key the predicate requires
- * (apps/desktop/src/engine/history.ts:32-38) - the two stacks are not two views of
+ * (apps/desktop/src/engine/history.ts `HISTORY_BRIDGE_GATE` / `historyBridgeEnabled`) - the two stacks are not two views of
  * ONE history: the host is deliberately the sole undo authority, and Rust's stream
  * is a partial record of it. It is not empty, though. `CommandHistory.commit`
  * appends `rust_pixels_record_external` / `apply_tile_patch` only inside
- * `if (historyBridgeEnabled())` (history.ts:500, entry appended at :511 and :518),
- * so a metadata step is never recorded - while every PAINT step still is, because
- * the canonical writer `rust_pixels_write_region` is not gated at all
+ * `bridgeRecordsFor()` (history.ts) - the bridge flag AND an attached doc-id
+ * getter - so a metadata step is never recorded - while every PAINT step still is,
+ * because the canonical writer `rust_pixels_write_region` is not gated at all
  * (useBrushOverlay.ts:254, and :193-196 states the queued commit reads no flag).
  * So bridge-off means the streams agree on pixel steps and separate by exactly one
  * per metadata step, and every such difference says only "Rust never heard of this
  * host step", which is the configured design rather than a drift. Comparing depths
  * across that boundary would report the design back as a fault.
  *
- * Under the bridge both stacks record every step and the comparison is real: a
- * metadata undo restores the host model without stepping the Rust cursor at all
- * (the cursor sync lives inside the tile branch of the undo path,
- * apps/desktop/src/components/editor/useEditorCommands.ts:502-523), and the next
- * `rust_pixels_undo` then consumes that un-stepped `External` entry - moving the
- * cursor and returning no tiles (proven in Rust, see
- * apps/desktop/src-tauri/src/pixel_history_depth.rs
- * `undo_over_an_external_tip_consumes_it_and_returns_no_tiles`). That is a drift,
- * and it is what this probe is here to make visible.
+ * Under the bridge both stacks record every step and the comparison is real. It
+ * WAS a drift source here: a metadata undo restored the host model without
+ * stepping the Rust cursor at all (the cursor sync lived inside the tile branch
+ * of the undo path, which a metadata entry never reaches), so the two cursors
+ * separated by one per undone metadata step and the next `rust_pixels_undo`
+ * consumed that un-stepped `External` entry - moving the cursor and returning no
+ * tiles (proven in Rust, see apps/desktop/src-tauri/src/pixel_history_depth.rs
+ * `undo_over_an_external_tip_consumes_it_and_returns_no_tiles`), which silently
+ * swallowed the paint step the host had reverted.
+ * `CommandHistory.undo()`/`redo()` now own that step, once per popped entry, so
+ * both branches of the undo path step and neither steps twice; this probe is
+ * what proves it, by reporting `in-sync` where it reported `diverged`.
  *
  * This module measures it and does nothing else. No CALLER branches on the
  * verdict: the undo/redo path fires the observation and forgets it. The only
@@ -90,7 +93,7 @@ const isUsableDepth = (n: unknown): n is number =>
  *
  * HONEST LIMIT: this compares the two CURSORS, not the two stacks, and it does not
  * claim a kind match it cannot make. The host side CAN classify its own entries -
- * `SnapshotEntry` (history.ts:350-373) carries `imperative?` (a Pixel step),
+ * `SnapshotEntry` (history.ts `interface SnapshotEntry`) carries `imperative?` (a Pixel step),
  * `snapshotType?: "snapshot"` (a Snapshot step), and neither (an External step), so
  * three of Rust's four `PayloadKind`s have a host counterpart. What does not exist
  * is 1:1 entry IDENTITY between the stacks: no shared entry id, no way to prove
@@ -99,6 +102,17 @@ const isUsableDepth = (n: unknown): n is number =>
  * host commit at all. So an equal depth plus a matching kind would still be
  * coincidence rather than proof, and the kinds are reported in the divergence log
  * for an operator to read instead of being compared as if they settled it.
+ *
+ * SECOND HONEST LIMIT - a divergence past the host's eviction depth is NOT a
+ * cursor fault. `MAX_HISTORY_DEPTH` is 50 (engine/types.ts) and `CommandHistory`
+ * evicts its OLDEST entry past it (history.ts, in both `commit` and
+ * `recordSnapshotHistory`); the Rust stream has no such cap. So from the 51st
+ * commit onward the host depth is permanently lower than the Rust depth while both
+ * cursors sit at the same user action, and this probe reports `diverged` for a
+ * difference that is the configured eviction policy. Read a `diverged` verdict as
+ * "these depths differ, and here is how much" - not as "a step was missed". The
+ * eviction policy is not changed here; reconciling the two caps is a separate
+ * change, and until then the log line is the only output.
  */
 export function classifyHistoryCursorParity(
   rust: RustHistoryTip | null | undefined,

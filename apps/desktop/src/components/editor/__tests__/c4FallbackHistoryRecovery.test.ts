@@ -372,6 +372,15 @@ describe("c4 recovery (approved caller predicate)", () => {
     expect(history.getUndoCount()).toBe(1); // TS history entry kept despite the rejection
     // The census keeps both: the failed write first, then the single recovery
     // apply, in that order.
+    //
+    // KNOWN IMPOSSIBLE IN THE APP: this emulator accepts `t.width`
+    // (`wireW`, :106), but the real `apply_tile_patch` deserializes
+    // `TilePatchWire` = {x, y, w, h, data} with no serde alias, so the host's
+    // `TileUploadLike` shape is rejected outright - see
+    // `paint_parity_cmds.rs::host_tile_shape_is_rejected_at_the_wire_and_records_nothing`.
+    // So `resolved` here describes the EMULATOR, not the runtime. Reconciling the
+    // two tile shapes is a separate wire-contract change; until then this
+    // assertion must not be read as evidence that a fallback apply records.
     const census = await flushPixelInvokeCensus();
     const recorded = census.entries.slice(censusBeforeRejection);
     expect(recorded.map((e) => `${e.command}:${e.phase}`)).toEqual([

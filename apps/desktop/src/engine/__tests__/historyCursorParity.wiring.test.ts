@@ -29,6 +29,16 @@
  *     undo_tip_kind, redo_tip_kind}` — snake_case fields and camelCase kind
  *     strings, the serialization `HistoryTip` / `PayloadKind` actually produce.
  *
+ * This file drives the production undo/redo for both restore paths (tile and
+ * snapshot/metadata) and reports the parity verdict after every step. It is the
+ * measurement that found the metadata-undo drift: with the cursor sync living
+ * inside the tile branch, an External (metadata) pop restored the host model
+ * without stepping the Rust cursor, the two cursors separated by one per undone
+ * metadata step, and the next pixel step consumed that un-stepped entry and
+ * reverted nothing. `CommandHistory.undo()`/`redo()` now own the step, so the
+ * mixed `[external, pixel]` sequence below must report `in-sync` where it
+ * reported `diverged`.
+ *
  * A probe that cannot report divergence proves nothing, so both directions are
  * load-bearing: neuter the comparison in `classifyHistoryCursorParity` and the
  * divergence cases go RED; delete either production call to
@@ -37,8 +47,9 @@
  *
  * Every driving case runs with the bridge ON, because the probe only reads while
  * the bridge is recording - with it off the two stacks are not two views of one
- * history (see history.ts:500; only paint steps reach Rust, via the ungated
- * canonical writer), which the one bridge-OFF case pins instead.
+ * history (`CommandHistory.commit` records only inside `if
+ * (historyBridgeEnabled())`, and only paint steps reach Rust at all, via the
+ * ungated canonical writer), which the one bridge-OFF case pins instead.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -48,6 +59,8 @@ import type { DocumentModel } from "../types";
 import { useEditorCommands } from "@/components/editor/useEditorCommands";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "@/components/editor/dialogs/DialogProvider";
+import { runFacadeExternalHandoff } from "@/components/editor/facadeHistoryHandoff";
+import { hasFacadeOwnedLayers } from "@/engine/document";
 import {
   classifyHistoryCursorParity,
   probeHistoryCursorParity,
@@ -56,7 +69,15 @@ import {
 } from "../historyCursorParity";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
-import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
+import { flushPixelInvokeCensus, pendingCount } from "@/lib/protocol/pixelInvokeCensus";
+import {
+  answerInvoke,
+  record,
+  resetStreams,
+  step,
+  streamFor,
+  tipFor,
+} from "./rustStreamEmulator";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -69,64 +90,18 @@ vi.mock("@/engine/document", () => ({
   hasFacadeOwnedLayers: vi.fn(() => false),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
+// The facade handoff is a collaborator with its own coverage
+// (rustPixelUndoHandoff.wiring.test.ts). Here it only has to be able to say
+// "handled", so the early-return case can prove the dispatcher returns without
+// popping a host entry. Default false = "fell through", i.e. never taken.
+vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
+  runFacadeExternalHandoff: vi.fn(async () => false),
+}));
 
 const GATE_KEY = "photrez.historyBridge";
 
-// ── Rust stream emulator ─────────────────────────────────────────────────────
-
-type TipKind = "pixel" | "external";
-
-interface RustStream {
-  entries: TipKind[];
-  cursor: number;
-}
-
-/** Per-document stream, mirroring PixelStoreRegistry's per-doc history. */
-const streams = new Map<string, RustStream>();
-
-function streamFor(docId: string): RustStream {
-  let s = streams.get(docId);
-  if (!s) {
-    s = { entries: [], cursor: 0 };
-    streams.set(docId, s);
-  }
-  return s;
-}
-
-/** Record an entry the way `record_external` / `apply_pixel_patch` do. */
-function record(docId: string, kind: TipKind): void {
-  const s = streamFor(docId);
-  s.entries.length = s.cursor; // a new entry drops the redo branch
-  s.entries.push(kind);
-  s.cursor = s.entries.length;
-}
-
-/**
- * Move the cursor one step. `ProtocolEngine::undo_pixel` steps it for a `Pixel`
- * tip (history.rs:219-223) AND for an `External` tip (history.rs:229-233); the
- * difference between the two is only the tile yield, which `undo_pixel` discards
- * for an External step AFTER the move (pixel_store.rs:745). So the cursor moves
- * for every kind this emulator can hold.
- */
-function step(docId: string, direction: "undo" | "redo"): void {
-  const s = streamFor(docId);
-  const idx = direction === "undo" ? s.cursor - 1 : s.cursor;
-  if (idx < 0 || idx >= s.entries.length) return;
-  s.cursor = direction === "undo" ? s.cursor - 1 : s.cursor + 1;
-}
-
-/** The exact wire shape `rust_pixels_history_tip` serializes. */
-function tipFor(docId: string): RustHistoryTip {
-  const s = streamFor(docId);
-  return {
-    total_depth: s.entries.length,
-    undo_depth: s.cursor,
-    redo_depth: s.entries.length - s.cursor,
-    undo_tip_kind: s.cursor > 0 ? (s.entries[s.cursor - 1] ?? null) : null,
-    redo_tip_kind: s.entries[s.cursor] ?? null,
-  };
-}
-
+// The Rust stream emulator (stream rules, cursor steps, wire-shape fidelity) lives
+// in ./rustStreamEmulator so those rules have one home.
 // ── Harness (shaped like useEditorCommands.snapshotBridge.test.ts) ───────────
 
 function gateOn(on: boolean) {
@@ -147,23 +122,66 @@ const createMockModel = (name: string): DocumentModel => ({
   dirty: false,
 });
 
+/**
+ * A tile memento in the SHAPE THE HOST REALLY SENDS: `TileUploadLike` =
+ * `{x, y, width, height, data}`. It is deliberately not `{w, h}`, because that
+ * is the whole of the bridge tile-wire mismatch - the real command rejects this
+ * shape, and a test that
+ * used `w`/`h` would be asserting against a payload the app never produces.
+ */
+const hostTile = (x: number, y: number, rgba: number[]) => ({
+  x,
+  y,
+  width: 2,
+  height: 2,
+  data: new Uint8ClampedArray(rgba),
+});
+
+/** A TS-owned tile entry: the shape a text/shape/transform commit produces. */
 const makePatches = (): HistoryTilePatches => ({
   layerId: "l1",
   surfaceWidth: 10,
   surfaceHeight: 10,
-  before: [],
-  after: [],
+  before: [hostTile(0, 0, [1, 1, 1, 255, 1, 1, 1, 255, 1, 1, 1, 255, 1, 1, 1, 255])],
+  after: [hostTile(0, 0, [2, 2, 2, 255, 2, 2, 2, 255, 2, 2, 2, 255, 2, 2, 2, 255])],
 });
 
+/** The same memento marked Rust-owned: a brush-shaped twin, not a pixel source. */
+const makeRustOwnedPatches = (): HistoryTilePatches => ({
+  ...makePatches(),
+  rustOwned: true,
+});
+
+/**
+ * Commit the way a BRUSH stroke does, because that is the only way a Pixel entry
+ * reaches the Rust stream in the real app (the bridge tile-wire mismatch): the
+ * canonical, ungated writer
+ * `rust_pixels_write_region` records it, and the host then commits the twin with
+ * `alreadyRecordedInRust`, so the bridge records nothing itself.
+ *
+ * `history.commit(model, "Text", makePatches(), false)` is the OTHER tile shape -
+ * a TS-owned entry whose only bridge arm is `apply_tile_patch`, which the real
+ * command REJECTS. That commit records no Pixel entry at all, so its pop must not
+ * step the cursor; `a_ts_owned_tile_commit_records_nothing_in_rust` pins that.
+ */
+async function commitRustOwnedPaint(history: CommandHistory, model: DocumentModel) {
+  await vi.mocked(invoke)("rust_pixels_write_region", { docId: model.id, layerId: "l1" });
+  history.commit(model, "Brush", makeRustOwnedPatches(), true);
+}
+
+/** Commit a metadata step and WAIT for its fire-and-forget record to land. */
+async function commitMetadata(history: CommandHistory, label = "Add Layer") {
+  history.commit(createMockModel(label), label);
+  await settle();
+}
+
 /** Stateful engine following the real DocumentEngine snapshot/restore shape. */
-function makeEngine() {
+function makeEngine(layer?: { id: string; transform?: unknown }) {
   let model: DocumentModel = createMockModel("live");
   return {
     getId: () => "doc-1",
-    // The tile path's Rust cursor sync is gated on an active layer id
-    // (useEditorCommands.ts:507), so it must report one for the cursor to move.
     getActiveLayerId: () => "l1",
-    getLayer: () => null,
+    getLayer: () => layer ?? null,
     getLayers: () => model.layers,
     snapshot: (): DocumentModel => ({ ...model, layers: [...model.layers] }),
     restore: (snap: DocumentModel) => {
@@ -173,10 +191,17 @@ function makeEngine() {
     getModel: () => model,
     ensureBitmapCurrent: vi.fn(),
     invalidatePaintSurface: vi.fn(),
+    // The transform mini-undo branch calls this on its way out; without it the
+    // fire-and-forget undo rejects unhandled and vitest fails the run.
+    transformLayer: vi.fn(),
   };
 }
 
-function makeEditorContext(engine: ReturnType<typeof makeEngine>, history: CommandHistory) {
+function makeEditorContext(
+  engine: ReturnType<typeof makeEngine>,
+  history: CommandHistory,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     workspace: {
       getActiveEngine: () => engine,
@@ -209,16 +234,25 @@ function makeEditorContext(engine: ReturnType<typeof makeEngine>, history: Comma
     setShowExportDialog: vi.fn(),
     setShowPrintDialog: vi.fn(),
     setShowResizeDialog: vi.fn(),
+    ...overrides,
   };
 }
 
 /** Mount the production command hook over a real history + emulated Rust stream. */
-function mountCommands() {
+function mountCommands(
+  engineOverrides: {
+    layer?: { id: string; transform?: unknown };
+    ctx?: Record<string, unknown>;
+    /** Skip `attachDocIdGetter` - the `editorOpenImage.loadProjectFile` shape. */
+    noDocIdGetter?: boolean;
+  } = {},
+) {
   const history = new CommandHistory();
-  history.attachDocIdGetter(() => "doc-1");
-  const engine = makeEngine();
-  mockUseEditor(makeEditorContext(engine, history));
-  return { history, engine, commands: useEditorCommands(() => {}) };
+  if (!engineOverrides.noDocIdGetter) history.attachDocIdGetter(() => "doc-1");
+  const engine = makeEngine(engineOverrides.layer);
+  const ctx = makeEditorContext(engine, history, engineOverrides.ctx);
+  mockUseEditor(ctx);
+  return { history, engine, ctx, commands: useEditorCommands(() => {}) };
 }
 
 /** Read Rust's cursor through the production reader, then classify it. */
@@ -253,9 +287,22 @@ async function settle() {
   await flushPixelInvokeCensus();
 }
 
+/**
+ * One macrotask, NO census drain. `flushPixelInvokeCensus` awaits every in-flight
+ * pixel invoke, so a case that deliberately HOLDS a cursor step open would
+ * deadlock on it; this is the only yield such a case may use.
+ */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
 /** Count the invokes the emulator saw for `command`. */
 const timesInvoked = (command: string): number =>
   vi.mocked(invoke).mock.calls.filter((c) => c[0] === command).length;
+
+/** Count the cursor-step invokes in EITHER direction. */
+const cursorStepInvokes = (): number =>
+  vi.mocked(invoke).mock.calls.filter(
+    (c) => c[0] === "rust_pixels_undo" || c[0] === "rust_pixels_redo",
+  ).length;
 
 /** Only the probe's own divergence warns, not the hook's unrelated setup noise. */
 const parityWarns = (): string[] =>
@@ -283,7 +330,7 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     localStorage.clear();
     localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
-    streams.clear();
+    resetStreams();
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({} as unknown as ReturnType<
       typeof DialogProviderModule.useDialog
     >);
@@ -292,30 +339,8 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
 
-    vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
-      const docId = (args?.docId ?? "doc-1") as string;
-      switch (cmd) {
-        case "rust_pixels_open_document":
-          streamFor(docId);
-          return undefined;
-        case "rust_pixels_record_external":
-          record(docId, "external");
-          return { tiles: [], epoch: 0, version: 0 };
-        case "apply_tile_patch":
-          record(docId, "pixel");
-          return { layer_id: args?.layerId, tiles: [], epoch: 0, version: 0 };
-        case "rust_pixels_undo":
-          step(docId, "undo");
-          return { layer_id: args?.layerId, tiles: [], epoch: 0, version: 0 };
-        case "rust_pixels_redo":
-          step(docId, "redo");
-          return { layer_id: args?.layerId, tiles: [], epoch: 0, version: 0 };
-        case "rust_pixels_history_tip":
-          return tipFor(docId);
-        default:
-          throw new Error(`emulator: unhandled command ${cmd}`);
-      }
-    });
+    vi.mocked(invoke).mockImplementation((cmd: string, args: unknown) => answerInvoke(cmd, args));
+    vi.mocked(runFacadeExternalHandoff).mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -330,7 +355,7 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     expect(commands.redo).toBeTypeOf("function");
 
     history.commit(createMockModel("Meta"), "Add Layer");
-    history.commit(createMockModel("Paint"), "Brush", makePatches(), false);
+    await commitRustOwnedPaint(history, createMockModel("Paint"));
     await waitForRust("doc-1", 2);
     expect(timesInvoked("rust_pixels_history_tip")).toBe(0);
 
@@ -361,7 +386,8 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
   // ── The measurement ───────────────────────────────────────────────────────
   it("bridge OFF (production default): the probe does not run at all", async () => {
     // The shipping default. `commit` fires no `rust_pixels_record_external`
-    // (history.ts:500), so Rust never hears about a metadata step. Rust is NOT
+    // (it records only inside `if (historyBridgeEnabled())`), so Rust never hears
+    // about a metadata step. Rust is NOT
     // empty in general - the canonical writer `rust_pixels_write_region` is
     // ungated, so paint steps still land in its stream - but a metadata step
     // separates the two cursors by construction, which is the configured design
@@ -406,7 +432,7 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     expect(timesInvoked("rust_pixels_history_tip")).toBe(before);
 
     gateOn(true);
-    history.commit(createMockModel("Paint"), "Brush", makePatches(), false);
+    await commitRustOwnedPaint(history, createMockModel("Paint"));
     await waitForRust("doc-1", 1);
     const live = await probeHistoryCursorParity("doc-1", history.getUndoCount());
     expect(live.observing, "bridge ON: the probe reads").toBe(true);
@@ -418,8 +444,8 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     gateOn(true);
     const { history, commands } = mountCommands();
 
-    history.commit(createMockModel("Meta"), "Add Layer");
-    history.commit(createMockModel("Paint"), "Brush", makePatches(), false);
+    await commitMetadata(history);
+    await commitRustOwnedPaint(history, createMockModel("Paint"));
     await waitForRust("doc-1", 2);
     expect(history.getUndoCount()).toBe(2);
     expect(streamFor("doc-1").entries).toEqual(["external", "pixel"]);
@@ -439,58 +465,361 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     expect(await verdictFor("doc-1", history)).toBe("in-sync");
   });
 
-  it("bridge ON, External step: rust_pixels_undo moves the cursor even with no tiles", async () => {
+  it("bridge ON, External step: the metadata pop steps the cursor like any other pop", async () => {
     gateOn(true);
     const { history, commands } = mountCommands();
 
-    // [pixel, external]: the second undo's cursor sync lands while an External
-    // entry is the tip. `undo_pixel` still steps the cursor (history.rs:229-233)
-    // and only the TILE yield is empty, so the cursor must drop from 2 to 1.
-    history.commit(createMockModel("Paint"), "Brush", makePatches(), false);
-    history.commit(createMockModel("Meta"), "Add Layer");
+    // [pixel, external]: the second undo pops a metadata entry, which carries no
+    // tile patches at all. `ProtocolEngine::undo_pixel` still steps the cursor for
+    // an External tip (history.rs:229-233) and only the TILE yield is empty, so
+    // the cursor must drop from 2 to 1.
+    await commitRustOwnedPaint(history, createMockModel("Paint"));
+    await commitMetadata(history);
     await waitForRust("doc-1", 2);
     expect(streamFor("doc-1").entries).toEqual(["pixel", "external"]);
     expect(streamFor("doc-1").cursor).toBe(2);
 
-    // Undo #1 pops the External (metadata) entry: the snapshot restore path does
-    // NOT step the Rust cursor, so the two cursors separate here - and the probe
-    // the production path fired says so.
+    // Undo #1 pops the External (metadata) entry. This step used to restore the
+    // host model and NOTHING else: the cursor sync sat inside the tile branch,
+    // which a metadata entry never reaches, so the cursor stayed at 2 while the
+    // TS stack fell to 1.
     await driveStep(commands.undo);
     expect(history.getUndoCount()).toBe(1);
-    expect(streamFor("doc-1").cursor, "the metadata path never calls rust_pixels_undo").toBe(2);
-    await waitFor(() => parityWarns().length === 1);
-    expect(vi.mocked(console.warn).mock.calls.at(-1)?.[1]).toMatchObject({
-      docId: "doc-1",
-      direction: "undo",
-      tsUndoDepth: 1,
-      rustUndoDepth: 2,
-      rustUndoTipKind: "external",
-    });
+    expect(streamFor("doc-1").cursor, "the metadata pop stepped the Rust cursor too").toBe(1);
+    expect(parityWarns(), "a cursor that tracks the host depth is not a divergence").toEqual([]);
+    expect(await verdictFor("doc-1", history)).toBe("in-sync");
 
-    // Undo #2 pops the Pixel entry: the tile path DOES call rust_pixels_undo, and
-    // that call's tip is the External entry. Rust moves the cursor anyway.
+    // Undo #2 pops the Pixel entry: the tile path takes Rust's tiles for its own
+    // step, and the cursor drops to 0.
     await driveStep(commands.undo);
-    expect(timesInvoked("rust_pixels_undo")).toBe(1);
+    expect(timesInvoked("rust_pixels_undo"), "one cursor step per pop").toBe(2);
     expect(history.getUndoCount()).toBe(0);
-    expect(
-      streamFor("doc-1").cursor,
-      "an External tip still moves the cursor; only the tile yield is empty",
-    ).toBe(1);
+    expect(streamFor("doc-1").cursor).toBe(0);
     const tip = await readRustHistoryTip("doc-1");
     expect(tip).toEqual({
       total_depth: 2,
-      undo_depth: 1,
-      redo_depth: 1,
-      undo_tip_kind: "pixel",
-      redo_tip_kind: "external",
+      undo_depth: 0,
+      redo_depth: 2,
+      undo_tip_kind: null,
+      redo_tip_kind: "pixel",
     });
+  });
+
+  it("ACCEPTANCE bridge ON, mixed [external, pixel]: both pops step, so the verdict is in-sync", async () => {
+    // The sequence the drift was measured on. Undo #1 pops the Pixel entry (tile
+    // path), undo #2 pops the External entry (metadata path). Before the fix,
+    // undo #2 left the Rust cursor at 2 against a TS depth of 0 - verdict
+    // "diverged" - and the drift then silently swallowed the NEXT paint step.
+    gateOn(true);
+    const { history, commands } = mountCommands();
+
+    await commitMetadata(history);
+    await commitRustOwnedPaint(history, createMockModel("Paint"));
+    await waitForRust("doc-1", 2);
+    expect(streamFor("doc-1").entries).toEqual(["external", "pixel"]);
+    expect(await verdictFor("doc-1", history), "both stacks recorded both steps").toBe("in-sync");
+
+    await driveStep(commands.undo);
+    expect(streamFor("doc-1").cursor).toBe(1);
+    expect(await verdictFor("doc-1", history)).toBe("in-sync");
+
+    await driveStep(commands.undo);
+    expect(history.getUndoCount()).toBe(0);
+    expect(streamFor("doc-1").cursor, "the metadata pop moved it as well").toBe(0);
+    expect(
+      await verdictFor("doc-1", history),
+      "was \"diverged\" while the cursor sync lived inside the tile branch",
+    ).toBe("in-sync");
+    expect(parityWarns(), "no step of this sequence reported divergence").toEqual([]);
+
+    // And back the other way, so redo is measured on the same stream.
+    await driveStep(commands.redo);
+    expect(timesInvoked("rust_pixels_redo"), "one redo step, no double step").toBe(1);
+    expect(await verdictFor("doc-1", history)).toBe("in-sync");
+    await driveStep(commands.redo);
+    expect(timesInvoked("rust_pixels_redo"), "the metadata redo steps too").toBe(2);
+    expect(streamFor("doc-1").cursor).toBe(2);
+    expect(await verdictFor("doc-1", history)).toBe("in-sync");
+    expect(parityWarns()).toEqual([]);
+  });
+
+  it("DEFEAT a pixel undo takes exactly ONE cursor step per press, in both directions", async () => {
+    // The failure the old NOTE in CommandHistory.undo() warned about ("Doing it
+    // here would cause DOUBLE UNDO"): if the pop steps the cursor AND the tile
+    // branch issues its own invoke, one press takes two steps and walks the
+    // cursor two entries back - reverting a step the user never asked for.
+    gateOn(true);
+    const { history, commands } = mountCommands();
+    await commitRustOwnedPaint(history, createMockModel("Paint"));
+    await waitForRust("doc-1", 1);
+
+    await driveStep(commands.undo);
+    expect(timesInvoked("rust_pixels_undo"), "one press, one cursor step").toBe(1);
+    expect(streamFor("doc-1").cursor).toBe(0);
+
+    await driveStep(commands.redo);
+    expect(timesInvoked("rust_pixels_redo")).toBe(1);
+    expect(timesInvoked("rust_pixels_undo"), "redo never re-steps the undo direction").toBe(1);
+    expect(streamFor("doc-1").cursor).toBe(1);
+  });
+
+  it("two pixel undos fired back-to-back: step N is not issued until step N-1 lands, and each press takes its OWN tiles", async () => {
+    // Rapid input. Both pops happen in one turn, so both cursor steps want to be
+    // in flight at once. Two decrements commute, so the final cursor proves
+    // nothing about ORDER - what proves it is (a) the second invoke is not even
+    // issued while the first is outstanding, and (b) each press receives the
+    // tiles of the step it popped, not whichever invoke answered first.
+    gateOn(true);
+    const { history, commands, ctx } = mountCommands();
+    await commitRustOwnedPaint(history, createMockModel("Paint1"));
+    await commitRustOwnedPaint(history, createMockModel("Paint2"));
+    await waitForRust("doc-1", 2);
+
+    const held: Array<() => void> = [];
+    let released = 0;
+    /** Release every step that appears until the census reports nothing pending.
+     *  A step this file never gets back (a press that issues two, as the pre-fix
+     *  dispatcher did) would otherwise stay in flight and hang the census drain
+     *  that every later case performs. */
+    const releaseAll = async () => {
+      for (let round = 0; round < 20; round++) {
+        while (released < held.length) held[released++]();
+        await tick();
+        if (pendingCount() === 0) return;
+      }
+    };
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args: unknown) => {
+      // The cursor moves when the command is ISSUED, as the real command does;
+      // only the response is held, so the held promise stands for a slow answer.
+      const answer = await answerInvoke(cmd, args);
+      if (cmd !== "rust_pixels_undo") return answer;
+      const seq = held.length;
+      return new Promise((resolve) =>
+        held.push(() =>
+          resolve({
+            layer_id: "l1",
+            // Identifiable per step: press 1 must upload seq 0, press 2 seq 1.
+            tiles: [{ x: seq, y: 0, w: 1, h: 1, data: [seq, 0, 0, 255] }],
+            epoch: 1,
+            version: 1,
+          }),
+        ),
+      );
+    });
+
+    commands.undo();
+    commands.undo();
+    await waitFor(() => held.length >= 1);
+    try {
+      // The ordering claim, checked while the first answer is still outstanding:
+      // an unserialised fire-and-forget step would already have issued the second
+      // invoke by now, and both round-trips would be racing the same mutex.
+      expect(
+        timesInvoked("rust_pixels_undo"),
+        "the second step waits behind the first instead of racing it",
+      ).toBe(1);
+    } finally {
+      // Releasing in a finally, not after the assertion: a failing ordering claim
+      // must not leave an invoke in flight, because every later case drains the
+      // census and would hang on it instead of reporting its own verdict.
+      await releaseAll();
+    }
+    await settle();
+
+    expect(timesInvoked("rust_pixels_undo")).toBe(2);
+    expect(history.getUndoCount()).toBe(0);
+    expect(streamFor("doc-1").cursor, "two pops, two steps").toBe(0);
+    const uploads = (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls;
+    expect(
+      uploads.map((call) => (call[3] as { x: number }[])[0]?.x),
+      "each press uploaded the tiles of the step it popped, in pop order",
+    ).toEqual([0, 1]);
+    expect(await verdictFor("doc-1", history)).toBe("in-sync");
+  });
+
+  describe("early returns that pop no CommandHistory entry leave the Rust cursor alone", () => {
+    // Each of these returns BEFORE the history pop, so nothing owns a cursor step
+    // for the press. If the step were fired by the dispatcher rather than by the
+    // pop, these are exactly the presses that would consume a Rust entry nobody
+    // asked to undo.
+    //
+    // NOT `settle()`: this file's own harness comment says one macrotask is not
+    // enough under parallel workers, and a step that IS fired but lands late
+    // would read here as "no invoke, cursor unmoved" - precisely the failure these
+    // cases exist to catch. `expectQuietly` waits for the step that must NOT come.
+    beforeEach(() => {
+      gateOn(true);
+    });
+
+    /** Let every pending task run, then prove no cursor step appeared. */
+    const expectNoCursorStep = async (why: string) => {
+      await settle();
+      await tick();
+      await settle();
+      expect(cursorStepInvokes(), why).toBe(0);
+      expect(streamFor("doc-1").cursor, `${why}: the Rust cursor did not move`).toBe(1);
+    };
+
+    it("the transform mini-undo (a separate mini stack) steps nothing", async () => {
+      const { history, commands } = mountCommands({
+        layer: { id: "l1", transform: { x: 4, y: 4, scale: 2 } },
+        ctx: {
+          layerTransformSession: () => ({ layerId: "l1" }),
+          undoTransformWithCurrent: () => ({ transform: { x: 1, y: 1, scale: 1 } }),
+          redoTransformWithCurrent: () => ({ transform: { x: 2, y: 2, scale: 1 } }),
+        },
+      });
+      history.commit(createMockModel("Meta"), "Add Layer");
+      await waitForRust("doc-1", 1);
+
+      commands.undo();
+      await expectNoCursorStep("transform mini-undo");
+      commands.redo();
+      await expectNoCursorStep("transform mini-redo");
+      expect(history.getUndoCount(), "no host entry popped either").toBe(1);
+    });
+
+    it("cancelling an active transform session steps nothing", async () => {
+      // `cancelActiveTransformSession()` returns before the pop too, and it is the
+      // branch a live resize/rotate session takes on every Ctrl+Z: the session is
+      // torn down and the gesture's own restore runs instead of a history step.
+      // The REAL `cancelLayerTransformSession` is used here (it is a module
+      // import, not a context value), driven by a session that really belongs to
+      // this engine, so the branch is entered for the production reason.
+      const { history, commands, engine } = mountCommands({
+        layer: { id: "l1", transform: { x: 4, y: 4, scale: 1 } },
+        ctx: {
+          layerTransformSession: () => ({
+            layerId: "l1",
+            documentId: "doc-1",
+            originalSnapshot: createMockModel("pre-gesture"),
+            originalTransform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false },
+          }),
+          setLayerTransformSession: vi.fn(),
+          // The mini stack is EMPTY, so this branch must fall through to the
+          // cancel branch - which is the branch under test.
+          undoTransformWithCurrent: () => null,
+          redoTransformWithCurrent: () => null,
+        },
+      });
+      const restore = vi.spyOn(engine, "restore");
+      history.commit(createMockModel("Meta"), "Add Layer");
+      await waitForRust("doc-1", 1);
+
+      commands.undo();
+      await expectNoCursorStep("cancelled transform session");
+      expect(restore, "the session really was cancelled through the model").toHaveBeenCalledTimes(1);
+      expect(history.getUndoCount()).toBe(1);
+    });
+
+    it("the modern-crop undo (a separate crop stack) steps nothing", async () => {
+      const { history, commands } = mountCommands({
+        ctx: {
+          activeTool: () => "crop",
+          cropInteractionMode: () => "modern",
+          canModernCropUndo: () => true,
+          canModernCropRedo: () => true,
+          undoModernCrop: () => ({ frame: { x: 1, y: 1, w: 4, h: 4 }, transform: { x: 0, y: 0, scale: 1 } }),
+          redoModernCrop: () => ({ frame: { x: 2, y: 2, w: 4, h: 4 }, transform: { x: 0, y: 0, scale: 1 } }),
+          setModernCropFrame: vi.fn(),
+          setModernCropImageTransform: vi.fn(),
+        },
+      });
+      history.commit(createMockModel("Meta"), "Add Layer");
+      await waitForRust("doc-1", 1);
+
+      commands.undo();
+      await expectNoCursorStep("modern crop undo");
+      commands.redo();
+      await expectNoCursorStep("modern crop redo");
+      expect(history.getUndoCount()).toBe(1);
+    });
+
+    it("the classic crop undo (a separate crop stack) steps nothing", async () => {
+      const { history, commands } = mountCommands({
+        ctx: {
+          activeTool: () => "crop",
+          cropInteractionMode: () => "classic",
+          canCropUndo: () => true,
+          canCropRedo: () => true,
+          undoLastCrop: () => ({ rect: { x: 1, y: 1, w: 4, h: 4 }, rotation: 0 }),
+          redoCrop: () => ({ rect: { x: 2, y: 2, w: 4, h: 4 }, rotation: 0 }),
+          setCropRect: vi.fn(),
+          setCropRotation: vi.fn(),
+        },
+      });
+      history.commit(createMockModel("Meta"), "Add Layer");
+      await waitForRust("doc-1", 1);
+
+      commands.undo();
+      await expectNoCursorStep("classic crop undo");
+      commands.redo();
+      await expectNoCursorStep("classic crop redo");
+      expect(history.getUndoCount()).toBe(1);
+    });
+
+    it("the facade handoff that reports itself handled steps nothing and pops nothing", async () => {
+      // The handoff drives the Rust cursor through the native walker, so its own
+      // path is not a cursor step this file can measure. What it must NOT do is
+      // fall through into a host pop on top of the step Rust already took.
+      vi.mocked(hasFacadeOwnedLayers).mockReturnValue(true);
+      vi.mocked(runFacadeExternalHandoff).mockResolvedValue(true);
+      const { history, commands } = mountCommands();
+      history.commit(createMockModel("Meta"), "Add Layer");
+      await waitForRust("doc-1", 1);
+
+      commands.undo();
+      await expectNoCursorStep("facade handoff that reported handled");
+      expect(runFacadeExternalHandoff).toHaveBeenCalledTimes(1);
+      expect(history.getUndoCount(), "no host entry popped").toBe(1);
+    });
+  });
+
+  it("bridge tile-wire mismatch: a TS-owned tile commit records NOTHING in Rust, so its pop must not step", async () => {
+    // The bridge's tile arm is `apply_tile_patch`, and the host sends
+    // `TileUploadLike` = {x, y, width, height, data} while the command
+    // deserializes `TilePatchWire` = {x, y, w, h, data} with no serde alias. The
+    // real command rejects it ("missing field `w`", pinned in Rust by
+    // `host_tile_shape_is_rejected_at_the_wire_and_records_nothing`), so this
+    // commit mints no Pixel entry.
+    //
+    // If the pop stepped anyway it would consume the NEAREST entry Rust does hold
+    // - another step's - which is the wrong-entry class of bug the cursor
+    // accounting exists to prevent. The emulator above rejects the same shape, so
+    // this case is measuring the real contract and not a convenient stub.
+    gateOn(true);
+    const { history, commands, ctx } = mountCommands();
+
+    history.commit(createMockModel("Meta"), "Add Layer");
+    history.commit(createMockModel("Text"), "Text", makePatches(), false);
+    await waitForRust("doc-1", 1);
+    expect(streamFor("doc-1").entries, "only the metadata step reached Rust").toEqual(["external"]);
+    expect(cursorStepInvokes(), "the rejected record fired nothing itself").toBe(0);
+
+    // Undo the TS-owned tile entry: no Rust entry exists for it, so no step.
+    await driveStep(commands.undo);
+    expect(cursorStepInvokes(), "no step for a step Rust never recorded").toBe(0);
+    expect(streamFor("doc-1").cursor, "the Rust cursor stayed put").toBe(1);
+    const uploads = (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls;
+    expect(
+      (uploads[0]?.[3] as { x: number }[]).map((t) => t.x),
+      "the entry's own memento replayed, unclaimed by Rust",
+    ).toEqual([0]);
+
+    // And the metadata entry beneath it still steps, so the cursor tracks the
+    // steps Rust actually holds: 2 TS entries, 1 Rust entry, cursor 1 -> 0.
+    await driveStep(commands.undo);
+    expect(cursorStepInvokes(), "the metadata pop steps").toBe(1);
+    expect(streamFor("doc-1").cursor).toBe(0);
   });
 
   it("the Rust tip kinds are reported per direction and flip when the cursor moves", async () => {
     gateOn(true);
     const { history } = mountCommands();
-    history.commit(createMockModel("Meta"), "Add Layer");
-    history.commit(createMockModel("Paint"), "Brush", makePatches(), false);
+    await commitMetadata(history);
+    await commitRustOwnedPaint(history, createMockModel("Paint"));
     await waitForRust("doc-1", 2);
 
     const atEnd = await readRustHistoryTip("doc-1");
@@ -508,6 +837,34 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     expect(afterUndo.redo_tip_kind, "redo points at the Pixel entry").toBe("pixel");
     expect(afterUndo.undo_depth).toBe(1);
     expect(afterUndo.redo_depth).toBe(1);
+  });
+
+
+  it("a history with NO doc-id getter records nothing, so it steps nothing", async () => {
+    // `editorOpenImage.loadProjectFile` builds `new CommandHistory()` with no
+    // `attachDocIdGetter` (every other production history attaches one), and that
+    // is the File>Open path - so every image opened from disk has this shape.
+    // `commit` records into Rust only inside `historyBridgeEnabled() && docIdGetter`,
+    // so this history records NOTHING while the bridge is on. If the pop stepped
+    // anyway it would consume the nearest entry Rust does hold for this document:
+    // a brush stroke's Pixel entry, recorded by the ungated `rust_pixels_write_region`.
+    gateOn(true);
+    const { history, commands } = mountCommands({ noDocIdGetter: true });
+    history.commit(createMockModel("Meta"), "Add Layer");
+    await settle();
+    expect(
+      timesInvoked("rust_pixels_record_external"),
+      "a getterless history records nothing, exactly like commit does",
+    ).toBe(0);
+    expect(history.getUndoCount(), "the host stack still holds the step").toBe(1);
+
+    commands.undo();
+    await settle();
+    expect(cursorStepInvokes(), "no Rust entry to consume, so no step").toBe(0);
+    expect(streamFor("doc-1").cursor, "the Rust cursor did not move").toBe(0);
+    commands.redo();
+    await settle();
+    expect(cursorStepInvokes(), "the redo pop steps nothing either").toBe(0);
   });
 
   // ── The comparison ─────────────────────────────────────────────────────────

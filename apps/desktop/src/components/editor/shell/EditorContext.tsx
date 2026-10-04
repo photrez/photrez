@@ -175,9 +175,16 @@ export function EditorProvider(props: {
     let currentSnapshot = engine.snapshot();
     const steps = Math.abs(diff);
     for (let step = 0; step < steps; step++) {
+      // `*ThroughModel`, not `undo(currentSnapshot, false)`: this restores through
+      // the MODEL (engine.restore + uploadImage below), never the Rust pixel path,
+      // so it never consumes the tiles a cursor step returns. Stepping here would
+      // move Rust's canonical buffers and its cursor while the host restores pixels
+      // from the TS stack: a multi-step jump would fire one serialised round-trip
+      // per step, and every one would advance a cursor whose pixel bytes never
+      // moved. The named method keeps this opt-out greppable.
       const nextSnapshot = diff < 0
-        ? history.undo(currentSnapshot)
-        : history.redo(currentSnapshot);
+        ? history.undoThroughModel(currentSnapshot)
+        : history.redoThroughModel(currentSnapshot);
       if (!nextSnapshot) break;
       currentSnapshot = nextSnapshot;
     }
