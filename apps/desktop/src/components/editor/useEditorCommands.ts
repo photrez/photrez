@@ -34,6 +34,7 @@ import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
 import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
 import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
 import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
+import { observeHistoryCursorParity } from "@/engine/historyCursorParity";
 import { bitmapStoreFor } from "@/engine/bitmapStore";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
 
@@ -513,6 +514,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
             // Best-effort: cursor sync failure must not break TS undo/redo.
           }
         }
+        observeHistoryCursorParity(
+          editor.workspace.getActiveDocumentId() ?? "",
+          history.getUndoCount(),
+          direction,
+        );
         editor.scheduler.requestRender();
         return;
       }
@@ -675,6 +681,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       const perfDone = performance.now();
       console.info(
         `[perf] ${direction}(snapshot): hist=${(perfTHist - perfT0).toFixed(1)}ms restore+upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms`,
+      );
+      // DIAGNOSTIC ONLY: measure whether this host's undo stack sits at the same
+      // history position as the Rust cursor, which nothing else compares. Fired
+      // and forgotten, so it adds no latency to the undo path, and the verdict is
+      // never branched on - the only output is one console.warn on divergence.
+      observeHistoryCursorParity(
+        editor.workspace.getActiveDocumentId() ?? "",
+        history.getUndoCount(),
+        direction,
       );
     } catch (error) {
       showToast(`${direction === "undo" ? "Undo" : "Redo"} failed: ${error instanceof Error ? error.message : "unknown error"}`, "error");

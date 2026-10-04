@@ -45,12 +45,20 @@ import { CENSUS_COMMANDS } from "@/lib/protocol/pixelInvokeCensus";
  * deliberately OUTSIDE the invoke census for the same reason: a drain that counted
  * probe traffic would report a state change where only a read happened. Declared
  * BY NAME so a genuine new reader cannot be silently treated as a writer.
+ *
+ * `rust_pixels_history_tip` is the cursor-parity probe: it reports one document's
+ * stream depth plus the payload kind each direction would consume, so the host's
+ * own undo depth can be compared against this cursor. It reads the same
+ * `&self`-only accessor every depth read uses, and a second call on an unchanged
+ * document is byte-identical (pinned in `pixel_history_depth.rs`), so it belongs
+ * here by the same rule as the other reads and NOT on the census.
  */
 const READS = new Set<string>([
   "rust_pixels_get_epoch",
   "rust_pixels_snapshot_layer",
   "rust_pixels_snapshot_tile",
   "rust_pixels_history_depth",
+  "rust_pixels_history_tip",
   "rust_pixels_open_document",
   "rust_pixels_close_document",
 ]);

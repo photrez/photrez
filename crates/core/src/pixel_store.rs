@@ -28,6 +28,12 @@ use crate::paint_parity::{raster_shadow, ParityDab, ParityTip};
 // `PixelLayer` remains the ACTIVE production default.
 use crate::state_node::{LayerState, RegionChange, StateNode};
 
+// The typed payload discriminant of a history entry, re-exported so a
+// read-only probe can name the kind of step the cursor points at without
+// touching the stream. `history` itself is crate-private; `pixel_store` is not,
+// and this is the field type on `HistoryTip`.
+pub use crate::history::PayloadKind;
+
 /// Migration flag. OFF (default): the row-major `PixelLayer` is the ACTIVE
 /// production canonical and the TS-facing behavior is unchanged. The
 /// `LayerState`/`StateNode` path is AVAILABLE (history entries always store
@@ -365,6 +371,29 @@ pub struct HistoryDepth {
     pub redo_depth: usize,
     /// Sorted, de-duplicated union of `affected_layer_ids` over the whole stream.
     pub affected_layer_ids: Vec<String>,
+}
+
+/// Read-only cursor position for one document's history stream, as returned by
+/// `PixelStoreRegistry::get_history_tip` and the `rust_pixels_history_tip`
+/// Tauri command. Carries no pixel bytes and no payload data — only the depth
+/// numbers and WHICH kind of entry each direction would consume.
+///
+/// This exists to answer one question: is the TypeScript undo stack pointing at
+/// the same history position as this stream? The TS side owns its own depth
+/// counter and the Rust side owns this one, and nothing in production compares
+/// them, so drift between the two is invisible until it is measured.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct HistoryTip {
+    /// Stream length (entries recorded, both branches included).
+    pub total_depth: usize,
+    /// Entries behind the cursor (undoable steps).
+    pub undo_depth: usize,
+    /// Entries ahead of the cursor (redoable steps).
+    pub redo_depth: usize,
+    /// Payload kind the next undo would consume (`None` at cursor 0).
+    pub undo_tip_kind: Option<PayloadKind>,
+    /// Payload kind the next redo would consume (`None` at the stream end).
+    pub redo_tip_kind: Option<PayloadKind>,
 }
 
 /// Canonical pixel owner, namespaced by document id. This is the long-term owner
@@ -776,6 +805,36 @@ impl PixelStoreRegistry {
             undo_depth,
             redo_depth,
             affected_layer_ids,
+        })
+    }
+
+    /// Read-only cursor position and per-direction tip kinds for the document's
+    /// history stream, for comparing this stream's cursor against the host's own
+    /// undo depth.
+    ///
+    /// `undo_tip_kind` is the kind of the entry the next undo would consume (the
+    /// entry just below the cursor, so `None` at cursor 0); `redo_tip_kind` is
+    /// the kind the next redo would consume (the entry just above the cursor, so
+    /// `None` at the stream end). Both are the same rule
+    /// `ProtocolEngine::tip_payload_kind` applies to the undo direction.
+    ///
+    /// `&self` only: no cursor pop, tile write, `version()` bump or
+    /// `Arc<StateNode>` mutation, and no pixel bytes or payload data are
+    /// returned, so two calls on an unchanged document are byte-identical.
+    pub fn get_history_tip(&self, doc_id: &str) -> Option<HistoryTip> {
+        let doc = self.docs.get(doc_id)?;
+        let history = &doc.history;
+        let total_depth = history.entries.len();
+        let cursor = history.cursor().min(total_depth);
+        Some(HistoryTip {
+            total_depth,
+            undo_depth: cursor,
+            redo_depth: total_depth - cursor,
+            undo_tip_kind: cursor
+                .checked_sub(1)
+                .and_then(|idx| history.entries.get(idx))
+                .map(|e| e.payload.kind()),
+            redo_tip_kind: history.entries.get(cursor).map(|e| e.payload.kind()),
         })
     }
 
