@@ -40,12 +40,13 @@
  * parity probe is the independent check.
  *
  * WIRE FIDELITY: the command names stay inline at the call so the static writer
- * census still reads this site as a cursor mover. If the `apply_tile_patch` tile
- * shape is ever reconciled (serde alias, or sending `{w, h}` instead of
- * `TileUploadLike`'s `{width, height}`), the emulator in
- * `engine/__tests__/rustStreamEmulator.ts` must be reconciled in the SAME change -
- * it mirrors the real rejection, so a one-sided fix turns its rejection into a
- * silent lie.
+ * census still reads this site as a cursor mover. The `apply_tile_patch` tile
+ * shape is pinned on BOTH sides of the wire - by
+ * `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry` in
+ * apps/desktop/src-tauri/src/paint_parity_cmds.rs (both spellings, through Tauri's
+ * own argument deserializer) and by `tilesSurviveTheWire` in
+ * `engine/__tests__/rustStreamEmulator.ts` - and both must change in the SAME
+ * commit as any change to it, or one of them becomes a silent lie.
  *
  * SCOPE - which cursor commands this observes: `rust_pixels_undo` and
  * `rust_pixels_redo`, and nothing else. The SNAPSHOT cursor commands
@@ -103,6 +104,26 @@ export class RustCursorStepper {
     const step = this.last;
     this.last = null;
     return step;
+  }
+
+  /**
+   * The most recent step's outcome, observed WITHOUT claiming it. NOT
+   * consume-once: this leaves the handle in place, so calling it twice returns the
+   * same promise and the step is still there for the next pop's `take()`.
+   *
+   * For a caller that must not own this step's tiles but must still know when its
+   * cursor move has landed. The tile restore path needs exactly that: its fetch
+   * gate is `rustOwned || photrez.rustPixels`, so a bridge-ON TS-owned tile pop
+   * fires a step that branch has no reason to `take`, while the parity probe that
+   * fires immediately afterwards reads `rust_pixels_history_tip` over the SAME
+   * registry mutex. Without this, the probe's read races the step and can observe
+   * the PRE-step cursor - a `diverged` for a step that moved exactly once.
+   *
+   * A caller using this instead of `take` leaves the handle in place, so the next
+   * pop's leading `take()` still drops it: observing is not claiming.
+   */
+  settled(): Promise<unknown> | null {
+    return this.last;
   }
 
   private observeResolved(req: RustCursorStepRequest, res: unknown): void {

@@ -470,6 +470,19 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // CURSOR INVARIANT: the pop above already stepped the Rust cursor for
         // this entry when Rust recorded one (see CommandHistory.stepRustCursor),
         // for tile and metadata entries alike. Nothing to sync here.
+        //
+        // The probe reads `rust_pixels_history_tip` over the SAME registry mutex the
+        // step holds, so it must not be issued before the step's move lands or it
+        // reads the PRE-step cursor and reports a divergence for a step that moved
+        // exactly once. The metadata branch below already sequences this way
+        // (`await takeLastCursorStep()`); the tile branch has to do it by hand,
+        // because `projectRustTiles` only CLAIMS the step when its fetch gate
+        // (`rustOwned || photrez.rustPixels`) is open - and a bridge-ON TS-owned
+        // tile pop leaves that gate closed while still firing a step. Hence
+        // `lastCursorStepSettled()`: it sequences without claiming, so the next
+        // pop's leading `take()` still drops the unconsumed step. A step that
+        // rejects still settles, so this await cannot fail the undo path.
+        await history.lastCursorStepSettled()?.catch(() => {});
         observeHistoryCursorParity(
           editor.workspace.getActiveDocumentId() ?? "",
           history.getUndoCount(),

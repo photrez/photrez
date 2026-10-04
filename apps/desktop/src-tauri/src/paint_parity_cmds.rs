@@ -1,5 +1,13 @@
-// R1 SHADOW Tauri commands (dev parity harness only — NOT production pixel ownership).
-// Naming deliberately avoids resource_read_* / TileStore per design constraints.
+// Pixel-store and paint-parity Tauri commands. Both populations below are
+// REGISTERED in the shipping handler list (main.rs:230-252):
+//   PRODUCTION pixel ownership - the `rust_pixels_*` family plus
+//   `apply_tile_patch`; a shipped renderer file invokes each, so their argument
+//   shapes are wire contracts (`TilePatchWire` below is one).
+//   DEV-ONLY parity probes - the `paint_parity_*` / `paint_shadow_*` family, whose
+//   only callers are the flag-gated shadow/perf harness (lib/rustShadow.ts,
+//   lib/perf/perfAuditDev.ts). None owns pixels.
+// `rust_pixels_snapshot_tile` is registered and census-accepted but has no
+// production caller. Naming avoids resource_read_* / TileStore by design.
 
 use photrez_core::canonical_tip::{build_canonical_tip, TipSpec};
 use photrez_core::paint_parity::{raster_shadow, tiles_for_keys, ParityDab, ParityTip};
@@ -13,11 +21,23 @@ use std::sync::Mutex;
 // is gone. Lifecycle (open/close/add/remove/resize) is driven from TS via the
 // rust_pixels_* commands. No TileStore/Rayon/SAB/WebGPU.
 
+/// One tile patch as `apply_tile_patch`'s arguments arrive from the host. The
+/// dimensions have two LIVE spellings: `{width, height}` is `TileUploadLike`, the shape
+/// every renderer producer builds because the GPU upload path wants it; `w`/`h` is what
+/// this command serializes in `TilePatchJson`, so a caller echoing a Rust answer back
+/// keeps working. A tile carrying BOTH spellings is rejected as a duplicate field.
+///
+/// The alias is on the DIMENSION FIELDS, and deliberately not `#[serde(default)]`: a
+/// default would turn a missing dimension into `0` - a silently empty tile - instead of
+/// rejecting the payload. Renaming the host side would touch `TileUploadLike` and every
+/// tile producer, a far wider blast radius for the same acceptance.
 #[derive(serde::Deserialize)]
 pub struct TilePatchWire {
     pub x: i64,
     pub y: i64,
+    #[serde(alias = "width")]
     pub w: usize,
+    #[serde(alias = "height")]
     pub h: usize,
     pub data: Vec<u8>,
 }
@@ -755,89 +775,220 @@ mod c4_runtime_tests {
         assert!(snap.is_err(), "closed document has no pixel storage");
     }
 
-    /// WIRE CONTRACT: the tile shape the TypeScript host actually sends, at the
-    /// real JSON boundary.
+    /// WIRE CONTRACT: the tile shape the TypeScript host actually sends, accepted
+    /// through the REAL Tauri command boundary.
     ///
     /// `CommandHistory.commit` hands a tile memento to `apply_tile_patch` as
     /// `TileUploadLike[]` = `{x, y, width, height, data}`
-    /// (apps/desktop/src/renderer/types.ts), while this command deserializes
-    /// `Vec<TilePatchWire>` = `{x, y, w, h, data}` with no serde alias or rename.
-    /// Tauri deserializes command arguments with serde, so
-    /// `serde_json::from_value` IS that boundary - and it REJECTS the host's
-    /// shape. The bridge's tile arm therefore records NO Pixel entry in the app.
+    /// (apps/desktop/src/renderer/types.ts), and every producer in
+    /// `useBrushOverlay` builds it that way. `TilePatchWire` ALIASES
+    /// `width`/`height` onto its `w`/`h`, so both spellings deserialize and the
+    /// bridge's tile arm mints a real `Pixel` entry.
     ///
-    /// This is the empirical pin for a blocking prerequisite of any bridge flip,
-    /// and it is what makes the frontend's own `apply_tile_patch` assertions
-    /// meaningful: `c4FallbackHistoryRecovery.test.ts` accepts `t.width` in its
-    /// emulator, so the real rejection is invisible there. Until the two shapes
-    /// are reconciled, the bridge's only recording arm is
-    /// `rust_pixels_record_external` (all-scalar args, asserted below to record).
+    /// This drives the actual invoke path - a mock app's `invoke_handler` and a
+    /// real `InvokeRequest` - rather than a standalone `serde_json::from_value`,
+    /// because the thing under test is "does the alias survive TAURI's argument
+    /// deserialization". Tauri v2 implements `CommandItem`'s `Deserializer` by
+    /// forwarding every method to `serde_json::Value`'s own deserializer over the
+    /// value at the argument key (tauri-2.11.5 `src/ipc/command.rs:83-178`), so
+    /// this asserts the same thing the app's IPC layer does.
     #[test]
-    fn host_tile_shape_is_rejected_at_the_wire_and_records_nothing() {
+    fn both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry() {
         let _g = super::TEST_REGISTRY_LOCK.lock().unwrap();
         reset();
 
-        let host_value = serde_json::Value::Array(vec![serde_json::json!({
-            "x": 0, "y": 0, "width": 2, "height": 2,
-            "data": vec![1u8; 16]
-        })]);
-        let host_parsed: Result<Vec<TilePatchWire>, _> = serde_json::from_value(host_value);
-        let err = host_parsed
-            .err()
-            .expect("the host's TileUploadLike shape must not deserialize")
-            .to_string();
-        assert!(
-            err.contains("missing field `w`"),
-            "expected serde's missing-`w` rejection, got: {err}"
-        );
+        let app = tauri::test::mock_builder()
+            .invoke_handler(tauri::generate_handler![
+                rust_pixels_open_document,
+                rust_pixels_init,
+                apply_tile_patch,
+                rust_pixels_record_external
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock app builds");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("mock webview builds");
 
-        // The shape this command declares does deserialize, and a patch built
-        // from it DOES mint the entry the cursor steps - so the rejection above is
-        // about the wire shape, not about the command being inert.
-        let rust_value = serde_json::Value::Array(vec![serde_json::json!({
-            "x": 0, "y": 0, "w": 2, "h": 2,
-            "data": vec![1u8; 16]
-        })]);
-        let doc = "docwire".to_string();
-        let layer = "lw".to_string();
-        rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 64, 64, vec![0; 64 * 64 * 4]).unwrap();
-        let patches: Vec<TilePatchWire> =
-            serde_json::from_value(rust_value.clone()).expect("rust shape");
-        let before: Vec<TilePatchWire> = serde_json::from_value(rust_value).expect("rust shape");
-        let res = apply_tile_patch(doc.clone(), layer.clone(), before, patches).expect("patch");
-        assert_eq!(res.tiles.len(), 1);
+        let call = |cmd: &str, body: serde_json::Value| {
+            tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: cmd.into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "http://tauri.localhost".parse().unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(body),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_string(),
+                },
+            )
+        };
+        let ok = |r: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>| {
+            r.unwrap_or_else(|e| panic!("{e}"))
+                .deserialize::<serde_json::Value>()
+                .unwrap()
+        };
+
+        let seed = serde_json::json!(vec![0u8; 64 * 64 * 4]);
+        let patch_args = |doc: &str, tiles: serde_json::Value| {
+            serde_json::json!({
+                "docId": doc, "layerId": "lw", "before": tiles, "after": tiles
+            })
+        };
+        let host_tiles =
+            serde_json::json!([{ "x": 0, "y": 0, "width": 2, "height": 2, "data": vec![1u8; 16] }]);
+        let rust_tiles =
+            serde_json::json!([{ "x": 0, "y": 0, "w": 2, "h": 2, "data": vec![1u8; 16] }]);
+
+        // THE HOST'S SHAPE. This is what every tile producer in the renderer sends.
+        ok(call(
+            "rust_pixels_open_document",
+            serde_json::json!({ "docId": "host" }),
+        ));
+        ok(call(
+            "rust_pixels_init",
+            serde_json::json!({ "docId": "host", "layerId": "lw", "width": 64, "height": 64, "bytes": seed }),
+        ));
+        let from_host = ok(call("apply_tile_patch", patch_args("host", host_tiles)));
+        assert_eq!(
+            from_host["tiles"].as_array().unwrap().len(),
+            1,
+            "one delta tile returned"
+        );
+        assert_eq!(from_host["epoch"], 1, "epoch bumped once");
+        assert_eq!(from_host["version"], 1, "DocumentVersion bumped once");
         assert_eq!(
             registry()
                 .as_ref()
                 .unwrap()
-                .get_history_depth(&doc)
+                .get_history_depth("host")
                 .unwrap()
                 .total_depth,
             1,
-            "a wire-accepted patch mints exactly one entry"
+            "the host shape mints exactly one Pixel entry - the bridge's tile arm records"
         );
 
-        // The bridge's OTHER arm records: all-scalar args, so serde cannot reject
-        // it. This is the arm a metadata host commit relies on.
-        let doc2 = "docwire2".to_string();
-        rust_pixels_open_document(doc2.clone());
-        rust_pixels_record_external(
-            doc2.clone(),
-            "Add Layer".to_string(),
-            vec![],
-            "ts".to_string(),
-            "Add Layer".to_string(),
-            None,
-            None,
-            None,
-        )
-        .expect("record_external");
+        // THE SHAPE THIS COMMAND DECLARES, on its own document. Same bytes, same
+        // geometry: the two answers must be IDENTICAL, so the alias cannot have
+        // dropped or defaulted a dimension on its way in.
+        ok(call(
+            "rust_pixels_open_document",
+            serde_json::json!({ "docId": "rust" }),
+        ));
+        ok(call(
+            "rust_pixels_init",
+            serde_json::json!({ "docId": "rust", "layerId": "lw", "width": 64, "height": 64, "bytes": seed }),
+        ));
+        let from_rust = ok(call("apply_tile_patch", patch_args("rust", rust_tiles)));
+        assert_eq!(
+            from_host, from_rust,
+            "the aliased spelling must be lossless: identical tiles, epoch and version"
+        );
         assert_eq!(
             registry()
                 .as_ref()
                 .unwrap()
-                .get_history_depth(&doc2)
+                .get_history_depth("rust")
+                .unwrap()
+                .total_depth,
+            1,
+            "the declared shape still records, so the alias did not replace it"
+        );
+
+        // NEUTRALITY CONTROL. The alias accepts a SECOND name for the dimension; it
+        // must not have become a DEFAULT, which would turn a tile with no dimension
+        // at all into a silently empty one. Both spellings absent is still rejected,
+        // through this same real path - which is what makes the two accepts above
+        // mean something.
+        let rejected = call(
+            "apply_tile_patch",
+            patch_args(
+                "rust",
+                serde_json::json!([{ "x": 0, "y": 0, "data": vec![1u8; 16] }]),
+            ),
+        );
+        let err = match rejected {
+            Err(e) => e.to_string(),
+            Ok(b) => panic!(
+                "a tile with no dimension must still be rejected, got: {}",
+                b.deserialize::<serde_json::Value>().unwrap()
+            ),
+        };
+        assert!(
+            err.contains("missing field"),
+            "expected serde's missing-dimension rejection, got: {err}"
+        );
+        assert_eq!(
+            registry()
+                .as_ref()
+                .unwrap()
+                .get_history_depth("rust")
+                .unwrap()
+                .total_depth,
+            1,
+            "a rejected payload records nothing"
+        );
+
+        // NEUTRALITY CONTROL, part two: a tile carrying BOTH spellings must be REJECTED, not
+        // silently resolved - serde's derive treats a field and its alias as one field
+        // name, and `w` disagreeing with `width` is a silent wrong value on a pixel
+        // dimension. Same real invoke path, so this is serde_derive's own answer.
+        for (label, tile) in [
+            (
+                "agreeing",
+                serde_json::json!({ "x": 0, "y": 0, "w": 2, "h": 2, "width": 2, "height": 2, "data": vec![1u8; 16] }),
+            ),
+            (
+                "disagreeing",
+                serde_json::json!({ "x": 0, "y": 0, "w": 2, "width": 64, "h": 2, "height": 64, "data": vec![1u8; 16] }),
+            ),
+        ] {
+            let both = call(
+                "apply_tile_patch",
+                patch_args("rust", serde_json::json!([tile])),
+            );
+            match both {
+                Err(e) => assert!(
+                    e.to_string().contains("duplicate field"),
+                    "serde must name this a duplicate field, not a missing one ({label}): {e}"
+                ),
+                Ok(b) => panic!(
+                    "a tile carrying both spellings must be rejected, not resolved ({label}); got: {}",
+                    b.deserialize::<serde_json::Value>().unwrap()
+                ),
+            }
+            assert_eq!(
+                registry()
+                    .as_ref()
+                    .unwrap()
+                    .get_history_depth("rust")
+                    .unwrap()
+                    .total_depth,
+                1,
+                "a both-spellings payload records nothing ({label})"
+            );
+        }
+
+        // POSITIVE CONTROL: the bridge's OTHER arm, all-scalar args, still records
+        // the External entry a metadata host commit relies on.
+        ok(call(
+            "rust_pixels_open_document",
+            serde_json::json!({ "docId": "meta" }),
+        ));
+        ok(call(
+            "rust_pixels_record_external",
+            serde_json::json!({
+                "docId": "meta", "label": "Add Layer", "affected": [],
+                "adapterId": "ts", "token": "Add Layer",
+                "docSizeBefore": null, "docSizeAfter": null, "mintedLayerIds": null
+            }),
+        ));
+        assert_eq!(
+            registry()
+                .as_ref()
+                .unwrap()
+                .get_history_depth("meta")
                 .unwrap()
                 .total_depth,
             1,

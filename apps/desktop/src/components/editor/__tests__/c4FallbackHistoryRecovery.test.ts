@@ -103,8 +103,21 @@ const realGetContext = (globalThis as any).HTMLCanvasElement.prototype.getContex
 type SimLayer = { w: number; h: number; pixels: number[]; undo: any[]; redo: any[]; epoch: number; version: number };
 type SimCall = { cmd: string; args: any };
 
-const wireW = (t: any) => (typeof t.w === "number" ? t.w : t.width);
-const wireH = (t: any) => (typeof t.h === "number" ? t.h : t.height);
+// The host's tile memento shape, verbatim: `TileUploadLike` = {x, y, width,
+// height, data}. `apply_tile_patch` accepts it because `TilePatchWire` aliases
+// `width`/`height` onto its `w`/`h` (pinned in Rust by
+// `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`), so this
+// emulator reads the same fields the real command reads - no shim bending the
+// payload into a shape the app never sends.
+//
+// ACCEPTANCE ASYMMETRY THIS DOES NOT MODEL: the real command also accepts a
+// `{x, y, w, h, data}` tile and rejects one carrying BOTH spellings (serde treats a
+// field and its alias as one field name). This sim reads `width`/`height` only, so
+// it rejects the `{w, h}` shape and would accept a both-spellings tile. Neither
+// divergence is reachable: `CommandHistory.commit` types its mementos
+// `TileUploadLike[]` and `useBrushOverlay` builds every one of them with numeric
+// `width`/`height`, so no production payload exercises either case. Listed so a
+// reader does not read this sim as a general statement about the wire.
 
 function makeSim(opts?: { rejectWriteRegion?: string }) {
   const store = new Map<string, SimLayer>();
@@ -115,8 +128,8 @@ function makeSim(opts?: { rejectWriteRegion?: string }) {
 
   const write = (s: SimLayer, tiles: any[]) => {
     for (const t of tiles) {
-      const tw = wireW(t);
-      const th = wireH(t);
+      const tw = t.width;
+      const th = t.height;
       for (let row = 0; row < th; row++) {
         const dst = ((t.y + row) * s.w + t.x) * 4;
         const src = row * tw * 4;
@@ -187,7 +200,7 @@ function makeSim(opts?: { rejectWriteRegion?: string }) {
       s.redo = [];
       s.epoch += 1;
       s.version += 1;
-      return { tiles: args.after.map((t: any) => ({ x: t.x, y: t.y, w: wireW(t), h: wireH(t), data: t.data })), epoch: s.epoch, version: s.version };
+      return { tiles: args.after.map((t: any) => ({ x: t.x, y: t.y, w: t.width, h: t.height, data: t.data })), epoch: s.epoch, version: s.version };
     }
     throw new Error("unknown cmd " + cmd);
   };
@@ -371,16 +384,13 @@ describe("c4 recovery (approved caller predicate)", () => {
     expect(sim.applyCount).toBe(1);
     expect(history.getUndoCount()).toBe(1); // TS history entry kept despite the rejection
     // The census keeps both: the failed write first, then the single recovery
-    // apply, in that order.
-    //
-    // KNOWN IMPOSSIBLE IN THE APP: this emulator accepts `t.width`
-    // (`wireW`, :106), but the real `apply_tile_patch` deserializes
-    // `TilePatchWire` = {x, y, w, h, data} with no serde alias, so the host's
-    // `TileUploadLike` shape is rejected outright - see
-    // `paint_parity_cmds.rs::host_tile_shape_is_rejected_at_the_wire_and_records_nothing`.
-    // So `resolved` here describes the EMULATOR, not the runtime. Reconciling the
-    // two tile shapes is a separate wire-contract change; until then this
-    // assertion must not be read as evidence that a fallback apply records.
+    // apply, in that order. `resolved` describes the RUNTIME here, not just the
+    // emulator: this emulator reads the host's `{width, height}` memento verbatim,
+    // and the real `apply_tile_patch` accepts that shape because `TilePatchWire`
+    // aliases `width`/`height` onto its `w`/`h` - see
+    // `paint_parity_cmds.rs::both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`,
+    // which drives the host spelling through Tauri v2's own argument deserializer.
+    // So a fallback apply really does record.
     const census = await flushPixelInvokeCensus();
     const recorded = census.entries.slice(censusBeforeRejection);
     expect(recorded.map((e) => `${e.command}:${e.phase}`)).toEqual([

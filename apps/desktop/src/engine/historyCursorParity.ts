@@ -16,7 +16,9 @@ import { requireHistoryDepthNumbers } from "@/lib/protocol/pixelHistoryDepth";
  * The probe observes only while the TS->Rust history bridge is RECORDING. With
  * that bridge OFF - the shipping default, since nothing in production sets the
  * `localStorage["photrez.historyBridge"]` key the predicate requires
- * (apps/desktop/src/engine/history.ts `HISTORY_BRIDGE_GATE` / `historyBridgeEnabled`) - the two stacks are not two views of
+ * (the gate itself, `historyBridgeGate.ts`, is module-private; the exported
+ * predicate is `historyBridgeEnabled`, re-exported from `history.ts`) - the two
+ * stacks are not two views of
  * ONE history: the host is deliberately the sole undo authority, and Rust's stream
  * is a partial record of it. It is not empty, though. `CommandHistory.commit`
  * appends `rust_pixels_record_external` / `apply_tile_patch` only inside
@@ -113,6 +115,29 @@ const isUsableDepth = (n: unknown): n is number =>
  * "these depths differ, and here is how much" - not as "a step was missed". The
  * eviction policy is not changed here; reconciling the two caps is a separate
  * change, and until then the log line is the only output.
+ *
+ * THIRD HONEST LIMIT - what ordering this probe can and cannot guarantee. The read
+ * (`rust_pixels_history_tip`) and the cursor step (`rust_pixels_undo` /
+ * `rust_pixels_redo`) queue on the SAME `PixelStoreRegistry` mutex, so a read
+ * issued while the step is still in flight can be served by the step's PRE-move
+ * cursor. The CALLER owns that ordering, not this module: both production call
+ * sites await the step their own pop fired before calling
+ * `observeHistoryCursorParity` (useEditorCommands - the metadata branch claims it
+ * with `takeLastCursorStep()`, the tile branch waits for it without claiming it
+ * with `lastCursorStepSettled()`, because a bridge-ON TS-owned tile pop leaves the
+ * tile fetch gate closed and never claims it). What this module still cannot
+ * promise is the opposite direction: a step issued by something ELSE - the native
+ * walker's `Command::Undo`/`Redo`, or a facade handoff - is invisible here, because
+ * `HistoryTip` carries no version or sequence number and the monotonic op counter
+ * only orders THIS process's probes against each other. So a read can still pair a
+ * fresh depth with a cursor another producer moved, and that is indistinguishable
+ * from a real divergence.
+ *
+ * NONE OF THAT IS A RESTORE BEHAVIOUR. No caller branches on the verdict: the
+ * undo/redo path fires the observation and forgets it, the only outputs are one
+ * `console.warn` on `diverged` and one `console.info` when nothing was read, and
+ * the pop has already happened either way. A spurious line costs an operator one
+ * log entry, never a wrong restore.
  */
 export function classifyHistoryCursorParity(
   rust: RustHistoryTip | null | undefined,

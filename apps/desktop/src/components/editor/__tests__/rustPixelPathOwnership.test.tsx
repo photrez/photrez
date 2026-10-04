@@ -280,23 +280,22 @@ type Row = {
 
 // TRANSITIONAL (photrez.rustPixels gating; delete with the flag).
 //
-// The matrix collapsed from eight rows to two, and that collapse IS the finding.
-// For a TS-OWNED tile entry (`imperative` without `rustOwned`) the bridge's only
-// recording arm is `apply_tile_patch`, and the real command REJECTS the host's
-// tile shape - `TileUploadLike` {x, y, width, height, data} against
-// `TilePatchWire` {x, y, w, h, data}, no serde alias - so it mints no Pixel entry
-// (proved in Rust by `host_tile_shape_is_rejected_at_the_wire_and_records_nothing`,
-// and honoured in `historyCursorParity.wiring.test.ts`'s emulator). No Rust entry
-// means no cursor step, so neither the bridge gate nor the runtime can arm one,
-// and the flag is the only thing left that can. The bridge x runtime dimension
-// for this entry shape is not "uncovered": it is vacuous, and the metadata block
-// below is where the bridge genuinely decides.
+// The flag is the only thing that arms the Rust tile FETCH for an entry Rust does
+// not own, and that is what this matrix measures: per direction, how many
+// cursor-sync invokes a pop issues. For a TS-OWNED tile entry (`imperative` without
+// `rustOwned`) the cursor STEP is armed by the bridge, which now records a real
+// Pixel entry for it - `apply_tile_patch` accepts the host's `TileUploadLike`
+// shape because `TilePatchWire` aliases `width`/`height` onto `w`/`h` (proved in
+// Rust by `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`,
+// and honoured in `historyCursorParity.wiring.test.ts`'s emulator). So the two
+// `rustPixels=0, bridge=1` rows step through the BRIDGE and the six others
+// through the flag. The metadata block below is the other place the bridge decides.
 const ROWS: Row[] = [
   { rustPixels: "1", bridge: "0", tauri: true, expected: 1 },
   { rustPixels: "1", bridge: "1", tauri: true, expected: 1 },
   { rustPixels: "1", bridge: "0", tauri: false, expected: 1 },
   { rustPixels: "1", bridge: "1", tauri: false, expected: 1 },
-  { rustPixels: "0", bridge: "1", tauri: true, expected: 0 },
+  { rustPixels: "0", bridge: "1", tauri: true, expected: 1 },
   { rustPixels: "0", bridge: "1", tauri: false, expected: 0 },
   { rustPixels: "0", bridge: "0", tauri: true, expected: 0 },
   { rustPixels: "0", bridge: "0", tauri: false, expected: 0 },
@@ -528,7 +527,10 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
     commands.undo();
     await flush();
 
-    expect(countInvokes("rust_pixels_undo"), "no Rust cursor step for a TS-owned entry").toBe(0);
+    expect(
+      countInvokes("rust_pixels_undo"),
+      "no bridge, so a TS-owned entry has no recorded counterpart to step",
+    ).toBe(0);
     const uploads = uploadCalls(ctx);
     expect(uploads).toHaveLength(1);
     const tiles = uploads[0][3] as { x: number; y: number }[];

@@ -74,10 +74,20 @@ import {
   answerInvoke,
   record,
   resetStreams,
-  step,
   streamFor,
   tipFor,
 } from "./rustStreamEmulator";
+import { commitRustOwnedPaint, makePatches } from "./historyCursorFixtures";
+import {
+  cursorStepInvokes,
+  driveStep,
+  parityWarns,
+  settle,
+  tick,
+  timesInvoked,
+  waitFor,
+  waitForRust,
+} from "./historyCursorHarness";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -121,53 +131,6 @@ const createMockModel = (name: string): DocumentModel => ({
   viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
   dirty: false,
 });
-
-/**
- * A tile memento in the SHAPE THE HOST REALLY SENDS: `TileUploadLike` =
- * `{x, y, width, height, data}`. It is deliberately not `{w, h}`, because that
- * is the whole of the bridge tile-wire mismatch - the real command rejects this
- * shape, and a test that
- * used `w`/`h` would be asserting against a payload the app never produces.
- */
-const hostTile = (x: number, y: number, rgba: number[]) => ({
-  x,
-  y,
-  width: 2,
-  height: 2,
-  data: new Uint8ClampedArray(rgba),
-});
-
-/** A TS-owned tile entry: the shape a text/shape/transform commit produces. */
-const makePatches = (): HistoryTilePatches => ({
-  layerId: "l1",
-  surfaceWidth: 10,
-  surfaceHeight: 10,
-  before: [hostTile(0, 0, [1, 1, 1, 255, 1, 1, 1, 255, 1, 1, 1, 255, 1, 1, 1, 255])],
-  after: [hostTile(0, 0, [2, 2, 2, 255, 2, 2, 2, 255, 2, 2, 2, 255, 2, 2, 2, 255])],
-});
-
-/** The same memento marked Rust-owned: a brush-shaped twin, not a pixel source. */
-const makeRustOwnedPatches = (): HistoryTilePatches => ({
-  ...makePatches(),
-  rustOwned: true,
-});
-
-/**
- * Commit the way a BRUSH stroke does, because that is the only way a Pixel entry
- * reaches the Rust stream in the real app (the bridge tile-wire mismatch): the
- * canonical, ungated writer
- * `rust_pixels_write_region` records it, and the host then commits the twin with
- * `alreadyRecordedInRust`, so the bridge records nothing itself.
- *
- * `history.commit(model, "Text", makePatches(), false)` is the OTHER tile shape -
- * a TS-owned entry whose only bridge arm is `apply_tile_patch`, which the real
- * command REJECTS. That commit records no Pixel entry at all, so its pop must not
- * step the cursor; `a_ts_owned_tile_commit_records_nothing_in_rust` pins that.
- */
-async function commitRustOwnedPaint(history: CommandHistory, model: DocumentModel) {
-  await vi.mocked(invoke)("rust_pixels_write_region", { docId: model.id, layerId: "l1" });
-  history.commit(model, "Brush", makeRustOwnedPatches(), true);
-}
 
 /** Commit a metadata step and WAIT for its fire-and-forget record to land. */
 async function commitMetadata(history: CommandHistory, label = "Add Layer") {
@@ -261,68 +224,6 @@ async function verdictFor(
   history: CommandHistory,
 ): Promise<ReturnType<typeof classifyHistoryCursorParity>> {
   return (await probeHistoryCursorParity(docId, history.getUndoCount())).verdict;
-}
-
-const waitFor = async (pred: () => boolean, ms = 3000) => {
-  const start = Date.now();
-  while (!pred()) {
-    if (Date.now() - start > ms) throw new Error("waitFor timeout");
-    await new Promise((r) => setTimeout(r, 5));
-  }
-};
-
-/** Wait until the emulated Rust stream for `docId` holds `count` entries. */
-const waitForRust = async (docId: string, count: number) => {
-  await waitFor(() => streamFor(docId).entries.length >= count);
-  await settle();
-};
-
-/**
- * Drain the fire-and-forget bridge invokes. `commit` reaches Rust through a
- * dynamic `import()`, so one macrotask is not enough under parallel workers;
- * cases that assert a specific Rust cursor use `waitForRust` above.
- */
-async function settle() {
-  await new Promise<void>((r) => setTimeout(r, 0));
-  await flushPixelInvokeCensus();
-}
-
-/**
- * One macrotask, NO census drain. `flushPixelInvokeCensus` awaits every in-flight
- * pixel invoke, so a case that deliberately HOLDS a cursor step open would
- * deadlock on it; this is the only yield such a case may use.
- */
-const tick = () => new Promise<void>((r) => setTimeout(r, 0));
-
-/** Count the invokes the emulator saw for `command`. */
-const timesInvoked = (command: string): number =>
-  vi.mocked(invoke).mock.calls.filter((c) => c[0] === command).length;
-
-/** Count the cursor-step invokes in EITHER direction. */
-const cursorStepInvokes = (): number =>
-  vi.mocked(invoke).mock.calls.filter(
-    (c) => c[0] === "rust_pixels_undo" || c[0] === "rust_pixels_redo",
-  ).length;
-
-/** Only the probe's own divergence warns, not the hook's unrelated setup noise. */
-const parityWarns = (): string[] =>
-  vi
-    .mocked(console.warn)
-    .mock.calls.map((c) => String(c[0]))
-    .filter((m) => m.includes("history-cursor-parity"));
-
-/**
- * Fire the production undo/redo command and wait for the probe read it triggers.
- * `commands.undo`/`redo` are `() => execute("edit.undo")` - they return void and
- * `restoreHistorySnapshot` runs fire-and-forget, so completion is observed, not
- * awaited. The cursor read is the last thing each production path does, so its
- * arrival marks the step as done.
- */
-async function driveStep(run: () => void): Promise<void> {
-  const before = timesInvoked("rust_pixels_history_tip");
-  run();
-  await waitFor(() => timesInvoked("rust_pixels_history_tip") > before);
-  await settle();
 }
 
 describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
@@ -776,43 +677,107 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     });
   });
 
-  it("bridge tile-wire mismatch: a TS-owned tile commit records NOTHING in Rust, so its pop must not step", async () => {
-    // The bridge's tile arm is `apply_tile_patch`, and the host sends
-    // `TileUploadLike` = {x, y, width, height, data} while the command
-    // deserializes `TilePatchWire` = {x, y, w, h, data} with no serde alias. The
-    // real command rejects it ("missing field `w`", pinned in Rust by
-    // `host_tile_shape_is_rejected_at_the_wire_and_records_nothing`), so this
-    // commit mints no Pixel entry.
+  it("bridge ON, a TS-OWNED tile commit records through apply_tile_patch, so its pop steps exactly once", async () => {
+    // The bridge's tile arm is `apply_tile_patch`. The host sends `TileUploadLike`
+    // = {x, y, width, height, data} and the command's `TilePatchWire` ALIASES
+    // `width`/`height` onto its `w`/`h`, so the memento really does mint a Pixel
+    // entry (pinned in Rust by
+    // `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`).
+    // The emulator above accepts the same shape, so this case measures the real
+    // contract and not a convenient stub.
     //
-    // If the pop stepped anyway it would consume the NEAREST entry Rust does hold
-    // - another step's - which is the wrong-entry class of bug the cursor
-    // accounting exists to prevent. The emulator above rejects the same shape, so
-    // this case is measuring the real contract and not a convenient stub.
+    // Before the alias the pop had no counterpart and stepped nothing. Re-arming
+    // the arm is only sound if it still cannot step TWICE, so the invoke count per
+    // direction is asserted, not just the cursor position.
     gateOn(true);
     const { history, commands, ctx } = mountCommands();
 
     history.commit(createMockModel("Meta"), "Add Layer");
     history.commit(createMockModel("Text"), "Text", makePatches(), false);
-    await waitForRust("doc-1", 1);
-    expect(streamFor("doc-1").entries, "only the metadata step reached Rust").toEqual(["external"]);
-    expect(cursorStepInvokes(), "the rejected record fired nothing itself").toBe(0);
+    await waitForRust("doc-1", 2);
+    expect(
+      streamFor("doc-1").entries,
+      "the bridge's tile arm really recorded a Pixel entry",
+    ).toEqual(["external", "pixel"]);
+    expect(timesInvoked("apply_tile_patch"), "the host-shape memento reached the command").toBe(1);
 
-    // Undo the TS-owned tile entry: no Rust entry exists for it, so no step.
+    // Undo the TS-owned tile entry: Rust holds its Pixel entry, so the pop consumes
+    // exactly that one. ONE invoke for the press - the tile branch only AWAITS the
+    // step the pop fired (rustTileProjection), it never issues a second.
     await driveStep(commands.undo);
-    expect(cursorStepInvokes(), "no step for a step Rust never recorded").toBe(0);
-    expect(streamFor("doc-1").cursor, "the Rust cursor stayed put").toBe(1);
+    expect(cursorStepInvokes(), "the tile pop steps the cursor").toBe(1);
+    expect(timesInvoked("rust_pixels_undo"), "one press, one step - no double step").toBe(1);
+    expect(streamFor("doc-1").cursor).toBe(1);
+    expect(await verdictFor("doc-1", history), "2 TS entries, 2 Rust entries").toBe("in-sync");
+    expect(parityWarns(), "a cursor that tracks the host depth is not a divergence").toEqual([]);
+
+    // The entry is not rustOwned, so its own memento still reaches the surface:
+    // the tile fetch is not armed for it, and that is unchanged by the step.
     const uploads = (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } })
       .mock.calls;
     expect(
       (uploads[0]?.[3] as { x: number }[]).map((t) => t.x),
-      "the entry's own memento replayed, unclaimed by Rust",
+      "the entry's own memento replayed",
     ).toEqual([0]);
 
     // And the metadata entry beneath it still steps, so the cursor tracks the
-    // steps Rust actually holds: 2 TS entries, 1 Rust entry, cursor 1 -> 0.
+    // steps Rust actually holds: 2 TS entries, 2 Rust entries, cursor 2 -> 0.
     await driveStep(commands.undo);
-    expect(cursorStepInvokes(), "the metadata pop steps").toBe(1);
+    expect(cursorStepInvokes(), "the metadata pop steps too").toBe(2);
     expect(streamFor("doc-1").cursor).toBe(0);
+    expect(await verdictFor("doc-1", history)).toBe("in-sync");
+
+    // The step the tile pop left unconsumed (no Rust fetch armed for it) must not
+    // surface on a later pop: the next pop drops the stale handle, so redo issues
+    // exactly one redo step and never an undo.
+    await driveStep(commands.redo);
+    expect(timesInvoked("rust_pixels_redo"), "one redo step").toBe(1);
+    expect(
+      timesInvoked("rust_pixels_undo"),
+      "the unconsumed step is not re-issued - still the two undos above",
+    ).toBe(2);
+    expect(streamFor("doc-1").cursor).toBe(1);
+  });
+
+  it("bridge ON, a TS-OWNED tile pop: the parity probe reads AFTER the step's cursor move lands", async () => {
+    // The tile branch's fetch gate is `rustOwned || photrez.rustPixels`, and a
+    // bridge-ON TS-owned tile pop leaves it CLOSED - so `projectRustTiles` returns
+    // early and never claims the step, while the pop still fired one. The probe
+    // fires immediately afterwards over the same registry mutex, so unless the
+    // branch SEQUENCES the read behind that step it reads a cursor that has not
+    // moved yet: `undo_depth` one too high against a host depth that already fell.
+    //
+    // What is asserted is the CURSOR THE READ MEETS, sampled at the moment the
+    // probe's invoke is issued. Invoke ORDER cannot express this - the pop fires
+    // the step synchronously, so the step's invoke is always issued first whether
+    // or not the branch awaits it - and neither can the verdict: the emulator
+    // answers equally-delayed calls in order, so an unsequenced read still happens
+    // to land after the move (see the ORDERING note in rustStreamEmulator.ts).
+    // The sampling is the invariant, and it is what makes this case RED without the
+    // `lastCursorStepSettled()` await.
+    gateOn(true);
+    const { history, commands } = mountCommands();
+    history.commit(createMockModel("Meta"), "Add Layer");
+    history.commit(createMockModel("Text"), "Text", makePatches(), false);
+    await waitForRust("doc-1", 2);
+    expect(streamFor("doc-1").cursor, "both cursors start at the end").toBe(2);
+
+    const cursorAtRead: number[] = [];
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args: unknown) => {
+      if (cmd === "rust_pixels_history_tip") cursorAtRead.push(streamFor("doc-1").cursor);
+      return answerInvoke(cmd, args);
+    });
+
+    await driveStep(commands.undo);
+
+    expect(timesInvoked("rust_pixels_undo"), "the tile pop fired a step").toBe(1);
+    expect(cursorAtRead.length, "the tile branch did read the cursor").toBe(1);
+    expect(
+      cursorAtRead[0],
+      "the read met the POST-step cursor, so undo_depth can match the host depth",
+    ).toBe(1);
+    expect(parityWarns(), "a cursor that tracks the host depth is not a divergence").toEqual([]);
+    expect(await verdictFor("doc-1", history), "2 TS entries, 2 Rust entries").toBe("in-sync");
   });
 
   it("the Rust tip kinds are reported per direction and flip when the cursor moves", async () => {

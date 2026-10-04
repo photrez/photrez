@@ -17,12 +17,16 @@
  *      in `rustPixelPathOwnership.test.tsx`);
  *   3. TRANSITIONAL `photrez.rustPixels`, for a tile entry Rust does not own.
  *
+ * The bridge ALSO records a TS-OWNED tile entry, through `apply_tile_patch`:
+ * `TilePatchWire` aliases the host's `width`/`height` onto `w`/`h` (pinned in Rust
+ * by `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`), so
+ * such a pop steps too - which is why scenario 2 below asserts ONE step, not zero.
+ *
  * Scenarios here:
  *   - default production (no flag, no gate, not Tauri) → NEVER called;
  *   - bridge ON + Tauri, METADATA entry → called once per direction;
- *   - bridge ON, TS-OWNED tile entry → NOT called, because the bridge's tile arm
- *     (`apply_tile_patch`) is rejected by the real command, so it recorded
- *     nothing to step;
+ *   - bridge ON, TS-OWNED tile entry → called once per direction (the bridge
+ *     recorded it);
  *   - TRANSITIONAL flag ON, tile entry → called once (the flag's last behaviour).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -217,14 +221,15 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     expect(invoke).toHaveBeenCalledWith("rust_pixels_redo", { docId: "doc-1", layerId: "" });
   });
 
-  it("bridge gate ON, TS-OWNED tile entry: NO invoke, because the bridge never recorded it", async () => {
+  it("bridge gate ON, TS-OWNED tile entry: ONE invoke per direction, because the bridge recorded it", async () => {
     // The bridge's tile arm is `apply_tile_patch`, and the host sends
-    // `TileUploadLike` {x, y, width, height, data} while the command deserializes
-    // `TilePatchWire` {x, y, w, h, data} with no serde alias - serde rejects it
-    // ("missing field `w`", pinned in Rust by
-    // `host_tile_shape_is_rejected_at_the_wire_and_records_nothing`). No Pixel
-    // entry exists, so the pop has nothing to consume and must not step: a step
-    // here would eat the nearest entry Rust does hold.
+    // `TileUploadLike` {x, y, width, height, data} while the command declares
+    // `TilePatchWire` {x, y, w, h, data} with `width`/`height` ALIASED onto the
+    // dimensions - so serde accepts the memento and Rust holds a matching Pixel
+    // entry (pinned in Rust by
+    // `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`).
+    // Exactly ONE step per press: the pop owns it and the tile branch only awaits
+    // the step the pop fired.
     localStorage.setItem(GATE_KEY, "1");
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     mockUseEditor(makeEditorContext(makePatches(), makeEngine()));
@@ -239,7 +244,20 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     const undoRedoCalls = (vi.mocked(invoke).mock.calls as [string][]).filter(
       ([cmd]) => cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo",
     );
-    expect(undoRedoCalls, "the rejected record means there is no entry to step").toEqual([]);
+    expect(undoRedoCalls.map(([cmd]) => cmd), "the tile pop consumes its own Pixel entry").toEqual([
+      "rust_pixels_undo",
+    ]);
+
+    vi.mocked(invoke).mockClear();
+    commands.redo();
+    await flush();
+    const redoCalls = (vi.mocked(invoke).mock.calls as [string][]).filter(
+      ([cmd]) => cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo",
+    );
+    expect(
+      redoCalls.map(([cmd]) => cmd),
+      "the redo steps its own Pixel entry back, and never the undo direction",
+    ).toEqual(["rust_pixels_redo"]);
   });
 
   // TRANSITIONAL (photrez.rustPixels gating; delete with the flag): pins flag-ON
