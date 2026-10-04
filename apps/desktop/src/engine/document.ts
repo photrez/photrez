@@ -309,6 +309,30 @@ export class DocumentEngine {
     return layers.some((l) => l.id === id);
   }
 
+  /**
+   * A transparent raster of the given size, for a layer the graph has just minted and
+   * the model has therefore never seen.
+   *
+   * `getContext("2d")` MUST precede `transferToImageBitmap()`: a real OffscreenCanvas
+   * throws `InvalidStateError` when it never had a context, so transferring first throws
+   * - in production as well as in the test shim. Same order the document factory uses
+   * (workspace.ts:307-314).
+   *
+   * Returns null when no raster can be made (no 2d context, or a non-positive size), so
+   * the caller degrades to the previous metadata-only layer rather than half-building one
+   * or throwing inside a projection.
+   */
+  private createTransparentLayerRaster(width: number, height: number): ImageBitmap | null {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+    try {
+      const canvas = new OffscreenCanvas(width, height);
+      if (!canvas.getContext("2d")) return null;
+      return canvas.transferToImageBitmap();
+    } catch {
+      return null;
+    }
+  }
+
   private syncLayersFromRust(): void {
     const prevById = new Map(this.model.layers.map(l => [l.id, l]));
     const facadeOn = isFacadeEnabled();
@@ -2256,15 +2280,37 @@ export class DocumentEngine {
           } as unknown as (typeof this.model.layers)[number];
           this.droppedNodes.delete(rl.id);
         } else {
+          // This branch serves TWO situations that must behave differently, so it splits
+          // on the fact already computed here: an id this model has never seen (the graph
+          // minted it) versus an id that was dropped and whose retained node was evicted
+          // or cleared.
+          const isTrueReappearance = this.everDroppedIds.has(rl.id);
+          if (isTrueReappearance)
           // Retention miss on a TRUE re-appearance (id was dropped but its entry
           // was evicted or cleared): the node is rebuilt metadata-only with no
           // pixel content. Loud by design - silent blanking of a restored layer
           // was the original defect this contract removed; if this warn ever
           // surfaces, the retention cap is too small for the workload.
-          if (this.everDroppedIds.has(rl.id))
           console.warn(
             `[facade-projection] layer ${rl.id} re-appeared with no retained node - pixels cannot be restored for it`,
           );
+          // A graph-minted layer has no pixels to restore, but it is also not a lost
+          // layer: a new layer IS a transparent raster of its own size. Without one,
+          // `getPaintSurface` returns null (:1447), the brush's tile path is skipped
+          // (useBrushOverlay.ts:1205-1221), and the stroke commits through the LEGACY
+          // TYPESCRIPT path with a `ts:` payloadRef and no row in the Rust pixel store.
+          //
+          // NOT done on the re-appearance path: there the pixels are genuinely gone, and
+          // a blank raster would convert a loud failure into silent data loss - the exact
+          // regression the warn above exists to prevent.
+          //
+          // The Rust store is deliberately NOT seeded here. `c4CoreCommit` already seeds
+          // it from the surface on the first paint (`rust_pixels_init`,
+          // useBrushOverlay.ts:217-220); seeding in both places would make two owners of
+          // one step.
+          const blankRaster = isTrueReappearance
+            ? null
+            : this.createTransparentLayerRaster(rl.width ?? this.model.width, rl.height ?? this.model.height);
           newLayer = {
             id: rl.id,
             name: rl.name,
@@ -2290,7 +2336,7 @@ export class DocumentEngine {
             // which is why this branch exists).
             width: rl.width ?? this.model.width,
             height: rl.height ?? this.model.height,
-            imageBitmap: null,
+            imageBitmap: blankRaster,
             baseImageBitmap: null,
             textureHandle: null,
           } as unknown as (typeof this.model.layers)[number];
