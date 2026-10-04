@@ -1248,3 +1248,9 @@ mod tests {
 #[cfg(test)]
 #[path = "protocol_native_engine_identity_tests.rs"]
 mod engine_identity_tests;
+
+// External (host-handoff) metadata undo through the real command layer. Kept in
+// a sibling file for the same reason as the engine-identity tests above.
+#[cfg(test)]
+#[path = "protocol_native_external_undo_wiring_tests.rs"]
+mod external_undo_wiring_tests;

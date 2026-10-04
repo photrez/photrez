@@ -253,8 +253,8 @@ pub fn rust_pixels_redo(
 /// `ProtocolEngine` cursor so mixed TS/Rust operations share one history position.
 /// Records an `External` entry (no pixel delta); advances the cursor + bumps
 /// `DocumentVersion` exactly once. Returns the new epoch/version for TS cache sync.
-/// The actual metadata revert on undo/redo stays TS-side; this entry only keeps
-/// the ordering unified with Rust pixel operations.
+/// Undo/redo runs through Rust's walker, which restores the captured order itself;
+/// the host cannot replay its own snapshot over facade-owned layers.
 #[tauri::command]
 pub fn rust_pixels_record_external(
     doc_id: String,

@@ -65,6 +65,13 @@ pub struct ProtocolEngine {
     // production stays byte-identical. `incomplete` flags engine-minted layers
     // whose canonical-only fields cannot be reconstructed until the next push.
     pub(crate) canonical: Option<CanonicalShadow>,
+    // How many External REDO steps handed the host its handoff with no layer
+    // restatement, because the entry's post-sync side was never captured and no
+    // other source holds it (see `restore_external_layers`). Counted rather than
+    // raised: an error here would strand the pending-external barrier mid-stream,
+    // and a `status` change would alter the wire shape the host routes on. Read
+    // it with `external_post_state_gaps`.
+    pub(crate) external_post_state_gaps: u64,
 }
 impl Default for ProtocolEngine {
     fn default() -> Self {
@@ -82,6 +89,7 @@ impl Default for ProtocolEngine {
             canonical: None,
             selection: None,
             doc_size: None,
+            external_post_state_gaps: 0,
         }
     }
 }
@@ -479,6 +487,20 @@ impl ProtocolEngine {
         self.entries.get(self.cursor - 1).map(|e| e.payload.kind())
     }
 
+    /// How many External redo steps have run with no layer restatement to give
+    /// the host, because the entry's post-sync side was never captured.
+    ///
+    /// Zero on every document whose External entries got their post-sync side
+    /// from a canonical push (the host's `recordExternalTransitionFor` pushes
+    /// one after the mutation it just committed), which is the shipping
+    /// sequence. A non-zero value means some entry's post-sync side is missing
+    /// and the engine has no other source for it - the redo moved the cursor and
+    /// handed the host its token, but restored no layer state, so the host's own
+    /// replay is the only thing that carried it. Monotonic per document.
+    pub fn external_post_state_gaps(&self) -> u64 {
+        self.external_post_state_gaps
+    }
+
     pub fn register_adapter(&mut self, adapter_id: &str) {
         if adapter_id != "native" && !self.adapters.iter().any(|a| a == adapter_id) {
             self.adapters.push(adapter_id.to_string());
@@ -680,6 +702,35 @@ impl ProtocolEngine {
     /// Returns an empty delta (handoff-only, no state change) when the post-sync
     /// side was never captured (a handoff that did not pass through a canonical
     /// push), so the host keeps the pre-existing handoff behavior.
+    ///
+    /// The EMPTY RETURN is direction-blind; the counting is not. Both are measured
+    /// rather than assumed.
+    ///
+    /// An UNDO does not need `after`: it passes the post-sync vector as
+    /// `other_side` with `other_side_proves_creation = false`, and that flag
+    /// makes the survivor test in `restore_with_foreign_excluding_minted`
+    /// unconditionally true, so `other_side` cannot reach the result
+    /// (`undo_path_ignores_the_post_sync_side` pins this across four different
+    /// `other_side` values). Yet across the four reachable shapes where an undo
+    /// still finds `after: None`, the before-only merge yields the CURRENT vector
+    /// unchanged - the same empty delta this gate returns - and leaves the layer
+    /// vector where the gate leaves it (`differential_*` in
+    /// document_core_external_post_state_tests.rs runs both answers side by side).
+    /// The reason is `seed_canonical`: it fills the newest entry's `after` on
+    /// every push that lands while that entry is the tip, which is exactly when a
+    /// push can carry that entry's post-state. An External entry that still has
+    /// `after: None` at its own undo is therefore one whose layer vector the
+    /// engine never saw change across it, so ungating the undo would buy nothing
+    /// observable. The gate stays.
+    ///
+    /// A REDO is the direction that genuinely needs `after`, because `after` IS
+    /// the state it re-establishes and nothing else holds it. With no captured
+    /// post-sync side there is no target to restore, so the step runs its host
+    /// handoff with no layer restatement and COUNTS itself (see
+    /// `external_post_state_gaps`) rather than answering with an empty delta
+    /// indistinguishable from "this step changed no layer order". An undo in the
+    /// same state is NOT counted: it had a complete target (`before`) and simply
+    /// found that restoring it changes nothing.
     fn restore_external_layers(
         &mut self,
         idx: usize,
@@ -698,7 +749,16 @@ impl ProtocolEngine {
         };
         let after = match after {
             Some(a) => a,
-            None => return (seq, Vec::new()),
+            None => {
+                if direction != "undo" {
+                    // No redo target and no other source for one. The step still
+                    // runs its host handoff (the cursor moves on the host's
+                    // confirm), so the host keeps its replay; the gap is counted
+                    // instead of being reported as "nothing to restore".
+                    self.external_post_state_gaps += 1;
+                }
+                return (seq, Vec::new());
+            }
         };
         let (captured, other_side, other_side_proves_creation) = if direction == "undo" {
             // The post-sync side is a whole-document observation, not this
@@ -926,3 +986,7 @@ mod canvas_tests;
 #[cfg(test)]
 #[path = "document_core_fuzz_tests.rs"]
 mod fuzz_tests;
+
+#[cfg(test)]
+#[path = "document_core_external_post_state_tests.rs"]
+mod external_post_state_tests;
