@@ -152,12 +152,24 @@ export async function saveProjectBinary(
 
 // ─── Streaming Project Save ───
 
-/** Begin a streaming project save — creates temp file, writes document.json, returns handle_id. */
+/**
+ * Begin a streaming project save — creates the temp file, serializes
+ * `document` into `document.json`, and returns the handle_id.
+ *
+ * `document` is the canonical document as a VALUE, not a pre-serialized string:
+ * the Rust core owns the `.ptz` `document.json` bytes.
+ *
+ * ASYMMETRY: Rust owns the WRITE, TypeScript owns the READ (see
+ * `loadProjectFile` in editorOpenImage.ts, which is `JSON.parse` plus
+ * `restoreSnapshot`). There is no Rust read path for `document.json`, so
+ * nothing enforces that the writer and the reader agree on the shape -- only
+ * the tests in `ptzWriterGolden.test.ts` and the Rust round-trip tests do.
+ */
 export async function saveProjectStreamingBegin(
   path: string,
-  documentJson: string,
+  document: unknown,
 ): Promise<string> {
-  const result = await invokeApi<{ handle_id: string }>("save_project_streaming_begin", { path, documentJson });
+  const result = await invokeApi<{ handle_id: string }>("save_project_streaming_begin", { path, document });
   return result.data.handle_id;
 }
 

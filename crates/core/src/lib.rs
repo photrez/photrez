@@ -4,8 +4,18 @@ pub mod export;
 pub mod kernel;
 // Rust/WASM owns a WebGPU compute pipeline inside the webview.
 pub mod brush_engine;
-// Typed canonical document model (additive, not yet wired into runtime).
+// Typed canonical document model. On the save path via `ptz_document`, which
+// wraps these types in the on-disk `.ptz` `document.json` payload.
 pub mod canonical_model;
+// The nested per-layer payloads of that model (adjustment / shape / text).
+pub mod canonical_layer_params;
+// The `.ptz` `document.json` payload Rust writes on save (the production save path).
+pub mod ptz_document;
+// Real `.ptz` `document.json` fixtures, shared by the core writer tests and the
+// desktop command tests so the two round-trip proofs cannot drift apart.
+// Test-only: compiled out of the shipped library unless the feature is on.
+#[cfg(any(test, feature = "ptz-test-fixtures"))]
+pub mod ptz_fixtures;
 // RenderLayer <-> CanonicalLayer value bridge + seed-payload validation (additive, unwired).
 pub mod canonical_bridge;
 pub mod canonical_tip;
@@ -43,5 +53,9 @@ pub mod webgpu_adjust;
 mod canonical_shadow_tests;
 #[cfg(test)]
 mod parity_oracle;
+#[cfg(test)]
+mod ptz_save_perf;
+#[cfg(test)]
+mod ptz_writer_golden;
 pub(crate) mod state_node;
 pub(crate) mod tile_store;

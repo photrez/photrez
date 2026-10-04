@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// ADDITIVE, UNWIRED module: the typed canonical Rust document
-// model. This is the keystone type that later phases (native .ptz persistence,
-// command arms) build on. Nothing in production consumes it yet; document_core,
-// document, bridge, and all existing wire paths are byte-identical by construction.
+// The typed canonical Rust document model: layers, transforms, text, shape
+// params, and adjustments.
+//
+// CONSUMED BY PRODUCTION through `ptz_document.rs`, which wraps these types in
+// the on-disk `.ptz` `document.json` payload. So the document CONTENT is on
+// the save path, while the transport/session envelope (header, viewport,
+// active layer, per-layer bitmap keys) lives in `ptz_document.rs` — those are
+// editor state, which the content model deliberately excludes.
+//
+// The v4 writer `to_ptz_document_json` below is fenced to `#[cfg(test)]`: the
+// production writer is `PtzDocument::to_json`. See the note on that function.
 //
 // Every field/enum is mirrored from the ACTUAL TypeScript source of truth:
 //   - apps/desktop/src/engine/types.ts        (LayerNode, Transform2D, BlendMode,
@@ -22,14 +29,26 @@
 //     references (ImageBitmap | null). Pixels are NEVER stored in the model.
 //     Replaced by `resource_id: Option<ResourceId>` (a token handle mirroring
 //     RenderLayer.resource_id in model.rs:23).
-//   - DocumentModel.activeLayerId (types.ts:136): UI/session state, not content.
-//   - DocumentModel.viewport (types.ts:138): UI/session state, not content.
-//     These are editor view state, excluded from the persisted canonical model.
-//   - DocumentModel.dirty (types.ts:140): save-state flag (transport concern),
-//     not part of the document's persisted content.
+//   - DocumentModel.activeLayerId (types.ts:136): editor session state, not
+//     document CONTENT. It IS persisted -- `PtzDocument` in `ptz_document.rs`
+//     carries it on the file envelope, and the loader restores it.
+//   - DocumentModel.viewport (types.ts:138): same split. Persisted on the
+//     envelope, not on the content model.
+//   - DocumentModel.dirty (types.ts:140): save-state flag, likewise persisted on
+//     the envelope and cleared by the loader after restore.
+// So these three are excluded from the CONTENT model and included in the FILE —
+// which is why the exclusion list and the `.ptz` payload are not the same set.
 
 use crate::command::ResourceId;
 use serde::{Deserialize, Serialize};
+
+// The nested per-layer payloads (basic adjustment, shape params, text data) and
+// the unions they use live in `canonical_layer_params`, re-exported here so the
+// canonical model's imports stay in one place.
+pub use crate::canonical_layer_params::{
+    BasicAdjustment, ShapeFill, ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextAlign,
+    TextBoxMode, TextData, TextFontStyle, TextStroke, TextStrokeAlign,
+};
 
 // --- Small string unions (mirrored from types.ts / textTypes.ts) ---
 
@@ -66,66 +85,6 @@ pub enum BlendMode {
     Exclusion,
 }
 
-/// types.ts:38-48 - the shape `kind` union (10 values).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ShapeKind {
-    Rect,
-    Ellipse,
-    Line,
-    Triangle,
-    Star,
-    #[serde(rename = "block-arrow")]
-    BlockArrow,
-    Heart,
-    Diamond,
-    #[serde(rename = "speech-bubble")]
-    SpeechBubble,
-    Hexagon,
-}
-
-/// types.ts:57 - ShapeFill.kind union ("none" | "solid").
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ShapeFillKind {
-    None,
-    Solid,
-}
-
-/// textTypes.ts:18 - TextData.fontStyle union.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TextFontStyle {
-    Normal,
-    Italic,
-}
-
-/// textTypes.ts:20 - TextData.align union.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TextAlign {
-    Left,
-    Center,
-    Right,
-}
-
-/// textTypes.ts:23 - TextData.boxMode union.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TextBoxMode {
-    Point,
-    Area,
-}
-
-/// textTypes.ts:5 - TextStroke.align union.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TextStrokeAlign {
-    Outside,
-    Center,
-    Inside,
-}
-
 /// types.ts:116 - SelectionState.shape union.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -133,8 +92,6 @@ pub enum SelectionShape {
     Rect,
     Ellipse,
 }
-
-// --- Structs mirroring the TS objects ---
 
 /// types.ts:27-35 - Transform2D (includes flipH / flipV).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,76 +104,6 @@ pub struct Transform2D {
     pub rotation: f64,
     pub flip_h: bool,
     pub flip_v: bool,
-}
-
-/// layerAdjustments.ts:7-11 - BasicAdjustment (brightness / contrast / saturation).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BasicAdjustment {
-    pub brightness: f64,
-    pub contrast: f64,
-    pub saturation: f64,
-}
-
-/// types.ts:50-54 - ShapeStroke.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShapeStroke {
-    pub enabled: bool,
-    pub color: String,
-    pub width: f64,
-}
-
-/// types.ts:56-59 - ShapeFill.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShapeFill {
-    pub kind: ShapeFillKind,
-    pub color: String,
-}
-
-/// types.ts:61-69 - ShapeParams.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShapeParams {
-    pub kind: ShapeKind,
-    pub width: f64,
-    pub height: f64,
-    pub radius: f64,
-    pub fill: ShapeFill,
-    pub stroke: ShapeStroke,
-    pub arrow_head: bool,
-}
-
-/// textTypes.ts:7-11 - TextStroke (outline; width 0 = none).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TextStroke {
-    pub width: f64,
-    pub color: String,
-    pub align: Option<TextStrokeAlign>,
-}
-
-/// textTypes.ts:13-30 - TextData (all fields, incl. nested stroke).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TextData {
-    pub content: String,
-    pub font_family: String,
-    pub font_size: f64,
-    pub font_weight: f64,
-    pub font_style: TextFontStyle,
-    pub color: String,
-    pub align: TextAlign,
-    pub line_height: f64,
-    pub letter_spacing: f64,
-    pub box_mode: TextBoxMode,
-    pub box_width: f64,
-    pub box_height: f64,
-    pub stroke: TextStroke,
-    pub underline: Option<bool>,
-    pub strikethrough: Option<bool>,
-    pub uppercase: Option<bool>,
 }
 
 /// types.ts:109-119 - SelectionState.
@@ -301,20 +188,24 @@ impl CanonicalDocument {
         serde_json::from_str(json).map_err(|e| e.to_string())
     }
 
-    /// Serialize the canonical document to a `.ptz` v4 `document.json` payload.
+    /// Serialize the canonical document to a v4 `.ptz` `document.json` payload.
     ///
-    /// Emits the v3 header keys (`format: "photrez-ptz"`, `version` bumped to 4)
-    /// plus the canonical content (`id`/`name`/`width`/`height`/`layers`/
-    /// `selection`) in the same camelCase shape the reader (`from_ptz_document_json`)
-    /// consumes, so the round-trip is lossless and the v3 reader stays compatible.
+    /// NOT THE PRODUCTION WRITER. The production writer is `PtzDocument::to_json`
+    /// in `ptz_document.rs`. This one is fenced to `#[cfg(test)]` on purpose: it
+    /// emits `version: 4`, and the loader in `editorOpenImage.ts` shows a
+    /// "saved by a newer Photrez version" toast for any `version > 3`. It also
+    /// cannot carry `viewport` or `activeLayerId`, which `CanonicalDocument`
+    /// deliberately excludes as editor state, so a file written by it would
+    /// silently reset the viewport and active layer on open. Wiring this into a
+    /// save path would ship both. Kept compiling under test only so the shape it
+    /// describes stays exercised; see the pending-deletion note in
+    /// `ptz_document.rs`.
     ///
     /// RESOURCE HANDLE STRIPPING: a `ResourceId` is a session-scoped token handle.
     /// Persisting it would be a lie the next session cannot honor (the handle is
     /// minted fresh per session), so every layer's `resource_id` is normalized to
-    /// `None` before serialization. The model field keeps its plain
-    /// `Option<ResourceId>` (no `skip_serializing_if`): the read-back contract for
-    /// `resource_id` must stay stable - it deserializes to `None` either way, and
-    /// the explicit `null` keeps the key present and unambiguous on disk.
+    /// `None` before serialization.
+    #[cfg(test)]
     pub fn to_ptz_document_json(&self) -> Result<String, String> {
         let mut normalized = self.clone();
         for layer in normalized.layers.iter_mut() {
@@ -682,10 +573,9 @@ mod tests {
 #[cfg(test)]
 mod ptz_reader_tests {
     use super::*;
-
-    /// Exact byte-for-byte dump of a real `document.json` (photrez-ptz v3) saved
-    /// by the running app. Used to prove the canonical blueprint fits real data.
-    const REAL_DUMPED_MODEL: &str = r#"{"id":"dump-1788754352188","name":"Dump","width":300,"height":200,"activeLayerId":"layer-ryyklho2","selection":{"x":10,"y":10,"width":50,"height":40,"angle":0,"shape":"rect","inverted":null},"viewport":{"panX":40,"panY":63.599995930989564,"zoom":2.6840000406901043,"rotation":0},"dirty":true,"layers":[{"id":"layer-ryyklho2","name":"Painted","type":"raster","visible":true,"opacity":0.75,"locked":true,"lockTransparency":true,"hasAdjustments":false,"baseImageBitmap":null,"blendMode":"multiply","transform":{"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0,"flipH":false,"flipV":false},"width":300,"height":200,"imageBitmap":null},{"id":"layer-jhgyjahw","name":"Background","type":"raster","visible":true,"opacity":1,"locked":false,"isBackground":true,"lockPosition":true,"lockRotation":true,"hasAdjustments":false,"baseImageBitmap":null,"blendMode":"normal","transform":{"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0,"flipH":false,"flipV":false},"width":300,"height":200,"imageBitmap":null}],"format":"photrez-ptz","version":3}"#;
+    // Shared with `ptz_document.rs` and the desktop command tests via
+    // `crate::ptz_fixtures`, so there is ONE definition of this dump.
+    use crate::ptz_fixtures::REAL_DUMPED_MODEL;
 
     #[test]
     fn parses_real_dumped_model() {
@@ -881,9 +771,12 @@ mod write_tests {
                     color: "#000000".to_string(),
                     align: None,
                 },
-                underline: None,
-                strikethrough: None,
-                uppercase: None,
+                // `Some(false)`, not `None`: reading normalises an absent OR an
+                // explicit `null` to `false`, matching `normalizeTextData` in
+                // textTypes.ts. A `None` here could not survive a round trip.
+                underline: Some(false),
+                strikethrough: Some(false),
+                uppercase: Some(false),
             }),
         }
     }

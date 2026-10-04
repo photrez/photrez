@@ -38,3 +38,8 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dev-dependencies]
 tauri = { version = "2.11.5", features = ["test"] }
+# Enables photrez-core's `.ptz` test fixtures for THIS crate's tests only, so
+# `save_stream.rs` round-trips against the same fixtures the core tests use.
+# Dev-dependency features do not leak into the app build (workspace resolver
+# "2"), so the fixture JSON stays out of the shipped binary.
+photrez-core = { path = "../../../crates/core", features = ["ptz-test-fixtures"] }

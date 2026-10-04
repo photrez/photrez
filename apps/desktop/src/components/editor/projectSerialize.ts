@@ -110,23 +110,30 @@ export async function serializeAndSaveProject(
     }
   }
 
-  // ── Serialize model JSON (before any IPC, fast local work) ──
-  const serializedModel = {
+  // ── Hand the document to Rust to serialize ──
+  // The `.ptz` `document.json` bytes are produced by the Rust core
+  // (`photrez_core::ptz_document::PtzDocument`), which owns the on-disk shape
+  // and validates it before writing. The host sends the document it already
+  // holds as a value; it does not build the save payload itself.
+  //
+  // `imageBitmap` / `baseImageBitmap` are stripped here because they hold live
+  // `ImageBitmap` objects, which are not JSON and cannot cross the IPC
+  // boundary. Rust writes both keys back as `null` (pixels live in the ZIP).
+  const documentPayload = {
     ...model,
-    format: "photrez-ptz",
-    version: 3,
     layers: model.layers.map((l) => ({
       ...l,
       imageBitmap: null,
+      baseImageBitmap: null,
     })),
   };
-  const documentJson = JSON.stringify(serializedModel);
 
-  // ── Begin streaming save (Rust: create temp file, write document.json) ──
-  // Must succeed before any layer writes — a failure here means the file path
-  // is invalid, disk full, or permissions error. AbortSignal checked inside
-  // saveProjectStreamingBegin via Tauri's built-in cancellation.
-  const handleId = await saveProjectStreamingBegin(path, documentJson);
+  // ── Begin streaming save (Rust: serialize document.json, write temp file) ──
+  // Must succeed before any layer writes — a failure here means the document
+  // does not match the format, the file path is invalid, the disk is full, or
+  // permissions are wrong. AbortSignal checked inside saveProjectStreamingBegin
+  // via Tauri's built-in cancellation.
+  const handleId = await saveProjectStreamingBegin(path, documentPayload);
 
   // ── Internal abort controller: stop encoding on write failure ──
   // `effectiveSignal` is always `abortController.signal` so BOTH an external
