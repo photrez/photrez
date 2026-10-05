@@ -231,14 +231,54 @@ export function stampVisibleLayers(
   engine.setLayerImageBitmap(newLayer.id, composite);
   renderer.uploadImage(newLayer.id, composite);
 
+  // Canonical seeding, as in flatten and the two merge ops. The composite is
+  // CPU-canvas pixels that reach Rust only through the model, so the store has no
+  // entry for this freshly minted layer. The history entry stays a plain
+  // structural commit: stamp ADDS a layer, so its undo is a layer-vector
+  // restore, and the `rustOwned` pattern the raster-only producers use is invalid
+  // here - see lib/paint/compositeCanonical.ts.
+  //
+  // KNOWN GAP, and weaker than the three siblings. `mergeActiveLayerDown` and
+  // `flattenAllLayers` mint the destination id themselves and declare it on the
+  // commit (the `mintedLayerIds` argument), because the engine's post-mutation
+  // layer vector is a whole-document push: without that declaration the
+  // destination is indistinguishable from a layer the host pushed outside this
+  // entry, and the External undo's survivor rule adopts it
+  // (`History::restore_with_foreign_excluding_minted`,
+  // crates/core/src/document_core.rs). This function cannot make the
+  // declaration: `DocumentEngine.addLayer(name, width, height)` mints its own id
+  // and takes no id argument, and the commit above has already run by the time
+  // the caller holds it. Closing that needs either an id parameter on `addLayer`
+  // or an after-the-fact `declareMintedLayerIds` seam on the engine, which does
+  // not exist - the name appears only in a comment in the facade registry. The
+  // seed below is unaffected by it; the survivor guarantee is.
+  void seedCompositeCanonicalPixels(engine, renderer, {
+    layerId: newLayer.id,
+    width: w,
+    height: h,
+  });
+
   return true;
 }
 
 /**
  * Fill the active layer with a solid color (Alt+Del / Ctrl+Del).
  * Replaces the entire layer content with an opaque `color` bitmap. Skips
- * locked layers and layers with no active id. Commits history BEFORE mutation
- * so the fill is undoable/redoable, then uploads the new bitmap to the renderer.
+ * locked layers, layers with no active id, and PARAMETRIC layers. Commits
+ * history BEFORE mutation so the fill is undoable/redoable, then uploads the new
+ * bitmap to the renderer.
+ *
+ * PARAMETRIC LAYERS ARE REFUSED, NOT FILLED. A shape or text layer's
+ * `shapeParams` / `textData` is its document state and `imageBitmap` is a cache
+ * re-derived from it on every edit, so a parametric layer is not a pixel owner
+ * and a fill cannot be absorbed into one: the next `updateShapeParams` /
+ * `updateTextData` re-derives the raster from the unchanged params and silently
+ * wipes the fill. That is the same desync the canvas pointer guard refuses
+ * (`useCanvasPointerTools.ts` "Parametric-layer pixel guard"), which offers
+ * "Convert to Pixels" because the conversion is a deliberate, confirmed
+ * type-flip. This keyboard path has no dialog to ask with, so it refuses -
+ * matching how a `locked` layer is refused here: return false, no mutation, no
+ * history entry, and the caller's existing "Could not fill layer" toast.
  *
  * Rust records the fill: it writes through `rust_pixels_write_region` (one
  * canonical `Pixel` history entry) and drives the derived TS PaintTileSurface +
@@ -258,6 +298,10 @@ export function fillActiveLayerWithColor(
 
   const layer = engine.getLayer(activeId);
   if (!layer || layer.locked) return false;
+  // See the header: a parametric layer cannot own pixels, so refuse before any
+  // seeding or write. Checked BEFORE `getPaintSurface`, which would otherwise
+  // materialise a raster on a layer that must not gain one.
+  if (engine.isShapeLayer(activeId) || engine.isTextLayer(activeId)) return false;
 
   // A solid fill is a uniform color — apply the layer adjustment to the color
   // directly (O(1)) instead of baking every pixel on the CPU. This matches the

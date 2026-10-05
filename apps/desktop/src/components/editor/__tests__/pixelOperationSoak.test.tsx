@@ -213,6 +213,14 @@ function makeFillFakes(size = 32) {
     clearBasicAdjustments: () => { basicAdj = null; layer.basicAdjustment = null; },
     getLayerImageBitmap: vi.fn(),
     setLayerImageBitmap: vi.fn(),
+    // The parametric refusal `fillActiveLayerWithColor` performs before it
+    // touches the store: a shape or text layer cannot own pixels, because its
+    // next param edit re-derives the raster and would erase the fill. This soak
+    // drives a plain RASTER layer, which is what Fill Layer is for, so both
+    // answers are false. The refusal itself is measured in
+    // layers/__tests__/parametricLayerPaintRefusal.wiring.test.ts.
+    isShapeLayer: () => false,
+    isTextLayer: () => false,
   };
   const renderer: any = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() };
   return { commit, engine, renderer };

@@ -168,6 +168,19 @@ export async function seedCompositeCanonicalPixels(
     engine.notifyVisualChange();
     return { status: "CONVERGED", epoch: res.epoch, version: res.version, projected };
   } catch (err) {
+    // A failed seed leaves the destination's composite in TypeScript alone: the
+    // layer is already on screen and already in the layer graph, so the gesture
+    // itself is not lost, but the store has no entry for it and the two owners no
+    // longer describe the same pixels. Every caller fires this with `void`, so
+    // without a report here the failure is completely silent - the user sees a
+    // working composite and no indication that it is a second pixel owner. Logged
+    // rather than toasted: the operation SUCCEEDED as far as the user is
+    // concerned, so a toast would be a lie about the result, and the merge arms
+    // are reached from a keyboard handler that must stay synchronous.
+    console.warn(
+      `[composite-seed] ${docId}/${layerId} ${width}x${height}: canonical seed FAILED, ` +
+        `so this composite exists only in TypeScript. reason=${String(err)}`,
+    );
     return { status: "FAILED", reason: String(err) };
   }
 }

@@ -292,6 +292,20 @@ export class SelectionOperations {
     if (!activeId) {
       throw new Error("no active layer");
     }
+    // PARAMETRIC LAYERS ARE REFUSED, NOT DELETED FROM. A shape or text layer's
+    // `shapeParams` / `textData` is its document state and `imageBitmap` is a
+    // cache re-derived from it on every edit, so a parametric layer is not a
+    // pixel owner and a byte-clear cannot be absorbed into one: the next
+    // `updateShapeParams` / `updateTextData` would re-derive the raster from the
+    // unchanged params and silently restore the pixels the user just deleted.
+    // This is the same desync the canvas pointer guard refuses for brush,
+    // eraser, bucket and gradient; the selection tool is simply not in that
+    // dispatcher's tool list, so it needs the check here. Refuse before any
+    // store seeding or write.
+    if (engine.isShapeLayer(activeId) || engine.isTextLayer(activeId)) {
+      showToast("Cannot delete pixels from a shape or text layer", "warn");
+      return;
+    }
     void SelectionOperations.recordSelectionClearRust(engine, history, renderer, "Delete Pixels", sel);
     engine.clearSelection();
     mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));

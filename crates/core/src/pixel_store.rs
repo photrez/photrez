@@ -953,4 +953,7 @@ pub fn registry() -> MutexGuard<'static, Option<PixelStoreRegistry>> {
 mod tests;
 
 #[cfg(test)]
+mod composite_destination_seed_tests;
+
+#[cfg(test)]
 mod pixel_store_composition_tests;

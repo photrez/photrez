@@ -59,6 +59,7 @@ import {
   mergeSelectedLayers,
   stampVisibleLayers,
 } from "@/components/editor/layers/layerOperations";
+import { CroppingCanvasStub as CroppingCanvas } from "@/lib/paint/__tests__/croppingCanvasStub";
 import {
   createRustStoreEmulator,
   installCreateImageBitmapMock,
@@ -87,202 +88,6 @@ let wasmModule: WasmModule | null = null;
 let store: RustStoreEmulator;
 
 /**
- * A canvas that honours the 9-argument `drawImage(src, sx, sy, sw, sh, dx, dy,
- * dw, dh)` form with nearest-neighbour sampling.
- *
- * WHY NOT THE SHARED STUB: `faithfulOffscreenCanvas` (and the inline stub in
- * cropStoreCurrency.test.ts) copy a source raster from its ORIGIN and require the
- * byte lengths to match, so neither can perform a crop - and a convergence test
- * over a crop that never crops compares two copies of the same wrong image. This
- * stub makes the cropped bytes real, which is the only way the post-crop
- * comparison carries information.
- */
-class CroppingCanvas {
-  width: number;
-  height: number;
-  private buffer: Uint8ClampedArray;
-  private contextObtained = false;
-
-  constructor(w: number, h: number) {
-    this.width = w;
-    this.height = h;
-    this.buffer = new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4);
-  }
-
-  getContext(type: string): CanvasRenderingContext2D {
-    if (type !== "2d") return null as unknown as CanvasRenderingContext2D;
-    this.contextObtained = true;
-    const self = this;
-    let fill = "#000000";
-    let alpha = 1;
-    const ctx = {
-      globalAlpha: 1,
-      globalCompositeOperation: "source-over",
-      imageSmoothingEnabled: true,
-      get fillStyle() { return fill; },
-      set fillStyle(v: string) { fill = v; },
-      save() {},
-      restore() {},
-      translate() {},
-      rotate() {},
-      scale() {},
-      beginPath() {},
-      closePath() {},
-      moveTo() {},
-      lineTo() {},
-      // `fill()` paints the whole surface, not the path. The parametric
-      // rasterizers (shape, text) build a path this stub does not track, and
-      // leaving `fill()` a no-op would hand them a fully TRANSPARENT raster -
-      // which then compares equal to any other empty raster, and a convergence
-      // verdict drawn from an empty buffer is exactly the false negative this
-      // file exists to prevent.
-      fill() { ctx.fillRect(0, 0, self.width, self.height); },
-      stroke() {},
-      rect() {},
-      clip() {},
-      setTransform() {},
-      font: "",
-      textBaseline: "alphabetic",
-      letterSpacing: "0px",
-      // Deterministic metrics: width from the string length and the font size, so
-      // a measured text box is stable across runs and the rasterized layer has
-      // real dimensions. Never zero, so the box cannot collapse to nothing.
-      measureText(text: string) {
-        const px = parseFloat(String(ctx.font).match(/(\d+(?:\.\d+)?)px/)?.[1] ?? "48");
-        const width = Math.max(1, text.length * px * 0.5);
-        return {
-          width,
-          actualBoundingBoxAscent: px * 0.8,
-          actualBoundingBoxDescent: px * 0.25,
-          fontBoundingBoxAscent: px * 0.8,
-          fontBoundingBoxDescent: px * 0.25,
-        };
-      },
-      fillText(text: string, x: number, y: number) {
-        const m = ctx.measureText(text);
-        ctx.fillRect(x, y, m.width, parseFloat(String(ctx.font).match(/(\d+(?:\.\d+)?)px/)?.[1] ?? "48"));
-      },
-      strokeText() {},
-      clearRect(x: number, y: number, w: number, h: number) {
-        for (let r = y; r < y + h; r++) {
-          for (let c = x; c < x + w; c++) self.setPx(c, r, 0, 0, 0, 0);
-        }
-      },
-      fillRect(x: number, y: number, w: number, h: number) {
-        const hex = fill.replace("#", "");
-        const r = parseInt(hex.slice(0, 2), 16) || 0;
-        const g = parseInt(hex.slice(2, 4), 16) || 0;
-        const b = parseInt(hex.slice(4, 6), 16) || 0;
-        for (let row = y; row < y + h; row++) {
-          for (let col = x; col < x + w; col++) self.setPx(col, row, r, g, b, Math.round(255 * alpha));
-        }
-      },
-      drawImage(src: any, ...rest: number[]) {
-        const sw = src.width as number;
-        const sh = src.height as number;
-        const srcData: ArrayLike<number> = typeof src.getImageData === "function"
-          ? src.getImageData().data
-          : (src.data as ArrayLike<number>);
-        // 3-arg form = whole image at native size; 9-arg form = a crop/scale.
-        const [sx, sy, cw, ch, dx, dy, dw, dh] = rest.length >= 6
-          ? rest
-          : [0, 0, sw, sh, 0, 0, sw, sh];
-        for (let row = 0; row < dh; row++) {
-          for (let col = 0; col < dw; col++) {
-            const srcX = sx + Math.floor((col * cw) / dw);
-            const srcY = sy + Math.floor((row * ch) / dh);
-            if (srcX < 0 || srcY < 0 || srcX >= sw || srcY >= sh) continue;
-            const si = (srcY * sw + srcX) * 4;
-            self.setPx(
-              dx + col,
-              dy + row,
-              srcData[si], srcData[si + 1], srcData[si + 2], srcData[si + 3],
-            );
-          }
-        }
-      },
-      getImageData(x = 0, y = 0, w = self.width, h = self.height) {
-        const out = new Uint8ClampedArray(w * h * 4);
-        for (let row = 0; row < h; row++) {
-          for (let col = 0; col < w; col++) {
-            const sx = x + col;
-            const sy = y + row;
-            if (sx < 0 || sy < 0 || sx >= self.width || sy >= self.height) continue;
-            const si = (sy * self.width + sx) * 4;
-            const di = (row * w + col) * 4;
-            out[di] = self.buffer[si];
-            out[di + 1] = self.buffer[si + 1];
-            out[di + 2] = self.buffer[si + 2];
-            out[di + 3] = self.buffer[si + 3];
-          }
-        }
-        return { data: out, width: w, height: h, colorSpace: "srgb" } as ImageData;
-      },
-      putImageData(img: any, dx = 0, dy = 0) {
-        for (let row = 0; row < img.height; row++) {
-          for (let col = 0; col < img.width; col++) {
-            const si = (row * img.width + col) * 4;
-            self.setPx(
-              dx + col,
-              dy + row,
-              img.data[si], img.data[si + 1], img.data[si + 2], img.data[si + 3],
-            );
-          }
-        }
-      },
-    };
-    return ctx as unknown as CanvasRenderingContext2D;
-  }
-
-  private setPx(x: number, y: number, r: number, g: number, b: number, a: number): void {
-    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return;
-    const i = (y * this.width + x) * 4;
-    this.buffer[i] = r;
-    this.buffer[i + 1] = g;
-    this.buffer[i + 2] = b;
-    this.buffer[i + 3] = a;
-  }
-
-  transferToImageBitmap(): ImageBitmap {
-    if (!this.contextObtained) {
-      const err = new Error("Cannot transfer an ImageBitmap from an OffscreenCanvas with no context");
-      err.name = "InvalidStateError";
-      throw err;
-    }
-    const buf = this.buffer;
-    const width = this.width;
-    const height = this.height;
-    return {
-      width,
-      height,
-      close: () => {},
-      getImageData: (x = 0, y = 0, w = width, h = height) => {
-        const out = new Uint8ClampedArray(w * h * 4);
-        for (let row = 0; row < h; row++) {
-          for (let col = 0; col < w; col++) {
-            const si = ((y + row) * width + (x + col)) * 4;
-            const di = (row * w + col) * 4;
-            out[di] = buf[si];
-            out[di + 1] = buf[si + 1];
-            out[di + 2] = buf[si + 2];
-            out[di + 3] = buf[si + 3];
-          }
-        }
-        return { data: out, width: w, height: h, colorSpace: "srgb" };
-      },
-    } as unknown as ImageBitmap;
-  }
-}
-
-/** An ImageBitmap carrying the given RGBA bytes, via the canvas under test. */
-function rasterBitmap(w: number, h: number, pixels: Uint8ClampedArray): ImageBitmap {
-  const canvas = new CroppingCanvas(w, h);
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage({ width: w, height: h, data: pixels } as never, 0, 0, w, h);
-  return canvas.transferToImageBitmap();
-}
-
-/**
  * The renderer surface the layer operations touch: `uploadImage`,
  * `uploadSurfaceTiles` and `destroyTexture`. GPU bookkeeping only - it cannot
  * affect either pixel owner, and stubbing it keeps the measurement about the two
@@ -297,9 +102,9 @@ function makeRenderer(): never {
 }
 
 /**
- * A real `CommandHistory`. These five ops all call `history.commit(...)`, and the
- * measurement must include that call - a stub that dropped it would measure a
- * different operation than production runs.
+ * A real `CommandHistory`. Every op measured below calls `history.commit(...)`,
+ * and the measurement must include that call - a stub that dropped it would
+ * measure a different operation than production runs.
  */
 function makeHistory(): never {
   return new CommandHistory(8) as never;
@@ -376,6 +181,16 @@ function firstDifference(a: Owner, b: Owner): number {
   const n = Math.min(a.bytes.length, b.bytes.length);
   for (let i = 0; i < n; i++) if (a.bytes[i] !== b.bytes[i]) return i;
   return a.bytes.length === b.bytes.length ? -1 : n;
+}
+
+/** An ImageBitmap carrying real, non-uniform RGBA bytes, via the crop-honest stub. */
+function rasterBitmap(w: number, h: number, pixels: Uint8ClampedArray): ImageBitmap {
+  const canvas = new CroppingCanvas(w, h);
+  const ctx = canvas.getContext("2d") as unknown as {
+    drawImage: (src: unknown, dx: number, dy: number, dw: number, dh: number) => void;
+  };
+  ctx.drawImage({ width: w, height: h, data: pixels }, 0, 0, w, h);
+  return canvas.transferToImageBitmap();
 }
 
 /**
@@ -659,9 +474,9 @@ describe("the two live pixel owners converge after every operation sequence", ()
   it("the MEASUREMENT oracle sees every verdict class, not just agreement", async () => {
     await seed();
 
-    // `measureConvergence` is what the five ops below are asserted through, so it
+    // `measureConvergence` is what the ops below are asserted through, so it
     // needs its own proof: a verdict function that could only ever return
-    // CONVERGES would make all five measurements report the same thing without
+    // CONVERGES would make every measurement report the same thing without
     // measuring anything. Each class is induced here.
     //
     // 1. CONVERGES.
@@ -749,20 +564,76 @@ describe("the two live pixel owners converge after every operation sequence", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MEASUREMENT: five pixel-producing operations that call NO pixel-store command.
+// MEASUREMENT: pixel-producing operations, each recorded as it exists today.
 //
-// A scoping review established that these five rasterise on a CPU OffscreenCanvas
-// and reach Rust only through the MODEL - never through `rust_pixels_write_region`,
-// `rust_pixels_init` or `rust_pixels_resize_layer`. Each case below drives the op
-// exactly as it exists today (no production change) and records the measured
-// verdict.
+// THREE CLASSES, AND THE VERDICT MEANS SOMETHING DIFFERENT FOR EACH.
+//
+//   DERIVED (shape, text) - PARAMETRIC layers. `shapeParams` / `textData` is the
+//   document state and `imageBitmap` is a cache re-derived from it on every edit
+//   (`updateShapeParams` / `updateTextData` in engine/document.ts). These emit NO
+//   pixel-store command at all, so the store has no entry: RUST-HAS-NO-ENTRY. That
+//   is the CORRECT and intended reading, not a gap - there is nothing accumulated
+//   to converge, because the raster is recomputable from the params.
+//
+//   COMPOSITE (merge down, merge selected, flatten, stamp visible) - produce a NEW
+//   layer whose pixels exist nowhere else, so the destination MUST be seeded or
+//   the composite lives in TypeScript alone: CONVERGES, plus exactly one canonical
+//   whole-layer write.
+//
+//   REJECTED (a paint op aimed at a parametric layer) - writes NOTHING, so it is
+//   not in either class above. This is the invariant that makes the DERIVED class
+//   safe, and it is enforced rather than assumed: the canvas pointer dispatcher
+//   refuses brush, eraser, bucket and gradient on a parametric layer behind a
+//   "Convert to Pixels" confirm, and two producers that sit outside that
+//   dispatcher now refuse too - `fillActiveLayerWithColor` (Alt+Delete /
+//   Ctrl+Delete) and `SelectionOperations.deleteSelection` (the selection tool's
+//   Delete key and the "Delete Selection Pixels" button). Both are measured in
+//   components/editor/layers/__tests__/parametricLayerPaintRefusal.wiring.test.ts.
+//
+// WHY THAT THIRD CLASS IS NOT OPTIONAL. "Nothing accumulates into a parametric
+// layer" is a statement about every path that COULD accumulate, not just about
+// the two the pointer dispatcher happens to cover. An unguarded writer would put
+// bytes in the canonical store, the next param edit would re-derive the raster
+// and discard them, and - because the write was canonical - the store and the
+// projection would then AGREE on the re-derived raster. No convergence check
+// would ever report the lost edit. The RUST-HAS-NO-ENTRY verdicts below are only
+// true because the refusal holds.
 //
 // The verdict is asserted as an EXACT string, so these are measurements, not
 // aspirations: if an op starts converging, or starts diverging, the case fails
 // and someone has to look at why rather than let the number drift.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("MEASURED: convergence for ops that write pixels without a pixel-store command", () => {
+describe("MEASURED: convergence for pixel-producing ops, derived and composite", () => {
+  /**
+   * THE SETTLE TRAP, closed by construction.
+   *
+   * Every armed producer in this file seeds through `void
+   * seedCompositeCanonicalPixels(...)`, whose first statement is a dynamic import:
+   * it lands on a MACROTASK. A case that measures without draining therefore
+   * samples the store one tick before the write and reports the pre-seed verdict
+   * - `RUST-HAS-NO-ENTRY` for a destination that is in fact seeded. That failure
+   * mode is silent and green, and it is exactly how the stamp-visible case read
+   * `RUST-HAS-NO-ENTRY` while the op was already seeded.
+   *
+   * A `beforeEach` drain does NOT prevent it: the omission happens AFTER the op
+   * runs, so the pre-drain has already been and gone by the time there is
+   * anything to settle. The only structural fix is to make the op and the drain
+   * inseparable, which is what this helper does - `run` is invoked and the
+   * microtask/timer queue is drained before `measureConvergence` is ever called,
+   * so a case physically cannot observe a store mid-flight. A new case in this
+   * describe must go through here rather than calling the op and the comparator
+   * separately.
+   */
+  async function measureAfterSettle(
+    run: () => void | Promise<void>,
+    layerId: string,
+  ): Promise<{ verdict: ConvergenceVerdict; detail: string }> {
+    await run();
+    await settlePixelOps();
+    return measureConvergence(engine, layerId);
+  }
+
   it("ADD SHAPE: renderShapeToBitmap replaces the layer raster with no store write", async () => {
     await seed();
     const shape = engine.addShapeLayer("Rect", {
@@ -788,11 +659,11 @@ describe("MEASURED: convergence for ops that write pixels without a pixel-store 
 
   // THE FALSIFIABILITY PROOF FOR THE MEASUREMENT ITSELF.
 //
-// The five verdicts below all read RUST-HAS-NO-ENTRY. That is only a
+// The four DERIVED verdicts below all read RUST-HAS-NO-ENTRY. That is only a
 // measurement if NO-ENTRY is caused by the missing store entry and not by a
 // comparator that reports NO-ENTRY for everything. So: seed the store for the
 // same shape layer, from the SAME bytes the projection holds, and the verdict
-// must move to CONVERGES. If it does not, the five measurements are an artefact
+// must move to CONVERGES. If it does not, the four measurements are an artefact
 // of the harness and must not be believed.
 //
 // This was run as the defeat for this task: with the seed added the verdict
@@ -905,7 +776,7 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     ).toEqual({ add: "RUST-HAS-NO-ENTRY", edit: "RUST-HAS-NO-ENTRY" });
   });
 
-  it("STAMP VISIBLE: compositeAllLayers into a new layer, no store write", async () => {
+  it("STAMP VISIBLE: compositeAllLayers into a new layer, seeded into the store", async () => {
     await seed();
     const stamp = engine.addLayer("Under");
     engine.setLayerImageBitmap(stamp.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
@@ -917,7 +788,9 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     expect(ok, "premise: stampVisibleLayers composited").toBe(true);
 
     const stamped = engine.getLayers().find((l) => l.name === "Stamp Visible")!;
-    const measured = await measureConvergence(engine, stamped.id);
+    // Through the settle helper, so the measurement can never sample the store
+    // before the seed's macrotask lands. See `measureAfterSettle`.
+    const measured = await measureAfterSettle(() => {}, stamped.id);
     expect(
       { width: stamped.width, height: stamped.height },
       "premise: the stamped layer is document-sized",
@@ -925,10 +798,107 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     expect(
       measured.verdict,
       `STAMP VISIBLE measured: ${measured.detail}`,
-    ).toBe("RUST-HAS-NO-ENTRY");
+    ).toBe("CONVERGES");
   });
 
-  it("MERGE DOWN: compositeTwoLayers into a new layer, no store write", async () => {
+  // THE COUNT, kept permanently beside the convergence verdict, for the reason
+  // recorded on the flatten case below: a seeded store alone satisfies "the two
+  // owners agree", so convergence would still pass with the canonical write
+  // removed. One stamp, one whole-layer write.
+  it("STAMP VISIBLE emits exactly one canonical write, carrying the composite's bytes", async () => {
+    await seed();
+    const stamp = engine.addLayer("Under");
+    engine.setLayerImageBitmap(stamp.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    store.calls.length = 0;
+
+    const ok = stampVisibleLayers(engine, makeHistory(), makeRenderer());
+    await settlePixelOps();
+    expect(ok, "premise: stampVisibleLayers composited").toBe(true);
+
+    const stamped = engine.getLayers().find((l) => l.name === "Stamp Visible")!;
+    const writes = store.calls.filter((c) => c.cmd === "rust_pixels_write_region");
+    expect(writes.length, "STAMP VISIBLE emits exactly one canonical write").toBe(1);
+
+    const arg = writes[0].args as { x: number; y: number; w: number; h: number; rgba: Uint8Array };
+    expect({ x: arg.x, y: arg.y, w: arg.w, h: arg.h }, "the write covers the whole layer").toEqual({
+      x: 0, y: 0, w: SIZE, h: SIZE,
+    });
+    expect(arg.rgba.length, "the payload is a full RGBA buffer").toBe(SIZE * SIZE * 4);
+    expect(
+      Array.from(arg.rgba).some((b) => b !== 0),
+      "the payload carries real composite bytes, not an empty buffer",
+    ).toBe(true);
+  });
+
+  // THE STRUCTURAL CONTRACT for stamp visible, mirroring the merge-down undo case
+  // below. Pixels alone would pass this op while the user's layer stack silently
+  // kept the stamped layer - which is invisible to any pixel check, because a
+  // leftover layer holding correct bytes is still correct.
+  //
+  // THE MINTED-ID CAVEAT, stated rather than glossed. `mergeActiveLayerDown` and
+  // `flattenAllLayers` mint the destination id THEMSELVES and declare it on the
+  // commit (the seventh argument, `mintedLayerIds`), because the engine's
+  // post-mutation layer vector is a whole-document push: without the declaration
+  // the destination is indistinguishable from a layer the host pushed outside
+  // that entry, and the External undo's survivor rule adopts it
+  // (`History::restore_with_foreign_excluding_minted`,
+  // crates/core/src/document_core.rs). `stampVisibleLayers` cannot make that
+  // declaration: `DocumentEngine.addLayer(name, width, height)` mints its own id
+  // internally and takes no id argument, so by the time the caller holds the id
+  // the commit has already run, and there is no
+  // `declareMintedLayerIds`-style seam for the after-the-fact case. So the
+  // guarantee here is WEAKER than its siblings': the layer vector is restored,
+  // but the destination's ADOPTION by the External undo is not pinned and is an
+  // open gap. This case measures what the legacy path actually does.
+  it("STAMP VISIBLE undo restores the layer vector and retires the seeded store row", async () => {
+    await seed();
+    const under = engine.addLayer("Under");
+    engine.setLayerImageBitmap(under.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
+    const sources = engine.getLayers().map((l) => l.name);
+    expect(sources, "premise: two layers before the stamp").toHaveLength(2);
+    // Captured BEFORE the stamp, so the restore below rolls back to a state the
+    // composite layer is genuinely absent from.
+    const preStamp = engine.snapshot();
+
+    const ok = stampVisibleLayers(engine, makeHistory(), makeRenderer());
+    await settlePixelOps();
+    expect(ok, "premise: stampVisibleLayers composited").toBe(true);
+
+    const stamped = engine.getLayers().find((l) => l.name === "Stamp Visible")!;
+    expect(
+      engine.getLayers().map((l) => l.name),
+      "premise: the stamp ADDED a layer and destroyed none - the composite is a new top layer",
+    ).toContain("Stamp Visible");
+
+    // The undo of a stamp is a STRUCTURAL restore, so the real path is `restore`
+    // with the pre-gesture snapshot - the same primitive the layer panel's Delete
+    // and the routed composite undos go through.
+    engine.restore(preStamp);
+    await settlePixelOps();
+
+    // THE STRUCTURAL HALF, which is what the siblings assert. The stamped layer
+    // is gone and every source survives, in ONE restore. A leftover layer holding
+    // correct bytes would satisfy every pixel assertion in this file, which is
+    // exactly why the layer vector is checked on its own.
+    expect(
+      engine.getLayers().map((l) => l.name).sort(),
+      "the restore removed the stamped layer and kept every source",
+    ).toEqual(sources.slice().sort());
+    expect(
+      engine.getLayers().some((l) => l.id === stamped.id),
+      "the stamped layer is really gone, not merely reordered",
+    ).toBe(false);
+
+    // THE STORE HALF. The seeded row is retired with the layer, which is exactly
+    // what the third seed step's `markCompositeStoreProjection` buys: without the
+    // marker the row would outlive its layer and keep serving a retired id.
+    expect(
+      (await readStoreVerdict(stamped.id)).verdict,
+      "the composite store row went with the layer, rather than outliving it and serving a retired id",
+    ).toBe("NO-ENTRY");
+  });
+
+  it("MERGE DOWN: compositeTwoLayers into a new layer, seeded into the store", async () => {
     await seed();
     const lower = engine.addLayer("Lower");
     engine.setLayerImageBitmap(lower.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
@@ -946,8 +916,7 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
 
     const merged = engine.getLayer(engine.getActiveLayerId() || "")!;
     expect(merged.name, "premise: the merged layer really is a new one").toContain("+");
-    await settlePixelOps();
-    const measured = await measureConvergence(engine, merged.id);
+    const measured = await measureAfterSettle(() => {}, merged.id);
     expect(
       measured.verdict,
       `MERGE DOWN measured: ${measured.detail}`,
@@ -991,7 +960,7 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
       .toBe(false);
   });
 
-  it("MERGE SELECTED: compositeAllLayers into a new layer, no store write", async () => {
+  it("MERGE SELECTED: compositeAllLayers into a new layer, seeded into the store", async () => {
     await seed();
     const second = engine.addLayer("Second");
     engine.setLayerImageBitmap(second.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
@@ -1001,8 +970,7 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
 
     const merged = engine.getLayer(engine.getActiveLayerId() || "")!;
     expect(merged.name, "premise: the merged layer really is a new one").toContain("+");
-    await settlePixelOps();
-    const measured = await measureConvergence(engine, merged.id);
+    const measured = await measureAfterSettle(() => {}, merged.id);
     expect(
       measured.verdict,
       `MERGE SELECTED measured: ${measured.detail}`,
@@ -1034,7 +1002,7 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     expect(engine.getLayer(second.id)?.imageBitmap).toBe(secondRaster);
   });
 
-  it("FLATTEN IMAGE: compositeAllLayers into a new Background, no store write", async () => {
+  it("FLATTEN IMAGE: compositeAllLayers into a new Background, seeded into the store", async () => {
     await seed();
     const second = engine.addLayer("Second");
     engine.setLayerImageBitmap(second.id, rasterBitmap(SIZE, SIZE, gradientRaster(SIZE, SIZE)));
@@ -1047,8 +1015,7 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
       engine.getLayers().length,
       "premise: flatten collapsed to one layer",
     ).toBe(1);
-    await settlePixelOps();
-    const measured = await measureConvergence(engine, flattened.id);
+    const measured = await measureAfterSettle(() => {}, flattened.id);
     expect(
       measured.verdict,
       `FLATTEN IMAGE measured: ${measured.detail}`,
@@ -1133,10 +1100,16 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     ).toBe(1);
   });
 
-  it("the five ops emit ZERO pixel-store commands, which is why Rust has no entry", async () => {
-    // THE CAUSE, not the symptom. If an op ever starts calling a store command,
-    // the NO-ENTRY verdicts above become stale, so this pins the census-visible
-    // fact directly: the ops write pixels and reach Rust only through the model.
+  it("the DERIVED ops emit ZERO pixel-store commands, which is why Rust has no entry", async () => {
+    // THE CAUSE, not the symptom. If a derived op ever starts calling a store
+    // command, its NO-ENTRY verdict becomes stale, so this pins the census-visible
+    // fact directly: shape and text write pixels and reach Rust only through the
+    // model, because their rasters are re-derivable from shapeParams / textData.
+    //
+    // Stamp visible is deliberately NOT in this list. It used to be, and that was
+    // the error this case now guards against: a composite destination's pixels are
+    // NOT re-derivable, so it emits a write and converges. See the STAMP VISIBLE
+    // cases above.
     await seed();
     store.calls.length = 0;
 

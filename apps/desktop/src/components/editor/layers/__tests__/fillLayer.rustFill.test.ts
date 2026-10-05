@@ -78,6 +78,7 @@ vi.mock("@/components/editor/Toast", async (importOriginal) => {
 function makeFakes(opts: {
   w?: number; h?: number; sel?: any; locked?: boolean; visible?: boolean;
   basicAdjustment?: any; surfaceNull?: boolean; noBitmap?: boolean;
+  layerType?: "raster" | "shape" | "text";
 } = {}) {
   const w = opts.w ?? 100, h = opts.h ?? 100;
   const surface = { context: { putImageData: vi.fn(), getImageData: vi.fn((_x: number, _y: number, ww: number, hh: number) => new FakeImageData(ww, hh)) }, pixelEpoch: 0, pixelVersion: 0 } as any;
@@ -86,6 +87,10 @@ function makeFakes(opts: {
   const uploadSurfaceTiles = vi.fn();
   const layer = {
     id: "L1", width: w, height: h, locked: opts.locked ?? false, visible: opts.visible ?? true, lockTransparency: false,
+    // "raster" by default; a case that wants the parametric refusal passes
+    // `layerType: "shape" | "text"`. See the `isShapeLayer` / `isTextLayer`
+    // fakes below.
+    type: opts.layerType ?? "raster",
     transform: { scaleX: 1, scaleY: 1, rotation: 0, flipH: false, flipV: false, x: 0, y: 0 },
     basicAdjustment: opts.basicAdjustment ?? null,
   };
@@ -106,6 +111,16 @@ function makeFakes(opts: {
     clearBasicAdjustments,
     getLayerImageBitmap: vi.fn(() => (hasBitmap ? ({ close: vi.fn() } as unknown as ImageBitmap) : null)),
     setLayerImageBitmap,
+    // The parametric refusal. `fillActiveLayerWithColor` asks the ENGINE whether
+    // the active layer is shape or text before it touches the store - a
+    // parametric layer cannot own pixels, because its next param edit re-derives
+    // the raster and would erase the fill (see the producer's header). These
+    // answer from the fixture's own `layerType`, so a case can opt into the
+    // refusal; the default is a plain raster layer, which is what Fill Layer is
+    // for. The refusal itself is measured in
+    // parametricLayerPaintRefusal.wiring.test.ts.
+    isShapeLayer: (id: string) => layer.id === id && layer.type === "shape",
+    isTextLayer: (id: string) => layer.id === id && layer.type === "text",
   };
   const renderer: any = { uploadImage: vi.fn(), uploadSurfaceTiles };
   return { w, h, surface, commit, history, uploadSurfaceTiles, engine, renderer, layer, surfaceNull: opts.surfaceNull };
