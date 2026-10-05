@@ -183,8 +183,22 @@ describe("useEditorCommands undo/redo cursor-sync gate — history bridge", () =
     vi.restoreAllMocks();
   });
 
-  it("default production: invoke is NEVER called with rust_pixels_undo/redo (bridge OFF)", async () => {
-    // Defaults: rustPixels absent, bridge gate absent, isTauriRuntime false.
+  it("no recorder armed: invoke is NEVER called with rust_pixels_undo/redo", async () => {
+    // The guarantee is "a pop with no Rust counterpart issues no step", so the
+    // facade mirror is opted OUT here - with it ON it IS a recorder, and at the
+    // shipping defaults (facade ON, bridge OFF) this pop legitimately steps the
+    // `External` entry the shim recorded for it. That case is pinned where the shim
+    // actually runs, in
+    // apps/desktop/src/engine/__tests__/historyCursorDriftClosure.wiring.test.ts
+    // ("MATRIX bridge OFF + facade ON"), which drives the real
+    // `installFacadeCommitShim`; this file never installs it, so with the facade
+    // opted out NOTHING records and the original assertion holds exactly.
+    //
+    // This case used to be named "default production" and enumerate its defaults as
+    // "rustPixels absent, bridge gate absent, isTauriRuntime false" - omitting
+    // `photrez.facade`, which reads `!== "0"` and is therefore ON unless opted out.
+    // That omission is why it read as a conflict rather than as a stale premise.
+    localStorage.setItem("photrez.facade", "0");
     mockUseEditor(makeEditorContext(makePatches(), makeEngine()));
 
     const commands = useEditorCommands(() => {});

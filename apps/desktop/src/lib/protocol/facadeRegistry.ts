@@ -1281,6 +1281,16 @@ export function installFacadeCommitShim(providers: {
     (originalCommit as unknown as (...callArgs: unknown[]) => void).apply(this, args);
     // Feature gate + zero-cost when OFF:
     if (!isFacadeEnabled()) return;
+    // ONE RECORDER PER HOST COMMIT. `commit` reports whether it already appended
+    // its own entry through the history bridge; when it did, this mirror would add
+    // a SECOND entry for the same host commit, and the single cursor step the pop
+    // issues cannot keep up with a stream that gains two entries per commit - the
+    // cursors then separate by one per undone step. So the bridge and the shim are
+    // mutually exclusive recorders, which is what makes "one host entry => exactly
+    // one cursor step" hold with both gates on.
+    if ((this as { committedRecordedInBridge?: boolean }).committedRecordedInBridge === true) {
+      return;
+    }
     // The pixel path (brush/fill/adjustment bake) commits with
     // alreadyRecordedInRust=true because Rust already owns that op's Pixel cursor
     // entry via rust_pixels_write_region. Mirroring it here too would put two
@@ -1323,6 +1333,16 @@ export function installFacadeCommitShim(providers: {
   // `before` state, and that is exactly what the External marker carries. The
   // commit wrapper does the same — it records the commit's pre-action argument,
   // not any derived post-state. Both mirrored payloads are the same undo point.
+  //
+  // WHO CONSUMES IT: NOT a host pop - `stepRustCursor` returns for a snapshot-typed
+  // entry before every arm, so no arm steps this. The consumer is the FACADE WALKER
+  // (`facade.undo()` + `confirmExternalCursor`). Without the mirror the WASM cursor
+  // never advanced for such a delete and the stranded TS undo-point made
+  // `engine.restore()` throw `E_FACADE_OWNED`; see snapshotHistoryMirror.wiring.test.ts.
+  //
+  // ONE RECORDER PER COMMIT: `recordSnapshotHistory` sets `lastCommitRecordedInBridge`
+  // as `commit` does, and the check below reads it, so the bridge's Snapshot entry and
+  // this External are mutually exclusive rather than both appended per host commit.
   proto.recordSnapshotHistory = function (this: unknown, ...args: unknown[]) {
     const [before, after, label] = args as [unknown, unknown, string | undefined];
     (originalSnapshot as unknown as (...callArgs: unknown[]) => void).apply(this, args);
@@ -1331,6 +1351,7 @@ export function installFacadeCommitShim(providers: {
     try {
       const engine = providers.getEngine();
       if (!engine) return;
+      if ((this as { committedRecordedInBridge?: boolean }).committedRecordedInBridge === true) return;
       // conservative superset — intentionally NOT filtered (H0); do not
       // "optimize" this into an empty set for deletes.
       const affected: string[] = [];

@@ -31,6 +31,30 @@ import { requireHistoryDepthNumbers } from "@/lib/protocol/pixelHistoryDepth";
  * host step", which is the configured design rather than a drift. Comparing depths
  * across that boundary would report the design back as a fault.
  *
+ * WHAT THIS PROBE CANNOT SEE - read this before trusting it. The gate above is
+ * `historyBridgeEnabled()`, and that is a LIMITATION, not a statement that the
+ * bridge-off world is healthy. The bridge flag is not the only writer to this
+ * stream: `installFacadeCommitShim` (lib/protocol/facadeRegistry.ts) mirrors every
+ * commit into an `External` entry under `isFacadeEnabled()`, which reads
+ * `photrez.facade !== "0"` and is therefore ON in the bridge-off world this probe
+ * declines to read. So at the two SHIPPING DEFAULTS the two sides disagree, and
+ * the disagreement is exactly the defect the bridge-off gate hides:
+ *
+ *   - a metadata commit appends an `External` entry that no pop will step, so the
+ *     Rust cursor is left pointing at it;
+ *   - the next `rustOwned` pop inherits that entry as its tip, and stepping there
+ *     consumes a host-handoff entry instead of the paint entry.
+ *
+ * So: this probe reporting nothing under the bridge flag means "not measured",
+ * and must NOT be read as "the cursors agree". The gate is left on
+ * `historyBridgeEnabled()` deliberately - re-gating it onto the facade flag would
+ * turn a diagnostic that is scoped to comparing two isomorphic views of ONE
+ * history into one comparing two things that were never one history, which is the
+ * comparison the paragraph above explains would report the design back as a
+ * fault. The defect itself is closed at its own site instead, by gating the step
+ * on the tip's payload kind (`RustCursorStepper.fireGatedOnPixelTip`). Widening
+ * this probe's gate is a separate, deliberate change and not a follow-on to that.
+ *
  * Under the bridge both stacks record every step and the comparison is real. It
  * WAS a drift source here: a metadata undo restored the host model without
  * stepping the Rust cursor at all (the cursor sync lived inside the tile branch

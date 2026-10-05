@@ -5,12 +5,44 @@
 // the step (caller must return); false when the caller should fall through to
 // the legacy TS history store.
 //
+// "false" DOES NOT MEAN THE CURSOR IS STILL WHERE IT WAS. The external-handoff arm
+// commits the cursor through `confirmExternalCursor` and can then fall through at
+// the empty-delta check below - a legacy `External` entry with no captured
+// after-state restores no layer changes, so the delta is empty and the branch
+// reports unhandled while the cursor has already moved. The caller pops in that
+// case, so it must ask `handoffMovedCursor()` and tell the history, or the pop's
+// cursor step becomes a SECOND undo for one press. Every path that returns true
+// here has already consumed the press and never pops, so it needs no note.
+//
 // See ADR 0008 H0. When photrez.facade is OFF this branch is never entered
 // (hasFacadeOwnedLayers() is false), so production byte-identical behavior is
 // preserved. The history_cursor_commit predicate it drives validates the
 // walker-recorded barrier (seq, direction) only - never index arithmetic -
 // which is what makes it correct on redo-truncated (non-dense) streams where
 // entries[i].seq != i+1.
+
+/**
+ * Did the most recent `runFacadeExternalHandoff` move the Rust cursor, whatever it
+ * returned? One-shot per call: the dispatch reads it immediately after the call and
+ * passes it to `CommandHistory.noteFacadeCursorMoved`.
+ *
+ * Module state rather than a return value because the boolean return is load-bearing
+ * for the caller's control flow (handled vs fall through) and widening it to a
+ * tri-state would touch every call site and every test that stubs this module.
+ *
+ * NOT reading it is safe, and that is why this works: `runFacadeExternalHandoff`
+ * clears the flag as its first statement, so a flag left set by a handled press is
+ * erased before the next press can reach the walker. Only a press whose own walker
+ * ran can read true.
+ */
+let cursorMovedByHandoff = false;
+
+/** Read and reset the one-shot flag. See the module header. */
+export function handoffMovedCursor(): boolean {
+  const moved = cursorMovedByHandoff;
+  cursorMovedByHandoff = false;
+  return moved;
+}
 
 import { getFacade, confirmExternalCursor, syncFacadeVersionFromPixel, getExternalRecordSnapshot, parkExternalReplaySnapshot } from "@/lib/protocol/facadeRegistry";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
@@ -177,6 +209,23 @@ export async function runFacadeExternalHandoff(
   editor: EditorContextValue,
   direction: "undo" | "redo",
 ): Promise<boolean> {
+  // THE INVARIANT: cleared here, at ENTRY, therefore only this press's walker can
+  // leave it true.
+  //
+  // `cursorMovedByHandoff` has exactly one writer, and it runs in the middle of this
+  // function. A reader can therefore only be misled if it runs BEFORE this clear. The
+  // reader is `handoffMovedCursor()`, called by `useEditorCommands` AFTER this function
+  // returns - but only on the fall-through path: a handled press returns early to the
+  // dispatcher, which returns without reading. So a handled press leaves the flag set,
+  // and the next press's read would take it as its own. Clearing at entry removes the
+  // possibility by construction: whatever the previous press did, this press starts at
+  // false, and only this press's own walker can raise it.
+  //
+  // DO NOT MOVE THIS DOWN, past either early return. Both the `!engine` return and the
+  // `rustStreamHoldsUserWork` refusal exit without setting the flag, and on a press
+  // following a handled one they would hand the stale `true` to the dispatcher, which
+  // would then suppress that press's cursor step - one host entry permanently unstepped.
+  cursorMovedByHandoff = false;
   const engine = editor.workspace.getActiveEngine();
   if (!engine) return false;
   // Refuse BEFORE driving the cursor. Once facade.undo() runs, Rust has moved
@@ -220,6 +269,11 @@ export async function runFacadeExternalHandoff(
   try {
     facade = getFacade(engine.getId());
     snap = await (direction === "undo" ? facade.undo() : facade.redo());
+    // `facade.undo()` is the native walker. It moved the cursor for a Pixel or
+    // External tip, and NOT for a Snapshot tip or at a boundary. Recorded either
+    // way - a false positive is harmless, because every path that returns true here
+    // never pops, and only the false-returning paths consult the flag.
+    cursorMovedByHandoff = true;
   } catch (err) {
     // E_EXTERNAL_PENDING is NOT "Rust had nothing". It means a PREVIOUS external
     // step already moved the cursor and its `confirmExternalCursor` failed, which is

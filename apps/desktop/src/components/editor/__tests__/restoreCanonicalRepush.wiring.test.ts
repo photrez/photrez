@@ -112,6 +112,12 @@ function makeEngineContext() {
     // engine.restore; an absent method would throw and skip the restore. Returning
     // null means the tile fast-path is skipped.
     consumeLastUndoPatches: () => null,
+    // Must exist for the same reason, and the production call is deliberately NOT
+    // optional-chained: a missing method has to fail loudly here rather than silently
+    // disable the double-step suppression in production. A real `CommandHistory`
+    // always has it, so this is the double catching up with the contract rather than
+    // the contract accommodating the double.
+    noteFacadeCursorMoved: () => {},
   };
   const ctx = {
     workspace: {

@@ -48,6 +48,7 @@ import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { WorkspaceManager } from "@/engine/workspace";
 import { CommandHistory } from "@/engine/history";
 import type { HistoryTilePatches } from "@/engine/history";
+import { optOutOfShimRecording } from "@/engine/__tests__/historyCursorHarness";
 import type { DocumentModel } from "@/engine/types";
 import { useEditorCommands } from "../useEditorCommands";
 import { EditorProvider, useEditor } from "../shell/EditorContext";
@@ -304,6 +305,7 @@ const ROWS: Row[] = [
 function applyRowFlags(flags: { rustPixels: "0" | "1"; bridge: "0" | "1" }): void {
   localStorage.setItem(RUST_PIXELS_KEY, flags.rustPixels);
   localStorage.setItem(GATE_KEY, flags.bridge);
+  optOutOfShimRecording();
 }
 
 // TRANSITIONAL (photrez.rustPixels gating; delete with the flag). The flag is
@@ -394,8 +396,10 @@ describe("a metadata-only pop steps the Rust cursor exactly when Rust recorded t
     // the pop has a Rust counterpart and must consume it.
     { rustPixels: "1", bridge: "1", tauri: true, expected: 1 },
     { rustPixels: "0", bridge: "1", tauri: true, expected: 1 },
-    // Bridge OFF: Rust holds no entry for a metadata step at all. Stepping would
-    // consume somebody else's, so the cursor must not move.
+    // Bridge OFF AND the shim opted out (`applyRowFlags`): nothing records an entry
+    // for a metadata step, so stepping would consume somebody else's. At the shim's
+    // DEFAULT the counterpart exists and the pop MUST step it - pinned where the shim
+    // really runs, in historyCursorDriftClosure.wiring.test.ts.
     { rustPixels: "1", bridge: "0", tauri: false, expected: 0 },
     { rustPixels: "1", bridge: "0", tauri: true, expected: 0 },
   ] as const;
@@ -512,10 +516,11 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
     ).toBe(true);
   });
 
-  // TRANSITIONAL (photrez.rustPixels gating; delete with the flag). This case
-  // pins flag-OFF memento replay: the fallback exists only while an entry can
-  // lack `rustOwned`, which the unconditional-Rust ops make unreachable.
+  // TRANSITIONAL (photrez.rustPixels gating; delete with the flag). The fallback
+  // exists only while an entry can lack `rustOwned`. No recorder armed, so the memento
+  // is the only pixel source - see `optOutOfShimRecording`.
   it("TRANSITIONAL keeps photrez.rustPixels-OFF memento replay for entries Rust does not own (delete when the flag is retired)", async () => {
+    optOutOfShimRecording();
     const ctx = makeEditorContext(
       makeHistory({ ...makePatches(), before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
       makeEngine(),

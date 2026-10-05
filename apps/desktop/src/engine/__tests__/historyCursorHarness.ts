@@ -77,3 +77,25 @@ export async function driveStep(run: () => void): Promise<void> {
   await waitFor(() => timesInvoked("rust_pixels_history_tip") > before);
   await settle();
 }
+
+/** The facade commit shim's gate: `photrez.facade !== "0"`, so ON unless set. */
+export const FACADE_KEY = "photrez.facade";
+
+/**
+ * Opt a case OUT of the facade commit shim, so "no recorder armed" is actually true.
+ *
+ * The shim is a THIRD recorder for a host pop, independent of `photrez.rustPixels`
+ * and `photrez.historyBridge`. At its default it records an `External` entry for
+ * every non-pixel commit, which means a case that never installs it would still see
+ * the host take the shim arm of `stepRustCursor` and issue a cursor step for an entry
+ * nothing in the case recorded. Every "expected 0 steps" row would then be measuring
+ * the shim's default rather than the flag and the bridge under test.
+ *
+ * Call this before the flag row is applied if the row helper sets the other keys.
+ * The shipping-default arrangement - the shim really installed, really recording - is
+ * pinned over the real shim in
+ * apps/desktop/src/engine/__tests__/historyCursorDriftClosure.wiring.test.ts.
+ */
+export function optOutOfShimRecording(): void {
+  localStorage.setItem(FACADE_KEY, "0");
+}

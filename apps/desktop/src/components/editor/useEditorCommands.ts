@@ -31,7 +31,7 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import { isNativeAuthority } from "@/lib/protocol/bridge";
 import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
-import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
+import { runFacadeExternalHandoff, handoffMovedCursor } from "./facadeHistoryHandoff";
 import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
 import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
 import { observeHistoryCursorParity } from "@/engine/historyCursorParity";
@@ -290,6 +290,10 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     // until facade layers are removed. This is not a final history
     // architecture.
     let handoffFellThrough = false;
+    // Did THIS press's facade handoff already move the Rust cursor? Held as a local
+    // and handed to the history one line above the pop - see the comment at the
+    // `handoffMovedCursor()` call below.
+    let handoffMovedCursorForPress = false;
     if (hasFacadeOwnedLayers()) {
       // Facade (Rust-owned) history handoff. Returns true when this branch fully
       // handled the step (caller must return); false to fall through to the
@@ -300,6 +304,19 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // finished.
       // No selection mirror needed here: the facade-owned handoff returns before engine.restore and selection is unchanged on both sides (host applyFacadeSnapshot writes layers+dims only; the native walker restores layers+doc_size and selection arms commit no history entry), so host and shadow stay consistent by construction.
       if (await runFacadeExternalHandoff(editor, direction)) return;
+      // Fell through - but "fell through" does NOT mean the cursor is unmoved. The
+      // handoff commits the cursor via `confirmExternalCursor` and can then report
+      // unhandled because the delta it got back was empty (a legacy `External`
+      // entry with no captured after-state restores no layers). The pop below would
+      // then issue a SECOND cursor step for one press, so the pop has to know.
+      //
+      // Drained HERE and armed LATER, deliberately. Two guards below
+      // (`!engine || !history` and `!canRestore`) return without popping, so arming
+      // the history at this point would leave the flag set for a press that never
+      // reached `stepRustCursor` - and the NEXT press that does pop would read it and
+      // silently skip its own step. Holding it in a local until the pop is one line
+      // away keeps set and consume adjacent, so the flag cannot outlive its press.
+      handoffMovedCursorForPress = handoffMovedCursor();
       // Handoff attempted but fell through (Rust had no entry; TS does the restore).
       // The native heal re-push below fires only in this case, AFTER engine.restore,
       // so the re-pushed canonical shadow reflects the post-restore state.
@@ -326,6 +343,12 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // [perf] Issue C instrumentation: quantify snapshot vs restore cost on
       // large canvases before optimizing.
       const perfT0 = performance.now();
+      // Armed HERE, immediately before the pop, and not at the handoff call site: the
+      // two guards above return without popping, and a flag armed before them would
+      // outlive its press and suppress the NEXT press's step instead.
+      // Non-optional on purpose - an optional chain here would let the double-step
+      // suppression disable itself silently if the method ever went missing.
+      if (handoffMovedCursorForPress) history.noteFacadeCursorMoved();
       const snapshot = direction === "undo"
         ? history.undo(engine.snapshot())
         : history.redo(engine.snapshot());

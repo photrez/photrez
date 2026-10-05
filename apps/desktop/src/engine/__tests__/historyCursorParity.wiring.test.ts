@@ -106,6 +106,10 @@ vi.mock("@/engine/document", () => ({
 // popping a host entry. Default false = "fell through", i.e. never taken.
 vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
   runFacadeExternalHandoff: vi.fn(async () => false),
+  // This mock's handoff never drives the native walker, so it never moved the
+  // cursor - which is exactly what the dispatcher reads here. The real
+  // fall-through-AFTER-moving path is driven in facadeHandoffDoubleStep.wiring.test.ts.
+  handoffMovedCursor: vi.fn(() => false),
 }));
 
 const GATE_KEY = "photrez.historyBridge";
