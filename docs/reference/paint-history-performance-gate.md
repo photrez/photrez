@@ -89,20 +89,38 @@ for the Rust side. Honest limits, in both directions:
    graph, so the store holds the pixels twice by construction while
    `STATE_NODE_CANONICAL` and `TILE_MAJOR` are both off. Byte accounting makes
    that visible; it does not remove it.
-2. `shared_bytes` reads LOW, never high, and can reach 0: a commit that touches
-   every tile of a layer re-tiles all of them, so nothing keeps the anchor's
-   identity and nothing is shared. A single-tile layer (anything under 256 x 256)
-   is always in this case. Both are pinned by tests so the figure cannot drift
-   into a flattering constant.
-3. `shared_bytes` reads LOW in the other direction too, relative to the allocation
+2. `shared_bytes` reads LOW, never high, and it DILUTES rather than collapsing.
+   A commit that touches every tile of a layer re-tiles all of them, so the newly
+   written state owns every tile and none of them is shared *with that state*.
+   It does NOT drive the term to zero once anything is retained: the older states
+   still reach the tiles they never touched, so the shared bytes stay exactly
+   where they were and only the denominator grows. Measured: after a 50-entry
+   sub-tile stream plus one full-layer commit, 2048 x 2048 still reports
+   16,515,072 shared (35.39% of the tile graph) and 4096 x 4096 reports
+   66,846,720 (45.37%). The term reads exactly 0 in one case only - a document
+   that retains nothing and whose sole commit re-tiles the layer, which includes
+   any single-tile layer (anything under 256 x 256). Both behaviours are pinned
+   by tests: the surviving term by an assertion that `shared_bytes` is unchanged
+   across a full-layer commit while the total grows, and the zero by a separate
+   control document, so neither figure can drift into a flattering constant.
+3. A seeded but never-committed layer contributes NO tile-graph bytes at all: the
+   packed canon is built on a layer's first commit, not at ingest. Such a document
+   therefore reports its mirror and a tile graph of zero, which reads as a cheap
+   document rather than as an unmeasured one. The response names this explicitly
+   with `owed_anchor_bytes` / `owed_anchor_layer_count`: `width*height*4` per
+   layer that has never been committed, DERIVED from the layer's dimensions and
+   not from any allocation. It is the anchor block the first commit will pack, it
+   is 0 once every layer has been committed, and it must never be added into a
+   footprint figure as though it were memory in use. Read it, do not sum it.
+4. `shared_bytes` reads LOW in the other direction too, relative to the allocation
    it describes: a re-tiled tile's byte range inside the anchor block is no longer
    referenced by the new state, but the whole block is still resident as long as
    ANY of its tiles is. So the sum of `shared_bytes + private_bytes` correctly
    partitions `total_bytes`, yet the true allocator footprint can exceed
    `total_bytes` by the orphaned tail of a partially-referenced block. That
    residue is not tracked anywhere in the store.
-4. A separate undercount mechanism, unrelated to the split and NOT covered by
-   limit 3: the walk used to key visited states on `StateNode::id`, which is
+5. A separate undercount mechanism, unrelated to the split and NOT covered by
+   limit 4: the walk used to key visited states on `StateNode::id`, which is
    minted per `LayerState` from that `LayerState`'s own arena starting at 0. A
    re-seed or resize drops the `LayerState` while `invalidate_layer`
    early-returns under a `pending_external` barrier, so a stale `Pixel` entry can
@@ -113,9 +131,14 @@ for the Rust side. Honest limits, in both directions:
    `bytes_survive_an_arena_reset_while_the_invalidate_barrier_is_set`. It is
    listed because the underlying store condition - a stale entry surviving an
    invalidation - is still live and is not an accounting bug to be re-fixed.
-5. Neither term counts `TileRef` / `StateNode` / `Arc` headers, `Vec`
+6. Neither term counts `TileRef` / `StateNode` / `Arc` headers, `Vec`
    over-allocation, the host-side `ImageBitmap` generations, or the TypeScript
-   undo stack. Those belong to other owners.
+   undo stack. Those belong to other owners. The header term is measured, not
+   assumed: a 4096 x 4096 layer at the 50-entry stream cap holds 52 states x 256
+   `TileRef`s x ~40 bytes = ~532 KB against a reported 214,433,792 bytes, i.e.
+   0.25%. That is small at these sizes, but it scales as states x tiles - exactly
+   like the figure it is excluded from - so it never becomes relatively smaller
+   as history deepens.
 
 ## Jank: Which Half Is Measurable
 

@@ -125,6 +125,13 @@ mod tests {
         // no tile keeps the anchor's identity. The anchor is still the entry's
         // `before`, so it still holds its own four tiles - each with one owner,
         // hence private.
+        //
+        // This is a ZERO because nothing else is retained. It does NOT stay zero
+        // once a history stream exists: a full-layer commit on a document that
+        // already holds states only makes the NEW state's tiles private, while
+        // the older states keep reaching the tiles they never touched. Measured
+        // dilution is pinned in `byte_footprint_is_measured_across_a_commit_run_at_two_document_sizes`
+        // (35.39% at 2048x2048 and 45.37% at 4096x4096 after a 50-entry stream).
         // 300x300 tiles at 256px: 256x256, 256x44, 44x256, 44x44.
         assert_eq!(
             bytes.tile_graph.tile_count, 8,
@@ -241,6 +248,290 @@ mod tests {
         assert_eq!(empty.row_major_bytes, 0);
         assert_eq!(empty.tile_graph.state_count, 0);
         assert_eq!(empty.total_bytes, 0);
+    }
+
+    /// The product memory target is "history memory duplication reduced by real
+    /// sharing". That is a NUMBER or it is nothing - and a single number is not a
+    /// measurement of sharing. This is the measurement: two document sizes, three
+    /// read points each, plus the degenerate control.
+    ///
+    /// The read points are the point, in this order:
+    /// 1. seeded - the row-major mirror alone. A freshly seeded layer has NO tile
+    ///    graph at all, because `layer_state` builds the packed canon lazily on the
+    ///    first commit.
+    /// 2. after sub-tile commits - the case sharing exists for. A 4x4 commit lands
+    ///    inside one 256px tile, so every other tile keeps its `(data_ptr, offset)`
+    ///    identity and is counted once however many states reach it.
+    /// 3. after ONE full-layer commit - re-tiles every tile, so the freshly written
+    ///    state owns all of them. The shared term does NOT collapse to zero here,
+    ///    because the retained stream still reaches the untouched tiles: the ratio
+    ///    DILUTES (35.4% at 2048x2048, 45.4% at 4096x4096) while `shared_bytes`
+    ///    stays exactly where it was.
+    /// 4. control: a fresh document whose ONLY commit is full-layer. With nothing
+    ///    retained this is the one case that reads exactly zero, and it is why a
+    ///    single flattering ratio would be a lie.
+    ///
+    /// Nothing here is a frame-pacing measurement; the render callback is the only
+    /// thing timeable headlessly. The commit-CPU half lives in
+    /// `protocol_native_cmds.rs`'s `native_commit_latency_bench`.
+    #[test]
+    fn byte_footprint_is_measured_across_a_commit_run_at_two_document_sizes() {
+        use std::time::Instant;
+
+        let _g = TEST_REGISTRY_LOCK.lock().unwrap();
+        const SIZES: [usize; 2] = [2048, 4096];
+        const SUBTILE_COMMITS: usize = 8;
+        /// The stream cap (`DocumentPixelStore`'s `max_depth`), so the probe's cost
+        /// is reported at the depth that actually bounds a real session.
+        const FULL_STREAM: usize = 50;
+        const TILE: usize = 256;
+        const TILE_BYTES: u64 = (TILE * TILE * 4) as u64;
+
+        for size in SIZES {
+            *registry() = None;
+            let doc = format!("bytes-size-{size}");
+            let layer = "bytes-size-layer";
+
+            rust_pixels_open_document(doc.clone());
+            rust_pixels_init(
+                doc.clone(),
+                layer.to_string(),
+                size as u32,
+                size as u32,
+                vec![0u8; size * size * 4],
+            )
+            .expect("seed");
+
+            let mirror = (size * size * 4) as u64;
+            let grid = size / TILE;
+            let tiles = (grid * grid) as u64;
+            let after_subtile_tiles = tiles + SUBTILE_COMMITS as u64;
+            let after_full_tiles = tiles + FULL_STREAM as u64 + tiles;
+
+            let seeded = rust_pixels_store_bytes(doc.clone()).expect("seeded read");
+            for _ in 0..SUBTILE_COMMITS {
+                apply_tile_patch(
+                    doc.clone(),
+                    layer.to_string(),
+                    vec![],
+                    vec![wire(0, 0, 4, 4, vec![9; 4 * 4 * 4])],
+                )
+                .expect("sub-tile commit");
+            }
+            let t0 = Instant::now();
+            let shared_run = rust_pixels_store_bytes(doc.clone()).expect("shared-run read");
+            let shared_probe = t0.elapsed();
+            for _ in SUBTILE_COMMITS..FULL_STREAM {
+                apply_tile_patch(
+                    doc.clone(),
+                    layer.to_string(),
+                    vec![],
+                    vec![wire(0, 0, 4, 4, vec![9; 4 * 4 * 4])],
+                )
+                .expect("deep sub-tile commit");
+            }
+            let t2 = Instant::now();
+            let deep = rust_pixels_store_bytes(doc.clone()).expect("full-stream read");
+            let deep_probe = t2.elapsed();
+            apply_tile_patch(
+                doc.clone(),
+                layer.to_string(),
+                vec![],
+                vec![wire(0, 0, size, size, vec![9; size * size * 4])],
+            )
+            .expect("full-layer commit");
+            let t1 = Instant::now();
+            let diluted = rust_pixels_store_bytes(doc.clone()).expect("diluted read");
+            let diluted_probe = t1.elapsed();
+
+            *registry() = None;
+            let control = format!("bytes-control-{size}");
+            rust_pixels_open_document(control.clone());
+            rust_pixels_init(
+                control.clone(),
+                layer.to_string(),
+                size as u32,
+                size as u32,
+                vec![0u8; size * size * 4],
+            )
+            .expect("control seed");
+            apply_tile_patch(
+                control.clone(),
+                layer.to_string(),
+                vec![],
+                vec![wire(0, 0, size, size, vec![9; size * size * 4])],
+            )
+            .expect("control full-layer commit");
+            let degenerate = rust_pixels_store_bytes(control.clone()).expect("control read");
+            *registry() = None;
+
+            eprintln!(
+                "BYTES size={size} mirror={mirror} \
+                 seeded[tiles={} states={} total={} owes={} over {}] \
+                 sub-tile x{SUBTILE_COMMITS}[tiles={} states={} refs={} total={} shared={} private={} probe_ms={:.2}] \
+                 stream-{FULL_STREAM}[tiles={} states={} refs={} total={} shared={} private={} probe_ms={:.2}] \
+                 after-full[tiles={} states={} total={} shared={} private={} probe_ms={:.2}] \
+                 control-full[tiles={} states={} total={} shared={} private={}]",
+                seeded.tile_graph.tile_count,
+                seeded.tile_graph.state_count,
+                seeded.tile_graph.total_bytes,
+                seeded.owed_anchor_bytes,
+                seeded.owed_anchor_layer_count,
+                shared_run.tile_graph.tile_count,
+                shared_run.tile_graph.state_count,
+                shared_run.tile_graph.tile_reference_count,
+                shared_run.tile_graph.total_bytes,
+                shared_run.tile_graph.shared_bytes,
+                shared_run.tile_graph.private_bytes,
+                shared_probe.as_secs_f64() * 1e3,
+                deep.tile_graph.tile_count,
+                deep.tile_graph.state_count,
+                deep.tile_graph.tile_reference_count,
+                deep.tile_graph.total_bytes,
+                deep.tile_graph.shared_bytes,
+                deep.tile_graph.private_bytes,
+                deep_probe.as_secs_f64() * 1e3,
+                diluted.tile_graph.tile_count,
+                diluted.tile_graph.state_count,
+                diluted.tile_graph.total_bytes,
+                diluted.tile_graph.shared_bytes,
+                diluted.tile_graph.private_bytes,
+                diluted_probe.as_secs_f64() * 1e3,
+                degenerate.tile_graph.tile_count,
+                degenerate.tile_graph.state_count,
+                degenerate.tile_graph.total_bytes,
+                degenerate.tile_graph.shared_bytes,
+                degenerate.tile_graph.private_bytes,
+            );
+
+            // Seeded: the mirror only. The tile graph does not exist yet - the
+            // packed canon is built on the first commit, not at ingest - so the
+            // report says how much it OWES rather than letting a caller read the
+            // empty graph as a free one.
+            assert_eq!(seeded.layer_count, 1);
+            assert_eq!(seeded.row_major_bytes, mirror);
+            assert_eq!(seeded.tile_graph.tile_count, 0, "no commit, no canon");
+            assert_eq!(seeded.tile_graph.state_count, 0);
+            assert_eq!(
+                seeded.owed_anchor_layer_count, 1,
+                "the layer holds a mirror and no canon yet"
+            );
+            assert_eq!(
+                seeded.owed_anchor_bytes, mirror,
+                "the anchor the first commit will pack is exactly one layer"
+            );
+            assert_eq!(
+                seeded.total_bytes + seeded.owed_anchor_bytes,
+                2 * mirror,
+                "without the pending figure the store reads half its real size"
+            );
+            assert_eq!(shared_run.owed_anchor_layer_count, 0, "built now");
+            assert_eq!(shared_run.owed_anchor_bytes, 0);
+            assert_eq!(deep.owed_anchor_bytes, 0);
+            assert_eq!(diluted.owed_anchor_bytes, 0);
+
+            // Sub-tile commits: every tile but the edited one keeps its identity.
+            assert_eq!(shared_run.layer_count, 1);
+            assert_eq!(shared_run.row_major_bytes, mirror, "the mirror never grows");
+            assert_eq!(
+                shared_run.tile_graph.tile_count, after_subtile_tiles,
+                "one fresh tile per commit, plus every tile the anchor still holds"
+            );
+            assert_eq!(
+                shared_run.tile_graph.state_count,
+                SUBTILE_COMMITS as u64 + 1,
+                "the anchor plus one state per commit"
+            );
+            assert_eq!(
+                shared_run.tile_graph.tile_reference_count,
+                tiles * (SUBTILE_COMMITS as u64 + 1),
+                "every state reaches every tile; the dedup against tile_count IS the sharing"
+            );
+            assert_eq!(
+                shared_run.tile_graph.shared_bytes,
+                (tiles - 1) * TILE_BYTES,
+                "the untouched tiles only"
+            );
+            assert_eq!(
+                shared_run.tile_graph.private_bytes,
+                (SUBTILE_COMMITS as u64 + 1) * TILE_BYTES,
+                "one fresh copy-on-write tile per commit, plus the anchor's own copy of the edited tile"
+            );
+            assert_eq!(
+                shared_run.tile_graph.total_bytes,
+                after_subtile_tiles * TILE_BYTES
+            );
+            assert_eq!(
+                shared_run.total_bytes,
+                mirror + after_subtile_tiles * TILE_BYTES
+            );
+
+            // The same arithmetic at the stream cap, which is where the probe's cost
+            // has to be quoted: the walk is O(states x tiles), not O(1).
+            assert_eq!(
+                deep.tile_graph.tile_count,
+                tiles + FULL_STREAM as u64,
+                "the same arithmetic at the stream cap"
+            );
+            assert_eq!(deep.tile_graph.state_count, FULL_STREAM as u64 + 1);
+            assert_eq!(
+                deep.tile_graph.tile_reference_count,
+                tiles * (FULL_STREAM as u64 + 1),
+                "the walk visits every tile of every state; this is the probe's cost"
+            );
+            assert_eq!(deep.tile_graph.shared_bytes, (tiles - 1) * TILE_BYTES);
+            assert_eq!(
+                deep.tile_graph.private_bytes,
+                (FULL_STREAM as u64 + 1) * TILE_BYTES,
+                "the anchor's copy of the edited tile, plus one fresh tile per commit"
+            );
+            assert_eq!(
+                deep.total_bytes,
+                mirror + (tiles + FULL_STREAM as u64) * TILE_BYTES
+            );
+
+            // One full-layer commit on top: the new state owns every tile, and the
+            // retained history keeps the older ones alive but now unreferenced by it.
+            assert_eq!(diluted.tile_graph.tile_count, after_full_tiles);
+            assert_eq!(
+                diluted.tile_graph.shared_bytes,
+                (tiles - 1) * TILE_BYTES,
+                "sharing survives only because older states still reach those tiles"
+            );
+            // DILUTES, DOES NOT COLLAPSE. The load-bearing pair: a commit that
+            // re-tiles every tile leaves the shared term UNCHANGED while the
+            // denominator grows, so the ratio falls without sharing breaking.
+            // A collapse to zero here would mean the commit destroyed sharing.
+            assert_eq!(
+                diluted.tile_graph.shared_bytes, deep.tile_graph.shared_bytes,
+                "the shared term is the same before and after a full-layer commit"
+            );
+            assert!(
+                diluted.tile_graph.shared_bytes > 0,
+                "a full-layer commit must not zero the shared term on a document with history"
+            );
+            assert!(
+                diluted.tile_graph.total_bytes > deep.tile_graph.total_bytes,
+                "the denominator grew, which is what makes the ratio fall"
+            );
+            assert_eq!(
+                diluted.tile_graph.private_bytes,
+                after_full_tiles * TILE_BYTES - (tiles - 1) * TILE_BYTES
+            );
+            assert_eq!(diluted.total_bytes, mirror + after_full_tiles * TILE_BYTES);
+
+            // Control: a document whose only commit re-tiles everything shares
+            // NOTHING. If this ever reads non-zero, the sharing term is broken.
+            assert_eq!(degenerate.row_major_bytes, mirror);
+            assert_eq!(degenerate.tile_graph.tile_count, tiles * 2);
+            assert_eq!(degenerate.tile_graph.state_count, 2);
+            assert_eq!(degenerate.tile_graph.total_bytes, tiles * 2 * TILE_BYTES);
+            assert_eq!(
+                degenerate.tile_graph.shared_bytes, 0,
+                "a full-layer commit re-tiles every tile, so no tile has two owners"
+            );
+            assert_eq!(degenerate.tile_graph.private_bytes, tiles * 2 * TILE_BYTES);
+        }
     }
 
     fn sub_tile() -> photrez_core::pixel_store::TilePatch {

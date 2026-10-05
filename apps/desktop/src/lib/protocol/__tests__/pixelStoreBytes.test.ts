@@ -28,6 +28,8 @@ const BYTES = {
     tile_reference_count: 2,
   },
   total_bytes: 192,
+  owed_anchor_bytes: 0,
+  owed_anchor_layer_count: 0,
 };
 
 beforeEach(() => {
@@ -127,6 +129,91 @@ describe("getPixelStoreBytes", () => {
     });
     await expect(getPixelStoreBytes("doc-1")).rejects.toThrow(
       "shared + private does not equal tile_graph.total_bytes",
+    );
+  });
+
+  // A seeded, never-committed document reports a tile graph of zero, so
+  // `total_bytes` alone reads as a complete footprint when the store would hold
+  // twice that once the first commit lands. These three pin that the caller
+  // cannot be handed the half answer: the figures must be present, must be
+  // finite, and must not contradict each other.
+  it("carries the tile graph a seeded layer still owes, so an empty graph is not read as complete", async () => {
+    const owed = {
+      ...BYTES,
+      row_major_bytes: 1_048_576,
+      tile_graph: {
+        ...BYTES.tile_graph,
+        total_bytes: 0,
+        shared_bytes: 0,
+        private_bytes: 0,
+        tile_count: 0,
+        state_count: 0,
+        tile_reference_count: 0,
+      },
+      total_bytes: 1_048_576,
+      owed_anchor_bytes: 1_048_576,
+      owed_anchor_layer_count: 1,
+    };
+    invokeMock.mockResolvedValueOnce(owed);
+    const read = await getPixelStoreBytes("doc-1");
+    expect(read.tile_graph.total_bytes).toBe(0);
+    expect(read.owed_anchor_layer_count).toBe(1);
+    expect(read.owed_anchor_bytes).toBe(1_048_576);
+  });
+
+  it("rejects a response that omits the owed-anchor figures rather than defaulting them to zero", async () => {
+    const { owed_anchor_bytes: _dropped, ...withoutOwed } = BYTES;
+    invokeMock.mockResolvedValueOnce(withoutOwed);
+    await expect(getPixelStoreBytes("doc-1")).rejects.toThrow(
+      "rust_pixels_store_bytes: malformed byte report",
+    );
+  });
+
+  it("rejects a non-finite owed-anchor figure", async () => {
+    invokeMock.mockResolvedValueOnce({ ...BYTES, owed_anchor_bytes: Number.NaN });
+    await expect(getPixelStoreBytes("doc-1")).rejects.toThrow(
+      "rust_pixels_store_bytes: malformed byte report",
+    );
+  });
+
+  // A 0x0 layer owes width*height*4 = 0 bytes and STILL counts as an unbuilt
+  // layer, so "layers owed but zero bytes" is a REAL Rust response - pinned in
+  // `a_zero_dimension_unbuilt_layer_owes_no_bytes_but_still_counts`. The guard
+  // must not reject it, and the direction it does take is the one Rust cannot
+  // produce: a non-zero byte figure implies at least one layer was counted.
+  it("accepts a real 0x0 document: one owed layer, zero owed bytes", async () => {
+    invokeMock.mockResolvedValueOnce({
+      ...BYTES,
+      row_major_bytes: 0,
+      tile_graph: {
+        ...BYTES.tile_graph,
+        total_bytes: 0,
+        shared_bytes: 0,
+        private_bytes: 0,
+        tile_count: 0,
+        state_count: 0,
+        tile_reference_count: 0,
+      },
+      total_bytes: 0,
+      owed_anchor_bytes: 0,
+      owed_anchor_layer_count: 1,
+    });
+    const read = await getPixelStoreBytes("doc-1");
+    expect(read.owed_anchor_layer_count).toBe(1);
+    expect(read.owed_anchor_bytes).toBe(0);
+  });
+
+  it("rejects owed bytes with nothing owing them (the two figures arrived swapped)", async () => {
+    invokeMock.mockResolvedValueOnce({ ...BYTES, owed_anchor_bytes: 4096, owed_anchor_layer_count: 0 });
+    await expect(getPixelStoreBytes("doc-1")).rejects.toThrow(
+      "owed_anchor_bytes is 4096 but owed_anchor_layer_count is 0",
+    );
+  });
+
+  it("rejects more owed layers than the document has layers", async () => {
+    invokeMock.mockResolvedValueOnce({ ...BYTES, layer_count: 1, owed_anchor_layer_count: 3 });
+    await expect(getPixelStoreBytes("doc-1")).rejects.toThrow(
+      "owed_anchor_layer_count 3 exceeds layer_count 1",
     );
   });
 });

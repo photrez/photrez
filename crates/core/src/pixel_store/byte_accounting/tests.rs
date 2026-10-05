@@ -641,3 +641,158 @@ fn row_major_bytes_reads_the_buffer_not_the_dimensions() {
         "the document sum reads the same stored length"
     );
 }
+
+/// A seeded-but-never-committed document used to be reported as HALF of what the
+/// store actually holds, with nothing in the response to say so: the packed canon
+/// is built on a layer's first commit, so `tile_graph.total_bytes` was 0 and
+/// `total_bytes` equalled the mirror alone. A caller reading that as "the
+/// document's footprint" was wrong by exactly a layer - and the error looked like
+/// a cheap document rather than a missing measurement.
+///
+/// The fix is a DERIVED figure, not a behaviour change and not a new
+/// measurement: the canon is still built lazily (nothing here allocates one
+/// eagerly), and `owed_anchor_bytes` names the anchor a not-yet-committed layer
+/// will pack. Both halves are pinned: it must equal the anchor the first commit
+/// actually allocates, and it must fall to zero.
+#[test]
+fn a_seeded_but_never_committed_document_reports_the_tile_graph_it_owes() {
+    let (mut reg, doc, layer) = seeded(512, 512, 0);
+
+    // 512*512*4 = 1,048,576 - one mirror, and (before this field existed) that
+    // was the whole reported footprint.
+    let before_commit = reg.get_store_bytes(&doc).expect("doc present");
+    assert_eq!(before_commit.layer_count, 1);
+    assert_eq!(before_commit.row_major_bytes, 1_048_576);
+    assert_eq!(
+        before_commit.tile_graph.total_bytes, 0,
+        "the canon is built on the first commit, so the graph really is empty"
+    );
+    assert_eq!(
+        before_commit.owed_anchor_layer_count, 1,
+        "one layer holds a mirror and no canon"
+    );
+    assert_eq!(
+        before_commit.owed_anchor_bytes, 1_048_576,
+        "DERIVED from the dimensions: the anchor will be one packed block of width*height*4"
+    );
+    // The failure this exists to stop, stated as arithmetic rather than prose: the
+    // old figure was half the truth, with no field carrying the other half.
+    assert_eq!(
+        before_commit.tile_graph.total_bytes + before_commit.owed_anchor_bytes,
+        before_commit.row_major_bytes,
+        "without the owed-anchor figure the report is half the store, silently"
+    );
+
+    reg.apply_pixel_patch(&doc, &layer, vec![], vec![tile(0, 0, 4, 4, 9)])
+        .expect("first commit");
+
+    let after_commit = reg.get_store_bytes(&doc).expect("doc present");
+    assert_eq!(
+        after_commit.owed_anchor_layer_count, 0,
+        "the canon exists now, so no layer owes one"
+    );
+    assert_eq!(after_commit.owed_anchor_bytes, 0);
+    // 512*512 is 2x2 tiles of 256x256 at 262,144 B each = 1,048,576, which is
+    // exactly the owed anchor. The equality is what makes the derived figure
+    // trustworthy: it predicts the anchor, not the whole committed graph.
+    assert_eq!(
+        after_commit.tile_graph.total_bytes,
+        1_048_576 + 262_144,
+        "the anchor that was owed, PLUS a private copy of the one tile the 4x4 \
+         commit re-tiled: 512*512 is 2x2 tiles of 262,144, and a sub-tile commit \
+         still re-tiles its whole containing tile"
+    );
+    assert_eq!(
+        after_commit.tile_graph.private_bytes,
+        2 * 262_144,
+        "TWO private tiles, not one: the anchor still holds its own copy of the \
+         re-tiled tile and only the anchor reaches it, and the fresh copy is \
+         reached only by the new state"
+    );
+    assert_eq!(
+        after_commit.tile_graph.shared_bytes,
+        3 * 262_144,
+        "the other three tiles keep the anchor's identity and are shared"
+    );
+    assert_eq!(
+        after_commit.row_major_bytes, 1_048_576,
+        "the mirror is unchanged: the store now holds two layers' worth"
+    );
+}
+
+/// A second layer joins a document whose first layer is already committed: only
+/// the NEW layer owes an anchor, so the figure has to be per-layer rather than a
+/// document-wide boolean. A document-level flag would say "something is owed"
+/// without saying how much, which is the same incompleteness in a smaller hole.
+#[test]
+fn owed_anchor_bytes_counts_only_the_layers_that_owe_one() {
+    let (mut reg, doc, layer) = seeded(512, 512, 0);
+    reg.apply_pixel_patch(&doc, &layer, vec![], vec![tile(0, 0, 4, 4, 9)])
+        .expect("first commit");
+    // 256x256*4 = 262,144: a second, still-uncommitted layer.
+    reg.add_layer(&doc, "acct-layer-2", 256, 256, vec![0; 256 * 256 * 4])
+        .expect("seed second layer");
+
+    let bytes = reg.get_store_bytes(&doc).expect("doc present");
+    assert_eq!(bytes.layer_count, 2);
+    assert_eq!(
+        bytes.owed_anchor_layer_count, 1,
+        "only the layer that has never been committed"
+    );
+    assert_eq!(bytes.owed_anchor_bytes, 262_144);
+    assert_eq!(
+        bytes.row_major_bytes,
+        1_048_576 + 262_144,
+        "both mirrors count even though only one canon exists"
+    );
+}
+
+/// A 0x0 layer is DERIVED-owed as zero bytes while still counting as an unbuilt
+/// layer, because `width*height*4` is 0. That combination is a REAL response,
+/// not a malformed one, and it is why the TypeScript guard on these two figures
+/// has to point the other way: guarding "layers owed but zero bytes" would
+/// reject this document. Pinned here so the reason survives being "tidied up".
+#[test]
+fn a_zero_dimension_unbuilt_layer_owes_no_bytes_but_still_counts() {
+    let (reg, doc, _layer) = seeded(0, 0, 0);
+    let bytes = reg.get_store_bytes(&doc).expect("doc present");
+    assert_eq!(bytes.layer_count, 1, "the layer exists");
+    assert_eq!(bytes.row_major_bytes, 0, "0x0 RGBA is 0 bytes");
+    assert_eq!(bytes.owed_anchor_layer_count, 1, "never committed");
+    assert_eq!(
+        bytes.owed_anchor_bytes, 0,
+        "width*height*4 is 0, so nothing is owed even though a layer owes"
+    );
+    assert_eq!(bytes.total_bytes, 0);
+}
+
+/// The two one-way guards the TypeScript wrapper enforces, pinned from the Rust
+/// side so they cannot be tightened into rejecting a real response.
+///
+/// Every unbuilt layer is a SUBSET of the document's layers, and a non-zero
+/// owed-bytes figure can only come from at least one layer having been counted.
+/// The converse is NOT true (see the 0x0 case above), which is why there are two
+/// guards and not one symmetric identity.
+#[test]
+fn owed_anchor_figures_never_exceed_the_layers_they_are_derived_from() {
+    let (mut reg, doc, layer) = seeded(512, 512, 0);
+    let before = reg.get_store_bytes(&doc).expect("doc present");
+    assert!(
+        before.owed_anchor_layer_count <= before.layer_count,
+        "owed layers are a subset of the document's layers"
+    );
+    assert!(
+        before.owed_anchor_bytes == 0 || before.owed_anchor_layer_count > 0,
+        "non-zero owed bytes imply at least one layer was counted"
+    );
+
+    reg.apply_pixel_patch(&doc, &layer, vec![], vec![tile(0, 0, 4, 4, 9)])
+        .expect("first commit");
+    let after = reg.get_store_bytes(&doc).expect("doc present");
+    assert_eq!(after.owed_anchor_layer_count, 0);
+    assert_eq!(after.owed_anchor_bytes, 0);
+    assert!(
+        after.owed_anchor_layer_count <= after.layer_count,
+        "still a subset after the commit"
+    );
+}

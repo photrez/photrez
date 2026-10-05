@@ -23,20 +23,33 @@
 //!    that were edited and are no longer referenced from it.
 //!
 //! What is deliberately NOT counted, because the store does not track it:
-//! - the `TileRef` / `StateNode` / `Arc` headers and the `Vec`s holding them
-//!   (a 256x256 layer carries 16 `TileRef`s per state at ~40 bytes each against
-//!   262,144 bytes of pixels);
+//! - the `TileRef` / `StateNode` / `Arc` headers and the `Vec`s holding them;
 //! - `Vec` over-allocation, so a buffer that grew and was never shrunk reports
 //!   its length, not its capacity;
 //! - the host-side `ImageBitmap` generations and the TypeScript undo stack, which
 //!   belong to another owner entirely.
 //!
+//!   The header term is small enough not to matter at the sizes this is measured
+//!   at, and it was measured rather than assumed: a 4096x4096 layer at the
+//!   50-entry stream cap holds 52 states x 256 `TileRef`s x ~40 bytes of header =
+//!   ~532 KB against a reported 214,433,792 bytes, i.e. **0.25%**. It is not
+//!   negligible in principle, though - it scales as states x tiles, exactly like
+//!   the figure it is excluded from, so it grows at the same rate and never
+//!   becomes relatively smaller as history deepens.
+//!
 //! Cost. `PixelLayer::row_major_bytes` is O(1). `history_tile_bytes` visits every
 //! committed state - two per layer plus two per retained history entry, the
-//! stream being capped at its `max_depth` - so it is O(states x tiles per state):
-//! ~16 tiles per state for a 4096x4096 layer, a few thousand tile visits for a
-//! full stream. It is a diagnostic probe; the row-major accessor is the cheap one
-//! to read on a hot path.
+//! stream being capped at its `max_depth` - so it is O(states x tiles per state).
+//! The tile grid is 256px on a side, so tiles-per-state is `(side / 256)^2`:
+//! **256** per state for a 4096x4096 layer and **64** for 2048x2048, not 16 (16
+//! is the grid's extent per side, which is where that figure came from). At the
+//! 50-entry cap that is 13,056 tile visits at 4096x4096 and 3,264 at 2048x2048 -
+//! the visit COUNT is exact arithmetic and is asserted; the wall time is not.
+//! Two runs of the same unoptimised build, in process and with no IPC hop, gave
+//! 18.6-31.6 ms at 4096x4096 and 4.3-9.0 ms at 2048x2048 for that read: a 1.7-2.1x
+//! spread from machine load alone, so quote it as an order of magnitude and
+//! never as a figure. It is a diagnostic probe either way; the row-major
+//! accessor is the cheap one to read on a hot path.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -66,6 +79,26 @@ pub struct TileByteReport {
     /// states, so it counts once here however many states reach it. Only the
     /// UNTOUCHED tiles are included - never the whole block an edited tile came
     /// from.
+    ///
+    /// A commit that re-tiles the whole layer does NOT drive this to zero. It
+    /// reads exactly zero only when nothing else is retained: with a history
+    /// stream behind it, the older states still reach the tiles they never
+    /// touched, so the term DILUTES instead of collapsing. Measured: 16,515,072
+    /// bytes at 2048x2048 (35.39% of the tile graph) and 66,846,720 at
+    /// 4096x4096 (45.37%) after a 50-entry sub-tile stream plus one full-layer
+    /// commit, against 0 for a document whose only commit re-tiles the layer.
+    /// The distinction matters because a diluted ratio means sharing is working -
+    /// one commit added a layer's worth of private tiles - while a zero on a
+    /// document with history would mean it had stopped working.
+    ///
+    /// `shared_bytes` itself does not decay with depth, PROVIDED each commit
+    /// touches fewer tiles than the layer has - one private tile per commit in
+    /// the measured case, where every commit was a 4x4 region inside a single
+    /// 256px tile. A commit that re-tiles N tiles adds N private ones instead, so
+    /// the invariant is "sub-tile commits add a bounded, tile-local number of
+    /// private tiles", not a fixed constant. What holds in every case is that
+    /// untouched tiles keep their identity, so the shared term is unchanged by a
+    /// commit and only the denominator grows.
     pub shared_bytes: u64,
     /// `total_bytes - shared_bytes`: tiles only one state references.
     pub private_bytes: u64,
@@ -92,7 +125,45 @@ pub struct PixelStoreBytes {
     /// `row_major_bytes + tile_graph.total_bytes`: the store's whole pixel
     /// footprint. `u64` because the two populations are summed, and a 32-bit
     /// accumulator wraps at ~64 layers of 4096x4096.
+    ///
+    /// This is the ALLOCATED footprint, and it is not the whole story while
+    /// `owed_anchor_bytes` is non-zero - read them together, never this field
+    /// alone.
     pub total_bytes: u64,
+    /// DERIVED, NOT MEASURED. `width*height*4` for each layer that holds a
+    /// row-major buffer but has never been committed, so its packed canon does
+    /// not exist yet (`layer_state` builds it on the layer's first commit).
+    /// Zero once every layer has been committed at least once.
+    ///
+    /// It is named `owed_anchor` because that is exactly what it is: the ANCHOR
+    /// block the first commit will pack, derived from the layer's DIMENSIONS
+    /// (`width*height*4`) - deliberately not from the mirror's buffer length.
+    /// Those two are not the same number: `row_major_bytes` reads `Vec::len()`,
+    /// and a buffer can be shorter than its dimensions imply, which is exactly
+    /// the state `row_major_bytes_reads_the_buffer_not_the_dimensions` pins. So
+    /// this field and `row_major_bytes` are computed differently and can
+    /// disagree, and neither is a correction of the other. Nothing here has been
+    /// allocated, so this is not a measurement of memory in use and must never be
+    /// added into a footprint figure as though it were.
+    ///
+    /// It says what a not-yet-committed layer WILL cost, and the arithmetic is
+    /// pinned: a 512x512 layer owes 512*512*4 = 1,048,576, and after the first
+    /// commit the anchor really is that size.
+    ///
+    /// It is NOT the committed tile graph either, and after the commit it is 0.
+    /// A commit re-tiles every tile its region intersects, each becoming a fresh
+    /// private copy, so a 4x4 commit into a 512x512 layer leaves the tile graph
+    /// at 1,310,720 while `owed_anchor_bytes` is 0: 1,048,576 for the anchor
+    /// plus TWO private 256x256 tiles - the anchor's own copy of the re-tiled
+    /// tile, which only the anchor reaches, and the fresh copy only the new state
+    /// reaches. Those per-commit private tiles are what `tile_graph` reports.
+    ///
+    /// Without this figure a freshly imported document reported its mirror and a
+    /// tile graph of zero, and `total_bytes` read as a complete footprint when
+    /// the store would hold exactly twice that the moment the first stroke landed.
+    pub owed_anchor_bytes: u64,
+    /// Layers counted in `owed_anchor_bytes`.
+    pub owed_anchor_layer_count: u64,
 }
 
 /// Per-tile tally while walking. `owners` is a set rather than a counter so that
@@ -113,6 +184,27 @@ impl PixelLayer {
 }
 
 impl DocumentPixelStore {
+    /// Layers whose packed canon does not exist yet, and the bytes it will cost
+    /// when it is built: `width*height*4` each.
+    ///
+    /// `layer_state` creates a `LayerState` on a layer's FIRST commit, not at
+    /// ingest, so a document that has been seeded but never committed has an
+    /// empty tile graph by construction. Reporting that as "the tile graph is
+    /// free" is the failure this pair of accessors exists to prevent: the number
+    /// is not wrong, it is incomplete, and completeness is the caller's
+    /// assumption.
+    fn owed_anchor(&self) -> (u64, u64) {
+        self.layers
+            .iter()
+            .filter(|(id, _)| !self.state_nodes.contains_key(*id))
+            .fold((0u64, 0u64), |(bytes, count), (_, layer)| {
+                (
+                    bytes.saturating_add(layer.width as u64 * layer.height as u64 * 4),
+                    count + 1,
+                )
+            })
+    }
+
     /// Row-major mirror bytes for every layer in this document. O(layers).
     pub fn row_major_bytes(&self) -> u64 {
         self.layers
@@ -221,21 +313,32 @@ impl DocumentPixelStore {
 impl PixelStoreRegistry {
     /// Read-only byte footprint for one document: the row-major mirror summed
     /// from each layer's buffer length, plus the tile graph counted once per
-    /// distinct block.
+    /// distinct tile, plus what the tile graph still OWES for layers whose canon
+    /// has not been built yet.
     ///
     /// `&self` only - no buffer write, epoch bump, cursor move, `version()` bump
     /// or `Arc<StateNode>` mutation - and no pixel bytes are returned, so two
     /// calls on an unchanged document are byte-identical. `None` for a document
     /// this registry does not hold, so an unknown id can never read as a
     /// zero-byte document.
+    ///
+    /// Consumers, and there is exactly one: the dev-only byte-accounting row in
+    /// `perfAuditDev.ts`, which drives the `rust_pixels_store_bytes` command from
+    /// the audit harness. Nothing in the shipping UI, and no production command,
+    /// reads this - the probe is a diagnostic, so its cost never lands on a paint
+    /// or undo path. The sibling `rust_pixels_history_depth` probe still has NO
+    /// consumer at all: it answers a cursor-parity question nothing asks yet.
     pub fn get_store_bytes(&self, doc_id: &str) -> Option<PixelStoreBytes> {
         let doc = self.docs.get(doc_id)?;
         let row_major_bytes = doc.row_major_bytes();
         let tile_graph = doc.history_tile_bytes();
+        let (owed_anchor_bytes, owed_anchor_layer_count) = doc.owed_anchor();
         Some(PixelStoreBytes {
             layer_count: doc.layers.len() as u64,
             row_major_bytes,
             total_bytes: row_major_bytes.saturating_add(tile_graph.total_bytes),
+            owed_anchor_bytes,
+            owed_anchor_layer_count,
             tile_graph,
         })
     }

@@ -20,6 +20,37 @@ export interface PerfAuditDims {
 
 export type PerfCell = number | "ERROR";
 
+/** One read of the byte probe against one document at one stage of its commit run. */
+export interface PerfByteSample {
+  doc_id: string;
+  stage:
+    | "seeded"
+    | "after-subtile-commits"
+    | "after-full-layer-commit"
+    | "control-full-layer-only";
+  /** Commits recorded in the store when this read happened. */
+  commits: number;
+  layer_count: number;
+  row_major_bytes: number;
+  tile_total_bytes: number;
+  shared_bytes: number;
+  private_bytes: number;
+  tile_count: number;
+  state_count: number;
+  tile_reference_count: number;
+  /**
+   * Tile-graph bytes the document owes but has not allocated, because a packed
+   * canon is built on a layer's first commit. The `seeded` row is the one that
+   * reads non-zero, and it is the row that would otherwise look like a cheap
+   * document: the tile graph there is genuinely empty, but it is empty because
+   * it has not been built, not because it is free.
+   */
+  owed_anchor_bytes: number;
+  owed_anchor_layer_count: number;
+  /** Wall time of this one probe read (IPC round trip + the Rust walk). */
+  probe_ms: number;
+}
+
 export interface PerfAuditRow {
   op: string;
   totalMs: PerfCell;
@@ -28,6 +59,8 @@ export interface PerfAuditRow {
   uploadMs: PerfCell;
   snapHistMs: PerfCell;
   notes: string;
+  /** Present only on the byte-accounting row: the probe reads behind the numbers. */
+  bytes?: PerfByteSample[];
 }
 
 export type PerfRowCells = Omit<PerfAuditRow, "op">;
@@ -53,6 +86,10 @@ export type PerfGlFactory = (w: number, h: number) => Promise<PerfGlBackend>;
 
 export interface PerfRunCtx {
   makeGl: PerfGlFactory;
+  /** Square document sides (px) the byte-accounting row measures. */
+  byteSizes: number[];
+  /** Sub-tile commits per document before the sharing read. */
+  byteCommits: number;
 }
 
 export interface PerfAuditOptions {
@@ -61,6 +98,8 @@ export interface PerfAuditOptions {
   buildScratch?: (w: number, h: number) => Promise<PerfScratch>;
   closeScratch?: (scratch: PerfScratch) => Promise<void>;
   makeGl?: PerfGlFactory;
+  byteSizes?: number[];
+  byteCommits?: number;
 }
 
 export const PERF_AUDIT_OPS: readonly string[] = [
@@ -78,11 +117,24 @@ export const PERF_AUDIT_OPS: readonly string[] = [
   "text-raster-preview",
   "shape-raster",
   "ipc-probe",
+  "byte-accounting",
 ];
 
 const DEFAULT_W = 3072;
 const DEFAULT_H = 4608;
 const NOT_PART = -1;
+/** Square sides the byte row measures by default: one mid-size, one large. */
+const DEFAULT_BYTE_SIZES = [2048, 4096];
+/**
+ * Sub-tile commits per document before the sharing read. This is the store's own
+ * stream cap (`max_depth`), NOT an arbitrary sample: the memory requirement is
+ * about a history at its cap, so the harness has to reach the same depth the
+ * Rust measurement pins or it reproduces a shallower document than the one being
+ * claimed about.
+ */
+const DEFAULT_BYTE_COMMITS = 50;
+/** Side of the sub-tile commit that leaves the other tiles shared. */
+const BYTE_SUBTILE_PX = 4;
 
 function round1(ms: number): number {
   if (ms < 0 || !Number.isFinite(ms)) return NOT_PART;
@@ -536,6 +588,147 @@ export const defaultRunners: Record<string, RowRunner> = {
       notes: `${ok}x read-only probe avg, debug build; release needs a device run`,
     };
   },
+
+  /**
+   * Byte accounting: what the canonical pixel store actually holds, read through
+   * the read-only `rust_pixels_store_bytes` probe.
+   *
+   * Four reads per document size, and the ORDER is the measurement:
+   *
+   * 1. seeded - there are NO tiles yet. The packed canon is built on a layer's
+   *    first commit, so this read reports the mirror alone with an empty tile
+   *    graph plus `owed_anchor_bytes`, the anchor that is not built yet. Reading
+   *    its empty graph as "this document is cheap" is the misread the owed field
+   *    exists to stop.
+   * 2. after sub-tile commits - the case sharing exists for. A 4x4 commit lands
+   *    inside one 256px tile, so every other tile keeps its identity and is
+   *    counted once however many states reach it.
+   * 3. after one FULL-layer commit - which re-tiles every tile, so the newly
+   *    written state owns all of them. Watch `shared_bytes`, not `share`: the
+   *    shared BYTES do not move (the older states still reach the untouched
+   *    tiles) while the denominator grows, so the RATIO falls. That is dilution.
+   * 4. the CONTROL: a separate document whose only commit is full-layer, so it
+   *    retains nothing. That is the one case where `shared_bytes` is exactly 0.
+   *    Without it in the printed block, stage 3 reads as collapse - which is the
+   *    misread this row exists to prevent, on the surface a human actually reads.
+   *
+   * One number alone would say nothing about whether sharing works.
+   *
+   * It is NOT a frame-pacing measurement and the timing column here is only the
+   * probe's own wall time: the renderer callback is all that is timeable
+   * headlessly, and jsdom's requestAnimationFrame is timer-based.
+   */
+  "byte-accounting": async (_s, ctx) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { getPixelStoreBytes } = await import("@/lib/protocol/pixelStoreBytes");
+    const sizes = ctx?.byteSizes?.length ? ctx.byteSizes : DEFAULT_BYTE_SIZES;
+    const commits = ctx?.byteCommits ?? DEFAULT_BYTE_COMMITS;
+    const samples: PerfByteSample[] = [];
+    let probeMs = 0;
+    const rowStart = performance.now();
+
+    const read = async (
+      docId: string,
+      stage: PerfByteSample["stage"],
+      done: number,
+    ): Promise<void> => {
+      const t0 = performance.now();
+      const b = await getPixelStoreBytes(docId);
+      const ms = performance.now() - t0;
+      probeMs += ms;
+      samples.push({
+        doc_id: docId,
+        stage,
+        commits: done,
+        layer_count: b.layer_count,
+        row_major_bytes: b.row_major_bytes,
+        tile_total_bytes: b.tile_graph.total_bytes,
+        shared_bytes: b.tile_graph.shared_bytes,
+        private_bytes: b.tile_graph.private_bytes,
+        tile_count: b.tile_graph.tile_count,
+        state_count: b.tile_graph.state_count,
+        tile_reference_count: b.tile_graph.tile_reference_count,
+        owed_anchor_bytes: b.owed_anchor_bytes,
+        owed_anchor_layer_count: b.owed_anchor_layer_count,
+        probe_ms: round1(ms),
+      });
+    };
+
+    for (const size of sizes) {
+      const docId = `perf-audit-bytes-${size}`;
+      const layerId = `perf-audit-bytes-layer-${size}`;
+      const bytes = size * size * 4;
+      // A flat seed is enough: the probe reports LENGTHS, never pixel values.
+      const rgba = new Uint8Array(bytes).fill(7);
+      await invoke("rust_pixels_open_document", { docId });
+      try {
+        await invoke("rust_pixels_init", { docId, layerId, width: size, height: size, bytes: rgba });
+        await read(docId, "seeded", 0);
+        for (let i = 0; i < commits; i++) {
+          // Sub-tile: inside the first tile, so every other tile keeps its
+          // identity across the whole run and can be reported as shared.
+          await invoke("apply_tile_patch", {
+            docId,
+            layerId,
+            before: [],
+            after: [{ x: 0, y: 0, w: BYTE_SUBTILE_PX, h: BYTE_SUBTILE_PX, data: rgba.subarray(0, BYTE_SUBTILE_PX * BYTE_SUBTILE_PX * 4) }],
+          });
+        }
+        await read(docId, "after-subtile-commits", commits);
+        await invoke("apply_tile_patch", {
+          docId,
+          layerId,
+          before: [],
+          after: [{ x: 0, y: 0, w: size, h: size, data: rgba }],
+        });
+        await read(docId, "after-full-layer-commit", commits + 1);
+      } finally {
+        // Never leave a seeded document behind: the next run re-opens the same
+        // ids, and a leaked one would make the numbers describe two documents.
+        await invoke("rust_pixels_close_document", { docId });
+      }
+    }
+
+    // The CONTROL: a separate document whose only commit is full-layer, so it
+    // retains nothing and `shared_bytes` is exactly 0. Without this in the
+    // printed block, stage 3's falling ratio reads as collapse rather than
+    // dilution, and a human running the audit in-app is the one who misreads it.
+    for (const size of sizes) {
+      const docId = `perf-audit-bytes-control-${size}`;
+      const layerId = `perf-audit-bytes-control-layer-${size}`;
+      const rgba = new Uint8Array(size * size * 4).fill(7);
+      await invoke("rust_pixels_open_document", { docId });
+      try {
+        await invoke("rust_pixels_init", { docId, layerId, width: size, height: size, bytes: rgba });
+        await invoke("apply_tile_patch", {
+          docId,
+          layerId,
+          before: [],
+          after: [{ x: 0, y: 0, w: size, h: size, data: rgba }],
+        });
+        await read(docId, "control-full-layer-only", 1);
+      } finally {
+        await invoke("rust_pixels_close_document", { docId });
+      }
+    }
+
+    return {
+      // The WHOLE row, so `total ms` means what the column says. The probe reads
+      // are only a fraction of it: seeding allocates and ships a whole document's
+      // RGBA per size, and the full-layer patches are another whole document each,
+      // which at 4096 is 67 MB apiece. `invoke ms` stays the probe-only figure so
+      // the measurement's own cost is still readable on its own.
+      totalMs: round1(performance.now() - rowStart),
+      invokeMs: round1(samples.length ? probeMs / samples.length : NOT_PART),
+      rasterMs: NOT_PART,
+      uploadMs: NOT_PART,
+      snapHistMs: NOT_PART,
+      notes: cleanNote(
+        `${samples.length} byte reads over ${sizes.join("/")}px docs at ${commits} sub-tile commits; total ms covers seeding + commits + reads, invoke ms is the probe alone; share falls after a full-layer commit because the denominator grows, not because sharing collapsed - see the control row for the one case that reads 0; no frame-pacing claim`,
+      ),
+      bytes: samples,
+    };
+  },
 };
 
 export async function defaultBuildScratch(w: number, h: number): Promise<PerfScratch> {
@@ -610,9 +803,55 @@ export function formatPerfAudit(rows: PerfAuditRow[], closed: boolean, dims: Per
     line(head),
     bar,
     ...body.map(line),
+    ...formatByteBlock(rows),
     `scratch: ${closed ? "closed" : "LEAK (close failed)"}`,
   ];
   return cleanTable(out.join("\n"));
+}
+
+/**
+ * Byte-accounting reads, printed under the timing table because they are lengths
+ * and a sharing ratio, not milliseconds. `share` is shared_bytes / tile_total,
+ * the only ratio that says whether structural sharing is in effect; the row-major
+ * mirror is listed apart because it is a SECOND population, not part of the tile
+ * graph.
+ */
+function formatByteBlock(rows: PerfAuditRow[]): string[] {
+  const samples = rows.flatMap((r) => r.bytes ?? []);
+  if (samples.length === 0) return [];
+  const lines = samples.map((s) => {
+    const share =
+      s.tile_total_bytes > 0
+        ? `${((s.shared_bytes / s.tile_total_bytes) * 100).toFixed(1)}%`
+        : "n/a";
+    return (
+      `  ${s.doc_id} n=${s.commits} ${s.stage}` +
+      ` mirror=${s.row_major_bytes}` +
+      ` tile_total=${s.tile_total_bytes}` +
+      ` shared=${s.shared_bytes} private=${s.private_bytes}` +
+      ` share=${share}` +
+      ` tiles=${s.tile_count} states=${s.state_count} refs=${s.tile_reference_count}` +
+      ` layers=${s.layer_count} probe=${s.probe_ms.toFixed(1)}ms` +
+      // Printed even when zero, and marked, so a row whose tile graph is empty
+      // reads as "not built yet" rather than "free".
+      (s.owed_anchor_layer_count > 0
+        ? ` owes_tile_graph=${s.owed_anchor_bytes} over ${s.owed_anchor_layer_count} layer(s) NOT YET BUILT`
+        : " owes_tile_graph=0")
+    );
+  });
+  return [
+    "",
+    "byte accounting (rust_pixels_store_bytes, read-only; lengths in bytes, share = shared/tile_total)",
+    ...lines,
+    // Printed next to the numbers, not in a comment a reader has to find: a
+    // falling `share` after a full-layer commit is DILUTION, because the shared
+    // BYTES held steady while the denominator grew. The control row is the only
+    // case that reads 0, and having both side by side is what stops the falling
+    // ratio from being read as collapse.
+    "  share falls after a full-layer commit because tile_total grows; shared_bytes holds",
+    "  steady while older states still reach untouched tiles = dilution, not collapse.",
+    "  the control row (its only commit is full-layer, nothing retained) is the zero case.",
+  ];
 }
 
 export function printPerfAudit(rows: PerfAuditRow[], closed: boolean, dims: PerfAuditDims): void {
@@ -624,7 +863,11 @@ export async function runPerfAudit(options?: PerfAuditOptions): Promise<PerfAudi
   const build = options?.buildScratch ?? defaultBuildScratch;
   const close = options?.closeScratch ?? defaultCloseScratch;
   const runners = { ...defaultRunners, ...options?.runners };
-  const ctx: PerfRunCtx = { makeGl: options?.makeGl ?? makeGlBackend };
+  const ctx: PerfRunCtx = {
+    makeGl: options?.makeGl ?? makeGlBackend,
+    byteSizes: options?.byteSizes ?? DEFAULT_BYTE_SIZES,
+    byteCommits: options?.byteCommits ?? DEFAULT_BYTE_COMMITS,
+  };
   const rows: PerfAuditRow[] = [];
   let scratch: PerfScratch | null = null;
   try {
