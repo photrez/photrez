@@ -25,6 +25,10 @@
  *   PHOTREZ_AUDIT_DIMS       optional "WxH" (e.g. "1536x2304"); default = in-app default.
  *   PHOTREZ_AUDIT_OUT        optional output path; default <tmpdir>/photrez-perf-audit-<timestamp>.json.
  *   PHOTREZ_AUDIT_TIMEOUT_MS budget for the battery call (default 600000).
+ *   PHOTREZ_DOC_READY_TIMEOUT_MS budget for the app document to reach
+ *                            readyState=complete (default 300000). Observed cold
+ *                            vite dev load on a loaded machine: ~100s, which the
+ *                            previous hardcoded 60s could not cover.
  *
  * Exit codes: 0 = captured, 1 = failure (stage named on stderr), 2 = blocked by env.
  *
@@ -41,6 +45,18 @@ import { parseHarnessFlags } from "./harness-flag-cleanup.mjs";
 const CDP_PORT = Number(process.env.PHOTREZ_CDP_PORT || 9223);
 const LAUNCH_TIMEOUT_MS = Number(process.env.PHOTREZ_LAUNCH_TIMEOUT_MS || 240000);
 const AUDIT_TIMEOUT_MS = Number(process.env.PHOTREZ_AUDIT_TIMEOUT_MS || 600000);
+/**
+ * Budget for the app document to reach readyState=complete after launch.
+ *
+ * Derived from observation rather than picked to make a test pass: on a loaded
+ * machine a cold vite dev load took ~100s. The previous hardcoded 60s budget
+ * could not cover that, so this harness reported "app document never reached
+ * readyState complete before flag seeding" against a perfectly healthy app -
+ * a false failure caused purely by a wrong constant. 300s leaves headroom for a
+ * slower box while still bounding a genuine hang. Override with
+ * PHOTREZ_DOC_READY_TIMEOUT_MS.
+ */
+const DOC_READY_TIMEOUT_MS = Number(process.env.PHOTREZ_DOC_READY_TIMEOUT_MS || 300000);
 const REPO_ROOT = process.cwd();
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
@@ -59,6 +75,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("  PHOTREZ_AUDIT_DIMS        optional WxH, e.g. \"1536x2304\".");
   console.log("  PHOTREZ_AUDIT_OUT         optional output path.");
   console.log("  PHOTREZ_AUDIT_TIMEOUT_MS  battery call budget ms (default 600000).");
+  console.log("  PHOTREZ_DOC_READY_TIMEOUT_MS  app document readyState budget ms (default 300000).");
   console.log("");
   console.log("Exit codes: 0 captured, 1 failure, 2 blocked by env.");
   process.exit(0);
@@ -198,16 +215,64 @@ async function connectCdp() {
   return cdp;
 }
 
+/**
+ * A release binary produced by a bare `cargo build --release` RUNS but has NO
+ * EMBEDDED FRONTEND: the webview falls back to the devUrl, the window comes up
+ * with no editor chrome, and nothing here can ever become ready. Waiting out the
+ * ready budget against that target reports a confusing timeout instead of the
+ * real problem - the binary is not measurable. Build with `bun run tauri build`.
+ */
+async function assertMeasurableApp(cdp, target) {
+  const url = String((target && target.url) || "");
+  if (!/tauri\.localhost/.test(url)) {
+    fail(
+      "precondition",
+      `app is not serving embedded assets (target=${url}). A bare \`cargo build --release\` yields an exe with no embedded frontend that falls back to the dev server, so the window has no editor chrome. Build with \`bun run tauri build\` and re-run.`,
+    );
+    return false;
+  }
+  const buttons = Number(await cdp.evaluate("document.querySelectorAll('button').length"));
+  if (!(buttons >= 20)) {
+    fail("precondition", `editor chrome is not rendered (only ${buttons} buttons); the app did not load its UI.`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Waits for the app document to finish loading.
+ *
+ * Returns the LAST OBSERVED state as well as the verdict, because "still
+ * loading when the budget expired" and "the document is broken" are different
+ * failures and must not be reported with the same message. A budget expiry on a
+ * document that is visibly progressing is a slow machine, not a defect.
+ */
 async function waitDocReady(cdp, timeoutMs) {
   const start = Date.now();
+  let last = { readyState: "unknown", href: "unknown" };
   while (Date.now() - start < timeoutMs) {
     try {
-      const ok = await cdp.evaluate("document.readyState === 'complete' && !/^about:/.test(location.href)");
-      if (ok) return true;
+      const seen = await cdp.evaluate(
+        "JSON.stringify({ readyState: document.readyState, href: String(location.href).slice(0, 80) })",
+      );
+      const parsed = JSON.parse(seen);
+      last = parsed;
+      if (parsed.readyState === "complete" && !/^about:/.test(parsed.href)) {
+        return { ok: true, elapsedMs: Date.now() - start, last };
+      }
     } catch {}
     await sleep(500);
   }
-  return false;
+  return { ok: false, elapsedMs: Date.now() - start, last };
+}
+
+function describeReadyFailure(result, budgetMs, phase) {
+  const { last } = result;
+  const stillLoading = last.readyState === "loading" || last.readyState === "interactive";
+  const how = stillLoading
+    ? `document was STILL LOADING after ${budgetMs}ms (readyState=${last.readyState}, href=${last.href}) - this is a slow load, not a broken document; raise PHOTREZ_DOC_READY_TIMEOUT_MS`
+    : `document stalled at readyState=${last.readyState}, href=${last.href} after ${budgetMs}ms`;
+  return `app document not ready ${phase} after ${result.elapsedMs}ms: ${how}`;
 }
 
 async function waitAuditReady(cdp, timeoutMs) {
@@ -366,10 +431,17 @@ async function main() {
       if (!cdp) {
         fail("attach", "no page target with webSocketDebuggerUrl.");
         exitCode = 1;
-      } else if (!(await waitDocReady(cdp, 60000))) {
-        fail("ready", "app document never reached readyState complete before flag seeding.");
-        exitCode = 1;
       } else {
+        const measurable = await assertMeasurableApp(cdp, attachTarget);
+        const firstReady = measurable
+          ? await waitDocReady(cdp, DOC_READY_TIMEOUT_MS)
+          : { ok: true, elapsedMs: 0, last: { readyState: "skipped", href: "skipped" } };
+        if (!firstReady.ok) {
+          fail("ready", describeReadyFailure(firstReady, DOC_READY_TIMEOUT_MS, "before flag seeding"));
+          exitCode = 1;
+        }
+      }
+      if (exitCode === 0) {
         await cdp.evaluate(
           FLAG_PAIRS.map((f) => `localStorage.setItem(${JSON.stringify(f.key)}, ${JSON.stringify(f.value)});`).join(""),
         );
@@ -388,8 +460,12 @@ async function main() {
           exitCode = 1;
         } else {
           cdp = await connectCdp();
-          if (!(await waitDocReady(cdp, 60000))) {
-            fail("ready", "app document not ready after reload/flag application.");
+          const measurableAfterReload = await assertMeasurableApp(cdp, target);
+          const reloadReady = measurableAfterReload
+            ? await waitDocReady(cdp, DOC_READY_TIMEOUT_MS)
+            : { ok: true, elapsedMs: 0, last: { readyState: "skipped", href: "skipped" } };
+          if (!reloadReady.ok) {
+            fail("ready", describeReadyFailure(reloadReady, DOC_READY_TIMEOUT_MS, "after reload/flag application"));
             exitCode = 1;
           } else if (!(await waitAuditReady(cdp, 120000))) {
             fail("ready", "window.__photrezPerfAudit never became a function (dev battery not loaded).");
