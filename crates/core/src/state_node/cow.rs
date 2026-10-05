@@ -50,6 +50,13 @@ impl LayerState {
         self.current().clone()
     }
 
+    /// The layer's permanent anchor state (`state[0]`), the packed buffer built
+    /// at ingest. Always alive, so it always retains one full `Arc<[u8]>` per
+    /// layer; byte accounting must read it or it undercounts by a whole layer.
+    pub fn base_state(&self) -> Arc<StateNode> {
+        self.base.clone()
+    }
+
     /// Batch-COW: apply a set of change regions (absolute layer px; full-tile
     /// OR sub-tile dirty rects) into the CURRENT state and return a `(before,
     /// after)` pair of `Arc<StateNode>` for the caller's authoritative history

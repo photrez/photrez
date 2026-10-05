@@ -52,6 +52,15 @@ import { CENSUS_COMMANDS } from "@/lib/protocol/pixelInvokeCensus";
  * `&self`-only accessor every depth read uses, and a second call on an unchanged
  * document is byte-identical (pinned in `pixel_history_depth.rs`), so it belongs
  * here by the same rule as the other reads and NOT on the census.
+ *
+ * `rust_pixels_store_bytes` is the byte-footprint probe: it reports the row-major
+ * mirror's length and the tile graph's distinct-tile totals. It is a READ because
+ * it reports LENGTHS and mutates nothing - the accessor is `&self` only, returns
+ * no pixel bytes, and two calls on an unchanged document are byte-identical
+ * (pinned in `pixel_store_bytes.rs`). Same rule as the history probes: declared by
+ * name so a genuine new reader cannot be mistaken for a writer, and off the
+ * invoke census so a drained count never reports a state change where only a
+ * measurement ran.
  */
 const READS = new Set<string>([
   "rust_pixels_get_epoch",
@@ -59,6 +68,7 @@ const READS = new Set<string>([
   "rust_pixels_snapshot_tile",
   "rust_pixels_history_depth",
   "rust_pixels_history_tip",
+  "rust_pixels_store_bytes",
   "rust_pixels_open_document",
   "rust_pixels_close_document",
 ]);

@@ -949,6 +949,9 @@ pub fn registry() -> MutexGuard<'static, Option<PixelStoreRegistry>> {
     REGISTRY.lock().unwrap()
 }
 
+mod byte_accounting;
+pub use byte_accounting::{PixelStoreBytes, TileByteReport};
+
 #[cfg(test)]
 mod tests;
 
