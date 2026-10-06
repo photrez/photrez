@@ -209,7 +209,9 @@ function makeSim() {
       s.epoch += 1;
       s.version += 1;
       const cut = (p: Uint8ClampedArray) => p.slice((args.y * s.w + args.x) * 4, (args.y * s.w + args.x) * 4 + args.w * args.h * 4);
-      return { before: [{ x: args.x, y: args.y, w: args.w, h: args.h, data: cut(beforePx) }], after: [{ x: args.x, y: args.y, w: args.w, h: args.h, data: cut(afterPx) }], epoch: s.epoch, version: s.version };
+      // Post-image only: the real reply carries no pre-image. The pre-image lives
+      // in `s.undo` above, which is where undo reads it back from.
+      return { after: [{ x: args.x, y: args.y, w: args.w, h: args.h, data: cut(afterPx) }], epoch: s.epoch, version: s.version };
     }
     if (cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo") {
       if (!s) throw new Error("no layer");

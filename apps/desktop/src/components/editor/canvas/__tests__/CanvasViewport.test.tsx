@@ -3530,7 +3530,6 @@ describe("Native authority: paint-bucket pixel commit syncs facade version (real
       }
       if (cmd === "rust_pixels_write_region") {
         return {
-          before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: version,
           version,

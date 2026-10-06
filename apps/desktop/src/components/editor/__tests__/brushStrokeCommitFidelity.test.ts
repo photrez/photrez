@@ -217,7 +217,9 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
       layer.redo = [];
       layer.epoch += 1;
       layer.version += 1;
-      return { before: [{ x, y, w: rw, h: rh, data: beforePx.slice((y * layer.w + x) * 4, (y * layer.w + x) * 4 + rw * rh * 4) }], after: [{ x, y, w: rw, h: rh, data: afterPx.slice((y * layer.w + x) * 4, (y * layer.w + x) * 4 + rw * rh * 4) }], epoch: layer.epoch, version: layer.version };
+      // Post-image only: the real reply carries no pre-image. The pre-image lives
+      // in `layer.undo` above, which is where undo reads it back from.
+      return { after: [{ x, y, w: rw, h: rh, data: afterPx.slice((y * layer.w + x) * 4, (y * layer.w + x) * 4 + rw * rh * 4) }], epoch: layer.epoch, version: layer.version };
     }
     throw new Error("unknown cmd " + cmd);
   };

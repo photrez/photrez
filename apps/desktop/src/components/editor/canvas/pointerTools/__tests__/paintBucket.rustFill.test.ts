@@ -154,8 +154,8 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
         return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
       }
       if (cmd === "rust_pixels_write_region") {
+        // The real reply carries no pre-image; this double matches it.
         writeRes = {
-          before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1, version: 1,
         };
@@ -175,12 +175,13 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
 
       // Imperative memento present. For this Rust-owned entry the memento is a
       // cursor token only: the Rust entry owns the pixels, and one undo reads
-      // them back from Rust instead of replaying the memento tiles.
+      // them back from Rust instead of replaying the memento tiles. Its
+      // pre-image is empty because the write reply carries none.
       const imp = commit.mock.calls[0][2];
       expect(imp.layerId).toBe("L1");
       expect(imp.surfaceWidth).toBe(8);
       expect(imp.surfaceHeight).toBe(8);
-      expect(imp.before.length).toBe(1);
+      expect(imp.before.length).toBe(0);
       expect(imp.after.length).toBe(1);
 
       // Read current pixels from Rust (overlapping fills use the Rust base).
@@ -269,8 +270,8 @@ describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () =>
         return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
       }
       if (cmd === "rust_pixels_write_region") {
+        // The real reply carries no pre-image; this double matches it.
         writeRes = {
-          before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1, version: 1,
         };
@@ -323,8 +324,8 @@ function okFillInvoke() {
       return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
     }
     if (cmd === "rust_pixels_write_region") {
+      // Post-image only: the real reply carries no pre-image.
       return {
-        before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
         after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
         epoch: 1, version: 1,
       };
@@ -428,8 +429,7 @@ describe("paint bucket commit pin (history bridge ON)", () => {
       }
       if (cmd === "rust_pixels_write_region") {
         return {
-          before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
+              after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,
         };

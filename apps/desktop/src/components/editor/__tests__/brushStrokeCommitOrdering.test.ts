@@ -346,9 +346,10 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
       layer.redo = [];
       layer.epoch += 1;
       layer.version += 1;
-      const beforeData = beforePx.slice((y * layer.w + x) * 4, (y * layer.w + x) * 4 + rw * rh * 4);
       const afterData = afterPx.slice((y * layer.w + x) * 4, (y * layer.w + x) * 4 + rw * rh * 4);
-      return { before: [{ x, y, w: rw, h: rh, data: beforeData }], after: [{ x, y, w: rw, h: rh, data: afterData }], epoch: layer.epoch, version: layer.version };
+      // Post-image only: the real reply carries no pre-image. The pre-image lives
+      // in `layer.undo` above, which is where undo reads it back from.
+      return { after: [{ x, y, w: rw, h: rh, data: afterData }], epoch: layer.epoch, version: layer.version };
     }
     // Legacy unified-stream history contract (used by the standalone undo/redo test).
     if (cmd === "rust_pixels_init") {

@@ -197,19 +197,22 @@ function createStore(width: number, height: number) {
       }
       if (x < 0 || y < 0 || x + w > width || y + h > height) return Promise.reject("Region outside layer bounds");
       if (rgba.length !== w * h * 4) return Promise.reject("Invalid region length");
-      const before = readTile(x, y, w, h);
       undoStack.push(buffer.slice());
       for (let row = 0; row < h; row++) {
         buffer.set(rgba.subarray(row * w * 4, (row + 1) * w * 4), ((y + row) * width + x) * 4);
       }
       writes.push({ x, y, w, h, rgba });
       epoch += 1;
-      const response = { before: [before], after: [readTile(x, y, w, h)], epoch, version: epoch };
+      // Post-image only: the real reply carries no pre-image. It shipped one until
+      // this was measured - the pre-image is a whole dirty region's worth of base64
+      // in every stroke's response, and no consumer could read it (undo takes the
+      // pre-image from `undoStack` above, which is this store's own history).
+      const response = { after: [readTile(x, y, w, h)], epoch, version: epoch };
       // Measured on the exact object this double returns, which is the shape the
       // host parses. Rust tiles carry `dataBase64`; a `data` number array is what
       // the old wire cost.
-      // Payload bytes this response ships: the before tile AND the after tile.
-      payloadBytes += 2 * w * h * 4;
+      // Payload bytes this response ships: the post-image tile.
+      payloadBytes += w * h * 4;
       responseWires.push(serializeIpcPayload(response));
       return response;
     }
@@ -363,11 +366,14 @@ describe("brush seed transport (first stroke on a store that has no pixels yet)"
   }
 
   // THE SECOND HALF OF THE WIRE. The seed test below covers the request; this
-  // covers the RESPONSE. rust_pixels_write_region answers with before+after tiles
-  // for a 3254x208 dirty rect, which is 27,264,034 JSON characters when each byte
-  // is a number - the per-stroke cost that kept ~14 frames over 33 ms even after
-  // the seed was fixed. The response must cross base64 too, and this measures the
-  // shape the host actually parses.
+  // covers the RESPONSE. rust_pixels_write_region answers with the POST-image
+  // tiles for the dirty rect - 13 tiles over a 3254x208 rect, 4,543,864 base64
+  // characters, measured in the shipped app. The response must cross base64, not
+  // a per-byte JSON array (which cost 27,264,034 characters for a pre-image PLUS
+  // a post-image on this rect), and this measures the shape the host parses.
+  //
+  // The pre-image half of that older figure no longer exists: the reply dropped it
+  // once it was measured to have no reader.
   //
   // DEFEAT: make the store answer with `data: number[]` tiles again (the shape
   // Rust used to serialize) and jsonElementsPerByte goes above zero and the

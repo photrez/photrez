@@ -12,8 +12,8 @@ const mockInvoke = vi.fn(async (cmd: string, args: unknown, _options?: unknown) 
   if (cmd === "rust_pixels_get_epoch") return 0;
   if (cmd === "rust_pixels_init") return undefined;
   if (cmd === "rust_pixels_write_region") {
+    // Post-image only: the real reply carries no pre-image.
     return {
-      before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
       after: [{ x: 0, y: 0, w: 100, h: 100, data: (args as any).rgba ?? new Array(100 * 100 * 4).fill(128) }],
       epoch: 1,
       version: 1,

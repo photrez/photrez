@@ -30,8 +30,11 @@
  *  - `rust_pixels_resize_layer` REBUILDS the buffer at the new dimensions with
  *    epoch reset to 0, and drops the layer's pixel history (a stale-dimension
  *    tile patch must never replay onto the new grid);
- *  - `rust_pixels_write_region` returns `before`/`after` tiles plus the bumped
- *    epoch and version, and tiles are 256-grid.
+ *  - `rust_pixels_write_region` returns the `after` tiles plus the bumped epoch
+ *    and version, and tiles are 256-grid. It carries NO pre-image: the write
+ *    appends the pre-image to the store's own history, and undo returns it from
+ *    there. A double that answered `before` would let a caller read a field the
+ *    real command stopped sending.
  */
 import { vi } from "vitest";
 import { snapshotBitmap } from "@/__tests__/faithfulOffscreenCanvas";
@@ -236,7 +239,6 @@ export function createRustStoreEmulator(): RustStoreEmulator {
         if (rgba.length !== w * h * 4) {
           throw new Error(`layer not initialized or region out of bounds: ${layerId}`);
         }
-        const beforeTiles = regionTiles(l, x, y, w, h);
         const before = l.pixels.slice();
         for (let row = 0; row < h; row++) {
           const dst = ((y + row) * l.width + x) * 4;
@@ -245,8 +247,11 @@ export function createRustStoreEmulator(): RustStoreEmulator {
         l.history.push({ before, after: l.pixels.slice() });
         l.epoch += 1;
         l.version += 1;
+        // The real reply carries the POST-image only - no pre-image. It used to
+        // answer `before` too, which let a caller read a field the runtime stopped
+        // sending: the write records the pre-image in this store's own history
+        // (the `l.history.push` above), and undo returns it from there.
         return {
-          before: beforeTiles,
           after: regionTiles(l, x, y, w, h),
           epoch: l.epoch,
           version: l.version,

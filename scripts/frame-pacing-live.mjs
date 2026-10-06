@@ -703,10 +703,15 @@ const report = {
         surfaceBytes: toBitmapCalls[0].surfaceBytes ?? null,
       }
     : { note: "no audit lines captured - was localStorage.photrez.c4Audit set to 1 before launch?" },
-  writeRegionResponse: commitLines.length
+  // `postImageBytes`, not `responseBytes`: the app's audit line sums the
+  // reply's POST-IMAGE tiles, which is all the reply carries. It was reported as
+  // a whole-response size while measuring only half of it, so it read the same
+  // before and after the reply dropped its pre-image and could not detect a
+  // reply-size change at all.
+  writeRegionPostImage: commitLines.length
     ? {
         calls: commitLines.length,
-        medianResponseBytes: commitLines.map((a) => a.responseBytes).sort((a, b) => a - b)[Math.floor(commitLines.length / 2)],
+        medianPostImageBytes: commitLines.map((a) => a.postImageBytes).sort((a, b) => a - b)[Math.floor(commitLines.length / 2)],
       }
     : { note: "no commit audit lines captured" },
   ...stats,

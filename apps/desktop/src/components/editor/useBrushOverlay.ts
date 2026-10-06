@@ -258,8 +258,12 @@ export function useBrushOverlay() {
       // (a rust_pixels_get_epoch already happened) but still before any
       // rust_pixels_write_region attempt.
       assertWriteRegionBytes(region.data.byteLength, dirtyRegion);
+      // The reply carries the POST-image only. The pre-image it used to carry
+      // was decoded here and then never read: the memento below is built from
+      // `beforePatches` (this surface's own pre-stroke tiles), and Rust's `Pixel`
+      // entry already holds the pre-image that undo reads back. Decoding it also
+      // cost a dirty region's worth of base64 on every stroke.
       const res = decodeRustBytes<{
-        before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
         after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
         epoch: number;
         version: number;
@@ -317,8 +321,13 @@ export function useBrushOverlay() {
       try {
         if (localStorage.getItem("photrez.c4Audit") === "1") {
           const dirtyRectBytes = dw * dh * 4;
-          const responseBytes = res.after.reduce((s, t) => s + t.w * t.h * 4, 0);
-          console.info(`[paint-commit] dirtyRectBytes=${dirtyRectBytes} tileCount=${res.after.length} responseBytes=${responseBytes}`);
+          // The POST-IMAGE tile bytes, which is all this reply carries. Named for
+          // what it measures: it used to be called `responseBytes` while summing
+          // only `res.after`, so it could not detect a change in reply size - it
+          // reported the same number before and after the reply dropped its
+          // pre-image. A whole-reply size would need the base64 length too.
+          const postImageBytes = res.after.reduce((s, t) => s + t.w * t.h * 4, 0);
+          console.info(`[paint-commit] dirtyRectBytes=${dirtyRectBytes} tileCount=${res.after.length} postImageBytes=${postImageBytes}`);
         }
       } catch { /* audit never breaks commit */ }
     };

@@ -174,8 +174,15 @@ path had the same defect and was left running on the byte-array wire:
 
 | | request | response |
 |---|---|---|
-| byte-array wire (before) | 5,414,721 chars | 27,264,034 chars (13 tiles x before+after) |
-| base64 wire (now) | 3,588,864 chars | 9,089,352 chars |
+| byte-array wire (original) | 5,414,721 chars | 27,264,034 chars (13 tiles x before+after) |
+| base64 wire | 3,588,864 chars | 9,089,352 chars (13 tiles x before+after) |
+| base64 wire, post-image only (current) | 3,588,864 chars | **4,544,687 chars** (13 tiles) |
+
+**The last row is a later change, measured in the shipped app.** The reply no
+longer carries a pre-image: the write had already appended one to Rust's own pixel
+history, and undo returns those bytes from there, so nothing could read the copy in
+the reply. That is **4,545,641 characters removed per stroke at this rect**, which
+is why the row above is now historical rather than current.
 
 Measured in-app at the 3254x208 dirty rect the harness strokes: request
 serialisation **589–880 ms**, base64 alternative **156 ms**. So the seed alone
@@ -488,12 +495,30 @@ that would force it (undo restore, save, CPU-side export) are the place to look 
 a per-frame budget is ever missed there. It is **not** on the stroke commit path,
 so it does not change the prioritisation above.
 
-Corroboration from the same runs: the new harness capture reports a median
-`responseBytes` of 7,340,032 at 4096² and 4,194,304 at 2048². Carried through the
-~1.33x base64 expansion and this document's own ~0.036 ms/1,000-response-chars fit,
-that predicts **351 ms** at 4096² against the 344-387 ms measured above — an
-independent path to the existing number, from a harness that never measured the
-response round trip directly.
+**CORRECTION — the corroboration this section previously carried was
+invalid, and the number it produced was a coincidence.** It read a median
+`responseBytes` of 7,340,032 at 4096² and 4,194,304 at 2048², pushed those through
+the ~1.33x base64 expansion and this document's own ~0.036 ms/1,000-chars fit, and
+reported the resulting 351 ms as "an independent path to the existing number".
+
+It was not independent, and it was not the response size. `responseBytes` summed
+**only the post-image tiles** (`useBrushOverlay.ts`, the `[paint-commit]` audit
+line), while the reply was still carrying a pre-image of the same size. So the
+figure was **half** the response, and the fit was calibrated on *whole*-response
+character counts from the size sweep above. Applying one to the other happened to
+land near the measured 344-387 ms, which is what made it look like agreement.
+
+Two consequences, both stated rather than smoothed over:
+
+1. **That paragraph was not evidence.** The 344-387 ms attribution rests on the
+   size sweep and the lopsided-payload probes alone, which still stand.
+2. **A metric named for the response measured part of it.** Renamed to
+   `postImageBytes`, and it is now structurally incapable of reporting a
+   whole-reply size.
+
+The reply's real size at the 3254x208 rect, measured in the shipped app rather
+than inferred: **4,544,687 characters** post-image, against 9,090,328 for the
+before+after reply it replaced.
 
 ## Re-running
 

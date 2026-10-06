@@ -105,7 +105,6 @@ describe("adjustment bake binary transport", () => {
       if (cmd === "rust_pixels_init") return undefined;
       if (cmd === "rust_pixels_write_region") {
         return {
-          before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,
@@ -176,7 +175,6 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
       if (cmd === "rust_pixels_init") return undefined;
       if (cmd === "rust_pixels_write_region") {
         return {
-          before: [{ x: 0, y: 0, w: W, h: H, data: new Array(W * H * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: W, h: H, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,
@@ -236,7 +234,9 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
     await vi.waitFor(() => {
       const bakes = h.commitSpy.mock.calls.filter((c) => c[1] === "Apply Adjustment");
       expect(bakes).toHaveLength(1);
-      expect(bakes[0][2]?.before?.length).toBeGreaterThan(0);
+      // No pre-image on this memento: the write reply carries none, and the
+      // entry is a rustOwned cursor token whose pixels undo reads back from Rust.
+      expect(bakes[0][2]?.before?.length).toBe(0);
       expect(bakes[0][2]?.after?.length).toBeGreaterThan(0);
     });
   });
@@ -292,7 +292,6 @@ describe("adjustment bake commit pin (history bridge ON)", () => {
       if (cmd === "rust_pixels_init") return undefined;
       if (cmd === "rust_pixels_write_region") {
         return {
-          before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,

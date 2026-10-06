@@ -124,6 +124,24 @@ pub struct PaintCommitJson {
     pub version: u64,
 }
 
+/// `rust_pixels_write_region`'s reply: the POST-image only.
+///
+/// No pre-image, because nothing downstream can use one. The write records the
+/// pre-image in Rust's own pixel history (the `Pixel` entry `write_region`
+/// appends), and undo reads it back from there through `rust_pixels_undo`. The
+/// brush memento that the host commits for a stroke is built from the host's own
+/// before-image tiles, and every other producer that consumed this reply stored
+/// it on an entry marked `rustOwned`, which the undo/redo dispatch deliberately
+/// refuses to replay in favour of Rust's bytes. Carrying a second copy of the
+/// same pixels across the process boundary cost a whole dirty region's worth of
+/// base64 in the response of EVERY stroke.
+#[derive(serde::Serialize)]
+pub struct WriteRegionJson {
+    pub after: Vec<TilePatchJson>,
+    pub epoch: u64,
+    pub version: u64,
+}
+
 fn patch_to_wire(t: &TilePatch) -> TilePatchJson {
     TilePatchJson {
         key: format!("{},{}", t.x / 256, t.y / 256),
@@ -433,10 +451,14 @@ pub fn rust_pixels_get_epoch(doc_id: String, layer_id: String) -> Result<u64, St
 }
 
 /// C5.4 fill pilot: write an explicit RGBA region as one canonical `Pixel`
-/// history entry. Returns the exact `before`/`after` tile patches + new
-/// epoch/version so TS can drive its derived cache (PaintTileSurface) and its
-/// history memento (undo/redo replays the before/after tiles). Mirrors the
-/// brush commit's single canonical step — no independent TS-visible step.
+/// history entry. Returns the POST-image tile patches + new epoch/version so TS
+/// can drive its derived cache (PaintTileSurface). Mirrors the brush commit's
+/// single canonical step — no independent TS-visible step.
+///
+/// The reply carries NO pre-image (`WriteRegionJson`). Undo does not need one
+/// from here: this write already appended the pre-image to Rust's pixel history,
+/// and `rust_pixels_undo` returns it. A host that wanted the pre-image for its
+/// own history memento was building it from tiles it already held.
 #[tauri::command]
 pub fn rust_pixels_write_region(
     doc_id: String,
@@ -446,18 +468,17 @@ pub fn rust_pixels_write_region(
     w: i64,
     h: i64,
     rgba_base64: String,
-) -> Result<PaintCommitJson, String> {
+) -> Result<WriteRegionJson, String> {
     if w < 0 || h < 0 {
         return Err(format!("negative region dimensions: {w}x{h}"));
     }
     let rgba = unb64(&rgba_base64, "rust_pixels_write_region rgbaBase64")?;
     let mut reg = registry();
     let reg = reg.get_or_insert_with(Default::default);
-    let (before, after, epoch, version) = reg
+    let (_pre_image, after, epoch, version) = reg
         .write_region(&doc_id, &layer_id, x, y, w as usize, h as usize, rgba)
         .ok_or_else(|| format!("layer not initialized or region out of bounds: {layer_id}"))?;
-    Ok(PaintCommitJson {
-        before: before.iter().map(patch_to_wire).collect(),
+    Ok(WriteRegionJson {
         after: after.iter().map(patch_to_wire).collect(),
         epoch,
         version,
@@ -743,6 +764,11 @@ pub fn paint_shadow_export(result_json: String) -> Result<String, String> {
 // registry-touching tests must run one-at-a-time to be deterministic.
 #[cfg(test)]
 pub(crate) static TEST_REGISTRY_LOCK: Mutex<()> = Mutex::new(());
+
+// The write reply's wire shape, split out because this file was already over the
+// 1000-line guard.
+#[cfg(test)]
+mod write_region_reply_tests;
 
 // ── C5.1 + C5.2 runtime integration test ────────────────────────────────────
 // Exercises the EXACT command path the frontend invokes (open → init → patch →

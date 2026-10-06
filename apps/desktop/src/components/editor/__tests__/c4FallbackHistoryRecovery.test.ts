@@ -191,9 +191,10 @@ function makeSim(opts?: { rejectWriteRegion?: string }) {
       s.redo = [];
       s.epoch += 1;
       s.version += 1;
-      const beforeData = beforePx.slice((y * s.w + x) * 4, (y * s.w + x) * 4 + w * h * 4);
       const afterData = afterPx.slice((y * s.w + x) * 4, (y * s.w + x) * 4 + w * h * 4);
-      return { before: [{ x, y, w, h, data: beforeData }], after: [{ x, y, w, h, data: afterData }], epoch: s.epoch, version: s.version };
+      // Post-image only: the real reply carries no pre-image. This store keeps
+      // the pre-image in `s.undo` above, which is where undo reads it back from.
+      return { after: [{ x, y, w, h, data: afterData }], epoch: s.epoch, version: s.version };
     }
     if (cmd === "apply_tile_patch") {
       args = decodeRustBytes(args);

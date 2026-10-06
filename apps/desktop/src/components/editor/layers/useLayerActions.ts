@@ -368,7 +368,6 @@ export function useLayerActions() {
 
             // Write baked pixels to Rust canonical (whole layer).
             const res = decodeRustBytes<{
-              before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
               after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
               epoch: number;
               version: number;
@@ -405,10 +404,11 @@ export function useLayerActions() {
               layerId: activeId,
               surfaceWidth: bakedLayer.width,
               surfaceHeight: bakedLayer.height,
-              before: res.before.map((t) => ({
-                x: t.x, y: t.y, width: t.w, height: t.h,
-                data: new Uint8ClampedArray(t.data),
-              })),
+              // The reply carries the POST-image only, so it has no pre-image to
+              // store. This entry is a cursor token for a step Rust already holds:
+              // the undo/redo dispatch takes its pixels from Rust and refuses to
+              // replay these tiles, so an empty array is what it did with them.
+              before: [],
               after: res.after.map((t) => ({
                 x: t.x, y: t.y, width: t.w, height: t.h,
                 data: new Uint8ClampedArray(t.data),

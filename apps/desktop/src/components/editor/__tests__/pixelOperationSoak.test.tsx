@@ -129,8 +129,8 @@ function okInvoke(opts: { failWrite?: string } = {}) {
     if (cmd === "rust_pixels_snapshot_layer") return [];
     if (cmd === "rust_pixels_init") return undefined;
     if (cmd === "rust_pixels_write_region") {
+      // Post-image only: the real reply carries no pre-image.
       return {
-        before: [{ x: 0, y: 0, w: args.w, h: args.h, data: new Array(args.w * args.h * 4).fill(0) }],
         after: [{ x: 0, y: 0, w: args.w, h: args.h, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
         epoch: 1,
         version: 1,

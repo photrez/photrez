@@ -227,7 +227,6 @@ function routeFill(writeResult: { epoch: number; version: number }): void {
     if (cmd === "rust_pixels_write_region") {
       rejectInvalidWrite(args);
       return {
-        before: [{ x: 0, y: 0, w: LAYER_W, h: LAYER_H, data: new Array(LAYER_W * LAYER_H * 4).fill(0) }],
         after: [{ x: 0, y: 0, w: LAYER_W, h: LAYER_H, data: new Array(LAYER_W * LAYER_H * 4).fill(255) }],
         epoch: writeResult.epoch,
         version: writeResult.version,
@@ -342,8 +341,7 @@ describe("rust_pixels_write_region input bounds", () => {
       if (cmd === "rust_pixels_write_region") {
         rejectInvalidWrite(args);
         return {
-          before: [{ x: 0, y: 0, w: LAYER_W, h: LAYER_H, data: new Array(LAYER_W * LAYER_H * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: LAYER_W, h: LAYER_H, data: new Array(LAYER_W * LAYER_H * 4).fill(255) }],
+            after: [{ x: 0, y: 0, w: LAYER_W, h: LAYER_H, data: new Array(LAYER_W * LAYER_H * 4).fill(255) }],
           epoch: 1,
           version: 1,
         };

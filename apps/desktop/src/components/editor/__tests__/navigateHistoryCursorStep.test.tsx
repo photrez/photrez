@@ -90,7 +90,8 @@ describe("navigateHistory: a model-restore pop takes no Rust cursor step", () =>
       if (cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo") {
         return { layer_id: "l1", tiles: [], epoch: 1, version: 1 };
       }
-      if (cmd === "rust_pixels_write_region") return { before: [], after: [], epoch: 1, version: 1 };
+      // Post-image only: the real reply carries no pre-image.
+      if (cmd === "rust_pixels_write_region") return { after: [], epoch: 1, version: 1 };
       return undefined;
     });
 

@@ -176,7 +176,6 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
       if (cmd === "rust_pixels_init") return undefined;
       if (cmd === "rust_pixels_write_region") {
         return {
-          before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
           epoch: 1, version: 1,
         };
@@ -224,7 +223,7 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
       layerId: "L1",
       surfaceWidth: 100,
       surfaceHeight: 100,
-      before: res.before.map((t: any) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
+      before: [], // the write reply carries no pre-image; this twin is a cursor token
       after: res.after.map((t: any) => ({ x: t.x, y: t.y, width: t.w, height: t.h, data: new Uint8ClampedArray(t.data) })),
     };
     history.commit(preSnapshot, "Apply Adjustment", imperative);
@@ -236,7 +235,7 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
     expect(history.commit.mock.calls[0][1]).toBe("Apply Adjustment");
     const imp = history.commit.mock.calls[0][2];
     expect(imp.layerId).toBe("L1");
-    expect(imp.before.length).toBe(1);
+    expect(imp.before.length).toBe(0);
     expect(imp.after.length).toBe(1);
     expect(surface.pixelEpoch).toBe(1);
     expect(surface.pixelVersion).toBe(1);
@@ -254,7 +253,6 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
       if (cmd === "rust_pixels_init") { initCalls.push(readPixelSeedCall(cmd, args)!); return undefined; }
       if (cmd === "rust_pixels_write_region") {
         return {
-          before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
           epoch: 1, version: 1,
         };
@@ -296,7 +294,6 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
       if (cmd === "rust_pixels_write_region") {
         epoch += 1;
         return {
-          before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
           after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
           epoch, version: epoch,
         };
