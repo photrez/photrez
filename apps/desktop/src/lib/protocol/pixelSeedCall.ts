@@ -43,20 +43,29 @@ export interface PixelSeedCall {
  * the alternatives measured worse - a byte table is faster (308 ms) but did not
  * reproduce the same string, so it is not worth trading correctness for here.
  */
-export function encodePixelBytes(bytes: ArrayLike<number>): string {
+export function* pixelEncodeChunks(bytes: ArrayLike<number>): Generator<string> {
   const STEP = 24576; // 3 x 8192, so no chunk straddles a base64 quantum
   const view = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
   const scratch = new Uint8Array(STEP);
-  const parts: string[] = [];
   // The casts are for the TYPE, not the runtime: `apply` is declared to take a
   // `number[]`, and a Uint8Array is array-like and is what the engine actually
   // reads. Measured byte-identical, and 1,880 ms cheaper at 4096 x 4096.
   for (let i = 0; i + STEP <= view.length; i += STEP) {
     scratch.set(view.subarray(i, i + STEP));
-    parts.push(btoa(String.fromCharCode.apply(null, scratch as unknown as number[])));
+    yield btoa(String.fromCharCode.apply(null, scratch as unknown as number[]));
   }
   const tail = view.subarray(view.length - (view.length % STEP));
-  if (tail.length) parts.push(btoa(String.fromCharCode.apply(null, tail as unknown as number[])));
+  if (tail.length) yield btoa(String.fromCharCode.apply(null, tail as unknown as number[]));
+}
+
+/**
+ * Join every chunk of the shared encoder. A caller that must keep the main
+ * thread responsive iterates `pixelEncodeChunks` and awaits a frame between
+ * chunks instead; both forms run the same loop, so the bytes are identical.
+ */
+export function encodePixelBytes(bytes: ArrayLike<number>): string {
+  const parts: string[] = [];
+  for (const part of pixelEncodeChunks(bytes)) parts.push(part);
   return parts.join("");
 }
 
@@ -69,7 +78,7 @@ export function decodePixelBytes(bytesBase64: string): Uint8Array {
 }
 
 /** The base64 field name -> the byte-array field name it stands in for. */
-const PIXEL_BYTE_FIELDS: Record<string, string> = {
+export const PIXEL_BYTE_FIELDS: Record<string, string> = {
   dataBase64: "data",
   rgbaBase64: "rgba",
   bytesBase64: "bytes",

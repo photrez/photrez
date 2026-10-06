@@ -11,7 +11,8 @@ import {
   type TileKeyed,
 } from "@/lib/paint/paintTileSurface";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
-import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
+import { yieldToFrame, encodePixelBytesSliced, decodeRustBytesSliced } from "@/lib/protocol/commitFrameYield";
 import { computeDirtyRegion, assertWriteRegionTarget, assertWriteRegionBytes, type DirtyRect, emptyDirtyRect, expandDirtyRect } from "@/lib/paint/regionProducer";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
@@ -258,20 +259,35 @@ export function useBrushOverlay() {
       // (a rust_pixels_get_epoch already happened) but still before any
       // rust_pixels_write_region attempt.
       assertWriteRegionBytes(region.data.byteLength, dirtyRegion);
+      // ── Frame slicing ──────────────────────────────────────────────────────
+      // The chunks around the IPC are pure and separately expensive: at 4096^2
+      // with a 3254x208 dirty rect, readRect 6.0 ms, encode 19.5 ms, reply parse
+      // 1.3 ms, decode 16.2 ms, surface apply 8.3 ms. Yielding between them keeps
+      // every slice inside one frame. It changes WHEN the work runs, never what
+      // it computes: the queue still runs commits in order, and each chunk keeps
+      // its own synchronous run.
+      await yieldToFrame();
+      const rgbaBase64 = await encodePixelBytesSliced(region.data);
       // The reply carries the POST-image only. The pre-image it used to carry
       // was decoded here and then never read: the memento below is built from
       // `beforePatches` (this surface's own pre-stroke tiles), and Rust's `Pixel`
       // entry already holds the pre-image that undo reads back. Decoding it also
       // cost a dirty region's worth of base64 on every stroke.
-      const res = decodeRustBytes<{
+      const res = await decodeRustBytesSliced<{
         after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
         epoch: number;
         version: number;
       }>(await pixelInvoke("rust_pixels_write_region", {
         docId, layerId, x: dirtyRegion.x, y: dirtyRegion.y, w: dirtyRegion.w, h: dirtyRegion.h,
-        rgbaBase64: encodePixelBytes(region.data),
+        rgbaBase64,
       }));
+      // Before, never during: applyRustTilesToSurface writes the reply's tiles
+      // one at a time, so a yield inside its loop could expose a half-applied
+      // tile set to a newer stroke's snapshotTile. 8.3 ms is the price of that
+      // guarantee and it is one slice.
+      await yieldToFrame();
       applyRustTilesToSurface(sctx, res.after);
+      await yieldToFrame();
       surface.pixelEpoch = res.epoch;
       surface.pixelVersion = res.version;
       syncFacadeVersionFromPixel(docId, res.version);

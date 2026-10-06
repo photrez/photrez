@@ -771,7 +771,7 @@ export function applyRustTilesToSurface(
   const Ctor = ImageDataCtor ?? (globalThis as unknown as { ImageData: new (d: Uint8ClampedArray, w: number, h: number) => { width: number; height: number; data: Uint8ClampedArray } }).ImageData;
   for (const t of tiles) {
     const arr = new Uint8ClampedArray(t.w * t.h * 4);
-    for (let i = 0; i < arr.length; i++) arr[i] = t.data[i];
+    arr.set(t.data);
     ctx.putImageData(new Ctor(arr, t.w, t.h), t.x, t.y);
   }
 }
