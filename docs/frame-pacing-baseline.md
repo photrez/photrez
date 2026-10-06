@@ -79,9 +79,45 @@ one — the code, and the build route. They have now been separated.
 the older tree built through the same route on the same machine in the same
 session is clean, 3-for-3.
 
-**Which commit introduced it is still UNKNOWN.** A bisect over that range is the
-next step; it is affordable only if each build reuses a warm `target/release`,
-otherwise each step costs a full release build.
+## Bisect: `9dc10677` introduces the stall
+
+**`9dc10677` — `fix(editor): fence the brush on Rust store presence, not graph ownership` (2026-10-02)** is the first bad commit. It is the **24th of 56** commits in `b62c60d8..34dad0cd`; its parent is `99afe618`.
+
+### How the bisect was run
+
+- **Shared warm target.** One detached `git worktree` on C: (`C:\fp\wt`) with `CARGO_TARGET_DIR` inside it, so every step reused one release cache: **822 s** for the first cold build, **150-222 s** per subsequent step (only `photrez-core` and `photrez-desktop` recompile). D: was never a build target.
+- **Predicate.** Cold 4096², 12 strokes x 40 moves, **n=1 per step**. BAD if any frame ≥ 33 ms exceeded **200 ms**. The threshold is not delicate: a good commit measures **17-19 ms** and a bad one **15,900-19,600 ms** — a ~1000x gap, versus the 1.7-2.1x run-to-run spread on this box.
+- **Blank-page trap.** The harness was run **from the main tree** (`D:\Project\image-studio\scripts\frame-pacing-live.mjs`, committed at `8552ff5`) against each worktree's binary, so every step used the guard-bearing harness regardless of what the checked-out commit contained. Every step's log records `target=http://tauri.localhost/` plus `paintProven: true` — no step measured a blank page or a no-op stroke.
+- **Route.** Identical to the tables above: `bun run tauri build --no-bundle`, then the harness.
+
+Steps tested, in order: `d69c387c` BAD 19,700.9 · `f9b71b2a` GOOD 18.6 · `cadfd7a4` GOOD 17.2 · `cce459ef` BAD 15,933.9 · `9dc10677` BAD 16,717.4 · `99afe618` GOOD 17.2. No commit was skipped. (`cadfd7a4` is a deps-only commit and measured GOOD, as a control it must.)
+
+**Two measurement failures were caught and corrected rather than reported as results.** The first `git bisect run` reported "first bad commit" in under two minutes with **zero driver log lines** — the build rewrites `apps/desktop/src-tauri/Cargo.toml` line endings, so every internal `git checkout` failed and each step returned a default-bad code without running. Fixed with `core.autocrlf=false` plus a restore, then re-run with each step verified by its own `RESULT` line. Separately, `99afe618` was marked bad once by bookkeeping error; its measured value was GOOD and it is reported as such.
+
+### Boundary confirmation (n=3 each, same route and harness)
+
+| Commit | max frame (ms), n=3 | frames ≥ 33 ms | paint-proven |
+|---|---|---|---|
+| `99afe618` (parent) | **17.7 / 17.3 / 17.2** | 0 / 0 / 0 | yes |
+| `9dc10677` (first bad) | **16917.3 / 16417.4 / 18050.7** | 8 / 8 / 10 | yes |
+
+The boundary is exactly where the bisect predicted it.
+
+### What the commit changed (mechanism — HYPOTHESIS, not measured)
+
+`9dc10677` changes no pixel code. It replaces the brush's entry gate in
+`apps/desktop/src/components/editor/useBrushOverlay.ts`:
+
+- **Before** (`useBrushOverlay.ts` at `9dc10677^`), Gate A refused the stroke outright on any facade-owned layer: `if (isFacadeOwnedLayer(activeId)) { showToast(...); return; }`. On a newly created document the layer is facade-owned, so **the stroke was refused and the entire downstream commit never ran** — which is why the "good" commits measure 17 ms.
+- **After** (`useBrushOverlay.ts:717-730` and `:1131-1143`), that refusal is replaced by a per-stroke store-presence fence, `strokeBlockedByRust` (`useBrushOverlay.ts:174-187`), which blocks only on a positive "Rust does not hold this layer" and otherwise lets the stroke through.
+
+So the commit does not *add* work; it **un-gates a path that was previously unreachable in this scenario**, and that path is expensive on a large document:
+
+1. First stroke finds no Rust storage, so it seeds the store with a **full-layer readback**: `surface.readRect(0, 0, w, h)` then `rust_pixels_init` (`useBrushOverlay.ts:217-220`) — 67 MB of pixels for 4096².
+2. The commit syncs the post-stroke surface back into the model via `surface.toImageBitmap()` + `engine.setLayerImageBitmap` (`useBrushOverlay.ts:276-285`).
+3. `setLayerImageBitmap` unconditionally calls `pushModelToRust` (`apps/desktop/src/engine/document.ts:1455`), which `JSON.stringify`s the whole model and calls `restore_snapshot` (`document.ts:1767-1792`).
+
+**This is a mechanism hypothesis with `file:line`, distinct from the measured attribution.** The attribution — that `9dc10677` is the first commit where the stall appears — is measured 3-for-3 on both sides. The claim that the full-layer seed plus the model replay is what costs the 16 seconds is read off the source, not profiled. Confirming it needs a per-phase timing run inside the first stroke; **no such run was made, so the 16 s is not apportioned between the three steps above.**
 
 ## Where the stall is (localised)
 
@@ -111,9 +147,11 @@ document creation — creating a 4096 x 4096 document took 704 ms and its worst
 frame was 133 ms. A **second, smaller** degradation appears from stroke 9 onward
 (633-1150 ms), growing with stroke count.
 
-**No `file:line` claim is made about the mechanism.** The regression is
-attributed to a commit range, not to a code path; naming a line without having
-proven it is the failure mode this record exists to prevent.
+The introducing commit is now named (`9dc10677`, see "Bisect" above), measured at
+the boundary with n=3 on each side. The `file:line` mechanism that explains *why*
+that commit is expensive is still labelled a hypothesis and is **not** claimed as
+proven: the 16 s has not been apportioned between the full-layer Rust seed, the
+model-bitmap sync, and the whole-model replay.
 
 ## What is NOT claimed
 
@@ -132,7 +170,15 @@ proven it is the failure mode this record exists to prevent.
   area. Zoom-to-100 %, full-document redraw and many-layer documents are not
   covered.
 - **Not a shipping gate.** See below.
-- **The introducing commit is not identified.** Only the range is.
+- **The introducing commit is `9dc10677`**, measured at the boundary 3-for-3 on
+  each side. Its *mechanism* is a hypothesis with `file:line`, not a measurement:
+  no per-phase profile of the first stroke was taken, so the 16 s is not
+  apportioned between the full-layer seed, the bitmap sync, and the model replay.
+- **Not fixed.** This record locates the regression; the repair is a separate,
+  reviewed change.
+- **The bisect measured one configuration.** Cold 4096², brush, default flags,
+  release profile, `photrez.tileCommit` left at its default ON. It says nothing
+  about other document sizes, the eraser, or a flag set that skips the Rust path.
 
 ## Re-running
 
