@@ -97,8 +97,8 @@ function nativeRejection(e: unknown): string {
  */
 function installTransport(): void {
   const opened = new Set<string>();
-  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
-    if (cmd.startsWith("rust_pixels_")) return store.invoke(cmd, args);
+  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}, options?: any) => {
+    if (cmd.startsWith("rust_pixels_")) return store.invoke(cmd, args, options);
     const rawDocId = (args.docId as string) ?? "";
     const docId = rawDocId === "" ? "default" : rawDocId;
     const key = `${NS}${docId}`;

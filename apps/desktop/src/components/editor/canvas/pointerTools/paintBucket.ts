@@ -8,6 +8,7 @@ import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
 import { computeChangedRegion, computeDirtyRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
 import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
@@ -99,21 +100,16 @@ export function applyPaintBucketFill(
         }
         if (!layerReady) {
           const seedData = surface.context.getImageData(0, 0, layer.width, layer.height).data;
-          await invoke("rust_pixels_init", {
-            docId,
-            layerId,
-            width: layer.width,
-            height: layer.height,
-            bytes: new Uint8Array(seedData.buffer, seedData.byteOffset, seedData.byteLength),
-          });
+          await invoke("rust_pixels_init", pixelSeedDispatch(docId, layerId, layer.width, layer.height, seedData));
         }
         // Ensure the derived surface reflects the CURRENT canonical state before
         // we overlay the fill (mirrors the brush's pre-commit rehydration).
         await rehydratePaintSurfaceFromRust(docId, layerId, surface);
         // Source current pixels from Rust so OVERLAPPING fills read the post-prior-fill
         // canonical buffer (not a stale TS bitmap).
-        const tiles = (await invoke("rust_pixels_snapshot_layer", { docId, layerId })) as
-          { x: number; y: number; w: number; h: number; data: number[] }[];
+        const tiles = decodeRustBytes<{ x: number; y: number; w: number; h: number; data: number[] }[]>(
+          await invoke("rust_pixels_snapshot_layer", { docId, layerId }),
+        );
         const buf = reconstructLayerBuffer(tiles, layer.width, layer.height);
         const before = new Uint8ClampedArray(buf); // snapshot pre-fill for diffing
         const imgData = new ImageData(buf as Uint8ClampedArray<ArrayBuffer>, layer.width, layer.height);
@@ -131,20 +127,20 @@ export function applyPaintBucketFill(
           : null);
         if (!region) return;
         const preSnapshot = engine.snapshot();
-        const res = (await pixelInvoke("rust_pixels_write_region", {
+        const res = decodeRustBytes<{
+          before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+          after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+          epoch: number;
+          version: number;
+        }>(await pixelInvoke("rust_pixels_write_region", {
           docId,
           layerId,
           x: region.x,
           y: region.y,
           w: region.w,
           h: region.h,
-          rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
-        })) as {
-          before: { x: number; y: number; w: number; h: number; data: number[] }[];
-          after: { x: number; y: number; w: number; h: number; data: number[] }[];
-          epoch: number;
-          version: number;
-        };
+          rgbaBase64: encodePixelBytes(changed.rgba),
+        }));
         // TS derived cache updated from Rust's authoritative returned `after` tiles + epoch.
         applyRustTilesToSurface(surface.context, res.after);
         surface.pixelEpoch = res.epoch;

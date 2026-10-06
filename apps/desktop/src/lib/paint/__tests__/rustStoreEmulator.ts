@@ -5,21 +5,18 @@
  * observe the CANONICAL store rather than a mock that cannot see it.
  *
  * MOCK FIDELITY (see AGENTS.md "Mock fidelity rule"). A mock that reads an IPC
- * argument IN-PROCESS cannot reproduce a transport rejection, so every argument
- * here is round-tripped through the REAL Tauri serializer first
- * (`tauri-serialization`, scripts/process-ipc-message-fn.js in the tauri crate):
- * a `Map` becomes an object, a `Uint8Array` becomes a sequence, an
- * `ArrayBuffer` becomes a sequence, and EVERYTHING ELSE falls through to
- * `JSON.stringify` - which turns a `Uint8ClampedArray` into `{"0":..,"1":..}`.
- * serde then rejects that map against `Vec<u8>` with
- * `invalid type: map, expected a sequence`.
+ * argument IN-PROCESS cannot reproduce a transport rejection, so every pixel
+ * payload here is decoded through the same base64 contract the Rust boundary
+ * uses, and anything that is not a base64 string is rejected with the message
+ * serde produces.
  *
- * That last rule is not hypothetical: it is the shipped bug this emulator now
+ * That rejection is not hypothetical: it is a shipped bug this emulator
  * reproduces. `ImageData.data` and a readback buffer are `Uint8ClampedArray`,
  * which is NOT `instanceof Uint8Array`, so passing one straight to
  * `rust_pixels_resize_layer` was rejected at the boundary and the store stayed
  * at pre-crop dimensions. A mock that read `args.bytes` as an in-process
- * ArrayLike could never have seen it.
+ * ArrayLike could never have seen it. Pixel payloads are base64 for the same
+ * family of reasons - see `pixelSeedCall.ts`.
  *
  * The pixel behaviours emulated are the ones production depends on, copied
  * from crates/core/src/pixel_store.rs:
@@ -38,32 +35,23 @@
  */
 import { vi } from "vitest";
 import { snapshotBitmap } from "@/__tests__/faithfulOffscreenCanvas";
+import { decodePixelBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 
 /**
- * The real Tauri IPC replacer, transcribed from
- * tauri-2.11.5/scripts/process-ipc-message-fn.js. Only `Map`, `Uint8Array` and
- * `ArrayBuffer` are converted to sequences; a `Uint8ClampedArray` is none of
- * those and is serialized by `JSON.stringify` as an index-keyed map.
+ * Decode a pixel-payload argument the way the Rust boundary does: base64 in,
+ * bytes out. Anything that is not a base64 string is rejected with the message
+ * the Rust boundary produces, so a caller that ships the wrong JS type fails in
+ * tests exactly as it does in the app.
  */
-function tauriIpcReplacer(_key: string, value: unknown): unknown {
-  if (value instanceof Map) return Object.fromEntries(value.entries());
-  if (value instanceof Uint8Array) return Array.from(value);
-  if (value instanceof ArrayBuffer) return Array.from(new Uint8Array(value));
-  return value;
-}
-
-/**
- * Round-trip an argument through the real transport, then decode it the way
- * serde would. A value that does not survive as a JSON sequence is rejected
- * with the same message the Rust boundary produces, so a caller that ships the
- * wrong JS type fails in tests exactly as it does in the app.
- */
-function transportDecode(bytes: unknown, param: string): number[] {
-  const wire = JSON.parse(JSON.stringify({ [param]: bytes }, tauriIpcReplacer));
-  if (!Array.isArray(wire[param])) {
-    throw `invalid args \`${param}\` for command: invalid type: map, expected a sequence`;
+function transportDecode(bytesBase64: unknown, param: string): number[] {
+  if (typeof bytesBase64 !== "string") {
+    throw `invalid args \`${param}\` for command: invalid type: map, expected a base64 string`;
   }
-  return wire[param];
+  try {
+    return Array.from(decodePixelBytes(bytesBase64));
+  } catch {
+    throw `invalid args \`${param}\` for command: invalid base64`;
+  }
 }
 
 export interface EmulatedTile {
@@ -85,7 +73,7 @@ export interface EmulatedLayer {
 }
 
 export interface RustStoreEmulator {
-  invoke: (cmd: string, args: any) => Promise<any>;
+  invoke: (cmd: string, args: any, options?: any) => Promise<any>;
   calls: { cmd: string; args: any }[];
   layers: Map<string, EmulatedLayer>;
   count: (cmd: string) => number;
@@ -168,9 +156,9 @@ export function createRustStoreEmulator(): RustStoreEmulator {
   const calls: { cmd: string; args: any }[] = [];
   const layers = new Map<string, EmulatedLayer>();
 
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
     calls.push({ cmd, args });
-    const layerId: string = args?.layerId;
+    const layerId: string = args?.layerId ?? readPixelSeedCall(cmd, args)?.layerId;
     switch (cmd) {
       case "rust_pixels_open_document":
         return undefined;
@@ -181,10 +169,17 @@ export function createRustStoreEmulator(): RustStoreEmulator {
         return l.epoch;
       }
       case "rust_pixels_init": {
-        const w = args.width as number;
-        const h = args.height as number;
-        const pixels = new Uint8ClampedArray(transportDecode(args.bytes, "bytes"));
-        layers.set(layerId, { width: w, height: h, pixels, epoch: 0, version: 0, history: [] });
+        // Raw body + header metadata: the shape the command actually receives.
+        const seed = readPixelSeedCall(cmd, args)!;
+        const pixels = new Uint8ClampedArray(seed.bytes);
+        layers.set(seed.layerId, {
+          width: seed.width,
+          height: seed.height,
+          pixels,
+          epoch: 0,
+          version: 0,
+          history: [],
+        });
         return undefined;
       }
       case "rust_pixels_remove_layer": {
@@ -194,7 +189,7 @@ export function createRustStoreEmulator(): RustStoreEmulator {
       case "rust_pixels_resize_layer": {
         const w = args.width as number;
         const h = args.height as number;
-        const pixels = new Uint8ClampedArray(transportDecode(args.bytes, "bytes"));
+        const pixels = new Uint8ClampedArray(transportDecode(args.bytesBase64, "bytesBase64"));
         if (pixels.length !== w * h * 4) {
           // PixelLayer::new asserts the buffer length; a mismatched reseed is a
           // bug, not something to paper over.
@@ -229,7 +224,7 @@ export function createRustStoreEmulator(): RustStoreEmulator {
         const y = args.y as number;
         const w = args.w as number;
         const h = args.h as number;
-        const rgba = transportDecode(args.rgba, "rgba");
+        const rgba = transportDecode(args.rgbaBase64, "rgbaBase64");
         // DocumentPixelStore::write_region bounds/length validation. This is the
         // exact check a stale store failed after a dimension-changing crop.
         if (x < 0 || y < 0 || w === 0 || h === 0) {

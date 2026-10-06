@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { pixelRegionDispatch } from "@/lib/protocol/pixelSeedCall";
 
 /**
  * STORE CURRENCY AFTER A DIMENSION-CHANGING CROP.
@@ -251,15 +252,10 @@ describe("store currency after a dimension-changing crop", () => {
 
     // The real stroke step: paint one dab into the store the way the brush
     // commit does. This is the step that emitted `write_region 0` in the app.
-    await store.invoke("rust_pixels_write_region", {
-      docId: "doc1",
-      layerId,
-      x: 10,
-      y: 10,
-      w: 4,
-      h: 4,
-      rgba: new Uint8Array(4 * 4 * 4).fill(255),
-    });
+    await store.invoke(
+      "rust_pixels_write_region",
+      pixelRegionDispatch("doc1", layerId, 10, 10, 4, 4, new Uint8Array(4 * 4 * 4).fill(255)),
+    );
 
     expect(store.count("rust_pixels_write_region")).toBe(1);
     // The write landed: the store moved, and the dab is readable back.
@@ -275,15 +271,12 @@ describe("store currency after a dimension-changing crop", () => {
 
     // The pre-crop stroke that used to be dropped: a region that only fits the
     // STALE 128x128 store. With a current 64x64 store it must REJECT.
-    await expect(store.invoke("rust_pixels_write_region", {
-      docId: "doc1",
-      layerId,
-      x: 100,
-      y: 100,
-      w: 8,
-      h: 8,
-      rgba: new Uint8Array(8 * 8 * 4).fill(255),
-    })).rejects.toThrow(/out of bounds/);
+    await expect(
+      store.invoke(
+        "rust_pixels_write_region",
+        pixelRegionDispatch("doc1", layerId, 100, 100, 8, 8, new Uint8Array(8 * 8 * 4).fill(255)),
+      ),
+    ).rejects.toThrow(/out of bounds/);
   });
 
   it("advances bitmapEpoch to the epoch the store actually holds", async () => {
@@ -348,15 +341,10 @@ describe("store currency after a dimension-changing crop", () => {
     const neighbourBefore = store.pixelAt(layerId, 39, 39);
     const px = store.layers.get(layerId)!.pixels;
 
-    await store.invoke("rust_pixels_write_region", {
-      docId: "doc1",
-      layerId,
-      x: 40,
-      y: 40,
-      w: 2,
-      h: 2,
-      rgba: new Uint8Array(2 * 2 * 4).fill(255),
-    });
+    await store.invoke(
+      "rust_pixels_write_region",
+      pixelRegionDispatch("doc1", layerId, 40, 40, 2, 2, new Uint8Array(2 * 2 * 4).fill(255)),
+    );
 
     // The dab sits where it was painted.
     expect(store.pixelAt(layerId, 40, 40)).toEqual([255, 255, 255, 255]);
@@ -389,15 +377,10 @@ describe("store currency after a dimension-changing crop", () => {
 
     expect(engine.getActiveLayerId(), "applyCrop must not clear the active layer").toBe(layerId);
     // And the store is current for that layer, so a stroke on it lands.
-    await store.invoke("rust_pixels_write_region", {
-      docId: "doc1",
-      layerId: engine.getActiveLayerId()!,
-      x: 1,
-      y: 1,
-      w: 2,
-      h: 2,
-      rgba: new Uint8Array(2 * 2 * 4).fill(255),
-    });
+    await store.invoke(
+      "rust_pixels_write_region",
+      pixelRegionDispatch("doc1", engine.getActiveLayerId()!, 1, 1, 2, 2, new Uint8Array(2 * 2 * 4).fill(255)),
+    );
     expect(store.count("rust_pixels_write_region")).toBe(1);
   });
 
@@ -416,7 +399,7 @@ describe("store currency after a dimension-changing crop", () => {
     // what has to be swapped.
     const realInvoke = hoist.invoke!;
     hoist.invoke = async (cmd: string, args: any) => {
-      if (cmd === "rust_pixels_resize_layer") throw "E_RUST: invalid args `bytes`: invalid type: map";
+      if (cmd === "rust_pixels_resize_layer") throw "E_RUST: invalid args `bytesBase64`: invalid type: map";
       return realInvoke(cmd, args);
     };
 

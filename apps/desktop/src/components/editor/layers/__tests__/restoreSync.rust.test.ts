@@ -7,7 +7,7 @@ import { CommandHistory } from "@/engine/history";
 
 // ── Tauri invoke mock ──
 const invokeLog: { cmd: string; args: unknown }[] = [];
-const mockInvoke = vi.fn(async (cmd: string, args: unknown) => {
+const mockInvoke = vi.fn(async (cmd: string, args: unknown, _options?: unknown) => {
   invokeLog.push({ cmd, args });
   if (cmd === "rust_pixels_get_epoch") return 0;
   if (cmd === "rust_pixels_init") return undefined;
@@ -26,7 +26,7 @@ const mockInvoke = vi.fn(async (cmd: string, args: unknown) => {
   return undefined;
 });
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: unknown) => mockInvoke(cmd, args),
+  invoke: (cmd: string, args: unknown, options?: any) => mockInvoke(cmd, args, options),
 }));
 
 // ── jsdom polyfills ──

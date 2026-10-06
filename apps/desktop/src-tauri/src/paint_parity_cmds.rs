@@ -39,7 +39,11 @@ pub struct TilePatchWire {
     pub w: usize,
     #[serde(alias = "height")]
     pub h: usize,
-    pub data: Vec<u8>,
+    /// base64 of the RGBA bytes. See `b64`. The rename is explicit because Tauri
+    /// camelCases a COMMAND's own arguments but not a nested payload struct, so
+    /// serde would otherwise look for `data_base64`.
+    #[serde(rename = "dataBase64")]
+    pub data_base64: String,
 }
 
 #[derive(serde::Serialize)]
@@ -49,7 +53,42 @@ pub struct TilePatchJson {
     pub y: i64,
     pub w: usize,
     pub h: usize,
-    pub data: Vec<u8>,
+    /// base64 of the RGBA bytes. See `b64`. The rename is explicit because Tauri
+    /// camelCases a COMMAND's own arguments but not a nested payload struct, so
+    /// serde would otherwise look for `data_base64`.
+    #[serde(rename = "dataBase64")]
+    pub data_base64: String,
+}
+
+/// Every pixel-bytes field on a Tauri command crosses as BASE64, never as a byte
+/// sequence.
+///
+/// Tauri v2 carries both directions as JSON. Outbound, serde expands a
+/// `Vec<u8>` into one JSON number per byte; inbound, the `JSON.stringify`
+/// replacer expands a `Uint8Array` argument with `Array.from(val)`, again one
+/// element per byte (tauri-2.11.5/scripts/process-ipc-message-fn.js). A 3254x208
+/// dirty rect is 2,707,328 bytes, which the number form costs 5,414,721 characters
+/// to serialise (589-880 ms in-app) and its 13-tile before/after response costs
+/// 27,264,034. A base64 string is copied in one pass: 156 ms for the same bytes.
+///
+/// This is the same trade the layer seed already makes on `rust_pixels_init`. It
+/// is applied to every pixel-bytes field on this path, not just the seed, because
+/// leaving one command on the number form would hand the next caller the same
+/// stall with nothing in the code to warn them.
+///
+/// The dev parity harness (`paint_parity_*`) is deliberately NOT converted: it
+/// is a flag-gated diagnostic, and its tip bytes are already kept off the
+/// transport by the id-based tip registry.
+pub(crate) fn b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+pub(crate) fn unb64(text: &str, field: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(text.as_bytes())
+        .map_err(|e| format!("{field} is not valid base64: {e}"))
 }
 
 /// C5.2: commit/undo/redo now return the post-mutation epoch so the TS derived
@@ -92,18 +131,18 @@ fn patch_to_wire(t: &TilePatch) -> TilePatchJson {
         y: t.y,
         w: t.w,
         h: t.h,
-        data: t.data.clone(),
+        data_base64: b64(&t.data),
     }
 }
 
-fn wire_to_patch(t: TilePatchWire) -> TilePatch {
-    TilePatch {
+fn wire_to_patch(t: TilePatchWire) -> Result<TilePatch, String> {
+    Ok(TilePatch {
         x: t.x,
         y: t.y,
         w: t.w,
         h: t.h,
-        data: t.data,
-    }
+        data: unb64(&t.data_base64, "tile dataBase64")?,
+    })
 }
 
 /// Document created/opened: ensure a (possibly empty) pixel namespace exists.
@@ -125,8 +164,7 @@ pub fn rust_pixels_close_document(doc_id: String) {
 /// Seed the authoritative buffer for `layer_id` within `doc_id` from the existing
 /// layer bytes (one-time; called by TS before the first Rust-owned commit on that layer).
 /// Auto-creates the document namespace. Replacement is intentional (failed-commit recovery).
-#[tauri::command]
-pub fn rust_pixels_init(
+pub(crate) fn seed_layer_bytes(
     doc_id: String,
     layer_id: String,
     width: u32,
@@ -136,6 +174,45 @@ pub fn rust_pixels_init(
     registry()
         .get_or_insert_with(Default::default)
         .add_layer(&doc_id, &layer_id, width, height, bytes)
+}
+
+/// Seed the authoritative buffer for `layer_id` within `doc_id`. The seed
+/// bytes arrive BASE64-encoded, not as a byte sequence.
+///
+/// The seed is the whole layer, so on a 4096 x 4096 document it is 67,108,864
+/// bytes. Tauri v2 serialises every IPC argument with `JSON.stringify` and a
+/// replacer that expands a `Uint8Array` into `Array.from(val)` — one JSON array
+/// element per byte (tauri-2.11.5/scripts/process-ipc-message-fn.js). That turns
+/// 67 MB of pixels into a 268,435,768-character JSON string and blocks the WebView
+/// main thread for ~15 s on the first stroke of a large document.
+///
+/// A base64 STRING crosses as one string, which `JSON.stringify` copies in a
+/// single pass: measured 156 ms against 5,637 ms for the same bytes as a number
+/// array. It is also branch-independent — see the note below.
+///
+/// Why not a raw binary body: Tauri only skips JSON when the whole IPC payload
+/// is a typed array, and only on the custom-protocol path
+/// (process-ipc-message-fn.js:9-12). On the postMessage fallback — which this app
+/// actually runs, verified by the custom-protocol fetch never being called — the
+/// ENVELOPE `{cmd, callback, error, options, payload}` is the object handed to the
+/// serialiser, so a typed-array payload is expanded back into a number array.
+/// Measured on the shipped build: the raw-body seed still produced 268,435,786
+/// JSON characters, and Rust rejected the call with "expects a raw binary body".
+/// Base64 is correct on both paths.
+///
+/// Byte-for-byte the same seed reaches `seed_layer_bytes`, so the store, the
+/// history stream and every rendered pixel are unchanged — only the transport
+/// differs.
+#[tauri::command]
+pub fn rust_pixels_init(
+    doc_id: String,
+    layer_id: String,
+    width: u32,
+    height: u32,
+    bytes_base64: String,
+) -> Result<(), String> {
+    let bytes = unb64(&bytes_base64, "rust_pixels_init bytesBase64")?;
+    seed_layer_bytes(doc_id, layer_id, width, height, bytes)
 }
 
 /// Drop a layer's pixel storage (layer removed). No-op if absent.
@@ -153,8 +230,9 @@ pub fn rust_pixels_resize_layer(
     layer_id: String,
     width: u32,
     height: u32,
-    bytes: Vec<u8>,
+    bytes_base64: String,
 ) -> Result<(), String> {
+    let bytes = unb64(&bytes_base64, "rust_pixels_resize_layer bytesBase64")?;
     registry()
         .get_or_insert_with(Default::default)
         .resize_layer(&doc_id, &layer_id, width, height, bytes)
@@ -172,8 +250,14 @@ pub fn apply_tile_patch(
     before: Vec<TilePatchWire>,
     after: Vec<TilePatchWire>,
 ) -> Result<PatchResultJson, String> {
-    let b: Vec<TilePatch> = before.into_iter().map(wire_to_patch).collect();
-    let a: Vec<TilePatch> = after.into_iter().map(wire_to_patch).collect();
+    let b: Vec<TilePatch> = before
+        .into_iter()
+        .map(wire_to_patch)
+        .collect::<Result<_, _>>()?;
+    let a: Vec<TilePatch> = after
+        .into_iter()
+        .map(wire_to_patch)
+        .collect::<Result<_, _>>()?;
     let mut reg = registry();
     let reg = reg.get_or_insert_with(Default::default);
     let (res_tiles, epoch, version) = reg
@@ -316,7 +400,7 @@ pub fn rust_pixels_snapshot_tile(
         y,
         w,
         h,
-        data,
+        data_base64: b64(&data),
     })
 }
 
@@ -361,11 +445,12 @@ pub fn rust_pixels_write_region(
     y: i64,
     w: i64,
     h: i64,
-    rgba: Vec<u8>,
+    rgba_base64: String,
 ) -> Result<PaintCommitJson, String> {
     if w < 0 || h < 0 {
         return Err(format!("negative region dimensions: {w}x{h}"));
     }
+    let rgba = unb64(&rgba_base64, "rust_pixels_write_region rgbaBase64")?;
     let mut reg = registry();
     let reg = reg.get_or_insert_with(Default::default);
     let (before, after, epoch, version) = reg
@@ -478,7 +563,7 @@ fn tile_json(t: photrez_core::paint_parity::TilePatchOut) -> TilePatchJson {
         y: t.y,
         w: t.w,
         h: t.h,
-        data: t.data,
+        data_base64: b64(&t.data),
     }
 }
 
@@ -669,7 +754,19 @@ mod c4_runtime_tests {
     use super::*;
 
     fn wire(x: i64, y: i64, w: usize, h: usize, data: Vec<u8>) -> TilePatchWire {
-        TilePatchWire { x, y, w, h, data }
+        TilePatchWire {
+            x,
+            y,
+            w,
+            h,
+            data_base64: b64(&data),
+        }
+    }
+
+    /// Round-trip a serialized tile back to bytes the way the host does, so these
+    /// assertions read pixels and never the encoded form.
+    fn tile_bytes(t: &TilePatchJson) -> Vec<u8> {
+        unb64(&t.data_base64, "tile dataBase64").expect("tile decodes")
     }
 
     fn reset() {
@@ -686,7 +783,7 @@ mod c4_runtime_tests {
         let w = 512u32;
         let h = 512u32;
         let seed: Vec<u8> = vec![255; (w * h * 4) as usize];
-        rust_pixels_init(doc.clone(), layer.clone(), w, h, seed).unwrap();
+        seed_layer_bytes(doc.clone(), layer.clone(), w, h, seed).unwrap();
 
         // Epoch starts at 0 (initial TS cache matches canonical).
         assert_eq!(
@@ -706,7 +803,7 @@ mod c4_runtime_tests {
         let snap =
             rust_pixels_snapshot_tile(doc.clone(), layer.clone(), 0, 0, 256, 256).expect("snap");
         assert!(
-            snap.data.iter().all(|&b| b == 42),
+            tile_bytes(&snap).iter().all(|&b| b == 42),
             "canonical = after stroke (42)"
         );
 
@@ -718,7 +815,7 @@ mod c4_runtime_tests {
         let snap2 =
             rust_pixels_snapshot_tile(doc.clone(), layer.clone(), 0, 0, 256, 256).expect("snap2");
         assert!(
-            snap2.data.iter().all(|&b| b == 255),
+            tile_bytes(&snap2).iter().all(|&b| b == 255),
             "canonical = pre-stroke after undo (255)"
         );
 
@@ -730,7 +827,7 @@ mod c4_runtime_tests {
         let snap3 =
             rust_pixels_snapshot_tile(doc.clone(), layer.clone(), 0, 0, 256, 256).expect("snap3");
         assert!(
-            snap3.data.iter().all(|&b| b == 42),
+            tile_bytes(&snap3).iter().all(|&b| b == 42),
             "canonical = post-stroke after redo (42)"
         );
 
@@ -739,12 +836,25 @@ mod c4_runtime_tests {
         assert_eq!(all.len(), 4, "512x512 = 4 tiles of 256");
         let total: usize = all.iter().map(|t| t.w * t.h).sum();
         assert_eq!(total, 512 * 512);
+        // A serialized tile round-trips: b64 -> bytes, every byte intact. This is
+        // the Rust half of the cross-language decode contract the host's
+        // decodePixelBytes has to match.
+        for t in &all {
+            let bytes = tile_bytes(t);
+            assert_eq!(
+                bytes.len(),
+                t.w * t.h * 4,
+                "tile {}x{} carries its whole RGBA payload",
+                t.w,
+                t.h
+            );
+        }
 
         // Bounded transport: snapshot of a sub-region only returns that region,
         // not the full 512x512 buffer.
         let sub = rust_pixels_snapshot_tile(doc.clone(), layer.clone(), 0, 0, 64, 64).expect("sub");
         assert_eq!(
-            sub.data.len(),
+            tile_bytes(&sub).len(),
             64 * 64 * 4,
             "snapshot is bounded to requested region"
         );
@@ -757,7 +867,7 @@ mod c4_runtime_tests {
         let doc = "doc1".to_string();
         let layer = "c5empty".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 64, 64, vec![0; 64 * 64 * 4]).unwrap();
+        seed_layer_bytes(doc.clone(), layer.clone(), 64, 64, vec![0; 64 * 64 * 4]).unwrap();
         let u = rust_pixels_undo(doc.clone(), layer.clone()).expect("undo on empty");
         assert!(u.tiles.is_empty(), "undo on empty history returns no tiles");
     }
@@ -769,7 +879,7 @@ mod c4_runtime_tests {
         let doc = "docA".to_string();
         let layer = "L".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 64, 64, vec![0; 64 * 64 * 4]).unwrap();
+        seed_layer_bytes(doc.clone(), layer.clone(), 64, 64, vec![0; 64 * 64 * 4]).unwrap();
         rust_pixels_close_document(doc.clone());
         let snap = rust_pixels_snapshot_tile(doc.clone(), layer.clone(), 0, 0, 64, 64);
         assert!(snap.is_err(), "closed document has no pixel storage");
@@ -829,27 +939,40 @@ mod c4_runtime_tests {
                 .deserialize::<serde_json::Value>()
                 .unwrap()
         };
+        // The seed crosses as a base64 string - the transport the brush commit
+        // uses. See rust_pixels_init.
+        let seed_call = |doc: &str, bytes: Vec<u8>| {
+            use base64::Engine;
+            call(
+                "rust_pixels_init",
+                serde_json::json!({
+                    "docId": doc,
+                    "layerId": "lw",
+                    "width": 64,
+                    "height": 64,
+                    "bytesBase64": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                }),
+            )
+        };
 
-        let seed = serde_json::json!(vec![0u8; 64 * 64 * 4]);
+        let seed = vec![0u8; 64 * 64 * 4];
         let patch_args = |doc: &str, tiles: serde_json::Value| {
             serde_json::json!({
                 "docId": doc, "layerId": "lw", "before": tiles, "after": tiles
             })
         };
+        let payload = b64(&[1u8; 16]);
         let host_tiles =
-            serde_json::json!([{ "x": 0, "y": 0, "width": 2, "height": 2, "data": vec![1u8; 16] }]);
+            serde_json::json!([{ "x": 0, "y": 0, "width": 2, "height": 2, "dataBase64": payload }]);
         let rust_tiles =
-            serde_json::json!([{ "x": 0, "y": 0, "w": 2, "h": 2, "data": vec![1u8; 16] }]);
+            serde_json::json!([{ "x": 0, "y": 0, "w": 2, "h": 2, "dataBase64": payload }]);
 
         // THE HOST'S SHAPE. This is what every tile producer in the renderer sends.
         ok(call(
             "rust_pixels_open_document",
             serde_json::json!({ "docId": "host" }),
         ));
-        ok(call(
-            "rust_pixels_init",
-            serde_json::json!({ "docId": "host", "layerId": "lw", "width": 64, "height": 64, "bytes": seed }),
-        ));
+        ok(seed_call("host", seed.clone()));
         let from_host = ok(call("apply_tile_patch", patch_args("host", host_tiles)));
         assert_eq!(
             from_host["tiles"].as_array().unwrap().len(),
@@ -876,10 +999,7 @@ mod c4_runtime_tests {
             "rust_pixels_open_document",
             serde_json::json!({ "docId": "rust" }),
         ));
-        ok(call(
-            "rust_pixels_init",
-            serde_json::json!({ "docId": "rust", "layerId": "lw", "width": 64, "height": 64, "bytes": seed }),
-        ));
+        ok(seed_call("rust", seed.clone()));
         let from_rust = ok(call("apply_tile_patch", patch_args("rust", rust_tiles)));
         assert_eq!(
             from_host, from_rust,
@@ -994,5 +1114,80 @@ mod c4_runtime_tests {
             1,
             "rust_pixels_record_external records an External entry"
         );
+    }
+
+    /// CROSS-LANGUAGE DECODE ROUND TRIP. The host's `decodePixelBytes` and this
+    /// `unb64` are two implementations of one contract, and nothing else in the
+    /// tree compares them: the host's own tests decode through the host's own
+    /// encoder, which a symmetric pair of bugs would pass.
+    ///
+    /// So the expected string is captured from the RUST encoder here and pinned as
+    /// a literal, and `decodePixelBytes` in
+    /// apps/desktop/src/lib/protocol/pixelSeedCall.ts must produce these bytes
+    /// from it (see pixelSeedCall.test.ts). Inputs chosen to hit the three cases a
+    /// hand-rolled decoder gets wrong: lengths that straddle a base64 quantum, the
+    /// `=` padding, and bytes that use every high bit.
+    #[test]
+    fn rust_encoder_output_decodes_to_the_original_bytes_on_the_host_side() {
+        for len in [1usize, 2, 3, 4, 5, 6, 255, 256, 257] {
+            let bytes: Vec<u8> = (0..len)
+                .map(|i| (i as u8).wrapping_mul(37).wrapping_add(11))
+                .collect();
+            let encoded = b64(&bytes);
+            let decoded = unb64(&encoded, "tile").expect("round trip decodes");
+            assert_eq!(decoded, bytes, "len {len} survives b64 round trip");
+            assert_eq!(encoded.len() % 4, 0, "base64 is always a multiple of 4");
+            if len % 3 != 0 {
+                assert!(encoded.ends_with('='), "len {len} pads to a quantum");
+            }
+        }
+        // A pinned literal, so a change to the Rust alphabet or padding is caught
+        // even if the round trip above still happened to be self-consistent.
+        assert_eq!(b64(&[0u8, 255, 128, 64]), "AP+AQA==".to_string());
+        assert_eq!(b64(&[1u8, 2, 3]), "AQID".to_string());
+        assert_eq!(b64(&[1u8, 2]), "AQI=".to_string());
+        assert_eq!(b64(&[1u8]), "AQ==".to_string());
+    }
+
+    /// The wire REJECTS a byte array where base64 is expected, rather than
+    /// silently accepting one. That rejection is the mechanism: a caller that
+    /// forgets to encode gets an error, not a store seeded with garbage.
+    #[test]
+    fn a_pixel_payload_that_is_not_base64_is_rejected_with_the_field_named() {
+        let doc = "doc-b64".to_string();
+        let layer = "L".to_string();
+        rust_pixels_open_document(doc.clone());
+        seed_layer_bytes(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).unwrap();
+
+        let err = rust_pixels_write_region(
+            doc.clone(),
+            layer.clone(),
+            0,
+            0,
+            2,
+            2,
+            "[1,2,3,4]".to_string(),
+        )
+        .err()
+        .expect("a JSON byte array is not base64");
+        assert!(
+            err.contains("rgbaBase64"),
+            "the error names the field the caller got wrong: {err}"
+        );
+
+        let err = rust_pixels_resize_layer(
+            doc.clone(),
+            layer.clone(),
+            4,
+            4,
+            "not base64 !!".to_string(),
+        )
+        .err()
+        .expect("undecodable base64 is rejected");
+        assert!(
+            err.contains("bytesBase64"),
+            "the error names the field the caller got wrong: {err}"
+        );
+        rust_pixels_close_document(doc);
     }
 }

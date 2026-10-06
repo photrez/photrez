@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { pixelRegionDispatch } from "@/lib/protocol/pixelSeedCall";
 
 /**
  * NO RESURRECTION AFTER DELETE PIXELS / CUT.
@@ -25,8 +26,8 @@ import {
   type RustStoreEmulator,
 } from "@/lib/paint/__tests__/rustStoreEmulator";
 
-const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any) => Promise<any>) }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any) => hoist.invoke!(c, a) }));
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any, o?: any) => Promise<any>) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any, o?: any) => hoist.invoke!(c, a, o) }));
 
 let store: RustStoreEmulator;
 
@@ -160,15 +161,10 @@ function makeEngine(): { engine: DocumentEngine; history: CommandHistory; layerI
 
 /** One brush dab, written the way the production brush commit writes. */
 async function stroke(layerId: string, x: number, y: number, size = 2, value = 0): Promise<void> {
-  await store.invoke("rust_pixels_write_region", {
-    docId: "doc1",
-    layerId,
-    x,
-    y,
-    w: size,
-    h: size,
-    rgba: new Uint8Array(size * size * 4).fill(value),
-  });
+  await store.invoke(
+    "rust_pixels_write_region",
+    pixelRegionDispatch("doc1", layerId, x, y, size, size, new Uint8Array(size * size * 4).fill(value)),
+  );
 }
 
 beforeEach(() => {

@@ -10,6 +10,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { applyRustTilesToSurface } from "../rustShadow";
+import { decodeRustBytes, pixelSeedDispatch, readPixelSeedCall } from "../protocol/pixelSeedCall";
 
 // jsdom has no ImageData constructor; mirror canonicalSeam.test.ts pattern.
 class FakeImageData {
@@ -43,8 +44,10 @@ function makeRustSim() {
   };
   const tileOut = (t: WireTile) => ({ x: t.x, y: t.y, w: t.w, h: t.h, data: t.data });
 
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
     calls.push({ cmd, args });
+    // The seed arrives as a raw body plus metadata headers.
+    args = decodeRustBytes({ ...args, ...(cmd === "rust_pixels_init" ? readPixelSeedCall(cmd, args)! : {}) });
     if (cmd === "rust_pixels_open_document") {
       docs.add(args.docId);
       return;
@@ -71,6 +74,7 @@ function makeRustSim() {
     }
     const s = store.get(k)!;
     if (cmd === "apply_tile_patch") {
+      args = decodeRustBytes(args);
       write(s, args.after as WireTile[]);
       s.undo.push({ before: args.before, after: args.after });
       s.redo = [];
@@ -175,7 +179,7 @@ describe("Rust-owned canonical pixel buffers - TS<->Rust ownership contract (doc
     const layerId = "L1";
     await invoke("rust_pixels_open_document", { docId: DOC });
     const seed = new Array(W * H * 4).fill(255);
-    await invoke("rust_pixels_init", { docId: DOC, layerId, width: W, height: H, bytes: seed });
+    await invoke("rust_pixels_init", pixelSeedDispatch(DOC, layerId, W, H, seed));
 
     const beforeA = new Uint8ClampedArray(256 * 256 * 4).fill(255);
     const beforeB = new Uint8ClampedArray(256 * 256 * 4).fill(255);
@@ -238,7 +242,7 @@ describe("Rust-owned canonical pixel buffers - TS<->Rust ownership contract (doc
 
     const layerId = "L1";
     await invoke("rust_pixels_open_document", { docId: DOC });
-    await invoke("rust_pixels_init", { docId: DOC, layerId, width: W, height: H, bytes: new Array(W * H * 4).fill(255) });
+    await invoke("rust_pixels_init", pixelSeedDispatch(DOC, layerId, W, H, new Array(W * H * 4).fill(255)));
 
     const afterWire = [
       { x: 0, y: 0, width: 256, height: 256, data: new Uint8ClampedArray(256 * 256 * 4).fill(77) },
@@ -282,13 +286,13 @@ describe("Rust-owned canonical pixel buffers - TS<->Rust ownership contract (doc
     const sim = makeRustSim();
     const layerId = "L1";
     await invoke_sim(sim, "rust_pixels_open_document", { docId: DOC });
-    await invoke_sim(sim, "rust_pixels_init", { docId: DOC, layerId, width: W, height: H, bytes: new Array(W * H * 4).fill(0) });
+    await invoke_sim(sim, "rust_pixels_init", pixelSeedDispatch(DOC, layerId, W, H, new Array(W * H * 4).fill(0)));
     await invoke_sim(sim, "rust_pixels_close_document", { docId: DOC });
     expect(sim.store.has(`${DOC}|${layerId}`)).toBe(false);
   });
 
-  function invoke_sim(sim: ReturnType<typeof makeRustSim>, cmd: string, args: any) {
-    return sim.invoke(cmd, args);
+  function invoke_sim(sim: ReturnType<typeof makeRustSim>, cmd: string, args: any, options?: any) {
+    return sim.invoke(cmd, args, options);
   }
 
   it("C5.3-A mixed brush/adjustment/brush undo-redo follows one unified stream", async () => {
@@ -297,7 +301,7 @@ describe("Rust-owned canonical pixel buffers - TS<->Rust ownership contract (doc
     const invoke = sim.invoke;
     const layerId = "Lmix";
     await invoke("rust_pixels_open_document", { docId: DOC });
-    await invoke("rust_pixels_init", { docId: DOC, layerId, width: W, height: H, bytes: new Array(W * H * 4).fill(0) });
+    await invoke("rust_pixels_init", pixelSeedDispatch(DOC, layerId, W, H, new Array(W * H * 4).fill(0)));
 
     const stroke = (before: number, after: number) => ({
       docId: DOC,

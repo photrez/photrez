@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 //
 // Bounds proof for the pixel bridge. Two claims, pinned against the recorded
 // bounds, with no production change:
@@ -145,7 +146,7 @@ function rejectInvalidWrite(args: Record<string, unknown>): void {
   const y = args.y as number;
   const w = args.w as number;
   const h = args.h as number;
-  const rgba = args.rgba as Uint8Array;
+  const rgba = decodeRustBytes<{ rgba: Uint8Array }>(args).rgba;
   const reject = (msg: string): never => {
     throw msg;
   };
@@ -301,13 +302,13 @@ describe("rust_pixels_write_region input bounds", () => {
 
     await vi.waitFor(() => expect(writeCalls().length).toBe(1), { timeout: 2000 });
 
-    const write = writeCalls()[0][1] as unknown as {
+    const write = decodeRustBytes<{
       x: number;
       y: number;
       w: number;
       h: number;
       rgba: Uint8Array;
-    };
+    }>(writeCalls()[0][1]);
     expect([write.x, write.y, write.w, write.h].every((v) => Number.isFinite(v))).toBe(true);
     expect(write.x).toBeGreaterThanOrEqual(0);
     expect(write.y).toBeGreaterThanOrEqual(0);

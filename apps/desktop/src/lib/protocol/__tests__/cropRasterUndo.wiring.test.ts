@@ -1,3 +1,5 @@
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+
 // CROP RASTER UNDO - the last open item of the single-canonical-pixel-owner effort.
 //
 // THE DEFECT (real app, artifact sha256
@@ -158,7 +160,9 @@ describe("crop undo restores the raster and the Rust store, not just the documen
     invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "rust_pixels_get_epoch") return 7; // Ok(Some(7)) -> the store exists
       if (cmd === "rust_pixels_resize_layer") {
-        const a = (args ?? {}) as { layerId?: string; width?: number; height?: number; bytes?: Uint8Array };
+        const a = decodeRustBytes<{ layerId?: string; width?: number; height?: number; bytes?: Uint8Array }>(
+          args ?? {},
+        );
         storeReseeds.push({
           layerId: String(a.layerId),
           width: Number(a.width),

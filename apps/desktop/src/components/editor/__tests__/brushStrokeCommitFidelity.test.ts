@@ -24,6 +24,7 @@
 // No new dependencies: the backing buffer is implemented IN THE MOCK.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { useBrushOverlay, flushC4Commits } from "../useBrushOverlay";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
@@ -161,7 +162,9 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
   let initCount = 0;
   const failCommitOnCall = opts?.failCommitOnCall ?? -1;
 
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
+    // The seed arrives as a raw body plus metadata headers, not as JSON fields.
+    args = decodeRustBytes({ ...args, ...(cmd === "rust_pixels_init" ? readPixelSeedCall(cmd, args)! : {}) });
     calls.push({ cmd, args });
     if (cmd === "rust_pixels_open_document") return;
     if (cmd === "rust_pixels_close_document") {
@@ -195,6 +198,7 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
     }
     // Deferred dirty-region write: region replace, one history step.
     if (cmd === "rust_pixels_write_region") {
+      args = decodeRustBytes(args);
       commitCount += 1;
       if (commitCount === failCommitOnCall) throw new Error("simulated commit failure");
       let layer = s;
@@ -223,7 +227,7 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
 
 const hoist = vi.hoisted(() => {
   let sim: ReturnType<typeof makeSim> | null = null;
-  const invoke = (cmd: string, args: any) => sim!.invoke(cmd, args);
+  const invoke = (cmd: string, args: any, options?: any) => sim!.invoke(cmd, args, options);
   return { invoke, setSim: (s: ReturnType<typeof makeSim>) => { sim = s; }, getSim: () => sim! };
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: hoist.invoke }));

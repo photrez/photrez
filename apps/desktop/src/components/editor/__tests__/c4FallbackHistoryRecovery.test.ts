@@ -14,6 +14,7 @@
 //      the emulator holds one recoverable apply.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { useBrushOverlay, flushC4Commits } from "../useBrushOverlay";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
@@ -138,7 +139,9 @@ function makeSim(opts?: { rejectWriteRegion?: string }) {
     }
   };
 
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
+    // The seed arrives as a raw body plus metadata headers, not as JSON fields.
+    args = decodeRustBytes({ ...args, ...(cmd === "rust_pixels_init" ? readPixelSeedCall(cmd, args)! : {}) });
     calls.push({ cmd, args });
     if (cmd === "rust_pixels_open_document") return;
     if (cmd === "rust_pixels_close_document") {
@@ -169,6 +172,7 @@ function makeSim(opts?: { rejectWriteRegion?: string }) {
       return;
     }
     if (cmd === "rust_pixels_write_region") {
+      args = decodeRustBytes(args);
       // Post-IPC Rust failure shape: a bare string rejection (Tauri v2 Result<_, String>).
       if (rejectWriteRegion !== undefined) throw rejectWriteRegion;
       const s = store.get(k);
@@ -192,6 +196,7 @@ function makeSim(opts?: { rejectWriteRegion?: string }) {
       return { before: [{ x, y, w, h, data: beforeData }], after: [{ x, y, w, h, data: afterData }], epoch: s.epoch, version: s.version };
     }
     if (cmd === "apply_tile_patch") {
+      args = decodeRustBytes(args);
       const s = store.get(k);
       if (!s) throw new Error("no layer");
       applyCount += 1;
@@ -219,7 +224,7 @@ function makeSim(opts?: { rejectWriteRegion?: string }) {
 
 const hoist = vi.hoisted(() => {
   let sim: ReturnType<typeof makeSim> | null = null;
-  const invoke = (cmd: string, args: any) => sim!.invoke(cmd, args);
+  const invoke = (cmd: string, args: any, options?: any) => sim!.invoke(cmd, args, options);
   return { invoke, setSim: (s: ReturnType<typeof makeSim>) => { sim = s; }, getSim: () => sim! };
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: hoist.invoke }));

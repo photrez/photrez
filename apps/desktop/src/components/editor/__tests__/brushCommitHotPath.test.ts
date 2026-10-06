@@ -30,6 +30,7 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } 
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { PaintTileSurface } from "@/lib/paint/paintTileSurface";
 import { assertWriteRegionTarget, assertWriteRegionBytes } from "@/lib/paint/regionProducer";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import * as regionProducerModule from "@/lib/paint/regionProducer";
 
 // Call-through spy on the region producer: every production consumer keeps the
@@ -122,7 +123,11 @@ function makeSim(opts?: { delayFirstWriteMs?: number; failWriteRegion?: boolean 
   const delayFirstWriteMs = opts?.delayFirstWriteMs ?? 0;
   const failWriteRegion = opts?.failWriteRegion ?? false;
 
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
+    // The seed arrives as a raw body plus metadata headers; normalise it to the
+    // field names this simulator uses and records, from the shape the command
+    // really gets (so a recorded call is inspectable the same way).
+    args = decodeRustBytes({ ...args, ...(cmd === "rust_pixels_init" ? readPixelSeedCall(cmd, args)! : {}) });
     calls.push({ cmd, args });
     const k = key(args.docId, args.layerId);
     if (cmd === "rust_pixels_get_epoch") {
@@ -149,6 +154,7 @@ function makeSim(opts?: { delayFirstWriteMs?: number; failWriteRegion?: boolean 
       return;
     }
     if (cmd === "rust_pixels_write_region") {
+      args = decodeRustBytes(args);
       commitCount += 1;
       if (delayFirstWriteMs > 0 && commitCount === 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, delayFirstWriteMs));
@@ -189,7 +195,7 @@ function makeSim(opts?: { delayFirstWriteMs?: number; failWriteRegion?: boolean 
 
 const hoist = vi.hoisted(() => {
   let sim: ReturnType<typeof makeSim> | null = null;
-  const invoke = (cmd: string, args: any) => sim!.invoke(cmd, args);
+  const invoke = (cmd: string, args: any, options?: any) => sim!.invoke(cmd, args, options);
   return { invoke, setSim: (s: ReturnType<typeof makeSim>) => { sim = s; }, getSim: () => sim! };
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: hoist.invoke }));

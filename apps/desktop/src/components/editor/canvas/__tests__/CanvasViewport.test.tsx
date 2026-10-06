@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, assert } from "vitest";
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { CanvasViewport } from "../CanvasViewport";
@@ -75,7 +76,7 @@ vi.mock("../useCanvasKeyboard", () => ({
 // can run without a live Rust runtime; faithful return shapes are set per-test.
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => invokeMock(cmd, args),
+  invoke: (cmd: string, args: any, options?: any) => invokeMock(cmd, args, options),
 }));
 
 let setTool: (tool: string) => void = () => {};
@@ -3530,7 +3531,7 @@ describe("Native authority: paint-bucket pixel commit syncs facade version (real
       if (cmd === "rust_pixels_write_region") {
         return {
           before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: version,
           version,
         };

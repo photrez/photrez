@@ -12,8 +12,8 @@ import type { ToolType } from "@/viewport/input-handler";
 // runtime in jsdom there is no store to write into, so the op reports a visible
 // failure and never commits - these tests therefore drive a faithful store
 // emulator and await the write.
-const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any) => Promise<any>) }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any) => hoist.invoke!(c, a) }));
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any, o?: any) => Promise<any>) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any, o?: any) => hoist.invoke!(c, a, o) }));
 
 let store: ReturnType<typeof createRustStoreEmulator>;
 

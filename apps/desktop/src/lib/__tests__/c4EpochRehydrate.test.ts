@@ -3,10 +3,11 @@
 // getInvoke()/dynamic import) exercises the in-test Rust sim.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { decodeRustBytes, pixelSeedDispatch, readPixelSeedCall } from "../protocol/pixelSeedCall";
 
 let sim: ReturnType<typeof makeRustSim>;
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => sim.invoke(cmd, args),
+  invoke: (cmd: string, args: any, options?: any) => sim.invoke(cmd, args, options),
 }));
 
 import { rehydratePaintSurfaceFromRust, getRustEpoch } from "../rustShadow";
@@ -36,9 +37,11 @@ function makeRustSim() {
       }
     }
   };
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
     if (cmd === "rust_pixels_open_document") return;
     if (cmd === "rust_pixels_init") {
+      // The seed arrives base64-encoded; readPixelSeedCall decodes it.
+      args = { ...readPixelSeedCall(cmd, args) };
       store.set(key(args.docId, args.layerId), {
         w: args.width, h: args.height, pixels: (args.bytes as number[]).slice(),
         undo: [], redo: [], epoch: 0,
@@ -47,6 +50,7 @@ function makeRustSim() {
     }
     const s = store.get(key(args.docId, args.layerId))!;
     if (cmd === "apply_tile_patch") {
+      args = decodeRustBytes(args);
       write(s, args.after as WireTile[]);
       s.undo.push({ before: args.before, after: args.after });
       s.redo = [];
@@ -108,7 +112,7 @@ describe("C5.2 — derived TS cache epoch rehydration", () => {
     const { ctx, backing } = makeFakeCtx(W, H);
     const surface = { context: ctx as any, pixelEpoch: 0 };
 
-    await sim.invoke("rust_pixels_init", { docId: DOC, layerId: LAYER, width: W, height: H, bytes: new Array(W * H * 4).fill(255) });
+    await sim.invoke("rust_pixels_init", pixelSeedDispatch(DOC, LAYER, W, H, new Array(W * H * 4).fill(255)));
     // One commit on (0,0) → Rust epoch becomes 1; TS cache is still at 0 (stale).
     const after = new Uint8ClampedArray(256 * 256 * 4).fill(42);
     await sim.invoke("apply_tile_patch", {
@@ -117,7 +121,6 @@ describe("C5.2 — derived TS cache epoch rehydration", () => {
       after: [{ x: 0, y: 0, w: 256, h: 256, data: Array.from(after) }],
     });
     expect(await getRustEpoch(DOC, LAYER)).toBe(1);
-
     const did = await rehydratePaintSurfaceFromRust(DOC, LAYER, surface as any);
     expect(did).toBe(true);
     expect(surface.pixelEpoch).toBe(1);
@@ -129,7 +132,7 @@ describe("C5.2 — derived TS cache epoch rehydration", () => {
     const { ctx, backing } = makeFakeCtx(W, H);
     const surface = { context: ctx as any, pixelEpoch: 1 }; // already fresh
 
-    await sim.invoke("rust_pixels_init", { docId: DOC, layerId: LAYER, width: W, height: H, bytes: new Array(W * H * 4).fill(255) });
+    await sim.invoke("rust_pixels_init", pixelSeedDispatch(DOC, LAYER, W, H, new Array(W * H * 4).fill(255)));
     await sim.invoke("apply_tile_patch", {
       docId: DOC, layerId: LAYER,
       before: [{ x: 0, y: 0, w: 256, h: 256, data: new Array(256 * 256 * 4).fill(255) }],

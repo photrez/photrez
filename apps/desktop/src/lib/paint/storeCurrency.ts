@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { encodePixelBytes } from "@/lib/protocol/pixelSeedCall";
 
 /**
  * STORE-CURRENCY INVARIANT
@@ -149,7 +150,7 @@ export async function syncLayerStoreToLayerRaster(
       layerId,
       width: layer.width,
       height: layer.height,
-      bytes,
+      bytesBase64: encodePixelBytes(bytes),
     });
   } catch (err) {
     // THE OWNERSHIP REPAIR. Leaving the store at pre-rewrite dimensions IS the

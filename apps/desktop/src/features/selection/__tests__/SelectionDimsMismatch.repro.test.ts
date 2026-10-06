@@ -11,8 +11,8 @@ import {
 
 // Delete pixels is recorded by Rust as one canonical pixel write, so the model
 // bitmap is rebuilt from the store's tiles asynchronously.
-const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any) => Promise<any>) }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any) => hoist.invoke!(c, a) }));
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any, o?: any) => Promise<any>) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any, o?: any) => hoist.invoke!(c, a, o) }));
 
 let store: RustStoreEmulator;
 const history = new CommandHistory(50);

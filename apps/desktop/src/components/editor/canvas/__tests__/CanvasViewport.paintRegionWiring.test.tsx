@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readPixelSeedCall , decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { render } from "solid-js/web";
 import { ImageData as NodeImageData } from "canvas";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
@@ -52,7 +53,7 @@ if (typeof (globalThis as { createImageBitmap?: unknown }).createImageBitmap ===
 //    Tauri invoke is replaced by an in-memory Rust pixel-store emulator below.
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: unknown) => invokeMock(cmd, args),
+  invoke: (cmd: string, args: unknown, options?: unknown) => invokeMock(cmd, args, options),
 }));
 vi.mock("../useViewportRenderer", () => ({
   useViewportRenderer: () => ({
@@ -119,15 +120,16 @@ function createStore(width: number, height: number) {
     return { x, y, w, h, data };
   };
 
-  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown>) => {
+  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown>, options?: any) => {
     if (cmd === "rust_pixels_get_epoch") {
       if (epochRejection !== null) return Promise.reject(epochRejection);
       return epoch;
     }
     if (cmd === "rust_pixels_init") {
       initCalls += 1;
-      const bytes = args.bytes as Uint8Array;
-      buffer.set(bytes.subarray(0, buffer.length));
+      // The seed arrives as a raw body plus metadata headers, not as JSON fields.
+      const seed = readPixelSeedCall(cmd, args)!;
+      buffer.set(seed.bytes.subarray(0, buffer.length));
       return null;
     }
     if (cmd === "rust_pixels_snapshot_layer") return [readTile(0, 0, width, height)];
@@ -136,7 +138,7 @@ function createStore(width: number, height: number) {
       const y = args.y as number;
       const w = args.w as number;
       const h = args.h as number;
-      const rgba = args.rgba as Uint8Array;
+      const rgba = decodeRustBytes<{ rgba: Uint8Array }>(args).rgba;
       if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) {
         rejections.push(`invalid dimensions ${x},${y},${w},${h}`);
         return Promise.reject("Invalid region dimensions");

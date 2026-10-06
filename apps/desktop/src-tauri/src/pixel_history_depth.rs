@@ -74,13 +74,19 @@ mod tests {
     use super::*;
     use crate::document_snapshot_cmds::{rust_pixels_record_snapshot, DocumentSnapshotDto};
     use crate::paint_parity_cmds::{
-        apply_tile_patch, rust_pixels_init, rust_pixels_open_document, rust_pixels_record_external,
-        rust_pixels_redo, rust_pixels_undo, rust_pixels_write_region, TilePatchWire,
+        apply_tile_patch, rust_pixels_open_document, rust_pixels_record_external, rust_pixels_redo,
+        rust_pixels_undo, rust_pixels_write_region, seed_layer_bytes, TilePatchWire,
         TEST_REGISTRY_LOCK,
     };
 
     fn wire(x: i64, y: i64, w: usize, h: usize, data: Vec<u8>) -> TilePatchWire {
-        TilePatchWire { x, y, w, h, data }
+        TilePatchWire {
+            x,
+            y,
+            w,
+            h,
+            data_base64: crate::paint_parity_cmds::b64(&data),
+        }
     }
 
     fn cursor_and_version(doc: &str) -> (Option<usize>, Option<u64>) {
@@ -105,7 +111,7 @@ mod tests {
         let doc = "depth-doc-1".to_string();
         let layer = "depth-layer-1".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
+        seed_layer_bytes(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
         let before = vec![wire(0, 0, 4, 4, vec![0; 4 * 4 * 4])];
         let after = vec![wire(0, 0, 4, 4, vec![9; 4 * 4 * 4])];
         apply_tile_patch(doc.clone(), layer.clone(), before, after).expect("patch");
@@ -168,7 +174,7 @@ mod tests {
         let doc = "tip-doc-1".to_string();
         let layer = "tip-layer-1".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
+        seed_layer_bytes(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
         let before = vec![wire(0, 0, 4, 4, vec![0; 4 * 4 * 4])];
         let after = vec![wire(0, 0, 4, 4, vec![9; 4 * 4 * 4])];
         // A pixel step (apply_tile_patch -> Pixel entry) then a host metadata step
@@ -254,13 +260,20 @@ mod tests {
         let doc = "c7-doc".to_string();
         let layer = "c7-layer".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
+        seed_layer_bytes(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
 
         // Step 1: the canonical writer, which is NOT bridge-gated - it appends a
         // `Pixel` entry and advances the cursor in production on every stroke.
-        let written =
-            rust_pixels_write_region(doc.clone(), layer.clone(), 0, 0, 4, 4, vec![7; 4 * 4 * 4])
-                .expect("write_region");
+        let written = rust_pixels_write_region(
+            doc.clone(),
+            layer.clone(),
+            0,
+            0,
+            4,
+            4,
+            crate::paint_parity_cmds::b64(&[7u8; 4 * 4 * 4]),
+        )
+        .expect("write_region");
         assert!(
             !written.after.is_empty(),
             "the writer changed pixels, so the Pixel entry is real"
@@ -327,9 +340,17 @@ mod tests {
         // would be unfalsifiable.
         let ctrl = "c7-control".to_string();
         rust_pixels_open_document(ctrl.clone());
-        rust_pixels_init(ctrl.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
-        rust_pixels_write_region(ctrl.clone(), layer.clone(), 0, 0, 4, 4, vec![7; 4 * 4 * 4])
-            .expect("control write_region");
+        seed_layer_bytes(ctrl.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
+        rust_pixels_write_region(
+            ctrl.clone(),
+            layer.clone(),
+            0,
+            0,
+            4,
+            4,
+            crate::paint_parity_cmds::b64(&[7u8; 4 * 4 * 4]),
+        )
+        .expect("control write_region");
         let ctrl_tip = rust_pixels_history_tip(ctrl.clone()).expect("control tip");
         assert_eq!(ctrl_tip.undo_tip_kind, Some(PayloadKind::Pixel));
         let ctrl_res = rust_pixels_undo(ctrl.clone(), layer.clone()).expect("control undo");
@@ -391,7 +412,7 @@ mod tests {
         let doc = "ver-pixel".to_string();
         let layer = "lp".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
+        seed_layer_bytes(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
         apply_tile_patch(
             doc.clone(),
             layer.clone(),

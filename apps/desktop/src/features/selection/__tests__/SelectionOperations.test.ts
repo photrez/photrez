@@ -14,8 +14,8 @@ import {
 // These tests therefore drive a faithful store emulator and await the write;
 // the assertions below still read the MODEL bitmap, which is what proves the
 // canonical pixels reached the visible raster.
-const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any) => Promise<any>) }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any) => hoist.invoke!(c, a) }));
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: any, o?: any) => Promise<any>) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (c: string, a: any, o?: any) => hoist.invoke!(c, a, o) }));
 
 let store: RustStoreEmulator;
 

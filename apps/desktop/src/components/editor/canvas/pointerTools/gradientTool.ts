@@ -7,6 +7,7 @@ import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { GradientDragState, PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, getRustEpoch, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { assertWriteRegionBytes, assertWriteRegionTarget, computeDirtyRegion } from "@/lib/paint/regionProducer";
 import { ipcErrorMessage } from "@/tauri/native";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
@@ -224,13 +225,7 @@ export async function applyGradientFill(
     }
     if (storeEpoch === null) {
       const seed = surface.readRect(0, 0, w, h);
-      await invoke("rust_pixels_init", {
-        docId,
-        layerId,
-        width: w,
-        height: h,
-        bytes: new Uint8Array(seed.data.buffer, seed.data.byteOffset, seed.data.byteLength),
-      });
+      await invoke("rust_pixels_init", pixelSeedDispatch(docId, layerId, w, h, seed.data));
     }
     // CANONICAL RASTER: the gradient is computed on the CPU from the canonical
     // bytes read out of the derived surface, never from a GPU readback. The
@@ -264,20 +259,20 @@ export async function applyGradientFill(
     assertWriteRegionTarget(docId, layerId, region, w, h);
     assertWriteRegionBytes(changed.rgba.byteLength, region);
     const preSnapshot = engine.snapshot();
-    const res = (await pixelInvoke("rust_pixels_write_region", {
+    const res = decodeRustBytes<{
+      before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+      after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+      epoch: number;
+      version: number;
+    }>(await pixelInvoke("rust_pixels_write_region", {
       docId,
       layerId,
       x: region.x,
       y: region.y,
       w: region.w,
       h: region.h,
-      rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
-    })) as {
-      before: { x: number; y: number; w: number; h: number; data: number[] }[];
-      after: { x: number; y: number; w: number; h: number; data: number[] }[];
-      epoch: number;
-      version: number;
-    };
+      rgbaBase64: encodePixelBytes(changed.rgba),
+    }));
     // Imperative is entry-owned (tile-memento model): history stores it and
     // replays its before/after tiles on undo/redo; the Rust entry is synced via
     // `rust_pixels_undo` (single step, no second TS-visible entry). `rustOwned`

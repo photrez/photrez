@@ -25,6 +25,7 @@
 //   - a later commit failure does NOT permanently disable the deferred commit
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { pixelSeedDispatch, readPixelSeedCall , decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { useBrushOverlay, flushC4Commits } from "../useBrushOverlay";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
@@ -241,7 +242,9 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
   };
   const tileOut = (t: WireTile) => ({ x: t.x, y: t.y, w: t.w, h: t.h, data: t.data });
 
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
+    // The seed arrives as a raw body plus metadata headers, not as JSON fields.
+    args = decodeRustBytes({ ...args, ...(cmd === "rust_pixels_init" ? readPixelSeedCall(cmd, args)! : {}) });
     calls.push({ cmd, args });
     if (cmd === "rust_pixels_open_document") return;
     if (cmd === "rust_pixels_close_document") {
@@ -323,13 +326,14 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
     }
     // Deferred dirty-region migration: mirror write_region (region replace, one history step).
     if (cmd === "rust_pixels_write_region") {
+      args = decodeRustBytes(args);
       commitCount += 1;
       // Faithful Tauri v2 rejection shape: a bare string, never an Error instance.
       if (commitCount === failCommitOnCall) throw "E_RUST: rust ipc unavailable";
       let layer = s;
       if (!layer) throw new Error("no layer");
       const x = args.x as number, y = args.y as number, rw = args.w as number, rh = args.h as number;
-      const rgba = args.rgba as number[];
+      const rgba = Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba);
       const beforePx = layer.pixels.slice();
       const afterPx = layer.pixels.slice();
       for (let row = 0; row < rh; row++) {
@@ -410,7 +414,7 @@ function makeSim(opts?: { failCommitOnCall?: number }) {
 
 const hoist = vi.hoisted(() => {
   let sim: ReturnType<typeof makeSim> | null = null;
-  const invoke = (cmd: string, args: any) => sim!.invoke(cmd, args);
+  const invoke = (cmd: string, args: any, options?: any) => sim!.invoke(cmd, args, options);
   return { invoke, setSim: (s: ReturnType<typeof makeSim>) => { sim = s; }, getSim: () => sim! };
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: hoist.invoke }));
@@ -639,8 +643,10 @@ describe("Overlapping strokes composite onto canonical (real hook)", () => {
     const fullBytes = (initCall ? initCall.args.width * initCall.args.height : 256 * 256) * 4;
     const wrCalls = sim.calls.filter((c) => c.cmd === "rust_pixels_write_region");
     for (const c of wrCalls) {
-      expect(c.args.rgba.length).toBe(c.args.w * c.args.h * 4); // exact dirty-rect bytes
-      expect(c.args.rgba.length).toBeLessThan(fullBytes); // strictly smaller than full layer
+      // Exact dirty-rect bytes, and strictly fewer than a full-layer readback.
+      const rgba = decodeRustBytes<{ rgba: Uint8Array }>(c.args).rgba;
+      expect(rgba.length).toBe(c.args.w * c.args.h * 4);
+      expect(rgba.length).toBeLessThan(fullBytes);
     }
     expect(sim.calls.filter((c) => c.cmd === "paint_parity_shadow").length).toBe(0);
     expect(sim.calls.filter((c) => c.cmd === "apply_tile_patch").length).toBe(0);
@@ -775,7 +781,7 @@ describe("Unified-stream undo/redo contract (sim)", () => {
   it("A→B→C→undo→undo→redo→new truncates redo (scenarios 5-8)", async () => {
     const sim = hoist.getSim();
     await sim.invoke("rust_pixels_open_document", { docId: "d" });
-    await sim.invoke("rust_pixels_init", { docId: "d", layerId: "L", width: 10, height: 10, bytes: new Array(400).fill(0) });
+    await sim.invoke("rust_pixels_init", pixelSeedDispatch("d", "L", 10, 10, new Array(400).fill(0)));
 
     // A 0→11, B 11→22, C 22→33
     expect((await sim.invoke("apply_tile_patch", strokeArgs(0, 11))).version).toBe(1);
@@ -851,7 +857,7 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
     await flushC4Commits();
     const writes = sim.calls.filter((call) => call.cmd === "rust_pixels_write_region");
     expect(writes).toHaveLength(1);
-    const bytes = Array.from(writes[0].args.rgba as number[]);
+    const bytes = Array.from(decodeRustBytes<{ rgba: Uint8Array }>(writes[0].args).rgba);
     expect(bytes.some((byte) => byte !== 0)).toBe(true);
     const entry = sim.store.get(`${DOC}|${LAYER}`);
     expect(entry).toBeTruthy();
@@ -888,8 +894,9 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
     await flushC4Commits();
     const wr = sim.calls.find((c) => c.cmd === "rust_pixels_write_region")!;
     const fullBytes = 512 * 512 * 4;
-    expect((wr.args.rgba as number[]).length).toBe(wr.args.w * wr.args.h * 4);
-    expect((wr.args.rgba as number[]).length).toBeLessThan(fullBytes);
+    const regionBytes = decodeRustBytes<{ rgba: Uint8Array }>(wr.args).rgba;
+    expect(regionBytes.length).toBe(wr.args.w * wr.args.h * 4);
+    expect(regionBytes.length).toBeLessThan(fullBytes);
     // The bytes Rust receives were READ at the stroke-derived rect (same
     // origin and size as the write), not from a full-layer read that later
     // got sliced. The byte fence alone cannot catch a shifted origin.

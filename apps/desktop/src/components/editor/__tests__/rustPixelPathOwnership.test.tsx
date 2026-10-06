@@ -42,6 +42,7 @@ import { render } from "solid-js/web";
 import { ImageData as NodeImageData } from "canvas";
 import { invoke } from "@tauri-apps/api/core";
 import { flushPixelInvokeCensus, getPixelCensusSnapshot } from "@/lib/protocol/pixelInvokeCensus";
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { getPixelHistoryDepth } from "@/lib/protocol/pixelHistoryDepth";
 import { invokePixelCommand } from "@/lib/protocol/bridge";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
@@ -664,7 +665,7 @@ function createPixelStore(width: number, height: number) {
       const y = a.y as number;
       const w = a.w as number;
       const h = a.h as number;
-      const rgba = a.rgba as Uint8Array;
+      const rgba = decodeRustBytes<{ rgba: Uint8Array }>(a).rgba;
       if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) {
         rejections.push(`invalid dimensions ${x},${y},${w},${h}`);
         return Promise.reject("Invalid region dimensions");

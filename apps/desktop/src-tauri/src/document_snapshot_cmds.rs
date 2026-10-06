@@ -254,7 +254,8 @@ mod phase_d_tests {
     use super::*;
     use crate::paint_parity_cmds::TEST_REGISTRY_LOCK;
     use crate::paint_parity_cmds::{
-        rust_pixels_init, rust_pixels_open_document, rust_pixels_undo, rust_pixels_write_region,
+        b64, rust_pixels_open_document, rust_pixels_undo, rust_pixels_write_region,
+        seed_layer_bytes,
     };
 
     fn reset() {
@@ -263,7 +264,7 @@ mod phase_d_tests {
 
     fn init_layer(doc: &str, layer: &str) {
         rust_pixels_open_document(doc.to_string());
-        rust_pixels_init(
+        seed_layer_bytes(
             doc.to_string(),
             layer.to_string(),
             64,
@@ -357,7 +358,6 @@ mod phase_d_tests {
         // Modify pixels: epoch advances (1), DocumentVersion advances (1).
         let w = 64i64;
         let h = 64i64;
-        let rgba = vec![42u8; (64 * 64 * 4) as usize];
         let _mc = rust_pixels_write_region(
             "pd_round".to_string(),
             "pd_round_L".to_string(),
@@ -365,7 +365,7 @@ mod phase_d_tests {
             0,
             w,
             h,
-            rgba,
+            b64(&[42u8; (64 * 64 * 4)]),
         )
         .expect("write_region");
         let snap1 = document_snapshot("pd_round".to_string()).expect("snap1");
@@ -502,7 +502,7 @@ mod phase_d_tests {
             0,
             64,
             64,
-            vec![42; 64 * 64 * 4],
+            b64(&[42u8; 64 * 64 * 4]),
         )
         .expect("write_region");
         assert_eq!(document_snapshot("pd_pin".to_string()).unwrap().version, 1);
@@ -541,7 +541,7 @@ mod phase_d_tests {
 mod snapshot_record_tests {
     use super::*;
     use crate::paint_parity_cmds::TEST_REGISTRY_LOCK;
-    use crate::paint_parity_cmds::{rust_pixels_init, rust_pixels_open_document};
+    use crate::paint_parity_cmds::{rust_pixels_open_document, seed_layer_bytes};
 
     fn reset() {
         *registry() = None;
@@ -549,7 +549,7 @@ mod snapshot_record_tests {
 
     fn init_layer(doc: &str, layer: &str) {
         rust_pixels_open_document(doc.to_string());
-        rust_pixels_init(
+        seed_layer_bytes(
             doc.to_string(),
             layer.to_string(),
             64,
@@ -648,7 +648,7 @@ mod snapshot_record_tests {
             0,
             64,
             64,
-            vec![42; 64 * 64 * 4],
+            crate::paint_parity_cmds::b64(&[42u8; 64 * 64 * 4]),
         )
         .expect("write_region");
         // undo_snapshot must return Ok(None) WITHOUT moving the cursor (the

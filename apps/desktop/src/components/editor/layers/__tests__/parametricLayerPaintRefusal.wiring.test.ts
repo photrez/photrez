@@ -32,6 +32,7 @@
  * both over a real `CommandHistory` and a transport-faithful pixel store.
  */
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
 import { invoke } from "@tauri-apps/api/core";
 import { handleLayerFillKey } from "@/components/editor/canvas/keyboardShortcuts/layerFill";
 import { fillActiveLayerWithColor } from "@/components/editor/layers/layerOperations";
@@ -217,10 +218,7 @@ describe("Alt+Delete refuses a parametric layer instead of filling it", () => {
     // The fill reads the selection, so the positive control needs one.
     const withSel = { ...engine, getSelection: () => ({ shape: "rect", active: false, inverted: false, x: 0, y: 0, w: SIZE, h: SIZE }) };
     const history = new CommandHistory(8);
-    await store.invoke("rust_pixels_init", {
-      docId: DOC, layerId: "L1", width: SIZE, height: SIZE,
-      bytes: toIpcBytes(new Uint8ClampedArray(SIZE * SIZE * 4)),
-    });
+    await store.invoke("rust_pixels_init", pixelSeedDispatch(DOC, "L1", SIZE, SIZE, toIpcBytes(new Uint8ClampedArray(SIZE * SIZE * 4))));
     invokeMock.mockClear();
 
     const ok = fillActiveLayerWithColor(withSel as never, history, makeRenderer() as never, "#ff0000");
@@ -314,10 +312,7 @@ describe("Delete Selection Pixels refuses a parametric layer instead of clearing
     const { engine } = makeEngine("raster");
     const engineSel = { ...engine, getSelection: () => SEL } as never as typeof engine;
     const history = new CommandHistory(8);
-    await store.invoke("rust_pixels_init", {
-      docId: DOC, layerId: "L1", width: SIZE, height: SIZE,
-      bytes: toIpcBytes(new Uint8ClampedArray(SIZE * SIZE * 4).fill(90)),
-    });
+    await store.invoke("rust_pixels_init", pixelSeedDispatch(DOC, "L1", SIZE, SIZE, toIpcBytes(new Uint8ClampedArray(SIZE * SIZE * 4).fill(90))));
     invokeMock.mockClear();
 
     SelectionOperations.deleteSelection(engineSel as never, history, makeRenderer() as never);

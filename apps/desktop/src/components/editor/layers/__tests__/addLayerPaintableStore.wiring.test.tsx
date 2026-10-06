@@ -39,6 +39,7 @@
 // part that was escaping the Rust owner.
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll, type Mock } from "vitest";
+import { pixelSeedDispatch , pixelRegionDispatch} from "@/lib/protocol/pixelSeedCall";
 import { render } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceManager } from "@/engine/workspace";
@@ -142,8 +143,8 @@ function nativeRejection(e: unknown): string {
 /** `rust_pixels_*` to the emulator (it REJECTS where Rust rejects), `protocol_*_native` to the REAL wasm engine. */
 function installTransport(): void {
   const opened = new Set<string>();
-  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
-    if (cmd.startsWith("rust_pixels_")) return store.invoke(cmd, args);
+  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}, options?: any) => {
+    if (cmd.startsWith("rust_pixels_")) return store.invoke(cmd, args, options);
     const rawDocId = (args.docId as string) ?? "";
     const key = `${NS}${rawDocId === "" ? "default" : rawDocId}`;
     switch (cmd) {
@@ -265,12 +266,12 @@ async function firstCanonicalStroke(layerId: string): Promise<{ seeded: boolean;
     await store.invoke("rust_pixels_get_epoch", { docId: DOC, layerId });
   } catch {
     seeded = true;
-    await store.invoke("rust_pixels_init", { docId: DOC, layerId, width: SIZE, height: SIZE, bytes: new Uint8Array(SIZE * SIZE * 4) });
+    await store.invoke("rust_pixels_init", pixelSeedDispatch(DOC, layerId, SIZE, SIZE, new Uint8Array(SIZE * SIZE * 4)));
   }
   const row = store.layers.get(layerId);
   const rgba = new Uint8Array(SIZE * SIZE * 4);
   for (let i = 3; i < rgba.length; i += 4) rgba[i] = 255;
-  await store.invoke("rust_pixels_write_region", { docId: DOC, layerId, x: 0, y: 0, w: SIZE, h: SIZE, rgba });
+  await store.invoke("rust_pixels_write_region", pixelRegionDispatch(DOC, layerId, 0, 0, SIZE, SIZE, rgba));
   return { seeded, wroteBytes: rgba.length, steps: row?.history.length ?? -1 };
 }
 

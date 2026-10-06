@@ -12,6 +12,7 @@ import {
   projectRustPixelsToVisibleSurface,
 } from "@/lib/rustShadow";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
+import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { showToast } from "@/components/editor/Toast";
 import { ipcErrorMessage } from "@/tauri/native";
 import type { Transform2D } from "../../engine/types";
@@ -361,13 +362,7 @@ export class SelectionOperations {
       }
       if (!layerReady) {
         const seed = surface.context.getImageData(0, 0, width, height).data;
-        await invoke("rust_pixels_init", {
-          docId,
-          layerId,
-          width,
-          height,
-          bytes: new Uint8Array(seed.buffer, seed.byteOffset, seed.byteLength),
-        });
+        await invoke("rust_pixels_init", pixelSeedDispatch(docId, layerId, width, height, seed));
       }
       // Canonical pre-image straight from the store.
       const tiles = (await invoke("rust_pixels_snapshot_layer", { docId, layerId })) as
@@ -384,20 +379,20 @@ export class SelectionOperations {
       if (!changed) return;
       // Capture the pre-delete state BEFORE the write so undo restores it.
       const preSnapshot = engine.snapshot();
-      const res = (await pixelInvoke("rust_pixels_write_region", {
+      const res = decodeRustBytes<{
+        before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+        after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+        epoch: number;
+        version: number;
+      }>(await pixelInvoke("rust_pixels_write_region", {
         docId,
         layerId,
         x: changed.x,
         y: changed.y,
         w: changed.w,
         h: changed.h,
-        rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
-      })) as {
-        before: { x: number; y: number; w: number; h: number; data: number[] }[];
-        after: { x: number; y: number; w: number; h: number; data: number[] }[];
-        epoch: number;
-        version: number;
-      };
+        rgbaBase64: encodePixelBytes(changed.rgba),
+      }));
       applyRustTilesToSurface(surface.context, res.after);
       surface.pixelEpoch = res.epoch;
       surface.pixelVersion = res.version;

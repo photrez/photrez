@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
 import { useBrushOverlay, flushC4Commits } from "../useBrushOverlay";
@@ -65,10 +66,12 @@ const rust = vi.hoisted(() => ({
   writes: 0,
 }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (cmd: string, args: any) => {
+  invoke: vi.fn(async (cmd: string, args: any, options?: any) => {
     if (cmd === "rust_pixels_get_epoch") return rust.epoch;
     if (cmd === "rust_pixels_init") {
-      rust.pixels = new Uint8ClampedArray(args.bytes as ArrayLike<number>);
+      // The seed arrives base64-encoded, not as a byte sequence.
+      const seed = readPixelSeedCall(cmd, args)!;
+      rust.pixels = new Uint8ClampedArray(seed.bytes);
       rust.epoch = 0;
       return null;
     }
@@ -76,11 +79,12 @@ vi.mock("@tauri-apps/api/core", () => ({
       return [{ x: 0, y: 0, w: 512, h: 512, data: Array.from(rust.pixels) }];
     }
     if (cmd === "rust_pixels_write_region") {
+      const rgba = decodeRustBytes<{ rgba: Uint8Array }>(args).rgba;
       const before = Array.from(rust.pixels);
       const after = new Uint8ClampedArray(rust.pixels);
       for (let row = 0; row < args.h; row++) {
         after.set(
-          args.rgba.subarray(row * args.w * 4, (row + 1) * args.w * 4),
+          rgba.subarray(row * args.w * 4, (row + 1) * args.w * 4),
           ((args.y + row) * 512 + args.x) * 4,
         );
       }

@@ -11,6 +11,7 @@ import {
   type TileKeyed,
 } from "@/lib/paint/paintTileSurface";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { computeDirtyRegion, assertWriteRegionTarget, assertWriteRegionBytes, type DirtyRect, emptyDirtyRect, expandDirtyRect } from "@/lib/paint/regionProducer";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
@@ -216,7 +217,13 @@ export function useBrushOverlay() {
       }
       if (!layerReady) {
         const seed = surface.readRect(0, 0, w, h);
-        await invoke("rust_pixels_init", { docId, layerId, width: w, height: h, bytes: new Uint8Array(seed.data.buffer, seed.data.byteOffset, seed.data.byteLength) });
+        // The seed crosses as a base64 STRING, not a byte array. Tauri expands a
+        // Uint8Array argument into one JSON array element per byte, so a
+        // whole-layer seed at 4096^2 became a 268,435,768-character string and a
+        // ~15 s main-thread block on the first stroke. A base64 string is copied
+        // in one pass by JSON.stringify: 156 ms against 5,637 ms for the same
+        // bytes as a number array. See rust_pixels_init.
+        await invoke("rust_pixels_init", pixelSeedDispatch(docId, layerId, w, h, seed.data));
       }
       // Composite the committed dabs onto the rehydrated surface BEFORE the dirty
       // readRect. rehydratePaintSurfaceFromRust did an absolute putImageData of the
@@ -251,10 +258,15 @@ export function useBrushOverlay() {
       // (a rust_pixels_get_epoch already happened) but still before any
       // rust_pixels_write_region attempt.
       assertWriteRegionBytes(region.data.byteLength, dirtyRegion);
-      const res = (await pixelInvoke("rust_pixels_write_region", {
+      const res = decodeRustBytes<{
+        before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+        after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+        epoch: number;
+        version: number;
+      }>(await pixelInvoke("rust_pixels_write_region", {
         docId, layerId, x: dirtyRegion.x, y: dirtyRegion.y, w: dirtyRegion.w, h: dirtyRegion.h,
-        rgba: new Uint8Array(region.data.buffer, region.data.byteOffset, region.data.byteLength),
-      })) as { before: { x: number; y: number; w: number; h: number; data: number[] }[]; after: { x: number; y: number; w: number; h: number; data: number[] }[]; epoch: number; version: number };
+        rgbaBase64: encodePixelBytes(region.data),
+      }));
       applyRustTilesToSurface(sctx, res.after);
       surface.pixelEpoch = res.epoch;
       surface.pixelVersion = res.version;

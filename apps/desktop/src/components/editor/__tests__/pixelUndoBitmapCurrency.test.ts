@@ -24,6 +24,7 @@
  * file is at the 1000-line ceiling.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { useBrushOverlay, flushC4Commits } from "../useBrushOverlay";
 import { useEditorCommands } from "../useEditorCommands";
@@ -174,7 +175,9 @@ function makeSim() {
   // Raw IPC counters, independent of any census: a zero here cannot come from a
   // recorder that was never watching.
   const counts = { writeRegion: 0, undo: 0, redo: 0 };
-  const invoke = async (cmd: string, args: any): Promise<any> => {
+  const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
+    // The seed arrives as a raw body plus metadata headers, not as JSON fields.
+    args = decodeRustBytes({ ...args, ...(cmd === "rust_pixels_init" ? readPixelSeedCall(cmd, args)! : {}) });
     if (cmd === "rust_pixels_open_document" || cmd === "rust_pixels_close_document") return;
     const k = `${args.docId}|${args.layerId}`;
     const s = store.get(k);
@@ -191,6 +194,7 @@ function makeSim() {
       return;
     }
     if (cmd === "rust_pixels_write_region") {
+      args = decodeRustBytes(args);
       if (!s) throw new Error("no layer");
       counts.writeRegion += 1;
       const beforePx = s.pixels.slice();
@@ -228,7 +232,7 @@ function makeSim() {
 
 const hoist = vi.hoisted(() => {
   let sim: ReturnType<typeof makeSim> | null = null;
-  return { invoke: (c: string, a: any) => sim!.invoke(c, a), setSim: (s: ReturnType<typeof makeSim>) => { sim = s; } };
+  return { invoke: (c: string, a: any, o?: any) => sim!.invoke(c, a, o), setSim: (s: ReturnType<typeof makeSim>) => { sim = s; } };
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: hoist.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));

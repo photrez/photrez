@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readPixelSeedCall , decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { createEffect } from "solid-js";
 import { render } from "solid-js/web";
 import { EditorProvider } from "../../shell/EditorContext";
@@ -38,10 +39,12 @@ function canonicalHasColor(hex: string): boolean {
   return false;
 }
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (cmd: string, args: any) => {
+  invoke: vi.fn(async (cmd: string, args: any, options?: any) => {
     if (cmd === "rust_pixels_get_epoch") return canonicalPixels.epoch;
     if (cmd === "rust_pixels_init") {
-      canonicalPixels.bytes.set((args.bytes as Uint8Array).subarray(0, canonicalPixels.bytes.length));
+      // The seed arrives as a raw body plus metadata headers, not as JSON fields.
+      const seed = readPixelSeedCall(cmd, args)!;
+      canonicalPixels.bytes.set(seed.bytes.subarray(0, canonicalPixels.bytes.length));
       return null;
     }
     if (cmd === "rust_pixels_snapshot_layer") {
@@ -49,7 +52,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     }
     if (cmd === "rust_pixels_write_region") {
       const { x, y, w, h } = args;
-      const rgba = args.rgba as Uint8Array;
+      const rgba = decodeRustBytes<{ rgba: Uint8Array }>(args).rgba;
       const before = Array.from(canonicalPixels.bytes);
       for (let row = 0; row < h; row++) {
         canonicalPixels.bytes.set(rgba.subarray(row * w * 4, (row + 1) * w * 4), ((y + row) * 800 + x) * 4);

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { pixelSeedDispatch, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { CommandHistory } from "@/engine/history";
 
 // ── Tauri invoke mock ──
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => mockInvoke(cmd, args),
+  invoke: (cmd: string, args: any, options?: any) => mockInvoke(cmd, args, options),
 }));
 
 // ── Rust shadow mocks ──
@@ -248,9 +249,9 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
     layer.basicAdjustment = { brightness: 20, contrast: 0, saturation: 0 };
 
     const initCalls: any[] = [];
-    mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+    mockInvoke.mockImplementation(async (cmd: string, args: any, options?: any) => {
       if (cmd === "rust_pixels_get_epoch") throw new Error("layer not initialized");
-      if (cmd === "rust_pixels_init") { initCalls.push(args); return undefined; }
+      if (cmd === "rust_pixels_init") { initCalls.push(readPixelSeedCall(cmd, args)!); return undefined; }
       if (cmd === "rust_pixels_write_region") {
         return {
           before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
@@ -274,10 +275,7 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
       const preCtx = preCanvas.getContext("2d")!;
       preCtx.drawImage(preBitmap, 0, 0);
       const preImageData = preCtx.getImageData(0, 0, 100, 100);
-      await mockInvoke("rust_pixels_init", {
-        docId, layerId: "L1", width: 100, height: 100,
-        bytes: Array.from(preImageData.data),
-      });
+      await mockInvoke("rust_pixels_init", pixelSeedDispatch(docId, "L1", 100, 100, preImageData.data));
     }
 
     expect(initCalls.length).toBe(1);

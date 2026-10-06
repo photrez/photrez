@@ -15,6 +15,7 @@ import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { clampRegionToLayer, computeDirtyRegion } from "@/lib/paint/regionProducer";
+import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
 import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "./structuralRouting";
 
@@ -359,33 +360,27 @@ export function useLayerActions() {
               const preCtx = preCanvas.getContext("2d")!;
               preCtx.drawImage(preBitmap, 0, 0);
               const preImageData = preCtx.getImageData(0, 0, layer.width, layer.height);
-              await invoke("rust_pixels_init", {
-                docId,
-                layerId: activeId,
-                width: layer.width,
-                height: layer.height,
-                bytes: new Uint8Array(preImageData.data.buffer, preImageData.data.byteOffset, preImageData.data.byteLength),
-              });
+              await invoke("rust_pixels_init", pixelSeedDispatch(docId, activeId, layer.width, layer.height, preImageData.data));
             }
 
             // Ensure the derived surface reflects the CURRENT canonical state.
             await rehydratePaintSurfaceFromRust(docId, activeId, surface);
 
             // Write baked pixels to Rust canonical (whole layer).
-            const res = (await pixelInvoke("rust_pixels_write_region", {
+            const res = decodeRustBytes<{
+              before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+              after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+              epoch: number;
+              version: number;
+            }>(await pixelInvoke("rust_pixels_write_region", {
               docId,
               layerId: activeId,
               x: region.x,
               y: region.y,
               w: region.w,
               h: region.h,
-              rgba: bakedRgba,
-            })) as {
-              before: { x: number; y: number; w: number; h: number; data: number[] }[];
-              after: { x: number; y: number; w: number; h: number; data: number[] }[];
-              epoch: number;
-              version: number;
-            };
+              rgbaBase64: encodePixelBytes(bakedRgba),
+            }));
 
             // Sync TS derived cache from Rust authoritative returned tiles.
             applyRustTilesToSurface(surface.context, res.after);

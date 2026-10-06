@@ -19,13 +19,20 @@
  */
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 
 /** Wire shape `rust_pixels_undo` / `rust_pixels_redo` answer with. */
 export interface RustCursorStepTiles {
-  tiles: { x: number; y: number; w: number; h: number; data: number[] }[];
+  tiles: { x: number; y: number; w: number; h: number; dataBase64: string }[];
   epoch: number;
   version: number;
 }
+
+
+/** `RustCursorStepTiles` with each tile's base64 payload decoded to bytes. */
+export type DecodedCursorStepTiles = Omit<RustCursorStepTiles, "tiles"> & {
+  tiles: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+};
 
 /** The paint-surface handle this module stamps, in the shape it needs. */
 interface PaintSurfaceLike {
@@ -43,8 +50,8 @@ interface PaintSurfaceLike {
 export interface RustTileProjection {
   /** Tiles for `uploadSurfaceTiles`, in the renderer's width/height shape. */
   tiles: { x: number; y: number; width: number; height: number; data: Uint8ClampedArray }[];
-  /** The step's answer, or null when the fetch did not run or failed. */
-  step: RustCursorStepTiles | null;
+  /** The step's answer, tile bytes decoded, or null when the fetch did not run. */
+  step: DecodedCursorStepTiles | null;
 }
 
 export interface RustTileProjectionDeps {
@@ -70,10 +77,10 @@ export async function projectRustTiles(deps: RustTileProjectionDeps): Promise<Ru
   if (!deps.rustOwned && !deps.rustPixelsFlag) {
     return { tiles: deps.fallbackTiles, step: null };
   }
-  let step: RustCursorStepTiles | null = null;
+  let step: DecodedCursorStepTiles | null = null;
   try {
     const cursorStep = deps.takeCursorStep();
-    if (cursorStep) step = (await cursorStep) as RustCursorStepTiles;
+    if (cursorStep) step = decodeRustBytes<DecodedCursorStepTiles>(await cursorStep);
     if (!step || !step.tiles.length) {
       // Rust took the cursor step but produced no tiles for it. The memento this
       // entry carries describes a step Rust already owns, so replaying it would

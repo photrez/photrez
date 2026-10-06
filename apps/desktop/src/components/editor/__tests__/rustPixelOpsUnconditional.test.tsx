@@ -1,3 +1,5 @@
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+
 /**
  * Paint Bucket Fill, Fill Layer, Adjustment Bake and Gradient Fill are
  * Rust-canonical at the DEFAULT state of photrez.rustPixels (the key a normal
@@ -121,7 +123,7 @@ function createStore(width: number, height: number) {
     if (command === "rust_pixels_snapshot_layer") return [wireTiles([readTile(0, 0, width, height)])[0]];
     if (command === "rust_pixels_write_region") {
       const x = a.x as number, y = a.y as number, w = a.w as number, h = a.h as number;
-      const rgba = a.rgba as Uint8Array;
+      const rgba = decodeRustBytes<{ rgba: Uint8Array }>(a).rgba;
       if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) {
         rejections.push(`invalid dimensions ${x},${y},${w},${h}`);
         return Promise.reject("Invalid region dimensions");
@@ -301,7 +303,7 @@ function driveGradient(
 const writeRegionArgs = () =>
   (vi.mocked(invoke).mock.calls as [string, Record<string, unknown>][])
     .filter(([c]) => c === "rust_pixels_write_region")
-    .map(([, a]) => a as { x: number; y: number; w: number; h: number; rgba: Uint8Array });
+    .map(([, a]) => decodeRustBytes<{ x: number; y: number; w: number; h: number; rgba: Uint8Array }>(a));
 
 /** Same FNV-1a the store fake hashes its canonical buffer with. */
 function fnv1a(bytes: ArrayLike<number>): string {

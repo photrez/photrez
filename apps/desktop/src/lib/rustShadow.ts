@@ -10,6 +10,8 @@ export function isRustShadowEnabled(): boolean {
 
 const isTauriEnv = (): boolean => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+
 async function getInvoke(): Promise<(cmd: string, args?: unknown) => Promise<unknown>> {
   const m = await import("@tauri-apps/api/core");
   return m.invoke as (cmd: string, args?: unknown) => Promise<unknown>;
@@ -878,9 +880,9 @@ export async function rehydratePaintSurfaceFromRust(
   try {
     const invoke = await getInvoke();
     // Read-only probe: stays outside the six-command census by design.
-    const tiles = (await invoke("rust_pixels_snapshot_layer", { docId, layerId })) as
-      | { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[]
-      | null;
+    const tiles = decodeRustBytes<
+      { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[] | null
+    >(await invoke("rust_pixels_snapshot_layer", { docId, layerId }));
     if (!tiles || tiles.length === 0) return false;
     applyRustTilesToSurface(surface.context, tiles);
     surface.pixelEpoch = rustEpoch;

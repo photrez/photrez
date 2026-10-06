@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { applyPaintBucketFill } from "../paintBucket";
 import { computeChangedRegion } from "@/lib/paint/regionProducer";
 import { CommandHistory, historyBridgeEnabled } from "@/engine/history";
@@ -37,7 +38,7 @@ class FakeImageData {
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => mockInvoke(cmd, args),
+  invoke: (cmd: string, args: any, options?: any) => mockInvoke(cmd, args, options),
 }));
 
 // Record applyRustTilesToSurface calls (the real impl just putImageData).
@@ -140,7 +141,8 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
     localStorage.setItem("photrez.rustPixels", "1");
   });
 
-  // Defeat: send wr.rgba as a plain number array (paintBucket.ts:125) instead of Uint8Array; the toBeInstanceOf(Uint8Array) check goes RED.
+  // Defeat: change paintBucket.ts to send a plain number array instead of encoding base64;
+  // the toBeInstanceOf(Uint8Array) check on the decoded call goes RED.
   it("writes the changed region via rust_pixels_write_region and commits ONE history entry", async () => {
     const { surface, commit, uploadSurfaceTiles, editor, ctx } = makeFakes();
 
@@ -154,7 +156,7 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
       if (cmd === "rust_pixels_write_region") {
         writeRes = {
           before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1, version: 1,
         };
         return writeRes;
@@ -187,19 +189,23 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
       expect(cmds).toContain("rust_pixels_write_region");
 
       // write_region got the whole-layer changed region (transparent → filled red).
-      const wr = mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1];
+      const wr = decodeRustBytes<{ x: number; y: number; w: number; h: number; rgba: Uint8Array }>(
+        mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1],
+      );
       expect(wr.x).toBe(0); expect(wr.y).toBe(0); expect(wr.w).toBe(8); expect(wr.h).toBe(8);
-      expect((wr.rgba as number[]).length).toBe(8 * 8 * 4);
-      expect((wr.rgba as number[])[0]).toBe(255);
-      expect((wr.rgba as number[])[3]).toBe(255);
-      // Fill write crosses invoke as binary, like the seed path above.
+      expect(wr.rgba.length).toBe(8 * 8 * 4);
+      expect(wr.rgba[0]).toBe(255);
+      expect(wr.rgba[3]).toBe(255);
+      // The fill write crosses invoke base64-encoded, like the seed path above.
       expect(wr.rgba).toBeInstanceOf(Uint8Array);
 
       // TS derived cache updated from Rust result.
       expect(surface.pixelEpoch).toBe(1);
       expect(surface.pixelVersion).toBe(1);
       expect(applyCalls.length).toBeGreaterThan(0);
-      expect(applyCalls[applyCalls.length - 1].tiles).toBe(writeRes.after);
+      // The tiles applied to the surface are the ones Rust returned, by value:
+      // decodeRustBytes rebuilds them from the base64 the response carried.
+      expect(applyCalls[applyCalls.length - 1].tiles).toEqual(writeRes.after);
       expect(uploadSurfaceTiles).toHaveBeenCalledWith(
         "L1",
         8,
@@ -256,16 +262,16 @@ describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () =>
     const initCalls: any[] = [];
     let writeRes: any;
     // get_epoch rejects → fill must seed the layer from the derived pixels.
-    mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+    mockInvoke.mockImplementation(async (cmd: string, args: any, options?: any) => {
       if (cmd === "rust_pixels_get_epoch") throw new Error("layer not initialized");
-      if (cmd === "rust_pixels_init") { initCalls.push(args); return undefined; }
+      if (cmd === "rust_pixels_init") { initCalls.push(readPixelSeedCall(cmd, args)!); return undefined; }
       if (cmd === "rust_pixels_snapshot_layer") {
         return [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }];
       }
       if (cmd === "rust_pixels_write_region") {
         writeRes = {
           before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1, version: 1,
         };
         return writeRes;
@@ -319,7 +325,7 @@ function okFillInvoke() {
     if (cmd === "rust_pixels_write_region") {
       return {
         before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
-        after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+        after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
         epoch: 1, version: 1,
       };
     }
@@ -423,7 +429,7 @@ describe("paint bucket commit pin (history bridge ON)", () => {
       if (cmd === "rust_pixels_write_region") {
         return {
           before: [{ x: 0, y: 0, w: 8, h: 8, data: new Array(8 * 8 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: 8, h: 8, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,
         };

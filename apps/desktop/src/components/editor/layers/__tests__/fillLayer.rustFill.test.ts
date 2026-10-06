@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { fillActiveLayerWithColor } from "../layerOperations";
 import { CommandHistory, historyBridgeEnabled } from "@/engine/history";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
@@ -44,7 +45,7 @@ class FakeImageData {
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => mockInvoke(cmd, args),
+  invoke: (cmd: string, args: any, options?: any) => mockInvoke(cmd, args, options),
 }));
 
 const applyCalls: { ctx: unknown; tiles: unknown }[] = [];
@@ -142,7 +143,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
       if (cmd === "rust_pixels_write_region") {
-        return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+        return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       }
       return undefined;
     });
@@ -157,10 +158,12 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
       const cmds = mockInvoke.mock.calls.map((c) => c[0]);
       expect(cmds).toContain("rust_pixels_snapshot_layer");
       expect(cmds).toContain("rust_pixels_write_region");
-      const wr = mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1];
+      const wr = decodeRustBytes<{ x: number; y: number; w: number; h: number; rgba: Uint8Array }>(
+        mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1],
+      );
       expect(wr.x).toBe(0); expect(wr.y).toBe(0); expect(wr.w).toBe(100); expect(wr.h).toBe(100);
-      expect((wr.rgba as number[]).length).toBe(100 * 100 * 4);
-      expect((wr.rgba as number[])[0]).toBe(255); expect((wr.rgba as number[])[3]).toBe(255);
+      expect(wr.rgba.length).toBe(100 * 100 * 4);
+      expect(wr.rgba[0]).toBe(255); expect(wr.rgba[3]).toBe(255);
       expect(wr.rgba).toBeInstanceOf(Uint8Array);
       expect(surface.pixelEpoch).toBe(1); expect(surface.pixelVersion).toBe(1);
       expect(uploadSurfaceTiles).toHaveBeenCalledWith("L1", 100, 100, expect.anything());
@@ -192,11 +195,11 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
   it("seeds the canonical store via rust_pixels_init when the layer has no Rust entry yet (fill as FIRST raster op)", async () => {
     const { commit, engine, renderer, history } = makeFakes();
     const initCalls: any[] = [];
-    mockInvoke.mockImplementation(async (cmd: string, args: any) => {
+    mockInvoke.mockImplementation(async (cmd: string, args: any, options?: any) => {
       if (cmd === "rust_pixels_get_epoch") throw new Error("layer not initialized");
-      if (cmd === "rust_pixels_init") { initCalls.push(args); return undefined; }
+      if (cmd === "rust_pixels_init") { initCalls.push(readPixelSeedCall(cmd, args)!); return undefined; }
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
@@ -221,7 +224,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
       if (cmd === "rust_pixels_write_region") {
         epoch += 1;
-        return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch, version: epoch };
+        return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch, version: epoch };
       }
       return undefined;
     });
@@ -240,7 +243,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: gray }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: gray }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: gray }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
@@ -255,7 +258,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     fillActiveLayerWithColor(engine, history, renderer, "#00ff00");
@@ -270,7 +273,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
@@ -285,7 +288,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     fillActiveLayerWithColor(engine, history, renderer, "#0000ff");
@@ -300,13 +303,15 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
     await vi.waitFor(() => {
-      const wr = mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1];
-      const rgba = wr.rgba as number[];
+      const wr = decodeRustBytes<{ rgba: Uint8Array }>(
+        mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1],
+      );
+      const rgba = wr.rgba;
       expect(rgba[3]).toBe(255);
       let opaque = 0;
       for (let i = 3; i < rgba.length; i += 4) if (rgba[i] === 255) opaque++;
@@ -327,7 +332,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     const ok = fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
@@ -341,7 +346,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockImplementation(async (cmd: string, args: any) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
-      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+      if (cmd === "rust_pixels_write_region") return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
       return undefined;
     });
     fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
@@ -394,7 +399,7 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
         if (cmd === "rust_pixels_get_epoch") return 0;
         if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
         if (cmd === "rust_pixels_write_region") {
-          return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }], epoch: 1, version: 1 };
+          return { before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }], after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }], epoch: 1, version: 1 };
         }
         return undefined;
       });
@@ -456,7 +461,7 @@ describe("fillActiveLayerWithColor on a layer with no raster yet", () => {
       if (cmd === "rust_pixels_write_region") {
         return {
           before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1, version: 1,
         };
       }

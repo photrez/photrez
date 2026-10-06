@@ -48,12 +48,18 @@ pub fn rust_pixels_store_bytes(doc_id: String) -> Result<PixelStoreBytes, String
 mod tests {
     use super::*;
     use crate::paint_parity_cmds::{
-        apply_tile_patch, rust_pixels_init, rust_pixels_open_document, TilePatchWire,
+        apply_tile_patch, rust_pixels_open_document, seed_layer_bytes, TilePatchWire,
         TEST_REGISTRY_LOCK,
     };
 
     fn wire(x: i64, y: i64, w: usize, h: usize, data: Vec<u8>) -> TilePatchWire {
-        TilePatchWire { x, y, w, h, data }
+        TilePatchWire {
+            x,
+            y,
+            w,
+            h,
+            data_base64: crate::paint_parity_cmds::b64(&data),
+        }
     }
 
     #[test]
@@ -64,7 +70,7 @@ mod tests {
         let doc = "bytes-doc-1".to_string();
         let layer = "bytes-layer-1".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
+        seed_layer_bytes(doc.clone(), layer.clone(), 4, 4, vec![0; 4 * 4 * 4]).expect("init");
         let before = vec![wire(0, 0, 4, 4, vec![0; 4 * 4 * 4])];
         let after = vec![wire(0, 0, 4, 4, vec![9; 4 * 4 * 4])];
         apply_tile_patch(doc.clone(), layer.clone(), before, after).expect("patch");
@@ -114,7 +120,7 @@ mod tests {
         let doc = "bytes-doc-shared".to_string();
         let layer = "bytes-layer-shared".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), layer.clone(), 300, 300, vec![0; 300 * 300 * 4])
+        seed_layer_bytes(doc.clone(), layer.clone(), 300, 300, vec![0; 300 * 300 * 4])
             .expect("init");
         let before = vec![wire(0, 0, 300, 300, vec![0; 300 * 300 * 4])];
         let after = vec![wire(0, 0, 300, 300, vec![9; 300 * 300 * 4])];
@@ -152,7 +158,7 @@ mod tests {
         let doc2 = "bytes-doc-sub".to_string();
         let layer2 = "bytes-layer-sub".to_string();
         rust_pixels_open_document(doc2.clone());
-        rust_pixels_init(
+        seed_layer_bytes(
             doc2.clone(),
             layer2.clone(),
             300,
@@ -191,7 +197,7 @@ mod tests {
 
         let doc = "bytes-doc-zero".to_string();
         rust_pixels_open_document(doc.clone());
-        rust_pixels_init(doc.clone(), "zero-layer".to_string(), 0, 0, Vec::new())
+        seed_layer_bytes(doc.clone(), "zero-layer".to_string(), 0, 0, Vec::new())
             .expect("init 0x0");
         let bytes = rust_pixels_store_bytes(doc.clone()).expect("bytes read");
         assert_eq!(bytes.layer_count, 1, "the layer exists");
@@ -293,7 +299,7 @@ mod tests {
             let layer = "bytes-size-layer";
 
             rust_pixels_open_document(doc.clone());
-            rust_pixels_init(
+            seed_layer_bytes(
                 doc.clone(),
                 layer.to_string(),
                 size as u32,
@@ -347,7 +353,7 @@ mod tests {
             *registry() = None;
             let control = format!("bytes-control-{size}");
             rust_pixels_open_document(control.clone());
-            rust_pixels_init(
+            seed_layer_bytes(
                 control.clone(),
                 layer.to_string(),
                 size as u32,

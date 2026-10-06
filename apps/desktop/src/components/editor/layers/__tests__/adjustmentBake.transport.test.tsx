@@ -2,6 +2,7 @@
 // Binary transport pins: adjustment-bake invoke args must cross as Uint8Array,
 // not JSON number arrays. Counts/bytes only, no timing.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { renderHook } from "@solidjs/testing-library";
 import { EditorProvider } from "../../shell/EditorContext";
 import { DialogProvider } from "../../dialogs/DialogProvider";
@@ -13,7 +14,7 @@ import { showToast } from "../../Toast";
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => mockInvoke(cmd, args),
+  invoke: (cmd: string, args: any, options?: any) => mockInvoke(cmd, args, options),
 }));
 
 vi.mock("../../Toast", async (importOriginal) => {
@@ -105,7 +106,7 @@ describe("adjustment bake binary transport", () => {
       if (cmd === "rust_pixels_write_region") {
         return {
           before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,
         };
@@ -129,10 +130,16 @@ describe("adjustment bake binary transport", () => {
     await vi.waitFor(() => {
       expect(mockInvoke.mock.calls.some((c) => c[0] === "rust_pixels_write_region")).toBe(true);
     });
-    const init = mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_init")![1];
+    // Both directions cross as base64 strings, never as byte sequences.
+    const initCall = mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_init")!;
+    const init = readPixelSeedCall(initCall[0], initCall[1])!;
     expect(init.bytes).toBeInstanceOf(Uint8Array);
     expect(init.bytes.length).toBe(100 * 100 * 4);
-    const wr = mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1];
+    expect(init.width).toBe(100);
+    expect(init.height).toBe(100);
+    const wr = decodeRustBytes<{ rgba: Uint8Array }>(
+      mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1],
+    );
     expect(wr.rgba).toBeInstanceOf(Uint8Array);
     expect(wr.rgba.length).toBe(100 * 100 * 4);
   });
@@ -170,7 +177,7 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
       if (cmd === "rust_pixels_write_region") {
         return {
           before: [{ x: 0, y: 0, w: W, h: H, data: new Array(W * H * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: W, h: H, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: W, h: H, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,
         };
@@ -216,7 +223,9 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
     });
     await vi.waitFor(() => expect(h.commitSpy).toHaveBeenCalledTimes(1));
 
-    const wr = mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1];
+    const wr = decodeRustBytes<{ rgba: Uint8Array }>(
+      mockInvoke.mock.calls.find((c) => c[0] === "rust_pixels_write_region")![1],
+    );
     expect(Array.from(wr.rgba)).toEqual(Array.from(postBakeBytes));
     expect(Array.from(wr.rgba)).not.toEqual(Array.from(preBakeBytes));
     // Mutually exclusive with the legacy arm: no TS bitmap upload on the Rust arm.
@@ -284,7 +293,7 @@ describe("adjustment bake commit pin (history bridge ON)", () => {
       if (cmd === "rust_pixels_write_region") {
         return {
           before: [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }],
-          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(args.rgba) }],
+          after: [{ x: 0, y: 0, w: 100, h: 100, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
           epoch: 1,
           version: 1,
         };

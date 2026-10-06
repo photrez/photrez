@@ -49,6 +49,7 @@
 // this repo before.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from "vitest";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
 import { invoke } from "@tauri-apps/api/core";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { WorkspaceManager } from "@/engine/workspace";
@@ -111,7 +112,7 @@ function nativeRejection(e: unknown): string {
 
 function installTransport(): void {
   const opened = new Set<string>();
-  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
+  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}, options?: any) => {
     if (cmd.startsWith("rust_pixels_")) {
       if (cmd === "rust_pixels_write_region") {
         // Record what actually went on the wire: the erase can be correct in the
@@ -136,7 +137,7 @@ function installTransport(): void {
           len: rgba?.length ?? -1,
         });
       }
-      return store.invoke(cmd, args);
+      return store.invoke(cmd, args, options);
     }
     const rawDocId = (args.docId as string) ?? "";
     const key = `${NS}${rawDocId === "" ? "default" : rawDocId}`;
@@ -329,13 +330,10 @@ async function eraseBandOn(
   const surface = engine.getPaintSurface(layer.id);
   expect(surface, "premise: the engine exposes a real paint surface").not.toBeNull();
   await store.invoke("rust_pixels_open_document", { docId: DOC });
-  await store.invoke("rust_pixels_init", {
-    docId: DOC,
-    layerId: layer.id,
-    width: SIZE,
-    height: SIZE,
-    bytes: blank ? new Uint8Array(SIZE * SIZE * 4) : new Uint8Array(SIZE * SIZE * 4).fill(255),
-  });
+  await store.invoke(
+    "rust_pixels_init",
+    pixelSeedDispatch(DOC, layer.id, SIZE, SIZE, blank ? new Uint8Array(SIZE * SIZE * 4) : new Uint8Array(SIZE * SIZE * 4).fill(255)),
+  );
 
   const before = await readStoreRaster(DOC, layer.id);
   expect(before.present, "premise: the store holds the layer").toBe(true);

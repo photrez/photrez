@@ -41,6 +41,7 @@
  * REJECTS where Rust rejects.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from "vitest";
+import { pixelSeedDispatch , pixelRegionDispatch} from "@/lib/protocol/pixelSeedCall";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceManager } from "@/engine/workspace";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
@@ -105,8 +106,8 @@ function nativeRejection(e: unknown): string {
 
 function installTransport(): void {
   const opened = new Set<string>();
-  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
-    if (cmd.startsWith("rust_pixels_")) return store.invoke(cmd, args);
+  invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}, options?: any) => {
+    if (cmd.startsWith("rust_pixels_")) return store.invoke(cmd, args, options);
     const rawDocId = (args.docId as string) ?? "";
     const key = `${NS}${rawDocId === "" ? "default" : rawDocId}`;
     switch (cmd) {
@@ -375,22 +376,11 @@ async function giveLayerBrushHistory(
   // `Uint8ClampedArray` crosses real Tauri IPC as an index-keyed map and is
   // rejected at the boundary, so handing one over would test nothing.
   const bytes = toIpcBytes(rasterPixels(engine, layerId)!);
-  await store.invoke("rust_pixels_init", {
-    docId: DOC,
-    layerId,
-    width: layer!.width,
-    height: layer!.height,
-    bytes,
-  });
-  await store.invoke("rust_pixels_write_region", {
-    docId: DOC,
-    layerId,
-    x: 0,
-    y: 0,
-    w: layer!.width,
-    h: layer!.height,
-    rgba: bytes,
-  });
+  await store.invoke("rust_pixels_init", pixelSeedDispatch(DOC, layerId, layer!.width, layer!.height, bytes));
+  await store.invoke(
+    "rust_pixels_write_region",
+    pixelRegionDispatch(DOC, layerId, 0, 0, layer!.width, layer!.height, bytes),
+  );
 }
 
 beforeAll(async () => {

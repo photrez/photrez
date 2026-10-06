@@ -5,6 +5,7 @@
 // (user clicks "Merge Down" → nothing happens).
 
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll, afterEach } from "vitest";
+import { readPixelSeedCall , decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { mergeActiveLayerDown, flattenAllLayers, fillActiveLayerWithColor, mergeSelectedLayers, deleteMultipleLayers, duplicateMultipleLayers } from "../layerOperations";
@@ -17,13 +18,15 @@ import * as Toast from "../../Toast";
 // bitmap is a derived cache the fill path refreshes lazily, not the owner).
 const canonical = { bytes: new Uint8ClampedArray(100 * 100 * 4), epoch: 0, inited: false };
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (cmd: string, args: any) => {
+  invoke: vi.fn(async (cmd: string, args: any, options?: any) => {
     if (cmd === "rust_pixels_get_epoch") {
       if (!canonical.inited) return Promise.reject("layer not initialized");
       return canonical.epoch;
     }
     if (cmd === "rust_pixels_init") {
-      canonical.bytes.set((args.bytes as Uint8Array).subarray(0, canonical.bytes.length));
+      // The seed arrives as a raw body plus metadata headers, not as JSON fields.
+      const seed = readPixelSeedCall(cmd, args)!;
+      canonical.bytes.set(seed.bytes.subarray(0, canonical.bytes.length));
       canonical.inited = true;
       return null;
     }
@@ -32,7 +35,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     }
     if (cmd === "rust_pixels_write_region") {
       const { x, y, w, h } = args;
-      const rgba = args.rgba as Uint8Array;
+      const rgba = decodeRustBytes<{ rgba: Uint8Array }>(args).rgba;
       if (rgba.length !== w * h * 4) return Promise.reject("Invalid region length");
       const before = Array.from(canonical.bytes);
       for (let row = 0; row < h; row++) {

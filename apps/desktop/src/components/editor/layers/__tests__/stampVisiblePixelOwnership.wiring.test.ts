@@ -43,6 +43,7 @@
  * command, so "no entry" and "an entry that matches" cannot collapse.
  */
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { pixelRegionDispatch, pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
 import { invoke } from "@tauri-apps/api/core";
 import { handleLayerOpsKey } from "@/components/editor/canvas/keyboardShortcuts/layerOps";
 import { CommandHistory } from "@/engine/history";
@@ -248,8 +249,8 @@ describe("MEASURED: stamp visible seeds its composite into the Rust pixel store"
     localStorage.setItem("photrez.facade", "0");
     invokeMock.mockReset();
     store = createRustStoreEmulator();
-    invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>) =>
-      store.invoke(cmd, args)) as never);
+    invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
+      store.invoke(cmd, args, options)) as never);
     (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = undefined;
     restoreCanvas = installCompositeCanvas();
   });
@@ -296,16 +297,16 @@ describe("MEASURED: stamp visible seeds its composite into the Rust pixel store"
     try {
       const oneEngine = makeEngine();
       oneEngine.layers.push(sourceLayer("layer-under", 1));
-      invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>) =>
-        one.invoke(cmd, args)) as never);
+      invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
+        one.invoke(cmd, args, options)) as never);
       pressStampVisible(oneEngine.engine, new CommandHistory(8), makeRenderer());
       await flushAsync();
       const oneCalls = one.calls.length;
 
       const manyEngine = makeEngine();
       for (let i = 0; i < 6; i++) manyEngine.layers.push(sourceLayer(`layer-${i}`, i + 1));
-      invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>) =>
-        many.invoke(cmd, args)) as never);
+      invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
+        many.invoke(cmd, args, options)) as never);
       pressStampVisible(manyEngine.engine, new CommandHistory(8), makeRenderer());
       await flushAsync();
       const manyCalls = many.calls.length;
@@ -556,9 +557,10 @@ describe("a stamp between two paint strokes leaves both neighbours undoable", ()
   const opaque = solid(0, 0, 0);
 
   async function paintStroke(bytes: Uint8ClampedArray): Promise<void> {
-    await store.invoke("rust_pixels_write_region", {
-      docId: DOC_CURSOR, layerId: LAYER, x: 0, y: 0, w: SIZE, h: SIZE, rgba: toIpcBytes(bytes),
-    });
+    await store.invoke(
+      "rust_pixels_write_region",
+      pixelRegionDispatch(DOC_CURSOR, LAYER, 0, 0, SIZE, SIZE, toIpcBytes(bytes)),
+    );
   }
 
   function snapshot() {
@@ -575,12 +577,10 @@ describe("a stamp between two paint strokes leaves both neighbours undoable", ()
     localStorage.setItem("photrez.facade", "0");
     invokeMock.mockReset();
     store = createRustStoreEmulator();
-    invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>) =>
-      store.invoke(cmd, args)) as never);
+    invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
+      store.invoke(cmd, args, options)) as never);
     (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = undefined;
-    await store.invoke("rust_pixels_init", {
-      docId: DOC_CURSOR, layerId: LAYER, width: SIZE, height: SIZE, bytes: toIpcBytes(opaque),
-    });
+    await store.invoke("rust_pixels_init", pixelSeedDispatch(DOC_CURSOR, LAYER, SIZE, SIZE, toIpcBytes(opaque)));
   });
 
   afterEach(() => {
@@ -725,8 +725,8 @@ describe("with the facade mirror ACTIVE (the shipping default), one stamp is one
       getEngine: () => ({ getId: () => DOC_FACADE, getLayers: () => liveLayers }),
       getDocId: () => DOC_FACADE,
     });
-    invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>) =>
-      answerFacadeInvoke(cmd, args)) as never);
+    invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
+      answerFacadeInvoke(cmd, args, options)) as never);
     (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = undefined;
     restoreCanvas = installCompositeCanvas();
     // The shim's `recordExternalTransitionFor` needs the protocol surface, and the
@@ -772,7 +772,7 @@ describe("with the facade mirror ACTIVE (the shipping default), one stamp is one
    * which is the quantity the one-entry-per-host-commit rule is about. Stated
    * explicitly because a reader would otherwise assume one emulator.
    */
-  function answerFacadeInvoke(cmd: string, args: Record<string, unknown>): Promise<unknown> {
+  function answerFacadeInvoke(cmd: string, args: Record<string, unknown>, options?: any): Promise<unknown> {
     switch (cmd) {
       // The protocol commands the mirror's path reaches. `recordExternalTransition`
       // is the one that matters: it appends an `External` entry to the same
@@ -803,7 +803,7 @@ describe("with the facade mirror ACTIVE (the shipping default), one stamp is one
       case "rust_pixels_history_tip":
         return answerInvoke(cmd, args);
       default:
-        return store.invoke(cmd, args);
+        return store.invoke(cmd, args, options);
     }
   }
 

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { decodeRustBytes, pixelRegionDispatch } from "@/lib/protocol/pixelSeedCall";
 
 /**
  * OWNER CONVERGENCE - the property that replaces the retired `photrez.rustPixels`
@@ -74,7 +75,7 @@ import {
 // returns undefined on the void ones, which is that contract.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
-const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: unknown) => Promise<unknown>) }));
+const hoist = vi.hoisted(() => ({ invoke: null as null | ((c: string, a: unknown, o?: any) => Promise<unknown>) }));
 
 const DOC = "docConverge";
 const SIZE = 128;
@@ -156,10 +157,9 @@ function readProjection(engine: DocumentEngine, layerId: string): Owner {
 
 /** The Rust store's bytes, through the store's OWN read command. */
 async function readStore(layerId: string): Promise<Owner> {
-  const tiles = (await hoist.invoke!("rust_pixels_snapshot_layer", {
-    docId: DOC,
-    layerId,
-  })) as { x: number; y: number; w: number; h: number; data: number[] }[];
+  const tiles = decodeRustBytes<{ x: number; y: number; w: number; h: number; data: number[] }[]>(
+    await hoist.invoke!("rust_pixels_snapshot_layer", { docId: DOC, layerId }),
+  );
   if (!Array.isArray(tiles) || tiles.length === 0) {
     throw new Error(`premise: the Rust store must have a layer to read (${layerId})`);
   }
@@ -318,7 +318,7 @@ beforeEach(async () => {
   const g = globalThis as Record<string, unknown>;
   g.OffscreenCanvas = CroppingCanvas as unknown as typeof OffscreenCanvas;
   installCreateImageBitmapMock();
-  vi.mocked(invoke).mockImplementation(((c: string, a: unknown) => hoist.invoke!(c, a)) as never);
+  vi.mocked(invoke).mockImplementation(((c: string, a: unknown, o?: any) => hoist.invoke!(c, a, o)) as never);
   localStorage.clear();
   // Explicit: an UNSET facade key means ENABLED (isFacadeEnabled is `!== "0"`).
   localStorage.setItem("photrez.facade", "1");
@@ -545,15 +545,10 @@ describe("the two live pixel owners converge after every operation sequence", ()
 
     // The disagreement the single-owner invariant forbids, induced the only way
     // a differential test can prove itself: move ONE owner, leave the other.
-    await hoist.invoke!("rust_pixels_write_region", {
-      docId: DOC,
-      layerId,
-      x: 8,
-      y: 8,
-      w: 4,
-      h: 4,
-      rgba: new Uint8Array(4 * 4 * 4).fill(255),
-    });
+    await hoist.invoke!(
+      "rust_pixels_write_region",
+      pixelRegionDispatch(DOC, layerId, 8, 8, 4, 4, new Uint8Array(4 * 4 * 4).fill(255)),
+    );
 
     await expect(expectConverged(engine, layerId, "store-only write")).rejects.toThrow(/DISAGREE/);
     expect(
@@ -819,7 +814,9 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     const writes = store.calls.filter((c) => c.cmd === "rust_pixels_write_region");
     expect(writes.length, "STAMP VISIBLE emits exactly one canonical write").toBe(1);
 
-    const arg = writes[0].args as { x: number; y: number; w: number; h: number; rgba: Uint8Array };
+    const arg = decodeRustBytes<{ x: number; y: number; w: number; h: number; rgba: Uint8Array }>(
+      writes[0].args,
+    );
     expect({ x: arg.x, y: arg.y, w: arg.w, h: arg.h }, "the write covers the whole layer").toEqual({
       x: 0, y: 0, w: SIZE, h: SIZE,
     });
@@ -1074,7 +1071,9 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     ).toBe(1);
     // The payload must be the WHOLE layer, not a guess, and its bytes must be
     // real - an all-zero rgba would still record a writer site.
-    const arg = mergeDownWrites[0].args as { x: number; y: number; w: number; h: number; rgba: Uint8Array };
+    const arg = decodeRustBytes<{ x: number; y: number; w: number; h: number; rgba: Uint8Array }>(
+      mergeDownWrites[0].args,
+    );
     expect({ x: arg.x, y: arg.y, w: arg.w, h: arg.h }, "the write covers the whole layer").toEqual({
       x: 0, y: 0, w: SIZE, h: SIZE,
     });

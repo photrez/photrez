@@ -6,6 +6,7 @@ import { RightDock } from "../../shell/RightDock";
 import { WorkspaceManager } from "@/engine/workspace";
 import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 
 // Adjustment Bake records the baked pixels in the canonical Rust store over
 // IPC. Only the pixel commands are served; everything else REJECTS, which is
@@ -19,7 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 800, h: 600, data: [] }];
     if (cmd === "rust_pixels_write_region") {
       const { x, y, w, h } = args;
-      const rgba = Array.from(args.rgba as Uint8Array);
+      const rgba = Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba);
       canonicalBake.epoch += 1;
       canonicalBake.writes += 1;
       return {

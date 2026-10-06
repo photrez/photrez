@@ -536,7 +536,7 @@ mod tests {
     // run one at a time like the paint_parity and document_snapshot suites.
 
     use crate::paint_parity_cmds::{
-        apply_tile_patch, rust_pixels_init, rust_pixels_snapshot_tile, TilePatchWire,
+        apply_tile_patch, rust_pixels_snapshot_tile, seed_layer_bytes, TilePatchWire,
     };
     use photrez_core::protocol::CONTRACT_VERSION;
 
@@ -615,7 +615,7 @@ mod tests {
         open_doc(PIXEL_UNDO_DOC);
         // Real canonical pixel buffer + a real stroke through the same commit
         // path the brush uses (before/after tile patches into the history).
-        rust_pixels_init(
+        seed_layer_bytes(
             PIXEL_UNDO_DOC.to_string(),
             LAYER.to_string(),
             1u32,
@@ -628,7 +628,7 @@ mod tests {
             y: 0,
             w: 1,
             h: 1,
-            data: vec![v, v, v, v],
+            data_base64: crate::paint_parity_cmds::b64(&[v, v, v, v]),
         };
         apply_tile_patch(
             PIXEL_UNDO_DOC.to_string(),
@@ -638,9 +638,17 @@ mod tests {
         )
         .expect("commit stroke");
         let read_first = || {
-            rust_pixels_snapshot_tile(PIXEL_UNDO_DOC.to_string(), LAYER.to_string(), 0, 0, 1, 1)
-                .expect("read canonical buffer")
-                .data[0] as u64
+            let tile = rust_pixels_snapshot_tile(
+                PIXEL_UNDO_DOC.to_string(),
+                LAYER.to_string(),
+                0,
+                0,
+                1,
+                1,
+            )
+            .expect("read canonical buffer");
+            crate::paint_parity_cmds::unb64(&tile.data_base64, "tile dataBase64")
+                .expect("tile decodes")[0] as u64
         };
         assert_eq!(
             read_first(),

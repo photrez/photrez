@@ -10,6 +10,7 @@
 // Paste the printed table back. Production builds never load this module: the
 // only import site is gated by import.meta.env.DEV (benchRealEngineDev precedent).
 
+import { pixelSeedDispatch, encodeRustTiles } from "@/lib/protocol/pixelSeedCall";
 import type { DocumentEngine } from "@/engine/document";
 import type { LayerNode } from "@/engine/types";
 
@@ -662,7 +663,7 @@ export const defaultRunners: Record<string, RowRunner> = {
       const rgba = new Uint8Array(bytes).fill(7);
       await invoke("rust_pixels_open_document", { docId });
       try {
-        await invoke("rust_pixels_init", { docId, layerId, width: size, height: size, bytes: rgba });
+        await invoke("rust_pixels_init", pixelSeedDispatch(docId, layerId, size, size, rgba));
         await read(docId, "seeded", 0);
         for (let i = 0; i < commits; i++) {
           // Sub-tile: inside the first tile, so every other tile keeps its
@@ -671,7 +672,7 @@ export const defaultRunners: Record<string, RowRunner> = {
             docId,
             layerId,
             before: [],
-            after: [{ x: 0, y: 0, w: BYTE_SUBTILE_PX, h: BYTE_SUBTILE_PX, data: rgba.subarray(0, BYTE_SUBTILE_PX * BYTE_SUBTILE_PX * 4) }],
+            after: encodeRustTiles([{ x: 0, y: 0, width: BYTE_SUBTILE_PX, height: BYTE_SUBTILE_PX, data: rgba.subarray(0, BYTE_SUBTILE_PX * BYTE_SUBTILE_PX * 4) }]),
           });
         }
         await read(docId, "after-subtile-commits", commits);
@@ -679,7 +680,7 @@ export const defaultRunners: Record<string, RowRunner> = {
           docId,
           layerId,
           before: [],
-          after: [{ x: 0, y: 0, w: size, h: size, data: rgba }],
+          after: encodeRustTiles([{ x: 0, y: 0, width: size, height: size, data: rgba }]),
         });
         await read(docId, "after-full-layer-commit", commits + 1);
       } finally {
@@ -699,12 +700,12 @@ export const defaultRunners: Record<string, RowRunner> = {
       const rgba = new Uint8Array(size * size * 4).fill(7);
       await invoke("rust_pixels_open_document", { docId });
       try {
-        await invoke("rust_pixels_init", { docId, layerId, width: size, height: size, bytes: rgba });
+        await invoke("rust_pixels_init", pixelSeedDispatch(docId, layerId, size, size, rgba));
         await invoke("apply_tile_patch", {
           docId,
           layerId,
           before: [],
-          after: [{ x: 0, y: 0, w: size, h: size, data: rgba }],
+          after: encodeRustTiles([{ x: 0, y: 0, width: size, height: size, data: rgba }]),
         });
         await read(docId, "control-full-layer-only", 1);
       } finally {

@@ -9,6 +9,7 @@ import type { SelectionState } from "@/features/selection/SelectionTypes";
 import type { LayerNode, DocumentModel } from "@/engine/types";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
 import { selectionUploadRect } from "@/components/editor/canvas/keyboardShortcuts/selectionTool";
 import { computeDirtyRegion } from "@/lib/paint/regionProducer";
@@ -366,13 +367,7 @@ export function fillActiveLayerWithColor(
         }
         if (!layerReady) {
           const seedData = surface.context.getImageData(0, 0, layer.width, layer.height).data;
-          await invoke("rust_pixels_init", {
-            docId,
-            layerId: activeId,
-            width: layer.width,
-            height: layer.height,
-            bytes: new Uint8Array(seedData.buffer, seedData.byteOffset, seedData.byteLength),
-          });
+          await invoke("rust_pixels_init", pixelSeedDispatch(docId, activeId, layer.width, layer.height, seedData));
         }
         // Ensure the derived surface reflects the CURRENT canonical state before
         // we overlay the fill (mirrors the brush/bucket pre-commit rehydration).
@@ -413,20 +408,20 @@ export function fillActiveLayerWithColor(
           engine.clearBasicAdjustments(activeId);
           mutationLanded = true;
         }
-        const res = (await pixelInvoke("rust_pixels_write_region", {
+        const res = decodeRustBytes<{
+          before: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+          after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
+          epoch: number;
+          version: number;
+        }>(await pixelInvoke("rust_pixels_write_region", {
           docId,
           layerId: activeId,
           x: region.x,
           y: region.y,
           w: region.w,
           h: region.h,
-          rgba: new Uint8Array(changed.rgba.buffer, changed.rgba.byteOffset, changed.rgba.byteLength),
-        })) as {
-          before: { x: number; y: number; w: number; h: number; data: number[] }[];
-          after: { x: number; y: number; w: number; h: number; data: number[] }[];
-          epoch: number;
-          version: number;
-        };
+          rgbaBase64: encodePixelBytes(changed.rgba),
+        }));
         writeLanded = true;
         // Imperative is entry-owned (tile-memento model): history stores it and
         // replays its before/after tiles on undo/redo; the Rust entry is synced

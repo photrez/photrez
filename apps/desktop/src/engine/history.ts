@@ -11,6 +11,7 @@ import { syncFacadeVersionFromPixel, historyDegraded } from "@/lib/protocol/faca
 import { isFacadeEnabled } from "@/lib/protocol/bridge";
 import { RustCursorStepper } from "./historyCursorStep";
 import { historyBridgeEnabled } from "./historyBridgeGate";
+import { encodeRustTiles } from "@/lib/protocol/pixelSeedCall";
 import type { SnapshotLayerMeta, SnapshotPayload } from "./snapshotTokenReattach";
 
 /**
@@ -388,8 +389,8 @@ export class CommandHistory {
           fire("apply_tile_patch", {
             docId,
             layerId: imperative.layerId,
-            before: imperative.before,
-            after: imperative.after,
+            before: encodeRustTiles(imperative.before),
+            after: encodeRustTiles(imperative.after),
           });
         } else if (!alreadyRecordedInRust) {
           this.lastCommitRecordedInBridge = true;

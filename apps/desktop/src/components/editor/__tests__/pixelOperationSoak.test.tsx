@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 // Pre-event soak: >=50 consecutive production-entry raster operations for bucket,
 // fill, and bake with photrez.rustPixels=1 set ONLY inside this harness. Counts
 // are observed at the production boundary (invoke calls, history commits, error
@@ -16,7 +17,7 @@ const OPS = 50;
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => mockInvoke(cmd, args),
+  invoke: (cmd: string, args: any, options?: any) => mockInvoke(cmd, args, options),
 }));
 
 // The failure toast must carry the raw rejection text, so the production toast
@@ -130,7 +131,7 @@ function okInvoke(opts: { failWrite?: string } = {}) {
     if (cmd === "rust_pixels_write_region") {
       return {
         before: [{ x: 0, y: 0, w: args.w, h: args.h, data: new Array(args.w * args.h * 4).fill(0) }],
-        after: [{ x: 0, y: 0, w: args.w, h: args.h, data: Array.from(args.rgba) }],
+        after: [{ x: 0, y: 0, w: args.w, h: args.h, data: Array.from(decodeRustBytes<{ rgba: Uint8Array }>(args).rgba) }],
         epoch: 1,
         version: 1,
       };
