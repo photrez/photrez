@@ -403,32 +403,32 @@ export class WebGL2Backend implements RenderBackend {
     return { gl, fbo, texture, prevBlend };
   }
 
+  /**
+   * Wrap a GPU readback buffer as an ImageBitmap.
+   *
+   * `createImageBitmap` takes ImageData directly, so the pixels go from readback
+   * to bitmap in one step. Routing them through a canvas instead allocated a
+   * second buffer of the same size and copied through it, and that route ended
+   * at `transferToImageBitmap`, which is an OffscreenCanvas-only member - the
+   * HTMLCanvasElement built as its fallback had no such method, so every bake
+   * that took it returned null and the adjustment silently fell back to the CPU
+   * pass.
+   *
+   * `premultiplyAlpha: "none"` keeps the straight-alpha bytes the shader wrote:
+   * the default lets the browser premultiply, which would round-trip the alpha
+   * channel through a lossy un-premultiply.
+   *
+   * Resolves null when the platform rejects the pixels, which is the signal
+   * every bake caller uses to fall back to the CPU pass.
+   */
   private bitmapFromPixels(
     buf: Uint8ClampedArray<ArrayBuffer>,
     width: number,
     height: number,
-  ): ImageBitmap | null {
-    // buf is already top-down straight-alpha: flipTexY flips the sample and
-    // u_outputStraight un-premultiplies in-shader, so no JS post-pass is needed.
-    try {
-      let scratchCanvas: OffscreenCanvas | HTMLCanvasElement;
-      try {
-        scratchCanvas = new OffscreenCanvas(width, height);
-      } catch {
-        scratchCanvas = document.createElement("canvas");
-        scratchCanvas.width = width;
-        scratchCanvas.height = height;
-      }
-      const ctx = scratchCanvas.getContext("2d") as
-        | OffscreenCanvasRenderingContext2D
-        | CanvasRenderingContext2D
-        | null;
-      if (!ctx) return null;
-      ctx.putImageData(new ImageData(buf, width, height),0,0);
-      return (scratchCanvas as OffscreenCanvas).transferToImageBitmap();
-    } catch {
-      return null;
-    }
+  ): Promise<ImageBitmap | null> {
+    return createImageBitmap(new ImageData(buf, width, height), {
+      premultiplyAlpha: "none",
+    }).catch(() => null);
   }
 
   private restoreBakeState(
@@ -459,7 +459,34 @@ export class WebGL2Backend implements RenderBackend {
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, buf);
 
     this.restoreBakeState(gl, fbo, texture, prevBlend);
-    return this.bitmapFromPixels(buf, width, height);
+    return this.bitmapFromPixelsSync(buf, width, height);
+  }
+
+  /**
+   * Synchronous counterpart to `bitmapFromPixels`, for `bakeLayerToBitmap`,
+   * whose `ImageBitmap | null` contract cannot be awaited.
+   *
+   * `createImageBitmap` is the only pixels-to-bitmap conversion with no canvas,
+   * and it is async, so this arm is the one place a canvas is unavoidable.
+   * `transferToImageBitmap` is an OffscreenCanvas-only member, so the arm needs a
+   * real OffscreenCanvas; when the constructor is unavailable this returns null -
+   * the documented "baking unsupported" signal that sends the caller to the CPU
+   * pass - rather than building an HTMLCanvasElement that could never transfer.
+   */
+  private bitmapFromPixelsSync(
+    buf: Uint8ClampedArray<ArrayBuffer>,
+    width: number,
+    height: number,
+  ): ImageBitmap | null {
+    try {
+      const scratch = new OffscreenCanvas(width, height);
+      const ctx = scratch.getContext("2d");
+      if (!ctx) return null;
+      ctx.putImageData(new ImageData(buf, width, height), 0, 0);
+      return scratch.transferToImageBitmap();
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -510,7 +537,7 @@ export class WebGL2Backend implements RenderBackend {
       await asyncRead.call(gl, gl.PIXEL_PACK_BUFFER, 0, buf);
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
       gl.deleteBuffer(pbo);
-      return this.bitmapFromPixels(buf, width, height);
+      return await this.bitmapFromPixels(buf, width, height);
     } catch {
       // Async readback failed (e.g. context loss mid-await): report null so
       // the engine falls back to the sync bake / CPU pass.

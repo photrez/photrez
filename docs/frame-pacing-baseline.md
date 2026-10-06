@@ -431,6 +431,70 @@ order of magnitude for most of the gap, but that figure is from `34dad0cd` and i
 **not** a measurement of the cold frame at `8767ed0`. It is flagged rather than
 reused."
 
+### The commit-path `toImageBitmap()` is MEASURED, and it is NOT a priority
+
+`PaintTileSurface.toImageBitmap()` (`apps/desktop/src/lib/paint/paintTileSurface.ts`)
+was the largest cost in the commit path with no entry in any per-stage table:
+`useBrushOverlay.ts` calls it on every committed stroke, and at 4096² it
+materialises a 67,108,864-byte surface. It is now timed behind the same
+`localStorage.photrez.c4Audit` flag as the commit audit above, so both land in one
+console stream for the same stroke.
+
+Measured in the real release app, cold, 12 strokes after 3 warmup strokes,
+**one app relaunch per run** (`--cold` requires no open document):
+
+| surface | run | calls | min | median | max | surface bytes |
+|---|---|---|---|---|---|---|
+| 4096² | 1 | 9 | 0 ms | **0.1 ms** | 0.2 ms | 67,108,864 |
+| 4096² | 2 | 9 | 0.1 ms | **0.1 ms** | 0.4 ms | 67,108,864 |
+| 4096² | 3 | 9 | 0 ms | **0.1 ms** | 0.3 ms | 67,108,864 |
+| 2048² | 1 | 14 | 0 ms | **0.1 ms** | 0.2 ms | 16,777,216 |
+| 2048² | 2 | 14 | 0.1 ms | **0.1 ms** | 0.2 ms | 16,777,216 |
+| 2048² | 3 | 14 | 0 ms | **0.1 ms** | 0.3 ms | 16,777,216 |
+
+**This does not mean the 67 MB are free, and the naive reading of it is wrong.**
+Two measured facts change how the number must be interpreted:
+
+1. `performance.now()` is clamped to **100 µs** in this webview (measured live:
+   the smallest non-zero consecutive delta is exactly 100 µs), so a reported 0 ms
+   means "under one clock tick", not "no work".
+2. `createImageBitmap()` resolves a **lazy handle**. Chromium resolves the promise
+   when the handle exists, not when the pixels have moved. Timing the same
+   surface's first real consumer separates the two:
+
+| surface | handle resolution | first CPU read | repeat CPU read | first GPU upload |
+|---|---|---|---|---|
+| 2048² (16.8 MB) | 0.1 ms | 73.9 ms | 47.7 ms | **0.2 ms** |
+| 4096² (67.1 MB) | 0.2 ms | 326.6 ms | 155.6 ms | **0.4 ms** |
+
+A GPU upload of 67 MB costing **0.4 ms** against a CPU read of **326.6 ms** is
+aliasing, not copying: the bitmap shares the surface's backing store. The commit
+path does not force the bytes — it stores the handle
+(`engine.setLayerImageBitmap`), `createSnapshot` keeps it **by reference**
+(`apps/desktop/src/engine/snapshot.ts:40`), `pushModelToRust` strips
+`imageBitmap` before serialising (`document.ts:1772`), and the renderer is fed
+**dirty-rect tiles** via `queueOrUploadTiles`, not the full bitmap. So the
+67 MB are never duplicated per stroke on this path.
+
+**Decision, stated explicitly.** The rule was: over ~385 ms, `toImageBitmap()`
+takes top priority and outranks shrinking the `write_region` response. Measured
+at **0.1 ms median / 0.4 ms worst case at 4096², 2,000x under the threshold**,
+it is not top priority. **The response stays top priority.**
+
+The one caveat worth recording: the deferred bytes are real and someone eventually
+pays them. A CPU readback of the committed surface is 326.6 ms at 4096². That cost
+is currently unattributed to any specific user-visible operation, and the paths
+that would force it (undo restore, save, CPU-side export) are the place to look if
+a per-frame budget is ever missed there. It is **not** on the stroke commit path,
+so it does not change the prioritisation above.
+
+Corroboration from the same runs: the new harness capture reports a median
+`responseBytes` of 7,340,032 at 4096² and 4,194,304 at 2048². Carried through the
+~1.33x base64 expansion and this document's own ~0.036 ms/1,000-response-chars fit,
+that predicts **351 ms** at 4096² against the 344-387 ms measured above — an
+independent path to the existing number, from a harness that never measured the
+response round trip directly.
+
 ## Re-running
 
 The app must already be running; the script attaches, it does not launch.

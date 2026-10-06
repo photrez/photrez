@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import fs from "node:fs";
+import path from "node:path";
 /*
  * frame-pacing-live.mjs - frame-to-frame pacing measurement in the REAL app.
  *
@@ -28,6 +30,15 @@
  *      for the production dispatcher. No direct function calls.
  *   5. Sample real requestAnimationFrame timestamps across the strokes and
  *      report the frame-to-frame delta distribution.
+ *   6. Collect the page's own `[paint-commit]` console audit lines, which carry
+ *      the per-commit toImageBitmap duration and the write_region response size.
+ *
+ * TO SEE THE PER-COMMIT COST LINES
+ * ---------------------------------
+ * Set `localStorage.photrez.c4Audit = "1"` in the app's webview BEFORE the
+ * measured strokes. The app reads that flag itself; this script never turns
+ * instrumentation on, so an unset flag yields an explicit "no audit lines
+ * captured" note rather than a zero that would read as "the cost is zero".
  *
  * LAUNCHING THE APP (this script does not launch it)
  * --------------------------------------------------
@@ -36,13 +47,18 @@
  *   # release profile (optimised Rust + built frontend)
  *   bun run build
  *   bun run tauri build --no-bundle
- *   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=9225'
+ *   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=0'
  *   Start-Process target/release/photrez-desktop.exe
  *
  *   # dev profile (vite dev server + unoptimised Rust)
  *   bun run --filter photrez-desktop dev        # serves :1420
- *   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=9224'
+ *   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=0'
  *   Start-Process target/debug/photrez-desktop.exe
+ *
+ * USE PORT 0. This script reads the real port from
+ * %LOCALAPPDATA%\com.photrez.desktop\EBWebView\DevToolsActivePort. A FIXED port
+ * is ignored by WebView2 154 here - see resolveCdpPort() for the measurement.
+ * The old hardcoded-port recipe reported a healthy app as unreachable.
  *
  * DO NOT use `cargo build --release -p photrez-desktop` for this. That produces
  * an exe which runs but has NO EMBEDDED FRONTEND: the webview falls back to the
@@ -68,10 +84,13 @@
  *    be derived from observation and must distinguish timeout from breakage.
  *
  *    Related, and the reason .tmp-harness/cdp-probe.sh is NOT a substitute:
- *    that script defaults to `apps/desktop/src-tauri/target/debug/...`, which
- *    does not exist in this workspace, and its 20s CDP wait is far under the
- *    real cold-load time. Both make it report a false BLOCKED. (That file is
- *    untracked debris owned elsewhere; it was read, never modified.)
+ *    that script defaults to `apps/desktop/src-tauri/target/debug/...` (its
+ *    EXE, line 17), which does not exist in this workspace - builds land in the
+ *    REPO-ROOT target/ - and its WAIT_SECS of 20 (line 19) is far under the real
+ *    cold-load time. Both make it report a false BLOCKED. It also hardcodes a
+ *    fixed port (PORT, line 18), which is the same defect resolveCdpPort() fixes
+ *    below. That file is untracked debris owned elsewhere: it was READ to
+ *    record these facts and never modified.
  *
  * 2. `history.getUndoCount()` and `history.getHistoryStack()` are NOT commit
  *    oracles. History is owned by the Rust side, so the JS CommandHistory
@@ -103,14 +122,94 @@
  * default action is to REPORT. Pass --max-dropped to opt into a threshold.
  *
  * Env:
- *   FP_CDP_PORT    CDP port (default 9225)
+ *   FP_CDP_PORT    override the discovered CDP port (rarely needed; the published
+ *                  port from DevToolsActivePort is correct by construction)
  *   FP_PROFILE     label recorded in the output, e.g. "release" or "dev"
  *
  * Exit codes: 0 = captured, 1 = guard failed (no number reported), 2 = no target.
  */
 
-const PORT = Number(process.env.FP_CDP_PORT || 9225);
+const PORT_OVERRIDE = Number(process.env.FP_CDP_PORT || 0);
 const PROFILE = process.env.FP_PROFILE || "unknown";
+
+/**
+ * WebView2 publishes its debugging port here, and ONLY here in practice.
+ *
+ * Measured on this machine against a healthy, fully loaded app: a FIXED
+ * `--remote-debugging-port` never binds. Ports 9231, 9232, 9233 and 9241 were
+ * each tried with the app alive and serving its embedded assets; none ever
+ * answered /json/version. The same app launched with
+ * `--remote-debugging-port=0` published 11144 in this file within a second.
+ * So a harness that hardcodes a port reports "app not reachable" for a
+ * perfectly healthy app - a FALSE FAILURE, which is the one failure shape that
+ * costs the next agent a whole cycle.
+ *
+ * Two distinct dead ends are worth keeping apart, because they have different
+ * fixes and only one of them is a defect:
+ *   - FILE MISSING      -> the browser never published a port. Either the app
+ *                           was not started with any --remote-debugging-port,
+ *                           or it is too early in startup to have written one.
+ *                           Wait, or relaunch with the flag.
+ *   - FILE PRESENT, PORT DEAD -> a stale file from a run that has since exited
+ *                           (the file is written at browser start and removed
+ *                           at exit), or the flag never reached the browser
+ *                           process. Neither is a slow-load signal.
+ */
+const DEVTOOLS_PORT_FILE = path.join(
+  process.env.LOCALAPPDATA || "",
+  "com.photrez.desktop",
+  "EBWebView",
+  "DevToolsActivePort",
+);
+
+function readPublishedPort() {
+  try {
+    // First line is the port; the second is the browser ws path (unused here).
+    const first = fs.readFileSync(DEVTOOLS_PORT_FILE, "utf8").split(/\r?\n/, 1)[0];
+    const port = Number(first);
+    return Number.isInteger(port) && port > 0 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+async function portAnswers(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the CDP port, or exit with a verdict that names WHICH dead end was
+ * hit. Polls the published port while the app is still starting, so a slow cold
+ * launch is not reported as a broken app - the same distinction
+ * scripts/perf-audit-live.mjs makes between a slow load and a broken document.
+ */
+async function resolveCdpPort() {
+  if (PORT_OVERRIDE) return { port: PORT_OVERRIDE, source: "FP_CDP_PORT" };
+  const deadline = Date.now() + 20000;
+  for (;;) {
+    const published = readPublishedPort();
+    if (published) {
+      if (await portAnswers(published)) {
+        return { port: published, source: DEVTOOLS_PORT_FILE };
+      }
+      // Published but not answering yet: the browser writes this file slightly
+      // before the HTTP endpoint binds, so keep trying until the deadline.
+      if (Date.now() > deadline) {
+        return { port: published, source: DEVTOOLS_PORT_FILE, stale: true };
+      }
+    } else if (Date.now() > deadline) {
+      return { port: null, source: null, unpublished: true };
+    }
+    await sleep(500);
+  }
+}
 
 function arg(name, dflt) {
   const i = process.argv.indexOf("--" + name);
@@ -137,6 +236,8 @@ class Cdp {
     this.url = url;
     this.nextId = 1;
     this.pending = new Map();
+    /** Console lines matching /prefix/, captured for the report. */
+    this.captured = [];
   }
   connect() {
     return new Promise((resolve, reject) => {
@@ -146,6 +247,16 @@ class Cdp {
       ws.addEventListener("error", () => reject(new Error("cdp websocket error")));
       ws.addEventListener("message", (ev) => {
         const m = JSON.parse(ev.data);
+        // Events carry no `id`. Console output is how the in-page audit channels
+        // report, so it is captured here rather than printed: one noisy line per
+        // commit would otherwise bury the pacing numbers.
+        if (m.method === "Runtime.consoleAPICalled") {
+          const text = (m.params.args || [])
+            .map((a) => (a.value !== undefined ? String(a.value) : a.description || a.type))
+            .join(" ");
+          if (text.startsWith("[paint-commit]")) this.captured.push(text);
+          return;
+        }
         const p = this.pending.get(m.id);
         if (!p) return;
         this.pending.delete(m.id);
@@ -296,17 +407,48 @@ const READ_STATS = `(() => {
 
 /* --------------------------------- main --------------------------------- */
 
+const resolved = await resolveCdpPort();
+if (resolved.unpublished) {
+  log(`PORT NOT PUBLISHED: ${DEVTOOLS_PORT_FILE} does not exist.`);
+  log(
+    "The browser never wrote a debugging port. Launch the app with\n" +
+      "  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=0\n" +
+      "and wait for the window to open. This is a launch-setup problem, NOT a\n" +
+      "broken app: do not re-tune this script or the CDP client for it.",
+  );
+  process.exit(2);
+}
+if (resolved.stale) {
+  log(`PORT PUBLISHED BUT DEAD: ${DEVTOOLS_PORT_FILE} says ${resolved.port}, but /json/version never answered in 20s.`);
+  log(
+    "Either that file is stale from a run that has since exited (it is removed at\n" +
+      "browser exit), or --remote-debugging-port never reached the browser process.\n" +
+      "Waiting longer will not help. Check the app is running, then relaunch it.",
+  );
+  process.exit(2);
+}
+const PORT = resolved.port;
+log(`cdp: port ${PORT} (from ${resolved.source})`);
+
 let targets = null;
 try {
   targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
 } catch (e) {
-  log(`NO CDP ENDPOINT on 127.0.0.1:${PORT} (${e.message}).`);
-  log("Start the app with WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=" + PORT + " first.");
+  // The port answered /json/version moments ago, so reaching here means the
+  // debugging server died between the two calls: a transient browser process,
+  // not a harness bug.
+  log(`CDP ENDPOINT VANISHED between /json/version and /json/list on port ${PORT} (${e.message}).`);
+  log("The debugging server died mid-run. Re-launch the app and re-run; do not change this script.");
   process.exit(2);
 }
 const page = (targets || []).find((t) => t.type === "page" && t.webSocketDebuggerUrl);
 if (!page) {
-  log("No page target with a debugger URL. The webview may still be starting, or the window never navigated.");
+  log(`CDP is up on port ${PORT} but exposes no page target with a debugger URL.`);
+  log(
+    "The endpoint works, so this is NOT a port problem: the webview has not\n" +
+      "navigated yet (cold load still running) or the window never opened.\n" +
+      "Wait for the editor chrome, then re-run.",
+  );
   process.exit(2);
 }
 cdp = new Cdp(page.webSocketDebuggerUrl);
@@ -519,6 +661,22 @@ const commitInfo =
     ? { before: depthBefore.total_depth, after: depthAfter.total_depth, delta: depthAfter.total_depth - depthBefore.total_depth }
     : { note: "UNKNOWN - rust_pixels_history_depth needs a doc id, reachable only via the dev handle" };
 
+/* Per-commit audit lines. The flag is read by the app itself, so this only
+ * reports what the page actually emitted - it never enables instrumentation. */
+const audit = cdp.captured.map((line) => {
+  const kv = {};
+  for (const m of line.matchAll(/(\w+)=(-?[\d.]+)/g)) kv[m[1]] = Number(m[2]);
+  return { line, ...kv };
+});
+const toBitmapCalls = audit.filter((a) => a.toImageBitmapMs !== undefined);
+const commitLines = audit.filter((a) => a.dirtyRectBytes !== undefined);
+if (toBitmapCalls.length) {
+  const ms = toBitmapCalls.map((a) => a.toImageBitmapMs).sort((a, b) => a - b);
+  log(
+    `[audit] toImageBitmap n=${ms.length} min=${ms[0]} median=${ms[Math.floor(ms.length / 2)]} max=${ms[ms.length - 1]}`,
+  );
+}
+
 const report = {
   label: LABEL,
   profile: PROFILE,
@@ -534,6 +692,23 @@ const report = {
   cold: COLD,
   paintProven: painted,
   commits: commitInfo,
+  // toImageBitmap materialises the WHOLE surface, so this cost scales with
+  // canvas area rather than with the dirty rect the stroke touched.
+  toImageBitmap: toBitmapCalls.length
+    ? {
+        calls: toBitmapCalls.length,
+        minMs: Math.min(...toBitmapCalls.map((a) => a.toImageBitmapMs)),
+        medianMs: toBitmapCalls.map((a) => a.toImageBitmapMs).sort((a, b) => a - b)[Math.floor(toBitmapCalls.length / 2)],
+        maxMs: Math.max(...toBitmapCalls.map((a) => a.toImageBitmapMs)),
+        surfaceBytes: toBitmapCalls[0].surfaceBytes ?? null,
+      }
+    : { note: "no audit lines captured - was localStorage.photrez.c4Audit set to 1 before launch?" },
+  writeRegionResponse: commitLines.length
+    ? {
+        calls: commitLines.length,
+        medianResponseBytes: commitLines.map((a) => a.responseBytes).sort((a, b) => a - b)[Math.floor(commitLines.length / 2)],
+      }
+    : { note: "no commit audit lines captured" },
   ...stats,
 };
 log(JSON.stringify(report, null, 1));

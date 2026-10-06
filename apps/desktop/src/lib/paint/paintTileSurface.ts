@@ -12,6 +12,48 @@
 
 export const PAINT_TILE_SIZE = 256;
 
+/**
+ * Per-commit audit trail for `toImageBitmap`, read by the frame-pacing harness.
+ *
+ * Opt-in via `localStorage.photrez.c4Audit = "1"`, the same flag the commit
+ * audit in useBrushOverlay.ts reads, so the two lines interleave in one console
+ * stream and describe the same stroke. Off by default: every read is inside the
+ * caller-side flag check, so the paint path pays one localStorage lookup.
+ */
+export interface SurfaceBitmapAudit {
+  /** Time createImageBitmap took to resolve, milliseconds. */
+  ms: number;
+  /** Surface area materialised, in bytes (width * height * 4). */
+  bytes: number;
+  calls: number;
+  failed: number;
+}
+
+const surfaceBitmapAudit: SurfaceBitmapAudit = { ms: 0, bytes: 0, calls: 0, failed: 0 };
+
+function surfaceBitmapAuditEnabled(): boolean {
+  try {
+    return localStorage.getItem("photrez.c4Audit") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function recordSurfaceBitmapAudit(width: number, height: number, ms: number, ok = true): void {
+  surfaceBitmapAudit.ms = +ms.toFixed(1);
+  surfaceBitmapAudit.bytes = width * height * 4;
+  surfaceBitmapAudit.calls += 1;
+  if (!ok) surfaceBitmapAudit.failed += 1;
+  console.info(
+    `[paint-commit] toImageBitmapMs=${surfaceBitmapAudit.ms} surfaceBytes=${surfaceBitmapAudit.bytes} toBitmapCalls=${surfaceBitmapAudit.calls} toBitmapFailed=${surfaceBitmapAudit.failed}`,
+  );
+}
+
+/** Snapshot of the audit counters, for a harness reading them off `window`. */
+export function readSurfaceBitmapAudit(): SurfaceBitmapAudit {
+  return { ...surfaceBitmapAudit };
+}
+
 export interface TileKeyed<T> {
   key: string;
   tx: number;
@@ -269,7 +311,22 @@ export class PaintTileSurface {
    * snapshots aren't taken against stale pre-stroke pixels.
    */
   toImageBitmap(): Promise<ImageBitmap> {
-    return createImageBitmap(this.canvas);
+    if (!surfaceBitmapAuditEnabled()) return createImageBitmap(this.canvas);
+    // The call below materialises a copy of the WHOLE surface, so its cost
+    // scales with canvas area and not with what the stroke touched. That makes
+    // it the one commit-path cost that no dirty-rect number can account for, so
+    // it is timed under the same flag as the per-commit audit line.
+    const startedAt = performance.now();
+    return createImageBitmap(this.canvas).then(
+      (bitmap) => {
+        recordSurfaceBitmapAudit(this.width, this.height, performance.now() - startedAt);
+        return bitmap;
+      },
+      (err) => {
+        recordSurfaceBitmapAudit(this.width, this.height, performance.now() - startedAt, false);
+        throw err;
+      },
+    );
   }
 
   /** C5.2: mark the derived cache stale so the next commit forces rehydration. */

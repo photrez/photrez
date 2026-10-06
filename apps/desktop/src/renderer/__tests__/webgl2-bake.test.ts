@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebGL2Backend } from "../webgl2";
 import type { RenderBackend } from "../../renderer/types";
 import type { BasicAdjustment } from "../../engine/layerAdjustments";
+import { installFaithfulCanvas } from "../../__tests__/faithfulOffscreenCanvas";
 
 // ─── GL mock (mirrors webgl2-layer-copy.test.ts harness) ───
 function makeGLMock() {
@@ -202,5 +203,144 @@ describe("WebGL2Backend.bakeLayerToBitmapAsync (PBO readback)", () => {
     expect(methods).toContain("readPixels");
     expect(methods.filter((m) => m === "readPixels").length).toBe(1); // sync path, single render
     expect(methods.filter((m) => m === "drawArrays").length).toBe(1);
+  });
+});
+
+/**
+ * The bake must return the PIXELS, not merely "not null".
+ *
+ * Every other assertion in this file accepts `null` as a pass, because in jsdom
+ * there is no GL. That tolerance is exactly what let a silent no-op through: the
+ * pixels->bitmap conversion caught its own failure and returned null, which
+ * every null-tolerant assertion read as success. `expect(out).not.toBeNull()`
+ * plus a byte comparison is the shape that cannot.
+ */
+describe("WebGL2Backend bake returns the readback pixels", () => {
+  // A distinct value per pixel so a wrong geometry, a flipped buffer, or a
+  // short copy cannot pass: the bytes only match at this exact layout.
+  const W = 2;
+  const H = 2;
+  const READBACK = new Uint8ClampedArray([
+    1, 2, 3, 255, 4, 5, 6, 255,
+    7, 8, 9, 255, 10, 11, 12, 255,
+  ]);
+
+  function makeReadbackGL() {
+    const mock = makeGLMock();
+    // Real gl.readPixels WRITES into the destination array. The generic mock
+    // returns undefined and leaves the buffer untouched, so a conversion that
+    // passed the buffer straight through would look correct while proving
+    // nothing about the pixels the GPU produced.
+    (mock.gl as any).readPixels = (
+      _x: number, _y: number, _w: number, _h: number,
+      _fmt: number, _type: number, dst: ArrayBufferView,
+    ) => {
+      if (typeof dst !== "number") (dst as Uint8ClampedArray).set(READBACK);
+    };
+    (mock.gl as any).getBufferSubDataAsync = async (
+      _target: number, _off: number, dst: ArrayBufferView,
+    ) => {
+      (dst as Uint8ClampedArray).set(READBACK);
+    };
+    return mock;
+  }
+
+  const ADJ = { brightness: 10, contrast: 0, saturation: 0 } as BasicAdjustment;
+  let restore: () => void;
+
+  beforeEach(() => {
+    // The faithful canvas supplies ImageData and the pixel-carrying
+    // createImageBitmap. Note it also supplies OffscreenCanvas, so a test that
+    // needs the platform to LACK OffscreenCanvas must stub it out explicitly -
+    // otherwise it silently exercises the working path and passes vacuously.
+    restore = installFaithfulCanvas();
+  });
+
+  afterEach(() => {
+    restore();
+  });
+
+  function makeRenderer() {
+    const mock = makeReadbackGL();
+    const renderer = new WebGL2Backend();
+    renderer.initialize(makeCanvas(mock.gl));
+    renderer.uploadImage("l1", BITMAP);
+    return { mock, renderer };
+  }
+
+  function pixelsOf(bitmap: unknown): Uint8ClampedArray {
+    const px = (
+      bitmap as {
+        getImageData: (x: number, y: number, w: number, h: number) => {
+          data: Uint8ClampedArray;
+          width: number;
+          height: number;
+        };
+      }
+    ).getImageData(0, 0, W, H);
+    expect(px.width).toBe(W);
+    expect(px.height).toBe(H);
+    return px.data;
+  }
+
+  it("bakes pixels on a platform with no OffscreenCanvas", async () => {
+    // The regression. `new OffscreenCanvas` failing sent the pixels->bitmap
+    // conversion down an HTMLCanvasElement fallback, and an HTMLCanvasElement
+    // has no transferToImageBitmap, so the call threw, the catch returned null,
+    // and the adjustment silently fell back to the CPU pass. Stubbing the
+    // global to undefined reproduces that state: `new undefined()` throws
+    // exactly as an unsupported platform does.
+    const { renderer } = makeRenderer();
+    vi.stubGlobal("OffscreenCanvas", undefined);
+    try {
+      const out = await renderer.bakeLayerToBitmapAsync("l1", W, H, ADJ);
+      expect(out).not.toBeNull();
+      expect(Array.from(pixelsOf(out))).toEqual(Array.from(READBACK));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("bakes pixels through the sync path", () => {
+    // The sync contract cannot await createImageBitmap, so that arm still needs
+    // a real OffscreenCanvas and the faithful canvas provides one. The pixels
+    // must be the readback bytes, not merely a non-null bitmap.
+    const { renderer } = makeRenderer();
+    const out = renderer.bakeLayerToBitmap("l1", W, H, ADJ);
+    expect(out).not.toBeNull();
+    expect(Array.from(pixelsOf(out))).toEqual(Array.from(READBACK));
+  });
+
+  it("never builds an HTMLCanvasElement for the bake", () => {
+    // Guards the defect itself rather than one call site: the removed fallback
+    // allocated a full-size HTMLCanvasElement and copied the readback into it
+    // before throwing on the transfer. On a platform without OffscreenCanvas
+    // that was a wasted allocation the size of the whole layer.
+    const { renderer } = makeRenderer();
+    const createElement = vi.spyOn(document, "createElement");
+    vi.stubGlobal("OffscreenCanvas", undefined);
+    try {
+      expect(renderer.bakeLayerToBitmap("l1", W, H, ADJ)).toBeNull();
+      expect(createElement.mock.calls.filter((c) => c[0] === "canvas")).toHaveLength(0);
+    } finally {
+      createElement.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("resolves null instead of rejecting when the platform cannot make a bitmap", async () => {
+    // Defeat every route: no OffscreenCanvas AND a createImageBitmap that
+    // rejects. null is the documented signal that sends the caller to the CPU
+    // pixel pass; a rejection here would escape the bake instead.
+    const { renderer } = makeRenderer();
+    vi.stubGlobal("OffscreenCanvas", undefined);
+    vi.stubGlobal("createImageBitmap", async () => {
+      throw new Error("simulated: bitmap allocation refused");
+    });
+    try {
+      await expect(renderer.bakeLayerToBitmapAsync("l1", W, H, ADJ)).resolves.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
