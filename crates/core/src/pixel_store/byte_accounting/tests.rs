@@ -796,3 +796,57 @@ fn owed_anchor_figures_never_exceed_the_layers_they_are_derived_from() {
         "still a subset after the commit"
     );
 }
+
+/// Clause #10: does evicting old pixel-history entries actually release the
+/// pixel bytes from the accounted tile graph?
+///
+/// Setup: a 4x4 layer is a single 256px tile, so every commit copy-on-writes
+/// that tile into a fresh 64-byte block. A linear run of commits chains
+/// s0 -> s1 -> ... -> sK, and the history walk counts every distinct block
+/// still referenced from the anchor, the current state, or any retained
+/// Pixel entry's before/after pair.
+///
+/// If eviction releases the bytes, the accounted total must PLATEAU once the
+/// 50-entry cap is exceeded: each commit adds one fresh block (+64) and each
+/// eviction drops the oldest entry, whose now-unreferenced state is freed
+/// (-64), so at_N+1 == at_N+2. If the accounting retained evicted blocks,
+/// the total would grow by 64 per commit with no bound.
+#[test]
+fn eviction_releases_the_evicted_blocks_from_the_tile_graph() {
+    let (mut reg, doc, layer) = seeded(4, 4, 0);
+
+    // N = 50 commits fills the cap exactly.
+    for fill in 0..50u8 {
+        reg.apply_pixel_patch(&doc, &layer, vec![], vec![tile(0, 0, 4, 4, fill)])
+            .expect("commit within the cap");
+    }
+    let at_n = reg.get_store_bytes(&doc).expect("doc present").tile_graph;
+    assert_eq!(
+        at_n.total_bytes,
+        51 * 64,
+        "anchor plus one fresh 64B block per commit"
+    );
+
+    // N+1 = 51 commits is the first eviction.
+    reg.apply_pixel_patch(&doc, &layer, vec![], vec![tile(0, 0, 4, 4, 50)])
+        .expect("first evicting commit");
+    let at_n_plus_1 = reg.get_store_bytes(&doc).expect("doc present").tile_graph;
+
+    // Push 9 more past the cap: the oldest entries are evicted one by one.
+    for fill in 51..60u8 {
+        reg.apply_pixel_patch(&doc, &layer, vec![], vec![tile(0, 0, 4, 4, fill)])
+            .expect("evicting commit");
+    }
+    let at_n_plus_10 = reg.get_store_bytes(&doc).expect("doc present").tile_graph;
+
+    assert_eq!(
+        at_n_plus_10.total_bytes, at_n_plus_1.total_bytes,
+        "plateau required: at_51 = {} but at_60 = {}; \
+         a leak would grow by 576 bytes over the 9 commits after the first eviction",
+        at_n_plus_1.total_bytes, at_n_plus_10.total_bytes,
+    );
+    assert!(
+        at_n_plus_10.total_bytes < at_n.total_bytes + 10 * 64,
+        "must not retain every block the stream ever held"
+    );
+}
