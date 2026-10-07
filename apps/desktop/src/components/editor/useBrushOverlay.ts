@@ -308,7 +308,7 @@ export function useBrushOverlay() {
       try {
         if (surface.toImageBitmap) {
           const newBitmap = await surface.toImageBitmap();
-          engine.setLayerImageBitmap(layerId, newBitmap);
+          engine.setLayerImageBitmap(layerId, newBitmap, { preservePaintSurface: true });
           // The new bitmap holds exactly the pixels the store has at
           // res.epoch, so record that epoch. A later save can then skip the
           // full readback for this layer.

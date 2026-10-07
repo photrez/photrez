@@ -1407,7 +1407,7 @@ export class DocumentEngine {
     }
   }
 
-  setLayerImageBitmap(id: LayerId, bitmap: ImageBitmap): void {    const layer = this.getLayer(id);
+  setLayerImageBitmap(id: LayerId, bitmap: ImageBitmap, opts?: { preservePaintSurface?: boolean }): void {    const layer = this.getLayer(id);
     if (layer) {
       if (!bitmap) {
         throw new TypeError("Bitmap cannot be null");
@@ -1433,8 +1433,14 @@ export class DocumentEngine {
       layer.imageBitmap = bitmap;
       layer.baseImageBitmap = null;
       // Bitmap replaced through a non-paint path — drop any cached paint
-      // surface so it can never drift from engine state.
-      this.paintSurfaces.delete(id);
+      // surface so it can never drift from engine state. The paint-commit
+      // callers opt OUT of the drop (preservePaintSurface): the replacement
+      // bitmap was materialised FROM the cached surface (same pixels), and
+      // the surface already carries the matching store epoch, so deleting it
+      // only forces the next stroke's commit through a full-layer rehydrate.
+      if (!opts?.preservePaintSurface) {
+        this.paintSurfaces.delete(id);
+      }
       // NOTE: intentionally do NOT clear basicAdjustment here. Adjustments are
       // a non-destructive layer-level effect applied in the renderer shader, so
       // replacing the layer bitmap (paint commit, fill, etc.) must keep the
