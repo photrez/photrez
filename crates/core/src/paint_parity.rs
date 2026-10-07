@@ -419,6 +419,69 @@ mod tests {
         assert_eq!(a.tile_count, b.tile_count);
     }
 
+    /// Golden-byte undo/redo determinism: a layer patched via `write_region`
+    /// must rebuild the EXACT same pixel digest after undo -> redo.
+    #[test]
+    fn undo_redo_rebuilt_digest_byte_identical() {
+        use crate::pixel_store::PixelStoreRegistry;
+
+        fn layer_digest(pixels: &[u8], w: usize, h: usize) -> String {
+            let mut tile_hashes: Vec<(String, String)> = Vec::new();
+            for ty in 0..h.div_ceil(256) {
+                for tx in 0..w.div_ceil(256) {
+                    let tw = 256.min(w - tx * 256);
+                    let th = 256.min(h - ty * 256);
+                    let mut data = Vec::with_capacity(tw * th * 4);
+                    for row in 0..th {
+                        let off = ((ty * 256 + row) * w + tx * 256) * 4;
+                        data.extend_from_slice(&pixels[off..off + tw * 4]);
+                    }
+                    tile_hashes.push((format!("{tx},{ty}"), format!("{:08x}", fnv1a(&data))));
+                }
+            }
+            tile_hashes.sort_by(|a, b| a.0.cmp(&b.0));
+            let combined: String = tile_hashes
+                .iter()
+                .map(|(k, h)| format!("{k}:{h};"))
+                .collect();
+            format!("{:08x}", fnv1a(combined.as_bytes()))
+        }
+
+        const N: usize = 64;
+        let mut r = PixelStoreRegistry::new();
+        r.open_document("d");
+        r.add_layer("d", "L", N as u32, N as u32, vec![0u8; N * N * 4])
+            .unwrap();
+
+        let empty_digest = layer_digest(&r.get_layer("d", "L").unwrap().pixels, N, N);
+
+        let mut patch = vec![0u8; 16 * 16 * 4];
+        for (i, b) in patch.iter_mut().enumerate() {
+            *b = ((i * 31 + 7) % 251) as u8;
+        }
+        r.write_region("d", "L", 8, 8, 16, 16, patch).unwrap();
+
+        let d1 = layer_digest(&r.get_layer("d", "L").unwrap().pixels, N, N);
+        assert_ne!(
+            d1, empty_digest,
+            "write_region must actually change the pixel digest, else D1==D2 is vacuous"
+        );
+
+        r.undo_pixel("d");
+        let d_undo = layer_digest(&r.get_layer("d", "L").unwrap().pixels, N, N);
+        assert_eq!(
+            d_undo, empty_digest,
+            "undo must restore the exact pre-patch pixels"
+        );
+
+        r.redo_pixel("d");
+        let d2 = layer_digest(&r.get_layer("d", "L").unwrap().pixels, N, N);
+        assert_eq!(
+            d2, d1,
+            "undo->redo must rebuild the byte-identical pixel digest (D2 == D1)"
+        );
+    }
+
     #[test]
     fn painted_vs_white_bases_differ() {
         let mut tb = TipBuf { data: Vec::new() };
