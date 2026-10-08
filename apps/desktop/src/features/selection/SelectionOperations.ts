@@ -12,7 +12,8 @@ import {
   projectRustPixelsToVisibleSurface,
 } from "@/lib/rustShadow";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
-import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
+import { writeRegionPixels } from "@/lib/protocol/paintRegionIpc";
 import { showToast } from "@/components/editor/Toast";
 import { ipcErrorMessage } from "@/tauri/native";
 import type { Transform2D } from "../../engine/types";
@@ -379,19 +380,15 @@ export class SelectionOperations {
       if (!changed) return;
       // Capture the pre-delete state BEFORE the write so undo restores it.
       const preSnapshot = engine.snapshot();
-      const res = decodeRustBytes<{
-        after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
-        epoch: number;
-        version: number;
-      }>(await pixelInvoke("rust_pixels_write_region", {
+      const res = await writeRegionPixels({
         docId,
         layerId,
         x: changed.x,
         y: changed.y,
         w: changed.w,
         h: changed.h,
-        rgbaBase64: encodePixelBytes(changed.rgba),
-      }));
+        rgba: changed.rgba,
+      });
       applyRustTilesToSurface(surface.context, res.after);
       surface.pixelEpoch = res.epoch;
       surface.pixelVersion = res.version;

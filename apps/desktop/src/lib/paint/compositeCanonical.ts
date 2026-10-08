@@ -41,7 +41,8 @@ import type { WebGL2Backend } from "@/renderer/webgl2";
 import { clampRegionToLayer } from "@/lib/paint/regionProducer";
 import { syncLayerStoreToLayerRaster } from "@/lib/paint/storeCurrency";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
-import { decodeRustBytes, encodePixelBytes, pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
+import { writeRegionPixels } from "@/lib/protocol/paintRegionIpc";
 
 /** One composite destination, as the caller measured it. */
 export interface CompositeDestination {
@@ -139,17 +140,15 @@ export async function seedCompositeCanonicalPixels(
     // One canonical write = the census WRITER site for the op. The whole layer,
     // because a composite destination has no prior content to diff against.
     const region = clampRegionToLayer({ x: 0, y: 0, w: width, h: height }, width, height);
-    const res = decodeRustBytes<{ epoch: number; version: number }>(
-      await pixelInvoke("rust_pixels_write_region", {
-        docId,
-        layerId,
-        x: region.x,
-        y: region.y,
-        w: region.w,
-        h: region.h,
-        rgbaBase64: encodePixelBytes(rgba),
-      }),
-    );
+    const res = await writeRegionPixels({
+      docId,
+      layerId,
+      x: region.x,
+      y: region.y,
+      w: region.w,
+      h: region.h,
+      rgba,
+    });
 
     // Re-assert the projection: the destination's raster IS the model raster, so its
     // store entry carries no independent cursor step (see the header). This also

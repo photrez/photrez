@@ -9,7 +9,8 @@ import type { SelectionState } from "@/features/selection/SelectionTypes";
 import type { LayerNode, DocumentModel } from "@/engine/types";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
-import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
+import { writeRegionPixels } from "@/lib/protocol/paintRegionIpc";
 import { computeChangedRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
 import { selectionUploadRect } from "@/components/editor/canvas/keyboardShortcuts/selectionTool";
 import { computeDirtyRegion } from "@/lib/paint/regionProducer";
@@ -408,19 +409,15 @@ export function fillActiveLayerWithColor(
           engine.clearBasicAdjustments(activeId);
           mutationLanded = true;
         }
-        const res = decodeRustBytes<{
-          after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
-          epoch: number;
-          version: number;
-        }>(await pixelInvoke("rust_pixels_write_region", {
+        const res = await writeRegionPixels({
           docId,
           layerId: activeId,
           x: region.x,
           y: region.y,
           w: region.w,
           h: region.h,
-          rgbaBase64: encodePixelBytes(changed.rgba),
-        }));
+          rgba: changed.rgba,
+        });
         writeLanded = true;
         // Imperative is entry-owned (tile-memento model): history stores it and
         // replays its before/after tiles on undo/redo; the Rust entry is synced

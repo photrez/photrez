@@ -63,6 +63,10 @@ import { CENSUS_COMMANDS } from "@/lib/protocol/pixelInvokeCensus";
  * measurement ran.
  */
 const READS = new Set<string>([
+  // Read-only transport probe: round-trips a fixed tiny frame to prove the
+  // webview can carry a byte body and a binary reply. Touches no store state, so
+  // it is a read by the same rule as the other probes and is NOT census-routed.
+  "rust_pixels_raw_echo",
   "rust_pixels_get_epoch",
   "rust_pixels_snapshot_layer",
   "rust_pixels_snapshot_tile",
@@ -86,6 +90,11 @@ const READS = new Set<string>([
  */
 const WRITERS = new Set<string>([
   "rust_pixels_write_region",
+  // The BINARY form of that same canonical command, selected at runtime by
+  // paintRegionIpc.ts when the webview proved it can carry raw bytes. It runs
+  // the same `registry.write_region` call and records the same single `Pixel`
+  // entry; it is a second transport for one writer, never a second writer.
+  "rust_pixels_write_region_raw",
   "apply_tile_patch",
   "rust_pixels_record_snapshot",
 ]);

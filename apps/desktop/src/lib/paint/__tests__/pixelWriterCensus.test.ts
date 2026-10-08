@@ -157,13 +157,29 @@ describe("single-writer census: every pixel-byte writer is a recognised canonica
     expect(projectionSites.length, "projections are reached from production source").toBeGreaterThan(0);
     expect(cursorSites.length, "cursor movers are reached from production source").toBeGreaterThan(0);
     expect(readSites.length, "read probes are reached from production source").toBeGreaterThan(0);
-    // The canonical writer really is the brush commit's, at the expected site -
-    // proof the parse found a live production call rather than a declaration.
+    // The canonical writer really is reached from production source, at the
+    // expected site - proof the parse found a live production call rather than a
+    // declaration. BOTH transports are asserted, and both moved into the shared
+    // dispatcher (paintRegionIpc.ts) when they were unified - the base64 command
+    // and its binary sibling are the SAME canonical write, one transport each.
+    //
+    // The brush commit's route THROUGH that dispatcher is not visible to this
+    // parser (it matches invoke-shaped calls only; the dispatcher call is a plain
+    // function call) and is pinned instead by the RED-first wiring case in
+    // `lib/protocol/__tests__/paintRegionIpc.test.ts`, which fails if
+    // useBrushOverlay stops routing through `writeRegionPixels`.
     expect(
       SITES.some(
-        (s) => s.command === "rust_pixels_write_region" && s.site.includes("useBrushOverlay.ts"),
+        (s) => s.command === "rust_pixels_write_region" && s.site.includes("paintRegionIpc.ts"),
       ),
-      "the canonical writer is reached from the brush commit",
+      "the base64 canonical writer is reached from the shared region-write dispatcher",
+    ).toBe(true);
+    expect(
+      SITES.some(
+        (s) =>
+          s.command === "rust_pixels_write_region_raw" && s.site.includes("paintRegionIpc.ts"),
+      ),
+      "the binary canonical writer is reached from the shared region-write dispatcher",
     ).toBe(true);
   });
 

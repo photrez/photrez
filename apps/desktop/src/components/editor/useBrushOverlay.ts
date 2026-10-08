@@ -12,7 +12,8 @@ import {
 } from "@/lib/paint/paintTileSurface";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
 import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
-import { yieldToFrame, encodePixelBytesSliced, decodeRustBytesSliced } from "@/lib/protocol/commitFrameYield";
+import { writeRegionPixels } from "@/lib/protocol/paintRegionIpc";
+import { yieldToFrame, encodePixelBytesSliced } from "@/lib/protocol/commitFrameYield";
 import { computeDirtyRegion, assertWriteRegionTarget, assertWriteRegionBytes, type DirtyRect, emptyDirtyRect, expandDirtyRect } from "@/lib/paint/regionProducer";
 import { getPaintToolBlockReason, resolveEraserFill, type PaintToolSettings } from "./brushToolState";
 import { commitPaintBitmap } from "./paintCommitCommand";
@@ -197,7 +198,6 @@ export function useBrushOverlay() {
       // every stroke on the floor, which is what left the store with no Pixel entry
       // and no drainable twin. A commit that is queued must run.
       const { invoke } = await import("@tauri-apps/api/core");
-      const { pixelInvoke } = await import("@/lib/protocol/pixelInvokeCensus");
       // Pre-IPC fence: identity and geometry run BEFORE the epoch read, so a
       // malformed target is a RangeError with zero Rust traffic (empty docId
       // is the proven pre-IPC case). The byte fence further down sits after
@@ -262,25 +262,27 @@ export function useBrushOverlay() {
       // ── Frame slicing ──────────────────────────────────────────────────────
       // The chunks around the IPC are pure and separately expensive: at 4096^2
       // with a 3254x208 dirty rect, readRect 6.0 ms, encode 19.5 ms, reply parse
-      // 1.3 ms, decode 16.2 ms, surface apply 8.3 ms. Yielding between them keeps
-      // every slice inside one frame. It changes WHEN the work runs, never what
-      // it computes: the queue still runs commits in order, and each chunk keeps
-      // its own synchronous run.
+      // 1.3 ms, decode 16.2 ms, surface apply 8.3 ms - and, before the transport
+      // split, a 344-387 ms round trip (docs/frame-pacing-baseline.md) with the
+      // majority INSIDE the invoke.
+      // Yielding between the chunks keeps every slice inside one frame. It
+      // changes WHEN the work runs, never what it computes: the queue still runs
+      // commits in order, and each chunk keeps its own synchronous run.
+      //
+      // TRANSPORT: `writeRegionPixels` owns the choice - raw bytes when the
+      // webview proved it can carry them, the base64 command otherwise - so this
+      // call site states WHAT to write and never HOW it crosses. The sliced
+      // encode is handed down for the base64 arm; the raw arm skips it entirely.
       await yieldToFrame();
-      const rgbaBase64 = await encodePixelBytesSliced(region.data);
       // The reply carries the POST-image only. The pre-image it used to carry
       // was decoded here and then never read: the memento below is built from
       // `beforePatches` (this surface's own pre-stroke tiles), and Rust's `Pixel`
       // entry already holds the pre-image that undo reads back. Decoding it also
       // cost a dirty region's worth of base64 on every stroke.
-      const res = await decodeRustBytesSliced<{
-        after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
-        epoch: number;
-        version: number;
-      }>(await pixelInvoke("rust_pixels_write_region", {
-        docId, layerId, x: dirtyRegion.x, y: dirtyRegion.y, w: dirtyRegion.w, h: dirtyRegion.h,
-        rgbaBase64,
-      }));
+      const res = await writeRegionPixels(
+        { docId, layerId, x: dirtyRegion.x, y: dirtyRegion.y, w: dirtyRegion.w, h: dirtyRegion.h, rgba: region.data },
+        { sliced: true, fallbackEncode: encodePixelBytesSliced },
+      );
       // Before, never during: applyRustTilesToSurface writes the reply's tiles
       // one at a time, so a yield inside its loop could expose a half-applied
       // tile set to a newer stroke's snapshotTile. 8.3 ms is the price of that

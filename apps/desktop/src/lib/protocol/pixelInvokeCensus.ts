@@ -19,7 +19,7 @@
  *    as `history.ts` fire and forget, so a raw read there can race.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
 
 /**
  * Exactly the commands the census records. Anything else - including the
@@ -29,6 +29,11 @@ import { invoke } from "@tauri-apps/api/core";
  */
 export const CENSUS_COMMANDS = new Set([
   "rust_pixels_write_region",
+  // The raw-bytes form of the SAME canonical write (paintRegionIpc.ts picks one
+  // transport per session). It records one `Pixel` entry exactly like its base64
+  // sibling, so it must be in the ordering oracle - a write that bypassed the
+  // census would let every ordering assertion read a gap where a step happened.
+  "rust_pixels_write_region_raw",
   "rust_pixels_record_external",
   "rust_pixels_undo",
   "rust_pixels_redo",
@@ -93,13 +98,21 @@ export async function flushPixelInvokeCensus(): Promise<PixelCensusSnapshot> {
   return getPixelCensusSnapshot();
 }
 
-export function pixelInvoke(command: string, args: Record<string, unknown>): Promise<unknown> {
+export function pixelInvoke(
+  command: string,
+  args: InvokeArgs,
+  options?: InvokeOptions,
+): Promise<unknown> {
   registerPixelInvokeCensus();
-  if (!CENSUS_COMMANDS.has(command)) return invoke(command, args);
+  // `options` is only forwarded when a caller supplies one, so every existing
+  // command keeps the two-argument call shape its mocks and assertions expect.
+  const dispatch = (): Promise<unknown> =>
+    options === undefined ? invoke(command, args) : invoke(command, args, options);
+  if (!CENSUS_COMMANDS.has(command)) return dispatch();
 
   const entry: PixelCensusEntry = { order: ++nextOrder, command, phase: "pending" };
   entries.push(entry);
-  const started = invoke(command, args);
+  const started = dispatch();
   // The terminal phase must be written when the invoke settles; without it the
   // entry stays "pending" forever and a drained read cannot be told apart from a
   // fire-and-forget invoke that has not even been awaited yet.

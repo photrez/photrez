@@ -15,7 +15,8 @@ import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { clampRegionToLayer, computeDirtyRegion } from "@/lib/paint/regionProducer";
-import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
+import { writeRegionPixels } from "@/lib/protocol/paintRegionIpc";
 import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
 import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "./structuralRouting";
 
@@ -367,19 +368,15 @@ export function useLayerActions() {
             await rehydratePaintSurfaceFromRust(docId, activeId, surface);
 
             // Write baked pixels to Rust canonical (whole layer).
-            const res = decodeRustBytes<{
-              after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
-              epoch: number;
-              version: number;
-            }>(await pixelInvoke("rust_pixels_write_region", {
+            const res = await writeRegionPixels({
               docId,
               layerId: activeId,
               x: region.x,
               y: region.y,
               w: region.w,
               h: region.h,
-              rgbaBase64: encodePixelBytes(bakedRgba),
-            }));
+              rgba: bakedRgba,
+            });
 
             // Sync TS derived cache from Rust authoritative returned tiles.
             applyRustTilesToSurface(surface.context, res.after);

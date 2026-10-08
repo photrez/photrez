@@ -7,7 +7,8 @@ import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { GradientDragState, PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, getRustEpoch, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
-import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { pixelSeedDispatch } from "@/lib/protocol/pixelSeedCall";
+import { writeRegionPixels } from "@/lib/protocol/paintRegionIpc";
 import { assertWriteRegionBytes, assertWriteRegionTarget, computeDirtyRegion } from "@/lib/paint/regionProducer";
 import { ipcErrorMessage } from "@/tauri/native";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
@@ -259,19 +260,15 @@ export async function applyGradientFill(
     assertWriteRegionTarget(docId, layerId, region, w, h);
     assertWriteRegionBytes(changed.rgba.byteLength, region);
     const preSnapshot = engine.snapshot();
-    const res = decodeRustBytes<{
-      after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
-      epoch: number;
-      version: number;
-    }>(await pixelInvoke("rust_pixels_write_region", {
+    const res = await writeRegionPixels({
       docId,
       layerId,
       x: region.x,
       y: region.y,
       w: region.w,
       h: region.h,
-      rgbaBase64: encodePixelBytes(changed.rgba),
-    }));
+      rgba: changed.rgba,
+    });
     // Imperative is entry-owned (tile-memento model): history stores it and
     // replays its before/after tiles on undo/redo; the Rust entry is synced via
     // `rust_pixels_undo` (single step, no second TS-visible entry). `rustOwned`

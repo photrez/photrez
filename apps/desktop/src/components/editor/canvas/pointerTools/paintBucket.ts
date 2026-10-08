@@ -8,7 +8,8 @@ import { trySetPointerCapture } from "../../tools/pointerCapture";
 import type { PointerToolContext } from "./pointerToolContext";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
 import { syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
-import { pixelSeedDispatch, encodePixelBytes, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { pixelSeedDispatch, decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { writeRegionPixels } from "@/lib/protocol/paintRegionIpc";
 import { selectionUploadRect } from "../keyboardShortcuts/selectionTool";
 import { computeChangedRegion, computeDirtyRegion, reconstructLayerBuffer } from "@/lib/paint/regionProducer";
 import { resolveRustPixelOperationArm } from "@/lib/paint/rustPixelOperationArm";
@@ -127,19 +128,15 @@ export function applyPaintBucketFill(
           : null);
         if (!region) return;
         const preSnapshot = engine.snapshot();
-        const res = decodeRustBytes<{
-          after: { x: number; y: number; w: number; h: number; data: ArrayLike<number> }[];
-          epoch: number;
-          version: number;
-        }>(await pixelInvoke("rust_pixels_write_region", {
+        const res = await writeRegionPixels({
           docId,
           layerId,
           x: region.x,
           y: region.y,
           w: region.w,
           h: region.h,
-          rgbaBase64: encodePixelBytes(changed.rgba),
-        }));
+          rgba: changed.rgba,
+        });
         // TS derived cache updated from Rust's authoritative returned `after` tiles + epoch.
         applyRustTilesToSurface(surface.context, res.after);
         surface.pixelEpoch = res.epoch;

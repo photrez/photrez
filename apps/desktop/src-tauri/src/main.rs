@@ -8,6 +8,7 @@ mod file_io;
 mod fonts;
 mod menu;
 mod paint_parity_cmds;
+mod paint_parity_raw;
 mod pixel_history_depth;
 mod pixel_store_bytes;
 mod print_core;
@@ -244,6 +245,8 @@ fn main() {
             paint_parity_cmds::rust_pixels_remove_layer,
             paint_parity_cmds::rust_pixels_resize_layer,
             paint_parity_cmds::rust_pixels_write_region,
+            paint_parity_raw::rust_pixels_write_region_raw,
+            paint_parity_raw::rust_pixels_raw_echo,
             paint_parity_cmds::apply_tile_patch,
             paint_parity_cmds::rust_pixels_undo,
             paint_parity_cmds::rust_pixels_redo,
