@@ -20,13 +20,17 @@ A jsdom or vitest substitute is not valid: jsdom has no compositor and no GPU,
 and its `requestAnimationFrame` is timer-driven, so a jsdom frame time is a
 fiction. These numbers come from the real WebView2 window.
 
-## Status: FAILS — reduced 4.5-6x since the repair, still failing
+## Status: FAILS, ONE ORDER OF MAGNITUDE SMALLER SINCE THE RAW-TRANSPORT BINARY (2026-10-08)
 
-**The requirement still fails at HEAD `8767ed0`.** It failed harder before: the
-repair that landed as `8767ed0` brought the cold max frame from 16,417-19,301 ms
-down to 2,716.8-3,216.9 ms, and the per-frame budget is still exceeded by 32-41
-frames per run. See **"Status at `8767ed0`"** for the post-repair tables and for
-why the dropped-frame count went *up* while the worst frame went *down*.
+**The requirement still fails.** It failed hardest before any repair (cold max
+frame 16,417-19,301 ms at `9dc10677`); the base64 repair (`8767ed0`) brought that
+down to 2,716.8-3,216.9 ms but left 32-41 dropped frames per run; the
+re-measurement at the bottom of this document ("Re-measurement on the raw-byte
+transport binary (2026-10-08)") now reads warm max 50.1-83.3 ms with 11-15
+dropped frames. See **"Status at `8767ed0`"** for the post-repair tables and for
+why the dropped-frame count went *up* while the worst frame went *down* - the
+shape of the failure has changed twice since, and **each dated section below
+stands as the record of its own commit.**
 
 The tables immediately below are the **pre-repair** measurement at `34dad0cd` and
 are kept unedited as the baseline the repair is judged against. Steady-state
@@ -559,6 +563,39 @@ This workspace builds to the **repo-root** `target/` directory, not to
    override falls back to the msvc default host and fails to link, because no MSVC
    linker is installed. Reproducing these numbers from another directory requires
    `rustup override set stable-x86_64-pc-windows-gnu --path <dir>`.
+
+## Re-measurement on the raw-byte transport binary (2026-10-08)
+
+The status sections above are the record as of `8767ed0`/`1089f5bb`. On top of that tree,
+seven paint-path commits landed (`c05d0513`..`b563a7d3`) together with the raw-byte region
+write transport (`apps/desktop/src/lib/protocol/paintRegionIpc.ts`,
+`apps/desktop/src-tauri/src/paint_parity_raw.rs` - the commit immediately before the one that
+adds this section), and the same harness was re-run against the release exe built from that
+tree. **These are the newest
+numbers; every older row above stands as written for its own commit.**
+
+| Document | Mode | n | frames | median | p99 | **max (ms)** | **frames >= 33 ms** | paint-proven |
+|---|---|---|---|---|---|---|---|---|
+| 4096 x 4096 | warm | 3 | 593 / 593 / 592 | 16.7 | 33.4-66.6 | **50.1 / 83.3 / 66.8** | **11 / 15 / 11** | yes |
+| 4096 x 4096 | cold | 1 | 630 | 16.7 | 33.3 | **766.5** | **11** | yes |
+
+Against the recorded post-base64 rows (warm max **4,083.6-4,216.9 ms** / **30-41** dropped;
+cold max **2,716.8-3,216.9 ms** / **32-35** dropped), the worst frame is 40-80x smaller and
+the dropped count ~3x smaller. Stated plainly, so it is not over-read:
+
+- **The delta is CUMULATIVE.** The binary carries the seven landed paint commits PLUS the
+transport change set. Nothing here isolates the transport's share of the frame-time win; the
+transport's isolated win is measured separately at command level (median 122.6 -> 79.4 ms on
+a 3254x208 rect, both commands alternating in one session against the real release exe).
+- **The cold row is n=1** (the warm row is n=3), and its 766.5 ms max frame is the
+  first-stroke seed (full-layer readback + `rust_pixels_init`) - the same attribution the
+  earlier cold rows carry.
+- **THE REQUIREMENT STILL FAILS.** `frames >= 33 ms` is not zero in any row. What changed is
+  the SHAPE: the multi-second single stall is gone; what remains is 11-15 dropped frames
+  across ~600 frames, worst frame tens of ms warm and 766.5 ms cold.
+- Reproduction: warm = `--warmup 3 --doc-w 4096 --doc-h 4096 --strokes 12 --moves 40`; cold
+  = the same with `--cold --warmup 0` on a fresh launch. Labels
+  `release-4096-rawtransport` / `-w2` / `-w3` / `-cold`.
 
 ## Not a hard gate
 
