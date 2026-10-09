@@ -41,7 +41,28 @@ vi.mock("@/tauri/native", () => ({
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+// The native protocol commands return a JSON STRING (`Result<T, String>`), and
+// `bridge.getSnapshot` runs `JSON.parse` on the answer. A bare `vi.fn()`
+// resolved `undefined`, which parsed as "undefined is not valid JSON" - so the
+// open-path facade seed failed on a stub artifact rather than on a real refusal.
+// The open now fails loudly on a refused seed, which is what made this visible.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    switch (cmd) {
+      case "protocol_snapshot_native":
+        return JSON.stringify({ version: 0, layers: [] });
+      case "protocol_layer_ids_native":
+        return JSON.stringify({ ids: [] });
+      case "protocol_canonical_native":
+        return JSON.stringify({ ok: true });
+      case "protocol_seed_native":
+      case "protocol_seed_canonical_native":
+        return JSON.stringify({ version: 0 });
+      default:
+        return undefined;
+    }
+  }),
+}));
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({
   isTauriRuntime: hoisted.mockIsTauriRuntime,
@@ -68,7 +89,14 @@ const mockRequestRender = vi.fn();
 function makeParams(overrides?: { isFull?: boolean; onError?: (m: string) => void; onLoading?: (m: string | null) => void }): OpenImageParams {
   if (overrides?.isFull != null) mockIsFull.mockReturnValue(overrides.isFull);
   return {
-    workspace: { isFull: mockIsFull, addDocument: mockAddDocument } as unknown as OpenImageParams["workspace"],
+    // `loadProjectFile` reads `workspace.getSession(model.id)` to find the session
+    // a reopen supersedes, so its failure path can hand that session's ownership
+    // claims back. A double that answers `null` is "no such session is open".
+    workspace: {
+      isFull: mockIsFull,
+      addDocument: mockAddDocument,
+      getSession: () => null,
+    } as unknown as OpenImageParams["workspace"],
     renderer: { uploadImage: mockUploadImage } as unknown as OpenImageParams["renderer"],
     scheduler: { requestRender: mockRequestRender } as unknown as OpenImageParams["scheduler"],
     onError: overrides?.onError ?? vi.fn(),

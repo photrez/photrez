@@ -6,7 +6,7 @@ import { DocumentModel, MAX_OPEN_DOCUMENTS } from "@/engine/types";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import type { RenderScheduler } from "@/renderer/scheduler";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
-import { isFacadeEnabled, isNativeAuthority } from "@/lib/protocol/bridge";
+import { isFacadeEnabled, isNativeAuthority, clearNativeSeed } from "@/lib/protocol/bridge";
 import { getFacade, seedFacadeFromEngine } from "@/lib/protocol/facadeRegistry";
 import { addRecentFile } from "@/lib/recentFiles";
 import { showToast } from "./Toast";
@@ -311,15 +311,44 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
   // Gated to the authority the factory path uses, so the `photrez.facade=0` and
   // `facadeAuthority=wasm` opt-outs keep their current behavior byte for byte.
   // Runs BEFORE `clearDirty()` so the saved baseline is taken from the final
-  // model. A failed seed leaves the document exactly as it is today (open, with
-  // host-executed history) rather than failing the open: not opening a project at
-  // all is worse than opening it on the slower undo path.
+  // model.
+  //
+  // A refused seed FAILS the open, the way a refused read or a refused layer
+  // decode already does: the caller reports it and nothing reaches the workspace.
+  // Opening anyway used to leave a document that holds no facade-ownership claims,
+  // and `hasFacadeOwnedLayers()` is what the undo dispatch reads - so its undo
+  // fell off the native walker onto the host stack, whose own `stepRustCursor` is
+  // the only executor it then has. Half an owned document is a state no other
+  // route can reach, so it must not be produced.
   if (isFacadeEnabled() && isNativeAuthority()) {
+    // The session this open supersedes, when the same project is still open. The
+    // release above and the facade re-bind inside the seed both mutate state this
+    // open only owns while it commits, so a refused seed has to hand them back.
+    const superseded = params.workspace.getSession(model.id);
     try {
       await seedFacadeFromEngine(engine as never, getFacade(engine.getId()));
       engine.adoptFacadeOwnership();
     } catch (err) {
-      console.warn("[open-project] facade seed failed; the document opens host-owned:", err);
+      if (superseded) {
+        // The superseded session is still open and still holds the file's layer
+        // ids: the release above disarmed it and nothing re-armed it, so its undo
+        // would fall off the native walker with no executor left. The facade is
+        // keyed by document id, so the refused seed also re-bound the LIVE
+        // session's facade to this discarded engine.
+        superseded.engine.adoptFacadeOwnership();
+        getFacade(model.id).bindEngine(superseded.engine);
+      } else {
+        // No session to hand the ids back to, and `createNativeSeed` has recorded
+        // the rejected promise for this document id and hands the same one to
+        // every later call - so the retry would re-await the same rejection. Drop
+        // it exactly as closing a document drops the ids it seeded.
+        clearNativeSeed(model.id);
+      }
+      throw new Error(
+        `Project open failed: the canonical document seed was refused (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
     }
   }
   engine.clearDirty();
