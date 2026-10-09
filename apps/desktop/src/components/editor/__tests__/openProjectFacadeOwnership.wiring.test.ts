@@ -7,8 +7,15 @@
 // an unowned one pops the host stack and the host's own `stepRustCursor` issues
 // `rust_pixels_undo`. A document FIRST opened from a `.ptz` was never facade-owned
 // on the shipping profile, so for that shape the host's own cursor step was the
-// only thing that moved the cursor - and neither that host step nor the host stack
-// pop it serves can be deleted while any real document still depends on them.
+// only thing that moved the cursor - and that host step and the host stack pop it
+// serves can only be deleted once EVERY document shape that can still reach them
+// is gone. MEASURED, so the bar is stated exactly: on the shipping profile real
+// documents still reach the host executor in two more shapes - (a) a
+// `loadProjectFile` whose facade seed fails hits the catch-and-continue path and
+// opens with zero claims while a sibling owns layers, and (b) a two-document
+// shared-lineage session before its sibling closes. This file's cases cover a
+// THIRD, narrower one: a lone opened document, which after this path runs fully
+// native.
 //
 // THE PATH UNDER TEST IS THE REAL ONE. `loadProjectFile` runs: the Rust reader
 // (`loadProject`), bounded parallel PNG decode, `engine.restore`, the workspace
