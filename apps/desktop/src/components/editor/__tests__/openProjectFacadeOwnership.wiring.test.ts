@@ -136,6 +136,25 @@ vi.mock("../Toast", () => ({ showToast: hoisted.mockShowToast }));
 // The native engine is Rust in production. These stubs move the SAME emulated
 // cursor `rust_pixels_*` moves, so the host's own cursor commands stay countable
 // and the walker's movement is observable without going through `invoke`.
+//
+// WHAT THIS TRANSPORT DOES NOT MODEL: the document-open baseline entry. The real
+// `Command::SetBackgroundFlag` arm brackets its apply with `begin_forward` /
+// `finish_forward` (crates/core/src/document_core_apply.rs:377-397), so a
+// factory-built document's stream opens holding one "Set Background Flag" entry
+// at position 0 and `deriveOpenBaselineFloor` reads 1. The apply arm below
+// answers a non-cursor command without recording anything, so that floor reads
+// 0 here for the same document. MEASURED CONSEQUENCE: `getNativeUndoCount` and
+// `rustStreamHoldsUserWork` both subtract the floor, so a factory document's
+// count and refusal verdict would sit one step lower here than in production.
+// No assertion in this file depends on the production value: this file drives
+// the OPENED-FROM-DISK shape, which issues no background-flag apply at all and
+// so carries no baseline entry in production either (`loadProjectFile` seeds
+// and adopts ownership; it never flags a layer) - production and this transport
+// agree at floor 0 here. The floor of 1 is pinned where it is read from a query
+// no test constructed, in `openBaselineLabelBoundary.test.ts`. A transport that
+// DOES need the production baseline must record the entry in its own apply arm;
+// `nativeProtocolEmulator.ts` is the reference for the seed/membership half of
+// this boundary, and it does not record a baseline either.
 vi.mock("@/lib/protocol/nativeClient", () => {
   const stream = (docId: string) => streamFor(docId);
   return {
@@ -475,6 +494,53 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     // document-close path cannot be what unblocks this one.
     await expect(openProject(workspace)).resolves.not.toThrow();
     expect(hasFacadeOwnedLayers(), "the reopened document owns its layers again").toBe(true);
+  });
+
+  it("a projection through a CLOSED engine cannot release the reopened document's claims", async () => {
+    const workspace = new WorkspaceManager();
+    await openProject(workspace);
+    const closed = sessionOf(workspace).engine;
+
+    // Close, then reopen the same file: the reopen mints a NEW engine under the
+    // SAME document id, so both engines answer to `DOC` and carry the file's
+    // layer ids verbatim.
+    workspace.removeDocument(DOC);
+    await openProject(workspace);
+    const live = sessionOf(workspace).engine;
+    expect(live, "the reopen installed a new engine").not.toBe(closed);
+    expect(live.getId(), "both engines answer to the one document id").toBe(closed.getId());
+    for (const id of LAYER_IDS) {
+      expect(isFacadeOwnedLayer(id), `premise: the reopened document owns ${id}`).toBe(true);
+    }
+
+    // The closed engine is still reachable by anything that captured it before
+    // the close - an in-flight funnel holds the engine it was driving, and the
+    // close detaches its callbacks without invalidating it. Its projection
+    // reconciles facade ownership under `getId()`, which is now the LIVE
+    // document's id, so a layer dropped here would strip the reopened session's
+    // claim over that id and disarm its undo.
+    closed.applyFacadeSnapshot({
+      version: 1,
+      layers: [
+        {
+          id: LAYER_IDS[0],
+          name: LAYER_IDS[0],
+          visible: true,
+          opacity: 1,
+          x: 0,
+          y: 0,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          resourceId: 1,
+        },
+      ],
+    } as never);
+
+    for (const id of LAYER_IDS) {
+      expect(isFacadeOwnedLayer(id), `the reopened document still owns ${id}`).toBe(true);
+    }
+    expect(hasFacadeOwnedLayers(), "its undo still dispatches through the native walker").toBe(true);
   });
 
   it("closing the last facade-owning document releases every claim it held", async () => {

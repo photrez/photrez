@@ -64,6 +64,24 @@ vi.mock("@/engine/document", () => ({
 // The native walker (`Command::Undo` / `Command::Redo`) drives the canonical
 // cursor. It is Rust in production; the stub below moves the same emulated
 // cursor so the host's own cursor commands stay countable.
+//
+// WHAT THIS TRANSPORT DOES NOT MODEL: the document-open baseline entry. The real
+// `Command::SetBackgroundFlag` arm brackets its apply with `begin_forward` /
+// `finish_forward` (crates/core/src/document_core_apply.rs:377-397), so a
+// factory-built document's stream opens holding one "Set Background Flag" entry
+// at position 0 and `deriveOpenBaselineFloor` reads 1. The apply arm below
+// answers a non-cursor command without recording anything, so that floor reads
+// 0 here for the same document. MEASURED CONSEQUENCE: `getNativeUndoCount` and
+// `rustStreamHoldsUserWork` both subtract the floor, so a factory document's
+// count and refusal verdict would sit one step lower here than in production.
+// No assertion in this file depends on the production value: it drives a paint
+// stroke through `CommandHistory`, which issues no background-flag apply, so
+// production and this transport agree at floor 0 here. The floor of 1 is pinned
+// where it is read from a query no test constructed, in
+// `openBaselineLabelBoundary.test.ts`. A transport that DOES need the production
+// baseline must record the entry in its own apply arm; `nativeProtocolEmulator.ts`
+// is the reference for the seed/membership half of this boundary, and it does not
+// record a baseline either.
 vi.mock("@/lib/protocol/nativeClient", () => {
   // The walker must move the SAME stream `rust_pixels_write_region` recorded the
   // stroke into, so it reads through the shared emulator rather than a private map.

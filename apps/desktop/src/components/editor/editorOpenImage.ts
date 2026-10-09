@@ -244,6 +244,23 @@ export async function openSingleFile(path: string, params: OpenImageParams): Pro
 }
 
 export async function loadProjectFile(path: string, params: OpenImageParams, fileName: string) {
+  try {
+    await openProjectFile(path, params, fileName);
+  } catch (err) {
+    // Clear on the FAILURE path only, and only here. `openImage` clears in its
+    // own `finally` (which also covers a success); the other two production
+    // callers - the recent-file menu and the crash-recovery chain - reach this
+    // function directly, or through `openSingleFile`, and only report the error,
+    // so a refused seed / refused read / corrupt layer left the spinner up over
+    // an editor holding no document. Success is deliberately untouched: the
+    // dialog route raises a message per project in a batch and this function
+    // must not clear the one the next file is about to need.
+    params.onLoading?.(null);
+    throw err;
+  }
+}
+
+async function openProjectFile(path: string, params: OpenImageParams, fileName: string) {
   const result = await loadProject(path);
   const model = JSON.parse(result.document_json) as DocumentModel;
 

@@ -17,7 +17,7 @@
 // through.
 //
 // TWO SHAPES, ONE BARRIER. The layer seed is recorded raw, so its rejection is
-// poison. The canonical-document shadow seed is recorded as a GUARRIED copy
+// poison. The canonical-document shadow seed is recorded as a guarded copy
 // (`p.then(() => {}).catch(() => {})`), so its failure is an ordering fact, not
 // an error channel - the second case here proves that difference rather than
 // assuming it.

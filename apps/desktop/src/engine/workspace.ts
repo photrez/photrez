@@ -60,10 +60,13 @@ export class WorkspaceManager {
    * for the same reason.
    *
    * A refused open leaves nothing behind: the per-document state the aborted
-   * attempt created is dropped (a recorded rejected seed would hand the same
-   * rejection to every later caller and make a retry impossible), and the
-   * rasters the discarded engine held are closed, because no session will own
-   * them.
+   * attempt created is dropped - the tracked commit, and the facade entry,
+   * because a surviving facade seeded with the discarded engine's layers makes
+   * a retry under the same id skip its own seed - and the rasters the discarded
+   * engine held are closed, because no session will own them. The rejected SEED
+   * entry needs no drop here: `createNativeSeed` evicts its own recorded promise
+   * on rejection, guarded by identity so an earlier attempt's late rejection
+   * cannot evict a later seed's entry.
    *
    * Routes that opt the guard out (`photrez.bgFlagRoute=0`) track no commit, so
    * this resolves immediately and the legacy direct setter stands.
@@ -73,8 +76,17 @@ export class WorkspaceManager {
     try {
       await awaitBackgroundFlagCommit(id);
     } catch (err) {
-      clearNativeSeed(id);
       clearBackgroundFlagCommit(id);
+      // The per-document facade entry is per-document state this attempt
+      // created too: the refused seed seeded it with the discarded engine's
+      // layers and bound it to that engine. It survives the abort, and because
+      // `commitFacadeBackgroundFlag` only seeds a facade that holds no layers, a
+      // retry under the same id then skips the seed and applies to a native
+      // engine that was never seeded (`document not open: <id>`). Drop it the
+      // way the seed entry is dropped - but only when nothing is open under this
+      // id, because the entry is keyed by DOCUMENT id and a live same-id session
+      // is driving that very facade.
+      if (!this.sessions.has(id)) removeFacade(id);
       for (const layer of session.engine.getLayers()) {
         layer.imageBitmap?.close();
         layer.baseImageBitmap?.close();
@@ -164,9 +176,16 @@ export class WorkspaceManager {
     if (this.sessions.has(id)) {
       // Detach the engine's change callbacks entirely (instead of swapping
       // them for no-op closures) so a removed engine holds no reference back
-      // into workspace state (review #40).
+      // into workspace state (review #40), AND retire it so its facade-ownership
+      // writes are inert. Retirement is not the same as the callback detach: the
+      // closed engine stays reachable by anything that captured it (an in-flight
+      // funnel holds the engine it was driving), and its projection reconciles
+      // ownership under `getId()` - which a reopen of the same file re-mints
+      // under the SAME id. Without this, a projection through the closed engine
+      // after a close-then-reopen releases the REOPENED session's claims and
+      // disarms its undo.
       const session = this.sessions.get(id)!;
-      session.engine.clearCallbacks();
+      session.engine.retire();
       // Drop the tracked factory flag commit so its settled closure cannot
       // retain the removed engine; a reopen re-tracks via the factory.
       clearBackgroundFlagCommit(id);

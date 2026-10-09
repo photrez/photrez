@@ -41,6 +41,7 @@ import { WorkspaceManager, type DocumentSession } from "@/engine/workspace";
 import { nativeProtocol } from "@/lib/protocol/nativeClient";
 import { __resetNativeAuthorityForTests, nativeSeedPromiseByDoc } from "@/lib/protocol/bridge";
 import { __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
+import { peekFacade } from "@/lib/protocol/selectionMirror";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { answerInvoke, resetStreams } from "@/engine/__tests__/rustStreamEmulator";
@@ -226,10 +227,12 @@ describe("a refused native seed fails a factory-built document open", () => {
     refuseSeed();
     await openDroppedImages(workspace, ["retry.png"]);
 
-    // DEFEAT: `createNativeSeed` records its promise per document id and returns
-    // the recorded one to every later caller, so a surviving refused entry makes
-    // this read true - and the retry below would re-await the same rejection.
-    // Removing the refusal's own `clearNativeSeed` reddens this line.
+    // `createNativeSeed` records its promise per document id and hands the recorded
+    // one to every later caller, so a surviving refused entry would make this
+    // read true - and the retry below would re-await the same rejection. The
+    // entry is dropped by `createNativeSeed`'s own identity-guarded eviction on
+    // rejection, not by the open route: removing the route's own seed drop
+    // leaves this line GREEN, which is why there is no such call on that path.
     expect([...nativeSeedPromiseByDoc.keys()], "the refused open leaves no seed-barrier entry").toEqual(
       [],
     );
@@ -278,7 +281,8 @@ describe("a refused native seed fails a factory-built document open", () => {
 
     // DEFEAT (one per line): each reads state the abort must have cleaned, so
     // calling the ungated `addDocument` instead of `addSeededDocument` reddens
-    // the first two; keeping the refusal's seed entry reddens the last.
+    // the first two; the seed entry is dropped by `createNativeSeed`'s own
+    // identity-guarded eviction, which the last line pins.
     expect(sessionIds(workspace), "no session reaches the workspace").toEqual([]);
     expect(workspace.getActiveDocumentId(), "no tab is added").toBeNull();
     expect(isFacadeOwnedLayer(bgId), "the layer is claimed by nobody").toBe(false);
@@ -286,6 +290,51 @@ describe("a refused native seed fails a factory-built document open", () => {
     expect([...nativeSeedPromiseByDoc.keys()], "the refused open leaves no seed-barrier entry").toEqual(
       [],
     );
+  });
+
+  it("a same-id retry after a refused open seeds and opens natively", async () => {
+    const workspace = new WorkspaceManager();
+    const DOC_ID = "factory-same-id-retry";
+    refuseSeed();
+    await expect(
+      workspace.addSeededDocument(WorkspaceManager.createBlankDocument(DOC_ID, "Blank", 8, 8)),
+    ).rejects.toThrow(/seed/i);
+
+    // The refused attempt left its per-document state behind: the facade entry
+    // survives the abort seeded with the DISCARDED engine's layers and bound to
+    // it. `commitFacadeBackgroundFlag` skips its seed step whenever the facade
+    // already holds layers, so the retry never re-seeds the document it is
+    // opening and its first apply lands on a native engine that was never
+    // seeded. DEFEAT: dropping the survivor from the abort path reds the open
+    // below; leaving the retry alone keeps this red at `document not open`.
+    acceptSeed();
+    const retry = WorkspaceManager.createBlankDocument(DOC_ID, "Blank", 8, 8);
+
+    await expect(workspace.addSeededDocument(retry)).resolves.toBeUndefined();
+
+    expect(sessionIds(workspace)).toEqual([DOC_ID]);
+    expect(hasFacadeOwnedLayers(), "the retried document owns its layers").toBe(true);
+  });
+
+  it("a refused open never evicts a live session's facade under the same id", async () => {
+    const workspace = new WorkspaceManager();
+    const DOC_ID = "factory-same-id-live";
+    const session = WorkspaceManager.createBlankDocument(DOC_ID, "Blank", 8, 8);
+    await expect(workspace.addSeededDocument(session)).resolves.toBeUndefined();
+    const liveFacade = peekFacade(DOC_ID);
+    expect(liveFacade, "premise: the live document has a facade").toBeDefined();
+
+    // A second, same-id attempt whose commit is refused aborts - and the abort
+    // path drops the per-document state it created. A live session shares that
+    // state BY DOCUMENT ID, so an unconditional drop would evict the live
+    // document's own facade and its next routed command would start from a
+    // fresh, unseeded one.
+    refuseSeed();
+    await expect(
+      workspace.addSeededDocument(WorkspaceManager.createBlankDocument(DOC_ID, "Blank", 8, 8)),
+    ).rejects.toThrow(/seed/i);
+
+    expect(peekFacade(DOC_ID), "the live document keeps the facade it is using").toBe(liveFacade);
   });
 
   it("an accepted seed opens a blank document through the same gate", async () => {

@@ -8,8 +8,9 @@
 // document entered the workspace holding NO facade-ownership claims. Undo/redo
 // dispatches on `hasFacadeOwnedLayers()`: with nothing owned the press falls off
 // the native walker onto the host stack, and the host's own `stepRustCursor`
-// becomes the document's only cursor executor - the executor the next slice
-// deletes. In the native-entry sub-shape the walker still drove while the
+// becomes the document's only cursor executor - an executor outside the native
+// engine, while every other document shape moves its cursor inside that engine.
+// In the native-entry sub-shape the walker still drove while the
 // TypeScript twin was never drained, which is cursor/TS divergence rather than a
 // dead undo. Either way a refused seed produced a document whose history path
 // nothing else in the app can reach.
@@ -25,8 +26,8 @@
 // THE PATH UNDER TEST IS THE REAL ONE, same as
 // `openProjectFacadeOwnership.wiring.test.ts`: `loadProjectFile` runs with only
 // the two IPC boundaries stubbed, the document is the real writer's golden bytes
-// with one field rewritten, and the seed is refused at the boundary the counter
-// named (`protocol_seed_native`, the stub that otherwise always resolves).
+// with one field rewritten, and the seed is refused at the native seed boundary
+// (`protocol_seed_native`, the stub that otherwise always resolves).
 //
 // MOCK FIDELITY. The refusal is a rejected promise with a message, which is what
 // the native client surfaces when a Rust command returns `Err`. A resolving stub
@@ -142,7 +143,10 @@ function projectBytes(): string {
   return golden[GOLDEN_CASE].input;
 }
 
-async function openProject(workspace: WorkspaceManager): Promise<void> {
+async function openProject(
+  workspace: WorkspaceManager,
+  onLoading: (message: string | null) => void = vi.fn(),
+): Promise<void> {
   hoisted.mockLoadProject.mockResolvedValue({
     document_json: projectBytes(),
     layers: ptzFixture(),
@@ -155,10 +159,34 @@ async function openProject(workspace: WorkspaceManager): Promise<void> {
       renderer: { uploadImage: vi.fn() } as unknown as OpenImageParams["renderer"],
       scheduler: { requestRender: vi.fn() } as unknown as OpenImageParams["scheduler"],
       onError: vi.fn(),
-      onLoading: vi.fn(),
+      onLoading,
     } as unknown as OpenImageParams,
     `${DOC}.ptz`,
   );
+  await settle();
+}
+
+/**
+ * The recent-file / command-line route: `openSingleFile`, which is what the
+ * title-bar menu and the startup chain call. Same refused seed, same real
+ * `loadProjectFile` underneath.
+ */
+async function openSingleProject(
+  workspace: WorkspaceManager,
+  onLoading: (message: string | null) => void,
+): Promise<void> {
+  hoisted.mockLoadProject.mockResolvedValue({
+    document_json: projectBytes(),
+    layers: ptzFixture(),
+  });
+  const { openSingleFile } = await import("../editorOpenImage");
+  await openSingleFile(`/projects/${DOC}.ptz`, {
+    workspace,
+    renderer: { uploadImage: vi.fn() } as unknown as OpenImageParams["renderer"],
+    scheduler: { requestRender: vi.fn() } as unknown as OpenImageParams["scheduler"],
+    onError: vi.fn(),
+    onLoading,
+  } as unknown as OpenImageParams);
   await settle();
 }
 
@@ -357,6 +385,22 @@ describe("a refused facade seed fails the project open", () => {
       expect(isFacadeOwnedLayer(id), `the live session still owns ${id}`).toBe(true);
     }
     expect(hasFacadeOwnedLayers(), "its undo still dispatches through the native walker").toBe(true);
+  });
+
+  it("clears the loading state when a refused open fails", async () => {
+    const workspace = new WorkspaceManager();
+    const onLoading = vi.fn();
+    refuseSeed();
+
+    await expect(openSingleProject(workspace, onLoading)).rejects.toThrow(/seed/i);
+
+    // The route that shows the spinner is the one that has to take it down.
+    // `openImage` clears it in its own `finally`; the recent-file menu and the
+    // startup chain call `openSingleFile` / `loadProjectFile` directly, report
+    // the failure as a toast, and never clear - so a refused open left the
+    // overlay up over an editor with nothing in it.
+    expect(onLoading.mock.calls.length, "premise: the open raised a loading message").toBeGreaterThan(0);
+    expect(onLoading, "the failed open left a loading message on screen").toHaveBeenLastCalledWith(null);
   });
 
   it("an accepted seed still opens the project", async () => {
