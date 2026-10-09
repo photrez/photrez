@@ -249,6 +249,10 @@ export class DocumentEngine {
   // its LAST applyFacadeSnapshot. Used to unmark (reconcile) ownership when a
   // projected id disappears — no dangling markers after delete/undone-add.
   private facadeProjectedIds: Set<string> | null = null;
+  // Set by retire(): this engine no longer backs an open session, so its facade
+  // ownership writes must not touch the ledger (which is keyed by document id,
+  // and a superseding engine for the same document shares that key).
+  private retired = false;
 
   // Retained full LayerNode objects keyed by id, captured on every layer
   // DISAPPEARANCE (facade delete / undone-add, and legacy deleteLayer). When the
@@ -1796,6 +1800,23 @@ export class DocumentEngine {
   }
 
   /**
+   * Retire an engine the workspace has superseded. Reopening a project that is
+   * still open builds a NEW engine for the SAME document id, so anything still
+   * holding the old one - an in-flight funnel driving the engine it captured -
+   * writes through that id: a projection here reconciles facade ownership under
+   * `getId()` and would release the LIVE document's claims over the ids it drops.
+   *
+   * A retired engine keeps mutating only its own model; every ownership write it
+   * makes is a no-op. Same retirement `removeDocument` performs for a closed
+   * document (detach the callbacks), plus the ledger guard the close path gets
+   * for free from dropping the session's claims.
+   */
+  retire(): void {
+    this.retired = true;
+    this.clearCallbacks();
+  }
+
+  /**
    * Keep the facade projection snapshot in step with THIS engine's TS model. The
    * snapshot is the layer vector the next routed projection rebuilds the model
    * from (applyFacadeSnapshot replaces model.layers with it), so a snapshot that
@@ -2464,8 +2485,10 @@ export class DocumentEngine {
     // undone add) must NOT keep a dangling facade-ownership marker.
     const nextIds = new Set(nextLayers.map((l) => l.id));
     this.reconcileFacadeOwnedIds(nextIds);
-    markFacadeOwned(this.getId(), nextLayers.map((l) => l.id));
-    this.facadeProjectedIds = nextIds;
+    if (!this.retired) {
+      markFacadeOwned(this.getId(), nextLayers.map((l) => l.id));
+      this.facadeProjectedIds = nextIds;
+    }
     // Reconcile per-layer resource maps for layer ids that vanished from the
     // projection (facade delete / undone add) — mirror legacy deleteLayer cleanup
     // so a deleted facade layer does not leak its surface/texture handles.
@@ -2501,7 +2524,7 @@ export class DocumentEngine {
    * `applyFacadeSnapshot` both go through it so they cannot drift apart.
    */
   private reconcileFacadeOwnedIds(nextIds: Set<string>): void {
-    if (!this.facadeProjectedIds) return;
+    if (this.retired || !this.facadeProjectedIds) return;
     for (const prev of this.facadeProjectedIds) {
       if (!nextIds.has(prev)) releaseFacadeOwnedId(this.getId(), prev);
     }
@@ -2533,6 +2556,7 @@ export class DocumentEngine {
    * simply already open.
    */
   adoptFacadeOwnership(): void {
+    if (this.retired) return;
     const nextIds = new Set(this.model.layers.map((l) => l.id));
     this.reconcileFacadeOwnedIds(nextIds);
     markFacadeOwned(this.getId(), this.model.layers.map((l) => l.id));

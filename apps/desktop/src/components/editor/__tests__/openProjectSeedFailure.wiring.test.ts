@@ -169,6 +169,30 @@ function sessionOf(workspace: WorkspaceManager, docId: string = DOC): DocumentSe
   return s;
 }
 
+/** One layer per id, in the shape `applyFacadeSnapshot` reads. */
+function projection(ids: readonly string[]) {
+  return {
+    version: 1,
+    layers: ids.map((id, i) => ({
+      id,
+      name: id,
+      visible: true,
+      opacity: 1,
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      resourceId: i + 1,
+    })),
+  };
+}
+
+/** Close calls per decoded bitmap, in decode-registration order. */
+function closesPerBitmap(): number[] {
+  return [...decodedBitmaps.values()].map((b) => vi.mocked(b.close).mock.calls.length);
+}
+
 /**
  * Refuse the seed at the native boundaries it awaits, the way a Rust `Err`
  * arrives. `seedFacadeFromEngine` awaits the layer seed and then reads the
@@ -283,6 +307,56 @@ describe("a refused facade seed fails the project open", () => {
     // snapshot into a discarded engine and the live one never sees it.
     const bound = bindEngine.mock.calls.at(-1)?.[0];
     expect(bound, "the facade is left bound to the engine that is still live").toBe(live.engine);
+  });
+
+  it("closes every decoded bitmap when a refused open aborts", async () => {
+    const workspace = new WorkspaceManager();
+    refuseSeed();
+
+    await expect(openProject(workspace)).rejects.toThrow(/seed/i);
+
+    // The decode-failure path already closes what it decoded; the seed refusal
+    // reaches the same abort and must do the same, or a refused open leaks a
+    // full raster set. Bitmaps are per-open objects, so `decodedBitmaps` holds
+    // exactly this open's set.
+    expect(decodedBitmaps.size, "premise: every layer decoded").toBe(LAYER_IDS.length);
+    expect(closesPerBitmap(), "the aborted open closes its decoded rasters").toEqual([1, 1]);
+  });
+
+  it("closes the refused reopen's rasters and leaves the live session's open", async () => {
+    const workspace = new WorkspaceManager();
+    await openProject(workspace);
+    const liveRasters = [...decodedBitmaps.values()];
+
+    refuseSeed();
+    await expect(openProject(workspace)).rejects.toThrow(/seed/i);
+
+    expect(closesPerBitmap(), "the refused reopen closes the rasters it decoded").toEqual([1, 1]);
+    for (const raster of liveRasters) {
+      expect(vi.mocked(raster.close), "the live session's rasters are still open").not.toHaveBeenCalled();
+    }
+  });
+
+  it("a projection through the superseded engine cannot release the live claims", async () => {
+    const workspace = new WorkspaceManager();
+    await openProject(workspace);
+    const superseded = sessionOf(workspace).engine;
+
+    await openProject(workspace);
+    const live = sessionOf(workspace).engine;
+    expect(live, "the reopen installed a new engine").not.toBe(superseded);
+    expect(live.getId(), "both engines answer to the one document id").toBe(superseded.getId());
+
+    // The superseded engine is still reachable by anything that captured it (an
+    // in-flight funnel holds the engine it was driving). Its projection reconciles
+    // facade ownership under `getId()`, which is the LIVE document's id, so a
+    // dropped layer here would strip the live session's claim over that id.
+    superseded.applyFacadeSnapshot(projection([LAYER_IDS[0]]) as never);
+
+    for (const id of LAYER_IDS) {
+      expect(isFacadeOwnedLayer(id), `the live session still owns ${id}`).toBe(true);
+    }
+    expect(hasFacadeOwnedLayers(), "its undo still dispatches through the native walker").toBe(true);
   });
 
   it("an accepted seed still opens the project", async () => {

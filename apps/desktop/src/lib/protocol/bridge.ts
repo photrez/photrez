@@ -177,6 +177,19 @@ export function createNativeSeed(docId: string, version: number, layers: RenderL
     await nativeProtocol.protocol_seed_native(JSON.stringify({ version, layers }), key);
   })();
   nativeSeedPromiseByDoc.set(key, p);
+  // A REFUSED seed must not stay recorded as this document's seed. The entry is
+  // what every routed command awaits (`awaitNativeSeed`), and a rejected entry is
+  // handed to every later caller - so a document opened while the seed was
+  // refused would reject every routed command for the rest of the session, with
+  // no recovery except closing it. Dropping the entry on rejection returns the
+  // document to the state `awaitNativeSeed` already documents for a doc whose
+  // open path never ran: resolve without seeding, so the command surfaces the
+  // problem instead of inheriting a rejection from the open. Same instrument
+  // closing a document uses, scoped to this document id, and guarded by identity
+  // so an earlier attempt's late rejection cannot evict a later seed's entry.
+  void p.catch(() => {
+    if (nativeSeedPromiseByDoc.get(key) === p) nativeSeedPromiseByDoc.delete(key);
+  });
   return p;
 }
 

@@ -170,6 +170,16 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Release every raster a failed open decoded. No session will own them, so the
+ *  open has to close them itself - the same discipline the decode-failure path
+ *  applies, and required again when a refused facade seed aborts the open after
+ *  the bitmaps are attached to the model. */
+function closeDecoded(bitmaps: readonly (ImageBitmap | null | undefined)[]): void {
+  for (const b of bitmaps) {
+    if (b) b.close();
+  }
+}
+
 interface DecodedSession {
   session: DocumentSession;
   bgLayerId: string;
@@ -260,9 +270,7 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
     });
   } catch (err) {
     decodeFailed = true;
-    for (const b of decoded) {
-      if (b) b.close();
-    }
+    closeDecoded(decoded);
     throw err;
   }
   model.layers.forEach((layer, i) => {
@@ -344,6 +352,11 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
         // it exactly as closing a document drops the ids it seeded.
         clearNativeSeed(model.id);
       }
+      // The engine built above holds these rasters and is discarded with the
+      // abort, so nothing will own them - close them the way the decode-failure
+      // catch does. On a reopen this is a SECOND full raster set: the live
+      // session's own bitmaps are separate objects and stay open.
+      closeDecoded(decoded);
       throw new Error(
         `Project open failed: the canonical document seed was refused (${
           err instanceof Error ? err.message : String(err)
@@ -352,6 +365,15 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
     }
   }
   engine.clearDirty();
+
+  // Retire the session this open supersedes. Both engines answer to the same
+  // document id, so while the old one stays live its facade-ownership writes land
+  // in the LIVE document's ledger: an in-flight funnel still holding it could
+  // project a dropped layer and release the new session's claim over that id.
+  // Placed after the seed succeeded, so the abort above still hands the ids back
+  // to a live engine.
+  const previous = params.workspace.getSession(model.id);
+  previous?.engine.retire();
 
   const session: DocumentSession = {
     engine,
