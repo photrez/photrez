@@ -1,11 +1,13 @@
 import { showOpenImageDialog, readFileBytes, loadProject } from "@/tauri/native";
 import { WorkspaceManager, DocumentSession } from "@/engine/workspace";
-import { DocumentEngine } from "@/engine/document";
+import { DocumentEngine, releaseFacadeOwned } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { DocumentModel, MAX_OPEN_DOCUMENTS } from "@/engine/types";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import type { RenderScheduler } from "@/renderer/scheduler";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
+import { isFacadeEnabled, isNativeAuthority } from "@/lib/protocol/bridge";
+import { getFacade, seedFacadeFromEngine } from "@/lib/protocol/facadeRegistry";
 import { addRecentFile } from "@/lib/recentFiles";
 import { showToast } from "./Toast";
 import { tick } from "@/lib/dom";
@@ -276,7 +278,51 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
   });
 
   const engine = new DocumentEngine(model.id, model.name, model.width, model.height);
+  // Hand the file's layer ids to this engine before restoring into it. The
+  // facade-owned id set is process-global, and a `.ptz` restores the FILE's ids
+  // verbatim (a factory document mints fresh ones per open), so a second open of
+  // the same project - or of any project sharing a layer id - would otherwise
+  // find them still owned by the document this one supersedes, and
+  // `DocumentEngine.restore` would refuse with E_FACADE_OWNED. The workspace
+  // holds one session per document id, so this engine is the one that holds
+  // these ids from here on.
+  releaseFacadeOwned(model.layers.map((l) => l.id));
   engine.restore(model, { restoreViewport: true });
+  // Hand the loaded layers to the Rust facade, so an opened document runs the
+  // same undo/redo path a factory document does.
+  //
+  // Without it, an opened-from-disk document is the one production shape whose
+  // dispatch skips the native walker: `hasFacadeOwnedLayers()` is false, so a
+  // press pops the host stack and the HOST's `stepRustCursor` is the only thing
+  // moving the cursor. That fallback executor cannot be deleted while it is the
+  // sole executor for any real shape.
+  //
+  // Two halves, and why each is where it is:
+  //  - `seedFacadeFromEngine` gives the facade the document's real layers and
+  //    seeds the native engine (`protocol_seed_native`, whose `seed_layers` is
+  //    silent by contract), and binds the engine so a later routed `addLayer`
+  //    re-pushes the canonical shadow. Same call the factory path makes.
+  //  - `engine.adoptFacadeOwnership()` marks the loaded ids owned through the
+  //    seam `applyFacadeSnapshot` reconciles through.
+  //
+  // Deliberately NOT a projection replay: that would normalize the file's absent
+  // lock/background fields to `false` and rewrite a freshly opened document's
+  // saved bytes. See `adoptFacadeOwnership`.
+  //
+  // Gated to the authority the factory path uses, so the `photrez.facade=0` and
+  // `facadeAuthority=wasm` opt-outs keep their current behavior byte for byte.
+  // Runs BEFORE `clearDirty()` so the saved baseline is taken from the final
+  // model. A failed seed leaves the document exactly as it is today (open, with
+  // host-executed history) rather than failing the open: not opening a project at
+  // all is worse than opening it on the slower undo path.
+  if (isFacadeEnabled() && isNativeAuthority()) {
+    try {
+      await seedFacadeFromEngine(engine as never, getFacade(engine.getId()));
+      engine.adoptFacadeOwnership();
+    } catch (err) {
+      console.warn("[open-project] facade seed failed; the document opens host-owned:", err);
+    }
+  }
   engine.clearDirty();
 
   const session: DocumentSession = {

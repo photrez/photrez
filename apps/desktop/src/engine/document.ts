@@ -29,6 +29,23 @@ const facadeOwnedIds = new Set<string>();
 function isFacadeOwned(id: string): boolean { return isFacadeEnabled() && facadeOwnedIds.has(id); }
 export function isFacadeOwnedLayer(id: string): boolean { return isFacadeOwned(id); }
 export function hasFacadeOwnedLayers(): boolean { return isFacadeEnabled() && facadeOwnedIds.size > 0; }function markFacadeOwned(ids: string[]): void { for (const id of ids) facadeOwnedIds.add(id); }
+/**
+ * Release facade ownership for a closed document's layers.
+ *
+ * The owned-id set is process-global (one `Set`, keyed by layer id), so an id
+ * that leaves the workspace keeps claiming ownership forever. That is invisible
+ * for a factory document - its ids are minted fresh per open - but a document
+ * read from a `.ptz` restores the FILE's ids verbatim, so reopening the same
+ * project marks ids that are still owned from the previous open. The next
+ * `restore()` then trips its mixed-history guard (`E_FACADE_OWNED`, document.ts
+ * `restore`) and the open fails outright.
+ *
+ * Called from the document-close path beside `removeFacade` / `clearNativeSeed`,
+ * which release the other two per-document halves of the same state.
+ */
+export function releaseFacadeOwned(ids: readonly string[]): void {
+  for (const id of ids) facadeOwnedIds.delete(id);
+}
 function clearFacadeOwnedForTests(): void { facadeOwnedIds.clear(); }
 if (typeof globalThis !== "undefined") (globalThis as unknown as Record<string, unknown>).__clearFacadeOwnedForTests = clearFacadeOwnedForTests;
 import { performCropCanvas, performApplyCrop } from "./cropApply";
@@ -2358,11 +2375,7 @@ export class DocumentEngine {
     // projection — ids that disappeared from the snapshot (deleted layer,
     // undone add) must NOT keep a dangling facade-ownership marker.
     const nextIds = new Set(nextLayers.map((l) => l.id));
-    if (this.facadeProjectedIds) {
-      for (const prev of this.facadeProjectedIds) {
-        if (!nextIds.has(prev)) facadeOwnedIds.delete(prev);
-      }
-    }
+    this.reconcileFacadeOwnedIds(nextIds);
     markFacadeOwned(nextLayers.map((l) => l.id));
     this.facadeProjectedIds = nextIds;
     // Reconcile per-layer resource maps for layer ids that vanished from the
@@ -2391,6 +2404,51 @@ export class DocumentEngine {
     this.dirtyLayerIds.clear();
     for (const l of nextLayers) this.dirtyLayerIds.add(l.id);
     this.notifyVisualChange();
+  }
+
+  /**
+   * Drop ownership markers for ids this engine last projected that `nextIds`
+   * no longer contains (ADR 0008 DeleteLayer ticket). The one writer of the
+   * owned-id set's removal-by-reconciliation; `adoptFacadeOwnership` and
+   * `applyFacadeSnapshot` both go through it so they cannot drift apart.
+   */
+  private reconcileFacadeOwnedIds(nextIds: Set<string>): void {
+    if (!this.facadeProjectedIds) return;
+    for (const prev of this.facadeProjectedIds) {
+      if (!nextIds.has(prev)) facadeOwnedIds.delete(prev);
+    }
+  }
+
+  /**
+   * Hand this engine's current layers to the Rust facade as its owned set.
+   *
+   * The SAME seam `applyFacadeSnapshot` reconciles through - the same
+   * `markFacadeOwned` writer and the same `facadeProjectedIds` baseline - so an
+   * engine that adopts ownership here and one that gains it from a routed
+   * command are indistinguishable to every reader, and the next projection
+   * reconciles against a correct baseline either way.
+   *
+   * Why this is not a call to `applyFacadeSnapshot`: that method's
+   * existing-layer branch NORMALIZES fields, deliberately. A routed metadata op
+   * must restore an UNSET lock to the default so that undoing a routed lock
+   * change actually reverts, which is why it reads `locked = projected ?? false`
+   * (and the same for `isBackground` and the four lock kinds). A document loaded
+   * from a `.ptz` is the opposite case: a field ABSENT from the file is absent
+   * data, not `false`, and coercing it rewrites the file's own semantics -
+   * measured on the Rust writer's golden fixture, a layer's `lockPosition` and
+   * `lockRotation` came back as `null` and a projection replay wrote `false`.
+   * Replaying a projection purely to grant ownership would therefore mutate a
+   * freshly opened document. This adopts ownership and touches nothing else.
+   *
+   * No history entry, no document-size write, no viewport write, no field write:
+   * none of a projection's transition semantics apply to a document that is
+   * simply already open.
+   */
+  adoptFacadeOwnership(): void {
+    const nextIds = new Set(this.model.layers.map((l) => l.id));
+    this.reconcileFacadeOwnedIds(nextIds);
+    markFacadeOwned(this.model.layers.map((l) => l.id));
+    this.facadeProjectedIds = nextIds;
   }
 
   // ─── Memory Budget ───
