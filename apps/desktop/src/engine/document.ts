@@ -26,10 +26,11 @@ export type FacadeProjectionOptions = { dimsAuthoritative?: boolean };
 // Shared flag reader from the protocol bridge: one source so both call sites stay in step.
 import { isFacadeEnabled } from "@/lib/protocol/bridge";
 // `facadeOwnedIds` is the READ surface: "is this layer id facade-owned anywhere
-// in the process". Every reader (the legacy-mutation guards, the mixed-history
-// restore guard, `syncLayersFromRust`'s dropped-id reconciliation, the undo
-// dispatch gate) answers from it, so none of them has to know which document
-// owns the id.
+// in the process". The legacy-mutation guards, `syncLayersFromRust`'s dropped-id
+// reconciliation and the undo dispatch gate all answer from it, so none of them
+// has to know which document owns the id. The ONE reader that does not is
+// `restore`'s mixed-history guard, which asks the per-document ledger below - see
+// the guard-structure comment on that method for why the two answers differ.
 const facadeOwnedIds = new Set<string>();
 // WHICH document holds each owned id. Layer ids are only unique inside a
 // document: a project read from disk restores the FILE's layer ids verbatim, so
@@ -818,6 +819,14 @@ export class DocumentEngine {
     this.notifyChange();
   }
 
+  // GUARD STRUCTURE: the process-wide union (`facadeOwnedIds`), NOT the
+  // per-document ledger `restore`'s mixed-history guard reads. All twelve legacy
+  // mutator guards below (delete, opacity, visibility, the five lock kinds,
+  // rename, blend mode, transform) read the union, and for a FOREIGN id - one
+  // another open document owns - the union's answer IS the authoritative one:
+  // Rust owns that layer exclusively somewhere, so no host mutation may write
+  // through it, whichever document asked. Reading this document's own claims
+  // here instead would let two open documents mutate one shared layer id.
   deleteLayer(id: LayerId): void {
     const node = this.model.layers.find((l) => l.id === id) as
       | (typeof this.model.layers)[number]
@@ -1913,11 +1922,28 @@ export class DocumentEngine {
 
   restore(snapshot: DocumentModel, options?: { restoreViewport?: boolean }): void {
     if (isFacadeEnabled()) {
-      // Scoped to THIS document's claims. Ownership is recorded per document
-      // (`facadeOwnedByDoc`), so a layer id another open document owns is not
-      // this engine's history to protect - reading the process-wide set here
-      // would block a document's own restore because a different document that
-      // happens to carry the same layer id is open.
+      // GUARD STRUCTURE: the per-document ledger (`facadeOwnedByDoc`), NOT the
+      // process-wide union the legacy mutator guards read (see the block comment
+      // above `deleteLayer`). The two sites answer different questions on
+      // purpose, and the split is measured, not stylistic:
+      //
+      //  - `restore` protects ONE engine's own history, so the question is "does
+      //    THIS document own any of these ids". For a FOREIGN id - one another
+      //    open document owns - the ledger's answer is authoritative: that id is
+      //    not this engine's history, so another document's claim must never be
+      //    able to block this document's open. Layer ids are only unique inside a
+      //    document, and a project read from disk restores the FILE's ids
+      //    verbatim, so two documents opened from one file share every id. Read
+      //    the union here instead and the second open throws E_FACADE_OWNED
+      //    against its own sibling - measured, and the reason this site is
+      //    narrowed: `loadProjectFile` releases only the incoming document's own
+      //    claims before it restores, which cannot help an id a sibling holds.
+      //  - DISCLOSED consequence of that choice: a snapshot carrying a foreign id
+      //    does land in this engine. The layer is then in the model but blocked
+      //    from every legacy mutator (the union says another document owns it),
+      //    so it can only be changed through the facade. That is the divergence
+      //    the split buys, and it is the safe direction: no two hosts may write
+      //    one id, and Rust stays the single writer.
       const owned = facadeOwnedIdsOf(this.getId());
       if (owned && owned.size > 0) {
         const hasFacadeInSnapshot = snapshot.layers.some((l) => owned.has(l.id));

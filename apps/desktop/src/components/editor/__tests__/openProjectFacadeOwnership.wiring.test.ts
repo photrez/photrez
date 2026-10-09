@@ -40,7 +40,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { CommandHistory } from "@/engine/history";
-import { hasFacadeOwnedLayers, isFacadeOwnedLayer } from "@/engine/document";
+import { DocumentEngine, hasFacadeOwnedLayers, isFacadeOwnedLayer, releaseFacadeOwned } from "@/engine/document";
+import { cancelLayerTransformSession } from "../transformSession";
+import type { LayerTransformSession } from "../tools/editorState";
 import { useEditorCommands } from "../useEditorCommands";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "@/components/editor/dialogs/DialogProvider";
@@ -565,6 +567,9 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     await strokeOn(sessionOf(workspace), LAYER_IDS[0]);
     expect(streamFor(DOC).entries, "the stroke is the first entry the stream holds").toHaveLength(1);
 
+    const history = sessionOf(workspace).history as CommandHistory;
+    const popSpy = vi.spyOn(history, "undo");
+
     mockUseEditor(editorContextFor(workspace) as unknown as Record<string, unknown>);
     const commands = useEditorCommands(() => {});
 
@@ -591,6 +596,23 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
       "and no host cursor command was issued either",
     ).toBe(0);
 
+    // WHICH GATE produced that host zero, because the two censuses are not the
+    // same kind of claim. The walker arm is a live guard: the press reached it and
+    // it refused. The host arm never ran at all - `restoreHistorySnapshot` asks
+    // `history.canUndo()` first, and for a stream the engine knows, that answer
+    // comes from the NATIVE cursor, not from the derived stack. So the host twin
+    // is still sitting there, un-popped, and the pop is refused anyway. Pinning
+    // the gate is what makes the host census above mean something: it is a census
+    // of an arm that cannot execute here, and this is the reason why.
+    expect(
+      popSpy,
+      "the derived stack was never popped: the press never reached the host pop",
+    ).not.toHaveBeenCalled();
+    expect(
+      history.canUndo(),
+      "the pop's own gate refuses at the floor, because it reads the native cursor",
+    ).toBe(false);
+
     // Mirror at the top: redo back up, then one step further.
     commands.redo();
     await settlePress();
@@ -602,5 +624,232 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     expect(streamFor(DOC).cursor, "the second redo did not walk past the top").toBe(1);
     expect(nativeWalkerSteps() - walkerStepsAtTop, "the native walker was not driven past the top").toBe(0);
     expect(cursorStepInvokes() - hostStepsAtTop, "and no host cursor command was issued either").toBe(0);
+  });
+});
+
+/**
+ * The two guard structures, pinned as a PAIR.
+ *
+ * `DocumentEngine.restore`'s mixed-history guard reads this document's OWN claims
+ * (`facadeOwnedByDoc`); the twelve legacy mutator guards read the process-wide
+ * union (`facadeOwnedIds`). One layer id therefore gets two different answers,
+ * and the case below fixes WHICH answer each site owes, for a FOREIGN id - one
+ * another open document owns:
+ *
+ *  - `restore` must LAND. It protects one engine's own history, so a sibling's
+ *    claim over a shared id is not this engine's business. Layer ids are only
+ *    unique inside a document and a project read from disk restores the file's
+ *    ids verbatim, so two documents opened from one file share every id; reading
+ *    the union here makes the second open throw E_FACADE_OWNED against its own
+ *    sibling. That is the measured reason for the narrowing, not a preference.
+ *  - the legacy mutators must be REFUSED. Rust owns that layer exclusively
+ *    somewhere, so no host write may go through it, whichever document asked.
+ *
+ * Both halves are load-bearing in opposite directions, and one case carries them
+ * because one case fails if EITHER site switches structure: read the union in
+ * `restore` and the first half throws; read the ledger in a mutator and the
+ * second half stops throwing.
+ *
+ * Real engines, real projection seam, shipping defaults (no `photrez.*` key set).
+ * The divergence the split buys is asserted, not hidden: after the restore, the
+ * borrowed layer IS in this engine's model and IS blocked from the legacy path -
+ * Rust stays the single writer for an id any document holds.
+ */
+describe("the per-document and process-wide guard structures answer differently for a foreign id", () => {
+  /** One layer per id, in the shape `applyFacadeSnapshot` reads. */
+  function projection(ids: string[]) {
+    return {
+      version: 1,
+      layers: ids.map((id, i) => ({
+        id,
+        name: id,
+        visible: true,
+        opacity: 1,
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        resourceId: i + 1,
+      })),
+    };
+  }
+
+  const DOC_OWNER = "guard-structure-owner";
+  const DOC_BORROWER = "guard-structure-borrower";
+  const OWNED_ELSEWHERE = "owned-by-the-other-document";
+
+  beforeEach(() => {
+    localStorage.clear();
+    (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockImplementation((cmd: string, args: unknown) => answerInvoke(cmd, args));
+  });
+
+  afterEach(async () => {
+    await settle();
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("restore lands on a foreign id while every legacy mutator is refused it", () => {
+    // The owning document, marked through the real ownership seam. Only ONE
+    // document holds the id from here on.
+    const owner = new DocumentEngine(DOC_OWNER, "Owner", 32, 32);
+    owner.applyFacadeSnapshot(projection([OWNED_ELSEWHERE]) as never);
+    expect(isFacadeOwnedLayer(OWNED_ELSEWHERE), "premise: the union says the id is owned").toBe(true);
+
+    // The borrowing document, in the shape a project open starts in: a fresh
+    // engine with an empty model and NO claims of its own. This is the production
+    // two-document open - the second document from a file whose ids the first one
+    // already owns - and its ledger and the union disagree about the snapshot.
+    const borrower = new DocumentEngine(DOC_BORROWER, "Borrower", 32, 32);
+
+    // `restore` reads this document's claims only, so the owner's claim over the
+    // borrowed id cannot block this engine's restore. The owner's snapshot is a
+    // real `DocumentModel`; only its document id is rewritten, which is what the
+    // shared-lineage open does.
+    const borrowed = { ...owner.snapshot(), id: DOC_BORROWER };
+    expect(() => borrower.restore(borrowed), "a foreign claim must not block this restore").not.toThrow();
+    expect(
+      borrower.getLayers().map((l) => l.id),
+      "the borrowed id really is in this engine's model now",
+    ).toContain(OWNED_ELSEWHERE);
+
+    // The mutator guards read the union, so the borrowed layer is refused: it is
+    // Rust-owned, and the facade stays its single writer.
+    expect(
+      () => borrower.deleteLayer(OWNED_ELSEWHERE),
+      "the union's answer is authoritative for a foreign id: delete is refused",
+    ).toThrow(/E_FACADE_OWNED/);
+    expect(
+      () => borrower.setLayerOpacity(OWNED_ELSEWHERE, 0.5),
+      "and so is every metadata mutator in the same family",
+    ).toThrow(/E_FACADE_OWNED/);
+  });
+});
+
+/**
+ * A `restore()` that lands outside the facade path leaves the engine's projection
+ * baseline stale, and the next projection reconciles against that stale baseline.
+ *
+ * The question this answers is whether that staleness can RELEASE a claim for a
+ * layer the model still holds. It cannot, and the reason is structural rather
+ * than lucky: `restore` refuses whenever this document claims an id that appears
+ * in the snapshot or in the current model, so a restore that LANDS does so only
+ * while this document claims nothing - and the release set of the next
+ * projection is (stale baseline minus the ids that projection carries), every
+ * one of which has already left this engine's model, because the projection
+ * REPLACES the model with exactly the ids it carries. So the release set and the
+ * model are disjoint by construction.
+ *
+ * `restore` is driven through a real production caller - the transform-session
+ * cancel, `cancelLayerTransformSession` - not called directly. The same engine
+ * call is made by the Escape arm of a legacy selection drag
+ * (`useSelectionTransformDrag`, the `engine.restore(session.originalSnapshot)`
+ * on the non-facade drag branch), so the shape under test is the shape both
+ * callers have.
+ *
+ * The claim this guards is a NEGATIVE ("no live claim is released"), so it is
+ * pinned from both ends: the landed restore must leave the model holding layers
+ * the owned set does not, and the projection after it must leave every layer the
+ * model still holds claimed again. The invariant is unconditional given one
+ * production fact - a projection REPLACES the model with exactly the ids it
+ * carries - so a case that stops asserting the model's contents after the
+ * projection would pass vacuously. That is why the shape is asserted last and
+ * the ownership of the surviving layers first.
+ */
+describe("a restore outside the facade path cannot strand a live claim through the stale projection baseline", () => {
+  const DOC_ID = "stale-baseline-document";
+  const KEPT = "kept-through-the-projection";
+  const GONE = "deleted-on-the-rust-side";
+
+  function projection(ids: string[]) {
+    return {
+      version: 1,
+      layers: ids.map((id, i) => ({
+        id,
+        name: id,
+        visible: true,
+        opacity: 1,
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        resourceId: i + 1,
+      })),
+    };
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockImplementation((cmd: string, args: unknown) => answerInvoke(cmd, args));
+  });
+
+  afterEach(async () => {
+    await settle();
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("releases nothing the model still holds, through the real transform-session cancel", () => {
+    const engine = new DocumentEngine(DOC_ID, "Stale", 32, 32);
+    engine.applyFacadeSnapshot(projection([KEPT, GONE]) as never);
+    expect(
+      isFacadeOwnedLayer(GONE),
+      "premise: the projection claimed both ids and set the baseline",
+    ).toBe(true);
+
+    // A real session snapshot, taken the way a transform session takes one.
+    const full = engine.snapshot();
+
+    // The production open-site release: `loadProjectFile` gives up this document's
+    // claims over the file's ids before it restores them. It does NOT touch the
+    // engine's projection baseline, which is what makes the baseline stale below.
+    releaseFacadeOwned(DOC_ID, [KEPT, GONE]);
+    expect(hasFacadeOwnedLayers(), "premise: the claims are gone, the baseline is not").toBe(false);
+
+    // Drive the real caller. Its snapshot is the session's own real
+    // `DocumentModel`, so the model's layers are untouched by the restore - which
+    // is the point: the stale baseline, not the model, is what drifted.
+    const session: LayerTransformSession = {
+      documentId: DOC_ID,
+      layerId: KEPT,
+      originalSnapshot: full,
+      originalTransform: engine.getLayer(KEPT)!.transform,
+      mode: "resize",
+      lockRatio: false,
+      startedAt: 0,
+    };
+    expect(
+      () => cancelLayerTransformSession(session, engine as never),
+      "the cancel's restore lands: nothing this document claims is in the way",
+    ).not.toThrow();
+    expect(engine.getLayers().map((l) => l.id), "the model still holds both layers").toEqual([KEPT, GONE]);
+    expect(
+      isFacadeOwnedLayer(KEPT),
+      "the model now holds layers the owned set does not - this is the stale state",
+    ).toBe(false);
+
+    // The next projection carries only KEPT: GONE was deleted on the Rust side. Its
+    // release set is the stale baseline minus what it carries, so GONE is released -
+    // and it has left the model in the same step, because the projection REPLACES
+    // the model with exactly the ids it carries. That replacement is what keeps the
+    // release set and the model disjoint, and it is the load-bearing fact here.
+    engine.applyFacadeSnapshot(projection([KEPT]) as never);
+    for (const id of engine.getLayers().map((l) => l.id)) {
+      expect(isFacadeOwnedLayer(id), `layer ${id} the model still holds is claimed again`).toBe(true);
+    }
+    expect(
+      engine.getLayers().map((l) => l.id),
+      "the projection's ids are the model's ids",
+    ).toEqual([KEPT]);
+    expect(
+      isFacadeOwnedLayer(GONE),
+      "the released id is one the model no longer holds, so it stays released",
+    ).toBe(false);
   });
 });
