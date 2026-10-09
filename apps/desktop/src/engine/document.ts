@@ -25,28 +25,82 @@ export type FacadeProjectionOptions = { dimsAuthoritative?: boolean };
 // Gate A: facade isolation — unless photrez.facade=0, Rust is sole owner for facade layers.
 // Shared flag reader from the protocol bridge: one source so both call sites stay in step.
 import { isFacadeEnabled } from "@/lib/protocol/bridge";
+// `facadeOwnedIds` is the READ surface: "is this layer id facade-owned anywhere
+// in the process". Every reader (the legacy-mutation guards, the mixed-history
+// restore guard, `syncLayersFromRust`'s dropped-id reconciliation, the undo
+// dispatch gate) answers from it, so none of them has to know which document
+// owns the id.
 const facadeOwnedIds = new Set<string>();
+// WHICH document holds each owned id. Layer ids are only unique inside a
+// document: a project read from disk restores the FILE's layer ids verbatim, so
+// two documents opened from the same project - or from any two files that share
+// a layer id - claim the same strings. Without this ledger a document closing
+// deleted its ids from the read surface and every OTHER open document lost
+// ownership of its layers: its undo fell off the native walker onto the host
+// stack, the only executor left for it.
+const facadeOwnedByDoc = new Map<DocumentId, Set<string>>();
+
 function isFacadeOwned(id: string): boolean { return isFacadeEnabled() && facadeOwnedIds.has(id); }
 export function isFacadeOwnedLayer(id: string): boolean { return isFacadeOwned(id); }
-export function hasFacadeOwnedLayers(): boolean { return isFacadeEnabled() && facadeOwnedIds.size > 0; }function markFacadeOwned(ids: string[]): void { for (const id of ids) facadeOwnedIds.add(id); }
-/**
- * Release facade ownership for a closed document's layers.
- *
- * The owned-id set is process-global (one `Set`, keyed by layer id), so an id
- * that leaves the workspace keeps claiming ownership forever. That is invisible
- * for a factory document - its ids are minted fresh per open - but a document
- * read from a `.ptz` restores the FILE's ids verbatim, so reopening the same
- * project marks ids that are still owned from the previous open. The next
- * `restore()` then trips its mixed-history guard (`E_FACADE_OWNED`, document.ts
- * `restore`) and the open fails outright.
- *
- * Called from the document-close path beside `removeFacade` / `clearNativeSeed`,
- * which release the other two per-document halves of the same state.
- */
-export function releaseFacadeOwned(ids: readonly string[]): void {
-  for (const id of ids) facadeOwnedIds.delete(id);
+export function hasFacadeOwnedLayers(): boolean { return isFacadeEnabled() && facadeOwnedIds.size > 0; }
+
+function markFacadeOwned(docId: DocumentId, ids: string[]): void {
+  let owned = facadeOwnedByDoc.get(docId);
+  if (!owned) {
+    owned = new Set<string>();
+    facadeOwnedByDoc.set(docId, owned);
+  }
+  for (const id of ids) {
+    owned.add(id);
+    facadeOwnedIds.add(id);
+  }
 }
-function clearFacadeOwnedForTests(): void { facadeOwnedIds.clear(); }
+
+/**
+ * Give up one document's claim on one layer id.
+ *
+ * The id leaves the read surface only when no other document still claims it -
+ * that is the whole point of the ledger. Two open documents from one project
+ * share every layer id, so an unconditional delete here made closing either of
+ * them disarm the other's history dispatch.
+ */
+function releaseFacadeOwnedId(docId: DocumentId, id: string): void {
+  const owned = facadeOwnedByDoc.get(docId);
+  if (!owned?.delete(id)) return;
+  for (const [otherDocId, otherOwned] of facadeOwnedByDoc) {
+    if (otherDocId !== docId && otherOwned.has(id)) return;
+  }
+  facadeOwnedIds.delete(id);
+  if (owned.size === 0) facadeOwnedByDoc.delete(docId);
+}
+
+/**
+ * Release facade ownership for the ids one document no longer holds.
+ *
+ * Two call sites, both "this engine now holds these ids instead of whatever held
+ * them":
+ *  - the document-close path, beside `removeFacade` / `clearNativeSeed`, which
+ *    release the other two per-document halves of the same state;
+ *  - the open-from-disk path, before `restore` puts the file's layers into a new
+ *    engine. A project reopened while its previous session is still open carries
+ *    the SAME document id and the same layer ids, and `restore`'s mixed-history
+ *    guard (`E_FACADE_OWNED`) reads this document's own claims - so without the
+ *    release the reopen throws. Claims held by a DIFFERENT document are left
+ *    alone: that document is still open and still owns them.
+ */
+export function releaseFacadeOwned(docId: DocumentId, ids: readonly string[]): void {
+  for (const id of ids) releaseFacadeOwnedId(docId, id);
+}
+
+/** The ids this document currently claims. Read by `restore`'s mixed-history guard. */
+function facadeOwnedIdsOf(docId: DocumentId): ReadonlySet<string> | undefined {
+  return facadeOwnedByDoc.get(docId);
+}
+
+function clearFacadeOwnedForTests(): void {
+  facadeOwnedIds.clear();
+  facadeOwnedByDoc.clear();
+}
 if (typeof globalThis !== "undefined") (globalThis as unknown as Record<string, unknown>).__clearFacadeOwnedForTests = clearFacadeOwnedForTests;
 import { performCropCanvas, performApplyCrop } from "./cropApply";
 import { syncRewrittenRastersToStores, syncLayerStoreToLayerRaster } from "@/lib/paint/storeCurrency";
@@ -1858,10 +1912,18 @@ export class DocumentEngine {
   }
 
   restore(snapshot: DocumentModel, options?: { restoreViewport?: boolean }): void {
-    if (isFacadeEnabled() && facadeOwnedIds.size > 0) {
-      const hasFacadeInSnapshot = snapshot.layers.some((l) => facadeOwnedIds.has(l.id));
-      const hasFacadeInCurrent = this.model.layers.some((l) => facadeOwnedIds.has(l.id));
-      if (hasFacadeInSnapshot || hasFacadeInCurrent) throw new Error(`E_FACADE_OWNED: legacy restore blocked while facade owns layers`);
+    if (isFacadeEnabled()) {
+      // Scoped to THIS document's claims. Ownership is recorded per document
+      // (`facadeOwnedByDoc`), so a layer id another open document owns is not
+      // this engine's history to protect - reading the process-wide set here
+      // would block a document's own restore because a different document that
+      // happens to carry the same layer id is open.
+      const owned = facadeOwnedIdsOf(this.getId());
+      if (owned && owned.size > 0) {
+        const hasFacadeInSnapshot = snapshot.layers.some((l) => owned.has(l.id));
+        const hasFacadeInCurrent = this.model.layers.some((l) => owned.has(l.id));
+        if (hasFacadeInSnapshot || hasFacadeInCurrent) throw new Error(`E_FACADE_OWNED: legacy restore blocked while facade owns layers`);
+      }
     }
     const currentViewport = { ...this.model.viewport };
 
@@ -2376,7 +2438,7 @@ export class DocumentEngine {
     // undone add) must NOT keep a dangling facade-ownership marker.
     const nextIds = new Set(nextLayers.map((l) => l.id));
     this.reconcileFacadeOwnedIds(nextIds);
-    markFacadeOwned(nextLayers.map((l) => l.id));
+    markFacadeOwned(this.getId(), nextLayers.map((l) => l.id));
     this.facadeProjectedIds = nextIds;
     // Reconcile per-layer resource maps for layer ids that vanished from the
     // projection (facade delete / undone add) — mirror legacy deleteLayer cleanup
@@ -2415,7 +2477,7 @@ export class DocumentEngine {
   private reconcileFacadeOwnedIds(nextIds: Set<string>): void {
     if (!this.facadeProjectedIds) return;
     for (const prev of this.facadeProjectedIds) {
-      if (!nextIds.has(prev)) facadeOwnedIds.delete(prev);
+      if (!nextIds.has(prev)) releaseFacadeOwnedId(this.getId(), prev);
     }
   }
 
@@ -2447,7 +2509,7 @@ export class DocumentEngine {
   adoptFacadeOwnership(): void {
     const nextIds = new Set(this.model.layers.map((l) => l.id));
     this.reconcileFacadeOwnedIds(nextIds);
-    markFacadeOwned(this.model.layers.map((l) => l.id));
+    markFacadeOwned(this.getId(), this.model.layers.map((l) => l.id));
     this.facadeProjectedIds = nextIds;
   }
 

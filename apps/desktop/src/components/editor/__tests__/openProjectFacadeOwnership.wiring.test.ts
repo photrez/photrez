@@ -6,9 +6,9 @@
 // document runs the native walker (`runFacadeExternalHandoff` -> `facade.undo()`),
 // an unowned one pops the host stack and the host's own `stepRustCursor` issues
 // `rust_pixels_undo`. A document FIRST opened from a `.ptz` was never facade-owned
-// on the shipping profile, so it was the one production shape whose cursor had no
-// native executor - and the endgame gate (delete the host step + the host pop)
-// cannot land while that is true.
+// on the shipping profile, so for that shape the host's own cursor step was the
+// only thing that moved the cursor - and neither that host step nor the host stack
+// pop it serves can be deleted while any real document still depends on them.
 //
 // THE PATH UNDER TEST IS THE REAL ONE. `loadProjectFile` runs: the Rust reader
 // (`loadProject`), bounded parallel PNG decode, `engine.restore`, the workspace
@@ -38,6 +38,7 @@ import { useEditorCommands } from "../useEditorCommands";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "@/components/editor/dialogs/DialogProvider";
 import { WorkspaceManager } from "@/engine/workspace";
+import { nativeProtocol } from "@/lib/protocol/nativeClient";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { answerInvoke, resetStreams, streamFor, tipFor } from "@/engine/__tests__/rustStreamEmulator";
@@ -58,7 +59,11 @@ const GOLDEN_INPUT = JSON.parse(golden[GOLDEN_CASE].input) as {
   layers: Array<{ id: string; width: number; height: number }>;
 };
 const DOC = GOLDEN_INPUT.id;
-const DOC_NAME = `${GOLDEN_CASE}.ptz`;
+// Two more documents opened from the SAME project bytes. Their layer ids are the
+// file's own, so all three documents carry identical layer ids and differ only in
+// the document id - which is what makes facade ownership a per-document question.
+const DOC_A = `${DOC}-lineage-a`;
+const DOC_B = `${DOC}-lineage-b`;
 const LAYER_IDS = GOLDEN_INPUT.layers.map((l) => l.id);
 
 // One distinct fill per layer id, so a crossed or blanked bitmap is detectable.
@@ -217,21 +222,39 @@ function engineOf(workspace: WorkspaceManager) {
   return engine;
 }
 
-function sessionOf(workspace: WorkspaceManager): DocumentSession {
+function sessionOf(workspace: WorkspaceManager, docId: string = DOC): DocumentSession {
   const sessions = (workspace as unknown as { sessions: Map<string, DocumentSession> }).sessions;
-  const s = sessions.get(DOC);
-  if (!s) throw new Error(`no session for ${DOC}`);
+  const s = sessions.get(docId);
+  if (!s) throw new Error(`no session for ${docId}`);
   return s;
 }
 
-async function openProject(workspace: WorkspaceManager): Promise<void> {
+/**
+ * The project file's own bytes with ONE field rewritten: the document id.
+ *
+ * A project read from disk restores the FILE's layer ids verbatim, so two
+ * documents opened from this file carry the same layer ids by construction -
+ * that is the shape the ownership cases below need, and it is the shape that
+ * makes ownership a per-document question rather than a per-layer-id one.
+ */
+function projectBytesFor(docId: string): string {
+  const model = JSON.parse(golden[GOLDEN_CASE].input) as Record<string, unknown>;
+  model.id = docId;
+  return JSON.stringify(model);
+}
+
+async function openProjectAs(workspace: WorkspaceManager, docId: string): Promise<void> {
   hoisted.mockLoadProject.mockResolvedValue({
-    document_json: golden[GOLDEN_CASE].input,
+    document_json: projectBytesFor(docId),
     layers: ptzFixture(),
   });
   const { loadProjectFile } = await import("../editorOpenImage");
-  await loadProjectFile(`/projects/${DOC_NAME}`, makeParams(workspace), DOC_NAME);
+  await loadProjectFile(`/projects/${docId}.ptz`, makeParams(workspace), `${docId}.ptz`);
   await settle();
+}
+
+function openProject(workspace: WorkspaceManager): Promise<void> {
+  return openProjectAs(workspace, DOC);
 }
 
 /** A brush stroke committed the way `useBrushOverlay` commits one. */
@@ -264,7 +287,9 @@ function editorContextFor(workspace: WorkspaceManager) {
     },
     renderer: { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() },
     scheduler: { requestRender: vi.fn() },
-    activeDocumentId: () => DOC,
+    // Follows the workspace's focused document, the way the real context does,
+    // so a case that switches documents drives the press on the one it focused.
+    activeDocumentId: () => workspace.getActiveDocumentId() ?? "",
     layerTransformSession: () => null,
     setLayerTransformSession: vi.fn(),
     activeTool: () => "brush",
@@ -292,9 +317,32 @@ async function settlePress(): Promise<void> {
   await settle();
 }
 
+/**
+ * How many times the NATIVE walker was asked to undo or redo.
+ *
+ * The host-side census (`cursorStepInvokes`) cannot tell "the floor refused"
+ * from "the floor refused and then something else popped": a press that reaches
+ * neither the walker nor the host pop is still a correct outcome. This counts the
+ * walker's own `undo`/`redo` commands, so a case can assert the walker was not
+ * driven at all - which is what "the refusal happened before any executor" means.
+ */
+function nativeWalkerSteps(): number {
+  return vi
+    .mocked(nativeProtocol.protocol_apply_command_native)
+    .mock.calls.filter((c) => {
+      const envelope = JSON.parse(c[0] as string) as { command?: { type?: string } };
+      return envelope.command?.type === "undo" || envelope.command?.type === "redo";
+    }).length;
+}
+
 describe("a document opened from a .ptz is facade-owned like a factory document", () => {
   beforeEach(() => {
     localStorage.clear();
+    // Ownership is process-global module state (`@/engine/document`), so a case
+    // that inherits it inherits the code under test to clear it. Reset it here so
+    // every case below proves its OWN open; without this the multi-document cases
+    // would pass on markers an earlier case left behind.
+    (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
     // SHIPPING DEFAULTS: the app sets no `photrez.*` key, so facade + native
     // authority are both ON. Stated so a case cannot drift onto an opt-out.
     vi.mocked(isTauriRuntime).mockReturnValue(true);
@@ -405,17 +453,147 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     expect(normalizeDirty(written)).toBe(normalizeDirty(expected));
   });
 
-  it("reopening the same file in a fresh workspace is not blocked by stale ownership", async () => {
-    const first = new WorkspaceManager();
-    await openProject(first);
+  it("opening the SAME file twice without closing the first is not blocked by the superseded session's claims", async () => {
+    const workspace = new WorkspaceManager();
+    await openProject(workspace);
+    expect(hasFacadeOwnedLayers(), "the first open claims the file's layer ids").toBe(true);
 
-    // A second open of the same document id, after the first one was closed. The
-    // owned-id set is module state, so this is where a stale marker would make
-    // `engine.restore` refuse with E_FACADE_OWNED and the open throw.
-    first.removeDocument(DOC);
+    // The workspace holds one session per document id, so this second open
+    // SUPERSEDES the first session - same document id, same layer ids - and its
+    // `engine.restore` reads that document's own claims. Without the open-path
+    // release the superseded session's claims are still there and the open throws
+    // E_FACADE_OWNED against itself. Nothing is closed in between, so the
+    // document-close path cannot be what unblocks this one.
+    await expect(openProject(workspace)).resolves.not.toThrow();
+    expect(hasFacadeOwnedLayers(), "the reopened document owns its layers again").toBe(true);
+  });
 
-    const second = new WorkspaceManager();
-    await expect(openProject(second)).resolves.not.toThrow();
-    expect(hasFacadeOwnedLayers()).toBe(true);
+  it("closing the last facade-owning document releases every claim it held", async () => {
+    const workspace = new WorkspaceManager();
+    await openProject(workspace);
+    expect(hasFacadeOwnedLayers(), "premise: the open claimed the file's layer ids").toBe(true);
+
+    // This is the document-CLOSE path's own work, and nothing here re-opens a
+    // project afterwards, so no open-path release can stand in for it. `restore`
+    // reads the closed document's claims, so a claim left behind would block the
+    // next open of the same file outright - and while it survives it also keeps
+    // the undo dispatch gate (`useEditorCommands.restoreHistorySnapshot`) pointed
+    // at the native walker for a document nobody has open.
+    workspace.removeDocument(DOC);
+
+    expect(hasFacadeOwnedLayers(), "no open document owns any layer any more").toBe(false);
+    for (const id of LAYER_IDS) {
+      expect(isFacadeOwnedLayer(id), `layer ${id} lost its claim with its document`).toBe(false);
+    }
+
+    const reopened = new WorkspaceManager();
+    await expect(openProject(reopened)).resolves.not.toThrow();
+    expect(hasFacadeOwnedLayers(), "the reopened document adopts ownership again").toBe(true);
+  });
+
+  it("closing one of two documents opened from the same file leaves the other's undo on the native walker", async () => {
+    const workspace = new WorkspaceManager();
+    expect(hasFacadeOwnedLayers(), "premise: nothing is owned before the opens").toBe(false);
+
+    // The real defect shape: two documents from ONE project, live at the same
+    // time. A project read from disk restores the FILE's layer ids verbatim, so
+    // both documents carry the same layer ids and ownership cannot be tracked by
+    // layer id alone.
+    await openProjectAs(workspace, DOC_A);
+    await openProjectAs(workspace, DOC_B);
+    for (const id of LAYER_IDS) {
+      expect(isFacadeOwnedLayer(id), `layer ${id} is owned while both documents are open`).toBe(true);
+    }
+
+    mockUseEditor(editorContextFor(workspace) as unknown as Record<string, unknown>);
+    const commands = useEditorCommands(() => {});
+
+    // While BOTH are open, each document's press runs the native walker.
+    for (const docId of [DOC_A, DOC_B]) {
+      workspace.switchDocument(docId);
+      await strokeOn(sessionOf(workspace, docId), LAYER_IDS[0]);
+      const hostStepsBefore = cursorStepInvokes();
+      commands.undo();
+      await settlePress();
+      expect(
+        cursorStepInvokes() - hostStepsBefore,
+        `${docId}: the host issued no cursor command; the native walker is the only mover`,
+      ).toBe(0);
+      expect(streamFor(docId).cursor, `${docId}: the native walker moved its cursor one step`).toBe(0);
+    }
+
+    workspace.removeDocument(DOC_B);
+
+    for (const id of LAYER_IDS) {
+      expect(
+        isFacadeOwnedLayer(id),
+        `closing ${DOC_B} must not strip ${DOC_A} of layer ${id} - it is still open`,
+      ).toBe(true);
+    }
+    expect(hasFacadeOwnedLayers(), `${DOC_A} still dispatches through the native walker`).toBe(true);
+
+    // And the survivor's press is still the native walker's, not the host's.
+    workspace.switchDocument(DOC_A);
+    await strokeOn(sessionOf(workspace, DOC_A), LAYER_IDS[0]);
+    expect(streamFor(DOC_A).cursor, "the second stroke recorded its own entry").toBe(1);
+    const hostStepsAfterClose = cursorStepInvokes();
+    commands.undo();
+    await settlePress();
+    expect(
+      cursorStepInvokes() - hostStepsAfterClose,
+      `${DOC_A}: after its sibling closed, the host still issues no cursor command`,
+    ).toBe(0);
+    expect(streamFor(DOC_A).cursor, `${DOC_A}: the native walker moved its cursor one step`).toBe(0);
+    expect(tipFor(DOC_A).redo_tip_kind, "it advanced over the stroke's own Pixel entry").toBe("pixel");
+  });
+
+  it("undoing past the open state of a document read from disk drives the cursor nowhere", async () => {
+    // The opened-document shape has NO open-baseline entry: seeding a loaded
+    // document is initialization, not a user edit, so `deriveOpenBaselineFloor`
+    // reads 0 here where a factory document reads 1. That makes "the floor" mean
+    // "cursor 0" and the case below is the only evidence that the floor refuses
+    // at 0 for THIS shape - the factory-document floor case cannot speak for it.
+    const workspace = new WorkspaceManager();
+    await openProject(workspace);
+    await strokeOn(sessionOf(workspace), LAYER_IDS[0]);
+    expect(streamFor(DOC).entries, "the stroke is the first entry the stream holds").toHaveLength(1);
+
+    mockUseEditor(editorContextFor(workspace) as unknown as Record<string, unknown>);
+    const commands = useEditorCommands(() => {});
+
+    commands.undo();
+    await settlePress();
+    expect(streamFor(DOC).cursor, "one undo brings the cursor to the floor").toBe(0);
+
+    // One step FURTHER. The native cursor must not move: there is nothing behind
+    // the open state to undo, and a cursor that walks below the floor is a step
+    // the user can never get back. Asserting the cursor alone would prove
+    // nothing - the emulator cannot step below zero - so this pins that NEITHER
+    // executor ran: the walker was never driven, and the host issued nothing.
+    const hostStepsAtFloor = cursorStepInvokes();
+    const walkerStepsAtFloor = nativeWalkerSteps();
+    commands.undo();
+    await settlePress();
+    expect(streamFor(DOC).cursor, "the second undo did not walk the cursor below the floor").toBe(0);
+    expect(
+      nativeWalkerSteps() - walkerStepsAtFloor,
+      "the native walker was not driven past the floor",
+    ).toBe(0);
+    expect(
+      cursorStepInvokes() - hostStepsAtFloor,
+      "and no host cursor command was issued either",
+    ).toBe(0);
+
+    // Mirror at the top: redo back up, then one step further.
+    commands.redo();
+    await settlePress();
+    expect(streamFor(DOC).cursor, "one redo returns to the top of the stream").toBe(1);
+    const hostStepsAtTop = cursorStepInvokes();
+    const walkerStepsAtTop = nativeWalkerSteps();
+    commands.redo();
+    await settlePress();
+    expect(streamFor(DOC).cursor, "the second redo did not walk past the top").toBe(1);
+    expect(nativeWalkerSteps() - walkerStepsAtTop, "the native walker was not driven past the top").toBe(0);
+    expect(cursorStepInvokes() - hostStepsAtTop, "and no host cursor command was issued either").toBe(0);
   });
 });

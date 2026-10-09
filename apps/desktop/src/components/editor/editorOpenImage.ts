@@ -278,15 +278,14 @@ export async function loadProjectFile(path: string, params: OpenImageParams, fil
   });
 
   const engine = new DocumentEngine(model.id, model.name, model.width, model.height);
-  // Hand the file's layer ids to this engine before restoring into it. The
-  // facade-owned id set is process-global, and a `.ptz` restores the FILE's ids
-  // verbatim (a factory document mints fresh ones per open), so a second open of
-  // the same project - or of any project sharing a layer id - would otherwise
-  // find them still owned by the document this one supersedes, and
-  // `DocumentEngine.restore` would refuse with E_FACADE_OWNED. The workspace
-  // holds one session per document id, so this engine is the one that holds
-  // these ids from here on.
-  releaseFacadeOwned(model.layers.map((l) => l.id));
+  // Give up any facade-ownership claim THIS DOCUMENT already holds over the
+  // file's layer ids, before restoring them into a fresh engine. A project
+  // reopened while its previous session is still open carries the same document
+  // id and the same layer ids, and `DocumentEngine.restore` reads this document's
+  // own claims - so the superseded session's claims must go first, or the open
+  // throws E_FACADE_OWNED against itself. Claims held by a DIFFERENT document are
+  // untouched: that document is open and still owns those ids.
+  releaseFacadeOwned(model.id, model.layers.map((l) => l.id));
   engine.restore(model, { restoreViewport: true });
   // Hand the loaded layers to the Rust facade, so an opened document runs the
   // same undo/redo path a factory document does.

@@ -130,11 +130,11 @@ export class WorkspaceManager {
       const index = Array.from(this.sessions.keys()).indexOf(id);
       this.sessions.delete(id);
       this.notifyRustPixelDoc("rust_pixels_close_document", id);
-      // Release this document's facade-ownership markers. The owned-id set is
-      // process-global, so a layer id outlives its document unless it is
-      // released here; a reopened `.ptz` restores the FILE's ids and would then
-      // trip `DocumentEngine.restore`'s E_FACADE_OWNED guard on its own open.
-      releaseFacadeOwned(session.engine.getLayers().map((l) => l.id));
+      // Release this document's facade-ownership claims. Ownership is recorded
+      // per document, so this drops only the closing document's claims - a
+      // sibling document opened from the same project carries the same layer ids
+      // and keeps its ownership (and its native undo walker) across this close.
+      releaseFacadeOwned(id, session.engine.getLayers().map((l) => l.id));
       // Drop the doc's token registry (does NOT close bitmaps — close ownership
       // stays with the history disposeSnapshot path / GC; see bitmapStore).
       releaseBitmapStore(id);
