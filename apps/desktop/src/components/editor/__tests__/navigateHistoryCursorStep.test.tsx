@@ -1,32 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * A History-panel jump must NOT step the Rust cursor.
+ * A History-panel jump must drive the NATIVE history stepper.
  *
- * `navigateHistory` (EditorContext) is the second pop site in the app: it loops
- * `history.undo()` / `history.redo()` up to `steps` times and then restores with
- * `engine.restore` + `uploadImage` - it never takes pixels from Rust, and it never
- * touches the tile path. Since the Rust cursor step belongs to the POP
- * (`CommandHistory.stepRustCursor`), a pop site that restores through the model
- * has to say so explicitly, or every pop moves a cursor whose pixel bytes never
- * moved.
- *
- * This matters in the SHIPPING default, with no bridge and no
- * `photrez.rustPixels`: `rustOwned` is the default for every brush stroke,
- * because `rust_pixels_write_region` is ungated, so the pop-side predicate
- * reduces to `rustOwned`. A 20-step jump in that state would fire 20 serialised
- * `rust_pixels_undo` round-trips in one click where the old code fired none.
- *
- * The provider is mounted for real (not a double), because the thing under test
- * IS the provider's pop loop.
+ * The native walker restores this stream - one cursor step per model step,
+ * each step's {delta, pixelPatches?, externalToken?} projected onto the
+ * engine - and the host stack is re-synced from
+ * protocol_history_query_native. The previous behaviour restored via
+ * engine.restore from the TS stack and never moved the Rust cursor: the model
+ * landed on an entry whose pixels (and cursor) Rust never reached. This test
+ * pins the current behaviour; the earlier behaviour is the divergence that
+ * failed against this same stream.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
-import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { WorkspaceManager } from "@/engine/workspace";
 import { EditorProvider, useEditor } from "../shell/EditorContext";
-import type { DocumentModel } from "@/engine/types";
+import * as bridge from "@/lib/protocol/bridge";
+import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -36,40 +28,11 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve(
 
 const DOC = "doc-nav";
 
-const model = (name: string): DocumentModel => ({
-  id: DOC,
-  name,
-  width: 8,
-  height: 8,
-  layers: [],
-  activeLayerId: null,
-  selection: null,
-  viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
-  dirty: false,
-});
-
-/**
- * A Rust-owned tile memento: `rustOwned` is what a brush stroke's twin carries,
- * and it is the ONLY arm that arms a step when the bridge is off.
- */
-const brushPatches = () => ({
-  layerId: "l1",
-  surfaceWidth: 8,
-  surfaceHeight: 8,
-  before: [{ x: 0, y: 0, width: 1, height: 1, data: new Uint8ClampedArray([0, 0, 0, 255]) }],
-  after: [{ x: 0, y: 0, width: 1, height: 1, data: new Uint8ClampedArray([9, 9, 9, 255]) }],
-  rustOwned: true,
-});
-
-const timesInvoked = (command: string): number =>
-  vi.mocked(invoke).mock.calls.filter((c) => c[0] === command).length;
-
 const settle = async () => {
   await new Promise<void>((r) => setTimeout(r, 0));
-  await flushPixelInvokeCensus();
 };
 
-describe("navigateHistory: a model-restore pop takes no Rust cursor step", () => {
+describe("navigateHistory: a panel jump moves the native cursor and projects each step", () => {
   let ws: WorkspaceManager;
   let renderer: Record<string, unknown>;
   let scheduler: Record<string, unknown>;
@@ -83,20 +46,16 @@ describe("navigateHistory: a model-restore pop takes no Rust cursor step", () =>
   };
 
   beforeEach(async () => {
-    // Shipping default: no bridge gate, no photrez.rustPixels, no Tauri runtime.
     localStorage.clear();
+    localStorage.setItem("photrez.facade", "0");
+    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    facadeRegistry.__resetFacadeRegistryForTests();
+    bridge.__resetEmulatedForTests();
     vi.mocked(invoke).mockReset();
-    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
-      if (cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo") {
-        return { layer_id: "l1", tiles: [], epoch: 1, version: 1 };
-      }
-      // Post-image only: the real reply carries no pre-image.
-      if (cmd === "rust_pixels_write_region") return { after: [], epoch: 1, version: 1 };
-      return undefined;
-    });
+    vi.mocked(invoke).mockImplementation(async () => undefined);
 
     ws = new WorkspaceManager();
-    renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
+    renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn(), uploadSurfaceTiles: vi.fn() };
     scheduler = { requestRender: vi.fn() };
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -122,55 +81,36 @@ describe("navigateHistory: a model-restore pop takes no Rust cursor step", () =>
     localStorage.clear();
   });
 
-  it("a 3-step jump pops three entries and fires ZERO cursor steps", async () => {
+  it("a 3-step jump lands the native cursor on the target entry and projects each step's delta", async () => {
     const session = ws.getActiveSession()!;
     const history = session.history;
-    // Three Rust-owned paint entries: the shape that arms a step with the bridge
-    // off, so this is the state where an unguarded pop would move the cursor.
-    for (let i = 0; i < 3; i++) history.commit(session.engine.snapshot(), "Brush", brushPatches(), true);
-    expect(history.getUndoCount()).toBe(3);
-    const restore = vi.spyOn(session.engine, "restore");
-    const cursorStepInvokes = () => timesInvoked("rust_pixels_undo") + timesInvoked("rust_pixels_redo");
+    const facade = facadeRegistry.getFacade(DOC);
+    await facade.addLayer("A");
+    await facade.addLayer("B");
+    await facade.addLayer("C");
+    const before = await bridge.getHistoryQuery(DOC);
+    expect(before.entries.length).toBe(3);
+    expect(before.cursor).toBe(3);
+    const applySpy = vi.spyOn(session.engine, "applyFacadeSnapshot");
 
-    // Jump to the very first state: three pops in one click.
     editorRef.current!.navigateHistory(0);
     await settle();
+    await settle();
 
-    expect(history.getUndoCount(), "three entries popped").toBe(0);
-    expect(history.getRedoCount()).toBe(3);
-    expect(restore, "it restored through the model").toHaveBeenCalled();
-    expect(cursorStepInvokes(), "a model-restore pop must not step the Rust cursor").toBe(0);
+    const after = await bridge.getHistoryQuery(DOC);
+    expect(after.cursor, "the native cursor landed on the jump target").toBe(0);
+    expect(applySpy, "each of the three steps projected its delta").toHaveBeenCalledTimes(3);
+    // Host stack re-synced from the query (not from its own pops):
+    expect(history.canUndo(), "cursor at 0 -> nothing undoable").toBe(false);
+    expect(history.canRedo()).toBe(true);
 
-    // And back up again: the redo direction must be equally quiet.
+    // And back up again: the redo direction must move the cursor too.
     editorRef.current!.navigateHistory(3);
     await settle();
-    expect(history.getUndoCount()).toBe(3);
-    expect(cursorStepInvokes(), "the redo jump stepped nothing either").toBe(0);
-  });
-
-  it("DEFEAT: an unguarded pop DOES fire a step here, so the zero above is real", async () => {
-    // Falsifiability. This case runs the same jump against a history whose pops
-    // step by default - i.e. with the opt-out removed - and requires the invokes
-    // to appear. Without it, the zero in the case above could only mean "this
-    // harness never produces a step", which would make it vacuous.
-    const session = ws.getActiveSession()!;
-    const history = session.history;
-    for (let i = 0; i < 3; i++) history.commit(session.engine.snapshot(), "Brush", brushPatches(), true);
-
-    // Call the pop the way an unguarded pop site would: no stepCursor argument.
-    const engine = session.engine;
-    let snap = engine.snapshot();
-    for (let i = 0; i < 3; i++) {
-      const next = history.undo(snap);
-      if (!next) break;
-      snap = next;
-    }
     await settle();
-
-    expect(history.getUndoCount()).toBe(0);
-    expect(
-      timesInvoked("rust_pixels_undo"),
-      "three pops, three steps - the behaviour navigateHistory opts out of",
-    ).toBe(3);
+    const restored = await bridge.getHistoryQuery(DOC);
+    expect(restored.cursor).toBe(3);
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(false);
   });
 });

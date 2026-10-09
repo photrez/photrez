@@ -45,6 +45,7 @@ export function handoffMovedCursor(): boolean {
 }
 
 import { getFacade, confirmExternalCursor, syncFacadeVersionFromPixel, getExternalRecordSnapshot, parkExternalReplaySnapshot } from "@/lib/protocol/facadeRegistry";
+import { deriveOpenBaselineFloor } from "@/engine/nativeHistoryView";
 import { applyRustTilesToSurface } from "@/lib/rustShadow";
 import type { EditorContextValue } from "./shell/EditorContext";
 
@@ -191,17 +192,11 @@ export async function rustStreamHoldsUserWork(
     return entries.length > cursor;
   }
   // Entries BELOW the cursor. How many of those are the document-open baseline?
-  // Exactly one, and only if this document actually got one - which the host
-  // knows because the factory's commit recorded it. Assuming "always 1" would
-  // refuse a legitimate undo on any document that never had a baseline (a
-  // document opened without the route armed, or with authority off).
-  let floor = 0;
-  try {
-    const { hasOpenBaselineEntry } = await import("@/lib/protocol/backgroundFlagRouting");
-    if (hasOpenBaselineEntry(docId)) floor = 1;
-  } catch {
-    floor = 0; // cannot prove a baseline exists -> assume none -> never refuse wrongly
-  }
+  // Read it from the stream itself: the host-recorded flag is sticky and would
+  // over-count after eviction removed the entry (or survive a baseline-less
+  // stream). A baseline that is not present reads as 0 and never refuses a
+  // legitimate undo.
+  const floor = deriveOpenBaselineFloor(entries as import("@/lib/protocol/types").HistoryEntryView[]);
   return cursor > floor;
 }
 

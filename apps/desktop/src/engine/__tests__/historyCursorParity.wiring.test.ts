@@ -909,7 +909,9 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
     // line naming the blindness, and NO warn (undo/redo did not fail).
     vi.mocked(invoke).mockImplementationOnce(() => Promise.reject(new Error("command not found")));
     const { observeHistoryCursorParity } = await import("../historyCursorParity");
-    observeHistoryCursorParity("doc-1", 3, "undo");
+    const probeHistory = new CommandHistory();
+    probeHistory.attachDocIdGetter(() => "doc-1");
+    observeHistoryCursorParity("doc-1", probeHistory.getTsUndoDepth(), "undo");
     await waitFor(() => vi.mocked(console.info).mock.calls.length === 1);
     expect(vi.mocked(console.warn)).not.toHaveBeenCalled();
     expect(vi.mocked(console.info).mock.calls[0][0]).toContain("no usable reading");
@@ -934,11 +936,11 @@ describe("history cursor parity: TS undo depth vs the Rust cursor", () => {
         }),
     );
 
-    const first = probeHistoryCursorParity("doc-1", history.getUndoCount());
+    const first = probeHistoryCursorParity("doc-1", history.getTsUndoDepth());
     await waitFor(() => timesInvoked("rust_pixels_history_tip") > before);
 
     // A step arriving while that read is outstanding: refused, not piled on.
-    const second = await probeHistoryCursorParity("doc-1", history.getUndoCount());
+    const second = await probeHistoryCursorParity("doc-1", history.getTsUndoDepth());
     expect(timesInvoked("rust_pixels_history_tip") - before).toBe(1);
     expect(second.verdict).toBe("unknown");
 

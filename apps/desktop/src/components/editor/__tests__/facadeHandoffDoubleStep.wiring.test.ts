@@ -68,7 +68,10 @@ vi.mock("@/engine/document", () => ({
 }));
 
 vi.mock("@/lib/protocol/bridge_emu", () => ({
-  getHistoryQuery: vi.fn(async () => ({ entries: ["external"], cursor: 1 })),
+  getHistoryQuery: vi.fn(async () => ({
+    entries: streamFor(DOC).entries,
+    cursor: streamFor(DOC).cursor,
+  })),
 }));
 
 // The walker and the confirm command drive the emulated cursor, which is what they do
@@ -252,10 +255,10 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     );
     registry.confirmExternalCursor.mockClear();
     const bridgeEmu = vi.mocked(await import("@/lib/protocol/bridge_emu"));
-    bridgeEmu.getHistoryQuery.mockReset().mockResolvedValue({
-      entries: ["external"],
-      cursor: 1,
-    } as never);
+    bridgeEmu.getHistoryQuery.mockReset().mockImplementation(async () => ({
+      entries: streamFor(DOC).entries,
+      cursor: streamFor(DOC).cursor,
+    }) as never);
     handoffMovedCursor(); // drain any flag a previous case left
   });
 

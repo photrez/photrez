@@ -1,14 +1,28 @@
-import type { DocumentModel, LayerNode } from "./types";
+import type { DocumentModel } from "./types";
 import { MAX_HISTORY_DEPTH } from "./types";
-import type { TileUploadLike } from "../renderer/types";
 import {
   bitmapStoreFor,
-  existingTokenForBitmap,
   tokenForBitmap,
   type BitmapField,
 } from "./bitmapStore";
+import {
+  disposeSnapshot,
+  type HistoryTilePatches,
+  type SnapshotEntry,
+} from "./historyTypes";
+export type { HistoryTilePatches, SnapshotEntry } from "./historyTypes";
 import { syncFacadeVersionFromPixel, historyDegraded } from "@/lib/protocol/facadeRegistry";
 import { isFacadeEnabled } from "@/lib/protocol/bridge";
+import {
+  buildNativeHistoryItems,
+  deriveOpenBaselineFloor,
+  getNativeRedoCount,
+  getNativeUndoCount,
+  isNativeQueryAuthoritative,
+  resyncDerivedView,
+  setHistoryViewAuthority,
+  settleCommitRecorders,
+} from "./nativeHistoryView";
 import { RustCursorStepper } from "./historyCursorStep";
 import { historyBridgeEnabled } from "./historyBridgeGate";
 import { encodeRustTiles } from "@/lib/protocol/pixelSeedCall";
@@ -41,108 +55,6 @@ function rustPixelsFlagEnabled(): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Imperative before/after tile patches for a paint commit.
- * Data-shaped (not closures) so multi-step history UIs can replay them later.
- */
-export interface HistoryTilePatches {
-  layerId: string;
-  surfaceWidth: number;
-  surfaceHeight: number;
-  /** Pre-stroke pixels of every touched tile (undo direction). */
-  before: TileUploadLike[];
-  /** Post-stroke pixels of every touched tile (redo direction). */
-  after: TileUploadLike[];
-  /**
-   * Set when Rust ALREADY recorded this pixel step (rust_pixels_write_region
-   * succeeded). The entry is then a cursor token for a step Rust holds, not a
-   * second copy of it: the undo/redo dispatch takes the pixels from Rust and
-   * refuses to replay `before`/`after`, which no store has. Entries Rust does
-   * not own keep replaying their own tiles.
-   */
-  rustOwned?: boolean;
-}
-
-/**
- * Release GPU/heap-backed ImageBitmaps held by a discarded snapshot. An
- * ImageBitmap is closed only when no other snapshot in the undo/redo stacks
- * and no live document model still references it — shared bitmaps across
- * snapshots must survive eviction of one entry.
- *
- * Coordination with the BitmapStore: a token-registered bitmap is released
- * through `store.release(token)` (closes exactly once); a bitmap that was never
- * token-registered is closed directly. A still-referenced or live bitmap is not
- * closed by either path. With the history bridge OFF no token is ever registered,
- * so every bitmap takes the direct-close path — identical to default behavior.
- */
-function disposeSnapshot(
-  snap: DocumentModel,
-  stillReferenced: (bitmap: unknown) => boolean,
-): void {
-  const store = bitmapStoreFor(snap.id);
-  const closeIfUnused = (layer: LayerNode) => {
-    if (layer.imageBitmap && !stillReferenced(layer.imageBitmap)) {
-      const token = existingTokenForBitmap(layer.imageBitmap);
-      if (token && store.get(token) === layer.imageBitmap) {
-        store.release(token);
-      } else {
-        try { layer.imageBitmap.close(); } catch { /* already closed */ }
-      }
-    }
-    if (layer.baseImageBitmap && !stillReferenced(layer.baseImageBitmap)) {
-      const token = existingTokenForBitmap(layer.baseImageBitmap);
-      if (token && store.get(token) === layer.baseImageBitmap) {
-        store.release(token);
-      } else {
-        try { layer.baseImageBitmap.close(); } catch { /* already closed */ }
-      }
-    }
-  };
-  for (const layer of snap.layers) closeIfUnused(layer);
-}
-
-interface SnapshotEntry {
-  snapshot: DocumentModel;
-  timestamp: number;
-  lastPaintCoords: { x: number; y: number } | null;
-  label?: string;
-  /** Tile patches (paint commits). Presence marks an imperative entry. */
-  imperative?: HistoryTilePatches;
-  /**
-   * "snapshot" marks an entry recorded via `recordSnapshotHistory` (before+after
-   * states). Undefined = a plain commit (External/metadata/pixel). The undo/redo
-   * caller gates the Rust snapshot re-attach on this so a MIXED entry stream
-   * ([External, Snapshot]) never re-attaches a wrong-step bitmap on an External
-   * step — Rust snapshot cursor only steps for Snapshot entries.
-   */
-  snapshotType?: "snapshot";
-  /**
-   * Pixel-layer allowlist for the upload narrow in useEditorCommands.
-   * null/undefined = unknown, keep the identity-map fallback. [] =
-   * provably metadata-only, skip every upload even when the restored
-   * bitmap object differs. [ids] = only those layers are candidates
-   * (the identity check still applies to each).
-   */
-  pixelLayerIds?: string[] | null;
-  /**
-   * This entry's own Rust record was REJECTED, so nothing exists in the stream behind
-   * it while the shim stood down in good faith on the recorder flag.
-   *
-   * Per entry, deliberately, and not a per-history latch. A latch poisons every LATER
-   * pop too: the failure is routine (a bridge record is fire-and-forget and can be
-   * rejected for reasons that have nothing to do with the next entry), and demoting an
-   * unrelated entry onto the gated path makes it REFUSE a tip that was perfectly
-   * correct - which stops the cursor advancing at all. One failed record must affect
-   * exactly one entry.
-   *
-   * Set from the record's own `.catch`, so it is always after the push - the pop reads
-   * the same object. The race is the one the fire-and-forget record already has: a pop
-   * that lands before the rejection arrives has already issued its step, and the marker
-   * is then simply never consulted for that entry.
-   */
-  rustRecordFailed?: true;
 }
 
 export interface HistoryItem {
@@ -368,6 +280,7 @@ export class CommandHistory {
       imperative,
       pixelLayerIds: pixelLayerIds ?? null,
     };
+    this.lastCommitRecord = null;
     if (this.bridgeRecordsFor()) {
       const docId = this.docIdGetter!();
       // Fire-and-forget through the shared bridge entry, so the census registrar
@@ -386,7 +299,7 @@ export class CommandHistory {
       try {
         if (imperative && !alreadyRecordedInRust) {
           this.lastCommitRecordedInBridge = true;
-          fire("apply_tile_patch", {
+          this.lastCommitRecord = fire("apply_tile_patch", {
             docId,
             layerId: imperative.layerId,
             before: encodeRustTiles(imperative.before),
@@ -394,7 +307,7 @@ export class CommandHistory {
           });
         } else if (!alreadyRecordedInRust) {
           this.lastCommitRecordedInBridge = true;
-          fire("rust_pixels_record_external", {
+          this.lastCommitRecord = fire("rust_pixels_record_external", {
             docId,
             label: label ?? "ts-meta",
             affected: snapshot.activeLayerId ? [snapshot.activeLayerId] : [],
@@ -419,6 +332,14 @@ export class CommandHistory {
 
     // Clear redo stack on new operation
     this.redoStack = [];
+
+    // The native stream just gained an entry; refresh the cached query view
+    // so the UI does not serve a dead undo button over live work. The read must
+    // wait for BOTH recorders of this commit to settle - this commit's bridge
+    // fire (lastCommitRecord) and the facade commit shim's external-transition
+    // mirror (registered via flushExternalTransitions) - or it observes the
+    // pre-commit stream and publishes a count one short.
+    void this.settleRecordsThenResync(entry.snapshot.id || this.docIdGetter?.() || "");
 
     // Enforce max depth
     if (this.undoStack.length > this.maxDepth) {
@@ -475,6 +396,7 @@ export class CommandHistory {
       snapshotType: "snapshot",
       pixelLayerIds: pixelLayerIds ?? null,
     };
+    this.lastCommitRecord = null;
     if (this.bridgeRecordsFor()) {
       const docId = this.docIdGetter!();
       // Registrations happen inside buildSnapshotPayload (idempotent per bitmap
@@ -501,7 +423,7 @@ export class CommandHistory {
         // Set only once the payload is built AND the record is on its way, so the flag
         // the shim reads can never claim a record that was never issued.
         this.lastCommitRecordedInBridge = true;
-        fire("rust_pixels_record_snapshot", { docId, before: beforePayload, after: afterPayload })
+        this.lastCommitRecord = fire("rust_pixels_record_snapshot", { docId, before: beforePayload, after: afterPayload })
           .then((res) => {
             // Native-authority version sync: the snapshot command advances the
             // native engine document version; push it into the facade so a later
@@ -524,6 +446,10 @@ export class CommandHistory {
     // Clear redo stack on new operation
     this.redoStack = [];
 
+    // See commit(): keep the cached native-query view current (deferred until
+    // this commit's bridge record and the shim's mirror have settled).
+    void this.settleRecordsThenResync(before.id || this.docIdGetter?.() || "");
+
     // Enforce max depth (mirror commit()): bitmaps still referenced by the live
     // model (including the POST-action `after` state, which is not pushed) must
     // survive eviction — see attachLiveBitmapGetter.
@@ -539,12 +465,86 @@ export class CommandHistory {
     }
   }
 
+  /** Last native query this history re-synced from, or null before the first one. */
+  private nativeQuery: import("@/lib/protocol/types").HistoryQueryResult | null = null;
+
+  /**
+   * Set by the workspace to republish UI state (history rows, undo affordance)
+   * whenever the derived view above was re-read. Without this, a deferred
+   * resync refreshes the cache but no surface ever repaints from it.
+   */
+  onDerivedViewChanged: (() => void) | null = null;
+
+  /** The bridge record fired by the most recent commit/recordSnapshotHistory. */
+  private lastCommitRecord: Promise<unknown> | null = null;
+
+  /** Settle this commit's recorders first; the timing contract lives on `settleCommitRecorders`. */
+  private async settleRecordsThenResync(docId: string): Promise<void> {
+    const record = this.lastCommitRecord;
+    this.lastCommitRecord = null;
+    await settleCommitRecorders(record, docId);
+    await this.resyncFromNativeQuery();
+  }
+
+  /**
+   * The query is the authority only when the native stream actually knows this
+   * document: entries recorded outside the TS stack (routed ops, structural
+   * commits) live there, but a session whose commits never reached the stream
+   * (the legacy bridge/wasm arms) leaves it empty - and then it must not
+   * mask the TS stack. In the native path every document carries at least the
+   * document-open baseline entry (cursor 1 at open), so this test cannot
+   * misfire on the canonical engine.
+   */
+  private lastAuthoritativeView = false;
+
+  /** The query is the authority only when the native stream actually knows this
+   *  document: entries recorded outside the TS stack (routed ops, structural
+   *  commits) live there, but a session whose commits never reached the stream
+   *  (the legacy bridge/wasm arms) leaves it empty - and then it must not
+   *  mask the TS stack. In the native path every document carries at least the
+   *  document-open baseline entry (cursor 1 at open), so this test cannot
+   *  misfire on the canonical engine. A change of authority is always
+   *  announced: a view silently switching sources is a defect, so the
+   *  transition is logged (console lines for operators) AND published through
+   *  `historyViewAuthority` for observability - only tests branch on that
+   *  signal; no production consumer reads it. */
+  private nativeQueryAuthoritative(): boolean {
+    const now = isNativeQueryAuthoritative(this.nativeQuery);
+    if (now !== this.lastAuthoritativeView) {
+      if (now) {
+        console.info("[history] native stream is now the authoritative view");
+        setHistoryViewAuthority("native");
+      } else {
+        console.warn(
+          "[history] native stream is no longer authoritative; the view falls back to the TS stacks",
+        );
+        setHistoryViewAuthority("ts-fallback");
+      }
+      this.lastAuthoritativeView = now;
+    }
+    return now;
+  }
+
   canUndo(): boolean {
+    if (this.nativeQueryAuthoritative()) {
+      return getNativeUndoCount(this.nativeQuery!) > 0;
+    }
     return this.undoStack.length > 0;
   }
 
   canRedo(): boolean {
+    if (this.nativeQueryAuthoritative()) {
+      return getNativeRedoCount(this.nativeQuery!) > 0;
+    }
     return this.redoStack.length > 0;
+  }
+
+  /** Rebuild this stack's view from `protocol_history_query_native`; the never-rejects contract lives on `resyncDerivedView`. */
+  async resyncFromNativeQuery(): Promise<void> {
+    await resyncDerivedView(this.docIdGetter?.(), (query) => {
+      this.nativeQuery = query;
+      this.onDerivedViewChanged?.();
+    });
   }
 
   private lastUndoPatches?: HistoryTilePatches;
@@ -731,15 +731,18 @@ export class CommandHistory {
   /**
    * Pop for a site that restores through the MODEL, never the Rust pixel path.
    *
-   * The one such caller is the History panel's jump (`navigateHistory`), which loops
-   * up to `steps` times and restores with `engine.restore` + `uploadImage`. Stepping
-   * there would move Rust's canonical buffers and its cursor while the host restored
-   * pixels from the TS stack - the mirror image of the drift this class prevents.
+   * The History panel's jump (`navigateHistoryNative`) routes through the
+   * native stepper now, so this path has NO production callers - only the
+   * perfAuditDev scratch walks it. Stepping a native cursor here would move
+   * Rust's canonical buffers and its cursor while the host restored pixels
+   * from the TS stack - the mirror image of the drift the cursor-step
+   * contract prevents.
    *
-   * NAMED rather than `undo(snap, false)`: an audit of "which pop sites do not step
-   * the Rust cursor" must find them by grepping, and an anonymous boolean leaves
-   * `grep stepCursor` pointing only at the declaration. `undo`/`redo` still default
-   * `stepCursor` to true, so a pop that does not say otherwise owns its step.
+   * NAMED rather than `undo(snap, false)`: an audit of "which pop sites do not
+   * step the Rust cursor" must find them by grepping, and an anonymous boolean
+   * leaves `grep stepCursor` pointing only at the declaration. `undo`/`redo`
+   * still default `stepCursor` to true, so a pop that does not say otherwise
+   * owns its step.
    */
   undoThroughModel(currentSnapshot: DocumentModel): DocumentModel | null {
     return this.undo(currentSnapshot, false);
@@ -759,6 +762,14 @@ export class CommandHistory {
       return null;
     }
 
+    // Gate and pop must read the same source: when the native stream is the
+    // authority it may report work this derived stack cannot restore (a
+    // natively-recorded-only document leaves the TS stack empty). Returning
+    // null routes the caller to the native dispatcher; popping anyway is a
+    // TypeError on an empty stack.
+    if (this.nativeQueryAuthoritative() && this.undoStack.length === 0) {
+      return null;
+    }
     const previousEntry = this.undoStack.pop()!;
     this.lastPoppedIsSnapshot = previousEntry.snapshotType === "snapshot";
     this.lastPoppedPixelLayerIds = previousEntry.pixelLayerIds ?? null;
@@ -811,6 +822,11 @@ export class CommandHistory {
       return null;
     }
 
+    // Same gate/pop alignment rule as undo(): a natively-recorded-only
+    // document leaves the TS stacks empty, so popping would throw.
+    if (this.nativeQueryAuthoritative() && this.redoStack.length === 0) {
+      return null;
+    }
     const nextEntry = this.redoStack.pop()!;
     this.lastPoppedIsSnapshot = nextEntry.snapshotType === "snapshot";
     this.lastPoppedPixelLayerIds = nextEntry.pixelLayerIds ?? null;
@@ -893,6 +909,9 @@ export class CommandHistory {
   }
 
   getHistoryStack(): HistoryItem[] {
+    if (this.nativeQueryAuthoritative()) {
+      return buildNativeHistoryItems(this.nativeQuery!);
+    }
     const items: HistoryItem[] = [];
 
     // Base/original state (active when undoStack is empty)
@@ -921,6 +940,9 @@ export class CommandHistory {
     // The stacks are about to be dropped, so every bitmap they hold becomes
     // unreferenced — close all of them (shared references across the two stacks
     // are still closed only once because disposeSnapshot closes per-layer).
+    // NOTE: the native-query cache is deliberately NOT cleared. The query is
+    // the authority on what exists; the TS stacks are the derived view, and
+    // clearing them must not hide history the engine still owns.
     for (const e of this.undoStack) disposeSnapshot(e.snapshot, () => false);
     for (const e of this.redoStack) disposeSnapshot(e.snapshot, () => false);
     this.undoStack = [];
@@ -949,11 +971,27 @@ export class CommandHistory {
     return this.lastPoppedPixelLayerIds;
   }
 
+  /**
+   * This host's TS-side undo depth, read from the TS stack itself - NOT from
+   * the cached native query. The cursor-parity probe compares it against Rust's
+   * cursor; feeding it `getUndoCount()` would read the same `protocol_history_query_native`
+   * cache the Rust side already mirrors, making the comparison Rust-vs-Rust.
+   */
+  getTsUndoDepth(): number {
+    return this.undoStack.length;
+  }
+
   getUndoCount(): number {
+    if (this.nativeQueryAuthoritative()) {
+      return getNativeUndoCount(this.nativeQuery!);
+    }
     return this.undoStack.length;
   }
 
   getRedoCount(): number {
+    if (this.nativeQueryAuthoritative()) {
+      return getNativeRedoCount(this.nativeQuery!);
+    }
     return this.redoStack.length;
   }
 }

@@ -19,6 +19,7 @@ import { runToolSwitchCleanup } from "../tools/toolLifecycle";
 import { DialogProvider } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession, commitLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession, syncTextSessionBase } from "../canvas/pointerTools/textTool";
+import { navigateHistoryNative } from "../nativeHistoryJump";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import {
@@ -133,79 +134,86 @@ export function EditorProvider(props: {
   const setRightDockOpen = props.setRightDockOpen || setLocalRightDockOpen;
 
   let ignoreNextUndoUntil = 0;
+  // Two rapid History-panel row clicks must not run concurrent
+  // navigateHistoryNative loops against a moving Rust cursor.
+  let jumpInFlight = false;
 
   const navigateHistory = (index: number) => {
     const engine = props.workspace.getActiveEngine();
     const history = props.workspace.getActiveHistory();
     if (!engine || !history) return;
 
-    const activeIndex = history.getUndoCount();
-    const lastIndex = activeIndex + history.getRedoCount();
-    if (!Number.isInteger(index) || index < 0 || index > lastIndex) return;
-    const diff = index - activeIndex;
+    // The stack is a derived view: refresh it from the query before reading
+    // counts for the guard, otherwise a doc whose entries were recorded
+    // outside the TS stack (routed ops, a panel jump from another source)
+    // reads undoable work the host stack does not know about.
+    void history.resyncFromNativeQuery().then(() => {
+      const activeIndex = history.getUndoCount();
+      const lastIndex = activeIndex + history.getRedoCount();
+      if (!Number.isInteger(index) || index < 0 || index > lastIndex) return;
+      const diff = index - activeIndex;
 
-    if (diff === 0) return;
+      if (diff === 0) return;
 
-    if (diff < 0 && Date.now() < ignoreNextUndoUntil) {
-      ignoreNextUndoUntil = 0;
-      return;
-    }
+      if (diff < 0 && Date.now() < ignoreNextUndoUntil) {
+        ignoreNextUndoUntil = 0;
+        return;
+      }
 
-    if (diff < 0 && editorState.textEditSession()) {
-      ignoreNextUndoUntil = Date.now() + 300;
-      cancelTextSession({
-        workspace: props.workspace,
-        textEditSession: editorState.textEditSession,
-        setTextEditSession: editorState.setTextEditSession,
-        scheduler: props.scheduler,
-        renderer: props.renderer,
+      if (diff < 0 && editorState.textEditSession()) {
+        ignoreNextUndoUntil = Date.now() + 300;
+        cancelTextSession({
+          workspace: props.workspace,
+          textEditSession: editorState.textEditSession,
+          setTextEditSession: editorState.setTextEditSession,
+          scheduler: props.scheduler,
+          renderer: props.renderer,
+        });
+        props.scheduler.requestRender();
+        return;
+      }
+
+      if (
+        editorState.layerTransformSession()
+        && cancelLayerTransformSession(editorState.layerTransformSession(), engine)
+      ) {
+        editorState.setLayerTransformSession(null);
+      }
+
+      const previousLayerIds = new Set(engine.getLayers().map((layer) => layer.id));
+
+      // Native cursor path: each step's CommandResult is projected by
+      // runFacadeExternalHandoff (same consumer the single-press path uses).
+      if (jumpInFlight) return;
+      jumpInFlight = true;
+      void navigateHistoryNative({ workspace: props.workspace, renderer: props.renderer, scheduler: props.scheduler }, index).then((result) => {
+        const restoredLayerIds = new Set(engine.getLayers().map((layer) => layer.id));
+        for (const layerId of previousLayerIds) {
+          if (!restoredLayerIds.has(layerId)) props.renderer.destroyTexture(layerId);
+        }
+        syncTextSessionBase({
+          workspace: props.workspace,
+          textEditSession: editorState.textEditSession,
+          setTextEditSession: editorState.setTextEditSession,
+          scheduler: props.scheduler,
+        });
+        if (result.blocked) {
+          showToastImpl(
+            `History jump stopped early: ${result.reason ?? "a step was blocked"}`,
+            "error",
+          );
+        }
+      }).catch((error) => {
+        // The legacy-arm engine.restore can throw; an unhandled rejection
+        // would leave the panel silently unmoved.
+        showToastImpl(
+          `History jump failed: ${error instanceof Error ? error.message : "unknown error"}`,
+          "error",
+        );
+      }).finally(() => {
+        jumpInFlight = false;
       });
-      props.scheduler.requestRender();
-      return;
-    }
-
-    if (
-      editorState.layerTransformSession()
-      && cancelLayerTransformSession(editorState.layerTransformSession(), engine)
-    ) {
-      editorState.setLayerTransformSession(null);
-    }
-
-    const previousLayerIds = new Set(engine.getLayers().map((layer) => layer.id));
-    let currentSnapshot = engine.snapshot();
-    const steps = Math.abs(diff);
-    for (let step = 0; step < steps; step++) {
-      // `*ThroughModel`, not `undo(currentSnapshot, false)`: this restores through
-      // the MODEL (engine.restore + uploadImage below), never the Rust pixel path,
-      // so it never consumes the tiles a cursor step returns. Stepping here would
-      // move Rust's canonical buffers and its cursor while the host restores pixels
-      // from the TS stack: a multi-step jump would fire one serialised round-trip
-      // per step, and every one would advance a cursor whose pixel bytes never
-      // moved. The named method keeps this opt-out greppable.
-      const nextSnapshot = diff < 0
-        ? history.undoThroughModel(currentSnapshot)
-        : history.redoThroughModel(currentSnapshot);
-      if (!nextSnapshot) break;
-      currentSnapshot = nextSnapshot;
-    }
-
-    engine.restore(currentSnapshot);
-
-    const restoredLayerIds = new Set(engine.getLayers().map((layer) => layer.id));
-    for (const layerId of previousLayerIds) {
-      if (!restoredLayerIds.has(layerId)) props.renderer.destroyTexture(layerId);
-    }
-    for (const layer of engine.getLayers()) {
-      if (layer.imageBitmap) props.renderer.uploadImage(layer.id, layer.imageBitmap);
-    }
-    syncTextSessionBase({
-      workspace: props.workspace,
-      textEditSession: editorState.textEditSession,
-      setTextEditSession: editorState.setTextEditSession,
-      scheduler: props.scheduler,
     });
-    props.scheduler.requestRender();
-    props.workspace.notifyVisualChange();
   };
 
   const setViewportState = (next: { x: number; y: number; zoom: number }) => {

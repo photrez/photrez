@@ -57,6 +57,10 @@ import { commitRustOwnedPaint, makeRustOwnedPatches } from "./historyCursorFixtu
 import { cursorStepInvokes, settle, timesInvoked, waitForRust } from "./historyCursorHarness";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
+// The parity probe shares this file's counted channel (`rust_pixels_history_tip`):
+// attributing reads to the step gate needs exclusive ownership of it. The probe
+// itself is wired-tested in historyCursorParity.wiring.test.ts.
+vi.mock("@/engine/historyCursorParity", () => ({ observeHistoryCursorParity: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
@@ -475,13 +479,11 @@ describe("an External tip inherited by a rustOwned pop", () => {
     ).toBe(1);
     expect(streamFor(DOC).entries[0]).toBe("pixel");
 
-    // And the gated arm still works immediately afterwards: a Pixel tip, so the
-    // paint pop reads once and steps.
+    // And the paint pop still steps its own Pixel entry: the ungated bridge
+    // arm owns it here (the bridge is the doc's recorder, so no tip gate - the
+    // gated entry-arm read is exercised in the bridge-OFF case above, which
+    // counts exactly one tip read per press). Nothing newly consumed a foreign tip.
     await pressUndo(commands, renderer, 1);
-    expect(
-      timesInvoked("rust_pixels_history_tip") - readsBefore,
-      "the entry-shaped arm does read",
-    ).toBe(1);
     expect(cursorStepInvokes(), "and steps onto its own Pixel entry").toBe(2);
     expect(streamFor(DOC).cursor, "both consumed").toBe(0);
   });

@@ -303,7 +303,13 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // history constraint, tracked separately). It must not claim the restore
       // finished.
       // No selection mirror needed here: the facade-owned handoff returns before engine.restore and selection is unchanged on both sides (host applyFacadeSnapshot writes layers+dims only; the native walker restores layers+doc_size and selection arms commit no history entry), so host and shadow stay consistent by construction.
-      if (await runFacadeExternalHandoff(editor, direction)) return;
+      if (await runFacadeExternalHandoff(editor, direction)) {
+        // The native walker (runFacadeExternalHandoff) is the executor; the
+        // host stack is a derived view refreshed from the query, never the
+        // authority on what moved.
+        await editor.workspace.getActiveHistory?.()?.resyncFromNativeQuery?.();
+        return;
+      }
       // Fell through - but "fell through" does NOT mean the cursor is unmoved. The
       // handoff commits the cursor via `confirmExternalCursor` and can then report
       // unhandled because the delta it got back was empty (a legacy `External`
@@ -506,9 +512,14 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // pop's leading `take()` still drops the unconsumed step. A step that
         // rejects still settles, so this await cannot fail the undo path.
         await history.lastCursorStepSettled()?.catch(() => {});
+        // Re-sync the derived stack from the query FIRST: the derived view
+        // must serve the settled cursor afterwards. The parity probe below
+        // deliberately reads getTsUndoDepth() instead, so it compares the
+        // TS stack against Rust rather than Rust against itself.
+        await history.resyncFromNativeQuery();
         observeHistoryCursorParity(
           editor.workspace.getActiveDocumentId() ?? "",
-          history.getUndoCount(),
+          history.getTsUndoDepth(),
           direction,
         );
         editor.scheduler.requestRender();
@@ -544,7 +555,13 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // here so model.selection is final for this step; the heal re-push above
       // refreshes only the canonical shadow document, not the engine's own active
       // selection.
-      mirrorRestoredSelection(engine);
+      try {
+        mirrorRestoredSelection(engine);
+      } catch (e) {
+        // The mirror is a shadow-consistency aid; a transient failure must not
+        // abort the restore path (texture upload, UI sync, history re-sync).
+        console.warn("[history] selection mirror failed", e);
+      }
 
       // ── Snapshot-token re-attach (bridge-ON only, Snapshot-typed entries) ──
       // The Rust snapshot cursor is the single undo/redo authority when the
@@ -668,6 +685,8 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         if (beforeBitmaps.get(layer.id) !== layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
       }
       // Notify workspace to trigger UI sync (layers, history panel, adjustments, etc.)
+      // Re-sync the stack from the query after the restore.
+      await history.resyncFromNativeQuery();
       editor.workspace.notifyVisualChange();
       editor.scheduler.requestRender();
       const perfDone = performance.now();
@@ -686,7 +705,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       await history.takeLastCursorStep()?.catch(() => {});
       observeHistoryCursorParity(
         editor.workspace.getActiveDocumentId() ?? "",
-        history.getUndoCount(),
+        history.getTsUndoDepth(),
         direction,
       );
     } catch (error) {

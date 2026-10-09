@@ -108,6 +108,10 @@ export class WorkspaceManager {
       session.dirty = session.engine.isDirty();
       this.notifyVisualChange();
     });
+    // The derived history view re-reads the native stream asynchronously; the
+    // workspace must republish when that read lands or the History panel keeps
+    // serving the stale row set.
+    session.history.onDerivedViewChanged = () => this.notifyVisualChange();
 
     this.notifyChange();
   }

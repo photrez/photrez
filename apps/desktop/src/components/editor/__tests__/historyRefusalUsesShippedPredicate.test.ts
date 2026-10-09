@@ -57,8 +57,9 @@ if (typeof (globalThis as { localStorage?: unknown }).localStorage === "undefine
  * moved by the CursorCommit, exactly as the production two-phase handoff does,
  * so the value the refusal sees is produced by the same ordering the app uses.
  */
-function routeStream(cursorAt: number[]): { cursors: number[] } {
+function routeStream(cursorAt: number[], opts: { baseline?: boolean } = {}): { cursors: number[] } {
   const cursors = cursorAt;
+  const withBaseline = opts.baseline !== false;
   const open = new Set<string>();
   invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
     const docId = (args.docId as string) ?? "default";
@@ -125,7 +126,7 @@ function routeStream(cursorAt: number[]): { cursors: number[] } {
           lastSeq: cursors.length,
           degradedHint: false,
           pendingExternal: null,
-          entries: cursors.map((s) => ({ seq: s, groupId: s, origin: "native", label: "e", affectedLayerIds: [], versionBefore: 0, versionAfter: 1, memoryCostBytes: 0 })),
+          entries: cursors.map((s, i) => ({ seq: s, groupId: s, origin: "native", label: withBaseline && i === 0 ? "Set Background Flag" : "e", affectedLayerIds: [], versionBefore: 0, versionAfter: 1, memoryCostBytes: 0 })),
         });
       default:
         throw `E_UNKNOWN_COMMAND: ${cmd}`;
@@ -228,7 +229,7 @@ describe("undo/redo refusal: the shipped predicate, not a reimplementation", () 
 
   it("assumes work when the baseline cannot be proven (never refuses wrongly)", async () => {
     const docId = "docNoBaseline";
-    routeStream([1]);
+    routeStream([1], { baseline: false });
     await createNativeSeed(docId, 0, []);
     // deliberately NOT recorded: exercises the "floor is 0" branch
 
