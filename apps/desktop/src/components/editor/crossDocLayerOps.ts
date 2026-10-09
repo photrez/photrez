@@ -47,7 +47,10 @@ export interface WorkspaceFacade {
   getHistory(docId: string): HistoryFacade | null;
   getActiveDocumentId(): string | null;
   isFull(): boolean;
-  addDocument(session: DocumentSession): void;
+  // The open gate: installs a factory-built session only once its native seed
+  // landed, and rejects when that seed was refused (see
+  // WorkspaceManager.addSeededDocument).
+  addSeededDocument(session: DocumentSession): Promise<void>;
 }
 
 export interface CreatedLayer {
@@ -447,7 +450,9 @@ export async function createNewDocsFromFiles(
       decodedBitmaps.push(bitmap);
       const id = `doc-${crypto.randomUUID()}`;
       const session = WorkspaceManager.createDocumentFromImage(id, name, bitmap);
-      ws.addDocument(session);
+      // A refused native seed aborts this open; the catch below reports it and
+      // `freeDecoded` closes the raster no session will own.
+      await ws.addSeededDocument(session);
       const bgLayerId = session.engine.getLayers().find((l) => l.isBackground)?.id
         ?? session.engine.getLayers()[0].id;
       created.push({ docId: id, backgroundLayerId: bgLayerId, bitmap });
@@ -485,12 +490,12 @@ interface LayerDropScheduler {
  * one. Same-doc reorder is naturally avoided because the new doc id differs
  * from the source.
  */
-export function createNewDocFromLayerDrag(
+export async function createNewDocFromLayerDrag(
   payload: LayerDragPayload,
   ws: WorkspaceFacade,
   renderer: LayerDropRenderer,
   scheduler: LayerDropScheduler,
-): { docId: string | null } {
+): Promise<{ docId: string | null }> {
   if (ws.isFull()) {
     showToast("Workspace full: close a document first", "error");
     return { docId: null };
@@ -505,7 +510,14 @@ export function createNewDocFromLayerDrag(
   const h = sourceLayer.height || 600;
   const id = `doc-${crypto.randomUUID()}`;
   const session = WorkspaceManager.createBlankDocument(id, sourceLayer.name || "Image", w, h);
-  ws.addDocument(session);
+  // A refused native seed opens nothing, so the copy below has no target to
+  // land in; see WorkspaceManager.addSeededDocument.
+  try {
+    await ws.addSeededDocument(session);
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), "error");
+    return { docId: null };
+  }
   // Drop the source layer into the new doc, targeting it explicitly by id
   // (tab target centers the layer in the fresh doc). Reuses the cross-doc
   // copy path so bitmap/transform/opacity/blend all carry over. Same-doc

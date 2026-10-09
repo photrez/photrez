@@ -165,7 +165,7 @@ function makeWorkspace(
     getHistory: vi.fn(() => ({ commit: vi.fn() })),
     getActiveDocumentId: vi.fn(() => "doc-B"),
     isFull: vi.fn(() => false),
-    addDocument: vi.fn(),
+    addSeededDocument: vi.fn(async () => {}),
   };
 }
 

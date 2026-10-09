@@ -95,6 +95,11 @@ function makeParams(overrides?: { isFull?: boolean; onError?: (m: string) => voi
     workspace: {
       isFull: mockIsFull,
       addDocument: mockAddDocument,
+      // The open gate the image routes call instead of `addDocument`: it installs
+      // a factory-built session only once its native seed landed.
+      addSeededDocument: vi.fn(async (session: unknown) => {
+        mockAddDocument(session);
+      }),
       getSession: () => null,
     } as unknown as OpenImageParams["workspace"],
     renderer: { uploadImage: mockUploadImage } as unknown as OpenImageParams["renderer"],

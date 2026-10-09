@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceManager } from "@/engine/workspace";
+import { createNativeProtocolEmulator } from "@/engine/__tests__/nativeProtocolEmulator";
 import { __resetNativeAuthorityForTests } from "../bridge";
 import { getFacade, seedFacadeFromEngine, recordExternalTransitionFor } from "../facadeRegistry";
 
@@ -36,24 +37,45 @@ if (typeof (globalThis as { localStorage?: unknown }).localStorage === "undefine
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const invokeMock = invoke as unknown as Mock<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>;
 
-// Minimal faithful native surface for the two seed entry points + doc open.
-function routeNative(): void {
+// Order/routing-contract harness: the OPEN plus the two seed entry points, and
+// the commands the open path's own background-flag commit issues against the
+// seeded document. Those latter four come from the shared native-protocol
+// emulator rather than a second hand-rolled transport - the seed stores the ids
+// it was given, the membership probe reads them back, and the flag apply
+// resolves against them. That is the real contract
+// (protocol_seed_native.rs:162 / protocol_layer_ids_native.rs:294); a stub that
+// recorded the seed and answered "no layers" made the commit refuse an open the
+// real engine accepts, which made this file's ORDER assertions unreachable
+// rather than wrong.
+//
+// What is still NOT modelled here: `protocol_seed_canonical_native` does not
+// apply the pushed layer vector to the engine - the push-applies contract is
+// pinned Rust-side (the canonical seed and reorder test modules).
+function routeNative(opts: { failCanonicalSeed?: boolean } = {}): void {
   const open = new Set<string>();
+  const emulator = createNativeProtocolEmulator();
+  const { nativeProtocol } = emulator;
   invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
     const docId = (args.docId as string) ?? "default";
     switch (cmd) {
       case "rust_pixels_open_document":
         open.add(docId);
         return undefined;
-      case "protocol_seed_native":
-        if (!open.has(docId)) throw `document not open: ${docId}`;
-        return JSON.stringify({ version: 0, layers: [] });
-      // Order/routing-contract harness only: this stub does NOT apply the pushed
-      // layer vector - the push-applies contract is pinned Rust-side (canonical seed
-      // and reorder test modules).
       case "protocol_seed_canonical_native":
         if (!open.has(docId)) throw `document not open: ${docId}`;
+        if (opts.failCanonicalSeed) throw "E_CANONICAL_PARSE: forced seed failure";
         return null; // real Rust returns the "null" ack; result is ignored here
+      case "protocol_seed_native":
+        if (!open.has(docId)) throw `document not open: ${docId}`;
+        return nativeProtocol.protocol_seed_native(args.payloadJson as never, docId as never);
+      case "protocol_apply_command_native":
+        if (!open.has(docId)) throw `document not open: ${docId}`;
+        return nativeProtocol.protocol_apply_command_native(args.envelopeJson as never, docId as never);
+      case "protocol_layer_ids_native":
+      case "protocol_snapshot_native":
+      case "protocol_version_native":
+        if (!open.has(docId)) throw `document not open: ${docId}`;
+        return nativeProtocol[cmd](docId as never);
       default:
         throw `E_UNKNOWN_COMMAND: ${cmd}`;
     }
@@ -132,22 +154,16 @@ describe("native canonical seed wiring", () => {
     // its rejection is what we observe. The rejection must NOT become an unhandled
     // rejection: the workspace .catch swallows it and logs. Deleting that .catch
     // (in workspace.ts) makes console.warn never fire and this test fail.
-    invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
-      const docId = (args.docId as string) ?? "default";
-      switch (cmd) {
-        case "rust_pixels_open_document":
-          return undefined;
-        case "protocol_seed_native":
-          return JSON.stringify({ version: 0, layers: [] });
-        case "protocol_seed_canonical_native":
-          throw "E_CANONICAL_PARSE: forced seed failure";
-        default:
-          throw `E_UNKNOWN_COMMAND: ${cmd}`;
-      }
-    });
+    routeNative({ failCanonicalSeed: true });
 
+    // Its own document id: the facade store is process-global and keyed by doc
+    // id, so reusing `docCanon` would carry the previous case's renderedVersion
+    // (already advanced by its own flag apply) into a fresh engine seeded at 0,
+    // and the first apply would reject E_VERSION_MISMATCH instead of reaching
+    // the canonical seed this case is about. The lenient stub hid that; the
+    // faithful transport does not.
     const wm = new WorkspaceManager();
-    wm.addDocument(WorkspaceManager.createBlankDocument("docCanon", "Canon", 800, 600));
+    wm.addDocument(WorkspaceManager.createBlankDocument("docCanonRefused", "Canon", 800, 600));
     await flush();
     await flush();
 
@@ -157,13 +173,16 @@ describe("native canonical seed wiring", () => {
     // The rejected reason must be the canonical command's own rejection, not a
     // fall-through to the unknown-command default (which would mean the mock case
     // did not match the invoked command).
-    const reason = (warnSpy.mock.calls[0]?.[1] as string) ?? "";
+    // Tauri v2 rejects with the BARE string, so the rejection - and therefore the
+    // logged reason - is a string, not an Error. `String(...)` keeps the
+    // assertion readable without asserting a shape the runtime never produces.
+    const reason = String(warnSpy.mock.calls[0]?.[1] ?? "");
     expect(reason).toContain("E_CANONICAL_PARSE: forced seed failure");
     warnSpy.mockRestore();
   });
 });
 
-// ── Re-push after TS-side mutations the native reconciliation cannot observe ──
+// --- Re-push after TS-side mutations the native reconciliation cannot observe ---
 // Two events leave the native canonical shadow stale under native authority:
 //   (a) facade addLayer mints the layer in Rust but cannot populate its
 //       canonical-only fields, so the TS model must re-push the full canonical;

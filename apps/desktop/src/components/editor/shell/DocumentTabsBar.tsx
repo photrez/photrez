@@ -295,7 +295,13 @@ export function DocumentTabsBar() {
         result.height,
         { backgroundColor: result.backgroundColor }
       );
-      workspace.addDocument(session);
+      // A refused native seed opens nothing; see WorkspaceManager.addSeededDocument.
+      try {
+        await workspace.addSeededDocument(session);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : String(err), "error");
+        return;
+      }
       scheduler.requestRender();
     }
   };

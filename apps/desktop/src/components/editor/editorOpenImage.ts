@@ -66,7 +66,7 @@ export async function openImage(params: OpenImageParams) {
       );
       for (const s of sessions) {
         if (!s) continue;
-        params.workspace.addDocument(s.session);
+        await params.workspace.addSeededDocument(s.session);
         params.renderer.uploadImage(s.bgLayerId, s.bitmap);
         addRecentFile(s.path, s.fileName);
         loadedAny = true;
@@ -107,7 +107,9 @@ export async function openImageFilesAsDocuments(
       const bitmap = await createImageBitmap(file);
       const id = `doc-${crypto.randomUUID()}`;
       const session = WorkspaceManager.createDocumentFromImage(id, file.name, bitmap);
-      params.workspace.addDocument(session);
+      // A refused native seed aborts here: nothing is installed, the raster the
+      // factory decoded is closed by the gate, and the catch below reports it.
+      await params.workspace.addSeededDocument(session);
       const bgLayerId = session.engine.getLayers().find((l) => l.isBackground)?.id
         ?? session.engine.getLayers()[0].id;
       params.renderer.uploadImage(bgLayerId, bitmap);
@@ -231,7 +233,9 @@ export async function openSingleFile(path: string, params: OpenImageParams): Pro
   const decoded = await decodeSessionFromFile(path, params);
   if (!decoded) return;
 
-  params.workspace.addDocument(decoded.session);
+  // A refused native seed aborts here: nothing is installed, the raster the
+  // factory decoded is closed by the gate, and the caller reports it.
+  await params.workspace.addSeededDocument(decoded.session);
   params.renderer.uploadImage(decoded.bgLayerId, decoded.bitmap);
   params.scheduler.requestRender();
 

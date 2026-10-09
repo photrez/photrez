@@ -4,6 +4,34 @@ import { EditorProvider } from "../EditorContext";
 import { DocumentTabsBar } from "../DocumentTabsBar";
 import { WorkspaceManager } from "@/engine/workspace";
 
+// A new-document open seeds the native engine through the factory's
+// background-flag commit, and the open refuses to install a document whose seed
+// was refused - so the boundary has to answer for this file to exercise the tab
+// bar rather than a refused open. Built in the hoisted block because the mock
+// factory runs before this file's imports are evaluated.
+const { nativeProtocolEmulator } = await vi.hoisted(async () => {
+  const { createNativeProtocolEmulator } = await import(
+    "@/engine/__tests__/nativeProtocolEmulator"
+  );
+  return { nativeProtocolEmulator: createNativeProtocolEmulator() };
+});
+vi.mock("@/lib/protocol/nativeClient", () => ({
+  nativeProtocol: nativeProtocolEmulator.nativeProtocol,
+}));
+// The open seed opens the document in the Rust pixel registry before seeding it,
+// and that first call goes through `invoke`, not the protocol client.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    if (cmd === "rust_pixels_open_document") return undefined;
+    throw `emulator: unhandled command ${cmd}`;
+  }),
+}));
+vi.mock("@/lib/protocol/bridge_emu", () => ({
+  __resetEmulatedForTests: vi.fn(),
+  resetWasmDoc: vi.fn(),
+  getHistoryQuery: vi.fn(async () => ({ entries: [], cursor: 0 })),
+}));
+
 vi.mock("../../dialogs/DialogProvider", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../dialogs/DialogProvider")>();
   return {
@@ -58,6 +86,7 @@ function tick(): Promise<void> {
 
 describe("DocumentTabsBar", () => {
   afterEach(() => {
+    nativeProtocolEmulator.reset();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -117,8 +146,11 @@ describe("DocumentTabsBar", () => {
   it("dirty tab shows dirty indicator dot", async () => {
     const { ws, container, dispose } = renderTabsBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Dirty", 800, 600);
-    session.dirty = true;
     ws.addDocument(session);
+    // Dirty through the ENGINE, not by poking the derived session flag: once the
+    // open's seed lands, the workspace's own change listener recomputes
+    // `session.dirty` from the engine, which is what the dot reports.
+    session.engine.addLayer("Edit");
     await tick();
     expect(container.textContent).toContain("•");
     dispose();

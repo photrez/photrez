@@ -44,6 +44,50 @@ export class WorkspaceManager {
   }
 
   // ─── Document Lifecycle ───
+  /**
+   * Open a factory-built session: install it only once the factory's own
+   * background-flag commit - which is what seeds this document natively and
+   * marks its layers facade-owned - has landed.
+   *
+   * WHY THE OPEN WAITS FOR IT. That commit is not a cosmetic flag step. It is
+   * the only thing that both seeds the native engine with this document's
+   * layers and hands them to the facade ledger, so a commit that never lands
+   * leaves a document the native engine does not hold and the ledger does not
+   * claim. `hasFacadeOwnedLayers()` is what the undo dispatch reads, so such a
+   * document's undo runs on the host stack instead of the native walker - the
+   * executor the native-walker's retirement removes. Opening it anyway is what
+   * this gate exists to prevent; the project-open route refuses a refused seed
+   * for the same reason.
+   *
+   * A refused open leaves nothing behind: the per-document state the aborted
+   * attempt created is dropped (a recorded rejected seed would hand the same
+   * rejection to every later caller and make a retry impossible), and the
+   * rasters the discarded engine held are closed, because no session will own
+   * them.
+   *
+   * Routes that opt the guard out (`photrez.bgFlagRoute=0`) track no commit, so
+   * this resolves immediately and the legacy direct setter stands.
+   */
+  async addSeededDocument(session: DocumentSession): Promise<void> {
+    const id = session.engine.getId();
+    try {
+      await awaitBackgroundFlagCommit(id);
+    } catch (err) {
+      clearNativeSeed(id);
+      clearBackgroundFlagCommit(id);
+      for (const layer of session.engine.getLayers()) {
+        layer.imageBitmap?.close();
+        layer.baseImageBitmap?.close();
+      }
+      throw new Error(
+        `Document open failed: the canonical document seed was refused (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
+    this.addDocument(session);
+  }
+
   addDocument(session: DocumentSession): void {
     if (this.sessions.size >= MAX_OPEN_DOCUMENTS) {
       throw new Error(`Maximum open document limit of ${MAX_OPEN_DOCUMENTS} reached`);
@@ -290,24 +334,19 @@ export class WorkspaceManager {
     const engine = new DocumentEngine(id, name, width, height);
     const bg = engine.addLayer("Background"); // Default empty background layer
     // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
-    // The factory cannot await the protocol commit: the model gets the flag
-    // synchronously (canonical payload + synchronous readers), the NATIVE apply
-    // stays fire-and-forget (tracked so the open path can order the canonical
-    // shadow seed behind it), and a rejection falls back to the direct setter
-    // (logged loud) so the layer still flags instead of a silent no-op.
+    // The factory cannot await - it is a synchronous constructor - so it fires
+    // the commit and hands the caller its promise; `addSeededDocument` is the
+    // open gate that awaits it and refuses the open when the native seed behind
+    // it was refused. The model still gets the flag synchronously
+    // (markBackgroundFlagOnModel), so the canonical payload and synchronous
+    // readers see it while the native apply is still in flight.
     if (isBackgroundFlagRouteArmed()) {
       markBackgroundFlagOnModel(engine, bg.id);
-      const commit = commitFacadeBackgroundFlag(engine as never, [bg.id]).catch((err) => {
-        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct native setter:", err);
-        // The TS flag was already projected at fire time (markBackgroundFlagOnModel),
-        // so only the native write is retried. The full legacy setter cannot run
-        // here: it marks the model dirty and notifies, and by the time an async
-        // commit rejects, addDocument has wired its dirty tracking — that notify
-        // would pin a freshly opened document as dirty and clobber an explicit
-        // dirty mark on the session. The legacy path fires the same setter while
-        // no listener is wired yet, so this keeps both paths equivalent.
-        engine.markLayerBackgroundNative(bg.id);
-      });
+      const commit = commitFacadeBackgroundFlag(engine as never, [bg.id]);
+      // Mark the rejection observed for a caller that never opens the session
+      // (a factory-built session that is discarded), so a refused seed is not an
+      // unhandled rejection. The tracked promise still rejects for the gate.
+      void commit.catch(() => {});
       trackBackgroundFlagCommit(engine.getId(), commit);
     } else {
       engine.markLayerAsBackground(bg.id);
@@ -352,18 +391,12 @@ export class WorkspaceManager {
     const bgLayer = engine.addLayer("Background", bitmap.width, bitmap.height);
     engine.setLayerImageBitmap(bgLayer.id, bitmap);
     // Route through Rust so graph guards (delete bg / reorder bg-pin) apply.
-    // The factory cannot await the protocol commit: the model gets the flag
-    // synchronously (canonical payload + synchronous readers), the NATIVE apply
-    // stays fire-and-forget (tracked so the open path can order the canonical
-    // shadow seed behind it), and a rejection falls back to the direct setter
-    // (logged loud) so the layer still flags instead of a silent no-op.
+    // Same shape as createBlankDocument's commit, including why there is no
+    // fallback: the open gate is `addSeededDocument`.
     if (isBackgroundFlagRouteArmed()) {
       markBackgroundFlagOnModel(engine, bgLayer.id);
-      const commit = commitFacadeBackgroundFlag(engine as never, [bgLayer.id]).catch((err) => {
-        console.error("[photrez] Background-flag protocol commit failed; falling back to the direct native setter:", err);
-        // Native-only retry; rationale in createBlankDocument's identical catch.
-        engine.markLayerBackgroundNative(bgLayer.id);
-      });
+      const commit = commitFacadeBackgroundFlag(engine as never, [bgLayer.id]);
+      void commit.catch(() => {});
       trackBackgroundFlagCommit(engine.getId(), commit);
     } else {
       engine.markLayerAsBackground(bgLayer.id);

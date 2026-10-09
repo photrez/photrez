@@ -8,6 +8,31 @@ import { WorkspaceManager } from "@/engine/workspace";
 
 import { DialogProvider } from "../dialogs/DialogProvider";
 
+// A blank document opened from a preset seeds the native engine through the
+// factory's background-flag commit, and the open refuses a document whose seed
+// was refused - so the boundary has to answer for this file to exercise the
+// preset buttons rather than a refused open.
+const { nativeProtocolEmulator } = await vi.hoisted(async () => {
+  const { createNativeProtocolEmulator } = await import(
+    "@/engine/__tests__/nativeProtocolEmulator"
+  );
+  return { nativeProtocolEmulator: createNativeProtocolEmulator() };
+});
+vi.mock("@/lib/protocol/nativeClient", () => ({
+  nativeProtocol: nativeProtocolEmulator.nativeProtocol,
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    if (cmd === "rust_pixels_open_document") return undefined;
+    throw `emulator: unhandled command ${cmd}`;
+  }),
+}));
+vi.mock("@/lib/protocol/bridge_emu", () => ({
+  __resetEmulatedForTests: vi.fn(),
+  resetWasmDoc: vi.fn(),
+  getHistoryQuery: vi.fn(async () => ({ entries: [], cursor: 0 })),
+}));
+
 // OffscreenCanvas not available in jsdom; tests that call createBlankDocument need it
 if (typeof OffscreenCanvas === "undefined") {
   (globalThis as any).OffscreenCanvas = class MockOffscreenCanvas {
@@ -80,8 +105,10 @@ describe("first impression polish", () => {
     const createBtn = Array.from(document.querySelectorAll("button")).find((btn) => btn.textContent === "Create");
     if (!createBtn) throw new Error("Create button not found in dialog");
     createBtn.click();
-    
-    await Promise.resolve(); // flush microtasks for the dialog promise to resolve
+
+    // One macrotask, not one microtask: the open now awaits the new document's
+    // native seed before installing it, so the document lands a tick later.
+    await new Promise((r) => setTimeout(r, 0));
 
     const engine = workspace.getActiveEngine();
     expect(workspace.getDocumentCount()).toBe(1);

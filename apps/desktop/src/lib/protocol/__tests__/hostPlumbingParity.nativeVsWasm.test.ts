@@ -32,6 +32,17 @@
 // the engine's LayerSet). The seed's ORDERING contract stays covered by
 // nativeAuthorityReroute.test.ts. Seed payload semantics are NOT covered here.
 //
+// WHAT THE SHIM DOES WITH `protocol_seed_native`: it RECORDS the seeded layer
+// ids and answers `protocol_layer_ids_native` from them, because that is what
+// the real command pair does (protocol_seed_native.rs:162 stores the vector
+// verbatim; protocol_layer_ids_native.rs:294 reads the per-doc engine's id set).
+// It still does not push them into the wasm engine - that stays the canonical
+// push's job. The distinction is load-bearing rather than cosmetic: the open
+// path's background-flag commit probes membership BEFORE the canonical push
+// lands (production orders the push behind the commit, workspace.ts), and a
+// shim that answered "no layers" made that commit refuse an open production
+// accepts - a refusal the real command never produces.
+//
 // THE PRECONDITION, STATED JUST AS PLAINLY: this file compares the two arms FROM A
 // COMMON PRECONDITION, and production does not hand them one. Production seeds the
 // native engine at open with the real layers + the live version (workspace.ts:55-75,
@@ -113,6 +124,17 @@ function installNativeTransport(): void {
   // Docs this transport has already "opened". Kept per install (so each test
   // starts clean) to model the real command's IDEMPOTENCE.
   const openedDocs = new Set<string>();
+  // The layer ids `protocol_seed_native` was handed, per doc. The wasm build
+  // exports no layer-set seed, so the engine's LayerSet is only populated by the
+  // canonical push below; the real native registry engine is populated by the
+  // layer seed itself, and `protocol_layer_ids_native` reads THAT set. The
+  // background-flag commit's membership probe asks this question before the
+  // canonical push lands (production orders it exactly so), so answering "no
+  // layers" here made the ACCEPTING path refuse - a reason the product does not
+  // have. See THE GAP above for what this shim still does not model: the wasm
+  // engine's own LayerSet stays empty until the canonical push, which is the one
+  // observable difference this file's Part 3 pins on purpose.
+  const seededLayerIds = new Map<string, string[]>();
   invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
     // Faithful to the Rust side: EVERY native command resolves an empty doc_id to
     // the reserved "default" key before it touches the registry
@@ -138,12 +160,30 @@ function installNativeTransport(): void {
           wasmMod.protocol_reset(key);
         }
         return undefined;
-      case "protocol_seed_native":
-        // NO wasm counterpart (see the module header). Recorded so the ordering
-        // barrier can be asserted; the layer state arrives through the canonical
-        // seed below, exactly as workspace.ts pushes it in production.
+      case "protocol_seed_native": {
+        // NO wasm counterpart (see the module header), so this shim RECORDS the
+        // seeded ids instead of applying them to the wasm engine - which is why
+        // the canonical push below is still the channel that populates it.
+        // Recording them is what the real command does (seed_layers stores the
+        // vector verbatim; protocol_seed_canonical_native.rs:162), and it is what
+        // the membership probe reads back through `protocol_layer_ids_native`.
+        const payload = JSON.parse(args.payloadJson as string) as {
+          version: number;
+          layers: Array<{ id: string }>;
+        };
+        if (!openedDocs.has(key)) throw `document not open: ${docId}`;
+        seededLayerIds.set(key, payload.layers.map((l) => l.id));
         nativeSeedInvocations.push(docId);
-        return JSON.stringify({ version: 0, layers: [] });
+        return JSON.stringify({ version: payload.version, layers: payload.layers });
+      }
+      case "protocol_layer_ids_native": {
+        // Faithful to protocol_native_cmds.rs:284: the probe answers from the
+        // per-doc engine's layer-id set, and a doc that was never opened is an
+        // ERROR (native is the single canonical authority).
+        const ids = seededLayerIds.get(key);
+        if (!ids) throw `document not open: ${docId}`;
+        return JSON.stringify(ids);
+      }
       case "protocol_seed_canonical_native":
         return wasmMod.protocol_seed_canonical(args.payloadJson as string, key);
       case "protocol_apply_command_native":
@@ -609,11 +649,12 @@ async function observeRealOpen(docId: string, native: boolean): Promise<OpenObse
   // the first raw command will be built with (under wasm authority the drain is
   // a no-op and the wasm arm is unchanged).
   await flushExternalTransitions(docId);
-  // The factory's background-flag commit settles (landed or fell back), then
+  // The factory's background-flag commit settles (landed or refused), then
   // the canonical shadow seed it is ordered in front of starts - and under
-  // this transport the document's layer state arrives through that canonical
-  // seed (see THE GAP above; protocol_seed_native is recorded but stores
-  // nothing). Production readers wait the same barriers (applyCommand awaits
+  // this transport the WASM ENGINE's layer state arrives through that
+  // canonical seed (see THE GAP above; `protocol_seed_native` is recorded and
+  // answers the membership probe, but does not populate the engine).
+  // Production readers wait the same barriers (applyCommand awaits
   // awaitNativeSeed), so wait for both before capturing.
   await awaitBackgroundFlagCommit(docId);
   await awaitNativeSeed(docId);

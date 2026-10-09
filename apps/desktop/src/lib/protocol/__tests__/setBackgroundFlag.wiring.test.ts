@@ -44,7 +44,6 @@ const GUARD_KEY = "photrez.bgFlagRoute";
 let applyCount = 0;
 let bgFlagApplies = 0;
 let lastApplyEnvelope: { expectedVersion?: number; command: Record<string, unknown> } | null = null;
-let forceApplyRejection = false;
 
 beforeEach(() => {
   localStorage.setItem("photrez.facade", "1");
@@ -54,7 +53,6 @@ beforeEach(() => {
   applyCount = 0;
   bgFlagApplies = 0;
   lastApplyEnvelope = null;
-  forceApplyRejection = false;
   routeNative();
 });
 afterEach(() => {
@@ -189,7 +187,6 @@ function routeNative(): void {
         if (env.expectedVersion !== undefined && env.expectedVersion !== cur()) {
           throw `E_VERSION_MISMATCH: expected version ${env.expectedVersion} got ${cur()}`;
         }
-        if (forceApplyRejection) throw "E_APPLY_FAILED: forced apply failure";
         if (c.type === "addLayer") {
           history.get(docId)!.push({ layers: (layers.get(docId) ?? []).map((l) => ({ ...l })), version: cur() });
           const arr = layers.get(docId) ?? [];
@@ -450,32 +447,5 @@ describe("createBlankDocument background-flag factory wiring (photrez.bgFlagRout
       String(await invoke("protocol_snapshot_native", { docId: "bg-seed-race" })),
     ) as { layers: Array<{ id: string; isBackground?: boolean }> };
     expect(snap.layers.find((l) => l.id === bg.id)?.isBackground).toBe(true);
-  });
-
-  it("armed + native rejection: console.error fires and the direct setter still settles the layer", async () => {
-    forceApplyRejection = true;
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const session = WorkspaceManager.createBlankDocument("bg-fallback-factory", "Fallback", 8, 8);
-    const wm = new WorkspaceManager();
-    wm.addDocument(session);
-
-    await vi.waitFor(() =>
-      expect(spy.mock.calls.some((c) => String(c[0]).includes("Background-flag"))).toBe(true),
-    );
-
-    const bg = session.engine.getLayers().find((l) => l.name === "Background")!;
-    expect(bg.isBackground).toBe(true);
-    expect(bg.lockPosition).toBe(true);
-    expect(bg.lockRotation).toBe(true);
-    expect(bgFlagApplies).toBe(1);
-    // Fallback-state proof: the direct setter's notifyChange re-projects the
-    // engine model into the facade snapshot, so the facade is not left
-    // unflagged while the engine is flagged.
-    await vi.waitFor(() => {
-      const fl = getFacade("bg-fallback-factory").snapshot.layers.find((l) => l.id === bg.id);
-      expect(fl?.isBackground).toBe(true);
-      expect(fl?.lockPosition).toBe(true);
-      expect(fl?.lockRotation).toBe(true);
-    });
   });
 });

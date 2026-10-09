@@ -30,11 +30,41 @@ vi.mock("@/tauri/native", () => ({
   ),
 }));
 
+// Opening a factory-built document seeds the native engine through the factory's
+// background-flag commit, and the open refuses a document whose seed was refused
+// - so this file's createImageBitmap stub needs a real `close` and the boundary
+// needs to answer, or these cases would exercise a refused open instead.
+const { nativeProtocolEmulator } = await vi.hoisted(async () => {
+  const { createNativeProtocolEmulator } = await import(
+    "@/engine/__tests__/nativeProtocolEmulator"
+  );
+  return { nativeProtocolEmulator: createNativeProtocolEmulator() };
+});
+vi.mock("@/lib/protocol/nativeClient", () => ({
+  nativeProtocol: nativeProtocolEmulator.nativeProtocol,
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    if (cmd === "rust_pixels_open_document") return undefined;
+    throw `emulator: unhandled command ${cmd}`;
+  }),
+}));
+vi.mock("@/lib/protocol/bridge_emu", () => ({
+  __resetEmulatedForTests: vi.fn(),
+  resetWasmDoc: vi.fn(),
+  getHistoryQuery: vi.fn(async () => ({ entries: [], cursor: 0 })),
+}));
+
 let originalCreateImageBitmap: typeof globalThis.createImageBitmap;
 
 beforeEach(() => {
+  nativeProtocolEmulator.reset();
   originalCreateImageBitmap = globalThis.createImageBitmap;
-  globalThis.createImageBitmap = vi.fn().mockResolvedValue({ width: 100, height: 100 } as ImageBitmap);
+  globalThis.createImageBitmap = vi.fn().mockResolvedValue({
+    width: 100,
+    height: 100,
+    close: () => {},
+  } as unknown as ImageBitmap);
 });
 
 interface CapturedEditor {

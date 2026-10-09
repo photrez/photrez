@@ -84,6 +84,9 @@ function installNativeTransport(): void {
   // are namespaced away from any wasm-authority engine in the same process.
   const NS = "native::";
   const opened = new Set<string>();
+  // The layer ids `protocol_seed_native` was handed, per doc - see the note on
+  // the case below for why the transport keeps them at all.
+  const seededLayerIds = new Map<string, string[]>();
   invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
     const rawDocId = (args.docId as string) ?? "";
     const docId = rawDocId === "" ? "default" : rawDocId;
@@ -98,12 +101,32 @@ function installNativeTransport(): void {
           wasmMod.protocol_reset(key);
         }
         return undefined;
-      case "protocol_seed_native":
+      case "protocol_seed_native": {
         // The wasm build exports no layer/version seed, so the document's layer
-        // state reaches the engine through the canonical push below - the same
-        // "THE GAP" hostPlumbingParity documents. Return the shape the command
-        // produces so a caller reading it is not misled.
-        return JSON.stringify({ version: 0, layers: [] });
+        // state reaches the WASM ENGINE through the canonical push below - the
+        // same "THE GAP" hostPlumbingParity documents. What this case does
+        // record is the seeded id vector, because the real command stores it
+        // (protocol_seed_native.rs:162) and `protocol_layer_ids_native` reads it
+        // back (protocol_layer_ids_native.rs:294). Without that the open path's
+        // background-flag commit - which probes membership before the canonical
+        // push lands, in production and here alike - reads "no layers" and
+        // refuses an open the real engine accepts, which this file's own header
+        // comment used to describe as "the transport does not always deliver".
+        const payload = JSON.parse(args.payloadJson as string) as {
+          version: number;
+          layers: Array<{ id: string }>;
+        };
+        if (!opened.has(key)) throw `document not open: ${docId}`;
+        seededLayerIds.set(key, payload.layers.map((l) => l.id));
+        return JSON.stringify({ version: payload.version, layers: payload.layers });
+      }
+      case "protocol_layer_ids_native": {
+        // Faithful to protocol_native_cmds.rs:284: the per-doc engine's id set,
+        // and a doc that was never opened is an ERROR rather than an empty list.
+        const ids = seededLayerIds.get(key);
+        if (!ids) throw `document not open: ${docId}`;
+        return JSON.stringify(ids);
+      }
       case "protocol_seed_canonical_native":
         return wasmMod.protocol_seed_canonical(args.payloadJson as string, key);
       case "protocol_apply_command_native":
@@ -217,12 +240,10 @@ describe("a non-pixel External undo reverts the operation's effect", () => {
     // production command would.
     await flushExternalTransitions(DOC);
 
-    // The flip's External entry is the tip. Its own count is not asserted: the
-    // open baseline entry depends on the background-flag protocol commit landing,
-    // which this transport does not always deliver (it falls back to the direct
-    // native setter, logging the miss), and the undo below behaves the same
-    // either way - see rustStreamHoldsUserWork, which only lowers the refusal
-    // floor when no baseline was recorded.
+    // The flip's External entry is the tip. Its own count is not asserted: the open
+    // baseline entry depends on the background-flag protocol commit landing, and
+    // the undo below behaves the same either way - see rustStreamHoldsUserWork,
+    // which only lowers the refusal floor when no baseline was recorded.
     await expect
       .poll(
         async () => (await getHistoryProjection(DOC)).entries.at(-1)?.label,

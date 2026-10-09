@@ -119,12 +119,13 @@ export async function commitFacadeBackgroundFlag(
   if (!isBackgroundFlagRouteArmed()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   if (f.snapshot.layers.length === 0) {
-    try {
-      await seedFacadeFromEngine(engine as never, f);
-    } catch {
-      // Seeding failure is non-fatal here; the command envelope surfaces a
-      // version/open error which the caller logs and falls back on.
-    }
+    // A refused seed is the document's own refusal to exist natively, so it
+    // propagates. Stepping over it used to leave the caller with a document the
+    // native engine does not hold, which is not a degraded open but a different
+    // one: the flag apply that follows cannot land, and the caller's fallback
+    // writes the flag into the engine's own wasm mirror - an engine that is not
+    // this document's authority. The open route refuses the open instead.
+    await seedFacadeFromEngine(engine as never, f);
   }
   let last: unknown = null;
   for (const id of ids) {

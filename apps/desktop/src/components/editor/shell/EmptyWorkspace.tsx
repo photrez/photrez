@@ -34,19 +34,31 @@ export function EmptyWorkspace() {
     if (result) {
       const id = `doc-${crypto.randomUUID()}`;
       const session = WorkspaceManager.createBlankDocument(id, result.name, result.width, result.height, { backgroundColor: result.backgroundColor });
-      workspace.addDocument(session);
+      // A refused native seed opens nothing; see WorkspaceManager.addSeededDocument.
+      try {
+        await workspace.addSeededDocument(session);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : String(err), "error");
+        return;
+      }
       scheduler.requestRender();
     }
   };
 
-  const handleCreatePreset = (preset: typeof PRESETS[number]) => {
+  const handleCreatePreset = async (preset: typeof PRESETS[number]) => {
     if (workspace.isFull()) {
       showToast(`Workspace full: close a document first (max ${MAX_OPEN_DOCUMENTS})`, "error");
       return;
     }
     const id = `doc-${crypto.randomUUID()}`;
     const session = WorkspaceManager.createBlankDocument(id, preset.label, preset.width, preset.height, { backgroundColor: "white" });
-    workspace.addDocument(session);
+    // A refused native seed opens nothing; see WorkspaceManager.addSeededDocument.
+    try {
+      await workspace.addSeededDocument(session);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : String(err), "error");
+      return;
+    }
     scheduler.requestRender();
   };
 
@@ -94,7 +106,7 @@ export function EmptyWorkspace() {
       // Dropping a layer onto an empty workspace seeds a brand-new document
       // from that layer (see createNewDocFromLayerDrag).
       e.preventDefault();
-      createNewDocFromLayerDrag(state.payload, workspace, renderer, scheduler);
+      await createNewDocFromLayerDrag(state.payload, workspace, renderer, scheduler);
       dragController.endDrag();
       return;
     }

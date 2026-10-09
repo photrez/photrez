@@ -6,6 +6,32 @@ import { DragControllerProvider, useDragController, type DragController } from "
 import { EmptyWorkspace } from "../EmptyWorkspace";
 import { WorkspaceManager } from "@/engine/workspace";
 
+// A layer dropped onto the empty workspace seeds a factory document, and the
+// open now waits for that document's native seed and refuses the open when it
+// was refused - so the boundary has to answer, and the drop is asynchronous.
+const { nativeProtocolEmulator } = await vi.hoisted(async () => {
+  const { createNativeProtocolEmulator } = await import(
+    "@/engine/__tests__/nativeProtocolEmulator"
+  );
+  return { nativeProtocolEmulator: createNativeProtocolEmulator() };
+});
+vi.mock("@/lib/protocol/nativeClient", () => ({
+  nativeProtocol: nativeProtocolEmulator.nativeProtocol,
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    if (cmd === "rust_pixels_open_document") return undefined;
+    throw `emulator: unhandled command ${cmd}`;
+  }),
+}));
+vi.mock("@/lib/protocol/bridge_emu", () => ({
+  __resetEmulatedForTests: vi.fn(),
+  resetWasmDoc: vi.fn(),
+  getHistoryQuery: vi.fn(async () => ({ entries: [], cursor: 0 })),
+}));
+
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
 function mount(workspace: WorkspaceManager) {
   const renderer = {
     uploadImage: vi.fn(),
@@ -43,7 +69,8 @@ describe("EmptyWorkspace layer drop → new document", () => {
     active = null;
   });
 
-  it("dropping a layer onto the empty workspace seeds a new document from that layer", () => {
+  it("dropping a layer onto the empty workspace seeds a new document from that layer", async () => {
+    nativeProtocolEmulator.reset();
     const ws = new WorkspaceManager();
     const s = WorkspaceManager.createBlankDocument("docA", "A", 800, 600);
     ws.addDocument(s);
@@ -63,6 +90,8 @@ describe("EmptyWorkspace layer drop → new document", () => {
     expect(root).toBeTruthy();
     // Fire the drop from the time the global host (EmptyWorkspace) is mounted.
     root.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));
+    // The open awaits the new document's native seed before installing it.
+    await tick();
 
     // One source doc + one newly created doc.
     expect(ws.getDocumentCount()).toBe(2);
