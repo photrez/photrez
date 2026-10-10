@@ -4,8 +4,8 @@
 //  - only affected dirty tiles cross Rust->TS (gate 8 transport bounded)
 //  - history entry is a delta, not a full-layer clone (gate 2/3)
 //  - undo/redo round-trip restores pre/post-stroke bytes
-//  - photrez.rustPixels decides no raster producer (bucket/fill/bake and
-//    brush/eraser are Rust-canonical at its default state)
+//  - no runtime flag decides any raster producer (bucket/fill/bake and
+//    brush/eraser are Rust-canonical)
 //  - canonical pixel owner is namespaced by (docId, layerId) (C5.1)
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -165,10 +165,6 @@ const DOC = "doc1";
 describe("Rust-owned canonical pixel buffers - TS<->Rust ownership contract (doc-scoped)", () => {
   beforeEach(() => {
     localStorage.clear();
-  });
-
-  it("default flag is OFF (legacy path preserved)", () => {
-    expect(localStorage.getItem("photrez.rustPixels")).not.toBe("1");
   });
 
   it("commit: TS cache bytes == Rust canonical; only affected tiles transported", async () => {

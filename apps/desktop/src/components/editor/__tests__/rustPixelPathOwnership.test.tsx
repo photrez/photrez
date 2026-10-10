@@ -2,37 +2,22 @@
  * Ownership of the brush pixel path: Rust records it, and at most one site
  * moves the Rust cursor for one undo/redo step.
  *
- * TRANSITIONAL AUDIT (recorded, 2026-10-02). Every case below that names
- * `photrez.rustPixels` pins the FLAG's behaviour and is transitional: brush,
- * eraser, bucket, seeded fill, gradient and delete-pixels became unconditionally
- * Rust, deleting five of the flag's six production subjects. Exactly one read
- * survives - the undo/redo cursor-step arming in `CommandHistory.stepRustCursor`
- * (it used to be `rustOwned || rustPixelsFlag` inside the tile branch of
- * useEditorCommands) - so the flag matrix below is now the ONLY
- * flag-dependent coverage in the tree and must be DELETED when that last read
- * retires. The per-case TRANSITIONAL markers name the flag they pin; the
- * permanent replacements are `ownerConvergence.test.ts` (do the two live owners
- * agree?) and `pixelWriterCensus.test.ts` (is every writer declared?), neither of
- * which reads the flag.
- *
- * Part 1 - the TILE/PIXEL undo/redo routing matrix.
- * One pop of a `CommandHistory` entry is ONE Rust cursor step, fired by the pop
- * itself (`stepRustCursor`) whenever Rust recorded that entry; the tile branch
- * only READS that step's tiles. All flag x runtime combinations are pinned
- * below, and they resolve on the flag alone - see the comment on ROWS for why
- * nothing else can arm a step for this entry shape. A metadata-only step
- * carries no tile patches, so the tile branch is unreachable for it; the separate
- * block below covers what its pop does instead.
+ * Part 1 - the TILE/PIXEL undo/redo routing for a pop of a `CommandHistory`
+ * entry: ONE Rust cursor step, fired by the pop itself (`stepRustCursor`)
+ * whenever Rust recorded that entry; the tile branch only READS that step's
+ * tiles. A metadata-only step carries no tile patches, so the tile branch is
+ * unreachable for it; the block below covers what its pop does instead.
  *
  * Census reads go through flushPixelInvokeCensus(), which awaits in-flight
  * invokes first; a sleep is not a drain.
  *
  * Part 2 - Rust-owned entries: the TS twin is a cursor token, so one undo
- * fetches the pixels from Rust and never replays the memento it carries.
+ * fetches the pixels from Rust and never replays the memento it carries. An
+ * entry Rust does not own still replays its own memento.
  *
- * Part 3 - the default-path gate: the brush commit path must not read
- * photrez.rustPixels at all, so a real pointer chain with the key absent still
- * reaches rust_pixels_write_region.
+ * Part 3 - the default-path gate: the brush commit path takes no runtime flag
+ * configuration, so a real pointer chain still reaches
+ * rust_pixels_write_region.
  *
  * Part 4 - the census oracle counterexample: history can grow through a command
  * the six-command census does not count.
@@ -154,8 +139,6 @@ if (typeof (globalThis as { createImageBitmap?: unknown }).createImageBitmap ===
   (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async (source: unknown) => source;
 }
 
-const RUST_PIXELS_KEY = "photrez.rustPixels";
-
 /**
  * The tile memento exactly as `CommandHistory` records it. `rustOwned` is the
  * real field (see `HistoryTilePatches`): set by the commit that
@@ -272,92 +255,6 @@ function countInvokes(...commands: string[]): number {
   ).length;
 }
 
-type Row = {
-  rustPixels: "0" | "1";
-  tauri: boolean;
-  expected: number;
-};
-
-// TRANSITIONAL (photrez.rustPixels gating; delete with the flag).
-//
-// The flag is the only thing that arms the Rust cursor step and tile FETCH for an
-// entry Rust does not own, and that is what this matrix measures: per direction,
-// how many cursor-sync invokes a pop issues. The shim is opted out
-// (`optOutOfShimRecording`), so no `External` counterpart exists and the pop's
-// shim arm never fires - only the flag can arm a step here.
-const ROWS: Row[] = [
-  { rustPixels: "1", tauri: true, expected: 1 },
-  { rustPixels: "1", tauri: false, expected: 1 },
-  { rustPixels: "0", tauri: true, expected: 0 },
-  { rustPixels: "0", tauri: false, expected: 0 },
-];
-
-function applyRowFlags(flags: { rustPixels: "0" | "1" }): void {
-  localStorage.setItem(RUST_PIXELS_KEY, flags.rustPixels);
-  optOutOfShimRecording();
-}
-
-// TRANSITIONAL (photrez.rustPixels gating; delete with the flag). The flag is
-// the subject of every row, so the whole matrix dies with it.
-describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x runtime)", () => {
-  beforeEach(() => {
-    vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
-      {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
-    );
-    vi.mocked(invoke).mockReset();
-    vi.mocked(isTauriRuntime).mockReset();
-    localStorage.clear();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    localStorage.clear();
-  });
-
-  for (const row of ROWS) {
-    const label = `rustPixels=${row.rustPixels} runtime=${row.tauri ? "tauri" : "jsdom"}`;
-
-    it(`${label}: exactly ${row.expected} cursor-sync invoke per direction`, async () => {
-      applyRowFlags(row);
-      vi.mocked(isTauriRuntime).mockReturnValue(row.tauri);
-      const engine = makeEngine();
-      mockUseEditor(makeEditorContext(makeHistory(makePatches()), engine));
-      vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
-      // Drain the commit's fire-and-forget record before reading the baseline.
-      await flush();
-      const censusBefore = (await flushPixelInvokeCensus()).entries.length;
-
-      const commands = useEditorCommands(() => {});
-      commands.undo();
-      await flush();
-      expect(countInvokes("rust_pixels_undo"), "undo fires only its own command").toBe(
-        row.expected,
-      );
-      expect(countInvokes("rust_pixels_redo"), "undo must not fire redo").toBe(0);
-
-      vi.mocked(invoke).mockClear();
-      commands.redo();
-      await flush();
-      expect(countInvokes("rust_pixels_redo"), "redo fires only its own command").toBe(
-        row.expected,
-      );
-      expect(countInvokes("rust_pixels_undo"), "redo must not fire undo").toBe(0);
-
-      const census = await flushPixelInvokeCensus();
-      const delta = census.entries
-        .slice(censusBefore)
-        .filter(
-          (entry) =>
-            entry.command === "rust_pixels_undo" || entry.command === "rust_pixels_redo",
-        );
-      expect(delta.map((entry) => entry.command)).toEqual(
-        row.expected === 1 ? ["rust_pixels_undo", "rust_pixels_redo"] : [],
-      );
-      expect(delta.every((entry) => entry.phase === "resolved")).toBe(true);
-    });
-  }
-});
-
 // A metadata-only step carries no tile patches, so it never reaches the tile
 // branch. Its cursor step belongs to the POP (CommandHistory.stepRustCursor),
 // which fires exactly when a recorded entry backs it - and never otherwise.
@@ -378,49 +275,41 @@ describe("a metadata-only pop never steps the Rust cursor when nothing recorded 
     localStorage.clear();
   });
 
-  const combos = [
-    // The shim is opted out (`applyRowFlags`) and no other recorder exists for a
-    // metadata step, so nothing records an entry: stepping would consume somebody
-    // else's. At the shim's DEFAULT the counterpart exists and the pop MUST step
-    // it - pinned where the shim really runs, in historyCursorDriftClosure.wiring.test.ts.
-    { rustPixels: "1", tauri: true, expected: 0 },
-    { rustPixels: "0", tauri: true, expected: 0 },
-  ] as const;
+  it("with the shim opted out: zero cursor-sync invokes while the model restore still runs", async () => {
+    // The shim is opted out and no other recorder exists for a metadata
+    // step, so nothing records an entry: stepping would consume somebody
+    // else's. At the shim's DEFAULT the counterpart exists and the pop MUST
+    // step it - pinned where the shim really runs, in
+    // historyCursorDriftClosure.wiring.test.ts.
+    optOutOfShimRecording();
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
+    const engine = makeEngine();
+    mockUseEditor(makeEditorContext(makeHistory(null), engine));
+    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
+    await flush();
+    const censusBefore = (await flushPixelInvokeCensus()).entries.length;
 
-  for (const combo of combos) {
-    const label = `rustPixels=${combo.rustPixels} runtime=${combo.tauri ? "tauri" : "jsdom"}`;
+    const commands = useEditorCommands(() => {});
+    commands.undo();
+    await flush();
+    commands.redo();
+    await flush();
 
-    it(`${label}: ${combo.expected} cursor-sync invoke(s) while the model restore still runs`, async () => {
-      applyRowFlags(combo);
-      vi.mocked(isTauriRuntime).mockReturnValue(combo.tauri);
-      const engine = makeEngine();
-      mockUseEditor(makeEditorContext(makeHistory(null), engine));
-      vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
-      await flush();
-      const censusBefore = (await flushPixelInvokeCensus()).entries.length;
+    // Non-vacuity: the step completed its model restore, so the count below
+    // means "the pop stepped (or did not)", not "the step aborted early".
+    expect(engine.restore).toHaveBeenCalledTimes(2);
+    expect(countInvokes("rust_pixels_undo")).toBe(0);
+    expect(countInvokes("rust_pixels_redo")).toBe(0);
 
-      const commands = useEditorCommands(() => {});
-      commands.undo();
-      await flush();
-      commands.redo();
-      await flush();
-
-      // Non-vacuity: the step completed its model restore, so the count below
-      // means "the pop stepped (or did not)", not "the step aborted early".
-      expect(engine.restore).toHaveBeenCalledTimes(2);
-      expect(countInvokes("rust_pixels_undo")).toBe(combo.expected);
-      expect(countInvokes("rust_pixels_redo")).toBe(combo.expected);
-
-      const census = await flushPixelInvokeCensus();
-      const delta = census.entries
-        .slice(censusBefore)
-        .filter(
-          (entry) =>
-            entry.command === "rust_pixels_undo" || entry.command === "rust_pixels_redo",
-        );
-      expect(delta.map((entry) => entry.command)).toEqual([]);
-    });
-  }
+    const census = await flushPixelInvokeCensus();
+    const delta = census.entries
+      .slice(censusBefore)
+      .filter(
+        (entry) =>
+          entry.command === "rust_pixels_undo" || entry.command === "rust_pixels_redo",
+      );
+    expect(delta.map((entry) => entry.command)).toEqual([]);
+  });
 });
 
 // -- Rust-owned pixel entries: drained in lockstep, never re-painted ----------
@@ -429,7 +318,7 @@ describe("a metadata-only pop never steps the Rust cursor when nothing recorded 
 // exists, and the step's pixels are whatever Rust returns. Replaying its own
 // memento would repaint the surface from bytes no store holds, so that fallback
 // is refused for a Rust-owned entry - it stays available for every entry Rust
-// does not own (the transitional rows below).
+// does not own (the memento-replay case below).
 
 const MEMENTO_TILE = tile(0, 0, [7, 7, 7, 255]);
 const RUST_TILE = { x: 3, y: 4, w: 1, h: 1, data: [1, 2, 3, 255] };
@@ -453,7 +342,7 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
     localStorage.clear();
   });
 
-  it("one undo fetches from Rust with the flag at its default, and uploads only Rust's tiles", async () => {
+  it("one undo fetches from Rust and uploads only Rust's tiles", async () => {
     const ctx = makeEditorContext(
       makeHistory({ ...makePatches(), rustOwned: true, before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
       makeEngine(),
@@ -495,10 +384,9 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
     ).toBe(true);
   });
 
-  // TRANSITIONAL (photrez.rustPixels gating; delete with the flag). The fallback
-  // exists only while an entry can lack `rustOwned`. No recorder armed, so the memento
-  // is the only pixel source - see `optOutOfShimRecording`.
-  it("TRANSITIONAL keeps photrez.rustPixels-OFF memento replay for entries Rust does not own (delete when the flag is retired)", async () => {
+  // The fallback exists while an entry can lack `rustOwned`. No recorder armed,
+  // so the memento is the only pixel source - see `optOutOfShimRecording`.
+  it("keeps the memento replay for entries Rust does not own", async () => {
     optOutOfShimRecording();
     const ctx = makeEditorContext(
       makeHistory({ ...makePatches(), before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
@@ -523,8 +411,9 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
 });
 
 // -- Default-path gate (real brush pointer chain, flag never set) ------------
-// The matrix above set photrez.rustPixels explicitly. This gate covers the state
-// every user is actually in: the key is absent, so nothing may be gated on it.
+// This gate covers the state
+// every user is actually in: no runtime flag configuration, so the chain must
+// still reach rust_pixels_write_region.
 // One real pointer chain must reach rust_pixels_write_region, record exactly one
 // Pixel entry, and leave exactly one owner of the stroke (no apply_tile_patch
 // twin). The verdict comes from the six-command census (one monotonic order per
@@ -835,14 +724,11 @@ function teardownPathHarness() {
   localStorage.clear();
 }
 
-describe("brush strokes are Rust-canonical with photrez.rustPixels at its default", () => {
+describe("brush strokes are Rust-canonical", () => {
   beforeEach(setupPathHarness);
   afterEach(teardownPathHarness);
 
   it("one pointer chain writes one region, records one Pixel entry, and moves the canonical bytes", async () => {
-    // Default state for every user: the key was never set. The brush Rust path
-    // is NOT gated on it, so this chain must reach rust_pixels_write_region.
-    localStorage.removeItem(RUST_PIXELS_KEY);
     const { session } = mountPathViewport();
     await tick();
     setZoom(1);

@@ -2,10 +2,6 @@
 // stroke). Drives the REAL production commit path via the hook, with
 // @tauri-apps/api/core invoke mocked by an in-test Rust store emulator.
 //
-// TRANSITIONAL-TEST AUDIT (2026-10-02): the `photrez.rustPixels` setItem below is
-// now INERT (the brush commit path never reads the key), so this case pins a
-// permanent invariant of the unconditional Rust path and is NOT transitional.
-//
 // Unlike c4MultiStroke.test.ts (which zero-mocks the surface and locks the
 // defect in as "passing"), this test models the REAL coupling at
 // paintTileSurface.ts: the surface context's drawImage/putImageData write into
@@ -393,7 +389,6 @@ describe("Scratch composite faithful dab-pixel proof", () => {
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation((id: string) => false);
     hoist.setSim(makeSim());
     currentSeed = SEED_A;
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.removeItem("photrez.canonicalCommit");
   });
   afterEach(() => {

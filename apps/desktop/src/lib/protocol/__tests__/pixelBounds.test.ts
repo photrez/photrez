@@ -287,10 +287,6 @@ describe("rust_pixels_write_region input bounds", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     vi.mocked(syncFacadeVersionFromPixel).mockClear();
-    localStorage.setItem("photrez.rustPixels", "1");
-  });
-  afterEach(() => {
-    localStorage.removeItem("photrez.rustPixels");
   });
 
   it("issues only finite, positive, in-bounds dims and syncs the returned version", async () => {

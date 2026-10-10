@@ -46,7 +46,7 @@
 
 import { spawn } from "node:child_process";
 import net from "node:net";
-import { clearHarnessFlag, parseHarnessFlags } from "./harness-flag-cleanup.mjs";
+import { parseHarnessFlags } from "./harness-flag-cleanup.mjs";
 
 // ── config ────────────────────────────────────────────────────────────────
 const CDP_PORT = Number(process.env.PHOTREZ_CDP_PORT || 9222);
@@ -356,10 +356,6 @@ const STEP_PIXELCOMMIT = stepFn(`
   }
   // The fill operates on the active layer; make it the added layer.
   engine.setActiveLayer(targetId);
-  // This step never enables the rust pixel path. It reads the key and reports
-  // the state instead; PHOTREZ_FLAGS refuses the key, so a "1" here can only be
-  // a leftover on the dev origin from an earlier run.
-  const rustPathOn = localStorage.getItem('photrez.rustPixels') === '1';
   if (typeof ed.setActiveTool === 'function') ed.setActiveTool('paintBucket');
   const { applyPaintBucketFill } = await import(location.origin + '/src/components/editor/canvas/pointerTools/paintBucket.ts');
   const ctx = {
@@ -392,7 +388,6 @@ const STEP_PIXELCOMMIT = stepFn(`
   dig.followOk = !followError;
   dig.followError = followError;
   dig.committed = committed;
-  dig.rustPath = rustPathOn;
   dig.note = 'rvBefore=' + rvBefore + ' rvAfterFill=' + rvAfterFill + ' followOk=' + (!followError) + (followError ? (' err=' + followError) : '') + ' committed=' + committed;
   return dig;
 `);
@@ -619,11 +614,6 @@ async function main() {
 
             const pixelCommit = captured.find((c) => c.step === "pixelCommit");
             const pixelCommitOk = !pixelCommit || (pixelCommit.digest && pixelCommit.digest.committed !== false);
-            if (pixelCommit && pixelCommit.digest && pixelCommit.digest.rustPath === false) {
-              log("NOTE: photrez.rustPixels is not enabled on the dev origin, so pixelCommit ran the legacy fill path");
-              log("      and the rust pixel bridge was NOT exercised. PHOTREZ_FLAGS refuses that key now;");
-              log("      run tests/validation/bitmap-sync.mjs or tests/validation/restore-sync.mjs, which set and clear it.");
-            }
             const pass = consoleErrors.length === 0 && !divergence && isolationOk && tauriErrors.length === 0 && pixelCommitOk;
             log("");
             if (pass) {
@@ -645,10 +635,7 @@ async function main() {
     err("FAIL: harness error: " + (e?.stack || e?.message || String(e)));
     exitCode = 1;
   } finally {
-    // BUG 2 fix: cleanup runs on EVERY exit path (success, fail, timeout, throw).
-    // Clear the pixel flag while the page is still alive; the helper only
-    // reports failures, so it can never replace the run result in flight.
-    if (await clearHarnessFlag(cdp)) log("cleanup OK: photrez.rustPixels removed from the dev origin.");
+    // Cleanup runs on EVERY exit path (success, fail, timeout, throw).
     await cleanup();
   }
 

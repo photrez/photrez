@@ -282,15 +282,11 @@ describe("pixel undo leaves layer.imageBitmap truthful", () => {
    * Real chain: DocumentEngine + CommandHistory + useBrushOverlay +
    * useEditorCommands, one brush stroke, then a real undo.
    *
-   * `rustPixels: "1"` seeds the Rust canonical store, so the stroke records its
-   * region against existing storage. `rustPixels: "absent"` is the DEFAULT state
-   * for every user (the key was never set): the stroke still has to record the
-   * region - the commit path is not gated on the flag - and Rust seeds the layer
-   * on first write. `seedRust` false leaves the store uninitialised up front.
+   * `seedRust: true` seeds the Rust canonical store up front, so the stroke
+   * records its region against existing storage. `seedRust: false` leaves the
+   * store uninitialised, so Rust seeds the layer on the stroke's first write.
    */
-  function makeFixture(opts: { rustPixels: "1" | "absent"; seedRust: boolean }) {
-    if (opts.rustPixels === "absent") localStorage.removeItem("photrez.rustPixels");
-    else localStorage.setItem("photrez.rustPixels", opts.rustPixels);
+  function makeFixture(opts: { seedRust: boolean }) {
     const sim = makeSim();
     hoist.setSim(sim);
 
@@ -449,8 +445,8 @@ describe("pixel undo leaves layer.imageBitmap truthful", () => {
     return { postHash, epochAfterCommit, rustUndoDepth, postUndoRustDepth, live: engine.getLayer(layerId)! };
   }
 
-  it("rustPixels=1: model bitmap hash returns to the pre-stroke hash and the epoch is never stamped over a stale bitmap", async () => {
-    const f = makeFixture({ rustPixels: "1", seedRust: true });
+  it("seeded Rust store: model bitmap hash returns to the pre-stroke hash and the epoch is never stamped over a stale bitmap", async () => {
+    const f = makeFixture({ seedRust: true });
     const { sim, layerId, preHash } = f;
 
     const { postHash, rustUndoDepth, live } = await strokeThenUndo(f);
@@ -477,12 +473,12 @@ describe("pixel undo leaves layer.imageBitmap truthful", () => {
     expect(live.imageBitmap).not.toBeNull();
   });
 
-  it("photrez.rustPixels absent (default): the stroke is recorded in Rust and ONE undo reverts exactly it", async () => {
-    // The DEFAULT state for every user: the flag key was never set. Nothing may
-    // be gated on it, so the stroke must record its region and the single undo
-    // press must step that Rust entry - the defect this pins is a stroke that
-    // reaches neither Rust history nor a drainable twin.
-    const f = makeFixture({ rustPixels: "absent", seedRust: false });
+  it("unseeded store: the stroke is recorded in Rust and ONE undo reverts exactly it", async () => {
+    // The default state for every user: the store starts empty. The stroke
+    // must record its region and the single undo press must step that Rust
+    // entry - the defect this pins is a stroke that reaches neither Rust
+    // history nor a drainable twin.
+    const f = makeFixture({ seedRust: false });
     const { sim, history, layerId, preHash } = f;
     expect(sim.store.size, "PROBE no Rust pixel store before the stroke").toBe(0);
 

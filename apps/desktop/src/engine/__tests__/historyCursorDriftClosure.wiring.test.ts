@@ -12,12 +12,10 @@
  * pop's shim arm).
  *
  * WHAT THIS PINS NOW.
- *   1. The configuration matrix over `photrez.facade` and `photrez.rustPixels`: every
+ *   1. The configuration matrix over `photrez.facade`: every
  *      cell yields ONE entry per host commit and ONE step per pop, or - with the shim
  *      off - no entry and no step.
- *   2. The arms of `stepRustCursor` resolve to a single fire when their predicates
- *      overlap (a tile commit with `photrez.rustPixels` ON matches both).
- *   3. A declined facade handoff plus a pop is still ONE step.
+ *   2. A declined facade handoff plus a pop is still ONE step.
  *
  * WHAT THIS DOES NOT CHANGE. The facade handoff still pops no host entry: it
  * returns before `history.undo()`, so it drives the native walker and never reaches
@@ -49,7 +47,7 @@ import {
   streamFor,
   tipFor,
 } from "./rustStreamEmulator";
-import { commitRustOwnedPaint, makePatches } from "./historyCursorFixtures";
+import { commitRustOwnedPaint } from "./historyCursorFixtures";
 import { cursorStepInvokes, settle } from "./historyCursorHarness";
 import { installFacadeCommitShim } from "@/lib/protocol/facadeRegistry";
 
@@ -72,7 +70,6 @@ vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
   handoffMovedCursor: vi.fn(() => false),
 }));
 
-const RUST_PIXELS = "photrez.rustPixels";
 const FACADE = "photrez.facade";
 const DOC = "doc-1";
 
@@ -490,65 +487,6 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     await until(() => cursorStepInvokes() >= 1);
     expect(cursorStepInvokes(), "exactly one step").toBe(1);
     await settle();
-  });
-
-  it("MATRIX rustPixels ON + facade ON, a TILE commit: entryArm and shimArm co-fire", async () => {
-    // The one cell where the two arms overlap. Both predicates are private, so this
-    // pins their INPUTS and then the consequence they jointly produce:
-    //
-    //   entryArm = `entry.imperative?.rustOwned === true || (entry.imperative !== undefined
-    //               && rustPixelsFlagEnabled())`
-    //   shimArm  = `!facadeMoved && entry.rustRecordFailed !== true &&
-    //               entry.imperative?.rustOwned !== true && isFacadeEnabled() &&
-    //               !historyDegraded()`
-    //
-    // The first clause of entryArm needs `imperative`, so this must be a TILE commit.
-    // It used to drive `metadataOp`, which has no `imperative` - entryArm was FALSE
-    // there and only shimArm fired, so the cell never tested what its name claimed.
-    localStorage.setItem(RUST_PIXELS, "1");
-    const { history, engine, commands } = mountCommands();
-    // rustPixels ON but NOT rustOwned: the second entryArm clause needs an imperative
-    // and the first must stay false, so the shim arm is not excluded by rustOwned.
-    history.commit(engine.snapshot(), "Text", makePatches());
-    engine.getModel().name = "after";
-    await shimRecorded(1);
-
-    // shimArm's inputs: facade on, not degraded, not rustOwned.
-    expect(
-      streamFor(DOC).entries,
-      "the shim recorded the tile commit's counterpart - shimArm's recorder",
-    ).toEqual(["external"]);
-    // entryArm's inputs: the popped entry is an imperative tile commit and the flag is on.
-    expect(
-      history.getUndoCount(),
-      "one host entry to pop, and it is the tile commit",
-    ).toBe(1);
-
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 1);
-
-    expect(
-      cursorStepInvokes(),
-      "exactly ONE step: the co-firing arms resolve to a single fire, never two",
-    ).toBe(1);
-    expect(streamFor(DOC).cursor, "the shim's entry was consumed").toBe(0);
-    expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
-  });
-
-  it("MATRIX rustPixels ON + facade ON, a METADATA commit: only shimArm fires", async () => {
-    // The contrast that makes the cell above meaningful: a metadata commit has no
-    // `imperative`, so entryArm is false and only shimArm fires.
-    localStorage.setItem(RUST_PIXELS, "1");
-    const { history, engine, commands } = mountCommands();
-    await metadataOp(history, engine);
-    await shimRecorded(1);
-    expect(streamFor(DOC).entries).toEqual(["external"]);
-
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 1);
-    expect(cursorStepInvokes(), "exactly one step").toBe(1);
-    expect(streamFor(DOC).cursor, "the shim's entry was consumed").toBe(0);
-    expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
   });
 
   it("MATRIX rustOwned: entryArm fires, and neither recorder appends a second entry", async () => {

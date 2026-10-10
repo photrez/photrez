@@ -283,11 +283,11 @@ export class RustCursorStepper {
    *
    * For a caller that must not own this step's tiles but must still know when its
    * cursor move has landed. The tile restore path needs exactly that: its fetch
-   * gate is `rustOwned || photrez.rustPixels`, so a bridge-ON TS-owned tile pop
-   * fires a step that branch has no reason to `take`, while the parity probe that
-   * fires immediately afterwards reads `rust_pixels_history_tip` over the SAME
-   * registry mutex. Without this, the probe's read races the step and can observe
-   * the PRE-step cursor - a `diverged` for a step that moved exactly once.
+   * gate is `rustOwned`, so a TS-owned tile pop fires a step that branch has no
+   * reason to `take`, while the parity probe that fires immediately afterwards
+   * reads `rust_pixels_history_tip` over the SAME registry mutex. Without this,
+   * the probe's read races the step and can observe the PRE-step cursor - a
+   * `diverged` for a step that moved exactly once.
    *
    * A caller using this instead of `take` leaves the handle in place, so the next
    * pop's leading `take()` still drops it: observing is not claiming.

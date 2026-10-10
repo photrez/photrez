@@ -3446,7 +3446,6 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
 describe("Native authority: pixel-commit facade version sync (sink gating)", () => {
   afterEach(() => {
     localStorage.removeItem("photrez.facadeAuthority");
-    localStorage.removeItem("photrez.rustPixels");
     vi.restoreAllMocks();
   });
 
@@ -3542,13 +3541,11 @@ describe("Native authority: paint-bucket pixel commit syncs facade version (real
   beforeEach(() => {
     invokeMock.mockReset();
     localStorage.setItem("photrez.facadeAuthority", "native");
-    localStorage.setItem("photrez.rustPixels", "1");
     facade = getFacade(DOC);
     spy = vi.spyOn(facade, "syncRenderedVersionTo");
   });
   afterEach(() => {
     localStorage.removeItem("photrez.facadeAuthority");
-    localStorage.removeItem("photrez.rustPixels");
     vi.restoreAllMocks();
   });
 

@@ -32,23 +32,6 @@ import type { SnapshotLayerMeta, SnapshotPayload } from "./snapshotTokenReattach
  */
 export type { SnapshotLayerMeta, SnapshotPayload } from "./snapshotTokenReattach";
 
-/**
- * TRANSITIONAL (`photrez.rustPixels`): the flag's last surviving production read.
- *
- * It used to arm the undo/redo tile-branch fetch in useEditorCommands, i.e. "fetch
- * this step's pixels from Rust instead of replaying the entry's own memento" for a
- * tile entry Rust does NOT own. That decision now lives with the cursor step it was
- * fused to (CommandHistory.stepRustCursor), so the flag cannot outlive the tile
- * routing: retire it when the flag retires, and delete this read with it.
- */
-function rustPixelsFlagEnabled(): boolean {
-  try {
-    return typeof localStorage !== "undefined" && localStorage.getItem("photrez.rustPixels") === "1";
-  } catch {
-    return false;
-  }
-}
-
 export interface HistoryItem {
   label: string;
   isRedo: boolean;
@@ -413,11 +396,7 @@ export class CommandHistory {
    * A step with no counterpart would consume somebody else's entry, so it fires
    * only for these arms:
    *  - `imperative.rustOwned`: `rust_pixels_write_region` recorded the Pixel entry
-   *    (brush, eraser, bucket, seeded fill, gradient, delete-pixels), regardless
-   *    of any feature flag;
-   *  - TRANSITIONAL `photrez.rustPixels`, tile entries only. The one arm that can
-   *    step without a recorded counterpart, left as-is because it predates this
-   *    method and retiring the flag is a separate cleanup;
+   *    (brush, eraser, bucket, seeded fill, gradient, delete-pixels);
    *  - the facade commit shim's mirror: `installFacadeCommitShim`
    *    (lib/protocol/facadeRegistry.ts) appends an `External` entry for every
    *    commit that is not `alreadyRecordedInRust`, so a metadata or TS-owned tile
@@ -442,9 +421,9 @@ export class CommandHistory {
    *
    * No two arms can co-fire: `undo()`/`redo()` call `stepRustCursor` once per
    * popped entry, and no restore path issues a second invoke (`rustTileProjection`
-   * only AWAITS the step the pop fired). A pop that leaves its step unconsumed - a
-   * transitional-flag TS-owned tile pop with no Rust fetch armed - drops it on the
-   * next pop's leading `take()`, so it is issued once and never re-issued.
+   * only AWAITS the step the pop fired). A pop that leaves its step unconsumed
+   * drops it on the next pop's leading `take()`, so it is issued once and never
+   * re-issued.
    *
    * A snapshot-typed entry is NOT stepped: the pop returns before every arm, and
    * `undo_pixel` refuses to move the cursor for a Snapshot tip
@@ -478,9 +457,9 @@ export class CommandHistory {
     // entry whose `External` tip is perfectly correct would stop advancing the cursor.
     //
     // The last two clauses mirror the shim's OWN early-returns rather than
-    // restating them, for the reason `rustPixelsFlagEnabled` above exists: this
-    // predicate decides whether to take the UNGATED path, where a step with no entry
-    // behind it consumes somebody else's. `isFacadeEnabled()` is the shim's feature
+    // restating them, because this predicate decides whether to take the UNGATED
+    // path, where a step with no entry behind it consumes somebody else's.
+    // `isFacadeEnabled()` is the shim's feature
     // gate; `historyDegraded()` is the one `recordExternalTransitionFor` returns early
     // on, and that latch is only ever CLEARED by the test reset - so one failed
     // external transition turns recording off for the rest of the session, and
@@ -495,9 +474,7 @@ export class CommandHistory {
       entry.imperative?.rustOwned !== true &&
       isFacadeEnabled() &&
       !historyDegraded();
-    const entryArm =
-      entry.imperative?.rustOwned === true ||
-      (entry.imperative !== undefined && rustPixelsFlagEnabled());
+    const entryArm = entry.imperative?.rustOwned === true;
     if (!entryArm && !shimArm) return;
     const docId = entry.snapshot.id || this.docIdGetter?.();
     if (!docId) return;
@@ -540,10 +517,11 @@ export class CommandHistory {
    * return the same promise, and the step stays claimable by the next pop.
    *
    * For a caller that must sequence behind the step's cursor move but has no
-   * business taking its tiles. The tile path is that caller for a bridge-ON
-   * TS-owned tile pop: its fetch gate is `rustOwned || photrez.rustPixels`, so
-   * `projectRustTiles` returns early and never claims the step - yet the parity
-   * probe fires right afterwards over the same registry mutex. Awaiting this
+   * business taking its tiles. The tile path is that caller for a TS-owned
+   * tile pop: its fetch gate is `rustOwned`, so `projectRustTiles` returns
+   * early and never claims the step - yet the pop still fired one (the shim
+   * arm recorded the counterpart), and the caller's next native read shares
+   * the registry mutex that step holds. Awaiting this
    * orders the probe's read after the move without stealing the step from the
    * next pop's leading `take()`.
    */

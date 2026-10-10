@@ -3,15 +3,11 @@
  * C5.4 Bitmap Sync — Final Live CDP Smoke
  * Uses __photrezEditor.workspace API (getId, getLayer, getActiveLayerId, ensureBitmapCurrent)
  *
- * This harness turns the rust pixel path on for the duration of its own run,
- * because every assertion below is about what that path does. WebView2 keeps
- * the dev origin's localStorage on disk, so the key is removed again in
- * finish() on every exit path - including a thrown error - before the page goes
- * away. Without that, the next run and any later read of the flag would inherit
- * an enablement this harness set and never took back.
+ * The rust pixel path has no harness enablement key anymore: the
+ * photrez.rustPixels flag was retired, so this harness sets nothing in
+ * localStorage and finish() only closes the browser.
  */
 import { chromium } from "@playwright/test";
-import { clearHarnessFlag } from "../../scripts/harness-flag-cleanup.mjs";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let pass = 0, fail = 0;
 function check(label, ok, detail) {
@@ -19,12 +15,10 @@ function check(label, ok, detail) {
   else { fail++; console.error(`  ❌ ${label}${detail ? " — " + detail : ""}`); }
 }
 
-// Module scope so the top-level catch can still reach them; every exit path
-// goes through finish() so the flag is never left set on the dev origin.
+// Module scope so the top-level catch can still reach them.
 let browser = null;
 let page = null;
 async function finish(code) {
-  if (page) await clearHarnessFlag(page);
   if (browser) await browser.close();
   process.exit(code);
 }
@@ -73,11 +67,6 @@ async function finish(code) {
   };
 
   console.log("\n=== C5.4 BITMAP SYNC FINAL LIVE SMOKE ===\n");
-
-  // This run needs the rust pixel path, so it turns the flag on and takes it
-  // back off in finish(). Every assertion below would be vacuous otherwise.
-  await page.evaluate(() => localStorage.setItem("photrez.rustPixels", "1"));
-  console.log("  ✅ rustPixels = 1 (cleared again on exit)");
 
   // ── Step 0: Clean up ──
   console.log("Step 0: Clean up existing documents");

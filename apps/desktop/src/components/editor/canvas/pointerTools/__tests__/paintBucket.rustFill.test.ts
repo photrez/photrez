@@ -138,7 +138,6 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
     mockInvoke.mockReset();
     applyCalls.length = 0;
     showToastMock.mockClear();
-    localStorage.setItem("photrez.rustPixels", "1");
   });
 
   // Defeat: change paintBucket.ts to send a plain number array instead of encoding base64;
@@ -258,7 +257,6 @@ describe("applyPaintBucketFill — Rust canonical path (C5.4 pilot)", () => {
 
 describe("applyPaintBucketFill — Rust canonical seed (FIRST raster op)", () => {
   it("seeds the canonical store via rust_pixels_init when the layer has no Rust entry yet", async () => {
-    localStorage.setItem("photrez.rustPixels", "1");
     const { surface, commit, editor, ctx } = makeFakes();
     const initCalls: any[] = [];
     let writeRes: any;

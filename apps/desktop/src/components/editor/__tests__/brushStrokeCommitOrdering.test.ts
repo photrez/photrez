@@ -3,12 +3,6 @@
 // hook, with `@tauri-apps/api/core` invoke mocked by an in-test Rust store
 // emulator.
 //
-// TRANSITIONAL-TEST AUDIT (2026-10-02): the `photrez.rustPixels` setItem calls
-// below are now INERT. The brush commit path never reads the key, so these cases
-// pin permanent invariants of the unconditional Rust path rather than flag
-// behaviour. They are left in place so the diff against the measured baseline
-// stays minimal, and they are deliberately NOT labelled transitional.
-//
 // Covers:
 //   Overlap — every committed stroke composites onto the EXISTING canonical
 //           pixels (overlapping strokes accumulate; no wipe). Verified at the
@@ -595,7 +589,6 @@ describe("Overlapping strokes composite onto canonical (real hook)", () => {
     vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation((l: any, e: any) => null);
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation((id: string) => false);
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1"); // Rust pixel path ON
     localStorage.removeItem("photrez.canonicalCommit"); // C3 OFF (separate mode)
   });
   afterEach(() => {
@@ -720,7 +713,6 @@ describe("Cross-document seed scope (no stale seeded state)", () => {
     vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation((l: any, e: any) => null);
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation((id: string) => false);
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.removeItem("photrez.canonicalCommit");
   });
   afterEach(() => localStorage.clear());
@@ -832,7 +824,6 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
 
   it("DEFERRED (VERIFIED): write_region is NOT called synchronously on commit — pointerup returns before IPC readback", async () => {
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
     const { overlay, engine, history } = makeHarness(surface);
     const sim = hoist.getSim();
@@ -846,7 +837,6 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
 
   it("deferred scratch snapshot survives scratch clear and readRect carries nonzero bytes", async () => {
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
     const { overlay, engine, history } = makeHarness(surface);
     const sim = hoist.getSim();
@@ -867,7 +857,6 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
 
   it("ORDERED (VERIFIED): 3 rapid strokes serialize — canonical version 1→2→3, one history entry each, no interleave", async () => {
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
     const { overlay, engine, history } = makeHarness(surface);
     const sim = hoist.getSim();
@@ -886,7 +875,6 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
 
   it("DIRTY-REGION (VERIFIED): payload is the bbox only — strictly smaller than a full-layer readback", async () => {
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
     const { overlay, engine, history } = makeHarness(surface);
     const sim = hoist.getSim();
@@ -908,7 +896,6 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
 
   it("COUPLING: onPaintStroke re-syncs the overlay canvas to the layer dims that commitBrushStroke reads", async () => {
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
     const { overlay, layer, engine, history, canvas } = makeHarness(surface);
     const sim = hoist.getSim();
@@ -929,7 +916,6 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
 
   it("ERASER CANONICAL: an eraser stroke enters the deferred Rust region commit as ONE write and ONE history entry", async () => {
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
     const { overlay, engine, history } = makeHarness(surface);
     const sim = hoist.getSim();
@@ -958,7 +944,6 @@ describe("Async-deferred commit (pointerup <1ms, ordered, fallback)", () => {
 
   it("FALLBACK (VERIFIED): a deferred write_region failure still commits pixels — no silent drop, no unhandled rejection", async () => {
     hoist.setSim(makeSim({ failCommitOnCall: 1 })); // first write_region throws
-    localStorage.setItem("photrez.rustPixels", "1");
     const surface = makeSurface();
     const { overlay, engine, history, uploadSurfaceTiles } = makeHarness(surface);
     overlay.onPaintStroke([{ x: 30, y: 30 }], false, settings, false);

@@ -2,8 +2,7 @@ import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 
 /**
  * Paint Bucket Fill, Fill Layer, Adjustment Bake and Gradient Fill are
- * Rust-canonical at the DEFAULT state of photrez.rustPixels (the key a normal
- * user never sets).
+ * Rust-canonical unconditionally: no runtime flag gates them.
  *
  * Each test drives the real production entry, then asserts the four properties
  * that make one op exactly one undoable step:
@@ -370,10 +369,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("bucket, fill and bake are Rust-canonical with photrez.rustPixels at its default", () => {
+describe("bucket, fill and bake are Rust-canonical unconditionally", () => {
   it("Paint Bucket Fill: one write, one Pixel entry, Ctrl+Z reverts, redo restores", async () => {
-    // DEFAULT state: the key was never set by this user.
-    expect(localStorage.getItem("photrez.rustPixels")).toBeNull();
     const { workspace, engine, history, renderer } = mount();
     await tick();
     setTool("paintBucket");
@@ -403,7 +400,6 @@ describe("bucket, fill and bake are Rust-canonical with photrez.rustPixels at it
   });
 
   it("Fill Layer: one write, one Pixel entry, Ctrl+Z reverts, redo restores", async () => {
-    expect(localStorage.getItem("photrez.rustPixels")).toBeNull();
     const { engine, history, renderer } = mount();
     await tick();
     primeLayer(engine);
@@ -416,7 +412,6 @@ describe("bucket, fill and bake are Rust-canonical with photrez.rustPixels at it
   });
 
   it("Adjustment Bake: one write, one Pixel entry, Ctrl+Z reverts, redo restores", async () => {
-    expect(localStorage.getItem("photrez.rustPixels")).toBeNull();
     const { engine } = mount();
     await tick();
     const layerId = primeLayer(engine);
@@ -441,7 +436,6 @@ describe("bucket, fill and bake are Rust-canonical with photrez.rustPixels at it
   });
 
   it("Gradient Fill: one write, one Pixel entry, Ctrl+Z reverts, redo restores", async () => {
-    expect(localStorage.getItem("photrez.rustPixels")).toBeNull();
     const { workspace, engine, history, renderer } = mount();
     await tick();
     primeLayer(engine);

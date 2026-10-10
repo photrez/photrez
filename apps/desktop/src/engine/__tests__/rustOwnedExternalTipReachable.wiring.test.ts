@@ -38,7 +38,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { CommandHistory } from "../history";
-import type { HistoryTilePatches } from "../history";
 import type { DocumentModel } from "../types";
 import { useEditorCommands } from "@/components/editor/useEditorCommands";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
@@ -51,7 +50,7 @@ import {
   resetStreams,
   streamFor,
 } from "./rustStreamEmulator";
-import { commitRustOwnedPaint, makeRustOwnedPatches } from "./historyCursorFixtures";
+import { commitRustOwnedPaint } from "./historyCursorFixtures";
 import { cursorStepInvokes, settle, timesInvoked, waitForRust } from "./historyCursorHarness";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
@@ -78,7 +77,6 @@ vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
   handoffMovedCursor: vi.fn(() => false),
 }));
 
-const RUST_PIXELS = "photrez.rustPixels";
 const FACADE = "photrez.facade";
 const DOC = "doc-1";
 
@@ -449,21 +447,24 @@ describe("an External tip inherited by a rustOwned pop", () => {
    * To re-run:
    *   bun run --filter photrez-desktop test --run \
    *     src/engine/__tests__/rustOwnedExternalTipReachable.wiring.test.ts
-   * and expect the four named cases below to redden.
+   * and expect the three surviving named cases below to redden.
    *
-   * Observed RED with the gate defeated (4 failed / 5 passed). Four INDEPENDENT cases
-   * reddened, so none of them can be passing for a reason unrelated to the gate:
+   * Observed RED with the gate defeated at the time (4 failed / 5 passed). Four
+   * INDEPENDENT cases reddened, so none of the survivors can be passing for a
+   * reason unrelated to the gate; the fourth has since been retired together
+   * with the `photrez.rustPixels` key it configured (annotated in the list):
    *   "the gate refused: no cursor step was issued onto the foreign External
    *    tip: expected 1 to be +0"                (no-recorder case)
    *   "the gate still read the tip and refused, so nothing was consumed:
    *    expected 1 to be +0"                    (getterless history case)
    *   "the gate refused: a counterpart-less tile pop must not consume the
-   *    External entry: expected 1 to be +0"    (rustPixels flag case)
+   *    External entry: expected 1 to be +0"    (the tile-arm case, retired
+   *    together with the `photrez.rustPixels` key it configured)
    *   "with the gate in place nothing is issued - defeat it and this becomes 1:
    *    expected 1 to be +0"                    (the first case, re-run)
    *
-   * All four are configurations where NOTHING recorded a counterpart for the popped
-   * entry. The shipping-default drift those cases used to cover is closed at its root
+   * In every one of these configurations NOTHING recorded a counterpart for the
+   * popped entry. The shipping-default drift those cases used to cover is closed at its root
    * in historyCursorDriftClosure.wiring.test.ts, which is why they now opt the facade
    * out: with it on, every one of them has a counterpart and the gate correctly never
    * refuses.
@@ -495,35 +496,4 @@ describe("an External tip inherited by a rustOwned pop", () => {
     ).toBe("pixel");
   });
 
-  it("TRANSITIONAL (photrez.rustPixels gating; delete with the flag): flag ON is gated too, so a counterpart-less tile pop cannot consume an External entry", async () => {
-    // The tile arm `stepRustCursor` documents as "the one arm that can step
-    // without a recorded counterpart" (history.ts:453-455). It is NOT exempt from
-    // the gate: lacking a counterpart is precisely when the stream's tip is
-    // whatever someone else left there, which is the case the gate exists for.
-    // Pinned so the flag's retirement cannot silently change this file's verdicts.
-    //
-    // The facade is opted OUT here, which is what makes the tile entry genuinely
-    // counterpart-less: with it ON the shim mirrors tile commits too, so the pop has
-    // a real `External` counterpart and the shim arm steps it (asserted in
-    // historyCursorDriftClosure.wiring.test.ts). This is the residual transitional
-    // configuration, where the flag can still aim a step at an entry nobody owns.
-    localStorage.setItem(FACADE, "0");
-    localStorage.setItem(RUST_PIXELS, "1");
-    const { history, renderer, commands } = mountCommands();
-
-    record(DOC, "external");
-    // A TS-owned tile entry: recorded by NEITHER the facade shim (off) NOR the writer,
-    // so the Rust stream holds only the External entry.
-    const patches: HistoryTilePatches = makeRustOwnedPatches();
-    history.commit(model("Tile"), "Text", { ...patches, rustOwned: false });
-    await settle();
-    expect(streamFor(DOC).entries, "Rust holds only the External entry").toEqual(["external"]);
-
-    await pressUndo(commands, renderer, 1);
-    expect(
-      cursorStepInvokes(),
-      "the gate refused: a counterpart-less tile pop must not consume the External entry",
-    ).toBe(0);
-    expect(streamFor(DOC).cursor, "the Rust cursor did not move").toBe(1);
-  });
 });

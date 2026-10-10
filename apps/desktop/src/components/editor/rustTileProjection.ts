@@ -10,7 +10,7 @@
  *
  * TWO SEPARATE CONCERNS, deliberately not fused:
  *  - the FETCH: may Rust's pixels be this entry's source of truth? Gated on
- *    `rustOwned || photrez.rustPixels` (the latter TRANSITIONAL).
+ *    `rustOwned` - only a commit the pixel writer already recorded qualifies.
  *  - the cursor STEP: did Rust record an entry for this pop at all? That belongs to
  *    `CommandHistory.stepRustCursor`, which fires exactly once per popped entry.
  *    This module AWAITS that step; it never issues an invoke of its own, because a
@@ -60,8 +60,6 @@ export interface RustTileProjectionDeps {
   getEngine: () => { getId(): string; getPaintSurface(id: string): unknown } | null | undefined;
   layerId: string;
   rustOwned: boolean;
-  /** TRANSITIONAL (`photrez.rustPixels`): the entry's own memento fallback. */
-  rustPixelsFlag: boolean;
   /** The entry's memento, in the renderer's upload shape. */
   fallbackTiles: RustTileProjection["tiles"];
 }
@@ -74,7 +72,7 @@ export interface RustTileProjectionDeps {
  * for a step whose model restore already succeeded.
  */
 export async function projectRustTiles(deps: RustTileProjectionDeps): Promise<RustTileProjection> {
-  if (!deps.rustOwned && !deps.rustPixelsFlag) {
+  if (!deps.rustOwned) {
     return { tiles: deps.fallbackTiles, step: null };
   }
   let step: DecodedCursorStepTiles | null = null;

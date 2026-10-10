@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
-// Pre-event soak: >=50 consecutive production-entry raster operations for bucket,
-// fill, and bake with photrez.rustPixels=1 set ONLY inside this harness. Counts
-// are observed at the production boundary (invoke calls, history commits, error
-// toasts), never through a spy on the routing guard.
+// Soak: >=50 consecutive production-entry raster operations for bucket,
+// fill, and bake. Counts are observed at the production boundary (invoke calls,
+// history commits, error toasts), never through a spy on the routing guard.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "@solidjs/testing-library";
 import { EditorProvider } from "../shell/EditorContext";
@@ -105,7 +104,6 @@ beforeEach(() => {
   };
   mockInvoke.mockReset();
   showToastMock.mockClear();
-  localStorage.setItem("photrez.rustPixels", "1");
   localStorage.setItem("photrez.facade", "0");
   localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
@@ -113,7 +111,6 @@ afterEach(() => {
   (globalThis as any).OffscreenCanvas = OriginalOffscreenCanvas;
   (globalThis as any).ImageData = OriginalImageData;
   (globalThis as any).createImageBitmap = OriginalCreateImageBitmap;
-  localStorage.removeItem("photrez.rustPixels");
   localStorage.removeItem("photrez.facade");
   localStorage.removeItem("photrez.facadeAuthority");
   vi.restoreAllMocks();
@@ -262,7 +259,7 @@ async function makeBakeHarness(size = 64) {
   return { ws, engine, layer, result, commitSpy };
 }
 
-describe("pre-event pixel operation soak (photrez.rustPixels=1 harness only)", () => {
+describe("pixel operation soak (harness-only facade opt-out)", () => {
   it(`bucket: ${OPS} production-entry fills, one write and one undo step each`, async () => {
     const { commit, ctx } = makeBucketFakes();
     okInvoke();

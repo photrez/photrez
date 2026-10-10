@@ -295,7 +295,6 @@ describe("brush seed transport (first stroke on a store that has no pixels yet)"
     } as DOMRect);
     Element.prototype.setPointerCapture = vi.fn();
     Element.prototype.releasePointerCapture = vi.fn();
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.removeItem("photrez.canonicalCommit");
     localStorage.removeItem("photrez.tileCommit");
   });
@@ -304,7 +303,6 @@ describe("brush seed transport (first stroke on a store that has no pixels yet)"
     if (dispose) dispose();
     container.parentNode?.removeChild(container);
     rectStub?.mockRestore();
-    localStorage.removeItem("photrez.rustPixels");
     vi.restoreAllMocks();
   });
 

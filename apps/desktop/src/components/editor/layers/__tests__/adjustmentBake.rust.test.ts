@@ -162,7 +162,6 @@ describe("commitBasicAdjustment + Rust canonical write (C5.4 Adjustment Bake)", 
     installOffscreenCanvas();
     mockInvoke.mockReset();
     applyCalls.length = 0;
-    localStorage.setItem("photrez.rustPixels", "1");
   });
 
   it("writes the baked pixels to Rust via rust_pixels_write_region and commits ONE history step", async () => {

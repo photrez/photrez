@@ -132,7 +132,6 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockReset();
     applyCalls.length = 0;
     showToastMock.mockClear();
-    localStorage.setItem("photrez.rustPixels", "1");
   });
 
   // Defeat: send wr.rgba as a plain number array (layerOperations.ts:287) instead of Uint8Array; the toBeInstanceOf(Uint8Array) check goes RED.

@@ -2,15 +2,6 @@
 // Drives the REAL production commit path via the hook with invoke mocked by an
 // in-test Rust store emulator (mirrors crates/core/src/pixel_store.rs).
 //
-// TRANSITIONAL-TEST AUDIT (2026-10-02): the `photrez.rustPixels` setItem below is
-// now INERT. The brush commit path never reads the key - the only surviving
-// production read is the undo/redo tile-branch routing in useEditorCommands - so
-// these cases do NOT pin flag behaviour and are permanent invariants of the
-// unconditional Rust path. The set is left in place so the diff against the
-// measured baseline stays minimal; it is not evidence of a live lever. The
-// flag-dependent coverage that IS transitional is labelled as such in
-// useEditorCommands.bridgeGating.test.ts and rustPixelPathOwnership.test.tsx.
-//
 // Part 1: a fresh stroke on a current surface issues zero full-layer reads and
 //   exactly one epoch probe. A stale surface still takes the full read.
 // Part 2: response bytes reach history and the renderer as one shared copy
@@ -455,7 +446,6 @@ describe("brush commit hot path", () => {
     vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation((l: any, e: any) => null);
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation((id: string) => false);
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.removeItem("photrez.canonicalCommit");
   });
   afterEach(() => {
@@ -692,7 +682,6 @@ describe("part 5: commit fallback frequency baseline (counts only)", () => {
     vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation(() => null);
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation((id: string) => false);
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.removeItem("photrez.canonicalCommit");
   });
   afterEach(() => {
@@ -784,7 +773,6 @@ describe("write-region guards: only the empty-docId case stops before IPC; the r
     vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation(() => null);
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation(() => false);
     hoist.setSim(makeSim());
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.removeItem("photrez.canonicalCommit");
   });
   afterEach(() => {

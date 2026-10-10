@@ -6,28 +6,22 @@
  *   - Tauri app running with CDP on port 9222
  *   - Playwright available
  *
- * This harness turns the rust pixel path on for the duration of its own run,
- * because every assertion below is about what that path does. WebView2 keeps
- * the dev origin's localStorage on disk, so the key is removed again in
- * finish() on every exit path - including a thrown error - before the page goes
- * away. Without that, the next run and any later read of the flag would inherit
- * an enablement this harness set and never took back.
+ * The rust pixel path has no harness enablement key anymore: the
+ * photrez.rustPixels flag was retired, so this harness sets nothing in
+ * localStorage and finish() only closes the browser.
  *
  * Run: node c5_4_restoreSync_smoke.mjs
  */
 import { chromium } from '@playwright/test';
-import { clearHarnessFlag } from '../../scripts/harness-flag-cleanup.mjs';
 
 const CDP_URL = "http://127.0.0.1:9222";
 let pass = 0, fail = 0;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Module scope so the top-level catch can still reach them; every exit path
-// goes through finish() so the flag is never left set on the dev origin.
+// Module scope so the top-level catch can still reach them.
 let browser = null;
 let page = null;
 async function finish(code) {
-  if (page) await clearHarnessFlag(page);
   if (browser) await browser.close();
   process.exit(code);
 }
@@ -50,11 +44,6 @@ function check(label, ok, detail = "") {
     null, { timeout: 20000 }
   );
   console.log("  ✅ App ready");
-
-  // This run needs the rust pixel path, so it turns the flag on and takes it
-  // back off in finish(). Every assertion below would be vacuous otherwise.
-  await page.evaluate(() => localStorage.setItem("photrez.rustPixels", "1"));
-  console.log("  ✅ rustPixels = 1 (cleared again on exit)");
 
   const invoke = (c, a) => page.evaluate(({ c, a }) => window.__TAURI_INTERNALS__.invoke(c, a || {}), { c, a });
 

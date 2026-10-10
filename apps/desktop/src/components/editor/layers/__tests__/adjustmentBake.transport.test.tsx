@@ -75,12 +75,10 @@ afterEach(() => {
 describe("adjustment bake binary transport", () => {
   beforeEach(() => {
     mockInvoke.mockReset();
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.rustPixels");
     localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
@@ -144,7 +142,7 @@ describe("adjustment bake binary transport", () => {
   });
 });
 
-describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the flag is retired)", () => {
+describe("adjustment bake writes the post-bake bytes once and refuses without a ready surface", () => {
   const W = 100;
   const H = 100;
   const preBakeBytes = new Uint8ClampedArray(W * H * 4).fill(1);
@@ -203,15 +201,13 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.rustPixels");
     localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
-  it("flag ON writes the post-bake bytes once and commits one history step", async () => {
+  it("writes the post-bake bytes once and commits one history step", async () => {
     expect(preBakeBytes).not.toEqual(postBakeBytes);
-    localStorage.setItem("photrez.rustPixels", "1");
     const h = await renderBakeHandler(true);
 
     await h.result.handleApplyAdjustment();
@@ -241,8 +237,7 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
     });
   });
 
-  it("flag ON without a ready surface surfaces an error instead of a silent legacy write", async () => {
-    localStorage.setItem("photrez.rustPixels", "1");
+  it("without a ready surface it surfaces an error instead of a silent legacy write", async () => {
     const h = await renderBakeHandler(false);
 
     await h.result.handleApplyAdjustment();
@@ -259,13 +254,11 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
 describe("adjustment bake commit pin (Tauri runtime ON)", () => {
   beforeEach(() => {
     mockInvoke.mockReset();
-    localStorage.setItem("photrez.rustPixels", "1");
     localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
     (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.rustPixels");
     localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;

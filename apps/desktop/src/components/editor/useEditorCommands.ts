@@ -377,8 +377,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // A Rust-owned entry (rust_pixels_write_region recorded it) is a cursor
         // token, not a second copy of the pixels: this branch always takes the
         // Rust tiles, which drains the twin in lockstep. For an entry Rust does
-        // NOT own, photrez.rustPixels still arms the Rust fetch, and the local
-        // memento remains the fallback.
+        // NOT own, the local memento is the fallback.
         //
         // The cursor STEP is a separate concern and belongs to the pop above
         // (history.undo()/redo()): it fires exactly once per popped entry, for
@@ -389,15 +388,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // whether Rust recorded a step to consume.
         const activeDocId = editor.workspace.getActiveDocumentId() ?? "";
         const rustOwned = patches.rustOwned === true;
-        const rustPixelsFlag = (() => {
-          try { return localStorage.getItem("photrez.rustPixels") === "1"; } catch { return false; }
-        })();
         const projected = await projectRustTiles({
           takeCursorStep: () => history.takeLastCursorStep(),
           getEngine: () => editor.workspace.getActiveEngine(),
           layerId: patches.layerId,
           rustOwned,
-          rustPixelsFlag,
           fallbackTiles: tiles,
         });
         const rustRes = projected.step;
@@ -494,7 +489,7 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // exactly once. The metadata branch below already sequences this way
         // (`await takeLastCursorStep()`); the tile branch has to do it by hand,
         // because `projectRustTiles` only CLAIMS the step when its fetch gate
-        // (`rustOwned || photrez.rustPixels`) is open - and a bridge-ON TS-owned
+        // (`rustOwned`) is open - and a TS-owned
         // tile pop leaves that gate closed while still firing a step. Hence
         // `lastCursorStepSettled()`: it sequences without claiming, so the next
         // pop's leading `take()` still drops the unconsumed step. A step that
