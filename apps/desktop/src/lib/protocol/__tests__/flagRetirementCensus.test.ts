@@ -49,7 +49,7 @@ const readProduction = (file: string): string =>
 /** Every production read of a retired key or its predicate, as `file:line`. */
 function retiredKeyReads(): { site: string; token: string }[] {
   const tokens = [
-    /"(?:photrez\.(?:historyBridge|rustPixels))"/g,
+    /["']photrez\.(?:historyBridge|rustPixels)["']/g,
     /\bhistoryBridgeEnabled\b/g,
     /\brustPixelsFlagEnabled\b/g,
   ];
@@ -97,6 +97,40 @@ function retiredBridgeMachinery(): { site: string; token: string }[] {
 
 const isBridgeKey = (h: { token: string }) => h.token.includes("historyBridge") || h.token.includes("Bridge");
 
+/**
+ * The facade opt-out pair (`photrez.facade`, `photrez.facadeAuthority`) is
+ * retired with the single-canonical-engine endgame: the keys have no
+ * production setters, and the predicates that read them only select the
+ * legacy wasm/emulator arms this retirement deletes. Quote-agnostic literal
+ * tokens (double, single, backtick) so a re-introduced read in any quoting
+ * style reddens. A read is any occurrence except the predicate's own
+ * declaration line: the facade predicate collapses to a default-constant
+ * declaration while its call sites go to zero, so the declaration may
+ * outlive the reads by a commit; every other occurrence counts.
+ */
+function facadeKeyReads(): { site: string; token: string }[] {
+  const tokens = [
+    /["'`]photrez\.facade["'`]/g,
+    /["'`]photrez\.facadeAuthority["'`]/g,
+    /\bisNativeAuthority\b/g,
+    /\bisFacadeEnabled\b/g,
+  ];
+  const sites: { site: string; token: string }[] = [];
+  for (const file of productionSources()) {
+    const rel = relative(APP_SRC, file);
+    const text = readProduction(file);
+    for (const token of tokens) {
+      for (const match of text.matchAll(token)) {
+        const lineNumber = text.slice(0, match.index).split("\n").length;
+        const lineText = text.split("\n")[lineNumber - 1] ?? "";
+        if (/function (isFacadeEnabled|isNativeAuthority)/.test(lineText)) continue;
+        sites.push({ site: `${rel}:${lineNumber}`, token: match[0] });
+      }
+    }
+  }
+  return sites;
+}
+
 describe("retired runtime keys stay retired", () => {
   it("no production source reads photrez.historyBridge / its predicate", () => {
     const hits = retiredKeyReads().filter(isBridgeKey);
@@ -122,5 +156,27 @@ describe("retired runtime keys stay retired", () => {
       existsSync(resolve(APP_SRC, "engine/historyCursorParity.ts")),
       "historyCursorParity.ts must be deleted with its only callers",
     ).toBe(false);
+  });
+});
+
+describe("retired facade opt-out keys stay retired", () => {
+  it("no production source reads photrez.facade", () => {
+    const hits = facadeKeyReads().filter((h) => h.token.includes("photrez.facade") && !h.token.includes("Authority"));
+    expect(hits.map((h) => `${h.site} (${h.token})`)).toEqual([]);
+  });
+
+  it("no production source reads photrez.facadeAuthority", () => {
+    const hits = facadeKeyReads().filter((h) => h.token.includes("photrez.facadeAuthority"));
+    expect(hits.map((h) => `${h.site} (${h.token})`)).toEqual([]);
+  });
+
+  it("no production source reads the isNativeAuthority predicate", () => {
+    const hits = facadeKeyReads().filter((h) => h.token === "isNativeAuthority");
+    expect(hits.map((h) => `${h.site} (${h.token})`)).toEqual([]);
+  });
+
+  it("no production source reads the isFacadeEnabled predicate", () => {
+    const hits = facadeKeyReads().filter((h) => h.token === "isFacadeEnabled");
+    expect(hits.map((h) => `${h.site} (${h.token})`)).toEqual([]);
   });
 });
