@@ -2,11 +2,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
 import { fillActiveLayerWithColor } from "../layerOperations";
-import { CommandHistory, historyBridgeEnabled } from "@/engine/history";
+import { CommandHistory } from "@/engine/history";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { FaithfulOffscreenCanvas } from "@/__tests__/faithfulOffscreenCanvas";
 
-// The history bridge fires through a dynamic import + fire-and-forget invoke, so
+// The Rust append fires through a dynamic import + fire-and-forget invoke, so
 // draining the census once can still miss a command that has not started yet.
 const settleBridge = async () => {
   for (let i = 0; i < 3; i++) {
@@ -15,13 +15,12 @@ const settleBridge = async () => {
   }
 };
 
-const enableHistoryBridge = () => {
-  localStorage.setItem("photrez.historyBridge", "1");
+// The Rust path checks the Tauri runtime marker, so the pins below toggle it.
+const armTauriRuntime = () => {
   (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
 };
 
-const disableHistoryBridge = () => {
-  localStorage.removeItem("photrez.historyBridge");
+const disarmTauriRuntime = () => {
   delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 };
 
@@ -385,15 +384,15 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     expect(engine.getLayer().basicAdjustment).not.toBeNull();
   });
 
-  // The bridge gate must be ON for this pin to mean anything: with it off,
-  // commit() skips the Rust append entirely and a zero count proves nothing.
-  describe("fill commit pin (history bridge ON)", () => {
+  // The Tauri runtime marker must be ON for this pin to mean anything: without
+  // it the Rust path never runs and a zero count proves nothing.
+  describe("fill commit pin (Tauri runtime ON)", () => {
     afterEach(() => {
-      disableHistoryBridge();
+      disarmTauriRuntime();
     });
 
     it("records ZERO apply_tile_patch: rust_pixels_write_region already owns the entry", async () => {
-      enableHistoryBridge();
+      armTauriRuntime();
       const { engine, renderer } = makeFakes();
       const history = new CommandHistory();
       history.attachDocIdGetter(() => "doc1");
@@ -405,8 +404,6 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
         }
         return undefined;
       });
-
-      expect(historyBridgeEnabled()).toBe(true);
       fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
 
       await vi.waitFor(() => expect(history.getUndoCount()).toBe(1), { timeout: 2000 });

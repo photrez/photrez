@@ -4,10 +4,13 @@
  * The Rust cursor step's OUTCOMES: serialisation, never-an-unhandled-rejection,
  * and "it did not move the cursor" being reported.
  *
- * These live apart from `historyCursorParity.wiring.test.ts` because they are
- * about the step itself, not about the TS/Rust depth comparison - and they drive
- * `CommandHistory.undo()` directly rather than through the undo dispatcher, since
- * the dispatcher is the wrong seam for a pop site that consumes nothing.
+ * These are about the step itself, not about who recorded the entry it consumes -
+ * they drive `CommandHistory.undo()` directly rather than through the undo
+ * dispatcher, since the dispatcher is the wrong seam for a pop site that consumes
+ * nothing. The real recorder (the facade commit shim) over the real history is
+ * pinned in historyCursorDriftClosure.wiring.test.ts; here the `External` entries
+ * are placed on the emulated stream directly, which keeps this file about the
+ * step's reporting contract alone.
  *
  * Two silent failure shapes, both observed in the real app:
  *  - `Ok` with an UNMOVED cursor. `undo_pixel` refuses to move it for a
@@ -30,12 +33,11 @@ import type { DocumentModel } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
-import { answerInvoke, resetStreams, streamFor } from "./rustStreamEmulator";
+import { answerInvoke, record, resetStreams, streamFor } from "./rustStreamEmulator";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
-const GATE_KEY = "photrez.historyBridge";
 const DOC = "doc-step";
 
 const model = (name: string): DocumentModel => ({
@@ -72,9 +74,14 @@ const waitFor = async (pred: () => boolean, ms = 3000) => {
   }
 };
 
-/** A metadata commit under the bridge: Rust really records an External entry. */
+/**
+ * A metadata commit plus the `External` entry the facade commit shim would append
+ * for it (this file does not install the shim; `record` places the same entry the
+ * shim's `recordExternalTransitionFor` would).
+ */
 async function commitRecordedMetadata(history: CommandHistory) {
   history.commit(model("Meta"), "Add Layer");
+  record(DOC, "external");
   await settle();
 }
 
@@ -84,8 +91,10 @@ describe("the Rust cursor step reports what it did", () => {
   beforeEach(() => {
     resetStreams();
     localStorage.clear();
-    localStorage.setItem(GATE_KEY, "1");
-    localStorage.setItem("photrez.facade", "0");
+    // The shim arm of `stepRustCursor` is the live recorder for a metadata pop,
+    // and it is armed by `isFacadeEnabled()` - `photrez.facade !== "0"`, ON by
+    // default; stated explicitly so the arm cannot drift under this file.
+    localStorage.setItem("photrez.facade", "1");
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(invoke).mockReset();

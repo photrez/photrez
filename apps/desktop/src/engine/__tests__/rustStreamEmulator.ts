@@ -71,9 +71,15 @@
  * with it: an emulator that accepts what the runtime rejects - or rejects what it
  * accepts - is a silent lie and every case here stops proving anything.
  */
-import type { RustHistoryTip } from "../historyCursorParity";
-
 export type TipKind = "pixel" | "external";
+
+export interface RustHistoryTip {
+  total_depth: number;
+  undo_depth: number;
+  redo_depth: number;
+  undo_tip_kind: TipKind | null;
+  redo_tip_kind: TipKind | null;
+}
 
 export interface RustStream {
   entries: TipKind[];

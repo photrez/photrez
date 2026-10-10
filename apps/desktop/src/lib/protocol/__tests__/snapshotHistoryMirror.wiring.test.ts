@@ -3,8 +3,8 @@
 // The single-Delete legacy branch (useLayerActions.handleDeleteActiveLayer)
 // calls history.recordSnapshotHistory(before, after, "Delete Layer"). That is a
 // SEPARATE CommandHistory prototype method from commit() - and installFacadeCommitShim
-// only wrapped commit(). Under photrez.facade=1 + photrez.historyBridge=0 the
-// internal rust_pixels_record_snapshot fire is gated OFF, so a delete of a
+// only wrapped commit(). The internal rust_pixels_record_snapshot fire has no
+// production caller left, so a delete of a
 // non-facade-owned layer was mirrored into the TS stack ONLY: the WASM
 // ProtocolEngine never advanced. The WASM cursor and the TS undo stack drift by
 // one per such delete, and once a projection marks layers owned,

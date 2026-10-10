@@ -81,12 +81,10 @@ const READS = new Set<string>([
  * Canonical writers: bytes plus the history entry, one per gesture.
  *
  * `rust_pixels_write_region` is THE canonical command. `apply_tile_patch` is its
- * recognised sibling - the bridge-shaped form of the same single step, used by the
- * history bridge's pixel arm for a TS pixel op Rust has not recorded yet, and
- * guarded by `alreadyRecordedInRust` so it never double-counts one already written
- * through `rust_pixels_write_region`.
- * `rust_pixels_record_snapshot` records a `Snapshot` entry carrying whole-layer
- * payloads: bytes, but not a `Pixel` entry.
+ * recognised sibling - the same single step in host-tile form, used by the perf
+ * audit scratch (lib/perf/perfAuditDev.ts) and guarded by `alreadyRecordedInRust`
+ * everywhere a stroke already went through `rust_pixels_write_region`, so it can
+ * never double-count one entry.
  */
 const WRITERS = new Set<string>([
   "rust_pixels_write_region",
@@ -96,7 +94,6 @@ const WRITERS = new Set<string>([
   // entry; it is a second transport for one writer, never a second writer.
   "rust_pixels_write_region_raw",
   "apply_tile_patch",
-  "rust_pixels_record_snapshot",
 ]);
 
 /**
@@ -126,8 +123,14 @@ const CURSOR_MOVERS = new Set<string>(["rust_pixels_undo", "rust_pixels_redo"]);
  * position; the pixels themselves are restored host-side. Census-routed because it
  * IS a step - omitting it would let an ordering assertion read a gap where a step
  * happened.
+ *
+ * `rust_pixels_record_snapshot` records a `Snapshot` entry carrying whole-layer
+ * payloads. No production source calls it since the history-bridge gate was
+ * retired (its snapshot arm was the only caller); it stays declared here because
+ * Rust still registers the command and the invoke census still routes it, so a
+ * revived caller lands on a known role instead of an undeclared command.
  */
-const ENTRY_ONLY = new Set<string>(["rust_pixels_record_external"]);
+const ENTRY_ONLY = new Set<string>(["rust_pixels_record_external", "rust_pixels_record_snapshot"]);
 
 export const CENSUS_COMMANDS_FOR_TEST = {
   isDeclared: (command: string): boolean =>

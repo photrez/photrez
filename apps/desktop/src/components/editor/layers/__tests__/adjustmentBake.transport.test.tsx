@@ -8,7 +8,7 @@ import { EditorProvider } from "../../shell/EditorContext";
 import { DialogProvider } from "../../dialogs/DialogProvider";
 import { WorkspaceManager } from "@/engine/workspace";
 import { useLayerActions } from "../useLayerActions";
-import { historyBridgeEnabled } from "@/engine/history";
+
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { showToast } from "../../Toast";
 
@@ -254,22 +254,20 @@ describe("keeps photrez.rustPixels-OFF behavior (transitional; delete when the f
   });
 });
 
-// The bridge gate must be ON for this pin to mean anything: with it off,
-// commit() skips the Rust append entirely and a zero count proves nothing.
-describe("adjustment bake commit pin (history bridge ON)", () => {
+// The Tauri runtime marker must be ON for this pin to mean anything: without it
+// the Rust path never runs and a zero count proves nothing.
+describe("adjustment bake commit pin (Tauri runtime ON)", () => {
   beforeEach(() => {
     mockInvoke.mockReset();
     localStorage.setItem("photrez.rustPixels", "1");
     localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
-    localStorage.setItem("photrez.historyBridge", "1");
     (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   });
   afterEach(() => {
     localStorage.removeItem("photrez.rustPixels");
     localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
-    localStorage.removeItem("photrez.historyBridge");
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     vi.restoreAllMocks();
   });
@@ -310,8 +308,6 @@ describe("adjustment bake commit pin (history bridge ON)", () => {
       </DialogProvider>
     );
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-
-    expect(historyBridgeEnabled()).toBe(true);
     await result.handleApplyAdjustment();
 
     const history = ws.getActiveHistory()!;

@@ -28,8 +28,6 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
-const GATE_KEY = "photrez.historyBridge";
-
 const OriginalOffscreenCanvas = (globalThis as any).OffscreenCanvas;
 beforeAll(() => {
   if (typeof OffscreenCanvas === "undefined") {
@@ -101,9 +99,8 @@ function createWrapper() {
   return { ws, engine, history, renderer, scheduler, wrapper };
 }
 
-function gateOn(bridgeOn: boolean) {
-  vi.mocked(isTauriRuntime).mockReturnValue(bridgeOn);
-  localStorage.setItem(GATE_KEY, "1");
+function tauriRuntime(on: boolean) {
+  vi.mocked(isTauriRuntime).mockReturnValue(on);
 }
 
 describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
@@ -120,8 +117,8 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     vi.restoreAllMocks();
   });
 
-  it("records recordSnapshotHistory(before, after) with before=layer present, after=layer gone, and fires the invoke", async () => {
-    gateOn(true);
+  it("records recordSnapshotHistory(before, after) with before=layer present, after=layer gone", async () => {
+    tauriRuntime(true);
     vi.mocked(invoke).mockResolvedValue({ version: 1, epoch: 0 });
 
     const { engine, history, wrapper } = createWrapper();
@@ -144,15 +141,14 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     expect(after.layers.length).toBe(before.layers.length - 1);
     // The post-action state is the live model (layer actually removed).
     expect(engine.getLayer(layer.id)).toBeUndefined();
-    // The bridge fires rust_pixels_record_snapshot.
+    // No snapshot invoke: `rust_pixels_record_snapshot` has no production caller.
     await flush();
     const rec = vi.mocked(invoke).mock.calls.filter(([c]) => c === "rust_pixels_record_snapshot");
-    expect(rec.length).toBe(1);
-    expect((rec[0][1] as { docId: string }).docId).toBe("doc-a");
+    expect(rec.length).toBe(0);
   });
 
   it("undo restores the deleted layer with the SAME ImageBitmap (no detach, no close)", () => {
-    gateOn(true);
+    tauriRuntime(true);
     vi.mocked(invoke).mockResolvedValue({ version: 1, epoch: 0 });
 
     const { engine, history, wrapper } = createWrapper();
@@ -176,11 +172,10 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     expect(bm.close).not.toHaveBeenCalled();
   });
 
-  it("flag OFF is inert: Delete Layer does NOT fire rust_pixels_record_snapshot, but still records a TS undo step", async () => {
-    // Bridge OFF (non-Tauri runtime default). recordSnapshotHistory must only
-    // push the pre-action state to the undo stack — no invoke.
+  it("Delete Layer fires no Rust invoke, but still records a TS undo step", async () => {
+    // No snapshot recorder exists: recordSnapshotHistory must only push the
+    // pre-action state to the undo stack - no invoke.
     vi.mocked(isTauriRuntime).mockReturnValue(false);
-    localStorage.removeItem(GATE_KEY);
 
     const { engine, history, wrapper } = createWrapper();
     const layer = engine.addLayer("Layer1", 100, 100) as unknown as { id: string };

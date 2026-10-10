@@ -21,9 +21,8 @@ export interface PixelHistoryDepth {
  * failed or malformed call can never arrive as a zero-filled depth - a caller
  * that saw depth 0 from a broken call would conclude "no history exists".
  *
- * Shared by both read-only depth callers (`getPixelHistoryDepth` and the
- * cursor-parity probe in `@/engine/historyCursorParity`) because they read the
- * SAME Rust history struct through the same `&self`-only accessor, so the
+ * Shared by the read-only depth caller (`getPixelHistoryDepth`) because it
+ * reads the Rust history struct through a `&self`-only accessor, so the
  * malformed-response rule must not be re-implemented per caller. `context` is the
  * Tauri command name and lands in the thrown message.
  */

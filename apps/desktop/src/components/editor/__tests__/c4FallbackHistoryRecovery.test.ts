@@ -1,17 +1,15 @@
-// Recovery proof for the approved caller-predicate fix on the deferred Rust
-// brush commit: the SUCCESSFUL c4 commit passes alreadyRecordedInRust=true
-// (rust_pixels_write_region already owns the apply), and the FAILED-write
-// fallback leaves it false so history.ts records exactly one apply_tile_patch.
-// Both paths are driven through the real useBrushOverlay hook and a real
-// CommandHistory, with `@tauri-apps/api/core` invoke mocked by an in-test Rust
-// store emulator. The rejection shape is the faithful one: a bare string
-// ("E_RUST: boom"), never an Error instance.
+// Recovery proof for the deferred Rust brush commit: the SUCCESSFUL c4 commit
+// passes alreadyRecordedInRust=true (rust_pixels_write_region already owns the
+// apply), and the FAILED-write fallback keeps the TS history entry without
+// recording any Rust apply. Both paths are driven through the real
+// useBrushOverlay hook and a real CommandHistory, with `@tauri-apps/api/core`
+// invoke mocked by an in-test Rust store emulator. The rejection shape is the
+// faithful one: a bare string ("E_RUST: boom"), never an Error instance.
 //
 // Covers:
 //   1. c4 success  -> 1 state-changing apply (write_region), 0 apply_tile_patch.
-//   2. bare-string write_region rejection -> exactly 1 apply_tile_patch, TS
-//      history entry kept, undo/redo returns the recorded pre/post bytes, and
-//      the emulator holds one recoverable apply.
+//   2. bare-string write_region rejection -> 0 Rust applies, TS history entry
+//      kept, undo/redo returns the recorded pre/post bytes.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeRustBytes, readPixelSeedCall } from "@/lib/protocol/pixelSeedCall";
@@ -23,7 +21,7 @@ import * as DialogProviderModule from "../dialogs/DialogProvider";
 import * as brushToolStateModule from "../brushToolState";
 import * as docModule from "@/engine/document";
 
-// historyBridgeEnabled() requires the Tauri runtime detector to report true.
+// The cursor-step path consults the Tauri runtime detector, so it must report true.
 vi.mock("@/lib/desktop/tauriWindow", () => ({
   isTauriRuntime: vi.fn(() => true),
   runTauriWindowAction: vi.fn(),
@@ -324,8 +322,6 @@ const flushBridge = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 // TRANSITIONAL-TEST AUDIT (2026-10-02): the `photrez.rustPixels` setItem below is
 // now INERT (the brush commit path never reads the key), so these cases pin a
 // permanent invariant of the unconditional Rust path and are NOT transitional.
-// The `photrez.historyBridge` setItem IS still live and is covered by the bridge
-// gating cases.
 describe("c4 recovery (approved caller predicate)", () => {
   beforeAll(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({ confirm: vi.fn() } as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
@@ -338,7 +334,6 @@ describe("c4 recovery (approved caller predicate)", () => {
     vi.spyOn(brushToolStateModule, "getPaintToolBlockReason").mockImplementation(() => null);
     vi.spyOn(docModule, "isFacadeOwnedLayer").mockImplementation(() => false);
     localStorage.setItem("photrez.rustPixels", "1");
-    localStorage.setItem("photrez.historyBridge", "1");
     localStorage.removeItem("photrez.canonicalCommit");
   });
   afterEach(() => {
@@ -374,7 +369,7 @@ describe("c4 recovery (approved caller predicate)", () => {
     ]);
   });
 
-  it("bare-string rejection: exactly one apply_tile_patch + real CommandHistory undo/redo recovers pre/post bytes", async () => {
+  it("bare-string rejection: the fallback commit records no Rust apply, and TS undo/redo recovers pre/post bytes", async () => {
     hoist.setSim(makeSim({ rejectWriteRegion: "E_RUST: boom" }));
     const surface = makeSurface();
     const history = new CommandHistory();
@@ -386,24 +381,17 @@ describe("c4 recovery (approved caller predicate)", () => {
 
     const sim = hoist.getSim();
     expect(sim.count("rust_pixels_write_region")).toBe(1); // attempted, rejected with a bare string
-    expect(sim.count("apply_tile_patch")).toBe(1); // the fallback records the ONLY apply
-    expect(sim.applyCount).toBe(1);
+    // The synchronous fallback keeps the TS history entry but records NO Rust
+    // apply: the commit-time tile write is retired, so the recovery is entirely
+    // the TS memento below.
+    expect(sim.count("apply_tile_patch")).toBe(0);
+    expect(sim.applyCount).toBe(0);
     expect(history.getUndoCount()).toBe(1); // TS history entry kept despite the rejection
-    // The census keeps both: the failed write first, then the single recovery
-    // apply, in that order. `resolved` describes the RUNTIME here, not just the
-    // emulator: this emulator reads the host's `{width, height}` memento verbatim,
-    // and the real `apply_tile_patch` accepts that shape because `TilePatchWire`
-    // aliases `width`/`height` onto its `w`/`h` - see
-    // `paint_parity_cmds.rs::both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`,
-    // which drives the host spelling through Tauri v2's own argument deserializer.
-    // So a fallback apply really does record.
     const census = await flushPixelInvokeCensus();
     const recorded = census.entries.slice(censusBeforeRejection);
     expect(recorded.map((e) => `${e.command}:${e.phase}`)).toEqual([
       "rust_pixels_write_region:rejected",
-      "apply_tile_patch:resolved",
     ]);
-    expect(recorded[1].order).toBeGreaterThan(recorded[0].order);
 
     // Undo returns the entry's pre-stroke bytes, redo its post-stroke bytes.
     const undone = history.undo(engine.snapshot());
@@ -418,16 +406,7 @@ describe("c4 recovery (approved caller predicate)", () => {
     expect(redoPatches, "redo patches for the recovered entry").toBeDefined();
     expect(redoPatches!.after.length).toBeGreaterThan(0);
 
-    // Byte-for-byte: the recorded patches are exactly what the emulator applied.
-    const applyCall = sim.calls.find((c) => c.cmd === "apply_tile_patch")!;
     const flat = (ps: { data: Uint8ClampedArray }[]) => Array.from(ps.flatMap((p) => Array.from(p.data)));
-    expect(flat(undoPatches!.before)).toEqual(flat(applyCall.args.before));
-    expect(flat(redoPatches!.after)).toEqual(flat(applyCall.args.after));
     expect(flat(undoPatches!.before)).not.toEqual(flat(redoPatches!.after));
-
-    // The Rust emulator holds exactly one recoverable apply (undo/redo round-trip).
-    const layer = sim.store.get(sim.key(DOC, LAYER))!;
-    expect(layer.undo.length).toBe(1);
-    expect(layer.redo.length).toBe(0);
   });
 });

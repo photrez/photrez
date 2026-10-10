@@ -11,7 +11,7 @@ import {
   type SnapshotEntry,
 } from "./historyTypes";
 export type { HistoryTilePatches, SnapshotEntry } from "./historyTypes";
-import { syncFacadeVersionFromPixel, historyDegraded } from "@/lib/protocol/facadeRegistry";
+import { historyDegraded } from "@/lib/protocol/facadeRegistry";
 import { isFacadeEnabled } from "@/lib/protocol/bridge";
 import {
   buildNativeHistoryItems,
@@ -24,21 +24,13 @@ import {
   settleCommitRecorders,
 } from "./nativeHistoryView";
 import { RustCursorStepper } from "./historyCursorStep";
-import { historyBridgeEnabled } from "./historyBridgeGate";
-import { encodeRustTiles } from "@/lib/protocol/pixelSeedCall";
 import type { SnapshotLayerMeta, SnapshotPayload } from "./snapshotTokenReattach";
 
 /**
  * Route every TS commit into the SAME Rust `ProtocolEngine` cursor so TS and Rust
  * operations share ONE logical history position.
- *
- * The gate itself lives in `historyBridgeGate.ts` (one predicate, read by every
- * recording and stepping site); it is re-exported here so importers of this class
- * and importers of the predicate cannot drift onto two different gates.
  */
-export { historyBridgeEnabled } from "./historyBridgeGate";
-export type { SnapshotLayerMeta, SnapshotPayload, SnapshotLayerIdentity } from "./snapshotTokenReattach";
-export { restoreSnapshotBitmapsByToken } from "./snapshotTokenReattach";
+export type { SnapshotLayerMeta, SnapshotPayload } from "./snapshotTokenReattach";
 
 /**
  * TRANSITIONAL (`photrez.rustPixels`): the flag's last surviving production read.
@@ -76,13 +68,6 @@ export class CommandHistory {
   /** Ordering, unhandled-rejection and did-not-move diagnostics for the step. */
   private readonly rustCursor = new RustCursorStepper();
   /**
-   * Whether the most recent `commit()` appended an entry to the Rust stream
-   * through the history bridge. Read by `installFacadeCommitShim` immediately
-   * after `commit()` returns, so exactly one of the two recorders fires per host
-   * commit. Public because the shim is a prototype wrapper outside this class.
-   */
-  private lastCommitRecordedInBridge = false;
-  /**
    * The facade handoff consumed the Rust cursor for the press in flight, so the pop
    * that follows must not step again.
    *
@@ -98,23 +83,6 @@ export class CommandHistory {
    * outlive its press and suppress the NEXT one instead.
    */
   private facadeCursorConsumed = false;
-
-  /**
-   * Did the commit that just ran record its own Rust entry through the bridge?
-   *
-   * `installFacadeCommitShim` wraps `commit` and mirrors it into an `External`
-   * entry; when the bridge was also active BOTH recorders appended an entry for
-   * the same host commit, and a single cursor step per pop could not keep up with
-   * a stream gaining two entries per commit. The shim reads this and stands down,
-   * which is what makes "one host entry => one Rust entry => one cursor step" hold
-   * with both recorders enabled.
-   *
-   * Only meaningful immediately after `commit()` on the same instance - it is a
-   * per-commit signal, not history state.
-   */
-  get committedRecordedInBridge(): boolean {
-    return this.lastCommitRecordedInBridge;
-  }
 
   /**
    * The facade handoff moved the Rust cursor for the press in flight.
@@ -143,27 +111,6 @@ export class CommandHistory {
    */
   attachDocIdGetter(getter: () => string): void {
     this.docIdGetter = getter;
-  }
-
-  /**
-   * THE bridge precondition, in one place, because recording and stepping must never
-   * disagree: this history appends to a Rust stream only when the bridge is on AND a
-   * doc-id getter is attached, so only then may a pop step the cursor.
-   *
-   * `commit`/`recordSnapshotHistory` and `stepRustCursor` all gate on THIS, not on
-   * `historyBridgeEnabled()` alone. That asymmetry was a live defect:
-   * `editorOpenImage.loadProjectFile` builds a `CommandHistory` WITHOUT a getter
-   * (every other production history attaches one) and that is the File>Open path, so
-   * its step consumed a brush stroke's Pixel entry - recorded by the ungated
-   * `rust_pixels_write_region`.
-   */
-  private bridgeRecordsFor(): boolean {
-    // `!= null`, not `!== null`: the field is typed `(() => string) | null` today, but
-    // an `undefined` slipping in would make the strict form report "records" and then
-    // throw inside the caller's `try {} catch {}`, which swallows it - a silent
-    // no-record with a cursor step already fired, i.e. exactly the asymmetry this
-    // predicate exists to remove.
-    return historyBridgeEnabled() && this.docIdGetter != null;
   }
 
   /**
@@ -260,18 +207,10 @@ export class CommandHistory {
     //    the Pixel entry via `rust_pixels_write_region`; skip to avoid double-count.
     //  - snapshot-type ops (before+after states) use `recordSnapshotHistory`, NOT
     //    this method — see its comment for the contract-correct before/after.
-    // Gated by the runtime DEV flag localStorage["photrez.historyBridge"] === "1"
-    // (plus isTauriRuntime, folded into historyBridgeEnabled()).
-    //
-    // Whether THIS commit appended an entry to the Rust stream by itself. Read by
-    // the commit shim so it can stand down when the bridge already recorded, which
-    // is what keeps "one host entry => exactly one Rust entry" true when both
-    // recorders are active. Without it both fire on the same commit and a single
-    // cursor step can no longer keep up with the stream.
-    this.lastCommitRecordedInBridge = false;
-    // Set by the record's own rejection, on THIS entry only. Declared before `fire`
-    // because the closure below needs it, and assigned after the push below - same
-    // object either way, since `stepRustCursor` reads the popped entry.
+    // Set by the facade commit shim's external-transition mirror; consumed by
+    // `settleRecordsThenResync` so the derived view refreshes after the shim's
+    // record lands.
+    this.lastCommitRecord = null;
     const entry: SnapshotEntry = {
       snapshot,
       timestamp: Date.now(),
@@ -280,53 +219,6 @@ export class CommandHistory {
       imperative,
       pixelLayerIds: pixelLayerIds ?? null,
     };
-    this.lastCommitRecord = null;
-    if (this.bridgeRecordsFor()) {
-      const docId = this.docIdGetter!();
-      // Fire-and-forget through the shared bridge entry, so the census registrar
-      // is installed and the invoke carries one monotonic order. A failure must
-      // never break TS history.
-      const fire = (cmd: string, args: Record<string, unknown>) =>
-        import("@/lib/protocol/bridge")
-          .then(({ invokePixelCommand }) => invokePixelCommand(cmd, args))
-          .catch(() => {
-            // The record did NOT land, so the flag the shim reads is now a lie: it
-            // stands down in good faith and nothing exists in the stream. Mark THIS
-            // entry so `stepRustCursor` leaves its ungated path - see
-            // `SnapshotEntry.rustRecordFailed` for why this is not a history latch.
-            entry.rustRecordFailed = true;
-          });
-      try {
-        if (imperative && !alreadyRecordedInRust) {
-          this.lastCommitRecordedInBridge = true;
-          this.lastCommitRecord = fire("apply_tile_patch", {
-            docId,
-            layerId: imperative.layerId,
-            before: encodeRustTiles(imperative.before),
-            after: encodeRustTiles(imperative.after),
-          });
-        } else if (!alreadyRecordedInRust) {
-          this.lastCommitRecordedInBridge = true;
-          this.lastCommitRecord = fire("rust_pixels_record_external", {
-            docId,
-            label: label ?? "ts-meta",
-            affected: snapshot.activeLayerId ? [snapshot.activeLayerId] : [],
-            adapterId: "ts",
-            token: label ?? "ts-meta",
-            // Host-owned size halves. Both absent for a size-neutral commit; both
-            // present and differing for a commit that resizes the document.
-            docSizeBefore: docSizeChange
-              ? [docSizeChange.before.width, docSizeChange.before.height]
-              : null,
-            docSizeAfter: docSizeChange
-              ? [docSizeChange.after.width, docSizeChange.after.height]
-              : null,
-          });
-        }
-      } catch {
-        /* bridge is best-effort; a failure must never break TS history */
-      }
-    }
 
     this.undoStack.push(entry);
 
@@ -335,10 +227,9 @@ export class CommandHistory {
 
     // The native stream just gained an entry; refresh the cached query view
     // so the UI does not serve a dead undo button over live work. The read must
-    // wait for BOTH recorders of this commit to settle - this commit's bridge
-    // fire (lastCommitRecord) and the facade commit shim's external-transition
-    // mirror (registered via flushExternalTransitions) - or it observes the
-    // pre-commit stream and publishes a count one short.
+    // wait for the facade commit shim's external-transition mirror (registered
+    // via flushExternalTransitions) to settle, or it observes the pre-commit
+    // stream and publishes a count one short.
     void this.settleRecordsThenResync(entry.snapshot.id || this.docIdGetter?.() || "");
 
     // Enforce max depth
@@ -358,11 +249,11 @@ export class CommandHistory {
 
   /**
    * Record a snapshot-type history step that carries BOTH the pre-action and
-   * post-action document states explicitly (bridge-ON only).
+   * post-action document states explicitly.
    *
    * Contract-correct before/after derivation: at a PRE-action commit the post-
-   * action state does not yet exist, so the bridge can NEVER infer `after` from
-   * the commit arg or from the stack. The caller passes both states, so:
+   * action state does not yet exist, so it can NEVER be inferred from the
+   * commit arg or from the stack. The caller passes both states, so:
    *   - `before` = the PRE-action state (what TS undo restores / what Rust
    *     `undo_snapshot` returns);
    *   - `after`  = the POST-action state (what Rust `redo_snapshot` returns).
@@ -370,23 +261,21 @@ export class CommandHistory {
    * arguments, so undo can never return a state two-commits back (the off-by-one
    * the old `commit()` snapshot branch had).
    *
-   * Gated by `historyBridgeEnabled()` + `docIdGetter` (same as commit). Fires
-   * `rust_pixels_record_snapshot({ docId, before: beforePayload, after: afterPayload })`
-   * via the existing dynamic-import `invoke` + `.catch(()=>{})`, wrapped in
-   * try/catch (bridge is best-effort, must NEVER break TS history). This is the
-   * SOLE `rust_pixels_record_snapshot` entry point.
+   * No Rust command fires from here: the recorder for this entry is the facade
+   * commit shim (`installFacadeCommitShim` wraps this method too). It mirrors the
+   * push into an `External` entry under `isFacadeEnabled()`, and the facade
+   * walker consumes that mirror on undo/redo.
    *
    * TS undo/redo authority stays unchanged: the PRE-action `before` state is
    * pushed as the undo-point, the redo stack is cleared, and `maxDepth` +
    * `disposeSnapshot(evicted.snapshot, live)` are enforced exactly as commit().
    */
   recordSnapshotHistory(before: DocumentModel, after: DocumentModel, label?: string, pixelLayerIds: string[] | null = null): void {
-    // Same one-recorder-per-commit contract as `commit()`. Without this the shim's
-    // snapshot wrapper cannot know the bridge already recorded, so with bridge ON
-    // and facade ON one snapshot-typed commit appended BOTH a Snapshot entry (here)
-    // and an External (the shim) - two entries, one host commit.
-    this.lastCommitRecordedInBridge = false;
-    // The entry this commit pushes, so a failed bridge record can be marked ON IT.
+    // Set by the facade commit shim's external-transition mirror; consumed by
+    // `settleRecordsThenResync` so the derived view refreshes after the shim's
+    // record lands.
+    this.lastCommitRecord = null;
+    // The entry this commit pushes, so a failed record can be marked ON IT.
     // Built first because the push below must carry the very object the pop reads.
     const entry: SnapshotEntry = {
       snapshot: before,
@@ -396,47 +285,6 @@ export class CommandHistory {
       snapshotType: "snapshot",
       pixelLayerIds: pixelLayerIds ?? null,
     };
-    this.lastCommitRecord = null;
-    if (this.bridgeRecordsFor()) {
-      const docId = this.docIdGetter!();
-      // Registrations happen inside buildSnapshotPayload (idempotent per bitmap
-      // object). before = the PRE-action state, after = the POST-action state.
-      //
-      // The payload build is INSIDE the try, and the recorder flag is set only after
-      // it succeeds. It used to be set first, with the build outside: a throw from
-      // `buildSnapshotPayload` then left the flag true, so the shim stood down in good
-      // faith and NOTHING was recorded anywhere - one host entry, zero Rust entries.
-      // Fire-and-forget through the shared bridge entry (census order + registrar).
-      const fire = (cmd: string, args: Record<string, unknown>) =>
-        import("@/lib/protocol/bridge")
-          .then(({ invokePixelCommand }) => invokePixelCommand(cmd, args))
-          .catch(() => {
-            // The record did NOT land, and the shim stood down on a flag that says it
-            // did. Mark THIS entry so nothing later steps onto a tip that is not its
-            // own. Same treatment as `commit`'s fire - see
-            // `SnapshotEntry.rustRecordFailed`.
-            entry.rustRecordFailed = true;
-          });
-      try {
-        const beforePayload = this.buildSnapshotPayload(before);
-        const afterPayload = this.buildSnapshotPayload(after);
-        // Set only once the payload is built AND the record is on its way, so the flag
-        // the shim reads can never claim a record that was never issued.
-        this.lastCommitRecordedInBridge = true;
-        this.lastCommitRecord = fire("rust_pixels_record_snapshot", { docId, before: beforePayload, after: afterPayload })
-          .then((res) => {
-            // Native-authority version sync: the snapshot command advances the
-            // native engine document version; push it into the facade so a later
-            // facade command is not rejected with E_VERSION_MISMATCH. Gated no-op
-            // unless native authority is active.
-            const v = (res as { version?: number } | undefined)?.version;
-            if (typeof v === "number") syncFacadeVersionFromPixel(docId, v);
-          })
-          .catch(() => {});
-      } catch {
-        /* bridge is best-effort; a failure must never break TS history */
-      }
-    }
 
     // TS undo/redo authority: the undo-point is the PRE-action state (unchanged
     // convention) — undo restores `before`, which is what Rust undo_snapshot
@@ -447,7 +295,7 @@ export class CommandHistory {
     this.redoStack = [];
 
     // See commit(): keep the cached native-query view current (deferred until
-    // this commit's bridge record and the shim's mirror have settled).
+    // the shim's mirror has settled).
     void this.settleRecordsThenResync(before.id || this.docIdGetter?.() || "");
 
     // Enforce max depth (mirror commit()): bitmaps still referenced by the live
@@ -475,7 +323,7 @@ export class CommandHistory {
    */
   onDerivedViewChanged: (() => void) | null = null;
 
-  /** The bridge record fired by the most recent commit/recordSnapshotHistory. */
+  /** The facade shim record fired by the most recent commit/recordSnapshotHistory. */
   private lastCommitRecord: Promise<unknown> | null = null;
 
   /** Settle this commit's recorders first; the timing contract lives on `settleCommitRecorders`. */
@@ -565,59 +413,42 @@ export class CommandHistory {
    * A step with no counterpart would consume somebody else's entry, so it fires
    * only for these arms:
    *  - `imperative.rustOwned`: `rust_pixels_write_region` recorded the Pixel entry
-   *    (brush, eraser, bucket, seeded fill, gradient, delete-pixels), whatever the
-   *    bridge flag says;
+   *    (brush, eraser, bucket, seeded fill, gradient, delete-pixels), regardless
+   *    of any feature flag;
    *  - TRANSITIONAL `photrez.rustPixels`, tile entries only. The one arm that can
    *    step without a recorded counterpart, left as-is because it predates this
    *    method and retiring the flag is a separate cleanup;
-   *  - `bridgeRecordsFor()`: the bridge, for BOTH entry kinds. A metadata commit
-   *    appended an External entry through `rust_pixels_record_external` (all-scalar
-   *    args) and a TS-owned tile commit appended a Pixel entry through
-   *    `apply_tile_patch`, so each has the counterpart its pop consumes. The tile
-   *    arm only reached the stream once `TilePatchWire` accepted the host's
-   *    `TileUploadLike` spelling (`{x, y, width, height, data}`) as an alias of
-   *    `w`/`h` - see `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`
-   *    in paint_parity_cmds.rs, which drives both spellings through the real Tauri
-   *    argument deserializer. Until that alias existed the bridge excluded tile
-   *    entries here, which is why a bridge-ON tile pop used to leave the cursor
-   *    behind.
+   *  - the facade commit shim's mirror: `installFacadeCommitShim`
+   *    (lib/protocol/facadeRegistry.ts) appends an `External` entry for every
+   *    commit that is not `alreadyRecordedInRust`, so a metadata or TS-owned tile
+   *    commit has the counterpart its pop consumes.
    *
-   * The bridge arm is gated on `bridgeRecordsFor()` - the SAME predicate this
-   * class's own `commit` records on - so a history with no doc-id getter records
-   * nothing and therefore steps nothing.
-   *
-   * "THE SAME PREDICATE" IS TRUE OF THE BRIDGE ONLY, and that limit is load-bearing.
-   * It is NOT true of every writer to this stream. `installFacadeCommitShim`
-   * (lib/protocol/facadeRegistry.ts) mirrors EVERY commit into an `External`
-   * entry under `isFacadeEnabled()` - which reads `photrez.facade !== "0"`, so it
-   * is ON unless explicitly opted out - while this method gates stepping on
-   * `historyBridgeEnabled()`, which needs `photrez.historyBridge === "1"` AND the
-   * Tauri runtime, so it is OFF unless explicitly opted in. At those two shipping
-   * defaults the sides disagree: a metadata commit appends an `External` entry
-   * that no pop will step, and the cursor is left pointing at it. The next
-   * `rustOwned` pop then inherits it as its tip, and because
+   * The shim arm is unguarded only because the shim is this entry's OWN recorder,
+   * so the Rust tip is known to be its entry. No other arm may assume that, and
+   * the mismatch it causes is exactly the drift this method closed: when a commit
+   * was recorded by one gate and stepped under another, a metadata commit appended
+   * an `External` entry that no pop stepped and the cursor stayed on it. The next
+   * `rustOwned` pop then inherited that entry as its tip, and because
    * `ProtocolEngine::undo_pixel` moves the cursor over an `External` tip while
    * yielding no tiles (crates/core/src/history.rs:229-233, collapsed to `None`
-   * AFTER the move by pixel_store.rs:745), that step would consume a
-   * host-handoff entry instead of the paint entry and revert nothing.
+   * AFTER the move by pixel_store.rs:745), that step consumed a host-handoff entry
+   * instead of the paint entry and reverted nothing.
    *
    * So the two entry-shaped arms below are additionally gated on the Rust tip
    * ACTUALLY being a `Pixel` entry, read through `rust_pixels_history_tip` before
-   * the step is issued (`RustCursorStepper.fireGatedOnPixelTip`). The bridge arm is
-   * deliberately NOT gated that way: the bridge recorded the counterpart its own
-   * pop consumes, so an `External` tip there is the correct entry to move over and
-   * refusing it would strand every metadata undo.
+   * the step is issued (`RustCursorStepper.fireGatedOnPixelTip`). The shim arm is
+   * deliberately NOT gated that way: its `External` tip is the correct entry to
+   * move over, and refusing it would strand every metadata undo.
    *
-   * It is one predicate for the bridge, so no two arms can co-fire: `undo()`/
-   * `redo()` call `stepRustCursor` once per popped entry, and no restore path
-   * issues a second invoke (`rustTileProjection` only AWAITS the step the pop
-   * fired). A pop that leaves its step unconsumed - a bridge-ON TS-owned tile pop
-   * with no Rust fetch armed - drops it on the next pop's leading `take()`, so it
-   * is issued once and never re-issued.
+   * No two arms can co-fire: `undo()`/`redo()` call `stepRustCursor` once per
+   * popped entry, and no restore path issues a second invoke (`rustTileProjection`
+   * only AWAITS the step the pop fired). A pop that leaves its step unconsumed - a
+   * transitional-flag TS-owned tile pop with no Rust fetch armed - drops it on the
+   * next pop's leading `take()`, so it is issued once and never re-issued.
    *
-   * A snapshot-typed entry is NOT stepped: its cursor step is the token re-attach's
-   * `rust_pixels_undo_snapshot` / `..._redo_snapshot`, and `undo_pixel` refuses to
-   * move the cursor for a Snapshot tip (crates/core/src/history.rs:239).
+   * A snapshot-typed entry is NOT stepped: the pop returns before every arm, and
+   * `undo_pixel` refuses to move the cursor for a Snapshot tip
+   * (crates/core/src/history.rs:239). The facade walker owns its shim mirror.
    */
   private stepRustCursor(entry: SnapshotEntry, direction: "undo" | "redo"): void {
     this.rustCursor.take(); // never leave a previous pop's handle claimable
@@ -628,24 +459,17 @@ export class CommandHistory {
     const facadeMoved = this.facadeCursorConsumed;
     this.facadeCursorConsumed = false;
     if (entry.snapshotType === "snapshot") return;
-    const bridgeArm = this.bridgeRecordsFor();
     // The shim arm: `installFacadeCommitShim` mirrors EVERY commit that is not
-    // `alreadyRecordedInRust` into an `External` entry, under `isFacadeEnabled()`
-    // and NOT under the history bridge. So with the bridge off - the shipping
-    // default - a metadata or TS-owned tile commit records an entry whose only
-    // possible consumer is this pop. Without this arm that entry is never stepped
-    // and the two cursors separate by one per undone step, which is the drift the
+    // `alreadyRecordedInRust` into an `External` entry, under `isFacadeEnabled()`.
+    // A metadata or TS-owned tile commit records an entry whose only possible
+    // consumer is this pop. Without this arm that entry is never stepped and the
+    // two cursors separate by one per undone step, which is the drift the
     // tip-kind gate then refuses to cross (leaving a Ctrl+Z that reverts nothing).
-    //
-    // It cannot double-step against the bridge: `commit` marks the entries it
-    // recorded itself, and the shim SKIPS those commits precisely so only one of
-    // the two recorders ever fires for a given host entry. This arm is therefore
-    // reached only when the bridge did NOT record, i.e. exactly when the shim did.
     //
     // `facadeMoved` and `entry.rustRecordFailed` both demote it to the GATED path.
     // The ungated path is only sound when this pop's own entry is known to be the tip,
     // and either fact destroys that knowledge: the handoff already consumed the
-    // cursor, or this entry's own bridge record was rejected so nothing was recorded
+    // cursor, or this entry's own record was rejected so nothing was recorded
     // for it at all. The gate refuses a tip that is not this entry's, which is the safe
     // outcome for both.
     //
@@ -668,14 +492,13 @@ export class CommandHistory {
     const shimArm =
       !facadeMoved &&
       entry.rustRecordFailed !== true &&
-      !bridgeArm &&
       entry.imperative?.rustOwned !== true &&
       isFacadeEnabled() &&
       !historyDegraded();
     const entryArm =
       entry.imperative?.rustOwned === true ||
       (entry.imperative !== undefined && rustPixelsFlagEnabled());
-    if (!entryArm && !bridgeArm && !shimArm) return;
+    if (!entryArm && !shimArm) return;
     const docId = entry.snapshot.id || this.docIdGetter?.();
     if (!docId) return;
     // "" is the honest "this step names no layer" answer for a metadata entry: the
@@ -683,12 +506,12 @@ export class CommandHistory {
     const layerId = entry.imperative?.layerId ?? entry.snapshot.activeLayerId ?? "";
     const req = { direction, docId, layerId };
     if (facadeMoved) return; // the handoff's cursor move IS this press's step
-    if ((bridgeArm || shimArm) && entry.rustRecordFailed !== true) {
-      // The recorder that owns this entry is not the pixel writer: the bridge when
-      // it recorded, the shim when it did. Either way the tip for this pop is the
-      // entry the recorder appended, so there is nothing to check and an `External`
-      // tip is the CORRECT entry to move over. Refusing it here would strand every
-      // metadata undo - which is the whole reason the shim records these at all.
+    if (shimArm && entry.rustRecordFailed !== true) {
+      // The recorder that owns this entry is not the pixel writer: the shim.
+      // The tip for this pop is the entry the recorder appended, so there is
+      // nothing to check and an `External` tip is the CORRECT entry to move over.
+      // Refusing it here would strand every metadata undo - which is the whole
+      // reason the shim records these at all.
       this.rustCursor.fire(req);
       return;
     }

@@ -1,34 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Closing the cursor drift: one host entry => exactly one Rust entry => exactly
- * one cursor step, in every configuration.
+ * The invariant this file pins: one host entry => exactly one Rust entry => exactly
+ * one cursor step.
  *
- * THE DRIFT. Two recorders and one stepper, gated on two different flags, over one
- * stream:
- *   - `installFacadeCommitShim` (lib/protocol/facadeRegistry.ts) mirrors every
- *     commit that is not `alreadyRecordedInRust` into an `External` entry, under
- *     `isFacadeEnabled()` - `photrez.facade !== "0"`, so ON by default.
- *   - `CommandHistory.stepRustCursor` decided whether to step under
- *     `bridgeRecordsFor()` -> `historyBridgeEnabled()` - needs
- *     `photrez.historyBridge === "1"` AND Tauri, so OFF by default.
- * At those shipping defaults a metadata commit appended an entry no pop would ever
- * step, and the cursors separated by one per undone step.
+ * THE DRIFT, for the record. `stepRustCursor` originally had no consumer for the
+ * `External` entries `installFacadeCommitShim` records, so a metadata commit appended
+ * an entry no pop ever stepped and the two cursors separated by one per undone step.
+ * A second, commit-time recorder (the `photrez.historyBridge` arm) was retired along
+ * the way; what remains is a single recorder (the shim) and a single consumer (the
+ * pop's shim arm).
  *
- * TWO DEFECTS, NOT ONE. `commit`'s bridge arm and the shim BOTH record a non-pixel
- * commit, and the shim cannot see that the bridge already did. With bridge ON and
- * facade ON, one host commit therefore appended TWO entries (for a metadata commit:
- * two `External`; for a TS-owned tile commit: one `Pixel` from `apply_tile_patch`
- * plus one `External` from the shim) while the pop issued a single step - so the
- * drift existed in the "everything on" configuration too, and grew faster.
- *
- * THE FIX, both halves:
- *   1. `commit` reports whether it recorded (`committedRecordedInBridge`), and the
- *      shim stands down when it did. The bridge and the shim are now mutually
- *      exclusive recorders: exactly one entry per host commit.
- *   2. `stepRustCursor` gained a shim arm, so a pop steps whenever the shim - not
- *      the bridge - is the recorder for that entry. Without it the entry the shim
- *      recorded still had no consumer.
+ * WHAT THIS PINS NOW.
+ *   1. The configuration matrix over `photrez.facade` and `photrez.rustPixels`: every
+ *      cell yields ONE entry per host commit and ONE step per pop, or - with the shim
+ *      off - no entry and no step.
+ *   2. The arms of `stepRustCursor` resolve to a single fire when their predicates
+ *      overlap (a tile commit with `photrez.rustPixels` ON matches both).
+ *   3. A declined facade handoff plus a pop is still ONE step.
  *
  * WHAT THIS DOES NOT CHANGE. The facade handoff still pops no host entry: it
  * returns before `history.undo()`, so it drives the native walker and never reaches
@@ -61,7 +50,7 @@ import {
   tipFor,
 } from "./rustStreamEmulator";
 import { commitRustOwnedPaint, makePatches } from "./historyCursorFixtures";
-import { cursorStepInvokes, settle, timesInvoked } from "./historyCursorHarness";
+import { cursorStepInvokes, settle } from "./historyCursorHarness";
 import { installFacadeCommitShim } from "@/lib/protocol/facadeRegistry";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
@@ -83,7 +72,6 @@ vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
   handoffMovedCursor: vi.fn(() => false),
 }));
 
-const BRIDGE_GATE = "photrez.historyBridge";
 const RUST_PIXELS = "photrez.rustPixels";
 const FACADE = "photrez.facade";
 const DOC = "doc-1";
@@ -429,54 +417,11 @@ describe("one host entry => one Rust entry => one cursor step", () => {
   });
 
   // ── The configuration matrix ───────────────────────────────────────────────
-  it("MATRIX bridge ON + facade ON: the shim stands down, so ONE entry and ONE step", async () => {
-    localStorage.setItem(BRIDGE_GATE, "1");
-    const { history, engine, commands } = mountCommands();
-    await metadataOp(history, engine);
-    await until(() => timesInvoked("rust_pixels_record_external") >= 1 || streamFor(DOC).entries.length >= 1);
-
-    expect(
-      timesInvoked("rust_pixels_record_external"),
-      "the bridge recorded the metadata step",
-    ).toBe(1);
-    expect(
-      streamFor(DOC).entries,
-      "and the shim did NOT add a second entry - one host entry, one Rust entry",
-    ).toEqual(["external"]);
-
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 1);
-    expect(cursorStepInvokes(), "exactly one step").toBe(1);
-    expect(streamFor(DOC).cursor, "cursor fully drained").toBe(0);
-    expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
-  });
-
-  it("MATRIX bridge ON + facade OFF: the bridge is the only recorder, ONE entry and ONE step", async () => {
-    localStorage.setItem(BRIDGE_GATE, "1");
-    localStorage.setItem(FACADE, "0");
-    const { history, engine, commands } = mountCommands();
-    await metadataOp(history, engine);
-    await until(() => timesInvoked("rust_pixels_record_external") >= 1);
-
-    expect(timesInvoked("rust_pixels_record_external"), "the bridge recorded").toBe(1);
-    expect(streamFor(DOC).entries, "one entry").toEqual(["external"]);
-
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 1);
-    expect(cursorStepInvokes(), "exactly one step").toBe(1);
-    expect(streamFor(DOC).cursor).toBe(0);
-    expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
-  });
-
-  it("MATRIX bridge OFF + facade ON: the shim is the only recorder, ONE entry and ONE step", async () => {
+  it("MATRIX facade ON: the shim is the only recorder, ONE entry and ONE step", async () => {
     const { history, engine, commands } = mountCommands();
     await metadataOp(history, engine);
     await shimRecorded(1);
 
-    expect(
-      timesInvoked("rust_pixels_record_external"),
-      "the bridge recorded nothing",
-    ).toBe(0);
     expect(streamFor(DOC).entries, "the shim's entry is the only one").toEqual(["external"]);
 
     commands.undo();
@@ -486,13 +431,12 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
   });
 
-  it("MATRIX bridge OFF + facade OFF: nothing records, so nothing steps", async () => {
+  it("MATRIX facade OFF: nothing records, so nothing steps", async () => {
     localStorage.setItem(FACADE, "0");
     const { history, engine, commands } = mountCommands();
     await metadataOp(history, engine);
     await settle();
 
-    expect(timesInvoked("rust_pixels_record_external"), "no recorder fired").toBe(0);
     expect(streamFor(DOC).entries, "the stream is empty").toEqual([]);
 
     commands.undo();
@@ -509,10 +453,9 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     // Every configuration that issues a step issues exactly one, asserted above;
     // this case pins the structural half - a declined handoff plus a pop is still
     // ONE step.
-    localStorage.setItem(BRIDGE_GATE, "1");
     const { history, engine, commands } = mountCommands();
     await metadataOp(history, engine);
-    await until(() => timesInvoked("rust_pixels_record_external") >= 1);
+    await shimRecorded(1);
 
     commands.undo();
     await until(() => cursorStepInvokes() >= 1);
@@ -523,40 +466,30 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     expect(streamFor(DOC).cursor, "the redo put the entry back").toBe(1);
   });
 
-  it("MATRIX: a TS-owned tile commit also yields ONE entry and ONE step per configuration", async () => {
-    // The shim mirrors tile commits too, so this is the case where the old code
-    // recorded a Pixel (bridge) AND an External (shim) for one host entry.
-    for (const bridge of [false, true]) {
-      resetStreams();
-      vi.mocked(invoke).mockClear();
-      localStorage.removeItem(BRIDGE_GATE);
-      if (bridge) localStorage.setItem(BRIDGE_GATE, "1");
+  it("MATRIX: a TS-owned tile commit also yields ONE entry and ONE step", async () => {
+    // The shim mirrors tile commits too, so one host commit must still produce
+    // exactly one Rust entry and one step.
+    const { history, renderer, commands } = mountCommands();
+    const m = engineLikeModel();
+    history.commit(m, "Text", {
+      layerId: "l1",
+      surfaceWidth: 10,
+      surfaceHeight: 10,
+      before: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(8) }],
+      after: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(8) }],
+    });
+    await until(() => streamFor(DOC).entries.length >= 1);
+    await settle();
 
-      const { history, renderer, commands } = mountCommands();
-      const m = engineLikeModel();
-      history.commit(m, "Text", {
-        layerId: "l1",
-        surfaceWidth: 10,
-        surfaceHeight: 10,
-        before: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(8) }],
-        after: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(8) }],
-      });
-      await until(() => streamFor(DOC).entries.length >= 1);
-      await settle();
+    expect(
+      streamFor(DOC).entries.length,
+      "ONE host entry produced exactly ONE Rust entry",
+    ).toBe(1);
 
-      expect(
-        streamFor(DOC).entries.length,
-        `bridge ${bridge ? "ON" : "OFF"}: ONE host entry produced exactly ONE Rust entry`,
-      ).toBe(1);
-
-      commands.undo();
-      await until(() => cursorStepInvokes() >= 1);
-      expect(
-        cursorStepInvokes(),
-        `bridge ${bridge ? "ON" : "OFF"}: exactly one step`,
-      ).toBe(1);
-      await settle();
-    }
+    commands.undo();
+    await until(() => cursorStepInvokes() >= 1);
+    expect(cursorStepInvokes(), "exactly one step").toBe(1);
+    await settle();
   });
 
   it("MATRIX rustPixels ON + facade ON, a TILE commit: entryArm and shimArm co-fire", async () => {
@@ -565,7 +498,7 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     //
     //   entryArm = `entry.imperative?.rustOwned === true || (entry.imperative !== undefined
     //               && rustPixelsFlagEnabled())`
-    //   shimArm  = `!facadeMoved && entry.rustRecordFailed !== true && !bridgeArm &&
+    //   shimArm  = `!facadeMoved && entry.rustRecordFailed !== true &&
     //               entry.imperative?.rustOwned !== true && isFacadeEnabled() &&
     //               !historyDegraded()`
     //
@@ -580,7 +513,7 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     engine.getModel().name = "after";
     await shimRecorded(1);
 
-    // shimArm's inputs: bridge off (flag unset), facade on, not degraded, not rustOwned.
+    // shimArm's inputs: facade on, not degraded, not rustOwned.
     expect(
       streamFor(DOC).entries,
       "the shim recorded the tile commit's counterpart - shimArm's recorder",
@@ -618,24 +551,18 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
   });
 
-  it("MATRIX bridge ON + rustOwned: entryArm fires even though the bridge is the recorder", async () => {
-    // The mirror of the co-firing cell: a Rust-OWNED entry with the bridge on. entryArm
-    // is true via its first clause, and bridgeArm is true too, so `if (bridgeArm ||
-    // shimArm)` takes the UNGATED path even though this entry's recorder was the pixel
-    // writer, not the bridge and not the shim. The bridge records nothing for a
-    // `rustOwned` commit (`alreadyRecordedInRust`), so this entry's counterpart is the
-    // `Pixel` entry `rust_pixels_write_region` already appended - and an ungated step
-    // over it is correct.
-    localStorage.setItem(BRIDGE_GATE, "1");
+  it("MATRIX rustOwned: entryArm fires, and neither recorder appends a second entry", async () => {
+    // The mirror of the co-firing cell: a Rust-OWNED entry. entryArm is true via
+    // its first clause and shimArm is false (`rustOwned !== true`), so the pop takes
+    // the entryArm path. The shim records nothing for a `rustOwned` commit
+    // (`alreadyRecordedInRust`), so this entry's counterpart is the `Pixel` entry
+    // `rust_pixels_write_region` already appended - and an ungated step over it is
+    // correct.
     const { history, engine, renderer, commands } = mountCommands();
     await commitRustOwnedPaint(history, engine.snapshot());
     await until(() => streamFor(DOC).entries.length >= 1);
 
     expect(streamFor(DOC).entries, "the pixel writer recorded the only entry").toEqual(["pixel"]);
-    expect(
-      timesInvoked("rust_pixels_record_external"),
-      "and neither the bridge nor the shim added a second",
-    ).toBe(0);
 
     await pressUndo(commands, renderer, 1);
     expect(cursorStepInvokes(), "exactly one step").toBe(1);
@@ -643,180 +570,6 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
   });
 
-  it("a failed bridge record on ONE entry does not disarm the NEXT one", async () => {
-    // The per-entry marker, versus the history-wide latch it replaced. The bridge is
-    // ON here, so `commit` is the recorder and the shim stands down: this pop takes the
-    // bridge arm. A history-wide failure condition would put EVERY later bridge-arm pop
-    // on the gated path, and the gate REFUSES an `External` tip - so one rejected record
-    // would stop the cursor advancing for the rest of the session, on entries whose tip
-    // was perfectly correct.
-    localStorage.setItem(BRIDGE_GATE, "1");
-    let rejectNext = true;
-    const { history, engine, commands } = mountCommands();
-    vi.mocked(invoke).mockImplementation((cmd: string, args: unknown) => {
-      if (cmd === "rust_pixels_record_external" && rejectNext) {
-        rejectNext = false;
-        return Promise.reject(new Error("no IPC in jsdom: rust_pixels_record_external"));
-      }
-      return answerShimInvoke(cmd, args) as Promise<unknown>;
-    });
-
-    // Commit 1: its bridge record is rejected.
-    await metadataOp(history, engine);
-    await until(() => streamFor(DOC).entries.length >= 1 || rejectNext === false);
-    await settle();
-    expect(streamFor(DOC).entries, "commit 1's record never landed").toEqual([]);
-
-    // Commit 2: identical, and its record succeeds.
-    await metadataOp(history, engine);
-    await until(() => streamFor(DOC).entries.length >= 1);
-    expect(streamFor(DOC).entries, "commit 2's counterpart is on the stream").toEqual([
-      "external",
-    ]);
-
-    // Undo commit 2. Its tip IS its own entry and nothing is wrong with it, so it MUST
-    // step - a history-wide latch would push it onto the gate and refuse.
-    //
-    // NOT REDUNDANT with the hop case below: this one only ever pops the ORIGINAL entry
-    // objects, so it reads `rustRecordFailed` straight off the object `commit`
-    // constructed and cannot see a hop. It pins the marker's SCOPE (one entry, not one
-    // history); the hop case pins its SURVIVAL across an undo->redo rebuild. Both fail
-    // independently - deleting either one loses a distinct defect.
-    commands.undo();
-    await settle();
-    await settle();
-    await settle();
-    expect(
-      cursorStepInvokes(),
-      "commit 2 steps ungated: commit 1's failure is scoped to commit 1",
-    ).toBe(1);
-    expect(streamFor(DOC).cursor, "and its entry was consumed").toBe(0);
-  });
-
-  it("a failed bridge record survives an undo->redo hop: the redo takes the GATED path", async () => {
-    // Both stack hops rebuild the entry as a fresh object literal, copying
-    // `imperative`, `snapshotType` and `pixelLayerIds`. A new field that is not copied
-    // is silently dropped by that rebuild - which is exactly what happened to
-    // `imperative` and `snapshotType` before they were propagated.
-    //
-    // A's Rust record is rejected, so NOTHING exists in the stream behind it. Undo pops
-    // A - the ORIGINAL object, marker intact. That undo pushes A's twin onto the redo
-    // stack, and the redo pops THAT object: if the marker did not travel, the redo reads
-    // `undefined`, takes the bridge arm's UNGATED path, and steps.
-    //
-    // The distinguishing witness is the TIP at redo time, so the case places a FOREIGN
-    // entry in the stream first. On an empty stream the gate cannot tell and fires either
-    // way - that is the gate's deliberate fail-open (see `fireGatedOnPixelTip`), and it
-    // is why an earlier draft of this case could not fail at all.
-    localStorage.setItem(BRIDGE_GATE, "1");
-    let rejectNext = true;
-    const { history, engine, commands } = mountCommands();
-    vi.mocked(invoke).mockImplementation((cmd: string, args: unknown) => {
-      if (cmd === "rust_pixels_record_external" && rejectNext) {
-        rejectNext = false;
-        return Promise.reject(new Error("no IPC in jsdom: rust_pixels_record_external"));
-      }
-      return answerShimInvoke(cmd, args) as Promise<unknown>;
-    });
-
-    // A: rejected, so it has NO counterpart in the stream.
-    await metadataOp(history, engine);
-    await until(() => rejectNext === false);
-    await settle();
-    expect(streamFor(DOC).entries, "A's record never landed").toEqual([]);
-
-    // Undo pops A. Gated by the marker, and the stream is empty, so the gate fires
-    // fail-open - but with nothing to move over, the cursor does not budge.
-    commands.undo();
-    await settle();
-    await settle();
-    expect(history.getUndoCount(), "the host stack is drained").toBe(0);
-    expect(streamFor(DOC).cursor, "and an empty stream cannot be stepped").toBe(0);
-
-    // A foreign branch, owned by no host entry: two External entries, then the cursor
-    // walked back one so a redo branch EXISTS. The branch matters because the gate reads
-    // `redo_tip_kind` for a redo, and that is null whenever the cursor sits at the end -
-    // in which case the gate fail-opens and the case cannot fail. With the cursor one
-    // short of the end, `redo_tip_kind` is a real non-pixel value the gate must refuse.
-    record(DOC, "external");
-    record(DOC, "external");
-    await settle();
-    expect(streamFor(DOC).cursor, "two foreign entries recorded").toBe(2);
-    await invoke("rust_pixels_undo", { docId: DOC, layerId: "" });
-    await settle();
-    expect(
-      tipFor(DOC).redo_tip_kind,
-      "a redo branch exists, so the gate has a real tip to refuse",
-    ).toBe("external");
-    const stepsBeforeRedo = cursorStepInvokes();
-
-    // The hop. Redo pops A's twin.
-    commands.redo();
-    await settle();
-    await settle();
-    await settle();
-
-    expect(
-      cursorStepInvokes(),
-      "the redo is GATED and the gate REFUSES a tip that is not A's - the marker " +
-        "survived the undo->redo hop",
-    ).toBe(stepsBeforeRedo);
-    expect(
-      streamFor(DOC).cursor,
-      "so the cursor never advanced over the foreign redo branch",
-    ).toBe(1);
-  });
-
-  it("MATRIX bridge ON + facade ON, a snapshot-typed delete: the shim stands down", async () => {
-    localStorage.setItem(BRIDGE_GATE, "1");
-    localStorage.setItem(FACADE, "1");
-    const { history, engine } = mountCommands();
-
-    history.recordSnapshotHistory(engine.snapshot(), engine.snapshot(), "Delete Layer");
-    await until(() => timesInvoked("rust_pixels_record_snapshot") >= 1);
-    await settle();
-
-    expect(
-      timesInvoked("rust_pixels_record_snapshot"),
-      "the bridge recorded the delete as a Snapshot entry",
-    ).toBe(1);
-    // The stream shows ONLY the shim's mirror, because the shared emulator
-    // deliberately does not model Snapshot entries - `undo_pixel` refuses to move the
-    // cursor for one, so a Snapshot entry has no cursor arithmetic for the emulator to
-    // own (see rustStreamEmulator.ts). So an empty stream here IS "the bridge is the
-    // sole recorder", and a non-empty one is the double-record.
-    expect(
-      streamFor(DOC).entries,
-      "ONE host commit, ONE Rust entry: the shim must NOT add its External mirror on " +
-        "top of the bridge's Snapshot one",
-    ).toEqual([]);
-  });
-
-  it("MATRIX bridge ON + facade OFF, TS-owned tile: the bridge is the only recorder", async () => {
-    localStorage.setItem(BRIDGE_GATE, "1");
-    localStorage.setItem(FACADE, "0");
-    const { history, engine, renderer, commands } = mountCommands();
-    history.commit(engine.snapshot(), "Text", {
-      layerId: "l1",
-      surfaceWidth: 10,
-      surfaceHeight: 10,
-      before: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(8) }],
-      after: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(8) }],
-    });
-    await until(() => streamFor(DOC).entries.length >= 1);
-    await settle();
-
-    expect(
-      timesInvoked("apply_tile_patch"),
-      "the bridge recorded the tile step as a Pixel entry",
-    ).toBe(1);
-    expect(streamFor(DOC).entries, "exactly one entry").toEqual(["pixel"]);
-
-    await pressUndo(commands, renderer, 1);
-    expect(cursorStepInvokes(), "exactly one step").toBe(1);
-    expect(streamFor(DOC).cursor).toBe(0);
-    expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
-  });
 });
 
 /** A committed model for the tile case; `mountCommands`' engine is not needed. */

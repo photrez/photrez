@@ -33,9 +33,6 @@ import { isNativeAuthority } from "@/lib/protocol/bridge";
 import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
 import { runFacadeExternalHandoff, handoffMovedCursor } from "./facadeHistoryHandoff";
 import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
-import { historyBridgeEnabled, restoreSnapshotBitmapsByToken } from "@/engine/history";
-import { observeHistoryCursorParity } from "@/engine/historyCursorParity";
-import { bitmapStoreFor } from "@/engine/bitmapStore";
 import { projectRustTiles } from "./rustTileProjection";
 
 
@@ -129,15 +126,6 @@ export function isEditorCommand(value: string): value is EditorCommand {
 export function dispatchEditorCommand(command: EditorCommand): void {
   window.dispatchEvent(new CustomEvent<EditorCommand>(EDITOR_COMMAND_EVENT, { detail: command }));
 }
-
-/**
- * Monotonic counter for snapshot-history undo/redo dispatches that perform the
- * async bitmap re-attach. Bumped at dispatch start; a stale async re-attach that
- * resolves after a NEWER op has started must not win (it would overwrite the
- * live model with an older snapshot's bitmap). This is the in-flight guard for
- * the `rust_pixels_undo_snapshot`/`rust_pixels_redo_snapshot` re-attach.
- */
-let snapshotHistoryOps = 0;
 
 export function useEditorCommands(onToggleSidePanels: () => void) {
   const editor = useEditor();
@@ -513,15 +501,8 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         // rejects still settles, so this await cannot fail the undo path.
         await history.lastCursorStepSettled()?.catch(() => {});
         // Re-sync the derived stack from the query FIRST: the derived view
-        // must serve the settled cursor afterwards. The parity probe below
-        // deliberately reads getTsUndoDepth() instead, so it compares the
-        // TS stack against Rust rather than Rust against itself.
+        // must serve the settled cursor afterwards.
         await history.resyncFromNativeQuery();
-        observeHistoryCursorParity(
-          editor.workspace.getActiveDocumentId() ?? "",
-          history.getTsUndoDepth(),
-          direction,
-        );
         editor.scheduler.requestRender();
         return;
       }
@@ -563,100 +544,6 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
         console.warn("[history] selection mirror failed", e);
       }
 
-      // ── Snapshot-token re-attach (bridge-ON only, Snapshot-typed entries) ──
-      // The Rust snapshot cursor is the single undo/redo authority when the
-      // history bridge is on. Ask it for the before/after snapshot and
-      // re-attach the layer ImageBitmap by its stable token — the SAME bitmap
-      // object, never a detached one. Runs BEFORE the upload loop below so the
-      // renderer uploads the token-resolution bitmap. Safe no-op when off.
-      // Hazard #1: gated on `isSnapshotEntry` so an External (plain metadata /
-      // non-snapshot) undo/redo NEVER reads the Rust snapshot cursor — in a
-      // mixed [External, Snapshot] stream the cursor can point at a Snapshot
-      // entry while TS restored an External state, and redo_snapshot would
-      // return a WRONG-step bitmap. External steps are Model-A authoritative.
-      if (historyBridgeEnabled() && isSnapshotEntry) {
-        const docId = editor.workspace.getActiveDocumentId() ?? "";
-        // Monotonic op counter: register this dispatch by bumping the counter so
-        // any async bitmap re-attach that started earlier can detect a newer op
-        // and drop itself. `engine.restore(snapshot)` above already applied the
-        // synchronous model; this re-attach only swaps the ImageBitmap object to
-        // the token-resolved one. A stale re-attach arriving after a newer
-        // undo/redo overwrites the new model's bitmap with an old one — guarded.
-        const opStart = ++snapshotHistoryOps;
-        // Hazard #2: capture the bitmap each live layer held immediately after
-        // engine.restore. If a non-undo producer (Fill/bake) replaces a layer's
-        // bitmap during the invoke round-trip, the current bitmap will differ
-        // from this capture and the re-attach DROPS itself (never overwrites
-        // the producer's fresh bitmap with the pre-undo one).
-        const expectedBitmaps = new Map<
-          string,
-          { imageBitmap: ImageBitmap | null; baseImageBitmap: ImageBitmap | null }
-        >();
-        for (const layer of engine.getLayers()) {
-          expectedBitmaps.set(layer.id, {
-            imageBitmap: layer.imageBitmap ?? null,
-            baseImageBitmap: layer.baseImageBitmap ?? null,
-          });
-        }
-        await restoreSnapshotBitmapsByToken(
-          direction,
-          docId,
-          (token) => bitmapStoreFor(docId).get(token),
-          (layerId, bitmap, field = "imageBitmap") => {
-            // Stale-op guard: a newer undo/redo started after this dispatch, so
-            // the live model is newer. Drop the re-attach (return false) instead
-            // of replacing the newer state with this (older) snapshot's bitmap.
-            if (snapshotHistoryOps !== opStart) return false;
-            const layer = engine.getLayer(layerId);
-            if (!layer) return false;
-            // Hazard #2 drop-check: if a NEWER producer replaced the layer's
-            // bitmap since dispatch, the model is newer than this undo's
-            // snapshot — re-attaching would overwrite it. Only proceed when the
-            // current bitmap still matches what engine.restore set.
-            const expected = expectedBitmaps.get(layerId);
-            const current = field === "baseImageBitmap" ? layer.baseImageBitmap : layer.imageBitmap;
-            // Finding 3: FAIL-CLOSED. If there is no expected bitmap for this
-            // layer (e.g. a layer the restored model did not have), do NOT apply
-            // the re-attach — only proceed when we positively verified the model
-            // still holds the bitmap this undo/redo set. A missing expected is
-            // treated as "not verified", never as "matches".
-            if (!expected || current !== expected[field]) return false;
-            // Hazard #3: assign to the SAME field the token was registered from
-            // (a base-only layer re-attaches to baseImageBitmap, never imageBitmap).
-            if (field === "baseImageBitmap") layer.baseImageBitmap = bitmap;
-            else layer.imageBitmap = bitmap;
-            return true;
-          },
-          (token) => bitmapStoreFor(docId).getField(token),
-          // Finding 2: verify the returned snapshot's layer-id set matches the
-          // restored model's layer set before re-attaching (skip on mismatch).
-          () => engine.getLayers().map((l) => l.id),
-          // Finding-B: verify the returned payload's per-layer epoch/pixelVersion
-          // + token against the restored model's stack entry before re-attaching.
-          // `snapshot` is the EXACT DocumentModel the stack entry holds (restore
-          // clears bitmapEpoch on the ENGINE copy but not on this object), so its
-          // per-layer bitmapEpoch (@@ 0) is the ground truth the payload epoch /
-          // pixelVersion were derived from at record time. A payload from a DIFFERENT
-          // step (future bitmap-mutating producer) fails this gate and is dropped.
-          (layerId) => {
-            const l = snapshot.layers.find((x) => x.id === layerId);
-            if (!l) return null;
-            // Size-gate inputs: the CURRENT restored model's dims (live engine
-            // layer, falling back to the stack snapshot layer). Read-only -
-            // dims stay model-owned, never written by the re-attach.
-            const restored = engine.getLayer(layerId);
-            return {
-              epoch: l.bitmapEpoch ?? 0,
-              pixelVersion: l.bitmapEpoch ?? 0,
-              imageBitmap: l.imageBitmap ?? null,
-              baseImageBitmap: l.baseImageBitmap ?? null,
-              width: restored?.width ?? l.width,
-              height: restored?.height ?? l.height,
-            };
-          },
-        );
-      }
-
       // An open text session must re-anchor its preSnapshot: the user now
       // sees an OLDER state, so the session's next commit diffs against it.
       syncTextSessionBase({
@@ -692,21 +579,6 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       const perfDone = performance.now();
       console.info(
         `[perf] ${direction}(snapshot): hist=${(perfTHist - perfT0).toFixed(1)}ms restore+upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms`,
-      );
-      // DIAGNOSTIC ONLY: measure whether this host's undo stack sits at the same
-      // history position as the Rust cursor, which nothing else compares. The
-      // verdict is never branched on - the only output is one console.warn on
-      // divergence, and the probe itself is still fired and forgotten. What is
-      // awaited here is NOT the probe: it is this entry's cursor step, which the
-      // pop above already fired and which must land before the read, or the probe
-      // would pair this step's depth with the PREVIOUS step's cursor. That await
-      // is the same one IPC round-trip the tile path above already waits on, and
-      // a no-op when this pop owned no Rust entry.
-      await history.takeLastCursorStep()?.catch(() => {});
-      observeHistoryCursorParity(
-        editor.workspace.getActiveDocumentId() ?? "",
-        history.getTsUndoDepth(),
-        direction,
       );
     } catch (error) {
       showToast(`${direction === "undo" ? "Undo" : "Redo"} failed: ${error instanceof Error ? error.message : "unknown error"}`, "error");

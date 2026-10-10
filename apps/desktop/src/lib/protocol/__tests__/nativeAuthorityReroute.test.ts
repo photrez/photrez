@@ -28,7 +28,6 @@ import {
 } from "../bridge";
 import { seedFacadeFromEngine, getFacade, recordExternalTransitionFor, __resetFacadeRegistryForTests } from "../facadeRegistry";
 import { WorkspaceManager } from "@/engine/workspace";
-import { restoreSnapshotBitmapsByToken } from "@/engine/history";
 import { EditorFacade } from "../editorFacade";
 import { CONTRACT_VERSION } from "../types";
 import type { CommandResult, RenderLayer } from "../types";
@@ -55,9 +54,6 @@ if (typeof (globalThis as { localStorage?: unknown }).localStorage === "undefine
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const invokeMock = invoke as unknown as Mock<(cmd: string, args: Record<string, unknown>) => Promise<unknown>>;
-// Force the history-bridge gate on so the snapshot-command wiring (recordSnapshotHistory
-// / restoreSnapshotBitmapsByToken) can be exercised. Native-authority tests set the
-// photrez.historyBridge flag themselves; every other test leaves it unset.
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn(() => true) }));
 
 const layer: RenderLayer & { transform: { x: number; y: number; scaleX: number; scaleY: number; rotation: number } } = {
@@ -560,28 +556,6 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
     ).rejects.toThrow(/E_UNKNOWN_COMMAND/);
   });
 
-  // The SOLE rust_pixels_record_snapshot entry point (history.ts recordSnapshotHistory)
-  // must advance the native engine version and push it into the facade via
-  // syncFacadeVersionFromPixel (the record-snapshot sync path; undo is the only one
-  // previously exercised). Drives the real CommandHistory producer.
-  it("a native snapshot record syncs the facade version from the native engine (recordSnapshotHistory)", async () => {
-    localStorage.setItem("photrez.historyBridge", "1"); // enable the snapshot bridge
-    const wm = new WorkspaceManager();
-    wm.addDocument(WorkspaceManager.createBlankDocument("docRecord", "Record", 100, 100));
-    const engine = wm.getEngine("docRecord")!;
-    const history = wm.getHistory("docRecord")!;
-    history.attachDocIdGetter(() => "docRecord");
-    // The facade must exist so the sync has a target.
-    expect(getFacade("docRecord").renderedVersion).toBe(0);
-    // The SOLE rust_pixels_record_snapshot entry point (history.ts recordSnapshotHistory).
-    history.recordSnapshotHistory(engine.snapshot(), engine.snapshot(), "Record");
-    // The record fires async (fire-and-forget). Flush the microtask queue.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(invokeMock).toHaveBeenCalledWith("rust_pixels_record_snapshot", expect.objectContaining({ docId: "docRecord" }));
-    // Native record advanced the engine version to 1; the facade must track it.
-    expect(getFacade("docRecord").renderedVersion).toBe(1);
-  });
-
   // The legacy mirror (recordExternalTransitionFor) MUST register the ts-external
   // adapter on the native engine before the record command, else Rust
   // record_external rejects E_UNKNOWN_ADAPTER. Before this change, registerPayloadAdapter had no
@@ -600,35 +574,6 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
     });
   });
 
-  // A snapshot undo advances the native engine version; the facade must track it
-  // (syncFacadeVersionFromPixel) so the next facade command is not rejected with
-  // E_VERSION_MISMATCH. Before this change, snapshot commands did not sync.
-  it("an undo snapshot cursor syncs the facade version from the native engine", async () => {
-    localStorage.setItem("photrez.historyBridge", "1"); // enable the snapshot bridge
-    const facade = getFacade("docSnapSync");
-    await seedFacadeFromEngine({ getId: () => "docSnapSync", getLayers: () => [layer], getName: () => "doc", getWidth: () => 800, getHeight: () => 600, getSelection: () => null } as never, facade);
-    expect(getFacade("docSnapSync").renderedVersion).toBe(0); // seeded at version 0
-    // Record a Snapshot entry (production always has one when restoring an undo).
-    // This advances the native engine DV 0 -> 1.
-    await invoke("rust_pixels_record_snapshot", {
-      docId: "docSnapSync",
-      before: { docId: "docSnapSync", version: 0, layers: [] },
-      after: { docId: "docSnapSync", version: 0, layers: [] },
-    });
-    // Drive the production undo path. The snapshot cursor advances the engine DV,
-    // but the returned payload's `version` field is the STORED snapshot version
-    // (TS records version:0), NOT the engine DV. The facade must track the engine
-    // DV (read from getSnapshot), not the snapshot's stored 0.
-    await restoreSnapshotBitmapsByToken("undo", "docSnapSync", () => null, () => true);
-    // The faithful mock returns the snapshot's STORED version (0), not the engine DV.
-    const snapIdx = invokeMock.mock.calls.findIndex((c) => c[0] === "rust_pixels_undo_snapshot");
-    expect(snapIdx).toBeGreaterThanOrEqual(0);
-    const snapResult = (await (invokeMock.mock.results[snapIdx].value as Promise<{ version: number }>));
-    expect(snapResult.version).toBe(0);
-    // Engine DV after seed(0) + record(1) + undo(2) = 2, proving the sync reads
-    // getSnapshot and not the snapshot's stored 0.
-    expect(getFacade("docSnapSync").renderedVersion).toBe(2);
-  });
 });
 
 describe("error path (native rejection normalizes to uniform CODE: message)", () => {

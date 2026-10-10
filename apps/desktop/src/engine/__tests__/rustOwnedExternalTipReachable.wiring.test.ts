@@ -8,10 +8,8 @@
  * `installFacadeCommitShim` (lib/protocol/facadeRegistry.ts) mirrors every commit
  * into an `External` entry under `isFacadeEnabled()` - which reads
  * `photrez.facade !== "0"`, so ON unless explicitly opted out - while
- * `CommandHistory.stepRustCursor` decided whether to step under
- * `bridgeRecordsFor()` -> `historyBridgeEnabled()`, which needs
- * `photrez.historyBridge === "1"` AND the Tauri runtime, so OFF unless explicitly
- * opted in. At those two shipping defaults a metadata commit appended an
+ * `CommandHistory.stepRustCursor` used to gate stepping behind a separate
+ * opt-in, so at the shipping defaults a metadata commit appended an
  * `External` entry that no pop would step, and the next `rustOwned` pop inherited
  * it as its tip. Stepping there is destructive rather than merely useless:
  * `ProtocolEngine::undo_pixel` moves the cursor over an `External` tip and yields
@@ -27,9 +25,9 @@
  * unless the tip is a `Pixel` entry. It fails OPEN: an unreadable, malformed or
  * unrecognised answer fires the step, because the host stack has already popped
  * and a skipped step is a silently lost undo, whereas the bounded cost of firing
- * is the already-warned no-tiles path. The `bridgeRecordsFor()` arm is
- * deliberately NOT gated: the bridge recorded that entry's own counterpart, so an
- * `External` tip there is the correct entry to step over.
+ * is the already-warned no-tiles path. The facade shim's arm is deliberately NOT
+ * gated: the shim recorded that entry's own counterpart, so an `External` tip
+ * there is the correct entry to step over.
  *
  * Every case drives the REAL production undo path (`useEditorCommands().undo` over
  * a real `CommandHistory`, so the pop that owns the step is the real one) against
@@ -57,10 +55,6 @@ import { commitRustOwnedPaint, makeRustOwnedPatches } from "./historyCursorFixtu
 import { cursorStepInvokes, settle, timesInvoked, waitForRust } from "./historyCursorHarness";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
-// The parity probe shares this file's counted channel (`rust_pixels_history_tip`):
-// attributing reads to the step gate needs exclusive ownership of it. The probe
-// itself is wired-tested in historyCursorParity.wiring.test.ts.
-vi.mock("@/engine/historyCursorParity", () => ({ observeHistoryCursorParity: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
@@ -84,7 +78,6 @@ vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
   handoffMovedCursor: vi.fn(() => false),
 }));
 
-const BRIDGE_GATE = "photrez.historyBridge";
 const RUST_PIXELS = "photrez.rustPixels";
 const FACADE = "photrez.facade";
 const DOC = "doc-1";
@@ -197,8 +190,7 @@ describe("an External tip inherited by a rustOwned pop", () => {
   beforeEach(() => {
     localStorage.clear();
     // The SHIPPING-DEFAULT flags, stated explicitly so a case cannot drift on them:
-    // `photrez.facade` = ON, `photrez.historyBridge` = OFF. Nothing in production sets
-    // either key.
+    // `photrez.facade` = ON. Nothing in production sets this key.
     //
     // What the facade key controls HERE is only the shim arm's predicate in
     // `stepRustCursor` (`isFacadeEnabled() && !historyDegraded()`), which decides
@@ -233,9 +225,9 @@ describe("an External tip inherited by a rustOwned pop", () => {
 
   it("no recorder at all: the paint pop refuses to step onto a foreign External tip", async () => {
     // The state the gate still exists for, and the ONLY configuration that can
-    // reach it: the facade shim AND the bridge both off, so nothing records a
-    // counterpart for the metadata step, and a foreign `External` entry sits above
-    // the paint entry's `Pixel` one.
+    // reach it: the facade shim off (and this file installs no recorder), so
+    // nothing records a counterpart for the metadata step, and a foreign
+    // `External` entry sits above the paint entry's `Pixel` one.
     //
     // This case USED to be the shipping-default one, and it asserted that the
     // metadata pop steps nothing - which was the drift, pinned as if it were the
@@ -249,7 +241,8 @@ describe("an External tip inherited by a rustOwned pop", () => {
     await waitForRust(DOC, 1);
     expect(streamFor(DOC).entries).toEqual(["pixel"]);
 
-    // A metadata step that NOTHING records: both recorders are off. The `External`
+    // A metadata step that NOTHING records: the shim is off and this file
+    // installs no commit recorder. The `External`
     // entry below it belongs to nobody - it is the closest surviving route to the
     // inherited-tip state, planted explicitly.
     record(DOC, "external");
@@ -441,53 +434,6 @@ describe("an External tip inherited by a rustOwned pop", () => {
     expect(streamFor(DOC).cursor).toBe(0);
   });
 
-  it("the bridgeRecordsFor() metadata arm is NOT gated: it still steps onto an External tip", async () => {
-    // THE OVER-APPLICATION GUARD. The gate applies to the two entry-shaped arms
-    // only. The bridge recorded this entry's OWN counterpart, so an `External` tip
-    // is precisely the entry the pop must consume - refusing it would strand every
-    // bridge-ON metadata undo and leave the cursor permanently behind. If a future
-    // change widens the gate to cover this arm, this case reddens.
-    localStorage.setItem(BRIDGE_GATE, "1");
-    const { history, renderer, commands } = mountCommands();
-
-    // A paint entry (Pixel) and a metadata entry (External), both recorded by the
-    // bridge, so the stream is [pixel, external] and the cursor sits after both.
-    await commitRustOwnedPaint(history, model("Paint"));
-    await waitForRust(DOC, 1);
-    history.commit(model("Meta"), "Add Layer");
-    await settle();
-    expect(streamFor(DOC).entries).toEqual(["pixel", "external"]);
-
-    // The metadata pop. Its arm is the bridge, so the gate is bypassed entirely -
-    // no tip read is issued for it, and the External tip is stepped over. It takes
-    // the snapshot/metadata restore path, so it is finished once the step settles.
-    const readsBefore = timesInvoked("rust_pixels_history_tip");
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 1);
-
-    expect(
-      timesInvoked("rust_pixels_history_tip") - readsBefore,
-      "the bridge arm issues no tip read - it needs no gate",
-    ).toBe(0);
-    expect(
-      cursorStepInvokes(),
-      "and it stepped onto the External tip, which is correct there",
-    ).toBe(1);
-    expect(
-      streamFor(DOC).cursor,
-      "the External entry was consumed, so the Pixel entry is the tip again",
-    ).toBe(1);
-    expect(streamFor(DOC).entries[0]).toBe("pixel");
-
-    // And the paint pop still steps its own Pixel entry: the ungated bridge
-    // arm owns it here (the bridge is the doc's recorder, so no tip gate - the
-    // gated entry-arm read is exercised in the bridge-OFF case above, which
-    // counts exactly one tip read per press). Nothing newly consumed a foreign tip.
-    await pressUndo(commands, renderer, 1);
-    expect(cursorStepInvokes(), "and steps onto its own Pixel entry").toBe(2);
-    expect(streamFor(DOC).cursor, "both consumed").toBe(0);
-  });
-
   /*
    * DEFEAT RECIPE - the falsifiability half, executed rather than asserted.
    * `fireGatedOnPixelTip` is driven through the REAL production undo path by the
@@ -532,9 +478,6 @@ describe("an External tip inherited by a rustOwned pop", () => {
     // snapshot's own id before it consults the getter (history.ts:489), and
     // `DocumentModel.id` is the document id. So the gate runs for this shape too,
     // which is what stops the File>Open path from inheriting an External tip.
-    //
-    // What the missing getter DOES kill is the bridge arm, because
-    // `bridgeRecordsFor()` requires one (history.ts:172-179).
     const { history, renderer, commands } = mountCommands(false);
     await commitRustOwnedPaint(history, model("Paint"));
     record(DOC, "external");
@@ -569,7 +512,7 @@ describe("an External tip inherited by a rustOwned pop", () => {
     const { history, renderer, commands } = mountCommands();
 
     record(DOC, "external");
-    // A TS-owned tile entry: recorded by NEITHER the bridge (off) NOR the writer,
+    // A TS-owned tile entry: recorded by NEITHER the facade shim (off) NOR the writer,
     // so the Rust stream holds only the External entry.
     const patches: HistoryTilePatches = makeRustOwnedPatches();
     history.commit(model("Tile"), "Text", { ...patches, rustOwned: false });

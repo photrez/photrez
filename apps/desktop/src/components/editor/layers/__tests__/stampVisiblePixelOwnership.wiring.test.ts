@@ -692,9 +692,9 @@ describe("a stamp between two paint strokes leaves both neighbours undoable", ()
  * isolating the two pixel owners - but `isFacadeEnabled()` reads `!== "0"`, so the
  * mirror is ON in the shipping app. Under exactly this configuration the mirror
  * records an `External` entry for every non-pixel commit, and its
- * `committedRecordedInBridge` / `alreadyRecordedInRust` stand-downs are what keep
+ * `alreadyRecordedInRust` stand-down is what keeps
  * that to ONE entry per host entry. Stamp is a non-pixel commit, so it is
- * squarely in the mirror's path and those stand-downs are load-bearing for it.
+ * squarely in the mirror's path and that stand-down is load-bearing for it.
  *
  * The invariant asserted here is the whole three-part chain: ONE host commit
  * gives ONE Rust entry, which gives AT MOST ONE cursor step. The real

@@ -12,10 +12,8 @@
  * token-registered bitmap that is still referenced by the live model or another
  * snapshot is never released.
  *
- * All of it is dormant by default: tokens are only registered/released when the
- * snapshot history bridge (`photrez.historyBridge === "1"` AND Tauri runtime) is
- * ON. With the bridge OFF nothing registers a token, so this module is inert and
- * default production is byte-identical.
+ * All of it is dormant unless the undo/redo token re-attach path registers a
+ * token; with nothing registered this module is inert.
  */
 
 /** Which layer field a registered token's bitmap was captured from. */

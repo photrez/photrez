@@ -18,9 +18,9 @@
  * Part 1 - the TILE/PIXEL undo/redo routing matrix.
  * One pop of a `CommandHistory` entry is ONE Rust cursor step, fired by the pop
  * itself (`stepRustCursor`) whenever Rust recorded that entry; the tile branch
- * only READS that step's tiles. All eight flag x gate x runtime combinations are
- * pinned below, and they resolve on the flag alone - see the comment on ROWS for
- * why the gate cannot arm a step for this entry shape. A metadata-only step
+ * only READS that step's tiles. All flag x runtime combinations are pinned
+ * below, and they resolve on the flag alone - see the comment on ROWS for why
+ * nothing else can arm a step for this entry shape. A metadata-only step
  * carries no tile patches, so the tile branch is unreachable for it; the separate
  * block below covers what its pop does instead.
  *
@@ -58,7 +58,7 @@ import { c4PendingCommits, flushC4Commits } from "../useBrushOverlay";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
 
-// The runtime detector feeds historyBridgeEnabled() and the undo/redo gate.
+// The runtime detector feeds the undo/redo cursor-step arming.
 vi.mock("@/lib/desktop/tauriWindow", () => ({
   isTauriRuntime: vi.fn(),
 }));
@@ -154,7 +154,6 @@ if (typeof (globalThis as { createImageBitmap?: unknown }).createImageBitmap ===
   (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async (source: unknown) => source;
 }
 
-const GATE_KEY = "photrez.historyBridge";
 const RUST_PIXELS_KEY = "photrez.rustPixels";
 
 /**
@@ -275,43 +274,32 @@ function countInvokes(...commands: string[]): number {
 
 type Row = {
   rustPixels: "0" | "1";
-  bridge: "0" | "1";
   tauri: boolean;
   expected: number;
 };
 
 // TRANSITIONAL (photrez.rustPixels gating; delete with the flag).
 //
-// The flag is the only thing that arms the Rust tile FETCH for an entry Rust does
-// not own, and that is what this matrix measures: per direction, how many
-// cursor-sync invokes a pop issues. For a TS-OWNED tile entry (`imperative` without
-// `rustOwned`) the cursor STEP is armed by the bridge, which now records a real
-// Pixel entry for it - `apply_tile_patch` accepts the host's `TileUploadLike`
-// shape because `TilePatchWire` aliases `width`/`height` onto `w`/`h` (proved in
-// Rust by `both_tile_shapes_are_accepted_at_the_wire_and_mint_exactly_one_entry`,
-// and honoured in `historyCursorParity.wiring.test.ts`'s emulator). So the two
-// `rustPixels=0, bridge=1` rows step through the BRIDGE and the six others
-// through the flag. The metadata block below is the other place the bridge decides.
+// The flag is the only thing that arms the Rust cursor step and tile FETCH for an
+// entry Rust does not own, and that is what this matrix measures: per direction,
+// how many cursor-sync invokes a pop issues. The shim is opted out
+// (`optOutOfShimRecording`), so no `External` counterpart exists and the pop's
+// shim arm never fires - only the flag can arm a step here.
 const ROWS: Row[] = [
-  { rustPixels: "1", bridge: "0", tauri: true, expected: 1 },
-  { rustPixels: "1", bridge: "1", tauri: true, expected: 1 },
-  { rustPixels: "1", bridge: "0", tauri: false, expected: 1 },
-  { rustPixels: "1", bridge: "1", tauri: false, expected: 1 },
-  { rustPixels: "0", bridge: "1", tauri: true, expected: 1 },
-  { rustPixels: "0", bridge: "1", tauri: false, expected: 0 },
-  { rustPixels: "0", bridge: "0", tauri: true, expected: 0 },
-  { rustPixels: "0", bridge: "0", tauri: false, expected: 0 },
+  { rustPixels: "1", tauri: true, expected: 1 },
+  { rustPixels: "1", tauri: false, expected: 1 },
+  { rustPixels: "0", tauri: true, expected: 0 },
+  { rustPixels: "0", tauri: false, expected: 0 },
 ];
 
-function applyRowFlags(flags: { rustPixels: "0" | "1"; bridge: "0" | "1" }): void {
+function applyRowFlags(flags: { rustPixels: "0" | "1" }): void {
   localStorage.setItem(RUST_PIXELS_KEY, flags.rustPixels);
-  localStorage.setItem(GATE_KEY, flags.bridge);
   optOutOfShimRecording();
 }
 
 // TRANSITIONAL (photrez.rustPixels gating; delete with the flag). The flag is
 // the subject of every row, so the whole matrix dies with it.
-describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x bridge gate x runtime)", () => {
+describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x runtime)", () => {
   beforeEach(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
       {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
@@ -327,9 +315,7 @@ describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x
   });
 
   for (const row of ROWS) {
-    const label =
-      `rustPixels=${row.rustPixels} historyBridge=${row.bridge} ` +
-      `runtime=${row.tauri ? "tauri" : "jsdom"}`;
+    const label = `rustPixels=${row.rustPixels} runtime=${row.tauri ? "tauri" : "jsdom"}`;
 
     it(`${label}: exactly ${row.expected} cursor-sync invoke per direction`, async () => {
       applyRowFlags(row);
@@ -374,10 +360,10 @@ describe("TRANSITIONAL TILE/PIXEL undo/redo routing matrix (photrez.rustPixels x
 
 // A metadata-only step carries no tile patches, so it never reaches the tile
 // branch. Its cursor step belongs to the POP (CommandHistory.stepRustCursor),
-// which fires exactly when Rust recorded an entry for it - the bridge - and
-// never otherwise. Before that, the step lived in the tile branch, so these rows
-// read 0 for a bridge-ON metadata pop: the drift this effort fixed.
-describe("a metadata-only pop steps the Rust cursor exactly when Rust recorded the step", () => {
+// which fires exactly when a recorded entry backs it - and never otherwise.
+// Before that, the step lived in the tile branch, so a metadata pop stepped
+// nothing: the drift this file's sibling wiring tests pin the fix for.
+describe("a metadata-only pop never steps the Rust cursor when nothing recorded the step", () => {
   beforeEach(() => {
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
       {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
@@ -393,22 +379,16 @@ describe("a metadata-only pop steps the Rust cursor exactly when Rust recorded t
   });
 
   const combos = [
-    // Bridge ON: `commit` appended an External entry for this metadata step, so
-    // the pop has a Rust counterpart and must consume it.
-    { rustPixels: "1", bridge: "1", tauri: true, expected: 1 },
-    { rustPixels: "0", bridge: "1", tauri: true, expected: 1 },
-    // Bridge OFF AND the shim opted out (`applyRowFlags`): nothing records an entry
-    // for a metadata step, so stepping would consume somebody else's. At the shim's
-    // DEFAULT the counterpart exists and the pop MUST step it - pinned where the shim
-    // really runs, in historyCursorDriftClosure.wiring.test.ts.
-    { rustPixels: "1", bridge: "0", tauri: false, expected: 0 },
-    { rustPixels: "1", bridge: "0", tauri: true, expected: 0 },
+    // The shim is opted out (`applyRowFlags`) and no other recorder exists for a
+    // metadata step, so nothing records an entry: stepping would consume somebody
+    // else's. At the shim's DEFAULT the counterpart exists and the pop MUST step
+    // it - pinned where the shim really runs, in historyCursorDriftClosure.wiring.test.ts.
+    { rustPixels: "1", tauri: true, expected: 0 },
+    { rustPixels: "0", tauri: true, expected: 0 },
   ] as const;
 
   for (const combo of combos) {
-    const label =
-      `rustPixels=${combo.rustPixels} historyBridge=${combo.bridge} ` +
-      `runtime=${combo.tauri ? "tauri" : "jsdom"}`;
+    const label = `rustPixels=${combo.rustPixels} runtime=${combo.tauri ? "tauri" : "jsdom"}`;
 
     it(`${label}: ${combo.expected} cursor-sync invoke(s) while the model restore still runs`, async () => {
       applyRowFlags(combo);
@@ -438,9 +418,7 @@ describe("a metadata-only pop steps the Rust cursor exactly when Rust recorded t
           (entry) =>
             entry.command === "rust_pixels_undo" || entry.command === "rust_pixels_redo",
         );
-      expect(delta.map((entry) => entry.command)).toEqual(
-        combo.expected === 1 ? ["rust_pixels_undo", "rust_pixels_redo"] : [],
-      );
+      expect(delta.map((entry) => entry.command)).toEqual([]);
     });
   }
 });
@@ -535,7 +513,7 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
 
     expect(
       countInvokes("rust_pixels_undo"),
-      "no bridge, so a TS-owned entry has no recorded counterpart to step",
+      "the shim opted out, so a TS-owned entry has no recorded counterpart to step",
     ).toBe(0);
     const uploads = uploadCalls(ctx);
     expect(uploads).toHaveLength(1);
@@ -836,10 +814,7 @@ function brushChain(el: Element, from: [number, number], to: [number, number]) {
 function setupPathHarness() {
   vi.mocked(invoke).mockReset();
   vi.mocked(isTauriRuntime).mockReturnValue(true);
-  // History bridge armed: whatever history fires shows up in the census, so a
-  // zero count can never hide behind a gate that was closed the whole time.
   localStorage.clear();
-  localStorage.setItem(GATE_KEY, "1");
   localStorage.removeItem("photrez.tileCommit");
   localStorage.removeItem("photrez.canonicalCommit");
   store = createPixelStore(DOC_PX, DOC_PX);

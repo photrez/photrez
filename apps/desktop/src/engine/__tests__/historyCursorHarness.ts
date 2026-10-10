@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The observation helpers the history-cursor parity cases share: waiting, draining,
- * counting and driving one production undo/redo press.
+ * The observation helpers the history-cursor wiring cases share: waiting,
+ * draining and counting.
  *
- * Extracted from `historyCursorParity.wiring.test.ts` so the file holds cases and
- * this holds the mechanics. All of it observes the SAME emulated Rust stream and
- * the same `invoke` spy the cases assert on, so a helper that drifted from the
- * stream's timing rules would silently weaken every case that uses it - which is
- * why the ordering note lives in `rustStreamEmulator.ts` and `tick`/`settle` are
- * the only two yields, deliberately different.
+ * Extracted so the case files hold cases and this holds the mechanics. All of it
+ * observes the SAME emulated Rust stream and the same `invoke` spy the cases
+ * assert on, so a helper that drifted from the stream's timing rules would
+ * silently weaken every case that uses it - which is why the ordering note lives
+ * in `rustStreamEmulator.ts` and `tick`/`settle` are the only two yields,
+ * deliberately different.
  */
 import { vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -57,39 +57,18 @@ export const cursorStepInvokes = (): number =>
     (c) => c[0] === "rust_pixels_undo" || c[0] === "rust_pixels_redo",
   ).length;
 
-/** Only the probe's own divergence warns, not the hook's unrelated setup noise. */
-export const parityWarns = (): string[] =>
-  vi
-    .mocked(console.warn)
-    .mock.calls.map((c) => String(c[0]))
-    .filter((m) => m.includes("history-cursor-parity"));
-
-/**
- * Fire the production undo/redo command and wait for the probe read it triggers.
- * `commands.undo`/`redo` are `() => execute("edit.undo")` - they return void and
- * `restoreHistorySnapshot` runs fire-and-forget, so completion is observed, not
- * awaited. The cursor read is the last thing each production path does, so its
- * arrival marks the step as done.
- */
-export async function driveStep(run: () => void): Promise<void> {
-  const before = timesInvoked("rust_pixels_history_tip");
-  run();
-  await waitFor(() => timesInvoked("rust_pixels_history_tip") > before);
-  await settle();
-}
-
 /** The facade commit shim's gate: `photrez.facade !== "0"`, so ON unless set. */
 export const FACADE_KEY = "photrez.facade";
 
 /**
  * Opt a case OUT of the facade commit shim, so "no recorder armed" is actually true.
  *
- * The shim is a THIRD recorder for a host pop, independent of `photrez.rustPixels`
- * and `photrez.historyBridge`. At its default it records an `External` entry for
- * every non-pixel commit, which means a case that never installs it would still see
- * the host take the shim arm of `stepRustCursor` and issue a cursor step for an entry
- * nothing in the case recorded. Every "expected 0 steps" row would then be measuring
- * the shim's default rather than the flag and the bridge under test.
+ * The shim is a second recorder for a host pop, independent of `photrez.rustPixels`.
+ * At its default it records an `External` entry for every non-pixel commit, which
+ * means a case that never opts out would still see the host take the shim arm of
+ * `stepRustCursor` and issue a cursor step for an entry nothing in the case
+ * recorded. Every "expected 0 steps" row would then be measuring the shim's
+ * default rather than the flag under test.
  *
  * Call this before the flag row is applied if the row helper sets the other keys.
  * The shipping-default arrangement - the shim really installed, really recording - is

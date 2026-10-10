@@ -61,9 +61,9 @@
  *
  * SCOPE - which cursor commands this observes: `rust_pixels_undo` and
  * `rust_pixels_redo`, and nothing else. The SNAPSHOT cursor commands
- * (`rust_pixels_undo_snapshot` / `rust_pixels_redo_snapshot`) are driven by
- * `restoreSnapshotBitmapsByToken` in history.ts, which reports its own rejections
- * under the same `[history-cursor-step]` prefix but does NOT do a did-not-move
+ * (`rust_pixels_undo_snapshot` / `rust_pixels_redo_snapshot`) are driven by the
+ * snapshot re-attach path, which reports its own rejections under the same
+ * `[history-cursor-step]` prefix but does NOT do a did-not-move
  * check: `undo_snapshot` returns the payload rather than a version, so there is
  * nothing here to compare. Wiring that would mean a second observation channel for
  * one command pair, and it is not needed today - a Snapshot tip leaves an
