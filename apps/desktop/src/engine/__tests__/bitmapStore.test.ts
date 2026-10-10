@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   BitmapStore,
   bitmapStoreFor,
@@ -11,48 +11,22 @@ function fakeBitmap(): ImageBitmap {
   return { width: 4, height: 4, close: vi.fn() } as unknown as ImageBitmap;
 }
 
-describe("BitmapStore", () => {
-  it("set/get/has resolve a token to the SAME bitmap", () => {
+// The store's write side (registering a token) went away with the
+// snapshot-token payload builder, so an unregistered token is the only state a
+// store can be in; disposeSnapshot then takes its direct-close path. The
+// close-once / idempotency contracts of release() and drop() are exercised
+// through disposeSnapshot in the history suites.
+describe("BitmapStore (token registry, read side)", () => {
+  it("get/has resolve an unregistered token to null / false", () => {
     const store = new BitmapStore();
-    const b = fakeBitmap();
-    store.set("t1", b);
-    expect(store.has("t1")).toBe(true);
-    expect(store.has("nope")).toBe(false);
-    expect(store.get("t1")).toBe(b);
     expect(store.get("nope")).toBeNull();
+    expect(store.has("nope")).toBe(false);
   });
 
-  it("release closes exactly once and forgets the mapping (idempotent)", () => {
+  it("release and drop on an unknown token are safe no-ops", () => {
     const store = new BitmapStore();
-    const b = fakeBitmap();
-    store.set("t1", b);
-    store.release("t1");
-    expect(b.close).toHaveBeenCalledTimes(1);
-    expect(store.has("t1")).toBe(false);
-
-    // Double-release must be a guarded no-op — no second close, no crash.
-    store.release("t1");
-    expect(b.close).toHaveBeenCalledTimes(1);
-    // Releasing an unknown token is also a safe no-op.
     expect(() => store.release("missing")).not.toThrow();
-  });
-
-  it("release on an already-closed bitmap is swallowed (no double-close crash)", () => {
-    const store = new BitmapStore();
-    // A bitmap whose close() throws (already detached) must not crash release.
-    const b = { width: 4, height: 4, close: vi.fn(() => { throw new Error("already detached"); }) } as unknown as ImageBitmap;
-    store.set("t1", b);
-    expect(() => store.release("t1")).not.toThrow();
-    expect(store.has("t1")).toBe(false);
-  });
-
-  it("drop removes the mapping WITHOUT closing (close stays owned by disposeSnapshot)", () => {
-    const store = new BitmapStore();
-    const b = fakeBitmap();
-    store.set("t1", b);
-    store.drop("t1");
-    expect(store.has("t1")).toBe(false);
-    expect(b.close).not.toHaveBeenCalled();
+    expect(() => store.drop("missing")).not.toThrow();
   });
 
   it("bitmapStoreFor returns a per-doc instance and releaseBitmapStore drops it", () => {

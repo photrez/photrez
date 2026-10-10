@@ -1,47 +1,26 @@
 /**
- * Bitmap-token resource store for the snapshot-history bridge.
+ * Bitmap-token store for snapshot re-attach coordination.
  *
- * A token → ImageBitmap registry, keyed per document. Its purpose is the
- * anti-detach invariant: an undo/redo step that restores a snapshot re-attaches
- * the SAME ImageBitmap object by token, so a live layer can never end up with a
- * detached ("image source is detached") or swapped bitmap.
+ * A token → ImageBitmap registry, keyed per document. The write side
+ * (registering a token, remembering its layer field) went away with the
+ * snapshot-token payload builder this store once served. What remains is the
+ * close-coordination surface the eviction path still consults:
+ * `CommandHistory.disposeSnapshot` resolves a closing bitmap's token and,
+ * only while the store holds that exact bitmap, routes the close through
+ * `release()` so it closes exactly once; a bitmap with no stored token is
+ * closed directly. `workspace.ts` drops a document's store on close.
  *
- * The store is NOT a second close authority by itself — the existing
- * `CommandHistory.disposeSnapshot` path remains the close owner. `release()`
- * closes exactly once and is idempotent (double-close is swallowed); a
- * token-registered bitmap that is still referenced by the live model or another
- * snapshot is never released.
- *
- * All of it is dormant unless the undo/redo token re-attach path registers a
- * token; with nothing registered this module is inert.
+ * `release()` closes exactly once and is idempotent (double-close is
+ * swallowed); a token-registered bitmap that is still referenced by the live
+ * model or another snapshot is never released.
  */
-
-/** Which layer field a registered token's bitmap was captured from. */
-export type BitmapField = "imageBitmap" | "baseImageBitmap";
 
 export class BitmapStore {
   private tokens = new Map<string, ImageBitmap>();
-  private fields = new Map<string, BitmapField>();
-
-  /**
-   * Register (or overwrite) the bitmap a token resolves to, remembering which
-   * layer field it came from. Snapshot re-attach uses the field so a base-only
-   * layer (imageBitmap=null, baseImageBitmap set) is re-attached to the SAME
-   * field — never wrongly gaining an `imageBitmap` it did not have pre-action.
-   */
-  set(token: string, bitmap: ImageBitmap, field?: BitmapField): void {
-    this.tokens.set(token, bitmap);
-    if (field) this.fields.set(token, field);
-  }
 
   /** Resolve a token to its bitmap, or null if it is not registered. */
   get(token: string): ImageBitmap | null {
     return this.tokens.get(token) ?? null;
-  }
-
-  /** The layer field a token's bitmap was registered from, or null if unknown. */
-  getField(token: string): BitmapField | null {
-    return this.fields.get(token) ?? null;
   }
 
   has(token: string): boolean {
@@ -57,7 +36,6 @@ export class BitmapStore {
     const bitmap = this.tokens.get(token);
     if (!bitmap) return;
     this.tokens.delete(token);
-    this.fields.delete(token);
     try {
       bitmap.close();
     } catch {
@@ -72,7 +50,6 @@ export class BitmapStore {
    */
   drop(token: string): void {
     this.tokens.delete(token);
-    this.fields.delete(token);
   }
 }
 

@@ -1,11 +1,6 @@
 import type { DocumentModel } from "./types";
 import { MAX_HISTORY_DEPTH } from "./types";
 import {
-  bitmapStoreFor,
-  tokenForBitmap,
-  type BitmapField,
-} from "./bitmapStore";
-import {
   disposeSnapshot,
   type HistoryTilePatches,
   type SnapshotEntry,
@@ -24,13 +19,11 @@ import {
   settleCommitRecorders,
 } from "./nativeHistoryView";
 import { RustCursorStepper } from "./historyCursorStep";
-import type { SnapshotLayerMeta, SnapshotPayload } from "./snapshotTokenReattach";
 
 /**
  * Route every TS commit into the SAME Rust `ProtocolEngine` cursor so TS and Rust
  * operations share ONE logical history position.
  */
-export type { SnapshotLayerMeta, SnapshotPayload } from "./snapshotTokenReattach";
 
 export interface HistoryItem {
   label: string;
@@ -114,38 +107,6 @@ export class CommandHistory {
 
   getLastPaintCoords(): { x: number; y: number } | null {
     return this.currentLastPaintCoords;
-  }
-
-  /**
-   * Build a token snapshot payload for a model (bridge-ON only). Each layer's
-   * primary bitmap (imageBitmap, or baseImageBitmap when there is no primary)
-   * is registered in the per-doc BitmapStore under a STABLE token (same bitmap
-   * object -> same token), so a later undo/redo re-attaches the exact same
-   * bitmap by token — never a detached or different one.
-   */
-  private buildSnapshotPayload(model: DocumentModel): SnapshotPayload {
-    const store = bitmapStoreFor(model.id);
-    const layers: SnapshotLayerMeta[] = model.layers.map((l) => {
-      const epoch = l.bitmapEpoch ?? 0;
-      // Remember which field the primary bitmap came from so a base-only layer
-      // (imageBitmap=null) re-attaches to baseImageBitmap, never imageBitmap.
-      const primaryField: BitmapField | null = l.imageBitmap ? "imageBitmap" : l.baseImageBitmap ? "baseImageBitmap" : null;
-      const primary = l.imageBitmap ?? l.baseImageBitmap ?? null;
-      let bitmapToken: string | null = null;
-      if (primary && primaryField) {
-        bitmapToken = tokenForBitmap(primary);
-        store.set(bitmapToken, primary, primaryField);
-      }
-      return {
-        layerId: l.id,
-        width: l.width,
-        height: l.height,
-        bitmapToken,
-        epoch,
-        pixelVersion: epoch,
-      };
-    });
-    return { docId: model.id, version: 0, layers };
   }
 
   commit(
@@ -530,33 +491,11 @@ export class CommandHistory {
   }
 
   /**
-   * Pop for a site that restores through the MODEL, never the Rust pixel path.
-   *
-   * The History panel's jump (`navigateHistoryNative`) routes through the
-   * native stepper now, so this path has NO production callers - only the
-   * perfAuditDev scratch walks it. Stepping a native cursor here would move
-   * Rust's canonical buffers and its cursor while the host restored pixels
-   * from the TS stack - the mirror image of the drift the cursor-step
-   * contract prevents.
-   *
-   * NAMED rather than `undo(snap, false)`: an audit of "which pop sites do not
-   * step the Rust cursor" must find them by grepping, and an anonymous boolean
-   * leaves `grep stepCursor` pointing only at the declaration. `undo`/`redo`
-   * still default `stepCursor` to true, so a pop that does not say otherwise
-   * owns its step.
-   */
-  undoThroughModel(currentSnapshot: DocumentModel): DocumentModel | null {
-    return this.undo(currentSnapshot, false);
-  }
-
-  /** `redoThroughModel` - see `undoThroughModel`. */
-  redoThroughModel(currentSnapshot: DocumentModel): DocumentModel | null {
-    return this.redo(currentSnapshot, false);
-  }
-
-  /**
-   * Pop the newest undo entry and return its snapshot. `stepCursor` is the
-   * internal switch behind `undoThroughModel`; prefer that named form.
+   * Pop the newest undo entry and return its snapshot. `stepCursor=false` is
+   * only for a scratch history that records nothing in Rust (the perf audit's
+   * legacy-undo probe): stepping here would move Rust's canonical cursor for
+   * an entry the scratch stack does not hold. Production pops must leave the
+   * default `true` - the pop owns the step for the entry it consumed.
    */
   undo(currentSnapshot: DocumentModel, stepCursor = true): DocumentModel | null {
     if (!this.canUndo()) {

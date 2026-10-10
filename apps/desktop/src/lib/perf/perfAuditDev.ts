@@ -306,12 +306,11 @@ export const defaultRunners: Record<string, RowRunner> = {
     const hist = new CommandHistory();
     hist.commit(s.engine.snapshot(), "perf-audit-undo");
     const t0 = performance.now();
-    // `undoThroughModel` / `redoThroughModel`, not `undo(snap, false)`: this scratch
-    // history records nothing (it has no doc-id getter and is thrown away), so a
-    // step would consume whatever entry Rust does hold for the audited document - a
-    // brush stroke's Pixel entry. The NAMED methods also keep this opt-out
-    // greppable, which an anonymous boolean would not be.
-    const prev = hist.undoThroughModel(s.engine.snapshot());
+    // `undo(snap, false)` / `redo(snap, false)`: this scratch history records
+    // nothing (it has no doc-id getter and is thrown away), so a cursor-stepping
+    // pop would consume whatever entry Rust does hold for the audited document -
+    // a brush stroke's Pixel entry.
+    const prev = hist.undo(s.engine.snapshot(), false);
     const undoMs = performance.now() - t0;
     let restoreMs = 0;
     if (prev) {
@@ -320,7 +319,7 @@ export const defaultRunners: Record<string, RowRunner> = {
       restoreMs = performance.now() - t;
     }
     const t2 = performance.now();
-    const next = hist.redoThroughModel(s.engine.snapshot());
+    const next = hist.redo(s.engine.snapshot(), false);
     const redoMs = performance.now() - t2;
     if (next) s.engine.restore(next);
     return {
