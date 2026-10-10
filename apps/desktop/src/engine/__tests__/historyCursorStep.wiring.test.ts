@@ -29,6 +29,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { CommandHistory } from "../history";
+import { RustCursorStepper } from "../historyCursorStep";
 import type { DocumentModel } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
@@ -200,5 +201,45 @@ describe("the Rust cursor step reports what it did", () => {
     // exactly once - a failed step does not stall or double-count the ones behind it.
     expect(streamFor(DOC).cursor).toBe(1);
     expect(timesInvoked("rust_pixels_undo")).toBe(2);
+  });
+});
+
+// The consume-once contract is what a rapid second pop depends on. The counter
+// measured the overwrite race (a second `fire` replacing the first handle before
+// its consumer claims it) unreachable today: the claim runs synchronously in the
+// dispatcher, before the next pop can fire. This block is therefore a DEFENSE PIN
+// on the claim protocol that unreachability rests on, not a fix for a live bug.
+describe("DEFENSE PIN: RustCursorStepper.take() consume-once", () => {
+  beforeEach(() => {
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(invoke).mockReset();
+    // The step OUTCOME is not under test here - only the claim protocol - so a
+    // benign resolution keeps the two fired steps from rejecting.
+    vi.mocked(invoke).mockResolvedValue({} as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("two rapid un-awaited steps are each claimed exactly once, then cleared", async () => {
+    const stepper = new RustCursorStepper();
+
+    // The production rhythm per pop (`stepRustCursor`): the pop fires this step,
+    // then the consumer claims the published handle once. Firing two steps
+    // back-to-back without awaiting them must leave each claimable exactly once.
+    const step1 = stepper.fire({ direction: "undo", docId: DOC, layerId: "" });
+    const claim1 = stepper.take();
+    expect(claim1, "the first rapid step is claimable, as its own handle").toBe(step1);
+    expect(stepper.take(), "consume-once: the first handle is cleared after one claim").toBeNull();
+
+    const step2 = stepper.fire({ direction: "redo", docId: DOC, layerId: "" });
+    const claim2 = stepper.take();
+    expect(claim2, "the second rapid step is claimable, as its own handle").toBe(step2);
+    expect(stepper.take(), "consume-once: the second handle is cleared after one claim").toBeNull();
+
+    expect(step2, "two rapid un-awaited steps publish distinct handles").not.toBe(step1);
+    await Promise.all([step1, step2]);
   });
 });

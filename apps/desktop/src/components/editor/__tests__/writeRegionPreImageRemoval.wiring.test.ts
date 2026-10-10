@@ -310,7 +310,11 @@ describe("the write reply carries no pre-image, and both history arms still rest
       before: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(2 * 2 * 4).fill(PRE) }],
       after: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(2 * 2 * 4).fill(POST) }],
     };
-    expect(memento.rustOwned, "the fallback commits no rustOwned marker").toBeUndefined();
+    // The marker THIS arm's memento carries is a local literal by construction;
+    // the assertion that the PRODUCTION fallback commit carries no `rustOwned`
+    // marker lives in c4FallbackHistoryRecovery.test.ts, which drives the real
+    // useBrushOverlay fallback and reads the marker off the entry its undo
+    // hands back. Asserting it on this literal would observe only this file.
     history.commit(model("Brush"), "Brush Stroke", memento);
     await settle();
 

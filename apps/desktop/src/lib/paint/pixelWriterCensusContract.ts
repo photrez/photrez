@@ -30,9 +30,12 @@ import { CENSUS_COMMANDS } from "@/lib/protocol/pixelInvokeCensus";
  *                  is its contract, not "exactly once per gesture".
  *   READ         - returns bytes or metadata and mutates nothing.
  *
- * A fifth set, ENTRY_ONLY, covers commands that record a history entry carrying NO
- * pixel delta (`rust_pixels_record_external` mirrors a host metadata mutation onto
- * the shared cursor). They are history steps, so they ARE census-routed - they
+ * A fifth set, ENTRY_ONLY, covers commands that record a history entry but write NO
+ * store pixel bytes. `rust_pixels_record_external` mirrors a host metadata mutation
+ * onto the shared cursor; `rust_pixels_record_snapshot` records a whole-document
+ * `Snapshot` entry whose payload is per-layer metadata (dimensions, epochs) plus
+ * opaque bitmap tokens, never pixel bytes (crates/core/src/snapshot.rs documents
+ * the token transport). They are history steps, so they ARE census-routed - they
  * just are not pixel writers.
  *
  * Adding a command to WRITER or PROJECTION is a decision that must be argued in a
@@ -118,17 +121,22 @@ const PROJECTIONS = new Set<string>([
 const CURSOR_MOVERS = new Set<string>(["rust_pixels_undo", "rust_pixels_redo"]);
 
 /**
- * History steps carrying no pixel delta. `rust_pixels_record_external` mirrors a
- * host metadata mutation onto the shared cursor so mixed history keeps one
- * position; the pixels themselves are restored host-side. Census-routed because it
- * IS a step - omitting it would let an ordering assertion read a gap where a step
+ * History steps that write no store pixel bytes. `rust_pixels_record_external`
+ * mirrors a host metadata mutation onto the shared cursor so mixed history keeps
+ * one position; the pixels themselves are restored host-side. Census-routed because
+ * it IS a step - omitting it would let an ordering assertion read a gap where a step
  * happened.
  *
- * `rust_pixels_record_snapshot` records a `Snapshot` entry carrying whole-layer
- * payloads. No production source calls it since the history-bridge gate was
- * retired (its snapshot arm was the only caller); it stays declared here because
- * Rust still registers the command and the invoke census still routes it, so a
- * revived caller lands on a known role instead of an undeclared command.
+ * `rust_pixels_record_snapshot` records a whole-document `Snapshot` entry carrying
+ * per-layer metadata (dimensions, epochs) plus opaque bitmap tokens - never pixel
+ * bytes, because Rust never stores pixel bytes in a snapshot
+ * (crates/core/src/snapshot.rs module docs). So it writes no store buffer and is
+ * NOT a projection: a projection replaces the store's buffer, and this command
+ * leaves every buffer untouched. No production source calls it since the
+ * history-bridge gate was retired (its snapshot arm was the only caller); it stays
+ * declared here because Rust still registers the command and the invoke census
+ * still routes it, so a revived caller lands on a known role instead of an
+ * undeclared command.
  */
 const ENTRY_ONLY = new Set<string>(["rust_pixels_record_external", "rust_pixels_record_snapshot"]);
 

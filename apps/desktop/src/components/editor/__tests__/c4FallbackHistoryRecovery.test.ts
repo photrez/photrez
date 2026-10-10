@@ -395,6 +395,16 @@ describe("c4 recovery (approved caller predicate)", () => {
     const undoPatches = history.consumeLastUndoPatches();
     expect(undoPatches, "undo patches for the recovered entry").toBeDefined();
     expect(undoPatches!.before.length).toBeGreaterThan(0);
+    // The marker on the PRODUCTION fallback's own commit, observed on the entry
+    // the hook actually committed: undo() hands back the entry's own memento,
+    // not a test-local literal. A `rustOwned: true` marker here would route
+    // every undo of a recovered stroke to Rust's cursor step for pixels Rust
+    // never recorded (projectRustTiles refuses a rustOwned memento's own
+    // tiles), silently losing the stroke - the failure this file must see.
+    expect(
+      undoPatches!.rustOwned,
+      "the production fallback commit carries no rustOwned marker",
+    ).toBeUndefined();
 
     const redone = history.redo(engine.snapshot());
     expect(redone).not.toBeNull();
