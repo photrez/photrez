@@ -15,7 +15,6 @@
 
 import { EditorFacade } from "./editorFacade";
 import type { RenderSnapshot } from "./types";
-import { isFacadeEnabled } from "./facadeRegistry";
 import { isFacadeOwnedLayer } from "@/engine/document";
 
 export type MigratedDeleteStatus = "facade" | "legacy" | "blocked";
@@ -30,15 +29,13 @@ export type DeleteRouteResult = {
   error?: string;
 };
 
-/** Routing predicates, injectable so tests can drive flag/ownership
- *  deterministically without global localStorage side effects. */
+/** Routing predicates, injectable so tests can drive ownership deterministically
+ *  without global localStorage side effects. */
 export type DeleteRouting = {
-  isFacadeEnabled(): boolean;
   isFacadeOwnedLayer(id: string): boolean;
 };
 
 const realRouting: DeleteRouting = {
-  isFacadeEnabled,
   isFacadeOwnedLayer,
 };
 
@@ -57,11 +54,11 @@ export class EditorClient {
    * DUAL-READ boundary. Delegates the delete to the facade (Rust command ->
    * delta -> snapshot) and projects the resulting snapshot into the TS engine.
    * Returns {status:"legacy"} so the caller falls through to the byte-identical
-   * legacy TS path when the migrated op does not apply (flag OFF / non-owned).
+   * legacy TS path when the migrated op does not apply (non-owned layer).
    * On a thrown command it FAILS CLOSED: no projection, no mutation, no history.
    */
   async deleteLayer(id: string): Promise<DeleteRouteResult> {
-    if (!this.routing.isFacadeEnabled() || !this.routing.isFacadeOwnedLayer(id)) {
+    if (!this.routing.isFacadeOwnedLayer(id)) {
       return { status: "legacy", snapshot: null };
     }
     // Separate the command from the projection: a command throw is a genuine

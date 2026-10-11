@@ -16,7 +16,7 @@ import {
 import { shapeRenderMargin } from "@/engine/shapeRaster";
 import { getRotateCursorByPos } from "@/viewport/cursorRotate";
 import { commitLayerTransformSession } from "./transformSession";
-import { isFacadeEnabled, getFacade, peekFacade, transformPreview, setTransformPreview, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
+import { getFacade, peekFacade, transformPreview, setTransformPreview, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
 import { isFacadeOwnedLayer } from "@/engine/document";
 
 interface UseSelectionTransformDragParams {
@@ -68,9 +68,9 @@ export function useSelectionTransformDrag(props: UseSelectionTransformDragParams
     liveTransform?: Transform2D;
   } | null>(null);
 
-  // Ticket 2.2: a drag targets the facade path when the flag is on and the
-  // layer is facade-owned (Rust persistent owner). Legacy drags are unchanged.
-  const isFacadeDrag = (layer: { id: string }) => isFacadeEnabled() && isFacadeOwnedLayer(layer.id);
+  // Ticket 2.2: a drag targets the facade path when the layer is facade-owned
+  // (Rust persistent owner). Legacy drags are unchanged.
+  const isFacadeDrag = (layer: { id: string }) => isFacadeOwnedLayer(layer.id);
 
   // Release the facade's transient transform slot for a gesture that ends WITHOUT
   // committing. Every path that drops dragState must go through this: the slot is

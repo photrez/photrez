@@ -1,14 +1,20 @@
 // apps/desktop/src/components/editor/shell/__tests__/EditorShell.boot.test.tsx
 //
 // DoD wiring test (AGENTS.md "method defined but no call site proven" gap):
-// editorShell.tsx's boot path MUST reach ensureFacadeReady() when photrez.facade=1
-// (the producer call-site that arms the bridge), and MUST NOT when opted out.
-// This proves the arming call-site is reachable from the real EditorShell
-// mount — not merely that the symbol exists.
+// EditorShell's boot path MUST reach ensureFacadeReady() - the producer call-site
+// that arms the bridge. This proves the arming call-site is reachable from the
+// real EditorShell mount - not merely that the symbol exists.
+//
+// The retired `photrez.facade` opt-out used to gate this arm, so boot only armed
+// the bridge when the key was absent or non-"0". With the key retired the arm is
+// unconditional, which is what the shipped profile already did. The second case
+// below writes the retired key's opt-out value and asserts the arm STILL fires:
+// a re-gated boot path would fail it, so this pair is also the guard against the
+// flag coming back through this file.
 //
 // ensureFacadeReady is mocked to decouple the mount from real wasm loading; the
-// OTHER bridge exports (including isFacadeEnabled, which reads localStorage)
-// stay real so the flag branch is the production code path.
+// OTHER bridge exports (including the retired flag predicate, which reads
+// localStorage) stay real.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "solid-js/web";
@@ -50,15 +56,17 @@ describe("EditorShell boot facade-readiness wiring", () => {
     dispose = render(() => <EditorShell />, container);
   }
 
-  it("photrez.facade=1 -> EditorShell boot calls ensureFacadeReady() (arms the bridge)", () => {
-    localStorage.setItem("photrez.facade", "1");
+  it("shipped profile -> EditorShell boot calls ensureFacadeReady() (arms the bridge)", () => {
     mountShell();
     expect(ensureFacadeReadySpy).toHaveBeenCalledTimes(1);
   });
 
-  it("photrez.facade=0 opt-out -> EditorShell boot does NOT call ensureFacadeReady()", () => {
+  it("no key read: the retired photrez.facade opt-out cannot suppress the boot arm", () => {
+    // Writes the old opt-out value so that a boot path which reads the key again
+    // (the pre-retirement `if (isFacadeEnabled())` shape) would skip the arm and
+    // fail here. The retired-key write is the point of this case, not a setting.
     localStorage.setItem("photrez.facade", "0");
     mountShell();
-    expect(ensureFacadeReadySpy).not.toHaveBeenCalled();
+    expect(ensureFacadeReadySpy).toHaveBeenCalledTimes(1);
   });
 });

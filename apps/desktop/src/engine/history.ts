@@ -7,7 +7,6 @@ import {
 } from "./historyTypes";
 export type { HistoryTilePatches, SnapshotEntry } from "./historyTypes";
 import { historyDegraded } from "@/lib/protocol/facadeRegistry";
-import { isFacadeEnabled } from "@/lib/protocol/bridge";
 import {
   buildNativeHistoryItems,
   deriveOpenBaselineFloor,
@@ -207,7 +206,7 @@ export class CommandHistory {
    *
    * No Rust command fires from here: the recorder for this entry is the facade
    * commit shim (`installFacadeCommitShim` wraps this method too). It mirrors the
-   * push into an `External` entry under `isFacadeEnabled()`, and the facade
+   * push into an `External` entry, and the facade walker consumes that mirror on
    * walker consumes that mirror on undo/redo.
    *
    * TS undo/redo authority stays unchanged: the PRE-action `before` state is
@@ -400,8 +399,7 @@ export class CommandHistory {
     this.facadeCursorConsumed = false;
     if (entry.snapshotType === "snapshot") return;
     // The shim arm: `installFacadeCommitShim` mirrors EVERY commit that is not
-    // `alreadyRecordedInRust` into an `External` entry, under `isFacadeEnabled()`.
-    // A metadata or TS-owned tile commit records an entry whose only possible
+    // `alreadyRecordedInRust` into an `External` entry. A metadata or TS-owned tile commit records an entry whose only possible
     // consumer is this pop. Without this arm that entry is never stepped and the
     // two cursors separate by one per undone step, which is the drift the
     // tip-kind gate then refuses to cross (leaving a Ctrl+Z that reverts nothing).
@@ -420,20 +418,19 @@ export class CommandHistory {
     // The last two clauses mirror the shim's OWN early-returns rather than
     // restating them, because this predicate decides whether to take the UNGATED
     // path, where a step with no entry behind it consumes somebody else's.
-    // `isFacadeEnabled()` is the shim's feature
-    // gate; `historyDegraded()` is the one `recordExternalTransitionFor` returns early
+    // `historyDegraded()` is the one `recordExternalTransitionFor` returns early
     // on, and that latch is only ever CLEARED by the test reset - so one failed
     // external transition turns recording off for the rest of the session, and
     // without this clause the arm would keep firing ungated with nothing behind it.
     // The shim's third early-return, no active engine, cannot be mirrored: the
     // history holds no engine handle, and a host pop implies a live document.
     //
-    // TRANSITIONAL (`photrez.facade`): the whole arm, like the shim it consumes.
+    // The shim's feature gate (`isFacadeEnabled()`) is gone with the retired
+    // `photrez.facade` opt-out: the shim now always mirrors, so this arm must too.
     const shimArm =
       !facadeMoved &&
       entry.rustRecordFailed !== true &&
       entry.imperative?.rustOwned !== true &&
-      isFacadeEnabled() &&
       !historyDegraded();
     const entryArm = entry.imperative?.rustOwned === true;
     if (!entryArm && !shimArm) return;

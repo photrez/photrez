@@ -22,11 +22,14 @@ const USE_RUST_SSOT = true; // Rust owns graph ops (field parity complete); hist
 // width/height are authoritative (see EditorFacade.lastProjectionDimsAuthoritative).
 export type FacadeProjectionOptions = { dimsAuthoritative?: boolean };
 
-// Gate A: facade isolation — unless photrez.facade=0, Rust is sole owner for facade layers.
-// Shared flag reader from the protocol bridge: one source so both call sites stay in step.
+// Gate A: facade isolation. `facadeOwnedIds` is the READ surface: "is this layer
+// id facade-owned anywhere in the process". A layer id is facade-owned once it is
+// in that set, and no runtime switch reopens the legacy path for it - the retired
+// `photrez.facade` opt-out used to gate this predicate and is gone. The file's
+// three OTHER flag reads (the Rust-mirror failure arm, the projection-cache
+// refresh, `restore`'s ledger guard) are separate sites, not this predicate's gate.
 import { isFacadeEnabled } from "@/lib/protocol/bridge";
-// `facadeOwnedIds` is the READ surface: "is this layer id facade-owned anywhere
-// in the process". The legacy-mutation guards, `syncLayersFromRust`'s dropped-id
+// The legacy-mutation guards, `syncLayersFromRust`'s dropped-id
 // reconciliation and the undo dispatch gate all answer from it, so none of them
 // has to know which document owns the id. The ONE reader that does not is
 // `restore`'s mixed-history guard, which asks the per-document ledger below - see
@@ -41,9 +44,9 @@ const facadeOwnedIds = new Set<string>();
 // stack, the only executor left for it.
 const facadeOwnedByDoc = new Map<DocumentId, Set<string>>();
 
-function isFacadeOwned(id: string): boolean { return isFacadeEnabled() && facadeOwnedIds.has(id); }
+function isFacadeOwned(id: string): boolean { return facadeOwnedIds.has(id); }
 export function isFacadeOwnedLayer(id: string): boolean { return isFacadeOwned(id); }
-export function hasFacadeOwnedLayers(): boolean { return isFacadeEnabled() && facadeOwnedIds.size > 0; }
+export function hasFacadeOwnedLayers(): boolean { return facadeOwnedIds.size > 0; }
 
 function markFacadeOwned(docId: DocumentId, ids: string[]): void {
   let owned = facadeOwnedByDoc.get(docId);

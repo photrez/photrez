@@ -38,7 +38,7 @@ import { destroySaveWorkerPool } from "../saveWorkerPool";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { prewarmFonts } from "@/lib/fontEnumeration";
 import { useTauriCloseHandler } from "@/lib/desktop/useTauriCloseHandler";
-import { transformPreview, applyFacadePreviews, installFacadeCommitShim, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { transformPreview, applyFacadePreviews, installFacadeCommitShim } from "@/lib/protocol/facadeRegistry";
 import { ensureFacadeReady } from "@/lib/protocol/bridge";
 import { useDialog } from "../dialogs/DialogProvider";
 import { cancelLayerTransformSession } from "../transformSession";
@@ -124,22 +124,21 @@ export function EditorShell() {
   const workspace = new WorkspaceManager();
   const camera = new ViewportCamera();
   const renderer = new WebGL2Backend();
-  // ADR 0008 H0: feature-gated legacy commit shim. The wrapper body exits
-  // immediately when photrez.facade is off — effectively zero runtime work.
+  // Legacy commit shim. Its body is unconditional now: the retired
+  // `photrez.facade` opt-out that short-circuited it is gone.
   installFacadeCommitShim({
     getEngine: () => workspace.getActiveEngine() as never,
     getDocId: () => (workspace.getActiveEngine() as unknown as { getId(): string } | null)?.getId() ?? "default",
   });
-  // Facade readiness: when photrez.facade=1 the facade must be Rust-backed.
-  // Arm the wasm protocol engine at boot so the first facade command never runs
-  // on the TS emulator before the real Rust engine is wired. Fire-and-forget
-  // (idempotent). If the wasm fails to arm, applyCommand throws
-  // E_FACADE_NOT_READY rather than silently emulating a facade command.
-  if (isFacadeEnabled()) {
-    void ensureFacadeReady().catch(() => {
-      /* fail-closed: applyCommand surfaces E_FACADE_NOT_READY */
-    });
-  }
+  // Facade readiness: arm the wasm protocol engine at boot so the first facade
+  // command never runs on the TS emulator before the real engine is wired.
+  // Fire-and-forget (idempotent). If the wasm fails to arm, applyCommand throws
+  // E_FACADE_NOT_READY rather than silently emulating a facade command. The
+  // retired `photrez.facade` opt-out used to gate this arm; the shipped profile
+  // always armed it, so the gate is unconditional now.
+  void ensureFacadeReady().catch(() => {
+    /* fail-closed: applyCommand surfaces E_FACADE_NOT_READY */
+  });
   // Feature-flag signal owned by this component instance (not module scope):
   // the RenderScheduler callback below reads it via closure, and it is passed
   // into EditorProvider so the context value stays in sync.

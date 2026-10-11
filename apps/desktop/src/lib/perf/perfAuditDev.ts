@@ -216,9 +216,10 @@ async function probeInvokeMs(): Promise<number> {
 }
 
 async function facadeState(): Promise<string> {
+  // The facade has no opt-out any more: the retired `photrez.facade` key is not
+  // read, so the row reports the one state that ships.
   try {
-    const bridge = await import("@/lib/protocol/bridge");
-    return bridge.isFacadeEnabled() ? "on" : "off";
+    return "on";
   } catch {
     return "unreadable";
   }

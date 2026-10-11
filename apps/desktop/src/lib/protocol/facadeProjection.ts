@@ -17,13 +17,11 @@
 // facadeRegistry so the engine can refresh without importing the registry
 // (which imports the engine - a back-import would be a cycle).
 //
-// The flag gate (photrez.facade) lives in the refresh entry points
-// (refreshFacadeSnapshotFromEngine / refreshFacadeSnapshotFromModelLayers). The
-// pure toFacadeProjectionLayer mapping is not gated: it is only reachable from a
-// caller that already passed the gate.
+// The old flag gate (photrez.facade) is gone: a missing facade for the doc is the
+// only condition that skips a refresh, and the pure toFacadeProjectionLayer
+// mapping was never gated.
 import type { RenderLayer } from "./types";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
-import { isFacadeEnabled } from "./bridge";
 import { peekFacade } from "./selectionMirror";
 
 // Engine-layer shape the facade projection consumes. DocumentEngine.applyFacadeSnapshot
@@ -93,14 +91,14 @@ export function toFacadeProjectionLayer(l: FacadeProjectionLayer): RenderLayer {
 // projection would drop the externally added/removed layers. `dims` carries the
 // caller's document size: the engine owns canvas dims, so a resize (or an undo
 // that restored an earlier size) must not leave the snapshot on the old size.
-// Omitted dims keep the projection's prior size. Gated: no-op when the facade
-// flag is OFF or no facade exists for the doc.
+// Gated: no-op when no facade exists for the doc. The retired `photrez.facade`
+// opt-out used to gate this too; with the flag gone a missing facade is the only
+// condition that can skip the refresh.
 export function refreshFacadeSnapshotFromEngine(
   docId: string,
   layers: RenderLayer[],
   dims?: { width: number; height: number },
 ): void {
-  if (!isFacadeEnabled()) return;
   const f = peekFacade(docId);
   if (!f) return;
   try {
@@ -126,7 +124,6 @@ export function refreshFacadeSnapshotFromModelLayers(
   layers: readonly FacadeProjectionLayer[],
   dims?: { width: number; height: number },
 ): void {
-  if (!isFacadeEnabled()) return;
   // Peek before the map: a doc with no facade (the common case) skips the
   // per-layer projection entirely.
   if (!peekFacade(docId)) return;
