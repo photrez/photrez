@@ -9,7 +9,7 @@ import { Icon, type IconName } from "./icons";
 import type { LayerNode, ShapeParams, ShapeKind } from "@/engine/types";
 import { useI18n } from "@/i18n/I18nProvider";
 import { isFacadeOwnedLayer, type DocumentEngine } from "@/engine/document";
-import { commitFacadeParams, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { commitFacadeParams } from "@/lib/protocol/facadeRegistry";
 import { sameParams } from "./layers/paramsRouting";
 import { showToast } from "./Toast";
 
@@ -160,7 +160,7 @@ export function ShapeOptionBar() {
     // params — prevents ghost undo entries from range/color per-tick input
     // events and from clicking a control at its current value.
     if (shallowEqualParams(layer.shapeParams, next)) return;
-    if (isFacadeEnabled() && isFacadeOwnedLayer(layer.id)) {
+    if (isFacadeOwnedLayer(layer.id)) {
       applyRoutedEdit(engine, layer.id, next);
       return;
     }

@@ -29,7 +29,7 @@ import {
   mirrorSelectionCommand,
   syncFacadeVersionFromPixel,
 } from "@/lib/protocol/facadeRegistry";
-import { isNativeAuthority } from "@/lib/protocol/bridge";
+
 import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
 import { runFacadeExternalHandoff, handoffMovedCursor } from "./facadeHistoryHandoff";
 import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
@@ -514,8 +514,8 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // reflects the post-restore state - that timing is the point: firing it inside
       // confirmExternalCursor would carry the PRE-restore snapshot. Barrier-registered
       // (repushCanonicalDocument) so the next facade command's syncFromEngine flushes
-      // it before dispatch. Gated by native authority; flag off => no-op.
-      if (handoffFellThrough && isNativeAuthority()) {
+      // it before dispatch.
+      if (handoffFellThrough) {
         const docId = editor.workspace.getActiveDocumentId() ?? "";
         void repushCanonicalDocument(docId, engine).catch((e) =>
           console.warn("[canonical-repush] restore-history heal re-push failed", e),

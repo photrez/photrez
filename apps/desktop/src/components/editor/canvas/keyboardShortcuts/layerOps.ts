@@ -5,7 +5,7 @@ import { flattenAllLayers, mergeActiveLayerDown, stampVisibleLayers, mergeSelect
 import { routeDuplicate, routeMergeDown, routeMergeSelected, routeFlatten } from "../../layers/structuralRouting";
 import { canRouteTransform, routeNumericTransform } from "../../layers/transformRouting";
 import type { StructuralRouteStatus, DuplicateRouteResult } from "../../layers/structuralRouting";
-import { commitFacadeOpacity, commitFacadeReorder, isFacadeEnabled, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
+import { commitFacadeOpacity, commitFacadeReorder, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
 import { showToast } from "../../Toast";
 import type { KeyboardShortcutContext } from "./context";
 
@@ -42,7 +42,7 @@ export function handleLayerOpsKey(
   // empty status.
   const routeReorder = (activeId: string, idx: number, toIdx: number): void => {
     if (toIdx < 0 || toIdx >= engine.getLayers().length) return;
-    if (isFacadeEnabled() && isFacadeOwnedLayer(activeId)) {
+    if (isFacadeOwnedLayer(activeId)) {
       void commitFacadeReorder(engine as never, activeId, toIdx)
         .then((res) => {
           if (res.status === "applied" || res.status === "noop" || res.status === "empty") {
@@ -126,37 +126,8 @@ export function handleLayerOpsKey(
     const activeId = engine.getActiveLayerId();
     const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
 
-    if (!isFacadeEnabled()) {
-      // Flag-off fast path: statement-for-statement the original handler,
-      // running synchronously with no await boundary (byte-identical parity).
-      if (e.shiftKey) {
-        if (flattenAllLayers(engine, history, renderer)) {
-          scheduler.requestRender();
-        } else {
-          showToast("Could not flatten layers", "warn");
-        }
-      } else if (multiIds.length > 1) {
-        if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
-          const nextActive = engine.getActiveLayerId();
-          editor.setSelectedLayerId(nextActive);
-          scheduler.requestRender();
-        } else {
-          showToast("Could not merge layers", "warn");
-        }
-      } else if (activeId) {
-        if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
-          scheduler.requestRender();
-        } else {
-          showToast("Could not merge layers", "warn");
-        }
-      } else {
-        showToast("No layer selected", "warn");
-      }
-      return true;
-    }
-
     // The legacy closure owns its full branch body - including the failure
-    // toast - so the flag-OFF path is byte-identical to the original handler.
+    // toast - so the fallback arm below is byte-identical to the original handler.
     const afterRoute = (status: StructuralRouteStatus, legacy: () => void) => {
       if (status === "applied") {
         scheduler.requestRender();
@@ -213,32 +184,6 @@ export function handleLayerOpsKey(
     e.stopPropagation();
     const activeId = engine.getActiveLayerId();
     const multiIds = editor.selectedLayerIds ? editor.selectedLayerIds() : [];
-
-    if (!isFacadeEnabled()) {
-      // Flag-off fast path: statement-for-statement the original handler,
-      // running synchronously with no await boundary (byte-identical parity).
-      if (multiIds.length > 1) {
-        const created = duplicateMultipleLayers(engine, history, renderer, multiIds);
-        if (created.length > 0) {
-          editor.setSelectedLayerIds(created);
-          scheduler.requestRender();
-        }
-        return true;
-      }
-      if (activeId) {
-        history.commit(engine.snapshot(), "Duplicate Layer");
-        try {
-          const dup = engine.duplicateLayer(activeId);
-          if (dup.imageBitmap) {
-            renderer.uploadImage(dup.id, dup.imageBitmap);
-          }
-          scheduler.requestRender();
-        } catch (err) {
-          showToast(`Cannot duplicate layer: ${(err as Error).message}`, "error");
-        }
-      }
-      return true;
-    }
 
     const afterDup = (res: DuplicateRouteResult) => {
       if (res.status === "applied") {

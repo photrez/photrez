@@ -1,11 +1,12 @@
-// phase-e true boundary test — the facade command surface is
+// True boundary test — the facade command surface is
 // `wasm.protocol_apply_command` (bridge.ts applyCommand), NOT a Tauri IPC invoke.
 //
-// In production `setProtocolWasm` has NO caller, so `applyCommand` uses the TS
-// `emulateApply` path today. But the method still supports a real wasm module,
-// and when that module returns a Rust Err it SURFACES as a throw from
-// `protocol_apply_command`. applyCommand must wrap that throw into an Error so
-// callers can `instanceof Error` it and surface it to the user.
+// `setProtocolWasm` is the injection point that arms a real wasm module for the
+// command path; these tests are its only caller. Production dispatch runs the
+// native engine, but the method still supports a real wasm module, and when that
+// module returns a Rust Err it SURFACES as a throw from `protocol_apply_command`.
+// applyCommand must wrap that throw into an Error so callers can `instanceof
+// Error` it and surface it to the user.
 //
 // ⚠️ DOCUMENTED DEFECT (NOT fixable from this allowed-touch set):
 // The task spec said the wrapped Error should carry `code: message`. Testing the

@@ -17,7 +17,7 @@
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import type { TextData, TextStroke } from "@/engine/textTypes";
-import { isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+
 import type { ColorPickerDialogOptions } from "../dialogs/DialogProvider";
 import {
   commitTextParamsEdit,
@@ -65,7 +65,7 @@ export function createTextColorPicker(host: TextColorPickerHost): TextColorPicke
     const engine = host.workspace.getActiveEngine();
     const layerId = host.selectedLayerId();
     if (!engine || !layerId) return;
-    const routed = isFacadeEnabled() && isFacadeOwnedLayer(layerId);
+    const routed = isFacadeOwnedLayer(layerId);
 
     host.setColorPickerOpen(true);
     host.setColorPickerTarget("foreground");

@@ -8,8 +8,6 @@ import type { Point } from "@/viewport/transformGeometry";
 import type { CropRect } from "@/viewport/cropGeometry";
 import {
   commitFacadeClearSelection,
-  isFacadeEnabled,
-  isNativeAuthority,
   mirrorSelectionCommand,
 } from "@/lib/protocol/facadeRegistry";
 import { routeApplyCrop } from "./canvasRouting";
@@ -164,35 +162,26 @@ export function applyCropPreview(params: {
   // Routed path: the native applyCrop owns the document size and its undo entry,
   // so there is no TS history commit. On success the route has already re-uploaded
   // layer textures; "legacy" runs the default path below.
-  if (isFacadeEnabled() && isNativeAuthority()) {
-    void routeApplyCrop(engine, history, params.renderer, params.scheduler, cropX, cropY, cropW, cropH, cropOptions)
-      .then((status) => {
-        if (status === "applied") {
-          finish(false);
-          return;
-        }
-        if (status === "legacy") {
-          commitCrop();
-          engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
-          // The native crop arms clear the native selection, but this fallback
-          // runs the HOST applyCrop (which nulls model.selection) with no native
-          // command, so mirror the clear to keep the shadow in step. The routed
-          // path above already mirrors its own clear inside routeApplyCrop; only
-          // this fallback needs it. Gated by the outer flag+native check, so the
-          // default path is unchanged.
-          mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
-          finish(true);
-        }
-        // "error": leave the crop session in place so the user can adjust it.
-      })
-      .catch(() => {});
-    return;
-  }
-
-  // Default path (flag off) — unchanged.
-  commitCrop();
-  engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
-  finish(true);
+  void routeApplyCrop(engine, history, params.renderer, params.scheduler, cropX, cropY, cropW, cropH, cropOptions)
+    .then((status) => {
+      if (status === "applied") {
+        finish(false);
+        return;
+      }
+      if (status === "legacy") {
+        commitCrop();
+        engine.applyCrop(cropX, cropY, cropW, cropH, cropOptions);
+        // The native crop arms clear the native selection, but this fallback
+        // runs the HOST applyCrop (which nulls model.selection) with no native
+        // command, so mirror the clear to keep the shadow in step. The routed
+        // path above already mirrors its own clear inside routeApplyCrop; only
+        // this fallback needs it.
+        mirrorSelectionCommand(engine, () => commitFacadeClearSelection(engine as never));
+        finish(true);
+      }
+      // "error": leave the crop session in place so the user can adjust it.
+    })
+    .catch(() => {});
 }
 
 export const CROP_REPLACEMENT_DRAG_THRESHOLD_PX = 3;

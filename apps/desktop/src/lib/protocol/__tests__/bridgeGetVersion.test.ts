@@ -1,7 +1,7 @@
-// getVersion (bridge.ts) unit tests. getVersion is the lightweight native-
-// authority version read: under native authority it drives protocol_version_native
-// (returns a u64, not a serialized snapshot); on the wasm path it parses the
-// snapshot's version. Mirror the nativeClient + bridgeErrorEnvelope patterns.
+// getVersion (bridge.ts) unit tests. getVersion is the lightweight native
+// version read: it drives protocol_version_native, which returns a u64 rather
+// than a serialized snapshot. Mirror the nativeClient + bridgeErrorEnvelope
+// patterns.
 //
 // Mock fidelity (CRITICAL): Tauri v2 `invoke()` REJECTS with the bare
 // `"CODE: message"` string on a Rust `Err(String)`. The mock must reject with
@@ -10,8 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { getVersion, setProtocolWasm, isNativeAuthority, __resetNativeAuthorityForTests } from "../bridge";
-import { CONTRACT_VERSION } from "../types";
+import { getVersion } from "../bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
@@ -38,13 +37,10 @@ if (typeof (globalThis as { localStorage?: unknown }).localStorage === "undefine
 beforeEach(() => {
   localStorage.clear();
   invokeMock.mockReset();
-  __resetNativeAuthorityForTests();
-  setProtocolWasm(null as unknown as Parameters<typeof setProtocolWasm>[0]);
 });
 
 describe("bridge.getVersion", () => {
-  it("native authority: returns the u64 from protocol_version_native", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
+  it("returns the u64 from protocol_version_native", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === "protocol_version_native") return 5;
       throw `E_UNKNOWN_COMMAND: ${cmd}`;
@@ -55,8 +51,7 @@ describe("bridge.getVersion", () => {
     expect(invokeMock).toHaveBeenCalledWith("protocol_version_native", { docId: "docA" });
   });
 
-  it("native authority: error path rejects with the real bare Rust string normalized to Error", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
+  it("error path rejects with the real bare Rust string normalized to Error", async () => {
     // Mock-fidelity: real protocol_version_native rejects with the BARE
     // "document not open: {key}" string (no E_ code prefix) on a Rust Err(String).
     invokeMock.mockRejectedValue("document not open: default");
@@ -69,27 +64,5 @@ describe("bridge.getVersion", () => {
     }
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toBe("document not open: default");
-  });
-
-  it("wasm path: parses the version from the wasm snapshot", async () => {
-    // wasm opt-out -> wasm branch. Arm a fake wasm module.
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    expect(isNativeAuthority()).toBe(false);
-    setProtocolWasm({
-      protocol_contract_version: () => CONTRACT_VERSION,
-      protocol_apply_command: (_json: string, _docId: string) => JSON.stringify({}),
-      protocol_snapshot_json: (_docId: string) =>
-        JSON.stringify({ version: 9, layers: [{ id: "l" }] }),
-    });
-
-    const v = await getVersion("docB");
-    expect(v).toBe(9);
-  });
-
-  it("wasm path with no wasm armed returns 0 (wasm opt-out)", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    expect(isNativeAuthority()).toBe(false);
-    const v = await getVersion("docC");
-    expect(v).toBe(0);
   });
 });

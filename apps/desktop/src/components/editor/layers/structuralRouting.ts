@@ -36,8 +36,6 @@ import {
   commitFacadeRasterize,
   getFacade,
   seedFacadeFromEngine,
-  isFacadeEnabled,
-  isNativeAuthority,
   type FacadeRouteStatus,
 } from "@/lib/protocol/facadeRegistry";
 import { showToast } from "../Toast";
@@ -111,14 +109,7 @@ export async function routeDuplicate(
   renderer: WebGL2Backend,
   ids: string[],
 ): Promise<DuplicateRouteResult> {
-  if (!isFacadeEnabled()) return { status: "legacy", newIds: [] };
   await ensureSeeded(engine);
-  // Under wasm authority the native arms are unreachable: every funnel returns
-  // "legacy" for each id (the engine only knows facade-created layers, so a
-  // routed structural op would hit a partial set). Bail BEFORE the loop so the
-  // caller's legacy path runs with zero per-id clone/dispatch work and no
-  // half-seeded retention entries.
-  if (!isNativeAuthority()) return { status: "legacy", newIds: [] };
   // Atomicity: a mixed selection must not partially duplicate. Callers re-run the
   // legacy path over the FULL selection when the route reports "legacy"; if any
   // selected id is not facade-owned the routed loop would clone the owned ids
@@ -201,7 +192,6 @@ export async function routeMergeDown(
   renderer: WebGL2Backend,
   activeId: string,
 ): Promise<StructuralRouteStatus> {
-  if (!isFacadeEnabled()) return "legacy";
   const layers = engine.getLayers();
   const idx = layers.findIndex((l) => l.id === activeId);
   const bottom = idx >= 0 ? layers[idx + 1] : null;
@@ -236,7 +226,6 @@ export async function routeMergeSelected(
   renderer: WebGL2Backend,
   ids: string[],
 ): Promise<StructuralRouteStatus> {
-  if (!isFacadeEnabled()) return "legacy";
   const selected = engine.getLayers().filter((l) => ids.includes(l.id));
   if (selected.length < 2) return "legacy";
   await ensureSeeded(engine);
@@ -265,7 +254,6 @@ export async function routeFlatten(
   _history: unknown,
   renderer: WebGL2Backend,
 ): Promise<StructuralRouteStatus> {
-  if (!isFacadeEnabled()) return "legacy";
   const layers = engine.getLayers();
   if (layers.length <= 1) return "legacy";
   await ensureSeeded(engine);
@@ -308,7 +296,6 @@ export async function routeRasterize(
   renderer: WebGL2Backend,
   id: string,
 ): Promise<StructuralRouteStatus> {
-  if (!isFacadeEnabled()) return "legacy";
   const layer = engine.getLayer(id);
   if (!layer) return "legacy";
   await ensureSeeded(engine);

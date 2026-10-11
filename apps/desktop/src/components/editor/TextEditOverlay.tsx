@@ -22,7 +22,6 @@ import { rasterizeText } from "@/engine/textRasterizer";
 import {
   clearTransformPreview,
   commitFacadeParams,
-  isFacadeEnabled,
   peekFacade,
   setTransformPreview,
 } from "@/lib/protocol/facadeRegistry";
@@ -180,7 +179,7 @@ export function TextEditOverlay() {
     // keeps the full box. boxWidth is identical either way so wraps never
     // move. Single revert point: the `true` passed by schedulePush below.
     const tight = isPreview && l.textData.boxMode === "area" && l.textData.boxHeight > 0;
-    if (isFacadeEnabled() && isFacadeOwnedLayer(s.layerId)) {
+    if (isFacadeOwnedLayer(s.layerId)) {
       // The native arm owns this layer's textData and engine.updateTextData has no
       // ownership guard: writing the model here would let the two copies drift
       // until some later projection clobbered one of them. Rasterize host-side so
@@ -456,12 +455,12 @@ export function TextEditOverlay() {
     const startH = s.boxHeight > 0 ? s.boxHeight : Math.round(rows() * td.fontSize * td.lineHeight);
     const startTransform = { ...startLayer.transform };
 
-    // Routed only when the facade is on AND the native arm already owns this
-    // layer: every per-frame legacy write below would otherwise either throw
-    // (transformLayer rejects an owned layer) or mutate the TS model behind the
-    // native one's back (updateTextData has no ownership guard). The temp layer
-    // of a CREATE gesture is never owned, so creating text is unaffected.
-    const routed = isFacadeEnabled() && isFacadeOwnedLayer(s.layerId);
+    // Routed only when the native arm already owns this layer: every per-frame
+    // legacy write below would otherwise either throw (transformLayer rejects an
+    // owned layer) or mutate the TS model behind the native one's back
+    // (updateTextData has no ownership guard). The temp layer of a CREATE gesture
+    // is never owned, so creating text is unaffected.
+    const routed = isFacadeOwnedLayer(s.layerId);
 
     // Box geometry for a pointer position, shared by pointermove and pointerup so
     // the value committed at release cannot drift from the last previewed one.

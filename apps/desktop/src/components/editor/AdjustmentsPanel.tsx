@@ -10,7 +10,6 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { showToast } from "./Toast";
 import {
   commitFacadeAdjustment,
-  isFacadeEnabled,
   setAdjustmentPreview,
   clearAdjustmentPreview,
   MIXED_OWNERSHIP_MESSAGE,
@@ -219,7 +218,7 @@ export function AdjustmentsPanel() {
     // pending marker it would immediately reset the slider to the (unchanged)
     // model value. Every tick stays transient here - the single SetAdjustment
     // fires at the gesture boundary, so undo gets ONE native entry per gesture.
-    if (engine && layer && layer.imageBitmap && isFacadeEnabled() && !layer.locked) {
+    if (engine && layer && layer.imageBitmap && !layer.locked) {
       if (pendingAdjustment === null) {
         pendingAdjustment = {
           layerId: layer.id,
@@ -315,13 +314,9 @@ export function AdjustmentsPanel() {
         engine.clearBasicAdjustments(layer.id);
         scheduler.requestRender();
       };
-      if (isFacadeEnabled()) {
-        // The clear has no !imageBitmap guard in the oracle (clearBasicAdjustments
-        // drops the param on any existing layer), so route it unconditionally.
-        routeAdjustment(engine, layer.id, undefined, legacy);
-      } else {
-        legacy();
-      }
+      // The clear has no !imageBitmap guard in the oracle (clearBasicAdjustments
+      // drops the param on any existing layer), so route it unconditionally.
+      routeAdjustment(engine, layer.id, undefined, legacy);
     }
     sessionBase = null;
     setBasicAdjustment({ brightness: 0, contrast: 0, saturation: 0 });

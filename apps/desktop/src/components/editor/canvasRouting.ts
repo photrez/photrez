@@ -28,7 +28,6 @@ import {
   commitFacadeApplyCrop,
   commitFacadeClearSelection,
   commitFacadeResizeCanvas,
-  isFacadeEnabled,
   isNativeAuthority,
   mirrorSelectionCommand,
 } from "@/lib/protocol/facadeRegistry";
@@ -77,7 +76,9 @@ export async function routeResizeCanvas(
   w: number,
   h: number,
 ): Promise<CanvasRouteStatus> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return "legacy";
+  // The route's native arms (the rebase below, the facade commits) only exist
+  // under native authority; the wasm path keeps the host implementation.
+  if (!isNativeAuthority()) return "legacy";
   if (!finitePositive(w) || !finitePositive(h)) return "error";
   if (w > getEffectiveMaxDim() || h > getEffectiveMaxDim()) return "error";
   if (
@@ -123,7 +124,9 @@ export async function routeApplyCrop(
   h: number,
   options: CanvasCropOptions,
 ): Promise<CanvasRouteStatus> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return "legacy";
+  // The route's native arms (the rebase below, the facade commits) only exist
+  // under native authority; the wasm path keeps the host implementation.
+  if (!isNativeAuthority()) return "legacy";
   // The pixel-baking variants (delete cropped pixels / fill background) are not
   // expressible as the recenter-only native arm; keep them on the host path.
   if (options.deleteCroppedPixels || options.fillBackgroundColor) return "legacy";

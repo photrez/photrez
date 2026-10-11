@@ -33,7 +33,6 @@ import { getLayerAabb } from "@/viewport/transformGeometry";
 import {
   MIXED_OWNERSHIP_MESSAGE,
   facadeCommitNumericTransform,
-  isFacadeEnabled,
   resolveSelectionRoute,
   type NumericTransformPatch,
 } from "@/lib/protocol/facadeRegistry";
@@ -70,17 +69,17 @@ export interface TransformRouteRefresh {
 }
 
 export function canRouteTransform(layerId: string): boolean {
-  return isFacadeEnabled() && isFacadeOwnedLayer(layerId);
+  return isFacadeOwnedLayer(layerId);
 }
 
-// Three-way sync decision for a set: "route" only when the flag is on AND every id
-// is facade-owned. "mixed-rejected" must never fall through to the legacy mutators:
-// a facade-owned layer rejects a legacy write (E_FACADE_OWNED) after the caller has
-// already changed the others.
+// Three-way sync decision for a set: "route" only when every id is facade-owned.
+// "mixed-rejected" must never fall through to the legacy mutators: a facade-owned
+// layer rejects a legacy write (E_FACADE_OWNED) after the caller has already
+// changed the others.
 export function decideTransformSetRoute(layerIds: string[]): "route" | "legacy" | "mixed-rejected" {
   const route = resolveSelectionRoute(layerIds);
   if (route.mode === "mixed-rejected") return "mixed-rejected";
-  if (route.mode === "facade" && isFacadeEnabled()) return "route";
+  if (route.mode === "facade") return "route";
   return "legacy";
 }
 

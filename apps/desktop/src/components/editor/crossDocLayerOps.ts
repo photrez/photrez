@@ -7,7 +7,7 @@ import { decodeImageBytes, UnsupportedImageError, ImageTooLargeError } from "@/e
 import { readFileBytes } from "@/tauri/native";
 import { WorkspaceManager, type DocumentSession } from "@/engine/workspace";
 import { isFacadeOwnedLayer } from "@/engine/document";
-import { commitFacadeReorder, isFacadeEnabled, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
+import { commitFacadeReorder, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
 
 export const CASCADE_OFFSET_PX = 24;
 
@@ -163,9 +163,9 @@ export function addLayerFromCrossDoc(
     if (sourceIdx < 0) return { newLayerId: null };
     const targetIdx = panelDropTargetIndex(sourceIdx, target, layers.length);
 
-    // The gate is evaluated SYNCHRONOUSLY, before any await, so the flag-off path
-    // below still commits and reorders inside the drop handler.
-    if (isFacadeEnabled() && isFacadeOwnedLayer(payload.layerId)) {
+    // The gate is evaluated SYNCHRONOUSLY, before any await, so the fallback
+    // path below still commits and reorders inside the drop handler.
+    if (isFacadeOwnedLayer(payload.layerId)) {
       if (targetIdx !== sourceIdx) {
         routePanelReorder(sourceEngine, ws, payload.sourceDocId, payload.layerId, sourceIdx, targetIdx);
       }

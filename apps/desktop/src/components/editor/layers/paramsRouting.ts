@@ -22,7 +22,7 @@
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import type { TextData } from "@/engine/textTypes";
-import { clearTransformPreview, commitFacadeParams, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { clearTransformPreview, commitFacadeParams } from "@/lib/protocol/facadeRegistry";
 import { showToast } from "../Toast";
 
 export interface TextParamsRouterDeps {
@@ -79,7 +79,7 @@ export function commitRoutedTextParams(
   patch: Partial<TextData>,
   deps: TextParamsRouterDeps,
 ): boolean {
-  if (!isFacadeEnabled() || !isFacadeOwnedLayer(layerId)) return false;
+  if (!isFacadeOwnedLayer(layerId)) return false;
   const layer = engine.getLayer(layerId);
   if (!layer || layer.type !== "text" || !layer.textData) return false;
   const next = { ...layer.textData, ...patch };

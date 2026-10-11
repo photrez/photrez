@@ -6,7 +6,7 @@ import { DocumentModel, MAX_OPEN_DOCUMENTS } from "@/engine/types";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import type { RenderScheduler } from "@/renderer/scheduler";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
-import { isFacadeEnabled, isNativeAuthority, clearNativeSeed } from "@/lib/protocol/bridge";
+import { clearNativeSeed } from "@/lib/protocol/bridge";
 import { getFacade, seedFacadeFromEngine } from "@/lib/protocol/facadeRegistry";
 import { addRecentFile } from "@/lib/recentFiles";
 import { showToast } from "./Toast";
@@ -337,8 +337,6 @@ async function openProjectFile(path: string, params: OpenImageParams, fileName: 
   // lock/background fields to `false` and rewrite a freshly opened document's
   // saved bytes. See `adoptFacadeOwnership`.
   //
-  // Gated to the authority the factory path uses, so the `photrez.facade=0` and
-  // `facadeAuthority=wasm` opt-outs keep their current behavior byte for byte.
   // Runs BEFORE `clearDirty()` so the saved baseline is taken from the final
   // model.
   //
@@ -349,41 +347,40 @@ async function openProjectFile(path: string, params: OpenImageParams, fileName: 
   // fell off the native walker onto the host stack, whose own `stepRustCursor` is
   // the only executor it then has. Half an owned document is a state no other
   // route can reach, so it must not be produced.
-  if (isFacadeEnabled() && isNativeAuthority()) {
-    // The session this open supersedes, when the same project is still open. The
-    // release above and the facade re-bind inside the seed both mutate state this
-    // open only owns while it commits, so a refused seed has to hand them back.
-    const superseded = params.workspace.getSession(model.id);
-    try {
-      await seedFacadeFromEngine(engine as never, getFacade(engine.getId()));
-      engine.adoptFacadeOwnership();
-    } catch (err) {
-      if (superseded) {
-        // The superseded session is still open and still holds the file's layer
-        // ids: the release above disarmed it and nothing re-armed it, so its undo
-        // would fall off the native walker with no executor left. The facade is
-        // keyed by document id, so the refused seed also re-bound the LIVE
-        // session's facade to this discarded engine.
-        superseded.engine.adoptFacadeOwnership();
-        getFacade(model.id).bindEngine(superseded.engine);
-      } else {
-        // No session to hand the ids back to, and `createNativeSeed` has recorded
-        // the rejected promise for this document id and hands the same one to
-        // every later call - so the retry would re-await the same rejection. Drop
-        // it exactly as closing a document drops the ids it seeded.
-        clearNativeSeed(model.id);
-      }
-      // The engine built above holds these rasters and is discarded with the
-      // abort, so nothing will own them - close them the way the decode-failure
-      // catch does. On a reopen this is a SECOND full raster set: the live
-      // session's own bitmaps are separate objects and stay open.
-      closeDecoded(decoded);
-      throw new Error(
-        `Project open failed: the canonical document seed was refused (${
-          err instanceof Error ? err.message : String(err)
-        })`,
-      );
+  //
+  // The session this open supersedes, when the same project is still open. The
+  // release above and the facade re-bind inside the seed both mutate state this
+  // open only owns while it commits, so a refused seed has to hand them back.
+  const superseded = params.workspace.getSession(model.id);
+  try {
+    await seedFacadeFromEngine(engine as never, getFacade(engine.getId()));
+    engine.adoptFacadeOwnership();
+  } catch (err) {
+    if (superseded) {
+      // The superseded session is still open and still holds the file's layer
+      // ids: the release above disarmed it and nothing re-armed it, so its undo
+      // would fall off the native walker with no executor left. The facade is
+      // keyed by document id, so the refused seed also re-bound the LIVE
+      // session's facade to this discarded engine.
+      superseded.engine.adoptFacadeOwnership();
+      getFacade(model.id).bindEngine(superseded.engine);
+    } else {
+      // No session to hand the ids back to, and `createNativeSeed` has recorded
+      // the rejected promise for this document id and hands the same one to
+      // every later call - so the retry would re-await the same rejection. Drop
+      // it exactly as closing a document drops the ids it seeded.
+      clearNativeSeed(model.id);
     }
+    // The engine built above holds these rasters and is discarded with the
+    // abort, so nothing will own them - close them the way the decode-failure
+    // catch does. On a reopen this is a SECOND full raster set: the live
+    // session's own bitmaps are separate objects and stay open.
+    closeDecoded(decoded);
+    throw new Error(
+      `Project open failed: the canonical document seed was refused (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+    );
   }
   engine.clearDirty();
 

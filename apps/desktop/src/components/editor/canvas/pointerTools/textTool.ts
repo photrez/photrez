@@ -18,7 +18,7 @@ import type { EditorAccessors } from "./pointerToolContext";
 import type { LayerNode } from "@/engine/types";
 import type { DocumentEngine } from "@/engine/document";
 import { isFacadeOwnedLayer } from "@/engine/document";
-import { isFacadeEnabled, clearTransformPreview } from "@/lib/protocol/facadeRegistry";
+import { clearTransformPreview } from "@/lib/protocol/facadeRegistry";
 import { type TextData, DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import type { TextEditSession } from "../../tools/editorState";
 
@@ -471,7 +471,7 @@ export function commitTextSession(editor: TextSessionEditor): void {
   // and the native commit is what puts the typed content in the model. A TS entry
   // here would strand an undo point whose engine.restore() rejects with
   // E_FACADE_OWNED, and would record a second entry for one edit.
-  if (isFacadeEnabled() && isFacadeOwnedLayer(session.layerId)) {
+  if (isFacadeOwnedLayer(session.layerId)) {
     editor.setTextEditSession(null);
     editor.scheduler.requestRender();
     return;
@@ -515,7 +515,7 @@ export function cancelTextSession(editor: TextSessionEditor): void {
   // back: engine.restore() refuses while the facade owns layers, and flushing would
   // COMMIT the typing that cancel is meant to discard. The renderer still holds the
   // preview rasters, so the model bitmap is re-uploaded to take them back.
-  if (isFacadeEnabled() && isFacadeOwnedLayer(session.layerId)) {
+  if (isFacadeOwnedLayer(session.layerId)) {
     if (engine && editor.renderer) {
       const previewed = engine.getLayerImageBitmap(session.layerId);
       if (previewed) editor.renderer.uploadImage(session.layerId, previewed);

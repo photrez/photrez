@@ -9,7 +9,7 @@ import { LAYER_DRAG_MIME, LayerDragPayload } from "../dragTypes";
 import { useDragController } from "../DragController";
 import { useI18n } from "@/i18n/I18nProvider";
 import { isFacadeOwnedLayer } from "@/engine/document";
-import { commitFacadeRename, isFacadeEnabled } from "@/lib/protocol/facadeRegistry";
+import { commitFacadeRename } from "@/lib/protocol/facadeRegistry";
 
 // actually touches. Avoids the production `any` while staying decoupled
 // from the full WorkspaceManager/Scheduler types →LayerItem only needs
@@ -75,7 +75,7 @@ export function LayerItem(props: LayerItemProps) {
     if (engine) {
       // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate):
       // a facade-owned layer renames through ONE Rename command.
-      if (isFacadeEnabled() && isFacadeOwnedLayer(props.layer.id)) {
+      if (isFacadeOwnedLayer(props.layer.id)) {
         try {
           await commitFacadeRename(engine as never, [props.layer.id], nextName);
         } catch (err) {

@@ -3,7 +3,7 @@ import { MAX_OPEN_DOCUMENTS } from "./types";
 import { DocumentEngine, releaseFacadeOwned } from "./document";
 import { CommandHistory } from "./history";
 import { releaseBitmapStore } from "./bitmapStore";
-import { clearNativeSeed, createNativeSeed, isNativeAuthority, seedNativeCanonical } from "@/lib/protocol/bridge";
+import { clearNativeSeed, createNativeSeed, seedNativeCanonical } from "@/lib/protocol/bridge";
 import { buildCanonicalDocumentPayload } from "@/lib/protocol/canonicalSeed";
 import { removeFacade } from "@/lib/protocol/facadeRegistry";
 import {
@@ -114,9 +114,8 @@ export class WorkspaceManager {
     // live engine model with its real layers, and it always precedes every
     // protocol command for the doc. Seed the native engine here with the REAL
     // layers + starting version so a later bridge command can never seed it
-    // empty (which would clobber the TS model). Gated so the default (wasm)
-    // path is unchanged.
-    if (isNativeAuthority()) {
+    // empty (which would clobber the TS model).
+    {
       const seededLayers: RenderLayer[] = session.engine.getLayers().map((l) => ({
         id: l.id,
         name: l.name,
@@ -204,12 +203,11 @@ export class WorkspaceManager {
 
       // Native-authority cutover seed: drop this doc's native seed/adapter state
       // so reopening the same id re-seeds the engine with the restored model
-      // (a stale resolved promise would otherwise skip the re-seed). Gated: no-op off.
-      if (isNativeAuthority()) clearNativeSeed(id);
+      // (a stale resolved promise would otherwise skip the re-seed).
+      clearNativeSeed(id);
       // Evict the per-doc facade alongside the native seed so a reopened doc id
-      // gets a FRESH facade (not a stale one at an old renderedVersion). Gated by
-      // the same native-authority flag: the default (wasm) path is byte-identical.
-      if (isNativeAuthority()) removeFacade(id);
+      // gets a FRESH facade (not a stale one at an old renderedVersion).
+      removeFacade(id);
 
       // consecutive assignments to `this.activeDocumentId` where the
       // first (line 53) computed `keys.indexOf(id) + 1` against the

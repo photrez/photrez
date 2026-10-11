@@ -24,11 +24,7 @@ export type FacadeProjectionOptions = { dimsAuthoritative?: boolean };
 
 // Gate A: facade isolation. `facadeOwnedIds` is the READ surface: "is this layer
 // id facade-owned anywhere in the process". A layer id is facade-owned once it is
-// in that set, and no runtime switch reopens the legacy path for it - the retired
-// `photrez.facade` opt-out used to gate this predicate and is gone. The file's
-// three OTHER flag reads (the Rust-mirror failure arm, the projection-cache
-// refresh, `restore`'s ledger guard) are separate sites, not this predicate's gate.
-import { isFacadeEnabled } from "@/lib/protocol/bridge";
+// in that set, and no runtime switch reopens the legacy path for it.
 // The legacy-mutation guards, `syncLayersFromRust`'s dropped-id
 // reconciliation and the undo dispatch gate all answer from it, so none of them
 // has to know which document owns the id. The ONE reader that does not is
@@ -414,16 +410,13 @@ export class DocumentEngine {
 
   private syncLayersFromRust(): void {
     const prevById = new Map(this.model.layers.map(l => [l.id, l]));
-    const facadeOn = isFacadeEnabled();
     let rustLayers: any[];
     try {
       rustLayers = JSON.parse(this.rustEngine.get_layers_json());
-    } catch (e) {
-      // The Rust mirror is an auxiliary view of the graph. Under facade authority
-      // a failed mirror read must never drop the authoritative model, so leave it
-      // untouched. Flag OFF keeps the original throw-through (byte-identical).
-      if (facadeOn) return;
-      throw e;
+    } catch {
+      // The Rust mirror is an auxiliary view of the graph, so a failed mirror
+      // read must never drop the authoritative model: leave it untouched.
+      return;
     }
     const restated: LayerNode[] = rustLayers.map((l: any) => {
       const prev = prevById.get(l.id);
@@ -455,7 +448,7 @@ export class DocumentEngine {
       } as LayerNode;
     });
     let rebuilt: LayerNode[];
-    if (facadeOn) {
+    {
       // Facade authority: the per-engine Rust mirror is an auxiliary view - it is
       // refreshed only by a legacy op's notifyChange (which re-pushes the whole
       // model), so after a facade op it can be short and/or stale. Rebuilding the
@@ -548,12 +541,10 @@ export class DocumentEngine {
           `[facade-sync] Rust mirror dropped ${silentlyDropped.length} model layer(s) for doc "${this.model.id}" without a recorded delete: ${silentlyDropped.join(", ")}`,
         );
       }
-    } else {
-      rebuilt = restated;
     }
     this.model.layers = rebuilt;
     const mirrorActive = this.rustEngine.get_active_layer_id() ?? null;
-    if (facadeOn) {
+    {
       // The mirror's active id is only meaningful when it survived the rebuild.
       // A routed layer is absent from a stale mirror, so adopting its (null or
       // stale) active id would drop the user's selection on a legacy op. Keep the
@@ -564,8 +555,6 @@ export class DocumentEngine {
       const prevActive = this.model.activeLayerId;
       const prevActiveOk = !!prevActive && rebuiltIds.has(prevActive);
       this.model.activeLayerId = mirrorActiveOk ? mirrorActive : (prevActiveOk ? prevActive : mirrorActive);
-    } else {
-      this.model.activeLayerId = mirrorActive;
     }
     this.model.dirty = true;
   }
@@ -1835,10 +1824,8 @@ export class DocumentEngine {
    * pan re-projects a layer vector whose projection fields did not change. The
    * projection is still cheaper than the whole-model JSON.stringify
    * pushModelToRust already does in the same notifyChange.
-    * Gated by photrez.facade: the facade=0 opt-out returns before any work (byte-identical).
    */
   private refreshFacadeProjectionCache(): void {
-    if (!isFacadeEnabled()) return;
     try {
       refreshFacadeSnapshotFromModelLayers(this.model.id, this.model.layers, {
         width: this.model.width,
@@ -1928,7 +1915,7 @@ export class DocumentEngine {
   }
 
   restore(snapshot: DocumentModel, options?: { restoreViewport?: boolean }): void {
-    if (isFacadeEnabled()) {
+    {
       // GUARD STRUCTURE: the per-document ledger (`facadeOwnedByDoc`), NOT the
       // process-wide union the legacy mutator guards read (see the block comment
       // above `deleteLayer`). The two sites answer different questions on
@@ -2061,7 +2048,7 @@ export class DocumentEngine {
     // Undo/redo/open has NO history.commit, so no external record refreshes the
     // facade projection snapshot. notifyChange (which also refreshes) is not on
     // this path either: restore() replaces the model and calls its own
-    // notification. Gated: no-op unless the facade flag is on and a facade exists.
+    // notification. A no-op when the document has no facade yet.
     this.refreshFacadeProjectionCache();
     this.notifyVisualChange();
   }

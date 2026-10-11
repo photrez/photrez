@@ -9,7 +9,6 @@ import { getEffectiveMaxDim } from "@/engine/types";
 import { showToast } from "../Toast";
 import { type Unit, UNITS, formatUnit, unitToPx, pxToUnit } from "@/lib/units";
 import { useI18n } from "@/i18n/I18nProvider";
-import { isFacadeEnabled, isNativeAuthority } from "@/lib/protocol/facadeRegistry";
 import { routeResizeCanvas } from "../canvasRouting";
 
 export function ResizeCanvasModal() {
@@ -115,22 +114,20 @@ export function ResizeCanvasModal() {
     // Routed path: the native resize owns the document size and its undo entry,
     // so there is no TS history commit. The route re-uploads layer textures; the
     // viewport resize stays here. "legacy" falls through to the default path.
-    if (isFacadeEnabled() && isNativeAuthority()) {
-      const status = await routeResizeCanvas(engine, history, renderer, scheduler, newW, newH);
-      if (status === "error") {
-        showToast("Could not resize canvas", "error");
-        return;
-      }
-      if (status === "applied") {
-        const dpr = window.devicePixelRatio || 1;
-        renderer.resizeToViewport(viewportWidth(), viewportHeight(), dpr);
-        syncViewport();
-        setShowResizeDialog(false);
-        return;
-      }
+    const status = await routeResizeCanvas(engine, history, renderer, scheduler, newW, newH);
+    if (status === "error") {
+      showToast("Could not resize canvas", "error");
+      return;
+    }
+    if (status === "applied") {
+      const dpr = window.devicePixelRatio || 1;
+      renderer.resizeToViewport(viewportWidth(), viewportHeight(), dpr);
+      syncViewport();
+      setShowResizeDialog(false);
+      return;
     }
 
-    // Default path (flag off, or the route deferred to legacy) — unchanged.
+    // Default path (the route deferred to legacy) — unchanged.
     history.commit(engine.snapshot(), "Resize Canvas");
     engine.resizeCanvas(newW, newH);
 

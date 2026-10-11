@@ -10,7 +10,7 @@ import {
 import { cancelLayerTransformSession } from "../transformSession";
 import { cancelTextSession, commitTextSession } from "../canvas/pointerTools/textTool";
 import { showToast } from "../Toast";
-import { getFacade, isFacadeEnabled, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests, commitFacadeVisibility, commitFacadeLock, commitFacadeReorder } from "@/lib/protocol/facadeRegistry";
+import { getFacade, seedFacadeFromEngine, syncFacadeVersionFromPixel, MIXED_OWNERSHIP_MESSAGE, __resetFacadeRegistryForTests, commitFacadeVisibility, commitFacadeLock, commitFacadeReorder } from "@/lib/protocol/facadeRegistry";
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { applyRustTilesToSurface, projectRustPixelsToVisibleSurface, rehydratePaintSurfaceFromRust } from "@/lib/rustShadow";
@@ -64,35 +64,6 @@ export function useLayerActions() {
     const multiIds = selectedLayerIds();
 
     if (!engine || !history) return;
-
-    if (!isFacadeEnabled()) {
-      // Flag-off fast path: statement-for-statement the original handler,
-      // running synchronously with no await boundary (byte-identical parity).
-      if (multiIds.length > 1) {
-        const newIds = duplicateMultipleLayers(engine, history, renderer, multiIds);
-        if (newIds.length > 0) {
-          setSelectedLayerIds(newIds);
-          if (newIds[0]) engine.setActiveLayer(newIds[0]);
-          scheduler.requestRender();
-        }
-        return;
-      }
-      if (!activeId) {
-        showToast("No layer selected", "warn");
-        return;
-      }
-      history.commit(engine.snapshot(), "Duplicate Layer");
-      try {
-        const dup = engine.duplicateLayer(activeId);
-        if (dup.imageBitmap) {
-          renderer.uploadImage(dup.id, dup.imageBitmap);
-        }
-        scheduler.requestRender();
-      } catch (err) {
-        showToast(`Cannot duplicate layer: ${(err as Error).message}`, "error");
-      }
-      return;
-    }
 
     if (multiIds.length > 1) {
       const res = await routeDuplicate(engine, history, renderer, multiIds);
@@ -165,15 +136,6 @@ export function useLayerActions() {
       if (textEditSession()) {
         commitTextSession(textSessionEditor());
       }
-      if (!isFacadeEnabled()) {
-        // Flag-off fast path: synchronous, statement-for-statement original.
-        if (mergeSelectedLayers(engine, history, renderer, multiIds)) {
-          scheduler.requestRender();
-        } else {
-          showToast("Could not merge selected layers", "warn");
-        }
-        return;
-      }
       const res = await routeMergeSelected(engine, history, renderer, multiIds);
       if (res === "applied") {
         scheduler.requestRender();
@@ -216,15 +178,6 @@ export function useLayerActions() {
           return;
         }
       }
-      if (!isFacadeEnabled()) {
-        // Flag-off fast path: synchronous, statement-for-statement original.
-        if (mergeActiveLayerDown(engine, history, renderer, activeId)) {
-          scheduler.requestRender();
-        } else {
-          showToast("Could not merge layers", "warn");
-        }
-        return;
-      }
       const res = await routeMergeDown(engine, history, renderer, activeId);
       if (res === "applied") {
         scheduler.requestRender();
@@ -252,15 +205,6 @@ export function useLayerActions() {
       // no session dangles over layers that no longer exist.
       if (textEditSession()) {
         commitTextSession(textSessionEditor());
-      }
-      if (!isFacadeEnabled()) {
-        // Flag-off fast path: synchronous, statement-for-statement original.
-        if (flattenAllLayers(engine, history, renderer)) {
-          scheduler.requestRender();
-        } else {
-          showToast("Could not flatten layers", "warn");
-        }
-        return;
       }
       const res = await routeFlatten(engine, history, renderer);
       if (res === "applied") {
@@ -509,22 +453,20 @@ export function useLayerActions() {
     const nextVisible = !clickedLayer.visible;
     // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate):
     // facade-owned layers commit through ONE SetVisible command each.
-    if (isFacadeEnabled()) {
-      try {
-        const r = await commitFacadeVisibility(engine as never, targetIds, nextVisible);
-        if (r.status === "mixed-rejected") {
-          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
-          return;
-        }
-        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
-          scheduler.requestRender();
-          return;
-        }
-        // status === "legacy" -> fall through to the untouched legacy path
-      } catch (err) {
-        showToast(`Cannot set visibility: ${(err as Error).message}`, "error");
+    try {
+      const r = await commitFacadeVisibility(engine as never, targetIds, nextVisible);
+      if (r.status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
         return;
       }
+      if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+        scheduler.requestRender();
+        return;
+      }
+      // status === "legacy" -> fall through to the untouched legacy path
+    } catch (err) {
+      showToast(`Cannot set visibility: ${(err as Error).message}`, "error");
+      return;
     }
     const history = workspace.getActiveHistory();
     history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Visibility (Multiple)" : "Toggle Visibility");
@@ -546,22 +488,20 @@ export function useLayerActions() {
     if (!clickedLayer) return;
     const nextLocked = !clickedLayer.locked;
     // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
-    if (isFacadeEnabled()) {
-      try {
-        const r = await commitFacadeLock(engine as never, targetIds, "base", nextLocked);
-        if (r.status === "mixed-rejected") {
-          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
-          return;
-        }
-        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
-          scheduler.requestRender();
-          return;
-        }
-        // status === "legacy" -> fall through to the untouched legacy path
-      } catch (err) {
-        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+    try {
+      const r = await commitFacadeLock(engine as never, targetIds, "base", nextLocked);
+      if (r.status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
         return;
       }
+      if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+        scheduler.requestRender();
+        return;
+      }
+      // status === "legacy" -> fall through to the untouched legacy path
+    } catch (err) {
+      showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+      return;
     }
     const history = workspace.getActiveHistory();
     history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock (Multiple)" : "Toggle Lock");
@@ -583,22 +523,20 @@ export function useLayerActions() {
     if (!clickedLayer) return;
     const nextVal = !clickedLayer.lockTransparency;
     // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
-    if (isFacadeEnabled()) {
-      try {
-        const r = await commitFacadeLock(engine as never, targetIds, "transparency", nextVal);
-        if (r.status === "mixed-rejected") {
-          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
-          return;
-        }
-        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
-          scheduler.requestRender();
-          return;
-        }
-        // status === "legacy" -> fall through to the untouched legacy path
-      } catch (err) {
-        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+    try {
+      const r = await commitFacadeLock(engine as never, targetIds, "transparency", nextVal);
+      if (r.status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
         return;
       }
+      if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+        scheduler.requestRender();
+        return;
+      }
+      // status === "legacy" -> fall through to the untouched legacy path
+    } catch (err) {
+      showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+      return;
     }
     const history = workspace.getActiveHistory();
     history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Transparency (Multiple)" : "Toggle Lock");
@@ -620,22 +558,20 @@ export function useLayerActions() {
     if (!clickedLayer) return;
     const nextVal = !clickedLayer.lockPosition;
     // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
-    if (isFacadeEnabled()) {
-      try {
-        const r = await commitFacadeLock(engine as never, targetIds, "position", nextVal);
-        if (r.status === "mixed-rejected") {
-          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
-          return;
-        }
-        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
-          scheduler.requestRender();
-          return;
-        }
-        // status === "legacy" -> fall through to the untouched legacy path
-      } catch (err) {
-        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+    try {
+      const r = await commitFacadeLock(engine as never, targetIds, "position", nextVal);
+      if (r.status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
         return;
       }
+      if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+        scheduler.requestRender();
+        return;
+      }
+      // status === "legacy" -> fall through to the untouched legacy path
+    } catch (err) {
+      showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+      return;
     }
     const history = workspace.getActiveHistory();
     history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Position (Multiple)" : "Toggle Lock");
@@ -657,22 +593,20 @@ export function useLayerActions() {
     if (!clickedLayer) return;
     const nextVal = !clickedLayer.lockRotation;
     // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
-    if (isFacadeEnabled()) {
-      try {
-        const r = await commitFacadeLock(engine as never, targetIds, "rotation", nextVal);
-        if (r.status === "mixed-rejected") {
-          showToast(MIXED_OWNERSHIP_MESSAGE, "error");
-          return;
-        }
-        if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
-          scheduler.requestRender();
-          return;
-        }
-        // status === "legacy" -> fall through to the untouched legacy path
-      } catch (err) {
-        showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+    try {
+      const r = await commitFacadeLock(engine as never, targetIds, "rotation", nextVal);
+      if (r.status === "mixed-rejected") {
+        showToast(MIXED_OWNERSHIP_MESSAGE, "error");
         return;
       }
+      if (r.status === "applied" || r.status === "noop" || r.status === "empty") {
+        scheduler.requestRender();
+        return;
+      }
+      // status === "legacy" -> fall through to the untouched legacy path
+    } catch (err) {
+      showToast(`Cannot set lock: ${(err as Error).message}`, "error");
+      return;
     }
     const history = workspace.getActiveHistory();
     history?.commit(engine.snapshot(), targetIds.length > 1 ? "Toggle Lock Rotation (Multiple)" : "Toggle Lock");
@@ -696,7 +630,7 @@ export function useLayerActions() {
       // restatement delta makes the projection match the authoritative engine
       // (no snapshot re-read). The destination index is the legacy toIndex
       // (post-removal insertion index).
-      if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+      if (isFacadeOwnedLayer(id)) {
         try {
           const r = await commitFacadeReorder(engine as never, id, index - 1);
           if (r.status === "mixed-rejected") {
@@ -729,7 +663,7 @@ export function useLayerActions() {
       const id = engine.getLayers()[index]?.id;
       if (!id) return;
       // Facade routing (mirrors commitFacadeOpacity / finishOpacityEdit gate).
-      if (isFacadeEnabled() && isFacadeOwnedLayer(id)) {
+      if (isFacadeOwnedLayer(id)) {
         try {
           const r = await commitFacadeReorder(engine as never, id, index + 1);
           if (r.status === "mixed-rejected") {
@@ -757,75 +691,57 @@ export function useLayerActions() {
     const engine = workspace.getActiveEngine();
     const history = workspace.getActiveHistory();
     if (!engine || !history) return;
-    if (isFacadeEnabled()) {
-      const docId = workspace.getActiveDocumentId() ?? "default";
-      const facade = getFacade(docId);
-      // Seed facade from engine on first use (one-time projection, not dual owner after).
-      // Await so the native cutover seed (and its version sync via getSnapshot) completes
-      // BEFORE the first facade command builds its expectedVersion envelope. Without the
-      // await the init lands a microtask late and the first command can hit E_VERSION_MISMATCH.
-      await seedFacadeFromEngine(engine as never, facade);
-      try {
-        // Seed the new layer with the document dimensions and insert it above the
-        // active layer (mirrors the TS engine's "add above active" placement).
-        const docW = engine.getWidth();
-        const docH = engine.getHeight();
-        const activeId = engine.getActiveLayerId();
-        const layers = engine.getLayers();
-        const activeIdx = activeId ? layers.findIndex((l) => l.id === activeId) : -1;
-        const insertIdx = activeIdx < 0 ? 0 : activeIdx;
-        const beforeIds = new Set(layers.map((l) => l.id));
-        const snap = await facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`, docW, docH, insertIdx);
-        // Project facade snapshot into engine (engine becomes read-only view, no history)
-        (engine as unknown as { applyFacadeSnapshot: (s: unknown) => void }).applyFacadeSnapshot(snap);
-        const added = engine.getLayers().filter((l) => !beforeIds.has(l.id));
-        const newId = added.length === 1 ? added[0].id : undefined;
-        if (newId) {
-          // The added layer's RASTER comes from the projection, not from here:
-          // `applyFacadeSnapshot` gives a graph-minted id a transparent raster of its own
-          // size (document.ts, the new-layer branch). Patching it at this one call site
-          // left every other graph-minted path - and every future one - with the same hole,
-          // and made two owners of a single fact. There is deliberately no fallback raster
-          // here: `addLayerPaintableStore.wiring.test.tsx` asserts the raster the PROJECTION
-          // produced, so a call-site patch can no longer make that test pass.
-          //
-          // The SELECTION is the part the projection cannot do. It only reassigns the
-          // active layer when the current one LEFT the projection (document.ts:2302-2304),
-          // so a plain add left the previous layer active and the user painted on a layer
-          // they had not chosen. Both arms select what they just added - the flag-off arm's
-          // `engine.addLayer` does, and the routed duplicate arm does
-          // (`setSelectedLayerIds(res.newIds)`, :99) - so this mirrors the selection the
-          // graph already made, the way `routeMergeDown` mirrors its own
-          // (`engine.setActiveLayer(mergedId)`, structuralRouting.ts:227).
-          // Both arms select the layer they just added: the flag-off arm's
-          // `engine.addLayer` selects, and the routed duplicate arm selects
-          // (`setSelectedLayerIds(res.newIds)`, :99). `applyFacadeSnapshot` only
-          // reassigns the active layer when the current one LEFT the projection
-          // (document.ts:2302-2304), so a plain add left the previous layer active -
-          // the user then painted on the layer they had not chosen. This mirrors the
-          // selection the graph already made, the way `routeMergeDown` mirrors its own
-          // (`engine.setActiveLayer(mergedId)`, structuralRouting.ts:227).
-          engine.setActiveLayer(newId);
-          setSelectedLayerId(newId);
-        }
-        scheduler.requestRender();
-      } catch (err) {
-        const msg = (err as Error).message;
-        if (msg.includes("E_VERSION_MISMATCH")) {
-          showToast("Version conflict — retrying", "warn");
-          // On mismatch, re-sync from engine and retry once would go here (deferred)
-        } else {
-          showToast(`Cannot add layer: ${msg}`, "error");
-        }
-      }
-      return;
-    }
-    history.commit(engine.snapshot(), "New Layer");
+    const docId = workspace.getActiveDocumentId() ?? "default";
+    const facade = getFacade(docId);
+    // Seed facade from engine on first use (one-time projection, not dual owner after).
+    // Await so the native cutover seed (and its version sync via getSnapshot) completes
+    // BEFORE the first facade command builds its expectedVersion envelope. Without the
+    // await the init lands a microtask late and the first command can hit E_VERSION_MISMATCH.
+    await seedFacadeFromEngine(engine as never, facade);
     try {
-      engine.addLayer(`Layer ${engine.getLayers().length + 1}`);
+      // Seed the new layer with the document dimensions and insert it above the
+      // active layer (mirrors the TS engine's "add above active" placement).
+      const docW = engine.getWidth();
+      const docH = engine.getHeight();
+      const activeId = engine.getActiveLayerId();
+      const layers = engine.getLayers();
+      const activeIdx = activeId ? layers.findIndex((l) => l.id === activeId) : -1;
+      const insertIdx = activeIdx < 0 ? 0 : activeIdx;
+      const beforeIds = new Set(layers.map((l) => l.id));
+      const snap = await facade.addLayer(`Layer ${facade.snapshot.layers.length + 1}`, docW, docH, insertIdx);
+      // Project facade snapshot into engine (engine becomes read-only view, no history)
+      (engine as unknown as { applyFacadeSnapshot: (s: unknown) => void }).applyFacadeSnapshot(snap);
+      const added = engine.getLayers().filter((l) => !beforeIds.has(l.id));
+      const newId = added.length === 1 ? added[0].id : undefined;
+      if (newId) {
+        // The added layer's RASTER comes from the projection, not from here:
+        // `applyFacadeSnapshot` gives a graph-minted id a transparent raster of its own
+        // size (document.ts, the new-layer branch). Patching it at this one call site
+        // left every other graph-minted path - and every future one - with the same hole,
+        // and made two owners of a single fact. There is deliberately no fallback raster
+        // here: `addLayerPaintableStore.wiring.test.tsx` asserts the raster the PROJECTION
+        // produced, so a call-site patch can no longer make that test pass.
+        //
+        // The SELECTION is the part the projection cannot do. It only reassigns the
+        // active layer when the current one LEFT the projection (document.ts:2302-2304),
+        // so a plain add left the previous layer active and the user painted on a layer
+        // they had not chosen. Both arms select what they just added - the TS
+        // `engine.addLayer` does, and the routed duplicate arm does
+        // (`setSelectedLayerIds(res.newIds)`, :99) - so this mirrors the selection the
+        // graph already made, the way `routeMergeDown` mirrors its own
+        // (`engine.setActiveLayer(mergedId)`, structuralRouting.ts:227).
+        engine.setActiveLayer(newId);
+        setSelectedLayerId(newId);
+      }
       scheduler.requestRender();
     } catch (err) {
-      showToast(`Cannot add layer: ${(err as Error).message}`, "error");
+      const msg = (err as Error).message;
+      if (msg.includes("E_VERSION_MISMATCH")) {
+        showToast("Version conflict — retrying", "warn");
+        // On mismatch, re-sync from engine and retry once would go here (deferred)
+      } else {
+        showToast(`Cannot add layer: ${msg}`, "error");
+      }
     }
   };
 
@@ -839,7 +755,7 @@ export function useLayerActions() {
       // ADR 0008 DeleteLayer UX guard: mixed ownership selection is rejected
       // ATOMICALLY — no partial mutation, no partial protocol traffic. A
       // user-approved partial operation would require explicit future design.
-      if (isFacadeEnabled()) {
+      {
         const ownedIds = multiIds.filter((id) => isFacadeOwnedLayer(id));
         if (ownedIds.length > 0 && ownedIds.length < multiIds.length) {
           showToast(MIXED_OWNERSHIP_MESSAGE, "warn");
@@ -906,12 +822,12 @@ export function useLayerActions() {
       if (engine.getLayers().length <= 1) return;
       // ADR 0008 DeleteLayer ticket: route the migrated delete
       // through EditorClient. The client owns the dual-read boundary — when the
-      // facade flag is ON and the layer is facade-owned it delegates to the
-      // facade (Rust command -> delta -> snapshot) and projects the snapshot
-      // into the engine. When the flag is OFF / non-owned it returns
-      // {status:"legacy"} and we fall through to the byte-identical legacy TS
-      // path below. A thrown command (Rust Err / version conflict) fails closed.
-      if (isFacadeEnabled()) {
+      // layer is facade-owned it delegates to the facade (Rust command -> delta
+      // -> snapshot) and projects the snapshot into the engine. For a non-owned
+      // layer it returns {status:"legacy"} and we fall through to the
+      // byte-identical legacy TS path below. A thrown command (Rust Err / version
+      // conflict) fails closed.
+      {
         const facade = getFacade(engine.getId());
         const client = createEditorClient(
           { applyFacadeSnapshot: (s) => engine.applyFacadeSnapshot(s as never) },
@@ -930,7 +846,7 @@ export function useLayerActions() {
         }
         // status === "legacy": fall through to the byte-identical legacy path below.
       }
-      // status === "legacy": byte-identical legacy TS path (flag OFF / non-owned).
+      // status === "legacy": byte-identical legacy TS path (non-owned layer).
       const before = engine.snapshot();
       engine.deleteLayer(activeId);
       const after = engine.snapshot();
