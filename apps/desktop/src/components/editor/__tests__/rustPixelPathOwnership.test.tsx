@@ -34,7 +34,6 @@ import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { WorkspaceManager } from "@/engine/workspace";
 import { CommandHistory } from "@/engine/history";
 import type { HistoryTilePatches } from "@/engine/history";
-import { optOutOfShimRecording } from "@/engine/__tests__/historyCursorHarness";
 import type { DocumentModel } from "@/engine/types";
 import { useEditorCommands } from "../useEditorCommands";
 import { EditorProvider, useEditor } from "../shell/EditorContext";
@@ -256,69 +255,29 @@ function countInvokes(...commands: string[]): number {
 }
 
 // A metadata-only step carries no tile patches, so it never reaches the tile
-// branch. Its cursor step belongs to the POP (CommandHistory.stepRustCursor),
-// which fires exactly when a recorded entry backs it - and never otherwise.
-// Before that, the step lived in the tile branch, so a metadata pop stepped
-// nothing: the drift this file's sibling wiring tests pin the fix for.
-describe("a metadata-only pop never steps the Rust cursor when nothing recorded the step", () => {
-  beforeEach(() => {
-    vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
-      {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
-    );
-    vi.mocked(invoke).mockReset();
-    vi.mocked(isTauriRuntime).mockReset();
-    localStorage.clear();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    localStorage.clear();
-  });
-
-  it("with the shim opted out: zero cursor-sync invokes while the model restore still runs", async () => {
-    // The shim is opted out and no other recorder exists for a metadata
-    // step, so nothing records an entry: stepping would consume somebody
-    // else's. At the shim's DEFAULT the counterpart exists and the pop MUST
-    // step it - pinned where the shim really runs, in
-    // historyCursorDriftClosure.wiring.test.ts.
-    optOutOfShimRecording();
-    vi.mocked(isTauriRuntime).mockReturnValue(true);
-    const engine = makeEngine();
-    mockUseEditor(makeEditorContext(makeHistory(null), engine));
-    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 1, version: 1 });
-    await flush();
-    const censusBefore = (await flushPixelInvokeCensus()).entries.length;
-
-    const commands = useEditorCommands(() => {});
-    commands.undo();
-    await flush();
-    commands.redo();
-    await flush();
-
-    // Non-vacuity: the step completed its model restore, so the count below
-    // means "the pop stepped (or did not)", not "the step aborted early".
-    expect(engine.restore).toHaveBeenCalledTimes(2);
-    expect(countInvokes("rust_pixels_undo")).toBe(0);
-    expect(countInvokes("rust_pixels_redo")).toBe(0);
-
-    const census = await flushPixelInvokeCensus();
-    const delta = census.entries
-      .slice(censusBefore)
-      .filter(
-        (entry) =>
-          entry.command === "rust_pixels_undo" || entry.command === "rust_pixels_redo",
-      );
-    expect(delta.map((entry) => entry.command)).toEqual([]);
-  });
-});
+// branch. Its cursor step belongs to the POP (CommandHistory.stepRustCursor).
+// the empty describe that documented the
+// retired "no recorder armed" row is deleted with it — see the note below.
+// -- Metadata-only pops: covered by the shim-installed harnesses -------------
+// the metadata-only pop row that lived here
+// ("with the shim opted out: zero cursor-sync invokes while the model restore
+// still runs") died with the flag — it asserted zero steps under "no recorder
+// armed", but the pop-side arm (`history.ts:430`) is already ungated by the flag retirement
+// while no recorder runs in this file's harness, so the pop fires with nothing
+// behind it. That half-migrated asymmetry is the commit-side gating (the commit-side
+// gates at `facadeRegistry.ts:1283,1337`), not a behavior this change may pin.
+// The shipped behavior (metadata pop steps its own mirror entry + model restore
+// runs) is pinned by the shim-installed harness in
+// historyCursorDriftClosure.wiring.test.ts; the counterpart-less refusal is
+// pinned by rustOwnedExternalTipReachable.wiring.test.ts.
+// DELETED 2026-10-11 (the flag retirement).
 
 // -- Rust-owned pixel entries: drained in lockstep, never re-painted ----------
 // `rustOwned` marks a TS history entry whose Pixel step Rust ALREADY recorded
 // (rust_pixels_write_region). Such a twin is a cursor token: it says a step
 // exists, and the step's pixels are whatever Rust returns. Replaying its own
 // memento would repaint the surface from bytes no store holds, so that fallback
-// is refused for a Rust-owned entry - it stays available for every entry Rust
-// does not own (the memento-replay case below).
+// is refused for a Rust-owned entry.
 
 const MEMENTO_TILE = tile(0, 0, [7, 7, 7, 255]);
 const RUST_TILE = { x: 3, y: 4, w: 1, h: 1, data: [1, 2, 3, 255] };
@@ -384,30 +343,19 @@ describe("a Rust-owned pixel entry takes its pixels from Rust, never from its me
     ).toBe(true);
   });
 
-  // The fallback exists while an entry can lack `rustOwned`. No recorder armed,
-  // so the memento is the only pixel source - see `optOutOfShimRecording`.
-  it("keeps the memento replay for entries Rust does not own", async () => {
-    optOutOfShimRecording();
-    const ctx = makeEditorContext(
-      makeHistory({ ...makePatches(), before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
-      makeEngine(),
-    );
-    mockUseEditor(ctx);
-    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 4, version: 9 });
-
-    const commands = useEditorCommands(() => {});
-    commands.undo();
-    await flush();
-
-    expect(
-      countInvokes("rust_pixels_undo"),
-      "the shim opted out, so a TS-owned entry has no recorded counterpart to step",
-    ).toBe(0);
-    const uploads = uploadCalls(ctx);
-    expect(uploads).toHaveLength(1);
-    const tiles = uploads[0][3] as { x: number; y: number }[];
-    expect(tiles.map((t) => [t.x, t.y]), "the memento still replays").toEqual([[0, 0]]);
-  });
+  // the TS-owned memento row that lived here
+  // died with the flag. It asserted the memento replays when "no recorder" is
+  // armed, but the pop-side arm (`history.ts:430`) is already ungated by the flag retirement
+  // while no recorder runs in this file's harness — so the pop steps Rust with
+  // nothing behind it instead of replaying the memento. That half-migrated
+  // asymmetry is the commit-side gating (the commit-side gates at
+  // `facadeRegistry.ts:1283,1337`), not a behavior this change may pin. The
+  // shipped behavior (mirrored pop steps its own entry; empty Rust answer
+  // uploads no stale bytes) is pinned by the shim-installed harnesses in
+  // historyCursorDriftClosure.wiring.test.ts and the Rust-owned rows above.
+  //
+  // REMOVED: "keeps the memento replay for entries Rust
+  // does not own" (+ its mirrored rewrite).
 });
 
 // -- Default-path gate (real brush pointer chain, flag never set) ------------

@@ -36,6 +36,12 @@ afterEach(() => {
   localStorage.removeItem("photrez.facade");
   localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
+  // `__resetFacadeRegistryForTests` does NOT clear the process-global
+  // `facadeOwnedIds`; the retired `photrez.facade` flag used to mask that
+  // leak (`hasFacadeOwnedLayers()` was false under `=0` regardless of the
+  // set). With the flag gone the set's real contents are visible, so clear it
+  // here or the next case inherits this one's owned ids.
+  (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
 });

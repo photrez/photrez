@@ -43,6 +43,12 @@ afterEach(() => {
   clearOpacityPreview();
   clearAdjustmentPreview();
   __resetFacadeRegistryForTests();
+  // `__resetFacadeRegistryForTests` does NOT clear the process-global
+  // `facadeOwnedIds`; the retired `photrez.facade` flag used to mask that leak
+  // (`hasFacadeOwnedLayers()` was false under `=0` regardless of the set). With
+  // the flag gone the set's real contents are visible, so clear it here or the
+  // next case inherits this one's owned ids.
+  (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
 });
@@ -188,8 +194,11 @@ describe("commitFacadeOpacity (PropertiesPanel funnel)", () => {
     })).rejects.toThrow(/E_VERSION_MISMATCH/);
   });
 
-  it("legacy path unchanged under photrez.facade=0 opt-out (status legacy)", async () => {
-    localStorage.setItem("photrez.facade", "0");
+  it("a non-owned target falls to the legacy path and registers no owned layers", async () => {
+    // No flag write: the retired `photrez.facade` opt-out is gone, so the shipped
+    // profile always runs this. The route falls to legacy because `"any"` is not a
+    // facade-owned id (the real reason, not the retired flag), and with the
+    // cross-test `facadeOwnedIds` cleared in afterEach the global set is empty here.
     const { engine } = makeDoc("docL");
     const r = await commitFacadeOpacity(engine as never, ["any"], 0.5);
     expect(r.status).toBe("legacy"); // caller falls back to untouched legacy code

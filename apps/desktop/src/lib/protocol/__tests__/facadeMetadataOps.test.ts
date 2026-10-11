@@ -56,6 +56,12 @@ afterEach(() => {
   localStorage.removeItem("photrez.facade");
   localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
+  // `__resetFacadeRegistryForTests` does NOT clear the process-global
+  // `facadeOwnedIds`; the retired `photrez.facade` flag used to mask that leak
+  // (`hasFacadeOwnedLayers()` was false under `=0` regardless of the set). With
+  // the flag gone the set's real contents are visible, so clear it here or the
+  // next case inherits this one's owned ids.
+  (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
 });
@@ -341,8 +347,11 @@ describe("commitFacadeVisibility (SetVisible arm)", () => {
     expect(engine.getLayer(id)!.visible).toBe(false);
   });
 
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand (byte-identical opt-out path)", async () => {
-    localStorage.setItem("photrez.facade", "0");
+  it("a non-owned target falls to legacy with zero applyCommand (byte-identical shipped path)", async () => {
+    // No flag write: the retired `photrez.facade` opt-out is gone. The route falls
+    // to legacy because `"any"` is not a facade-owned id (the real reason, not the
+    // retired flag); the cross-test `facadeOwnedIds` is cleared in afterEach so the
+    // global set is empty here.
     const { engine } = makeDoc("visL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeVisibility(engine as never, ["any"], false);

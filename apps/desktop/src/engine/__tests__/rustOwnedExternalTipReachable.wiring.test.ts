@@ -77,7 +77,6 @@ vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
   handoffMovedCursor: vi.fn(() => false),
 }));
 
-const FACADE = "photrez.facade";
 const DOC = "doc-1";
 
 const model = (name: string): DocumentModel => ({
@@ -187,17 +186,14 @@ async function pressUndo(
 describe("an External tip inherited by a rustOwned pop", () => {
   beforeEach(() => {
     localStorage.clear();
-    // The SHIPPING-DEFAULT flags, stated explicitly so a case cannot drift on them:
-    // `photrez.facade` = ON. Nothing in production sets this key.
-    //
-    // What the facade key controls HERE is only the shim arm's predicate in
-    // `stepRustCursor` (`isFacadeEnabled() && !historyDegraded()`), which decides
-    // whether a metadata pop may step ungated. This file does NOT install
-    // `installFacadeCommitShim`, so no `External` entry is ever recorded by a commit
-    // in these cases - `record(DOC, "external")` places them by hand, which is what
-    // makes the inherited tip deterministic. The real recorder over the real
-    // `CommandHistory` is proved in historyCursorDriftClosure.wiring.test.ts.
-    localStorage.setItem(FACADE, "1");
+    // no flag writes — the retired key is
+    // inert. The shim arm's predicate in `stepRustCursor` no longer reads it,
+    // which is what decides whether a metadata pop may step ungated. This file
+    // does NOT install `installFacadeCommitShim`, so no `External` entry is
+    // ever recorded by a commit in these cases - `record(DOC, "external")`
+    // places them by hand, which is what makes the inherited tip deterministic.
+    // The real recorder over the real `CommandHistory` is proved in
+    // historyCursorDriftClosure.wiring.test.ts.
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     resetStreams();
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({} as unknown as ReturnType<
@@ -221,89 +217,20 @@ describe("an External tip inherited by a rustOwned pop", () => {
     vi.restoreAllMocks();
   });
 
-  it("no recorder at all: the paint pop refuses to step onto a foreign External tip", async () => {
-    // The state the gate still exists for, and the ONLY configuration that can
-    // reach it: the facade shim off (and this file installs no recorder), so
-    // nothing records a counterpart for the metadata step, and a foreign
-    // `External` entry sits above the paint entry's `Pixel` one.
-    //
-    // This case USED to be the shipping-default one, and it asserted that the
-    // metadata pop steps nothing - which was the drift, pinned as if it were the
-    // design. The drift is now closed (see historyCursorDriftClosure.wiring.test.ts:
-    // with the facade ON the shim arm steps the metadata entry, so the paint pop
-    // finds its own `Pixel` tip and reverts). What remains is the genuinely
-    // counterpart-less case, and the gate's refusal is still real there.
-    localStorage.setItem(FACADE, "0");
-    const { history, renderer, commands } = mountCommands();
-    await commitRustOwnedPaint(history, model("Paint"));
-    await waitForRust(DOC, 1);
-    expect(streamFor(DOC).entries).toEqual(["pixel"]);
-
-    // A metadata step that NOTHING records: the shim is off and this file
-    // installs no commit recorder. The `External`
-    // entry below it belongs to nobody - it is the closest surviving route to the
-    // inherited-tip state, planted explicitly.
-    record(DOC, "external");
-    history.commit(model("Meta"), "Add Layer");
-    await settle();
-    expect(streamFor(DOC).entries).toEqual(["pixel", "external"]);
-
-    // The metadata pop: no recorder armed it, so no arm fires and the cursor stays.
-    commands.undo();
-    await settle();
-    expect(
-      cursorStepInvokes(),
-      "with neither recorder armed, the metadata pop has no counterpart to step",
-    ).toBe(0);
-    expect(streamFor(DOC).cursor, "the Rust cursor did not move").toBe(2);
-
-    // The paint pop: `rustOwned` is true, so `stepRustCursor` reaches the gate -
-    // and the gate reads the tip, finds the foreign `External` entry, and refuses.
-    await pressUndo(commands, renderer, 1);
-
-    expect(
-      cursorStepInvokes(),
-      "the gate refused: no cursor step was issued onto the foreign External tip",
-    ).toBe(0);
-    expect(
-      timesInvoked("rust_pixels_undo"),
-      "and specifically no destructive undo",
-    ).toBe(0);
-
-    // The destructive outcome the gate exists to prevent: before the fix this step
-    // moved the cursor over the External entry (history.rs:229-233), yielded no
-    // tiles, and `PixelStoreRegistry::undo_pixel` collapsed that to `None` AFTER
-    // the move (pixel_store.rs:745) - consuming the External entry while the paint
-    // entry was never reached.
-    const after = streamFor(DOC);
-    expect(after.cursor, "the Rust cursor did not move at all").toBe(2);
-    expect(
-      after.entries[after.cursor - 1],
-      "the External entry is untouched - nothing consumed it",
-    ).toBe("external");
-    expect(
-      after.entries[after.cursor - 2],
-      "and the paint step's Pixel entry is still there, un-consumed",
-    ).toBe("pixel");
-
-    // The gate refused, so the tile path got no step: `projectRustTiles` returned
-    // its refusal branch and uploaded NOTHING rather than replaying a memento no
-    // store holds (rustTileProjection.ts:85-88). The refusal is what keeps the
-    // surface from being repainted from stale bytes.
-    const uploads = renderer.uploadSurfaceTiles.mock.calls;
-    expect(uploads.length, "the tile path ran once").toBe(1);
-    expect(
-      // `uploadSurfaceTiles(layerId, surfaceWidth, surfaceHeight, tiles)`.
-      (uploads[0][3] as unknown[]).length,
-      "and uploaded no tiles, because Rust had no entry for this pop",
-    ).toBe(0);
-
-    // The gate is loud, so this is diagnosable rather than silent.
-    expect(
-      vi.mocked(console.warn).mock.calls.map((c) => String(c[0])).join("\n"),
-      "the refusal is warned",
-    ).toContain("[history-cursor-step] skipping the cursor step");
-  });
+  // the pop-side arm in `stepRustCursor` no
+  // longer reads the flag — a metadata pop now steps the shim's own mirror
+  // (ungated shim arm), and the commit-side mirror is STILL flag-gated
+  // (`facadeRegistry.ts:1283,1337`), which is the commit-side gating, not this
+  // slice's. So this case's premise ("the metadata pop steps nothing") is
+  // unreachable in EITHER world: with the flag ON the shim records AND the pop
+  // steps; with it OFF nothing records BUT the pop still steps (no counterpart
+  // behind it — it consumes the hand-planted foreign entry). The gate's refusal
+  // on a genuinely counterpart-less tip is still pinned by the control +
+  // fail-open rows below, which plant the foreign tip without any pop stepping
+  // it first. This row dies with the flag per the transitional-test expiry rule.
+  //
+  // REMOVED: "no recorder at all: the paint pop refuses to
+  // step onto a foreign External tip".
 
   it("the control: a Pixel tip DOES yield tiles, so the empty yield above is the External arm", async () => {
     // Without this the case above could be passing because the emulator never

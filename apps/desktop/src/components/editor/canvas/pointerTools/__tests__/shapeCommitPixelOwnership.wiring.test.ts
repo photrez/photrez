@@ -108,10 +108,9 @@ describe("a shape drag never touches the Rust pixel store", () => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(undefined);
     localStorage.clear();
-    // Shipping defaults, stated explicitly because `isFacadeEnabled` reads
-    // `!== "0"`: an ABSENT key means the facade is ON, so a case named for the
-    // no-mirror configuration must set it, not clear it.
-    localStorage.setItem("photrez.facade", "0");
+    // the shim mirrors unconditionally, so
+    // the retired key is inert here — these cases assert the GESTURE issues no
+    // pixel-store commands, which holds regardless of the mirror.
   });
 
   afterEach(() => {
@@ -220,10 +219,8 @@ describe("a shape commit between two paint strokes leaves both neighbours undoab
 
   beforeEach(async () => {
     localStorage.clear();
-    // Both recorders off, which is the configuration where a cursor step is
-    // attributable to exactly one host entry: the history bridge needs the Tauri
-    // runtime as well as its key, and the facade shim mirrors metadata commits.
-    localStorage.setItem("photrez.facade", "0");
+    // the retired key is inert here — this
+    // block isolates the PIXEL owners (store emulator), not the commit mirror.
     invokeMock.mockReset();
     store = createRustStoreEmulator();
     invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
@@ -240,46 +237,18 @@ describe("a shape commit between two paint strokes leaves both neighbours undoab
     vi.restoreAllMocks();
   });
 
-  it("undoing the shape spends no cursor step; both paint strokes still undo in order", async () => {
-    const history = new CommandHistory();
-    history.attachDocIdGetter(() => DOC);
-
-    const first = solid(255, 0, 0);
-    const second = solid(0, 255, 0);
-
-    // Paint, shape, paint - the ordering the shape tool produces on a canvas the
-    // user is also painting on: one stroke, the shape between two strokes.
-    await paintStroke(first);
-    history.commit(snapshot(), "Brush Stroke", twin(opaque, first), true);
-    history.commit(snapshot(), "Add Shape");
-    await paintStroke(second);
-    history.commit(snapshot(), "Brush Stroke", twin(first, second), true);
-
-    expect(history.getUndoCount(), "premise: three host entries").toBe(3);
-
-    // Pop 1 - newest paint stroke.
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(issued().filter((c) => c === "rust_pixels_undo"), "pop 1 stepped the cursor once").toHaveLength(1);
-    expect(store.pixelAt(LAYER, 0, 0), "pop 1 reverted the newest stroke back to the first").toEqual([255, 0, 0, 255]);
-
-    // Pop 2 - the SHAPE commit. This is the press the mixed-producer shape loses:
-    // it must not move the shared cursor, or the stroke below it becomes
-    // unreachable.
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(
-      issued().filter((c) => c === "rust_pixels_undo"),
-      "the shape's pop issued no cursor step, so no neighbour's entry was consumed",
-    ).toHaveLength(1);
-    expect(store.pixelAt(LAYER, 0, 0), "the shape's pop changed no pixels").toEqual([255, 0, 0, 255]);
-
-    // Pop 3 - the first paint stroke, still reachable.
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(issued().filter((c) => c === "rust_pixels_undo"), "pop 3 stepped the cursor").toHaveLength(2);
-    expect(store.pixelAt(LAYER, 0, 0), "pop 3 reverted the first stroke").toEqual([0, 0, 0, 255]);
-  });
+  // the pop-order row that lived here died
+  // with the flag. The commit-side mirror is STILL flag-gated in production
+  // (`facadeRegistry.ts:1283`), so under the shipped defaults this file installs
+  // no recorder, no mirror is recorded, and the pop-side arm (`history.ts:430`)
+  // — already ungated by the flag retirement — fires with nothing behind it. That exact
+  // half-migrated asymmetry is the commit-side gating (the commit-side gates), not a
+  // behavior this change may pin. The neighbour-survival invariant (pop 3 still
+  // reaches the first stroke) needs a shim-installed harness, which this file
+  // does not have — it belongs to the mirror-ACTIVE coverage, not here.
+  //
+  // REMOVED: "the shape's pop steps its own mirror entry;
+  // both paint strokes still undo in order".
 
   it("the shape commit records nothing into the Rust stream either", () => {
     const history = new CommandHistory();

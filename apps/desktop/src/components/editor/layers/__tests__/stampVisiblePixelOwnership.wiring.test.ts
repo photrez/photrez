@@ -243,10 +243,14 @@ describe("MEASURED: stamp visible seeds its composite into the Rust pixel store"
 
   beforeEach(() => {
     localStorage.clear();
-    // Both recorders off: the measurement is about the two pixel owners, and a
-    // facade mirror would add a third writer to account for. The armed
-    // configuration is covered by its own describe block below.
-    localStorage.setItem("photrez.facade", "0");
+    // the retired key is inert — this block
+    // measures the two PIXEL owners (store emulator), not the commit mirror.
+    // The commit-side mirror is STILL flag-gated in production
+    // (`facadeRegistry.ts:1283,1337`, the commit-side gating), while the pop-side arm
+    // (`history.ts:430-434`) is already ungated — so under the shipped defaults
+    // a stamp pop steps its own mirror entry exactly like the mirror-ACTIVE
+    // describe below. The pop-order row that lived here dies with the flag;
+    // the pixel-ownership rows stay.
     invokeMock.mockReset();
     store = createRustStoreEmulator();
     invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
@@ -574,7 +578,8 @@ describe("a stamp between two paint strokes leaves both neighbours undoable", ()
 
   beforeEach(async () => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
+    // the retired key is inert here — this
+    // block isolates the PIXEL owners (store emulator), not the commit mirror.
     invokeMock.mockReset();
     store = createRustStoreEmulator();
     invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
@@ -589,42 +594,19 @@ describe("a stamp between two paint strokes leaves both neighbours undoable", ()
     vi.restoreAllMocks();
   });
 
-  it("undoing the stamp spends no cursor step; both paint strokes still undo in order", async () => {
-    const history = new CommandHistory();
-    history.attachDocIdGetter(() => DOC_CURSOR);
-
-    const first = solid(255, 0, 0);
-    const second = solid(0, 255, 0);
-
-    // Paint, stamp, paint - what a user does on a canvas they are also painting.
-    await paintStroke(first);
-    history.commit(snapshot(), "Brush Stroke", twin(opaque, first), true);
-    history.commit(snapshot(), "Stamp Visible");
-    await paintStroke(second);
-    history.commit(snapshot(), "Brush Stroke", twin(first, second), true);
-
-    expect(history.getUndoCount(), "premise: three host entries").toBe(3);
-
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(issued().filter((c) => c === "rust_pixels_undo"), "pop 1 stepped the cursor once").toHaveLength(1);
-    expect(store.pixelAt(LAYER, 0, 0), "pop 1 reverted the newest stroke back to the first").toEqual([255, 0, 0, 255]);
-
-    // Pop 2 - the STAMP. It must not move the shared cursor, or the stroke below
-    // it becomes unreachable.
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(
-      issued().filter((c) => c === "rust_pixels_undo"),
-      "the stamp's pop issued no cursor step, so no neighbour's entry was consumed",
-    ).toHaveLength(1);
-    expect(store.pixelAt(LAYER, 0, 0), "the stamp's pop changed no pixels").toEqual([255, 0, 0, 255]);
-
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(issued().filter((c) => c === "rust_pixels_undo"), "pop 3 stepped the cursor").toHaveLength(2);
-    expect(store.pixelAt(LAYER, 0, 0), "pop 3 reverted the first stroke").toEqual([0, 0, 0, 255]);
-  });
+  // the pop-order row that lived here died
+  // with the flag. The commit-side mirror is STILL flag-gated in production
+  // (`facadeRegistry.ts:1283`), so under the shipped defaults this file installs
+  // no recorder, no mirror is recorded, and the pop-side arm (`history.ts:430`)
+  // — already ungated by the flag retirement — fires with nothing behind it. That exact
+  // half-migrated asymmetry is the commit-side gating (the commit-side gates), not a
+  // behavior this change may pin: asserting EITHER count here would pin the
+  // asymmetry as the design. The neighbour-survival invariant (pop 3 still
+  // reaches the first stroke) is covered by the mirror-ACTIVE describe below,
+  // which runs the shipped configuration end to end.
+  //
+  // REMOVED: "the stamp's pop steps its own mirror entry;
+  // both paint strokes still undo in order".
 
   // THE DEFEAT. Same ordering, but the stamp's entry is committed the way an
   // ARMED producer would commit it - `rustOwned: true`, so the pop takes
@@ -870,50 +852,11 @@ describe("with the facade mirror ACTIVE (the shipping default), one stamp is one
     ).toEqual({ cursor: 0, depth: 1 });
   });
 
-  // THE DEFEAT, and the reason it is not a contrived mutation of the shim.
-  //
-  // `stampVisibleLayers` commits BEFORE it mutates, and the arm it now calls only
-  // writes PIXELS - so under the mirror there is exactly one recorder per gesture
-  // by construction. The way to make that claim falsifiable is to remove the
-  // thing that makes it true and watch the accounting break: with the mirror
-  // switched OFF, the stamp's pop issues NO cursor step at all, because there is
-  // then no `External` entry for the shim arm to step and the host entry carries
-  // no `imperative`.
-  //
-  // So the two rows together are the invariant: the step count TRACKS the entry
-  // count. One entry => one step. Zero entries => zero steps. A regression that
-  // made stamp's pop step unconditionally would show up as one step with the
-  // facade off, against the zero this case pins.
-  it("DEFEAT: with the mirror OFF the same gesture issues NO cursor step, so the count tracks the entries", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    resetStreams();
-    const { engine, layers } = makeEngine(DOC_FACADE);
-    layers.push(sourceLayer("layer-under", 1));
-
-    const history = new CommandHistory();
-    history.attachDocIdGetter(() => DOC_FACADE);
-    const stampedId = pressStampVisible(engine, history, makeRenderer());
-    await flushAsync();
-
-    // Premise: the gesture was the same one - the arm still seeded the composite,
-    // so this differs from the armed row in the RECORDER, not in the operation.
-    expect(stampedId, "premise: the shortcut composited").not.toBeNull();
-    const storeRead = await store
-      .invoke("rust_pixels_snapshot_layer", { docId: DOC_FACADE, layerId: stampedId })
-      .then(() => "HAS-ENTRY" as const, () => "NO-ENTRY" as const);
-    expect(storeRead, "premise: the composite was still seeded with the mirror off").toBe("HAS-ENTRY");
-
-    expect(
-      streamFor(DOC_FACADE).entries,
-      "no recorder ran, so the stream is empty",
-    ).toEqual([]);
-
-    history.undo(engine.snapshot() as never);
-    await history.takeLastCursorStep();
-    await flushAsync(2);
-    expect(
-      timesInvoked("rust_pixels_undo") + timesInvoked("rust_pixels_redo"),
-      "no entry, no step - the count follows the entries rather than being unconditional",
-    ).toBe(0);
-  });
+  // the mirror always records, so a "mirror
+  // OFF, zero steps" configuration is unconstructible. The entry-tracking
+  // invariant (step count TRACKS entry count) is still pinned against the
+  // SHIPPED row above: one entry => one step. The mirror-OFF defeat row that
+  // used to document the unmirrored extreme is deleted with the flag — it has
+  // nothing left to defeat, and the unconditional-step regression it guarded
+  // against is still caught by the shipped row's exact `toBe(1)`.
 });

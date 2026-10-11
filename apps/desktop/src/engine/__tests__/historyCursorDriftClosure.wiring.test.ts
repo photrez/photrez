@@ -70,7 +70,6 @@ vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
   handoffMovedCursor: vi.fn(() => false),
 }));
 
-const FACADE = "photrez.facade";
 const DOC = "doc-1";
 
 /**
@@ -234,9 +233,8 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockImplementation((c: string, a: unknown) => answerShimInvoke(c, a));
     vi.mocked(isTauriRuntime).mockReturnValue(true);
-    // The facade flag defaults ON (`!== "0"`), so the shim is installed and armed
-    // unless a case says otherwise.
-    localStorage.setItem(FACADE, "1");
+    // the shim mirrors unconditionally, so
+    // no flag write is needed — it is installed and armed for every case.
     installFacadeCommitShim({
       getEngine: () => ({ getId: () => DOC, getLayers: () => [{ id: "l1" }] }),
       getDocId: () => DOC,
@@ -428,21 +426,11 @@ describe("one host entry => one Rust entry => one cursor step", () => {
     expect(streamFor(DOC).cursor).toBe(history.getUndoCount());
   });
 
-  it("MATRIX facade OFF: nothing records, so nothing steps", async () => {
-    localStorage.setItem(FACADE, "0");
-    const { history, engine, commands } = mountCommands();
-    await metadataOp(history, engine);
-    await settle();
-
-    expect(streamFor(DOC).entries, "the stream is empty").toEqual([]);
-
-    commands.undo();
-    await settle();
-    expect(cursorStepInvokes(), "and a pop with no counterpart issues no step").toBe(0);
-    expect(streamFor(DOC).cursor).toBe(0);
-    expect(history.getUndoCount(), "the host stack still popped - the host is the authority").toBe(0);
-  });
-
+  // the "nothing records" configuration is
+  // unconstructible — the shipped shim mirrors every commit unconditionally.
+  // The counterpart-less REFUSAL is still pinned where it is still reachable:
+  // rustOwnedExternalTipReachable.wiring.test.ts plants the foreign tip by hand
+  // over a file that installs no recorder.
   it("MATRIX: the facade handoff pops no host entry, so it never double-steps", async () => {
     // The handoff is mocked to decline, which is the fall-through case; the point
     // pinned here is that `stepRustCursor` is reached ONLY from a pop, so the
