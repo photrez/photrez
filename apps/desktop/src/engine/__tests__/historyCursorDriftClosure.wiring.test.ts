@@ -59,6 +59,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
 vi.mock("@/engine/document", () => ({
   hasFacadeOwnedLayers: vi.fn(() => false),
+  facadeOwnedIdsOf: vi.fn(() => undefined),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
 // The handoff pops no host entry in these cases, and `handoffMovedCursor` reports

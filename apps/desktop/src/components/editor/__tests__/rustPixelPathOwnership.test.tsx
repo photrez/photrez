@@ -68,6 +68,7 @@ vi.mock("@/engine/document", async (importOriginal) => {
   return {
     ...actual,
     hasFacadeOwnedLayers: vi.fn(() => false),
+  facadeOwnedIdsOf: vi.fn(() => undefined),
     isFacadeOwnedLayer: vi.fn(() => false),
   };
 });

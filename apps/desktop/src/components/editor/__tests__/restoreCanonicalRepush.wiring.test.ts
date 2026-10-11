@@ -32,6 +32,7 @@ vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@/engine/document", () => ({
   hasFacadeOwnedLayers: vi.fn(() => true),
+  facadeOwnedIdsOf: vi.fn(() => new Set<string>(["owned-layer"])),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
 

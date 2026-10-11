@@ -64,6 +64,7 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve(
 // is the path that reaches `stepRustCursor`.
 vi.mock("@/engine/document", () => ({
   hasFacadeOwnedLayers: vi.fn(() => false),
+  facadeOwnedIdsOf: vi.fn(() => undefined),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
 // The facade handoff drives the native walker (`Command::Undo`), a DIFFERENT

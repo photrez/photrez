@@ -20,7 +20,7 @@ import { easeOutCubic } from "@/viewport/easing";
 import { encodeComposite, getSavedQuality, setSavedQuality, type ExportFormat } from "./exportDocument";
 import { saveProgress, setSaveProgress, cancelPendingSaveDismiss, scheduleSaveDismiss, scheduleSave } from "./saveState";
 import { cancelAutosave } from "./autoSave";
-import { hasFacadeOwnedLayers } from "@/engine/document";
+import { facadeOwnedIdsOf } from "@/engine/document";
 import {
   commitFacadeClearSelection,
   commitFacadeInvertSelection,
@@ -149,6 +149,21 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     || command === "view.zoom-to-selection"
   );
 
+  // Does the ACTIVE document own any facade-owned layer?
+  //
+  // The claims ledger is per document, and that is the only honest question for
+  // an undo/redo press: `hasFacadeOwnedLayers()` answers for the UNION of every
+  // open document, so one owned document armed the native-walker branch for an
+  // un-owned one too - a press on a document the native engine does not hold
+  // entered the facade branch, was turned away there, and could only fall
+  // through to a host executor. Layer ids are not unique across documents (two
+  // documents opened from one project restore the FILE's ids verbatim), so the
+  // per-layer reader cannot answer this either.
+  const activeDocumentOwnsFacadeLayers = (): boolean => {
+    const docId = editor.activeDocumentId();
+    return docId ? (facadeOwnedIdsOf(docId)?.size ?? 0) > 0 : false;
+  };
+
   const isEnabled = (command: EditorCommand): boolean => {
     if (command === "file.new") return !editor.workspace.isFull();
     if (requiresDocument(command) && !editor.activeDocumentId()) return false;
@@ -157,13 +172,13 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // mini undo first (revert individual gesture), then cancel-session fallback.
       if (editor.layerTransformSession()) return true;
       // Facade-owned content keeps its history in Rust.
-      if (hasFacadeOwnedLayers()) return true;
+      if (activeDocumentOwnsFacadeLayers()) return true;
       return (editor.activeTool() === "crop" && (editor.canCropUndo() || editor.canModernCropUndo()))
         || editor.workspace.getActiveHistory()?.canUndo() === true;
     }
     if (command === "edit.redo") {
       if (editor.layerTransformSession()) return true;
-      if (hasFacadeOwnedLayers()) return true;
+      if (activeDocumentOwnsFacadeLayers()) return true;
       return (editor.activeTool() === "crop" && (editor.canCropRedo() || editor.canModernCropRedo()))
         || editor.workspace.getActiveHistory()?.canRedo() === true;
     }
@@ -282,9 +297,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
     // and handed to the history one line above the pop - see the comment at the
     // `handoffMovedCursor()` call below.
     let handoffMovedCursorForPress = false;
-    if (hasFacadeOwnedLayers()) {
+    if (activeDocumentOwnsFacadeLayers()) {
       // Facade (Rust-owned) history handoff. Returns true when this branch fully
-      // handled the step (caller must return); false to fall through to the
+      // handled the step (caller must return) - including the refusal on a
+      // document whose native stream holds no user work, which is a handled
+      // no-op rather than a fall-through - and false to fall through to the
       // legacy TS history store. The branch clears the pending-external barrier
       // (the wedge) and, for facade-owned layers, does NOT complete the external
       // step's model restore (engine.restore() throws E_FACADE_OWNED - mixed
@@ -594,9 +611,15 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
             const result = await dialog.newDocument();
             if (result) {
               const id = `doc-${crypto.randomUUID()}`;
-              editor.workspace.addDocument(
-                WorkspaceManager.createBlankDocument(id, result.name, result.width, result.height, { backgroundColor: result.backgroundColor }),
-              );
+              const session = WorkspaceManager.createBlankDocument(id, result.name, result.width, result.height, { backgroundColor: result.backgroundColor });
+              // Seeded open, like every sibling route (EmptyWorkspace,
+              // DocumentTabsBar, the image-open path): the document is installed
+              // only once its background-flag commit has seeded the native engine
+              // and claimed its layers. The ungated open left a live document the
+              // native engine does not hold and the ledger does not claim - an
+              // un-owned session whose undo had no executor. A refused seed opens
+              // nothing; see WorkspaceManager.addSeededDocument.
+              await editor.workspace.addSeededDocument(session);
               editor.scheduler.requestRender();
             }
           } catch (err) {

@@ -10,7 +10,7 @@
 // catch then fell back to the host-side `markLayerBackgroundNative`, and
 // `addDocument`'s `createNativeSeed(...).catch(() => {})` recorded the
 // rejection. The document opened anyway holding ZERO facade-ownership claims,
-// and `hasFacadeOwnedLayers()` is exactly what the undo dispatch reads - so its
+// and the undo dispatch reads the CLAIMS LEDGER for the active document - so its
 // undo fell off the native walker onto the host stack, whose `stepRustCursor` is
 // the only executor such a document then has. That is the executor the next
 // slice deletes, so a half-owned document is a state no route may produce.

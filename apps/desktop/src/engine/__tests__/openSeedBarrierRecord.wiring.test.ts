@@ -13,8 +13,9 @@
 //
 // The project-open path already clears the recorded entry when it aborts on a
 // refused seed (`loadProjectFile`); this file pins the OTHER creation site - the
-// bare `addDocument`, which is what a new blank document and an opened image go
-// through.
+// bare `addDocument`, which is what an opened image and every caller that opens
+// outside the seed gate still go through. (file.new and the other new-document
+// routes go through `addSeededDocument`, which awaits the tracked commit first.)
 //
 // TWO SHAPES, ONE BARRIER. The layer seed is recorded raw, so its rejection is
 // poison. The canonical-document shadow seed is recorded as a guarded copy

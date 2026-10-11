@@ -14,12 +14,12 @@
 // cursor step becomes a SECOND undo for one press. Every path that returns true
 // here has already consumed the press and never pops, so it needs no note.
 //
-// See ADR 0008 H0. When photrez.facade is OFF this branch is never entered
-// (hasFacadeOwnedLayers() is false), so production byte-identical behavior is
-// preserved. The history_cursor_commit predicate it drives validates the
-// walker-recorded barrier (seq, direction) only - never index arithmetic -
-// which is what makes it correct on redo-truncated (non-dense) streams where
-// entries[i].seq != i+1.
+// See ADR 0008 H0. When the active document owns no facade layers this branch
+// is never entered - the dispatch gate is per-document - so production
+// byte-identical behavior is preserved. The history_cursor_commit predicate it
+// drives validates the walker-recorded barrier (seq, direction) only - never
+// index arithmetic - which is what makes it correct on redo-truncated
+// (non-dense) streams where entries[i].seq != i+1.
 
 /**
  * Did the most recent `runFacadeExternalHandoff` move the Rust cursor, whatever it
@@ -225,12 +225,26 @@ export async function runFacadeExternalHandoff(
   if (!engine) return false;
   // Refuse BEFORE driving the cursor. Once facade.undo() runs, Rust has moved
   // and there is no undoing that from the host side without a second step.
+  //
+  // A refusal is HANDLED, not a fall-through. `cursor > floor` (the
+  // document-open baseline floor) is the only host-side statement of "this
+  // document holds no user work", so its answer must never send the press to an
+  // executor that owns nothing: the host stack cannot restore a snapshot whose
+  // layers are facade-owned (E_FACADE_OWNED), so falling through spent a legacy
+  // entry and then raised "Undo failed: E_FACADE_OWNED" on the DEFAULT shape of
+  // every opened project - facade-owned, native stream at 0/0, because seeding
+  // records no history entry. The native executor answers a cursor-0 press the
+  // same way (Command::Undo returns an empty delta and a version bump, Ok), so
+  // refusing is the truthful answer, not a lost press. The view is refreshed
+  // here so the refusal is self-sufficient for every caller; the single-press
+  // dispatcher resyncs again after any handled press.
   if (!(await rustStreamHoldsUserWork(editor, direction))) {
     console.info(
       "[facade-history] nothing above the document-open baseline; not driving the cursor",
       direction,
     );
-    return false;
+    await editor.workspace.getActiveHistory?.()?.resyncFromNativeQuery?.();
+    return true;
   }
   // Mirror useEditorCommands restore sweep: after projecting the facade snapshot
   // onto the engine, re-upload any layer that now carries a retained bitmap so

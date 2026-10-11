@@ -4,11 +4,64 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => Promise.resolve("0.1.0
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import type { RenderScheduler } from "@/renderer/scheduler";
 import { WorkspaceManager } from "@/engine/workspace";
+import { facadeOwnedIdsOf } from "@/engine/document";
 import { ViewportCamera } from "@/viewport/viewportCamera";
 import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import { EditorProvider, useEditor } from "../EditorContext";
 import { DialogProvider } from "../../dialogs/DialogProvider";
 import { AppTitleBar } from "../AppTitleBar";
+import { invoke } from "@tauri-apps/api/core";
+import { answerInvoke, resetStreams } from "@/engine/__tests__/rustStreamEmulator";
+
+// The native transport, as the accept/refuse switch the open gate reads. Every
+// sibling open route (the empty workspace, the tab bar, the image-open path)
+// installs a document only after this commit settles, and a refused commit opens
+// nothing; the transport is the emulator every other ownership suite drives, the
+// gate is the real one.
+const nativeSeeds = { accepted: true };
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+// The seeded layer set, as the native engine would hold it. The commit's own
+// gates read it back twice - once as membership (`protocol_layer_ids_native`
+// answers a bare id array) and once as the flagged layer's state - so the
+// transport has to answer both or the open refuses for the wrong reason.
+const { seededLayers } = vi.hoisted(() => ({ seededLayers: new Map<string, unknown[]>() }));
+vi.mock("@/lib/protocol/nativeClient", () => ({
+  nativeProtocol: {
+    protocol_seed_native: vi.fn(async (payloadJson: string, docId: string) => {
+      if (!nativeSeeds.accepted) throw new Error("E_SEED: the canonical document seed was refused");
+      const payload = JSON.parse(payloadJson || "{}") as { layers?: unknown[] };
+      seededLayers.set(docId, (payload.layers ?? []).map((layer) => ({ ...(layer as object) })));
+      return JSON.stringify({ version: 0 });
+    }),
+    protocol_seed_canonical_native: vi.fn(async () => {
+      if (!nativeSeeds.accepted) throw new Error("E_SEED: the canonical document seed was refused");
+      return JSON.stringify({ ok: true });
+    }),
+    protocol_canonical_native: vi.fn(async () => JSON.stringify({ ok: true })),
+    protocol_snapshot_native: vi.fn(async (docId: string) =>
+      JSON.stringify({
+        version: 0,
+        layers: (seededLayers.get(docId) ?? []).map((layer) => ({
+          ...(layer as object),
+          isBackground: true,
+          lockPosition: true,
+          lockRotation: true,
+        })),
+      }),
+    ),
+    protocol_layer_ids_native: vi.fn(async (docId: string) =>
+      JSON.stringify((seededLayers.get(docId) ?? []).map((layer) => (layer as { id: string }).id)),
+    ),
+    protocol_version_native: vi.fn(async () => JSON.stringify({ version: 0 })),
+    protocol_register_adapter_native: vi.fn(async () => JSON.stringify({ ok: true })),
+    protocol_history_query_native: vi.fn(async () => JSON.stringify({ cursor: 0, entries: [] })),
+    protocol_history_cursor_commit_native: vi.fn(async () => JSON.stringify({ ok: true })),
+    protocol_apply_command_native: vi.fn(async () =>
+      JSON.stringify({ documentVersion: 0, delta: { changes: [], baseVersion: 0, version: 0 } }),
+    ),
+  },
+}));
 
 // OffscreenCanvas not available in jsdom; tests that call createBlankDocument need it
 if (typeof OffscreenCanvas === "undefined") {
@@ -68,9 +121,17 @@ function renderTitleBar() {
 describe("custom application menu wiring", () => {
   beforeEach(() => {
     localStorage.setItem("photrez.facadeAuthority", "wasm");
+    nativeSeeds.accepted = true;
+    seededLayers.clear();
+    resetStreams();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockImplementation((cmd: string, args: unknown) =>
+      answerInvoke(cmd, args) as Promise<unknown>,
+    );
   });
   afterEach(() => {
     localStorage.removeItem("photrez.facadeAuthority");
+    (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
     vi.restoreAllMocks();
   });
 
@@ -93,6 +154,33 @@ describe("custom application menu wiring", () => {
 
     expect(host.workspace.getDocumentCount()).toBe(1);
     expect(host.scheduler.requestRender).toHaveBeenCalled();
+    // The open is SEEDED, not merely opened: the background-flag commit settled and
+    // claimed the new document's layers before it was installed. An un-claimed
+    // document has no native executor, so this is the difference between a live
+    // document and an undoable one.
+    expect(
+      facadeOwnedIdsOf(host.workspace.getActiveDocumentId()!)?.size ?? 0,
+      "the document the route installed owns its layers",
+    ).toBeGreaterThan(0);
+    host.dispose();
+  });
+
+  it("a refused native seed installs nothing from File > New Document", async () => {
+    nativeSeeds.accepted = false;
+    const host = renderTitleBar();
+
+    button(host.container, "File").click();
+    button(host.container, "New Document").click();
+    await Promise.resolve();
+
+    const createBtn = Array.from(document.querySelectorAll("button")).find((btn) => btn.textContent === "Create");
+    if (!createBtn) throw new Error("Create button not found in dialog");
+    createBtn.click();
+    for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // DEFEAT: the ungated open installed the session regardless, leaving a live
+    // document the native engine does not hold and the ledger does not claim.
+    expect(host.workspace.getDocumentCount(), "a refused seed opens nothing").toBe(0);
     host.dispose();
   });
 

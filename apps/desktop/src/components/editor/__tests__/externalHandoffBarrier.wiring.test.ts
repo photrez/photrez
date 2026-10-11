@@ -32,7 +32,7 @@ import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
 import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
 import * as bridge from "@/lib/protocol/bridge";
-import { hasFacadeOwnedLayers } from "@/engine/document";
+import { facadeOwnedIdsOf } from "@/engine/document";
 
 // Tauri runtime + dynamic imports used by the hook's tile path.
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
@@ -41,10 +41,12 @@ vi.mock("@/tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve((
 vi.mock("@/tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
 
 // Facade-branch gate. Per-test configurable so we can exercise both the
-// branch-entered (facade-owned layers) and branch-skipped (no facade-owned
-// layers) paths.
+// branch-entered (the ACTIVE document owns facade layers) and branch-skipped
+// paths. The gate is PER DOCUMENT: what the claims ledger holds for THIS
+// document is the only answer about this press, because layer ids are shared
+// across documents and the union of every open document's claims is not.
 vi.mock("@/engine/document", () => ({
-  hasFacadeOwnedLayers: vi.fn(() => true),
+  facadeOwnedIdsOf: vi.fn((docId: string) => new Set<string>(["owned-layer"])),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
 
@@ -130,7 +132,7 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
       {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
     );
     vi.mocked(isTauriRuntime).mockReturnValue(false);
-    vi.mocked(hasFacadeOwnedLayers).mockReturnValue(true);
+    vi.mocked(facadeOwnedIdsOf).mockReturnValue(new Set(["owned-layer"]));
     localStorage.clear();
     localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
@@ -241,8 +243,8 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     expect(deg!.reason).toBe("CURSOR_COMMIT_FAILED");
   });
 
-  it("no facade-owned layers: facade branch not entered (the hasFacadeOwnedLayers gate guards entry)", async () => {
-    vi.mocked(hasFacadeOwnedLayers).mockReturnValue(false);
+  it("no facade-owned layers in the active document: facade branch not entered (the per-document claim gate guards entry)", async () => {
+    vi.mocked(facadeOwnedIdsOf).mockReturnValue(undefined);
     const confirmSpy = vi.spyOn(facadeRegistry, "confirmExternalCursor");
 
     mockUseEditor(makeEngineContext());
@@ -250,10 +252,9 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     commands.undo();
     await flush();
 
-    // With no facade-owned layers the branch is skipped entirely. This asserts
-    // the hasFacadeOwnedLayers gate - not the production flag state - controls
-    // entry; the production flag -> hasFacadeOwnedLayers mapping is covered
-    // elsewhere.
+    // With no facade-owned layers in the active document the branch is skipped
+    // entirely. This asserts the per-document claim gate controls entry; the
+    // ledger that backs it is covered by the ownership suites.
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(facadeRegistry.historyDegraded()).toBeNull();
   });

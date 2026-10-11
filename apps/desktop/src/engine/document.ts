@@ -92,8 +92,8 @@ export function releaseFacadeOwned(docId: DocumentId, ids: readonly string[]): v
   for (const id of ids) releaseFacadeOwnedId(docId, id);
 }
 
-/** The ids this document currently claims. Read by `restore`'s mixed-history guard. */
-function facadeOwnedIdsOf(docId: DocumentId): ReadonlySet<string> | undefined {
+/** The ids this document currently claims. Read by `restore`'s mixed-history guard, and by the undo/redo dispatch gate, which must ask about the ACTIVE document rather than the union of every open document's claims. */
+export function facadeOwnedIdsOf(docId: DocumentId): ReadonlySet<string> | undefined {
   return facadeOwnedByDoc.get(docId);
 }
 

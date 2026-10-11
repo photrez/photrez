@@ -40,7 +40,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { CommandHistory } from "@/engine/history";
-import { DocumentEngine, hasFacadeOwnedLayers, isFacadeOwnedLayer, releaseFacadeOwned } from "@/engine/document";
+import { DocumentEngine, facadeOwnedIdsOf, hasFacadeOwnedLayers, isFacadeOwnedLayer, releaseFacadeOwned } from "@/engine/document";
 import { cancelLayerTransformSession } from "../transformSession";
 import type { LayerTransformSession } from "../tools/editorState";
 import { useEditorCommands } from "../useEditorCommands";
@@ -55,6 +55,21 @@ import { cursorStepInvokes, settle, waitForRust } from "@/engine/__tests__/histo
 import { loadWriterGolden } from "./ptzWriterContract";
 import type { EditorContextValue } from "../shell/EditorContext";
 import type { DocumentSession } from "@/engine/workspace";
+
+// Branch-entry measurement. The handoff module is wrapped, NOT replaced: the real
+// function still runs, so what is recorded is whether the DISPATCH reached the
+// facade branch at all - the only question the per-document gate answers.
+const { handoffCalls } = vi.hoisted(() => ({ handoffCalls: [] as string[] }));
+vi.mock("../facadeHistoryHandoff", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../facadeHistoryHandoff")>();
+  return {
+    ...actual,
+    runFacadeExternalHandoff: (editor: unknown, direction: "undo" | "redo") => {
+      handoffCalls.push(direction);
+      return actual.runFacadeExternalHandoff(editor as never, direction);
+    },
+  };
+});
 
 // ── The real fixture: the Rust writer's bytes for a real dumped v3 project ──
 const golden = loadWriterGolden();
@@ -371,6 +386,7 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     // every case below proves its OWN open; without this the multi-document cases
     // would pass on markers an earlier case left behind.
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
+    handoffCalls.length = 0;
     // SHIPPING DEFAULTS: the app sets no `photrez.*` key, so facade + native
     // authority are both ON. Stated so a case cannot drift onto an opt-out.
     vi.mocked(isTauriRuntime).mockReturnValue(true);
@@ -424,6 +440,47 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     ).toBe(0);
     expect(streamFor(DOC).cursor, "the cursor advanced exactly one step").toBe(0);
     expect(tipFor(DOC).redo_tip_kind, "it advanced over the stroke's Pixel entry").toBe("pixel");
+  });
+
+  it("an UN-owned active document's press never enters the facade branch", async () => {
+    // The gate used to ask "does ANY open document own a layer", which is a
+    // statement about the workspace, not about the document being edited. With a
+    // second document open and owned, an un-owned active document's press entered
+    // the native walker for a document the native engine does not hold.
+    const workspace = new WorkspaceManager();
+    await openProjectAs(workspace, DOC);
+    const UNOWNED = "docUnownedActive";
+    const engine = new DocumentEngine(UNOWNED, "Unowned", 32, 32);
+    engine.addLayer("Plain");
+    workspace.addDocument({
+      engine,
+      history: new CommandHistory(),
+      displayName: "Unowned",
+      sourcePath: null,
+      dirty: false,
+    } satisfies DocumentSession);
+    workspace.switchDocument(UNOWNED);
+
+    expect(hasFacadeOwnedLayers(), "premise: a sibling document still owns layers").toBe(true);
+    expect(
+      facadeOwnedIdsOf(UNOWNED),
+      "premise: the ACTIVE document owns none of its own",
+    ).toBeUndefined();
+
+    mockUseEditor(editorContextFor(workspace) as unknown as Record<string, unknown>);
+    const commands = useEditorCommands(() => {});
+    const walkerStepsBefore = nativeWalkerSteps();
+    commands.undo();
+    await settlePress();
+
+    expect(
+      handoffCalls,
+      "the facade branch is per-document: no handoff for a document with no claims",
+    ).toEqual([]);
+    expect(
+      nativeWalkerSteps() - walkerStepsBefore,
+      "and the walker was not driven",
+    ).toBe(0);
   });
 
   it("keeps every decoded layer bitmap and its pixels across the open", async () => {

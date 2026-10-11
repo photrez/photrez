@@ -33,6 +33,7 @@ vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: () => false, runTa
 vi.mock("@/engine/document", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   hasFacadeOwnedLayers: () => false,
+  facadeOwnedIdsOf: () => undefined,
   isFacadeOwnedLayer: () => false,
 }));
 

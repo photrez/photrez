@@ -33,6 +33,7 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve(
 vi.mock("@/engine/document", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   hasFacadeOwnedLayers: () => false,
+  facadeOwnedIdsOf: () => undefined,
 }));
 
 const DOC_ID = "restore-doc";

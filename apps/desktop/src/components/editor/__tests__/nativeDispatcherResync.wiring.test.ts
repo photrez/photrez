@@ -28,6 +28,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(()
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
 vi.mock("@/engine/document", () => ({
   hasFacadeOwnedLayers: vi.fn(() => true),
+  facadeOwnedIdsOf: vi.fn(() => new Set<string>(["owned-layer"])),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
 

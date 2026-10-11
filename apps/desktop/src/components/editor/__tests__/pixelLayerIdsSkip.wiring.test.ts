@@ -40,6 +40,7 @@ vi.mock("@tauri-apps/api/app", () => ({
 // The undo path checks hasFacadeOwnedLayers() (Rust-owned history). Default off.
 vi.mock("@/engine/document", () => ({
   hasFacadeOwnedLayers: vi.fn(() => false),
+  facadeOwnedIdsOf: vi.fn(() => undefined),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
 

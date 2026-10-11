@@ -60,10 +60,11 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
 
-// `hasFacadeOwnedLayers` must be TRUE or the handoff branch is never entered - which
-// is precisely why every earlier fixture missed this defect.
+// The dispatch gate asks what the claims ledger holds for the ACTIVE document,
+// so the mock must answer per document or the handoff branch is never entered -
+// which is precisely why every earlier fixture missed this defect.
 vi.mock("@/engine/document", () => ({
-  hasFacadeOwnedLayers: vi.fn(() => true),
+  facadeOwnedIdsOf: vi.fn(() => new Set<string>(["owned-layer"])),
   isFacadeOwnedLayer: vi.fn(() => false),
 }));
 
@@ -105,6 +106,38 @@ function makeFacade(emptyDelta: boolean, handoffDirection: "undo" | "redo" = "un
     undo: vi.fn(async () => ({ version: 1, layers: [] })),
     redo: vi.fn(async () => ({ version: 1, layers: [] })),
   };
+}
+
+/**
+ * A walker whose native command is REJECTED: the remaining decline that reports
+ * unhandled WITHOUT moving the cursor.
+ *
+ * It replaces the stream refusal these cases used to force. A refusal is now a
+ * HANDLED no-op (nothing above the document-open baseline), so it can no longer
+ * produce a press that declines the handoff and still pops the host stack - and
+ * the flag-leak subject needs exactly that shape.
+ */
+function makeRejectingFacade() {
+  return {
+    lastExternalHandoff: null,
+    lastExternalToken: null,
+    lastHistoryDeltaWasEmpty: true,
+    undo: vi.fn(async () => {
+      throw new Error("E_STUB: the native command was rejected");
+    }),
+    redo: vi.fn(async () => {
+      throw new Error("E_STUB: the native command was rejected");
+    }),
+  };
+}
+
+/** Answer the refusal predicate with the stream the emulator actually holds. */
+async function useRealHistoryQuery(): Promise<void> {
+  const bridgeEmu = await import("@/lib/protocol/bridge_emu");
+  vi.mocked(bridgeEmu.getHistoryQuery).mockImplementation(async () => ({
+    entries: streamFor(DOC).entries,
+    cursor: streamFor(DOC).cursor,
+  }) as never);
 }
 
 function makeModel(name: string): DocumentModel {
@@ -245,13 +278,10 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     // ON would silently disarm the shim arm for every case that runs after it - which
     // reads as "press 2 did not step" rather than as the leak it actually is.
     const registry = vi.mocked(await import("@/lib/protocol/facadeRegistry"));
-    // Both are Solid accessors whose own signature takes an optional value; the mocks
-    // replace the READ, which is what the arms call.
+    // A Solid accessor whose own signature takes an optional value; the mock
+    // replaces the READ, which is what the arms call.
     registry.historyDegraded.mockReset().mockImplementation(
       (() => false) as unknown as typeof registry.historyDegraded,
-    );
-    registry.isFacadeEnabled.mockReset().mockImplementation(
-      (() => true) as unknown as typeof registry.isFacadeEnabled,
     );
     registry.confirmExternalCursor.mockClear();
     const bridgeEmu = vi.mocked(await import("@/lib/protocol/bridge_emu"));
@@ -309,10 +339,12 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     ).toBe(0);
   });
 
-  it("case (a) still steps: the handoff refused WITHOUT moving the cursor", async () => {
-    // The other fall-through. `rustStreamHoldsUserWork` refuses before driving the
-    // walker, so the cursor is untouched and the host pop owns the step. Suppressing
-    // here would strand every facade-owned undo, so the flag must NOT be set.
+  it("a refused press is handled and spends nothing: no pop, no step, no flag", async () => {
+    // The refusal branch. `rustStreamHoldsUserWork` refuses before driving the
+    // walker, so the cursor is untouched - and that refusal is now the ANSWER:
+    // a document whose stream holds nothing above the document-open baseline has
+    // nothing to undo, exactly as the native executor reports at cursor 0. The
+    // host pop could only spend a legacy entry and fail to restore it.
     const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
     vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeFacade(false) as never);
     const bridgeEmu = await import("@/lib/protocol/bridge_emu");
@@ -322,46 +354,29 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     } as never);
 
     const { runFacadeExternalHandoff } = await import("../facadeHistoryHandoff");
-    const { history, engine, commands } = mountCommands();
+    const { history, engine } = mountCommands();
     commitMetadataShimRecorded(history);
     await settle();
 
     const handled = await runFacadeExternalHandoff(editorDouble(), "undo");
-    expect(handled, "nothing above the baseline: unhandled").toBe(false);
+    expect(handled, "nothing above the baseline: handled, not a fall-through").toBe(true);
     expect(
       handoffMovedCursor(),
-      "and the cursor was NOT moved, so the pop must still step",
+      "and the cursor was NOT moved, so nothing downstream may claim a step",
     ).toBe(false);
     expect(streamFor(DOC).cursor, "the cursor is where it was").toBe(1);
+    expect(cursorStepInvokes(), "the refusal issued no step").toBe(0);
+
+    // ── The press that DOES pop ────────────────────────────────────────────
+    // The next decline the handoff can still report is a rejected native
+    // command. It leaves the same flag false, so this pop must still step: a
+    // handled press must arm nothing for the press after it.
+    await useRealHistoryQuery();
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeRejectingFacade() as never);
 
     history.undo(engine.getModel());
     await until(() => cursorStepInvokes() >= 1);
     expect(cursorStepInvokes(), "the host pop issued the one step").toBe(1);
-
-    // ── Press 2: the SAME history, but with nothing left to pop ──────────────
-    // This is the instance-side leak. The flag is now consumed (the pop above read
-    // it), so press 2 must pop normally OR be refused by canUndo() - but either way
-    // it must leave the flag false for press 3.
-    commands.undo();
-    await settle();
-    expect(
-      cursorStepInvokes(),
-      "press 2 has nothing to pop, so it adds no step",
-    ).toBe(1);
-
-    // ── Press 3: a fresh commit, then a pop that MUST step ───────────────────
-    // If press 1's flag had survived its pop, this pop would read it and skip.
-    commitMetadataShimRecorded(history);
-    await settle();
-    // Length 1, not 2: press 2's undo dropped the redo branch, so a new record
-    // truncates the stream to the cursor - which is the emulator's real rule.
-    expect(streamFor(DOC).entries.length, "the new commit is on the stream").toBe(1);
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 2);
-    expect(
-      cursorStepInvokes(),
-      "press 3 steps: no flag leaked across the refused press",
-    ).toBe(2);
   });
 
   it("a latched historyDegraded takes the shim arm OFF, so no ungated step is possible", async () => {
@@ -406,19 +421,15 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     vi.mocked(facadeRegistry.historyDegraded).mockImplementation(
       (() => true) as unknown as typeof facadeRegistry.historyDegraded,
     );
-    // The handoff must DECLINE, or it reports handled and the host never pops - which
-    // would make this case pass for the wrong reason.
-    const bridgeEmu = await import("@/lib/protocol/bridge_emu");
-    vi.mocked(bridgeEmu.getHistoryQuery).mockResolvedValue({
-      entries: [],
-      cursor: 0,
-    } as never);
-    const { history, engine, commands } = mountCommands();
+    // The pop is driven directly: what this cell measures is `stepRustCursor`'s arms,
+    // and a press would now be answered by the refusal on this stream rather than
+    // reach them at all.
+    const { history, engine } = mountCommands();
     await commitRustOwnedPaint(history, engine.getModel());
     await settle();
     expect(streamFor(DOC).entries, "the stroke's own Pixel entry").toEqual(["pixel"]);
 
-    commands.undo();
+    history.undo(engine.getModel());
     await until(() => cursorStepInvokes() >= 1);
 
     expect(cursorStepInvokes(), "the pixel-writer arm is unaffected by the latch").toBe(1);
@@ -440,6 +451,7 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     // An entry in the stream with NOTHING in the host stack.
     record(DOC, "external");
     const { history, commands } = mountCommands();
+    const undoSpy = vi.spyOn(history, "undo");
     expect(history.getUndoCount(), "the host stack starts empty").toBe(0);
     await settle();
 
@@ -452,28 +464,25 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     expect(history.getUndoCount(), "and the host stack is still empty").toBe(0);
 
     // ── Press 2: a real host entry, which MUST be stepped ───────────────────
-    // The refusal is re-armed, so press 2's handoff declines BEFORE the walker and the
-    // flag stays false. Without this the mock would still claim cursor 1 from press 1
-    // while the real stream sits at 0, the handoff would "move" a cursor that did not
-    // move, and the pop would be suppressed for a reason that has nothing to do with
-    // the leak under test.
-    const bridgeEmu = await import("@/lib/protocol/bridge_emu");
-    vi.mocked(bridgeEmu.getHistoryQuery).mockResolvedValue({
-      entries: [],
-      cursor: 0,
-    } as never);
+    // The handoff declines WITHOUT moving the cursor (the native command is
+    // rejected), so the pop below owns the step and the flag stays false.
+    // Without this the mock would still claim cursor 1 from press 1 while the
+    // real stream sits at 0, the handoff would "move" a cursor that did not
+    // move, and the pop would be suppressed for a reason that has nothing to do
+    // with the leak under test.
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeRejectingFacade() as never);
+    await useRealHistoryQuery();
     commitMetadataShimRecorded(history);
     await settle();
     expect(history.getUndoCount(), "there is now something to pop").toBe(1);
 
     commands.undo();
-    await settle();
-    await settle();
+    await until(() => cursorStepInvokes() >= 1);
     expect(
       cursorStepInvokes(),
       "press 2 steps: the flag from press 1 must not outlive the press that set it",
     ).toBe(1);
-    expect(history.getUndoCount(), "and it popped").toBe(0);
+    expect(undoSpy, "and it popped its host entry").toHaveBeenCalled();
   });
 
   it("STALE FLAG: a handled press leaves nothing for the next press's early return", async () => {
@@ -484,11 +493,10 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     // delta returns true. `useEditorCommands` returns immediately on true and never
     // calls `handoffMovedCursor()` - so the flag is still set when press 1 ends.
     //
-    // Press 2 then takes the `rustStreamHoldsUserWork` refusal, which returns BEFORE
-    // the walker and therefore before any interior clear. With the clear at its old
-    // position, press 2's caller read the stale true, told the history the handoff had
-    // moved the cursor, and press 2's pop skipped its own step - one host entry
-    // permanently unstepped.
+    // Press 2 then declines - the walker, and the cursor with it - before any
+    // interior clear. With the clear at its old position, press 2's caller read
+    // the stale true, told the history the handoff had moved the cursor, and
+    // press 2's pop skipped its own step - one host entry permanently unstepped.
     const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
     vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeFacade(false) as never);
     const bridgeEmu = await import("@/lib/protocol/bridge_emu");
@@ -498,6 +506,7 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     } as never);
 
     const { history, engine, commands } = mountCommands();
+    const undoSpy = vi.spyOn(history, "undo");
     commitMetadataShimRecorded(history);
     await settle();
 
@@ -517,22 +526,23 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     // The module flag is deliberately NOT read here: production never reads it on a
     // handled press, which is precisely how it could go stale.
 
-    // ── Press 2: the walker refusal, an early return ─────────────────────────
-    vi.mocked(bridgeEmu.getHistoryQuery).mockResolvedValue({
-      entries: [],
-      cursor: 0,
-    } as never);
+    // ── Press 2: a decline that leaves the cursor alone ──────────────────────
+    // The stream needs work of its own: a press that finds nothing undoable
+    // natively never reaches the pop, and then there is no step to suppress.
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeRejectingFacade() as never);
+    await useRealHistoryQuery();
+    record(DOC, "external");
+    await settle();
+    expect(history.canUndo(), "premise: there is something to pop").toBe(true);
 
     commands.undo();
-    await settle();
-    await settle();
+    await until(() => cursorStepInvokes() >= 1);
 
     expect(
       cursorStepInvokes(),
       "press 2 STILL steps: the stale flag from press 1 must not suppress it",
     ).toBe(1);
-    expect(history.getUndoCount(), "and it popped its host entry").toBe(0);
-    expect(streamFor(DOC).cursor, "and its entry was consumed").toBe(0);
+    expect(undoSpy, "and it popped its host entry").toHaveBeenCalled();
   });
 
   it("depth >= 2 case (b): one undo press moves the cursor 3 -> 2, never 3 -> 1", async () => {
