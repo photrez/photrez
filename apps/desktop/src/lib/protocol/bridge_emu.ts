@@ -8,17 +8,15 @@ import type {
 import { nativeProtocol } from "./nativeClient";
 import {
   awaitNativeSeed,
-  isNativeAuthority,
   nativeAdapterRegByDoc,
   nativeSeedPromiseByDoc,
   normalizeProtocolError,
-  wasm,
 } from "./bridge";
 
-// In-memory emulator: a JS mirror of the Rust ProtocolEngine (applyCommand falls
-// back to this when the wasm runtime is unarmed). Extracted from bridge.ts to keep
-// that module under the 1000-line guard. Re-exported from bridge.ts so every
-// existing import path stays valid; bridge.ts dispatches here via emulateApply.
+// In-memory emulator: a JS mirror of the Rust ProtocolEngine. Extracted from
+// bridge.ts to keep that module under the 1000-line guard. Test-only
+// instrumentation now (production dispatches to the native engine); re-exported
+// from bridge.ts so every existing import path stays valid.
 //
 // JS emulation mirrors Rust ProtocolEngine - includes expectedVersion check.
 // ADR 0008 H0: entry-stream metadata parallels the Rust engine (cursor/seq/
@@ -156,43 +154,44 @@ function finishEmu(idx: number): void {
 // every `${key}::` entry), so the next record re-registers against the fresh
 // engine: the dedup does NOT block re-registration after a reset.
 export function registerPayloadAdapter(adapterId: string, docId = "default"): void {
-  if (isNativeAuthority()) {
-    // Register the adapter on the per-document native ProtocolEngine so the first
-    // legacy-commit mirror (recordExternalTransitionFor) does not hit Rust
-    // E_UNKNOWN_ADAPTER. Chained after the authoritative seed so the engine exists;
-    // idempotent per (doc, adapter).
-    const key = docId === "" ? "default" : docId;
-    const regKey = `${key}::${adapterId}`;
-    if (!nativeAdapterRegByDoc.has(regKey)) {
-      const seedP = nativeSeedPromiseByDoc.get(key) ?? Promise.resolve();
-      nativeAdapterRegByDoc.set(
-        regKey,
-        seedP.then(async () => {
-          // Surface a failed registration instead of swallowing it: a swallowed
-          // rejection here degrades the ordering guarantee to a downstream
-          // E_UNKNOWN_ADAPTER. (The Rust command is idempotent, so a genuine
-          // failure is a real engine problem that must not be hidden.)
-          await nativeProtocol.protocol_register_adapter_native(key, adapterId);
-        }),
-      );
-    }
-    return;
+  // Register the adapter on the per-document native ProtocolEngine so the first
+  // legacy-commit mirror (recordExternalTransitionFor) does not hit Rust
+  // E_UNKNOWN_ADAPTER. Chained after the authoritative seed so the engine exists;
+  // idempotent per (doc, adapter).
+  const key = docId === "" ? "default" : docId;
+  const regKey = `${key}::${adapterId}`;
+  if (!nativeAdapterRegByDoc.has(regKey)) {
+    const seedP = nativeSeedPromiseByDoc.get(key) ?? Promise.resolve();
+    nativeAdapterRegByDoc.set(
+      regKey,
+      seedP.then(async () => {
+        // Surface a failed registration instead of swallowing it: a swallowed
+        // rejection here degrades the ordering guarantee to a downstream
+        // E_UNKNOWN_ADAPTER. (The Rust command is idempotent, so a genuine
+        // failure is a real engine problem that must not be hidden.)
+        await nativeProtocol.protocol_register_adapter_native(key, adapterId);
+      }),
+    );
   }
-  if (wasm?.protocol_register_payload_adapter) wasm.protocol_register_payload_adapter(adapterId, docId);
-  else if (adapterId !== "native") emuAdapters.add(adapterId);
+  // Emulator bookkeeping for emulator-driven tests: the emulator has no native
+  // engine, so its adapter set is tracked separately (see the emulateApply arm).
+  if (adapterId !== "native") emuAdapters.add(adapterId);
 }
 
 export async function getHistoryQuery(docId = "default"): Promise<HistoryQueryResult> {
-  if (isNativeAuthority()) {
-    await awaitNativeSeed(docId);
-    try {
-      const j = await nativeProtocol.protocol_history_query_native(docId);
-      return JSON.parse(j) as HistoryQueryResult;
-    } catch (e) {
-      throw normalizeProtocolError(e);
-    }
+  await awaitNativeSeed(docId);
+  try {
+    const j = await nativeProtocol.protocol_history_query_native(docId);
+    return JSON.parse(j) as HistoryQueryResult;
+  } catch (e) {
+    throw normalizeProtocolError(e);
   }
-  if (wasm?.protocol_history_query_json) return JSON.parse(wasm.protocol_history_query_json(docId)) as HistoryQueryResult;
+}
+
+// Emulator seam for emulator-driven suites: the history-query half that used to
+// be getHistoryQuery's fallback arm, extracted so parity suites can drive the
+// emulator directly now that production dispatch is native-only.
+export function emulateGetHistoryQuery(): HistoryQueryResult {
   return {
     cursor: emuCursor,
     lastSeq: emuEntries.length ? emuEntries[emuEntries.length - 1].seq : 0,
@@ -213,18 +212,19 @@ export async function getHistoryQuery(docId = "default"): Promise<HistoryQueryRe
 }
 
 export async function historyCursorCommit(seq: number, direction: "undo" | "redo", docId = "default"): Promise<CommandResult> {
-  if (isNativeAuthority()) {
-    await awaitNativeSeed(docId);
-    try {
-      const j = await nativeProtocol.protocol_history_cursor_commit_native(docId, seq, direction);
-      return JSON.parse(j) as CommandResult;
-    } catch (e) {
-      throw normalizeProtocolError(e);
-    }
+  await awaitNativeSeed(docId);
+  try {
+    const j = await nativeProtocol.protocol_history_cursor_commit_native(docId, seq, direction);
+    return JSON.parse(j) as CommandResult;
+  } catch (e) {
+    throw normalizeProtocolError(e);
   }
-  if (wasm?.protocol_history_cursor_commit) {
-    return JSON.parse(wasm.protocol_history_cursor_commit(JSON.stringify({ seq, direction }), docId)) as CommandResult;
-  }
+}
+
+// Emulator seam for emulator-driven suites: the cursor-commit half that used to
+// be historyCursorCommit's fallback arm, extracted so parity suites can drive
+// the emulator directly now that production dispatch is native-only.
+export function emulateHistoryCursorCommit(seq: number, direction: "undo" | "redo"): CommandResult {
   // ADR 0008 C1: HistorySeq (monotonic entry id) != HistoryCursor (position).
   // On a redo-truncated (non-dense) stream entries[i].seq != i+1, so index
   // arithmetic (cursor == seq) is wrong. Validation relies on the walker-recorded
@@ -244,13 +244,6 @@ export async function historyCursorCommit(seq: number, direction: "undo" | "redo
     status: "external-confirmed",
     externalSeq: seq,
   };
-}
-
-// Resets the per-document engine backing one doc id (no-op when the wasm is
-// unarmed). Used by the registry reset so engine state does not leak across
-// tests that use real doc ids (e.g. getFacade("doc-a")).
-export function resetWasmDoc(docId = "default"): void {
-  if (wasm?.protocol_reset) wasm.protocol_reset(docId);
 }
 
 export function __resetEmulatedForTests(): void {

@@ -12,7 +12,7 @@
 // delta, so a sent flag that never landed must throw instead of passing.
 
 import type { DocumentEngine } from "@/engine/document";
-import { getLayerIds, isFacadeEnabled, isNativeAuthority, setExternalTransitionPending } from "./bridge";
+import { getLayerIds, setExternalTransitionPending } from "./bridge";
 import { EditorFacade } from "./editorFacade";
 import { getFacade, seedFacadeFromEngine } from "./facadeRegistry";
 import type { FacadeRouteStatus } from "./facadeRegistry";
@@ -33,7 +33,7 @@ export function isBackgroundFlagRouteEnabled(): boolean {
 }
 
 export function isBackgroundFlagRouteArmed(): boolean {
-  return isBackgroundFlagRouteEnabled() && isFacadeEnabled() && isNativeAuthority();
+  return isBackgroundFlagRouteEnabled();
 }
 
 // In-flight factory flag commits per document. The factory fires the funnel

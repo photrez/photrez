@@ -20,11 +20,8 @@ import {
   getLayerIds,
   getSnapshot,
   historyCursorCommit,
-  isFacadeEnabled,
-  isNativeAuthority,
   registerPayloadAdapter,
   setExternalTransitionPending,
-  resetWasmDoc,
 } from "./bridge";
 import { buildCanonicalPayload, repushCanonicalDocument, repushCanonicalPayload } from "./canonicalSeed";
 import type { DocumentEngine } from "@/engine/document";
@@ -32,19 +29,13 @@ import type { DocumentModel } from "@/engine/types";
 import { CONTRACT_VERSION } from "./types";
 import type { LockKind, LayerParamsPatch } from "./types";
 import type { BasicAdjustment } from "@/engine/layerAdjustments";
-import {
-  clearFacadeStoreForTests,
-  facadeDocIdsForTests,
-  getFacade,
-  peekFacade,
-} from "./selectionMirror";
+import { clearFacadeStoreForTests, getFacade, peekFacade } from "./selectionMirror";
 import type { FacadeProjectionSink } from "./selectionMirror";
 import {
   refreshFacadeSnapshotFromEngine,
   toFacadeProjectionLayer,
 } from "./facadeProjection";
 import type { FacadeProjectionLayer } from "./facadeProjection";
-export { isFacadeEnabled, isNativeAuthority };
 
 // Selection-mirror funnel + the shared per-document facade store live in
 // selectionMirror.ts (file-size guard). The public selection API is re-exported
@@ -496,16 +487,10 @@ export async function commitFacadeReorder(
   if (route.mode === "empty") return { status: "empty" };
   if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
   if (route.mode !== "facade") return { status: "legacy" };
-  // Reorder is a structural move that must not round-trip through the wasm
-  // engine: under wasm authority the engine only ever knows facade-created
-  // layers (legacy TS layers are never seeded into it), so the command would
-  // reorder a PARTIAL set and the restated order would contradict the TS
-  // model. The legacy TS reorder still preserves order in TS-only state, so
-  // defer to it. Under native authority the engine
-  // holds the FULL layer set (ensureNativeEngineSeeded), and the routed command
-  // restores order through its ordered restatement delta (see editorFacade
-  // reorderLayer + applyDeltaToSnapshot - no snapshot re-read anywhere).
-  if (!isNativeAuthority()) return { status: "legacy" };
+  // Reorder is a structural move routed through the native engine, which holds
+  // the FULL layer set (ensureNativeEngineSeeded). The routed command restores
+  // order through its ordered restatement delta (see editorFacade reorderLayer
+  // + applyDeltaToSnapshot - no snapshot re-read anywhere).
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.reorderLayer(id, toIndex);
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
@@ -520,21 +505,16 @@ export async function commitFacadeReorder(
 // Ownership policy mirrors commitFacadeOpacity resolution EXACTLY: single-target
 // ops resolve [id]; mergeSelected resolves over the full id set and MUST return
 // {status:"mixed-rejected"} with ZERO commands when ownership is mixed
-// (atomicity precedent — no partial native mutation). Unlike metadata funnels,
-// structural ops are gated to native authority: under wasm authority the engine
-// knows only facade-created layers, so a merge/flatten would operate on a
-// PARTIAL set and drop layers (data-loss class) — the same reason commitFacadeReorder
-// defers to legacy there. Under native authority the engine holds the FULL layer
-// set (ensureNativeEngineSeeded), so the routed command restores graph order
-// through its ordered restatement delta with no snapshot re-read. Returns the
-// applied command count.
+// (atomicity precedent — no partial native mutation). The native engine holds
+// the FULL layer set (ensureNativeEngineSeeded), so the routed command restores
+// graph order through its ordered restatement delta with no snapshot re-read.
+// Returns the applied command count.
 export async function commitFacadeDuplicate(
   engine: FacadeProjectionSink,
   id: string,
   newId: string,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const route = resolveSelectionRoute([id]);
   if (route.mode === "empty") return { status: "empty" };
   if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
@@ -551,7 +531,6 @@ export async function commitFacadeMergeDown(
   mergedId: string,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const route = resolveSelectionRoute([id]);
   if (route.mode === "empty") return { status: "empty" };
   if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
@@ -568,7 +547,6 @@ export async function commitFacadeMergeSelected(
   mergedId: string,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const route = resolveSelectionRoute(ids);
   if (route.mode === "empty") return { status: "empty" };
   // Mixed ownership across the selected set is rejected ATOMICALLY: zero native
@@ -586,7 +564,6 @@ export async function commitFacadeFlatten(
   mergedId: string,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.flattenLayers(mergedId);
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
@@ -598,7 +575,6 @@ export async function commitFacadeRasterize(
   id: string,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const route = resolveSelectionRoute([id]);
   if (route.mode === "empty") return { status: "empty" };
   if (route.mode === "mixed-rejected") return { status: "mixed-rejected" };
@@ -610,21 +586,18 @@ export async function commitFacadeRasterize(
 }
 
 // ── Canvas-size commit funnels (resize canvas / apply crop) ──────────────
-// Route the document-size ops to the native canvas arms. Same native-authority
-// gate as the structural funnels: under wasm authority the routed arm cannot own
-// the document size (the projection would contradict the TS model), so defer to
-// the legacy engine path. The canvas arms emit an empty layer delta plus the new
-// size on delta.width/height; the facade's delta consumer adopts those and marks
-// the projection authoritative for the size, then the projection below pushes the
-// same size into the TS model (applyFacadeSnapshot writes model width/height only
-// for an authoritative projection whose size differs).
+// Route the document-size ops to the native canvas arms. The canvas arms emit an
+// empty layer delta plus the new size on delta.width/height; the facade's delta
+// consumer adopts those and marks the projection authoritative for the size,
+// then the projection below pushes the same size into the TS model
+// (applyFacadeSnapshot writes model width/height only for an authoritative
+// projection whose size differs).
 export async function commitFacadeResizeCanvas(
   engine: FacadeProjectionSink,
   width: number,
   height: number,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.resizeCanvas(width, height);
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
@@ -642,7 +615,6 @@ export async function commitFacadeApplyCrop(
   targetHeight?: number,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: FacadeRouteStatus; count?: number }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   const last = await f.applyCrop(x, y, width, height, rotation, targetWidth, targetHeight);
   if (last) engine.applyFacadeSnapshot(last, { dimsAuthoritative: f.lastProjectionDimsAuthoritative });
@@ -775,9 +747,8 @@ export function facadeCommitNumericTransform(
   patch: NumericTransformPatch,
 ): Promise<boolean> {
   // Self-guard, not a caller convention (same shape as mirrorSelectionCommand):
-  // flag OFF never reaches the queue, so the legacy paths keep their synchronous
-  // shape no matter which caller is added later.
-  if (!isFacadeEnabled()) return Promise.resolve(false);
+  // a missing or locked layer never reaches the queue, so the legacy paths keep
+  // their synchronous shape no matter which caller is added later.
   // "Nothing to do" is decided at ISSUE time, inside the click handler: a layer
   // that is already gone or locked stays a silent no-op, as it always was. What
   // changes between issue and hop is re-checked inside the hop, where it is a
@@ -862,48 +833,43 @@ export async function seedFacadeFromEngine(
       layers: engine.getLayers().map(toFacadeProjectionLayer),
     });
   }
-  // Native-authority cutover seed: mirror the live TS/facade state into the
-  // Rust REGISTRY engine so the first rerouted command's expectedVersion matches.
-  // Gated by isNativeAuthority() so the wasm opt-out path is byte-identical.
-  // Carries the live renderedVersion (not a hardcoded 0) so the seeded engine
-  // starts at the same document version the facade holds.
-  if (isNativeAuthority()) {
-    // Bind the TS engine to the facade so addLayer can re-push the full canonical
-    // document after Rust mints a layer (Rust cannot populate the canonical-only
-    // fields). Gated so the wasm opt-out path is byte-identical.
-    facade.bindEngine(engine as unknown as DocumentEngine);
-    await ensureNativeEngineSeeded(
-      facade.docId,
-      facade.renderedVersion,
-      engine.getLayers().map((l) => ({
-        id: l.id,
-        name: l.name,
-        visible: l.visible,
-        opacity: l.opacity,
-        x: l.transform.x,
-        y: l.transform.y,
-        scaleX: l.transform.scaleX,
-        scaleY: l.transform.scaleY,
-        rotation: l.transform.rotation,
-        resourceId: 0,
-      })),
-    );
-    // The native engine is the SINGLE owner of document version. Read its actual
-    // version (protocol_snapshot_native returns RenderSnapshot.version === the
-    // engine's documentVersion) and align the facade up-only, so a subsequent
-    // facade command's expectedVersion matches. Up-only: a raw assign could move
-    // renderedVersion backward if pixel commits had already advanced past the seed.
-    const snap = await getSnapshot(facade.docId);
-    facade.syncRenderedVersionTo(snap.version);
-  }
+  // Native cutover seed: mirror the live TS/facade state into the Rust REGISTRY
+  // engine so the first rerouted command's expectedVersion matches. Carries the
+  // live renderedVersion (not a hardcoded 0) so the seeded engine starts at the
+  // same document version the facade holds.
+  // Bind the TS engine to the facade so addLayer can re-push the full canonical
+  // document after Rust mints a layer (Rust cannot populate the canonical-only
+  // fields).
+  facade.bindEngine(engine as unknown as DocumentEngine);
+  await ensureNativeEngineSeeded(
+    facade.docId,
+    facade.renderedVersion,
+    engine.getLayers().map((l) => ({
+      id: l.id,
+      name: l.name,
+      visible: l.visible,
+      opacity: l.opacity,
+      x: l.transform.x,
+      y: l.transform.y,
+      scaleX: l.transform.scaleX,
+      scaleY: l.transform.scaleY,
+      rotation: l.transform.rotation,
+      resourceId: 0,
+    })),
+  );
+  // The native engine is the SINGLE owner of document version. Read its actual
+  // version (protocol_snapshot_native returns RenderSnapshot.version === the
+  // engine's documentVersion) and align the facade up-only, so a subsequent
+  // facade command's expectedVersion matches. Up-only: a raw assign could move
+  // renderedVersion backward if pixel commits had already advanced past the seed.
+  const snap = await getSnapshot(facade.docId);
+  facade.syncRenderedVersionTo(snap.version);
 }
 
 // ── ADR 0008 H0: external-transition recording + degraded state ──────────
-// Feature-gated commit shim: when photrez.facade=1, every legacy TS
-// CommandHistory.commit is mirrored into the canonical Rust stream via
-// RecordExternalTransition (payload stays TS-side behind the external
-// adapter). When the flag is OFF the wrapper exits immediately — zero
-// runtime work on the legacy path.
+// Commit shim: every legacy TS CommandHistory.commit is mirrored into the
+// canonical Rust stream via RecordExternalTransition (payload stays TS-side
+// behind the external adapter).
 
 export interface ExternalRecordPayloadCell {
   label: string;
@@ -991,20 +957,17 @@ function syncAuthoritativeVersion(docId: string, dv: number): void {
   if (f) f.syncRenderedVersionTo(dv);
 }
 
-// Native-authority version sync (ADR 0014): when the native engine is the
-// authority, pixel commits and facade commands share ONE ProtocolEngine instance,
-// so a pixel commit between two facade commands advances the same documentVersion
-// the facade reads. Push the pixel commit's returned version into the facade so
-// the next facade command is not rejected with E_VERSION_MISMATCH. No-op unless
-  // native authority is active and a facade exists for the doc, so the wasm opt-out
-  // path is byte-identical. The native engine is the single owner of document
+// Native version sync (ADR 0014): pixel commits and facade commands share ONE
+// ProtocolEngine instance, so a pixel commit between two facade commands advances
+// the same documentVersion the facade reads. Push the pixel commit's returned
+// version into the facade so the next facade command is not rejected with
+// E_VERSION_MISMATCH. The native engine is the single owner of document
 // version; this is the only place that mirrors it into the facade, up-only.
 export function syncFacadeVersionFromPixel(docId: string, version: number): void {
-  if (!isNativeAuthority()) return;
   // Ensure a facade exists before syncing: a pixel commit can advance the native
   // engine DV before any facade has been lazily created (getFacade is lazy on the
   // opacity/transform path). Without this the sync no-ops and a later facade
-  // command is rejected with E_VERSION_MISMATCH. Gated by isNativeAuthority above.
+  // command is rejected with E_VERSION_MISMATCH.
   if (!peekFacade(docId)) getFacade(docId);
   const f = peekFacade(docId);
   if (f) f.syncRenderedVersionTo(version);
@@ -1159,16 +1122,15 @@ export async function recordExternalTransitionFor(
     // transition changed the TS model outside the facade command path, and this
     // reads the same post-mutation vector DocumentEngine.notifyChange already
     // projected. Kept as a cheap net over a future mutation path that bypasses
-    // the choke point. Gated: no-op when the facade flag is opted out (opt-out
-    // path byte-identical).
-    if (engine && isFacadeEnabled()) {
+    // the choke point.
+    if (engine) {
       try {
         refreshFacadeSnapshotFromEngine(docId, engine.getLayers().map(toFacadeProjectionLayer));
       } catch {
         // never let instrumentation break the legacy caller
       }
     }
-    // Native-authority shadow re-push (gated, wasm opt-out => no-op). A mirrored
+    // Native shadow re-push. A mirrored
     // external transition changes the TS model outside the facade command path, so
     // re-push the full canonical shadow so the native copy stays complete. The
     // commit shim passes the live engine; direct callers may omit it and skip the
@@ -1279,8 +1241,6 @@ export function installFacadeCommitShim(providers: {
       string[] | undefined,
     ];
     (originalCommit as unknown as (...callArgs: unknown[]) => void).apply(this, args);
-    // Feature gate + zero-cost when OFF:
-    if (!isFacadeEnabled()) return;
     // The pixel path (brush/fill/adjustment bake) commits with
     // alreadyRecordedInRust=true because Rust already owns that op's Pixel cursor
     // entry via rust_pixels_write_region. Mirroring it here too would put two
@@ -1300,7 +1260,7 @@ export function installFacadeCommitShim(providers: {
       // Same docId as the external-cursor handoff (facadeHistoryHandoff) so both
       // seams address one engine; engine.getId() is that shared expression.
       // Register the in-flight mirror so a following facade command can await it
-      // (native-authority version-sync barrier; the wasm opt-out path no-ops).
+      // (version-sync barrier).
       setExternalTransitionPending(
         engine.getId(),
         recordExternalTransitionFor(
@@ -1315,9 +1275,9 @@ export function installFacadeCommitShim(providers: {
   };
 
   const originalSnapshot = proto.recordSnapshotHistory;
-  // Mirror the single-Delete legacy branch into the WASM engine via the SAME
+  // Mirror the single-Delete legacy branch into the native engine via the SAME
   // External path the commit wrapper uses (reused, no new command/method).
-  // A non-owned layer is never in the WASM layer set, so a metadata-only
+  // A non-owned layer is never in the native layer set, so a metadata-only
   // External marker keeps cursor/ordering unified without a native entry.
   // Forward ALL args (before/after/label): the undo-point is the PRE-action
   // `before` state, and that is exactly what the External marker carries. The
@@ -1326,15 +1286,13 @@ export function installFacadeCommitShim(providers: {
   //
   // WHO CONSUMES IT: NOT a host pop - `stepRustCursor` returns for a snapshot-typed
   // entry before every arm, so no arm steps this. The consumer is the FACADE WALKER
-  // (`facade.undo()` + `confirmExternalCursor`). Without the mirror the WASM cursor
-  // never advanced for such a delete and the stranded TS undo-point made
+  // (`facade.undo()` + `confirmExternalCursor`). Without the mirror the native
+  // cursor never advanced for such a delete and the stranded TS undo-point made
   // `engine.restore()` throw `E_FACADE_OWNED`; see snapshotHistoryMirror.wiring.test.ts.
   //
   proto.recordSnapshotHistory = function (this: unknown, ...args: unknown[]) {
     const [before, after, label] = args as [unknown, unknown, string | undefined];
     (originalSnapshot as unknown as (...callArgs: unknown[]) => void).apply(this, args);
-    // Feature gate + zero-cost when OFF:
-    if (!isFacadeEnabled()) return;
     try {
       const engine = providers.getEngine();
       if (!engine) return;
@@ -1347,7 +1305,7 @@ export function installFacadeCommitShim(providers: {
       // Route the mirror to the SAME engine the external-cursor handoff
       // (facadeHistoryHandoff) reads/walks: the active engine's id. Both seams
       // use engine.getId() so they address one engine. Register the in-flight
-      // mirror for the native-authority version-sync barrier; wasm no-ops.
+      // mirror for the version-sync barrier.
       setExternalTransitionPending(
         engine.getId(),
         recordExternalTransitionFor(
@@ -1363,9 +1321,6 @@ export function installFacadeCommitShim(providers: {
 }
 
 export function __resetFacadeRegistryForTests(): void {
-  // Reset the per-document wasm engine for each doc id this registry created,
-  // so engine state does not leak across tests using real doc ids.
-  for (const docId of facadeDocIdsForTests()) resetWasmDoc(docId);
   clearFacadeStoreForTests();
   resetFacadeBridgeForTests();
   clearTransformPreview();

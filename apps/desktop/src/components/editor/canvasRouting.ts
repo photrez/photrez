@@ -5,10 +5,9 @@
 // engine statements unchanged.
 //
 // Guard order (all BEFORE any dispatch):
-//   1. flag + native authority (same gate as the structural routes),
-//   2. pixel-baking crop variants defer to the legacy host path,
-//   3. finite / positive / device-max floors on the FINAL size,
-//   4. resize memory budget (the same projection DocumentEngine.resizeCanvas
+//   1. pixel-baking crop variants defer to the legacy host path,
+//   2. finite / positive / device-max floors on the FINAL size,
+//   3. resize memory budget (the same projection DocumentEngine.resizeCanvas
 //      uses to throw E_RESOURCE_LIMIT).
 //
 // Each route first checks for a document-size divergence between the TS model
@@ -28,7 +27,6 @@ import {
   commitFacadeApplyCrop,
   commitFacadeClearSelection,
   commitFacadeResizeCanvas,
-  isNativeAuthority,
   mirrorSelectionCommand,
 } from "@/lib/protocol/facadeRegistry";
 
@@ -76,9 +74,8 @@ export async function routeResizeCanvas(
   w: number,
   h: number,
 ): Promise<CanvasRouteStatus> {
-  // The route's native arms (the rebase below, the facade commits) only exist
-  // under native authority; the wasm path keeps the host implementation.
-  if (!isNativeAuthority()) return "legacy";
+  // The route always dispatches through the native arms (the rebase below, the
+  // facade commits).
   if (!finitePositive(w) || !finitePositive(h)) return "error";
   if (w > getEffectiveMaxDim() || h > getEffectiveMaxDim()) return "error";
   if (
@@ -107,7 +104,6 @@ export async function routeResizeCanvas(
   } catch {
     return "error";
   }
-  if (r.status === "legacy") return "legacy";
   if (r.status !== "applied") return "error";
   reuploadLayers(engine, renderer, scheduler);
   return "applied";
@@ -124,9 +120,8 @@ export async function routeApplyCrop(
   h: number,
   options: CanvasCropOptions,
 ): Promise<CanvasRouteStatus> {
-  // The route's native arms (the rebase below, the facade commits) only exist
-  // under native authority; the wasm path keeps the host implementation.
-  if (!isNativeAuthority()) return "legacy";
+  // The route always dispatches through the native arms (the rebase below, the
+  // facade commits).
   // The pixel-baking variants (delete cropped pixels / fill background) are not
   // expressible as the recenter-only native arm; keep them on the host path.
   if (options.deleteCroppedPixels || options.fillBackgroundColor) return "legacy";
@@ -183,7 +178,6 @@ export async function routeApplyCrop(
   } catch {
     return "error";
   }
-  if (r.status === "legacy") return "legacy";
   if (r.status !== "applied") return "error";
   // The native crop arm clears its own shadow selection, so no separate mirror
   // is needed here. The host engine still needs its own selection cleared with

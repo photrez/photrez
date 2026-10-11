@@ -1,4 +1,4 @@
-// Ticket 1-2 — Typed bridge: CommandEnvelope -> CommandResult{delta} via wasm JSON transport.
+// Ticket 1-2 — Typed bridge: CommandEnvelope -> CommandResult{delta} via native JSON transport.
 // Control path only (no binary optimization yet). Correctness via Rust expectedVersion check.
 
 import type {
@@ -9,7 +9,6 @@ import type {
   HistoryQueryResult,
 } from "./types";
 import { CONTRACT_VERSION } from "./types";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { pixelInvoke } from "./pixelInvokeCensus";
 import { nativeProtocol } from "./nativeClient";
 
@@ -22,115 +21,9 @@ export function invokePixelCommand(command: string, args: Record<string, unknown
   return pixelInvoke(command, args);
 }
 
-type WasmProtocol = {
-  protocol_contract_version: () => number;
-  protocol_apply_command: (json: string, docId: string) => string;
-  protocol_snapshot_json: (docId: string) => string;
-  protocol_reset?: (docId: string) => void;
-  // ADR 0008 H0 exports (optional so an older pkg degrades to emulation):
-  protocol_register_payload_adapter?: (id: string, docId: string) => void;
-  protocol_history_query_json?: (docId: string) => string;
-  protocol_history_cursor_commit?: (json: string, docId: string) => string;
-};
-
-export let wasm: WasmProtocol | null = null;
-
-export function setProtocolWasm(mod: WasmProtocol): void {
-  // Stale-pkg arity guard (document-scoped engine): the per-document protocol
-  // requires a 2-arg protocol_apply_command(json, docId). An older shared-engine
-  // pkg exports a 1-arg wrapper and JS silently drops the extra docId, so per-doc
-  // isolation would collapse into a single "default" engine while every test
-  // stayed green - the "green-but-wrong" anti-pattern this guard stops.
-  //
-  // HONEST SCOPE: this guard throws at arm time, so a DIRECT setProtocolWasm call
-  // with a stale pkg fails the suite loudly (the direct test path). In the
-  // PRODUCTION path the pkg is armed through wasmExport.ts getWasmExportModule(),
-  // whose catch-all downgrades any arm-time throw (including this one) to
-  // console.warn + null. So the real E_STALE_WASM cause lands only in a console
-  // line; the user-visible symptom for a stale pkg under photrez.facade=1 is
-  // E_FACADE_NOT_READY (ensureFacadeReady sees wasm===null), and under flag OFF
-  // it is silent TS emulation. The guard is therefore suite-focused (it also
-  // fails the real-wasm tests via their not.toBeNull / length>=2 guards) and
-  // documents the stale-pkg class at arm time. (CONTRACT_VERSION is deliberately
-  // NOT bumped: this arity probe is the guard, so a stale pkg fails HERE rather
-  // than in every later assertion.)
-  if (mod && typeof mod.protocol_apply_command === "function" && mod.protocol_apply_command.length < 2) {
-    throw new Error(
-      "E_STALE_WASM: protocol_apply_command takes 1 arg -- this wasm pkg predates document-scoped engine routing; rebuild the wasm pkg",
-    );
-  }
-  wasm = mod;
-}
-
-// ── Facade readiness (load-order safety) ─────────────────────────────────
-// When photrez.facade=1 the facade MUST be Rust-backed. Before the wasm is
-// armed (setProtocolWasm) a facade command must NOT silently fall through to
-// the TS emulator — the emulator starts at version 0 and is discarded once the
-// real engine arms, so an emu->Rust straddle diverges state/version (there is
-// no atomic reconciliation). The gate below makes that divergence LOUD while
-// the facade is enabled, and only while it is enabled. With the facade=0
-// opt-out the emulator is the legacy authority path, byte-identical to before.
-const FACADE_NOT_READY = "E_FACADE_NOT_READY";
-
-// Single source of truth for the facade flag. Reads localStorage directly (not
-// via facadeRegistry) to avoid a bridge->facadeRegistry import cycle; facade
-// registry re-exports this so existing consumers are unchanged.
-export function isFacadeEnabled(): boolean {
-  try {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem("photrez.facade") !== "0";
-  } catch {
-    return false;
-  }
-}
-
-// Native-authority dispatch selection: chooses which engine backs the protocol
-// command path. Defaults to native; storing photrez.facadeAuthority="wasm" keeps
-// the wasm engine. The predicate is read by the dispatch branches in
-// applyCommand, getSnapshot, getHistoryQuery, and historyCursorCommit.
-const FACADE_AUTHORITY_KEY = "photrez.facadeAuthority";
-
-export function isNativeAuthority(): boolean {
-  try {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem(FACADE_AUTHORITY_KEY) !== "wasm";
-  } catch {
-    return false;
-  }
-}
-
-export function isFacadeArmed(): boolean {
-  return wasm !== null;
-}
-
-export function facadeReadinessError(): Error {
-  return new Error(
-    `${FACADE_NOT_READY}: facade protocol is enabled (photrez.facade=1) but the wasm engine is not armed yet; wait for ensureFacadeReady()`,
-  );
-}
-
-// Awaits the production wasm loader (which arms the bridge via setProtocolWasm
-// on resolve) and returns the armed module, or throws E_FACADE_NOT_READY if the
-// wasm fails to arm. Idempotent: once armed it returns immediately. Callers
-// should await this at app boot (flag ON) so no facade command runs before the
-// real Rust engine is wired.
-export async function ensureFacadeReady(): Promise<WasmProtocol> {
-  if (wasm) return wasm;
-  await getWasmExportModule();
-  if (!wasm) throw facadeReadinessError();
-  return wasm;
-}
-
-export function getContractVersion(): number {
-  if (wasm) return wasm.protocol_contract_version();
-  return CONTRACT_VERSION;
-}
-
-// -- Native-authority dispatch (default ON; photrez.facadeAuthority="wasm" opts out) --
-// When native authority is active, the protocol command path is rerouted to the
-// per-document native ProtocolEngine in the Rust process-global REGISTRY (reached
-// via rust_pixels_open_document). With the wasm opt-out the wasm engine runs,
-// byte-identical; no dispatch branch below runs in that case.
+// -- Native dispatch --
+// The protocol command path runs on the per-document native ProtocolEngine in
+// the Rust process-global REGISTRY (reached via rust_pixels_open_document).
 // The single authoritative seed promise per doc. Created exactly ONCE, at the
 // document-open path (workspace.addDocument) with the REAL layers + starting
 // version, so the native engine is never seeded empty. Every bridge command
@@ -146,9 +39,8 @@ export const nativeAdapterRegByDoc = new Map<string, Promise<void>>();
 
 // Native-authority cutover seed: drop a doc's seed + adapter state on close so
 // reopening the SAME id re-seeds the engine with the restored model (a stale
-// resolved promise would otherwise skip the re-seed). No-op unless native active.
+// resolved promise would otherwise skip the re-seed).
 export function clearNativeSeed(docId: string): void {
-  if (!isNativeAuthority()) return;
   const key = docId === "" ? "default" : docId;
   nativeSeedPromiseByDoc.delete(key);
   for (const k of nativeAdapterRegByDoc.keys()) {
@@ -168,7 +60,6 @@ export function clearNativeSeed(docId: string): void {
 // call's (version, layers) win; later calls return the existing promise (the
 // Rust seed is only-when-empty as well).
 export function createNativeSeed(docId: string, version: number, layers: RenderLayer[]): Promise<void> {
-  if (!isNativeAuthority()) return Promise.resolve();
   const key = docId === "" ? "default" : docId;
   const existing = nativeSeedPromiseByDoc.get(key);
   if (existing) return existing;
@@ -202,13 +93,12 @@ export const nativeCanonicalSeedPromiseByDoc = new Map<string, Promise<void>>();
 
 // Seed the full canonical-document shadow into the native engine for a doc. Runs
 // AFTER the authoritative open-path layer seed (it awaits that seed's promise) so
-// the doc is already open when the canonical copy is pushed. Skipped: a no-op under
-// the wasm opt-out. If the open-path seed was never created, we still
+// the doc is already open when the canonical copy is pushed. If the open-path
+// seed was never created, we still
 // invoke so the command surfaces the missing-doc ordering bug rather than silently
 // skipping a seed. The seed's promise is recorded in nativeCanonicalSeedPromiseByDoc
 // so applyCommand's seed barrier can await it.
 export function seedNativeCanonical(docId: string, canonicalJson: string): Promise<void> {
-  if (!isNativeAuthority()) return Promise.resolve();
   const key = docId === "" ? "default" : docId;
   const p = (async () => {
     await (nativeSeedPromiseByDoc.get(key) ?? Promise.resolve());
@@ -235,7 +125,6 @@ export function seedNativeCanonical(docId: string, canonicalJson: string): Promi
 // so a late canonical open-seed can never overwrite doc_size after a command has
 // already applied natively.
 export async function awaitNativeSeed(docId: string): Promise<void> {
-  if (!isNativeAuthority()) return Promise.resolve();
   const key = docId === "" ? "default" : docId;
   const layer = nativeSeedPromiseByDoc.get(key) ?? Promise.resolve();
   const canonical = nativeCanonicalSeedPromiseByDoc.get(key) ?? Promise.resolve();
@@ -249,7 +138,6 @@ export async function ensureNativeEngineSeeded(
   version: number,
   layers: RenderLayer[],
 ): Promise<void> {
-  if (!isNativeAuthority()) return;
   await createNativeSeed(docId, version, layers);
 }
 
@@ -259,13 +147,11 @@ export async function ensureNativeEngineSeeded(
 // command issued while that mirror is still in flight can read a stale
 // renderedVersion and be rejected with E_VERSION_MISMATCH (the fill -> setOpacity
 // interleave). Track the in-flight mirror so a facade command can await it and
-// then read the authoritative version. Skipped under the wasm opt-out: only the native path registers and
-// flushes; the wasm path never touches this map, so flush is a no-op
-// there and behavior is unchanged.
+// then read the authoritative version. Only the native path registers and
+// flushes.
 const externalTransitionPendingByDoc = new Map<string, Promise<void>>();
 
 export function setExternalTransitionPending(docId: string, p: Promise<void>): void {
-  if (!isNativeAuthority()) return;
   const key = docId === "" ? "default" : docId;
   const prev = externalTransitionPendingByDoc.get(key);
   externalTransitionPendingByDoc.set(
@@ -277,7 +163,6 @@ export function setExternalTransitionPending(docId: string, p: Promise<void>): v
 }
 
 export async function flushExternalTransitions(docId: string): Promise<void> {
-  if (!isNativeAuthority()) return;
   const key = docId === "" ? "default" : docId;
   const p = externalTransitionPendingByDoc.get(key);
   if (p) {
@@ -310,7 +195,6 @@ export const canonicalPayloadByDoc = new Map<string, string>();
 // every payload is the FULL document, so the latest alone heals the shadow.
 // Mirror/version entries must NEVER use this slot (see the map comment above).
 export function setCanonicalPending(docId: string, p: Promise<void>): void {
-  if (!isNativeAuthority()) return;
   const key = docId === "" ? "default" : docId;
   // Store a guarded copy: a rejected re-push must never wedge the flush (same
   // stance as the chained barrier). The original still rejects for the
@@ -351,109 +235,64 @@ export async function applyCommand(envelope: CommandEnvelope): Promise<CommandRe
   const rustEnvelope = toRustEnvelope(envelope);
   const json = JSON.stringify(rustEnvelope);
   const docId = envelope.docId ?? "default";
-  if (isNativeAuthority()) {
-    await awaitNativeSeed(docId);
-    // Guarantee the adapter referenced by this command is registered on the
-    // native engine before applying. The legacy mirror registers it via
-    // registerPayloadAdapter (which resolves this promise after the seed), so
-    // awaiting it prevents Rust record_external from rejecting E_UNKNOWN_ADAPTER.
-    const key = docId === "" ? "default" : docId;
-    const adapterId = (JSON.parse(json) as { command?: { adapter_id?: string } }).command?.adapter_id;
-    if (adapterId) {
-      const reg = nativeAdapterRegByDoc.get(`${key}::${adapterId}`);
-      if (reg) await reg;
-    }
-    try {
-      const outJson = await nativeProtocol.protocol_apply_command_native(json, docId);
-      return JSON.parse(outJson) as CommandResult;
-    } catch (e) {
-      throw normalizeProtocolError(e);
-    }
-  }
-  if (!wasm) {
-    // Under photrez.facade=1 the facade must be Rust-backed — never
-    // silently emulate a facade command while the wasm is unarmed (that
-    // emu->Rust straddle diverges state/version). With the facade=0 opt-out
-    // the emulator is the legacy authority and behaves exactly as before.
-    if (isFacadeEnabled()) {
-      throw facadeReadinessError();
-    }
-    return emulateApply(envelope, docId);
+  await awaitNativeSeed(docId);
+  // Guarantee the adapter referenced by this command is registered on the
+  // native engine before applying. The legacy mirror registers it via
+  // registerPayloadAdapter (which resolves this promise after the seed), so
+  // awaiting it prevents Rust record_external from rejecting E_UNKNOWN_ADAPTER.
+  const key = docId === "" ? "default" : docId;
+  const adapterId = (JSON.parse(json) as { command?: { adapter_id?: string } }).command?.adapter_id;
+  if (adapterId) {
+    const reg = nativeAdapterRegByDoc.get(`${key}::${adapterId}`);
+    if (reg) await reg;
   }
   try {
-    const outJson = wasm.protocol_apply_command(json, docId);
-    const parsed = JSON.parse(outJson) as CommandResult;
-    return parsed;
+    const outJson = await nativeProtocol.protocol_apply_command_native(json, docId);
+    return JSON.parse(outJson) as CommandResult;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    try {
-      const parsed = JSON.parse(msg) as { code: string; message: string };
-      throw new Error(`${parsed.code}: ${parsed.message}`);
-    } catch {
-      throw new Error(msg);
-    }
+    throw normalizeProtocolError(e);
   }
 }
 
 export async function getSnapshot(docId = "default"): Promise<RenderSnapshot> {
-  if (isNativeAuthority()) {
-    await awaitNativeSeed(docId);
-    try {
-      const j = await nativeProtocol.protocol_snapshot_native(docId);
-      return JSON.parse(j) as RenderSnapshot;
-    } catch (e) {
-      throw normalizeProtocolError(e);
-    }
+  await awaitNativeSeed(docId);
+  try {
+    const j = await nativeProtocol.protocol_snapshot_native(docId);
+    return JSON.parse(j) as RenderSnapshot;
+  } catch (e) {
+    throw normalizeProtocolError(e);
   }
-  if (!wasm) return emulateGetSnapshot();
-  const j = wasm.protocol_snapshot_json(docId);
-  return JSON.parse(j) as RenderSnapshot;
 }
 
-// Lightweight native-authority version read (carry-forward optimization): the
-// facade's syncFromEngine path only needs the engine's u64 version, never the
-// full snapshot. Under native authority read it directly via
-// protocol_version_native (no snapshot serialization); fall back to parsing the
-// snapshot's version on the wasm path as a defensive fallback (the only
-// production caller, syncFromEngine, is native-gated, so the wasm branch is a
-// safety net that is rarely hit).
+// Lightweight native version read (carry-forward optimization): the facade's
+// syncFromEngine path only needs the engine's u64 version, never the full
+// snapshot. Read it directly via protocol_version_native (no snapshot
+// serialization).
 export async function getVersion(docId = "default"): Promise<number> {
-  if (isNativeAuthority()) {
-    await awaitNativeSeed(docId);
-    try {
-      return await nativeProtocol.protocol_version_native(docId);
-    } catch (e) {
-      throw normalizeProtocolError(e);
-    }
+  await awaitNativeSeed(docId);
+  try {
+    return await nativeProtocol.protocol_version_native(docId);
+  } catch (e) {
+    throw normalizeProtocolError(e);
   }
-  if (!wasm) return 0;
-  const j = wasm.protocol_snapshot_json(docId);
-  return (JSON.parse(j) as RenderSnapshot).version;
 }
 
 // Id-only membership probe: the guarded metadata funnels need the engine
-// layer-id set, never full layer values. Under native authority read it
-// directly via protocol_layer_ids_native (no snapshot serialization). A
-// backend that does not register the command rejects the invoke, and the
-// probe falls back to the full snapshot, so behavior is unchanged there. The
-// fallback also preserves the missing-doc error: the snapshot rejects the
-// same way the probe would, so no error is masked. Under wasm authority there
-// is no probe export (same stance as the version probe), so parse the
-// snapshot; without wasm use the emulator snapshot.
+// layer-id set, never full layer values. Read it directly via
+// protocol_layer_ids_native (no snapshot serialization). A backend that does
+// not register the command rejects the invoke, and the probe falls back to the
+// full snapshot, so behavior is unchanged there. The fallback also preserves
+// the missing-doc error: the snapshot rejects the same way the probe would,
+// so no error is masked.
 export async function getLayerIds(docId = "default"): Promise<string[]> {
-  if (isNativeAuthority()) {
-    await awaitNativeSeed(docId);
-    try {
-      const j = await nativeProtocol.protocol_layer_ids_native(docId);
-      return JSON.parse(j) as string[];
-    } catch {
-      const snap = await getSnapshot(docId);
-      return (snap.layers ?? []).map((l) => l.id);
-    }
+  await awaitNativeSeed(docId);
+  try {
+    const j = await nativeProtocol.protocol_layer_ids_native(docId);
+    return JSON.parse(j) as string[];
+  } catch {
+    const snap = await getSnapshot(docId);
+    return (snap.layers ?? []).map((l) => l.id);
   }
-  if (!wasm) return (emulateGetSnapshot().layers ?? []).map((l) => l.id);
-  const j = wasm.protocol_snapshot_json(docId);
-  return ((JSON.parse(j) as RenderSnapshot).layers ?? []).map((l) => l.id);
 }
 
 // Exported so the wire mapping can be tested directly. This function is where a
@@ -631,8 +470,8 @@ export function toRustEnvelope(env: CommandEnvelope): unknown {
 }
 
 
-// The in-memory emulator now lives in bridge_emu.ts to keep this module under the
-// 1000-line guard. applyCommand dispatches to it when the wasm runtime is unarmed;
-// every emulator symbol is re-exported so existing import paths stay valid.
-import { emulateApply, emulateGetSnapshot } from "./bridge_emu";
+// The in-memory emulator lives in bridge_emu.ts to keep this module under the
+// 1000-line guard. It is test-only instrumentation now: production dispatches to
+// the native engine above. Every emulator symbol is re-exported so existing
+// import paths stay valid.
 export * from "./bridge_emu";

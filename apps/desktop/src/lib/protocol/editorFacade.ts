@@ -2,7 +2,7 @@
 // Holds only: renderedVersion + snapshot cache (read-only projection) + transient interaction.
 // All persistent mutations go via Command -> Rust -> delta. Correctness via expectedVersion + baseVersion.
 
-import { applyCommand, flushExternalTransitions, getSnapshot, getVersion, isNativeAuthority } from "./bridge";
+import { applyCommand, flushExternalTransitions, getSnapshot, getVersion } from "./bridge";
 import { repushCanonicalDocument } from "./canonicalSeed";
 import { CONTRACT_VERSION } from "./types";
 import type { DocumentEngine } from "@/engine/document";
@@ -33,8 +33,7 @@ export class EditorFacade {
   // Native-authority shadow re-push: the TS engine bound during
   // seedFacadeFromEngine so addLayer can re-push the full canonical document
   // after Rust mints a layer (Rust cannot populate the canonical-only fields).
-  // Null unless native authority is active; the re-push is itself gated, so an
-  // unset engine is a no-op and the wasm opt-out path is unchanged.
+  // Null until seedFacadeFromEngine binds it; an unset engine is a no-op.
   private engine: DocumentEngine | null = null;
   bindEngine(engine: DocumentEngine): void {
     this.engine = engine;
@@ -112,15 +111,13 @@ export class EditorFacade {
     this.pending.set(this.nextSeq++, res.delta.baseVersion);
     if (!this.applyDelta(res.delta)) {
       await this.refreshSnapshot();
-    } else if (isNativeAuthority()) {
-      // NATIVE only: the Rust engine inserts at the clamped host index while
-      // applyDelta tail-appends, so reposition locally to keep the projection
-      // order equal to the engine order (and the canonical re-push below
-      // faithful to it) WITHOUT any snapshot re-read. Clamp mirrors the
-      // engine's insert_at: max(0, min(index, length-before-insert)), matching
-      // bridge_emu and document_core_apply AddLayer. Under wasm authority the
-      // facade keeps its historical tail-append (the mirror is retired with
-      // the wasm path; no native consumers exist there).
+    } else {
+      // The Rust engine inserts at the clamped host index while applyDelta
+      // tail-appends, so reposition locally to keep the projection order equal
+      // to the engine order (and the canonical re-push below faithful to it)
+      // WITHOUT any snapshot re-read. Clamp mirrors the engine's insert_at:
+      // max(0, min(index, length-before-insert)), matching bridge_emu and
+      // document_core_apply AddLayer.
       this.repositionAppended(id, index);
     }
     this.repushCanonicalAfterAddLayer();
@@ -457,15 +454,15 @@ export class EditorFacade {
     try { const snap = await getSnapshot(this.docId); this.applySnapshot(snap); } catch {}
   }
 
-  // Native-authority shadow re-push (gated, wasm opt-out => no-op). After a
-  // successful addLayer the native engine has minted the layer but lacks its
-  // canonical-only fields, and the TS engine has not yet received the layer
-  // (the production caller projects it only after this returns). Project the
-  // facade snapshot into the engine first, then re-push the full canonical
-  // shadow so the native copy is complete. Fire-and-forget: a rejected re-push
-  // is logged, never surfaced as an unhandled rejection.
+  // Native shadow re-push. After a successful addLayer the native engine has
+  // minted the layer but lacks its canonical-only fields, and the TS engine has
+  // not yet received the layer (the production caller projects it only after
+  // this returns). Project the facade snapshot into the engine first, then
+  // re-push the full canonical shadow so the native copy is complete.
+  // Fire-and-forget: a rejected re-push is logged, never surfaced as an
+  // unhandled rejection.
   private repushCanonicalAfterAddLayer(): void {
-    if (!isNativeAuthority() || !this.engine) return;
+    if (!this.engine) return;
     try {
       this.engine.applyFacadeSnapshot(this.snapshot, {
         dimsAuthoritative: this.lastProjectionDimsAuthoritative,
@@ -478,15 +475,14 @@ export class EditorFacade {
     );
   }
 
-  // ADR 0014 native-authority version sync: under native authority the legacy
-  // history mirror bumps the engine documentVersion outside this facade's command
-  // envelope and is fire-and-forget. Await any in-flight mirror, then read the
-  // authoritative engine version, so renderedVersion matches the native engine
-  // before we build expectedVersion. This closes the fill -> setOpacity interleave
-  // that rejected with E_VERSION_MISMATCH. The wasm opt-out path no-ops here, so
-  // behavior is unchanged. The native engine remains the single version owner.
+  // ADR 0014 version sync: the legacy history mirror bumps the engine
+  // documentVersion outside this facade's command envelope and is
+  // fire-and-forget. Await any in-flight mirror, then read the authoritative
+  // engine version, so renderedVersion matches the native engine before we
+  // build expectedVersion. This closes the fill -> setOpacity interleave that
+  // rejected with E_VERSION_MISMATCH. The native engine remains the single
+  // version owner.
   private async syncFromEngine(): Promise<void> {
-    if (!isNativeAuthority()) return;
     await flushExternalTransitions(this.docId);
     try {
       const v = await getVersion(this.docId);

@@ -4,9 +4,8 @@
 // the FULL document content (every layer field + selection), so the native engine
 // holds a complete typed shadow of the authoritative TS model at open time.
 //
-// It is only ever invoked from the gated native-authority path (see bridge
-// seedNativeCanonical); the wasm opt-out path never calls it, so production is
-// byte-identical.
+// It is only ever invoked from the native path (see bridge
+// seedNativeCanonical).
 //
 // Field rules (cross-checked against canonical_model.rs serde attributes):
 //  - camelCase keys; `type` carries the layer `type`.
@@ -29,7 +28,7 @@
 
 import type { DocumentEngine } from "@/engine/document";
 import type { LayerNode } from "@/engine/types";
-import { canonicalPayloadByDoc, isNativeAuthority, seedNativeCanonical, setCanonicalPending } from "./bridge";
+import { canonicalPayloadByDoc, seedNativeCanonical, setCanonicalPending } from "./bridge";
 
 type JsonObject = Record<string, unknown>;
 
@@ -110,8 +109,7 @@ export function buildCanonicalPayload(model: {
 // directly (facade addLayer under native authority, or a mirrored external
 // transition): the native engine mints/advances the document model but cannot
 // reconstruct the canonical-only fields, so the TS model is re-pushed in full.
-// Gated by native authority (wasm opt-out => no-op, production unchanged). The
-// native seed replaces the shadow unconditionally, so a re-push is idempotent
+// The native seed replaces the shadow unconditionally, so a re-push is idempotent
 // and safe to fire after every such event.
 //
 // Ordering: the re-push's invoke promise overwrites the per-doc canonical slot
@@ -138,7 +136,6 @@ export async function repushCanonicalDocument(docId: string, engine: DocumentEng
  * state instead of re-reading the live model after an async gap.
  */
 export async function repushCanonicalPayload(docId: string, payload: string): Promise<void> {
-  if (!isNativeAuthority()) return;
   const key = docId === "" ? "default" : docId;
   // Cheap duplicate guard: a byte-identical payload means the shadow already
   // holds exactly this content, so skip the invoke AND the slot write. String

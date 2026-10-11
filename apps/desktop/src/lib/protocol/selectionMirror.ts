@@ -13,10 +13,9 @@
 // the metadata funnels in facadeRegistry:
 //   - The caller ALWAYS runs its host engine selection mutation first; the host
 //     stays the visual authority for model.selection.
-//   - When the facade flag is on AND native authority is active, the caller
-//     ADDITIONALLY dispatches here so the native engine's shadow selection stays
-//     in sync (selectAll/invert read the engine's seeded document dims and are
-//     needed for parity).
+//   - The caller ADDITIONALLY dispatches here so the native engine's shadow
+//     selection stays in sync (selectAll/invert read the engine's seeded
+//     document dims and are needed for parity).
 //   - This funnel never calls applyFacadeSnapshot: the returned snapshot is
 //     ignored, so it cannot clobber the host selection or drop layers the engine
 //     never learned.
@@ -24,7 +23,6 @@
 // ownership-gated) and there is no mixed-rejected path.
 import type { SelectionState } from "./types";
 import { EditorFacade } from "./editorFacade";
-import { isFacadeEnabled, isNativeAuthority } from "./bridge";
 
 // Projection sink: the TS engine a funnel pushes the facade snapshot into. The
 // optional flag tells the engine whether the projection is authoritative for the
@@ -37,21 +35,17 @@ export type FacadeProjectionSink = {
 // -- Shared per-document facade store -------------------------------------
 const facadeByDoc = new Map<string, EditorFacade>();
 
-// Normalize an empty doc id to the reserved "default" key. The native-authority
-// engine (bridge/native client) resolves "" -> "default"; on that path the facade
-// registry must agree so a facade keyed by the native engine's id meets the bridge.
-// On the wasm opt-out path this normalization is deliberately NOT applied:
-// getFacade/removeFacade use the raw doc id so the wasm opt-out path is
-// byte-identical to before the native-authority reroute.
+// Normalize an empty doc id to the reserved "default" key. The native engine
+// (bridge/native client) resolves "" -> "default", so the facade registry agrees
+// and a facade keyed by the native engine's id meets the bridge.
 export function resolveFacadeDocKey(docId: string): string {
   return docId === "" ? "default" : docId;
 }
 
-// Resolve the facade map key for the active authority. On the native-authority
-// path empty ids normalize to "default" (matching the native engine); on the
-// wasm opt-out path the raw doc id is used unchanged (byte-identical behavior).
+// Resolve the facade map key: empty ids normalize to "default" (matching the
+// native engine).
 function facadeKey(docId: string): string {
-  return isNativeAuthority() ? resolveFacadeDocKey(docId) : docId;
+  return resolveFacadeDocKey(docId);
 }
 
 export function getFacade(docId: string): EditorFacade {
@@ -84,7 +78,6 @@ export async function commitFacadeSetSelection(
   selection: SelectionState,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: SelectionRouteStatus }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   await f.setSelection(selection);
   return { status: "applied" };
@@ -94,7 +87,6 @@ export async function commitFacadeClearSelection(
   engine: FacadeProjectionSink,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: SelectionRouteStatus }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   await f.clearSelection();
   return { status: "applied" };
@@ -104,7 +96,6 @@ export async function commitFacadeSelectAll(
   engine: FacadeProjectionSink,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: SelectionRouteStatus }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   await f.selectAll();
   return { status: "applied" };
@@ -114,7 +105,6 @@ export async function commitFacadeInvertSelection(
   engine: FacadeProjectionSink,
   facadeOverride?: EditorFacade,
 ): Promise<{ status: SelectionRouteStatus }> {
-  if (!isFacadeEnabled() || !isNativeAuthority()) return { status: "legacy" };
   const f = facadeOverride ?? getFacade(engine.getId());
   await f.invertSelection();
   return { status: "applied" };
@@ -151,7 +141,6 @@ export function mirrorSelectionCommand(
   engine: { getId(): string },
   run: () => Promise<unknown>,
 ): void {
-  if (!isFacadeEnabled()) return;
   const key = resolveFacadeDocKey(engine.getId());
   const prev = selectionMirrorTailByDoc.get(key) ?? Promise.resolve();
   const next = prev.then(async () => {
@@ -183,9 +172,7 @@ export function mirrorSelectionCommand(
 // pre-undo rect and the next native selection op (selectAll / invert read the
 // engine's active selection) diverges. Dispatch through the SAME serialized
 // funnel the routed selection ops use: a non-null restored selection mirrors
-// setSelection, a cleared one mirrors clearSelection. Gated here on facade+native
-// before any engine read, so the opt-out path is a no-op and stays
-// byte-identical (the funnel re-checks the same gate).
+// setSelection, a cleared one mirrors clearSelection.
 //
 // The native heal re-push (repushCanonicalDocument) does NOT cover this: it
 // refreshes the canonical SHADOW document (which carries selection) but leaves
@@ -196,11 +183,6 @@ export function mirrorRestoredSelection(engine: {
   getId(): string;
   getSelection(): SelectionState | null;
 }): void {
-  // Default-path guard: without this the helper reads engine.getSelection()
-  // BEFORE the funnel's own gate, so a flag-OFF undo/redo would still touch the
-  // engine (not byte-identical) and any minimal engine fake would break. Only
-  // the facade+native path mirrors; the funnel re-checks the same gate.
-  if (!isFacadeEnabled() || !isNativeAuthority()) return;
   const sel = engine.getSelection();
   if (sel) {
     mirrorSelectionCommand(engine, () => commitFacadeSetSelection(engine as never, sel));

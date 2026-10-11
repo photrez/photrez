@@ -14,26 +14,9 @@ export async function getWasmExportModule(): Promise<any> {
         }
         if (typeof mod.set_panic_hook === "function") mod.set_panic_hook();
         wasmModule = mod;
-        // Wire the facade protocol bridge to the REAL Rust engine. When the wasm
-        // exports protocol_apply_command the bridge's applyCommand runs through
-        // real Rust (serde JSON in/out) instead of the TS emulation fallback.
-        // HONESTLY: the facade protocol is Rust-backed only AFTER this load
-        // completes; before it (or in a non-wasm env where this import fails and
-        // we return null) the bridge falls back to TS emulation. The load-order
-        // robustness (wasm ready before the first facade command) is a FLAG-ON
-        // acceptance criterion: the WASM module must be ready before the first
-        // facade command.
-        if (typeof mod.protocol_apply_command === "function") {
-          const { setProtocolWasm } = await import("@/lib/protocol/bridge");
-          setProtocolWasm(mod);
-          // The "ts-external" payload adapter is NOT pre-registered here. With a
-          // document-scoped engine each document owns its adapters, so the
-          // canonical registration point is recordExternalTransitionFor
-          // (facadeRegistry): it registers "ts-external" on the target document's
-          // engine immediately before recording. Registering on "default" here
-          // would be redundant for every path AND would not cover a non-default
-          // document engine.
-        }
+        // The compiled module backs the pixel kernels below (flood fill,
+        // gradient fill, adjustment bake, image encoding). Protocol dispatch is
+        // native-only and never reads this module.
         return mod;
       } catch (err) {
         // Log warning for missing WASM pkg / non-WASM environment
