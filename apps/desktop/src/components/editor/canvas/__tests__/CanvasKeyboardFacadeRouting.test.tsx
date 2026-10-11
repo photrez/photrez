@@ -160,7 +160,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -168,7 +167,6 @@ afterEach(() => {
 
 describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () => {
   it("Ctrl+Shift+N: routes Add Layer through facade.addLayer (no raw engine.addLayer, no phantom history)", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness();
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -196,7 +194,6 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
   });
 
   it("Delete: routes through EditorClient.deleteLayer (no raw engine.deleteLayer, no phantom history, no E_FACADE_OWNED)", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness();
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -229,7 +226,6 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
   });
 
   it("Backspace: routes through the same delete funnel as Delete", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness();
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -252,7 +248,6 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
   });
 
   it("digit 5: routes Opacity through facade.setOpacity (no raw engine.setLayerOpacity, no phantom history)", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness();
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -281,156 +276,9 @@ describe("canvas keyboard shortcuts route through facade funnels (flag ON)", () 
   });
 });
 
-describe("canvas keyboard shortcuts legacy routing (flag OFF, byte-identical)", () => {
-  it("Ctrl+Shift+N: flag OFF calls raw engine.addLayer + commits history (no facade)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = makeKeyboardHarness();
-    await new Promise((r) => setTimeout(r, 0));
-    const editor = h.getEditor();
-    const engine = h.session.engine;
-    const facade = getFacade(engine.getId());
-    const facadeAddSpy = vi.spyOn(facade, "addLayer");
-    const engineAddSpy = vi.spyOn(engine, "addLayer");
-    const commitSpy = vi.spyOn(editor.workspace.getActiveHistory()!, "commit");
-    const before = engine.getLayers().length;
-
-    fireKey({ key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
-
-    expect(facadeAddSpy).not.toHaveBeenCalled();
-    expect(engineAddSpy).toHaveBeenCalledTimes(1);
-    expect(commitSpy).toHaveBeenCalledTimes(1);
-    expect(engine.getLayers().length).toBe(before + 1);
-    expect(editor.workspace.getActiveHistory()!.canUndo()).toBe(true);
-    h.dispose();
-  });
-
-  it("Delete: flag OFF calls raw engine.deleteLayer + records history (no facade)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = makeKeyboardHarness();
-    await new Promise((r) => setTimeout(r, 0));
-    const editor = h.getEditor();
-    const engine = h.session.engine;
-    const top = engine.addLayer("Top");
-    engine.setActiveLayer(top.id);
-    const initialCount = engine.getLayers().length;
-
-    const facade = getFacade(engine.getId());
-    const facadeDeleteSpy = vi.spyOn(facade, "deleteLayer");
-    const engineDeleteSpy = vi.spyOn(engine, "deleteLayer");
-    const history = editor.workspace.getActiveHistory()!;
-    const commitSpy = vi.spyOn(history, "commit");
-    const recordSpy = vi.spyOn(history, "recordSnapshotHistory");
-
-    fireKey({ key: "Delete" });
-
-    expect(facadeDeleteSpy).not.toHaveBeenCalled();
-    expect(engineDeleteSpy).toHaveBeenCalledTimes(1);
-    expect(engine.getLayers()).toHaveLength(initialCount - 1);
-    expect(engine.getLayer(top.id)).toBeUndefined();
-    expect(editor.workspace.getActiveHistory()!.canUndo()).toBe(true);
-    // Delta (a): the funnel's flag-OFF delete records via recordSnapshotHistory,
-    // NOT the old history.commit - this is an honest delta vs the old keyboard path.
-    expect(recordSpy).toHaveBeenCalledTimes(1);
-    expect(commitSpy).not.toHaveBeenCalled();
-    h.dispose();
-  });
-
-  it("Delete: flag OFF on a 1-layer (Background) doc shows the Background toast (keyboard now matches panel)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = makeKeyboardHarness();
-    await new Promise((r) => setTimeout(r, 0));
-    const editor = h.getEditor();
-    const engine = h.session.engine;
-    // The blank doc has a single Background layer, which is the active layer.
-    expect(engine.getLayers()).toHaveLength(1);
-    const onlyLayer = engine.getLayer(engine.getActiveLayerId()!);
-    expect(onlyLayer?.isBackground).toBe(true);
-    const before = engine.getLayers().length;
-
-    fireKey({ key: "Delete" });
-
-    // Delta (c): the old keyboard path silently did nothing on a 1-layer doc;
-    // routing through the funnel now surfaces the same toast the panel shows.
-    expect(toastMock).toHaveBeenCalledWith("Cannot delete the Background layer", "warn");
-    expect(engine.getLayers()).toHaveLength(before); // nothing deleted
-    h.dispose();
-  });
-
-  it("digit 5: flag OFF calls raw engine.setLayerOpacity + commits history (no facade)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = makeKeyboardHarness();
-    await new Promise((r) => setTimeout(r, 0));
-    const editor = h.getEditor();
-    const engine = h.session.engine;
-    const layer = engine.addLayer("Top");
-    engine.setActiveLayer(layer.id);
-
-    const facade = getFacade(engine.getId());
-    const setOpacitySpy = vi.spyOn(facade, "setOpacity");
-    const rawSetOpacitySpy = vi.spyOn(engine, "setLayerOpacity");
-    const commitSpy = vi.spyOn(editor.workspace.getActiveHistory()!, "commit");
-
-    fireKey({ key: "5" });
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(setOpacitySpy).not.toHaveBeenCalled();
-    expect(rawSetOpacitySpy).toHaveBeenCalledTimes(1);
-    expect(rawSetOpacitySpy).toHaveBeenCalledWith(layer.id, 0.5);
-    expect(commitSpy).toHaveBeenCalledTimes(1);
-    expect(engine.getLayer(layer.id)?.opacity).toBeCloseTo(0.5);
-    h.dispose();
-  });
-
-  it("digit 5 twice: flag OFF skips history on the repeated (no-op) digit", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = makeKeyboardHarness();
-    await new Promise((r) => setTimeout(r, 0));
-    const editor = h.getEditor();
-    const engine = h.session.engine;
-    const layer = engine.addLayer("Top");
-    engine.setActiveLayer(layer.id);
-    engine.setLayerOpacity(layer.id, 0.5);
-
-    fireKey({ key: "5" }); // same opacity -> no-op, no commit
-    expect(editor.workspace.getActiveHistory()!.getUndoCount()).toBe(0);
-    fireKey({ key: "7" }); // different -> commit
-    await new Promise((r) => setTimeout(r, 0));
-    expect(engine.getLayer(layer.id)?.opacity).toBeCloseTo(0.7);
-    expect(editor.workspace.getActiveHistory()!.getUndoCount()).toBe(1);
-    fireKey({ key: "7" }); // repeat -> no-op
-    expect(editor.workspace.getActiveHistory()!.getUndoCount()).toBe(1);
-    h.dispose();
-  });
-});
-
 describe("canvas keyboard delete multi-select routing", () => {
-  it("Delete multi-select: flag OFF routes legacy deleteMultipleLayers (two raw engine.deleteLayer calls, no facade)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = makeKeyboardHarness();
-    await new Promise((r) => setTimeout(r, 0));
-    const editor = h.getEditor();
-    const engine = h.session.engine;
-    const a = engine.addLayer("A");
-    const b = engine.addLayer("B");
-    editor.setSelectedLayerIds([a.id, b.id]);
-    const before = engine.getLayers().length; // bg + A + B
-
-    const facade = getFacade(engine.getId());
-    const facadeDeleteSpy = vi.spyOn(facade, "deleteLayer");
-    const engineDeleteSpy = vi.spyOn(engine, "deleteLayer");
-
-    fireKey({ key: "Delete" });
-
-    expect(facadeDeleteSpy).not.toHaveBeenCalled();
-    expect(engineDeleteSpy).toHaveBeenCalledTimes(2); // legacy deleteMultipleLayers preserved
-    expect(engine.getLayers()).toHaveLength(before - 2);
-    expect(engine.getLayer(a.id)).toBeUndefined();
-    expect(engine.getLayer(b.id)).toBeUndefined();
-    h.dispose();
-  });
 
   it("Delete multi-select: flag ON all facade-owned routes facade.deleteLayer per layer (no raw engine)", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness();
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -455,7 +303,6 @@ describe("canvas keyboard delete multi-select routing", () => {
   });
 
   it("Delete multi-select: flag ON mixed ownership is rejected with a toast and deletes nothing", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness();
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -481,39 +328,8 @@ describe("canvas keyboard delete multi-select routing", () => {
   });
 });
 
-describe("canvas keyboard delete parity with panel funnel", () => {
-  it("keystroke Delete and a direct panel-funnel call produce identical end state (photrez.facade=0 opt-out)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    const runDelete = async (via: "key" | "funnel") => {
-      const h = makeKeyboardHarness(`kb-parity-${via}`);
-      await new Promise((r) => setTimeout(r, 0));
-      const editor = h.getEditor();
-      const engine = h.session.engine;
-      const top = engine.addLayer("Top");
-      engine.setActiveLayer(top.id);
-      if (via === "key") fireKey({ key: "Delete" });
-      else h.getLayerActions().handleDeleteActiveLayer();
-      // Compare the meaningful end state (not the auto-generated layer id, which
-      // differs per harness doc id): one layer remains and it is the Background.
-      const activeLayer = engine.getLayer(engine.getActiveLayerId()!);
-      const after = { count: engine.getLayers().length, activeIsBackground: !!activeLayer?.isBackground };
-      h.dispose();
-      return after;
-    };
-    const viaKey = await runDelete("key");
-    const viaFunnel = await runDelete("funnel");
-    // Both paths converge on the same end state: one layer removed, Background now active.
-    expect(viaKey.count).toBe(viaFunnel.count);
-    expect(viaKey.activeIsBackground).toBe(viaFunnel.activeIsBackground);
-    expect(viaKey.count).toBe(1);
-    expect(viaKey.activeIsBackground).toBe(true);
-  });
-});
-
 describe("canvas keyboard facade routing - add then delete leaves no orphan state (flag ON)", () => {
   it("add then delete in a single session leaves no facade/engine orphan and history stays clean under flag ON", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness();
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -568,7 +384,6 @@ describe("canvas keyboard arrow nudge routes through the numeric transform commi
 
   // A facade-owned layer with the Move tool active, on native authority.
   async function nudgeHarness(docId: string) {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness(docId);
     await new Promise((r) => setTimeout(r, 0));
     const engine = h.session.engine;
@@ -619,7 +434,6 @@ describe("canvas keyboard arrow nudge routes through the numeric transform commi
   });
 
   it("mixed multi-select: one toast, neither layer moves", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const h = makeKeyboardHarness("nudge-mixed");
     await new Promise((r) => setTimeout(r, 0));
     const editor = h.getEditor();
@@ -646,7 +460,7 @@ describe("canvas keyboard arrow nudge routes through the numeric transform commi
     h.dispose();
   });
 
-  it("position-locked layer is skipped silently, routed and legacy alike", async () => {
+  it("position-locked layer is skipped silently", async () => {
     const { h, engine, id } = await nudgeHarness("nudge-lock-on");
     const facade = getFacade(engine.getId());
     engine.applyFacadeSnapshot(await facade.setLayerLocked(id, "position", true));
@@ -660,22 +474,6 @@ describe("canvas keyboard arrow nudge routes through the numeric transform commi
     expect(xy(engine, id)).toEqual(start);
     expect(toastMock).not.toHaveBeenCalled();
     h.dispose();
-
-    localStorage.setItem("photrez.facade", "0");
-    const off = makeKeyboardHarness("nudge-lock-off");
-    await new Promise((r) => setTimeout(r, 0));
-    const offEngine = off.session.engine;
-    const plain = offEngine.addLayer("Plain");
-    offEngine.setActiveLayer(plain.id);
-    offEngine.setLayerLockPosition(plain.id, true);
-    off.getEditor().setActiveTool("move");
-    const moveSpy = vi.spyOn(offEngine, "moveLayer");
-
-    fireKey({ key: "ArrowRight" });
-
-    expect(moveSpy).not.toHaveBeenCalled();
-    expect(xy(offEngine, plain.id)).toEqual({ x: 0, y: 0 });
-    off.dispose();
   });
 
   it("a live pointer gesture holding the transform slot refuses the nudge out loud", async () => {
@@ -713,50 +511,6 @@ describe("canvas keyboard arrow nudge routes through the numeric transform commi
     expect(xy(engine, id)).toEqual({ x: 0, y: -2 });
     expect(commitSpy).toHaveBeenCalledTimes(2);
     expect(history.getUndoCount()).toBe(0);
-    h.dispose();
-  });
-});
-
-describe("canvas keyboard arrow nudge legacy path (flag OFF, synchronous)", () => {
-  it("writes silently inside the keydown handler, flushes once at keyup, never reaches the funnel", () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = makeKeyboardHarness("nudge-off");
-    const editor = h.getEditor();
-    const engine = h.session.engine;
-    const layer = engine.addLayer("Plain");
-    engine.setActiveLayer(layer.id);
-    editor.setActiveTool("move");
-    const commitSpy = vi.spyOn(getFacade(engine.getId()), "commitTransform");
-    const loudSpy = vi.spyOn(engine, "moveLayer");
-    const silentSpy = vi.spyOn(engine, "moveLayerSilent");
-    const history = editor.workspace.getActiveHistory()!;
-    const historySpy = vi.spyOn(history, "commit");
-    const start = { x: layer.transform.x, y: layer.transform.y };
-
-    fireKey({ key: "ArrowRight", shiftKey: true });
-
-    // No await between the keystroke and these assertions: the flag-OFF branch must
-    // keep its synchronous shape.
-    expect(commitSpy).not.toHaveBeenCalled();
-    expect(loudSpy).not.toHaveBeenCalled();
-    expect(silentSpy).toHaveBeenCalledTimes(1);
-    expect(silentSpy).toHaveBeenCalledWith(layer.id, start.x + 10, start.y);
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(history.canUndo()).toBe(true);
-
-    // Key repeat keeps moving without adding an undo entry: the legacy path records
-    // one entry per burst, on the first press only.
-    historySpy.mockClear();
-    fireKey({ key: "ArrowRight", shiftKey: true, repeat: true });
-    expect(silentSpy).toHaveBeenCalledTimes(2);
-    expect(loudSpy).not.toHaveBeenCalled();
-    expect(historySpy).not.toHaveBeenCalled();
-    expect(engine.getLayer(layer.id)!.transform.x).toBe(start.x + 20);
-
-    // Burst end: the deferred sync fires exactly once, closing the burst.
-    const flushSpy = vi.spyOn(engine, "flushChangeNotification");
-    window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }));
-    expect(flushSpy).toHaveBeenCalledTimes(1);
     h.dispose();
   });
 });

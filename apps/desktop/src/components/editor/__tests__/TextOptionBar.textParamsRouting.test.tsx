@@ -168,7 +168,6 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facade", "1");
   localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -177,7 +176,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
   document.body.replaceChildren();
@@ -249,28 +247,6 @@ describe("text option bar - live edit session on the same layer", () => {
     // The live tick must reach the raster: nothing else uploads a changed layer
     // texture after a model write.
     expect(bar.renderer.uploadImage).toHaveBeenCalledWith(layerId, expect.anything());
-    bar.dispose();
-  });
-});
-
-describe("text option bar - keeps photrez.facade=0 opt-out behavior", () => {
-  it("legacy path: one history entry before the model write, zero commands", async () => {
-    const { bar, layerId } = await openBar({ pushedToEngine: false });
-    localStorage.setItem("photrez.facade", "0");
-    const history = bar.history();
-    const commitSpy = vi.spyOn(history, "commit");
-    const updateSpy = vi.spyOn(bar.engine, "updateTextData");
-
-    italicButton(bar.container).click();
-    await flush();
-
-    expect(dispatchedTypes().filter((t) => t === "setLayerParams")).toHaveLength(0);
-    expect(commitSpy).toHaveBeenCalledTimes(1);
-    // The order is the contract: the snapshot handed to history must predate the
-    // model write, or the recorded undo step restores the already-edited value.
-    expect(commitSpy).toHaveBeenCalledBefore(updateSpy);
-    expect(history.getUndoCount()).toBe(1);
-    expect(textDataOf(bar, layerId).fontStyle).toBe("italic");
     bar.dispose();
   });
 });

@@ -106,7 +106,6 @@ function tauriRuntime(on: boolean) {
 describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
     vi.mocked(invoke).mockReset();
     vi.mocked(isTauriRuntime).mockReset();
@@ -125,11 +124,14 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     const layer = engine.addLayer("Layer1", 100, 100) as unknown as { id: string };
     const bm = fakeBitmap();
     engine.setLayerImageBitmap(layer.id, bm);
-    engine.setActiveLayer(layer.id);
+
+    const { result } = renderHook(() => useLayerActions(), { wrapper });
+    // The hook reads the active layer through the editor signal, so the
+    // selection must go through the hook itself.
+    result.handleSelectLayer(layer.id);
 
     const spy = vi.spyOn(history, "recordSnapshotHistory");
-    const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleDeleteActiveLayer();
+    await result.handleDeleteActiveLayer();
 
     // Producer routed to recordSnapshotHistory, not plain commit.
     expect(spy).toHaveBeenCalledTimes(1);
@@ -147,7 +149,7 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     expect(rec.length).toBe(0);
   });
 
-  it("undo restores the deleted layer with the SAME ImageBitmap (no detach, no close)", () => {
+  it("undo restores the deleted layer with the SAME ImageBitmap (no detach, no close)", async () => {
     tauriRuntime(true);
     vi.mocked(invoke).mockResolvedValue({ version: 1, epoch: 0 });
 
@@ -155,10 +157,10 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     const layer = engine.addLayer("Layer1", 100, 100) as unknown as { id: string };
     const bm = fakeBitmap();
     engine.setLayerImageBitmap(layer.id, bm);
-    engine.setActiveLayer(layer.id);
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleDeleteActiveLayer();
+    result.handleSelectLayer(layer.id);
+    await result.handleDeleteActiveLayer();
     expect(engine.getLayer(layer.id)).toBeUndefined();
 
     // Model-A undo restore: regardless of the (flag-gated) token re-attach, TS
@@ -180,10 +182,10 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     const { engine, history, wrapper } = createWrapper();
     const layer = engine.addLayer("Layer1", 100, 100) as unknown as { id: string };
     engine.setLayerImageBitmap(layer.id, fakeBitmap());
-    engine.setActiveLayer(layer.id);
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleDeleteActiveLayer();
+    result.handleSelectLayer(layer.id);
+    await result.handleDeleteActiveLayer();
 
     await flush();
     expect(invoke).not.toHaveBeenCalled();

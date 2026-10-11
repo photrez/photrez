@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { readPixelSeedCall , decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 import { createEffect } from "solid-js";
 import { render } from "solid-js/web";
@@ -10,6 +10,7 @@ import { clearRegistry } from "../../keyboardRegistry";
 import { WorkspaceManager } from "@/engine/workspace";
 import { easeOutCubic } from "@/viewport/easing";
 import * as Toast from "../../Toast";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
 
 // Fill Layer records its pixels in the canonical Rust store over IPC. This file
 // asserts the keyboard SHORTCUT reaches that fill, so it needs the store to
@@ -69,6 +70,14 @@ vi.mock("@tauri-apps/api/core", () => ({
     return Promise.reject(`no IPC in jsdom: ${cmd}`);
   }),
 }));
+
+// Real Rust facade engine (the same path the production app arms at boot), so
+// the routed layer funnels reachable from the keyboard are backed by the real
+// engine rather than failing on an unarmed bridge.
+let wasmModule: unknown | null = null;
+beforeAll(async () => {
+  wasmModule = await getWasmExportModule();
+});
 
 function installOffscreenCanvasMock(bitmap: ImageBitmap) {
   vi.stubGlobal("OffscreenCanvas", class {
@@ -757,6 +766,9 @@ describe("canvas layer keyboard shortcuts", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", ctrlKey: true }));
+    // The routed merge funnel is async: wait for its promise chain to settle
+    // before asserting on the post-merge model.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const mergedLayer = session.engine.getLayers()[0];
     expect(session.engine.getLayers()).toHaveLength(1);
@@ -781,6 +793,8 @@ describe("canvas layer keyboard shortcuts", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "E", ctrlKey: true, shiftKey: true }));
+    // Same async contract as the merge arm (see the merge test above).
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const flattenedLayer = session.engine.getLayers()[0];
     expect(session.engine.getLayers()).toHaveLength(1);
@@ -800,9 +814,14 @@ describe("canvas layer keyboard shortcuts", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "N", ctrlKey: true, shiftKey: true }));
+    // The add funnel seeds the facade before dispatching, so the layer lands a
+    // microtask later than the keystroke.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayers()).toHaveLength(initialCount + 1);
-    expect(ws.getActiveHistory()?.canUndo()).toBe(true);
+    // The routed add owns its undo in the facade, so it writes no TS history
+    // entry: the panel/undo surface reads the facade cursor, not this stack.
+    expect(ws.getActiveHistory()?.canUndo()).toBe(false);
     expect(scheduler.requestRender).toHaveBeenCalled();
 
     dispose();

@@ -43,12 +43,10 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
   localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   localStorage.removeItem("photrez.facadeAuthority");
   liveEngine = null;
   __resetFacadeRegistryForTests();
@@ -135,23 +133,5 @@ describe("direct pushModelToRust() paths refresh the facade projection snapshot 
     );
     expect(engine.getWidth()).toBe(800);
     expect(engine.getHeight()).toBe(600);
-  });
-});
-
-describe("photrez.facade=0 opt-out leaves the snapshot untouched on the direct-push paths", () => {
-  beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
-  });
-
-  it("adjustment apply/clear + bitmap replace do not change the snapshot", async () => {
-    const { engine, facade, ownedId } = await setupDoc("docDirectOff");
-    engine.setLayerImageBitmap(ownedId, fakeBitmap());
-    const before = JSON.stringify(facade.snapshot);
-
-    engine.applyBasicAdjustment(ownedId, { brightness: 10, contrast: 0, saturation: 0 });
-    engine.clearBasicAdjustments(ownedId);
-    engine.setLayerImageBitmap(ownedId, fakeBitmap(120, 120));
-
-    expect(JSON.stringify(facade.snapshot)).toBe(before);
   });
 });

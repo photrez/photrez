@@ -90,21 +90,6 @@ describe("metadata op call-site routing (facade dispatch)", () => {
     dispose();
   });
 
-  it("visibility toggle: flag OFF uses legacy engine.setLayerVisibility, no facade commit", async () => {
-    h.facadeOn = false;
-    const session = WorkspaceManager.createBlankDocument("w-vis-off", "W", 800, 600);
-    session.engine.addLayer("Top");
-    const { container, dispose } = mount(session);
-    await tick();
-    const spy = vi.spyOn(session.engine, "setLayerVisibility");
-    const btn = container.querySelector<HTMLButtonElement>("[data-layer-visibility]")!;
-    btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await tick();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(h.commitFacadeVisibility).not.toHaveBeenCalled();
-    dispose();
-  });
-
   it("blend mode change: flag ON routes to commitFacadeBlendMode with the target id + mode", async () => {
     const session = WorkspaceManager.createBlankDocument("w-bld", "W", 800, 600);
     const top = session.engine.addLayer("Top");
@@ -121,47 +106,6 @@ describe("metadata op call-site routing (facade dispatch)", () => {
     expect(h.commitFacadeBlendMode).toHaveBeenCalledTimes(1);
     expect(h.commitFacadeBlendMode.mock.calls[0]).toEqual(expect.arrayContaining([[top.id], "multiply"]));
     expect(spy).not.toHaveBeenCalled();
-    dispose();
-  });
-
-  it("blend mode change: flag OFF uses legacy engine.setLayerBlendMode", async () => {
-    h.facadeOn = false;
-    const session = WorkspaceManager.createBlankDocument("w-bld-off", "W", 800, 600);
-    const top = session.engine.addLayer("Top");
-    session.engine.setActiveLayer(top.id);
-    const { container, dispose } = mount(session);
-    await tick();
-    const spy = vi.spyOn(session.engine, "setLayerBlendMode");
-    const select = container.querySelector("select") as HTMLSelectElement;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
-    setter.call(select, "multiply");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    await tick();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(h.commitFacadeBlendMode).not.toHaveBeenCalled();
-    dispose();
-  });
-
-  it("blend mode change: flag OFF with all targets locked still pushes a history entry (legacy semantics preserved)", async () => {
-    h.facadeOn = false;
-    const session = WorkspaceManager.createBlankDocument("w-bld-locked", "W", 800, 600);
-    const top = session.engine.addLayer("Top");
-    session.engine.setLayerLocked(top.id, true);
-    session.engine.setActiveLayer(top.id);
-    const { container, dispose } = mount(session);
-    await tick();
-    const spy = vi.spyOn(session.engine, "setLayerBlendMode");
-    const before = session.history.getUndoCount();
-    const select = container.querySelector("select") as HTMLSelectElement;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
-    setter.call(select, "multiply");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    await tick();
-    // The locked-target loop must skip the mutation, but the commit itself has
-    // to happen first, exactly as the pre-facade handler did.
-    expect(spy).not.toHaveBeenCalled();
-    expect(session.history.getUndoCount()).toBeGreaterThan(before);
-    expect(h.commitFacadeBlendMode).not.toHaveBeenCalled();
     dispose();
   });
 
@@ -251,24 +195,4 @@ describe("metadata op call-site routing (facade dispatch)", () => {
     dispose();
   });
 
-  it("reorder move-down: flag OFF uses legacy engine.reorderLayer, no facade commit", async () => {
-    h.facadeOn = false;
-    // Two non-background layers so Top can move down (Background is pinned to the bottom).
-    const session = WorkspaceManager.createBlankDocument("w-reorder-off", "W", 800, 600);
-    session.engine.addLayer("Mid");
-    const top = session.engine.addLayer("Top");
-    const { container, dispose } = mount(session);
-    await tick();
-    const spy = vi.spyOn(session.engine, "reorderLayer");
-    const topRow = Array.from(container.querySelectorAll<HTMLElement>("[data-layer-idx]")).find((r) =>
-      r.textContent?.includes("Top"),
-    )!;
-    const downBtn = topRow.querySelector<HTMLButtonElement>("[data-layer-move-down]")!;
-    downBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await tick();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(0, 1);
-    expect(h.commitFacadeReorder).not.toHaveBeenCalled();
-    dispose();
-  });
 });

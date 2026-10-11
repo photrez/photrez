@@ -87,11 +87,9 @@ function renderLayersPanel(session = WorkspaceManager.createBlankDocument("test"
 
 describe("Delete layer (no confirm dialog)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -99,7 +97,7 @@ describe("Delete layer (no confirm dialog)", () => {
 
   // After removing the deletion confirmation dialog, delete is immediate.
   // Ctrl+Z undo is the safety net — matches professional editor behavior.
-  it("delete button immediately removes the layer without a dialog", () => {
+  it("delete button immediately removes the layer without a dialog", async () => {
     const session = WorkspaceManager.createBlankDocument("test", "Test", 800, 600);
     const bitmap = { width: 800, height: 600, close: vi.fn() } as unknown as ImageBitmap;
     installCanvasMocks(bitmap);
@@ -113,6 +111,9 @@ describe("Delete layer (no confirm dialog)", () => {
     expect(deleteBtn).toBeTruthy();
 
     deleteBtn!.click();
+    // The delete funnels through the routed arm, which settles a microtask
+    // after the click before the layer leaves the model.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(s.engine.getLayers()).toHaveLength(1);
     expect(s.engine.getLayer(l2.id)).toBeUndefined();
@@ -141,13 +142,15 @@ describe("Delete layer (no confirm dialog)", () => {
     dispose();
   });
 
-  it("deletes from the correct document immediately (no dialog race)", () => {
+  it("deletes from the correct document immediately (no dialog race)", async () => {
     const first = WorkspaceManager.createBlankDocument("first", "First", 800, 600);
     first.engine.addLayer("Layer 2");
     const { ws, container, dispose } = renderLayersPanel(first);
 
     const deleteBtn = container.querySelector<HTMLButtonElement>("button[aria-label='Delete Layer']")!;
     deleteBtn.click();
+    // Routed delete settles a microtask after the click.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     // Layer removed immediately from doc 1 (no dialog to pause on)
     expect(first.engine.getLayers()).toHaveLength(1);

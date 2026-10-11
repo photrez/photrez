@@ -119,23 +119,6 @@ describe("basic-adjustment call-site routing (facade dispatch)", () => {
     dispose();
   });
 
-  it("apply: flag OFF uses legacy engine.applyBasicAdjustment + one TS history commit, zero facade calls", async () => {
-    h.facadeOn = false;
-    const { ws, session, layer } = makeWorkspace("adj-off");
-    const applySpy = vi.spyOn(session.engine, "applyBasicAdjustment");
-    const commitSpy = vi.spyOn(ws.getActiveHistory()!, "commit");
-    const { container, dispose } = mount(ws);
-    await tick();
-
-    fireBrightness(container, "25");
-    await tick();
-
-    expect(applySpy).toHaveBeenCalledWith(layer.id, { brightness: 25, contrast: 0, saturation: 0 });
-    expect(commitSpy).toHaveBeenCalledTimes(1);
-    expect(h.commitFacadeAdjustment).not.toHaveBeenCalled();
-    dispose();
-  });
-
   it("apply: bitmap-less layer keeps the oracle no-op guard (no route, no legacy apply)", async () => {
     const ws = new WorkspaceManager();
     const session = WorkspaceManager.createBlankDocument("adj-nobmp", "N", 4, 2);

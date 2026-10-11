@@ -125,9 +125,13 @@ describe("native menu command wiring", () => {
     await tick();
 
     emitNativeMenu("layer.new");
+    // The routed add funnel settles on a later microtask.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayers()).toHaveLength(2);
-    expect(host.workspace.getActiveHistory()?.canUndo()).toBe(true);
+    // The routed add owns its undo in the facade, so it writes no TS history
+    // entry: the panel/undo surface reads the facade cursor, not this stack.
+    expect(host.workspace.getActiveHistory()?.canUndo()).toBe(false);
     expect(host.scheduler.requestRender).toHaveBeenCalled();
     host.dispose();
   });

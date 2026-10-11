@@ -195,7 +195,6 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facade", "1");
   localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -204,7 +203,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
   document.body.replaceChildren();
@@ -372,24 +370,6 @@ describe("properties panel text color picker - owned layer", () => {
 
     expect(dispatchedTypes().filter((t) => t === "setLayerParams")).toHaveLength(0);
     expect(textDataOf(panel, layerId).color).toBe(before);
-    panel.dispose();
-  });
-});
-
-describe("properties panel text params - keeps photrez.facade=0 opt-out behavior", () => {
-  it("legacy path: one history entry before the model write, zero commands", async () => {
-    const { panel, layerId } = await openPanel({ pushedToEngine: false });
-    localStorage.setItem("photrez.facade", "0");
-    const history = panel.history();
-    const commitSpy = vi.spyOn(history, "commit");
-
-    italicButton(panel.container).click();
-    await flush();
-
-    expect(dispatchedTypes().filter((t) => t === "setLayerParams")).toHaveLength(0);
-    expect(commitSpy).toHaveBeenCalledTimes(1);
-    expect(history.getUndoCount()).toBe(1);
-    expect(textDataOf(panel, layerId).fontStyle).toBe("italic");
     panel.dispose();
   });
 });

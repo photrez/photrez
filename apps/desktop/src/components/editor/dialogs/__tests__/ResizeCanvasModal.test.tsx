@@ -70,12 +70,10 @@ const button = (dialog: HTMLElement, label: string) => Array.from(dialog.querySe
 
 describe("ResizeCanvasModal", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
     vi.restoreAllMocks();
-    localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     bridge.__resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
@@ -119,17 +117,23 @@ describe("ResizeCanvasModal", () => {
     view.dispose();
   });
 
-  it("resizes through the production path and preserves undo", () => {
+  it("resizes through the production path and preserves undo", async () => {
     const view = renderModal();
     const dialog = view.dialog()!;
     const width = dialog.querySelector<HTMLInputElement>("#resize-canvas-width")!;
     width.value = "400";
     width.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
     button(dialog, "Resize").click();
+    // The resize runs through the routed arm, which settles the host write on a
+    // later microtask.
+    await new Promise((r) => setTimeout(r, 0));
     expect(view.session.engine.getWidth()).toBe(400);
     expect(view.session.engine.getHeight()).toBe(300);
     expect(view.renderer.resizeToViewport).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 1);
-    expect(view.scheduler.requestRender).toHaveBeenCalledOnce();
+    // The host arm requests a render for the resize and the viewport sync that
+    // follows it, so this asserts the render HAPPENED rather than an exact count
+    // that depended on which arm was taken.
+    expect(view.scheduler.requestRender).toHaveBeenCalled();
     expect(view.dialog()).toBeNull();
     const previous = view.session.history.undo(view.session.engine.snapshot());
     expect(previous).not.toBeNull();
@@ -139,7 +143,6 @@ describe("ResizeCanvasModal", () => {
   });
 
   it("routed resize (flag ON + native) applies dims through the facade, leaves TS history empty, and facade undo restores dims", async () => {
-    localStorage.setItem("photrez.facade", "1");
     localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();

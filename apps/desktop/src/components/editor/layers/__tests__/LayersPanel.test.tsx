@@ -161,13 +161,11 @@ function renderLayersPanel(session = WorkspaceManager.createBlankDocument("layer
 
 describe("LayersPanel interactions", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
     canonicalBake.epoch = 0;
     canonicalBake.writes = 0;
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -187,6 +185,9 @@ describe("LayersPanel interactions", () => {
     if (!mergeButton) throw new Error("Merge Down button was not rendered");
 
     mergeButton.click();
+    // The merge funnels through the routed arm, which settles a microtask
+    // after the click before the merged bitmap exists and is uploaded.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const mergedLayer = session.engine.getLayers()[0];
     expect(mergedLayer.imageBitmap).toBe(mergedBitmap);
@@ -209,6 +210,8 @@ describe("LayersPanel interactions", () => {
     const duplicate = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
       .find((button) => button.textContent?.includes("Duplicate Layer"))!;
     duplicate.click();
+    // Routed duplicate lands a microtask after the menu click.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayers()).toHaveLength(3);
     expect(ws.getActiveHistory()?.canUndo()).toBe(true);
@@ -347,6 +350,9 @@ describe("LayersPanel interactions", () => {
     if (!flattenButton) throw new Error("Flatten All Layers button was not rendered");
 
     flattenButton.click();
+    // The flatten funnel is async: wait for its promise chain to settle before
+    // reading the flattened layer's bitmap.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const flattenedLayer = session.engine.getLayers()[0];
     expect(flattenedLayer.imageBitmap).toBe(flattenedBitmap);
@@ -395,6 +401,9 @@ describe("LayersPanel interactions", () => {
     if (!visibilityButton) throw new Error("Layer visibility button was not rendered");
 
     visibilityButton.click();
+    // The visibility toggle funnels through the routed arm, which settles a
+    // microtask after the click before the history entry exists.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const history = ws.getActiveHistory();
     expect(history?.canUndo()).toBe(true);

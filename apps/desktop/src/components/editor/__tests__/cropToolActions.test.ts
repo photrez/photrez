@@ -35,14 +35,12 @@ function controls(overrides: Partial<CropPreviewControls> = {}) {
 
 describe("cropToolActions", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
   });
-  it("clearCropPreview clears rect and rotation", () => {
+  it("clearCropPreview clears rect and rotation", async () => {
     const setCropRect = vi.fn();
     const setCropRotation = vi.fn();
     clearCropPreview({ setCropRect, setCropRotation });
@@ -50,7 +48,7 @@ describe("cropToolActions", () => {
     expect(setCropRotation).toHaveBeenCalledWith(0);
   });
 
-  it("resetCropPreviewToCanvas resets rect to engine bounds and rotation to 0", () => {
+  it("resetCropPreviewToCanvas resets rect to engine bounds and rotation to 0", async () => {
     const setCropRect = vi.fn();
     const setCropRotation = vi.fn();
     const setHiddenCropPreview = vi.fn();
@@ -64,7 +62,9 @@ describe("cropToolActions", () => {
     expect(setHiddenCropPreview).toHaveBeenCalledWith(null);
   });
 
-  it("applyCropPreview commits history, applies crop, schedules render, clears, and sets tool to move", () => {
+  it("applyCropPreview commits history, applies crop, schedules render, clears, and sets tool to move", async () => {
+    // The routed crop reaches the host commit on a later microtask.
+    const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
     const setCropRect = vi.fn();
     const setCropRotation = vi.fn();
     const setHiddenCropPreview = vi.fn();
@@ -74,6 +74,9 @@ describe("cropToolActions", () => {
     const snapshot = { dummy: "snapshot" };
     
     const engine = {
+      // The legacy fallback mirrors the selection clear through the facade
+      // registry, which resolves the facade doc key from the engine id.
+      getId: () => "crop-doc",
       snapshot: () => snapshot,
       applyCrop: vi.fn(),
       setActiveLayer: vi.fn(),
@@ -125,6 +128,7 @@ describe("cropToolActions", () => {
 
     // The commit carries the host-owned document-size pair (see the docSizeChange
     // parameter): the pre-crop model size and the crop's own output size.
+    await new Promise((r) => setTimeout(r, 0));
     expect(history.commit).toHaveBeenCalledWith(snapshot, "Crop Canvas", undefined, false, null, {
       before: { width: 300, height: 200 },
       after: { width: 300, height: 400 },
@@ -134,11 +138,13 @@ describe("cropToolActions", () => {
       targetSize: { w: 300, h: 400 },
       rotation: 45,
     });
+    await new Promise((r) => setTimeout(r, 0));
     expect(renderer.resizeToViewport).toHaveBeenCalledWith(1048, 594, 1);
     expect(renderer.uploadImage).toHaveBeenCalledWith("layer-with-bitmap", { width: 300, height: 400 });
     expect(renderer.uploadImage).toHaveBeenCalledTimes(1);
     expect(recenterViewport).toHaveBeenCalledOnce();
     expect(scheduler.requestRender).toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 0));
     expect(setCropRect).toHaveBeenCalledWith(null);
     expect(setCropRotation).toHaveBeenCalledWith(0);
     expect(setHiddenCropPreview).toHaveBeenCalledWith(null);
@@ -147,7 +153,7 @@ describe("cropToolActions", () => {
     expect(engine.setActiveLayer).toHaveBeenCalledWith(null);
   });
 
-  it("supplies the host-owned size pair from the crop rect when there is no target size", () => {
+  it("supplies the host-owned size pair from the crop rect when there is no target size", async () => {
     // No cropSizeTarget -> the crop's output size IS the (rounded) crop rect, which
     // is what DocumentEngine.applyCrop derives as finalW/finalH. Both halves must
     // be right, or the undo resizes the document to a size the user was never in.
@@ -186,6 +192,7 @@ describe("cropToolActions", () => {
       recenterViewport: vi.fn(),
     });
 
+    await new Promise((r) => setTimeout(r, 0));
     expect(history.commit).toHaveBeenCalledWith({}, "Crop Canvas", undefined, false, null, {
       before: { width: 512, height: 480 },
       // Rounded from 100.4 x 60.6, matching the rounded rect handed to applyCrop.
@@ -199,7 +206,7 @@ describe("cropToolActions", () => {
   // no-op and the following REDO would write 20000 into model.width - past
   // MAX_CANVAS_DIM. cropDeletePixels defaults to true, and the routed path
   // returns "legacy" BEFORE its own size validation, so this is the DEFAULT path.
-  function cropWithTarget(target: { w: number; h: number }) {
+  async function cropWithTarget(target: { w: number; h: number }) {
     const history = { commit: vi.fn() };
     const engine = {
       snapshot: () => ({}),
@@ -230,11 +237,13 @@ describe("cropToolActions", () => {
       setSelectedLayerId: vi.fn(),
       recenterViewport: vi.fn(),
     });
+    // The routed crop reaches the host commit on a later microtask.
+    await new Promise((r) => setTimeout(r, 0));
     return history.commit.mock.calls[0];
   }
 
-  it("records NO size when the target size exceeds the canvas ceiling", () => {
-    const call = cropWithTarget({ w: 20000, h: 20000 });
+  it("records NO size when the target size exceeds the canvas ceiling", async () => {
+    const call = await cropWithTarget({ w: 20000, h: 20000 });
     // undefined, not a pair: the entry then carries no size, so neither undo nor
     // redo can write a size the document never took.
     expect(call[5]).toBeUndefined();
@@ -245,29 +254,29 @@ describe("cropToolActions", () => {
   // zero-size fix: rejecting the crop in the engine is not enough on its own,
   // because the history commit happens FIRST. If the entry recorded a 0-wide pair,
   // the crop would no-op but a later REDO would still write 0 into model.width.
-  it("records NO size when the explicit target size is 0", () => {
-    const call = cropWithTarget({ w: 0, h: 600 });
+  it("records NO size when the explicit target size is 0", async () => {
+    const call = await cropWithTarget({ w: 0, h: 600 });
     expect(call[5]).toBeUndefined();
     expect(JSON.stringify(call)).not.toContain('"w":0');
   });
 
-  it("records NO size when the explicit target size is negative", () => {
-    const call = cropWithTarget({ w: -5, h: 600 });
+  it("records NO size when the explicit target size is negative", async () => {
+    const call = await cropWithTarget({ w: -5, h: 600 });
     expect(call[5]).toBeUndefined();
     expect(JSON.stringify(call)).not.toContain("-5");
   });
 
   // The other direction: the smallest legal size must still record its pair, or a
   // guard that over-rejects would silently break the valid-crop size-pair undo.
-  it("still records the size pair for the smallest legal target, 1x1", () => {
-    const call = cropWithTarget({ w: 1, h: 1 });
+  it("still records the size pair for the smallest legal target, 1x1", async () => {
+    const call = await cropWithTarget({ w: 1, h: 1 });
     expect(call[5]).toEqual({
       before: { width: 128, height: 128 },
       after: { width: 1, height: 1 },
     });
   });
 
-  it("records NO size when the crop rect rounds to zero", () => {
+  it("records NO size when the crop rect rounds to zero", async () => {
     const history = { commit: vi.fn() };
     const engine = {
       snapshot: () => ({}),
@@ -296,10 +305,11 @@ describe("cropToolActions", () => {
       setSelectedLayerId: vi.fn(),
       recenterViewport: vi.fn(),
     });
+    await new Promise((r) => setTimeout(r, 0));
     expect(history.commit.mock.calls[0][5]).toBeUndefined();
   });
 
-  it("rounds fractional crop rect to integers before committing", () => {
+  it("rounds fractional crop rect to integers before committing", async () => {
     const engine = {
       snapshot: () => ({}),
       applyCrop: vi.fn(),
@@ -333,15 +343,19 @@ describe("cropToolActions", () => {
       setSelectedLayerId: vi.fn(),
     });
 
+    await new Promise((r) => setTimeout(r, 0));
     expect(engine.applyCrop).toHaveBeenCalledWith(10, 21, 101, 200, expect.any(Object));
   });
 
-  it("regression 2026-06-19: post-crop buffer resize uses VIEWPORT dimensions, not doc×zoom (prevents stretched checkerboard)", () => {
+  it("regression 2026-06-19: post-crop buffer resize uses VIEWPORT dimensions, not doc×zoom (prevents stretched checkerboard)", async () => {
     // Bug: renderer.resize(docW, docH, zoom, dpr) sized the buffer to doc×zoom×dpr
     // while the canvas CSS is 100%×100% of the viewport. When doc aspect ≠ viewport
     // aspect, browser non-uniformly scaled the buffer → cells became non-square
     // ("melar/stretched"). Fix: resizeToViewport(viewportW, viewportH, dpr).
     const engine = {
+      // The legacy fallback mirrors the selection clear through the facade
+      // registry, which resolves the facade doc key from the engine id.
+      getId: () => "crop-viewport-doc",
       snapshot: () => ({}),
       applyCrop: vi.fn(),
       setActiveLayer: vi.fn(),
@@ -374,6 +388,7 @@ describe("cropToolActions", () => {
       setSelectedLayerId: vi.fn(),
     });
 
+    await new Promise((r) => setTimeout(r, 0));
     // After fix: buffer = viewport × dpr (not docW × zoom × dpr).
     expect(renderer.resizeToViewport).toHaveBeenCalledWith(1100, 760, 1);
     // Old buggy path must not be called.
@@ -382,7 +397,7 @@ describe("cropToolActions", () => {
 });
 
 describe("cropToolActions hidden preview", () => {
-  it("hides the visible crop preview without discarding it", () => {
+  it("hides the visible crop preview without discarding it", async () => {
     const c = controls();
 
     hideCropPreview(c);
@@ -395,7 +410,7 @@ describe("cropToolActions hidden preview", () => {
     expect(c.setCropRotation).toHaveBeenCalledWith(0);
   });
 
-  it("restores hidden crop preview exactly", () => {
+  it("restores hidden crop preview exactly", async () => {
     const c = controls({
       cropRect: () => null,
       cropRotation: () => 0,
@@ -413,7 +428,7 @@ describe("cropToolActions hidden preview", () => {
     expect(c.setHiddenCropPreview).toHaveBeenCalledWith(null);
   });
 
-  it("reports false when there is no hidden preview to restore", () => {
+  it("reports false when there is no hidden preview to restore", async () => {
     const c = controls({
       cropRect: () => null,
       hiddenCropPreview: () => null,
@@ -426,7 +441,7 @@ describe("cropToolActions hidden preview", () => {
     expect(c.setCropRotation).not.toHaveBeenCalled();
   });
 
-  it("discards visible and hidden crop preview", () => {
+  it("discards visible and hidden crop preview", async () => {
     const c = controls({
       hiddenCropPreview: () => ({
         rect: { x: 30, y: 40, w: 120, h: 90 },
@@ -447,7 +462,6 @@ describe("applyCropPreview routed path (flag ON + native)", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     bridge.__resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
@@ -469,7 +483,6 @@ describe("applyCropPreview routed path (flag ON + native)", () => {
   }
 
   async function nativeDoc() {
-    localStorage.setItem("photrez.facade", "1");
     localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();

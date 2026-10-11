@@ -154,29 +154,6 @@ describe("in-panel drag reorder call-site routing", () => {
     }
   });
 
-  it("flag OFF: legacy engine.reorderLayer runs synchronously inside the handler, one history entry, drop position honored", () => {
-    h.facadeOn = false;
-    const ctx = setup();
-    try {
-      const reorderSpy = vi.spyOn(ctx.session.engine, "reorderLayer");
-      const historySpy = vi.spyOn(ctx.session.history, "commit");
-
-      ctx.probe().beginLayerDrag(ctx.payloadFor("Top"), null);
-      ctx.fire("dragover", 140);
-      ctx.fire("drop", 140);
-
-      // No await between dispatchEvent and these assertions: the flag-off path
-      // must not push the legacy commit past the event handler.
-      expect(h.commitFacadeReorder).not.toHaveBeenCalled();
-      expect(reorderSpy).toHaveBeenCalledTimes(1);
-      expect(reorderSpy).toHaveBeenCalledWith(0, 2);
-      expect(historySpy).toHaveBeenCalledTimes(1);
-      expect(ctx.order()).toEqual(["Middle", "Bottom", "Top", "Background"]);
-    } finally {
-      ctx.dispose();
-    }
-  });
-
   it("flag ON but the layer is not facade-owned: legacy path, zero funnel calls", async () => {
     h.owned = false;
     const ctx = setup();
@@ -281,30 +258,6 @@ describe("in-panel drag reorder call-site routing", () => {
     }
   });
 
-  it("no-op drop, flag OFF: legacy moves nothing (its undo point is still taken pre-check)", () => {
-    h.facadeOn = false;
-    const ctx = setup();
-    try {
-      const reorderSpy = vi.spyOn(ctx.session.engine, "reorderLayer");
-      const historySpy = vi.spyOn(ctx.session.history, "commit");
-      const before = ctx.session.history.getUndoCount();
-
-      ctx.probe().beginLayerDrag(ctx.payloadFor("Top"), null);
-      ctx.fire("dragover", 60);
-      ctx.fire("drop", 60);
-
-      // Pinned deliberately: the pre-facade handler commits BEFORE the
-      // targetIdx === sourceIdx check, so an unchanged drop still records an
-      // undo entry. Flag-off byte identity keeps it; the routed path does not.
-      expect(reorderSpy).not.toHaveBeenCalled();
-      expect(historySpy).toHaveBeenCalledTimes(1);
-      expect(ctx.session.history.getUndoCount()).toBe(before + 1);
-      expect(ctx.order()).toEqual(["Top", "Middle", "Bottom", "Background"]);
-    } finally {
-      ctx.dispose();
-    }
-  });
-
   it("drop with no tracked insertion hint (missing insertAt) routes to the end of the stack", async () => {
     const ctx = setup();
     try {
@@ -321,32 +274,6 @@ describe("in-panel drag reorder call-site routing", () => {
       expect(h.commitFacadeReorder).toHaveBeenCalledTimes(1);
       expect(h.commitFacadeReorder).toHaveBeenCalledWith(expect.any(Object), topId, 3);
       expect(reorderSpy).not.toHaveBeenCalled();
-    } finally {
-      ctx.dispose();
-    }
-  });
-
-  it("round trip: reorder down then back up restores the original order (flag OFF, legacy math)", () => {
-    h.facadeOn = false;
-    const ctx = setup();
-    try {
-      const reorderSpy = vi.spyOn(ctx.session.engine, "reorderLayer");
-      const original = ctx.order();
-
-      ctx.probe().beginLayerDrag(ctx.payloadFor("Top"), null);
-      ctx.fire("dragover", 140);
-      ctx.fire("drop", 140);
-      expect(ctx.order()).toEqual(["Middle", "Bottom", "Top", "Background"]);
-
-      // Row elements are recreated by the re-render; re-pin their rects.
-      ctx.stubRows();
-      ctx.probe().beginLayerDrag(ctx.payloadFor("Top"), null);
-      // Top now sits at idx 2: drop on the upper half of Middle (idx 0).
-      ctx.fire("dragover", 10);
-      ctx.fire("drop", 10);
-
-      expect(reorderSpy).toHaveBeenLastCalledWith(2, 0);
-      expect(ctx.order()).toEqual(original);
     } finally {
       ctx.dispose();
     }

@@ -147,6 +147,10 @@ async function driveSizeField(
       recenterViewport: vi.fn(),
     });
 
+    // The crop runs through the routed arm, which settles on a later microtask
+    // before it reaches the host applyCrop fallback.
+    await tick();
+
     const applyArgs = engine.applyCrop.mock.calls[0] as unknown[] | undefined;
     const commitCall = history.commit.mock.calls[0] as unknown[] | undefined;
     return {
@@ -167,7 +171,6 @@ describe("field -> predicate seam: a typed 0 never becomes an accepted crop", ()
     // isFacadeEnabled() is `getItem("photrez.facade") !== "0"`, so an UNSET key
     // means ENABLED - which routes the crop asynchronously through the facade.
     // The default (synchronous) path is what the field seam feeds, so opt out.
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => localStorage.clear());
@@ -232,7 +235,6 @@ describe("field -> predicate seam: a typed 0 never becomes an accepted crop", ()
 describe("field -> predicate seam: the smallest legal size still works", () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => localStorage.clear());
@@ -252,7 +254,6 @@ describe("field -> predicate seam: the smallest legal size still works", () => {
 describe("unit conversion: a negative stays negative across the multiply", () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => localStorage.clear());

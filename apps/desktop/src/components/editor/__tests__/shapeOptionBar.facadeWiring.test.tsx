@@ -111,14 +111,12 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
   localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 
 afterEach(() => {
   wasm?.protocol_reset(DOC);
-  localStorage.removeItem("photrez.facade");
   localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -347,26 +345,6 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
 });
 
 describe("ShapeOptionBar edit mode - keeps photrez.facade=0 opt-out behavior (and unowned layers)", () => {
-  it("opted out: one history entry committed BEFORE the engine write, no commands", async () => {
-    const h = await setup({ owned: true });
-    localStorage.setItem("photrez.facade", "0");
-    const commit = vi.spyOn(h.history, "commit");
-    const engineWrite = vi.spyOn(h.engine, "updateShapeParams");
-
-    typeRadius(h.container, "30");
-    await settle();
-
-    expect(commandLog.types).toEqual([]);
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(engineWrite).toHaveBeenCalledTimes(1);
-    expect(engineWrite.mock.calls[0][1]).toEqual(expect.objectContaining({ radius: 30 }));
-    expect(commit.mock.invocationCallOrder[0]).toBeLessThan(
-      engineWrite.mock.invocationCallOrder[0],
-    );
-    expect(h.history.getUndoCount()).toBe(1);
-    expect(shapeParamsOf(h).radius).toBe(30);
-    h.cleanup();
-  });
 
   it("flag ON but the layer is not owned: legacy path, zero commands, nothing partially applied", async () => {
     // Single-target call site: the funnel is only reached for an owned id, so its

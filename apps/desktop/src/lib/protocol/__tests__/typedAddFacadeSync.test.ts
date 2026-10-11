@@ -77,7 +77,6 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
   // Pinned wasm authority exercises the facade flag path without the native
   // registry; native consistency is covered by the live probe.
   localStorage.setItem("photrez.facadeAuthority", "wasm");
@@ -85,7 +84,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
@@ -387,38 +385,5 @@ describe("facade-deleted id primed into the per-engine mirror (photrez.facade=1)
     // A legacy layer with no mirror entry and no facade ownership cannot be
     // preserved; the contract is that the loss is ANNOUNCED, not prevented.
     expect(engine.getLayers().map((l) => l.id)).not.toContain(legacy.id);
-  });
-});
-
-describe("photrez.facade=0 opt-out is byte-identical", () => {
-  beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
-  });
-
-  it("the typed-add path leaves the facade snapshot unchanged", async () => {
-    const engine = new DocumentEngine("docOffAdd", "docOffAdd", 800, 600);
-    const facade = getFacade("docOffAdd");
-    engine.addLayer("Base");
-    await seedFacadeFromEngine(engine as never, facade);
-    const before = JSON.stringify(facade.snapshot);
-
-    engine.addTextLayer("Hello", { ...DEFAULT_TEXT_DATA, content: "Hello" });
-    expect(JSON.stringify(facade.snapshot)).toBe(before);
-  });
-
-  it("recordExternalTransitionFor leaves the facade snapshot unchanged", async () => {
-    const engine = new DocumentEngine("docOffRec", "docOffRec", 800, 600);
-    const facade = getFacade("docOffRec");
-    engine.addLayer("Base");
-    await seedFacadeFromEngine(engine as never, facade);
-    const before = JSON.stringify(facade.snapshot);
-
-    const res = await recordExternalTransitionFor(
-      "docOffRec",
-      { label: "Legacy", affectedLayerIds: [], snapshot: {} },
-      engine as never,
-    );
-    expect(res.ok).toBe(true);
-    expect(JSON.stringify(facade.snapshot)).toBe(before);
   });
 });

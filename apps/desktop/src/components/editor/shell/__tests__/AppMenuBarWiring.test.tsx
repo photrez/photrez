@@ -67,11 +67,9 @@ function renderTitleBar() {
 
 describe("custom application menu wiring", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
     localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
     localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
@@ -184,7 +182,7 @@ describe("custom application menu wiring", () => {
     host.dispose();
   });
 
-  it("routes Layer > Duplicate Layer through history-backed layer actions", () => {
+  it("routes Layer > Duplicate Layer through history-backed layer actions", async () => {
     const host = renderTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     host.workspace.addDocument(session);
@@ -192,6 +190,8 @@ describe("custom application menu wiring", () => {
 
     button(host.container, "Layer").click();
     button(host.container, "Duplicate Layer").click();
+    // The routed duplicate settles a microtask after the menu click.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayers()).toHaveLength(2);
     expect(host.workspace.getActiveHistory()?.canUndo()).toBe(true);

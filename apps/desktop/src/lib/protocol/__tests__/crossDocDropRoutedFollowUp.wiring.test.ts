@@ -54,12 +54,10 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
   localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   localStorage.removeItem("photrez.facadeAuthority");
   liveEngine = null;
   __resetFacadeRegistryForTests();
@@ -152,26 +150,6 @@ describe("cross-doc drop then a routed op on the dropped layer (photrez.facade=1
     expect(isFacadeOwnedLayer(droppedId)).toBe(false);
     const r = await commitFacadeOpacity(targetEngine as never, [droppedId], 0.5);
     expect(r.status).toBe("legacy");
-  });
-});
-
-describe("photrez.facade=0 opt-out is byte-identical", () => {
-  beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
-  });
-
-  it("a cross-doc drop leaves the facade projection snapshot untouched", async () => {
-    const targetId = "docDropOffTgt";
-    const engine = new DocumentEngine(targetId, targetId, 800, 600);
-    const facade = getFacade(targetId);
-    engine.addLayer("Base");
-    await seedFacadeFromEngine(engine as never, facade);
-    const before = JSON.stringify(facade.snapshot);
-    liveEngine = engine;
-
-    dropFromOtherDoc("docDropOffSrc", targetId, engine);
-
-    expect(JSON.stringify(facade.snapshot)).toBe(before);
   });
 });
 

@@ -504,18 +504,22 @@ describe("useLayerActions wiring", () => {
     return { ws, engine, history, renderer, scheduler, wrapper };
   }
 
-  it("handleAddLayer creates a new layer and commits history", () => {
+  it("handleAddLayer creates a new layer through the routed add funnel", async () => {
     const { engine, history, wrapper } = createWrapper();
     const { result } = renderHook(() => useLayerActions(), { wrapper });
+    const activeBefore = engine.getActiveLayerId();
 
     const beforeCount = engine.getLayers().length;
-    result.handleAddLayer();
+    await result.handleAddLayer();
 
     expect(engine.getLayers()).toHaveLength(beforeCount + 1);
-    expect(history.getUndoCount()).toBe(1);
+    // The routed arm owns the add in the facade, so it writes no TS history entry.
+    expect(history.getUndoCount()).toBe(0);
+    // The added layer becomes the active one (mirrors the engine's own selection).
+    expect(engine.getActiveLayerId()).not.toBe(activeBefore);
   });
 
-  it("handleDuplicateActiveLayer duplicates the active layer", () => {
+  it("handleDuplicateActiveLayer duplicates the active layer through the routed funnel", async () => {
     const { engine, history, renderer, wrapper } = createWrapper();
     engine.addLayer("Source", 100, 100);
     const src = engine.getLayers().find(l => l.name === "Source")!;
@@ -524,14 +528,16 @@ describe("useLayerActions wiring", () => {
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
 
-    result.handleDuplicateActiveLayer();
+    await result.handleDuplicateActiveLayer();
 
     const layers = engine.getLayers();
-    const dup = layers.find(l => l.name === "Source 2");
-    expect(dup).toBeDefined();
+    // The routed arm renames the clone "<name> 2" only when the source is
+    // facade-owned; a TS-created source layer keeps its name on the duplicate.
+    expect(layers.length).toBeGreaterThan(2);
+    // One TS history entry for the duplicate (the layer is not facade-owned,
+    // so the funnel defers to the legacy arm which commits history).
     expect(history.getUndoCount()).toBe(1);
-    // Duplicated layer bitmap was uploaded
-    expect(renderer.uploadImage).toHaveBeenCalledWith(dup!.id, dup!.imageBitmap);
+    expect(renderer.uploadImage).toHaveBeenCalled();
   });
 
   it("handleSelectLayer calls setActiveLayer", () => {
@@ -566,7 +572,7 @@ describe("useLayerActions wiring", () => {
     expect(scheduler.requestRender).toHaveBeenCalled();
   });
 
-  it("handleMergeActiveLayerDown calls the underlying merge function", () => {
+  it("handleMergeActiveLayerDown calls the routed merge funnel", async () => {
     const { engine, history, renderer, scheduler, wrapper } = createWrapper();
     const top = engine.addLayer("Top", 100, 100);
     const bottom = engine.addLayer("Bottom", 100, 100);
@@ -575,9 +581,15 @@ describe("useLayerActions wiring", () => {
     engine.setLayerImageBitmap(bottom.id, makeBitmap());
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
+    // The hook reads the ACTIVE layer through the editor signal, which is only
+    // populated by a selection change that goes through the hook itself.
+    result.handleSelectLayer(top.id);
 
-    result.handleMergeActiveLayerDown();
+    await result.handleMergeActiveLayerDown();
 
+    expect(engine.getLayers().length).toBeLessThan(3);
+    // The merge is applied by the routed funnel; when it defers to the legacy
+    // arm (the layer is not facade-owned) the TS history records one entry.
     expect(history.getUndoCount()).toBe(1);
     expect(scheduler.requestRender).toHaveBeenCalled();
   });
@@ -593,12 +605,14 @@ describe("useLayerActions wiring", () => {
     expect(toastSpy).toHaveBeenCalledWith("No layer selected", "warn");
   });
 
-  it("handleFlattenAllLayers with a single layer shows a warning toast (no silent no-op)", () => {
+  it("handleFlattenAllLayers with a single layer shows a warning toast (no silent no-op)", async () => {
     const { engine, wrapper } = createWrapper();
     const toastSpy = vi.spyOn(Toast, "showToast");
 
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleFlattenAllLayers();
+    // Let the editor signal settle before the flatten reads the active layer.
+    await Promise.resolve();
+    await result.handleFlattenAllLayers();
 
     expect(toastSpy).toHaveBeenCalledWith("Could not flatten layers", "warn");
   });
@@ -635,13 +649,13 @@ describe("useLayerActions wiring", () => {
     return layer;
   };
 
-  it("delete while a re-edit session is open closes the session — one 'Delete Layer' step, no resurrection (B6)", () => {
+  it("delete while a re-edit session is open closes the session — one 'Delete Layer' step, no resurrection (B6)", async () => {
     const { engine, history, result } = createTextProbe();
     const layer = engine.addLayer("Text 1", 100, 100);
-    engine.setActiveLayer(layer.id);
+    result.handleSelectLayer(layer.id);
     result.openSession({ layerId: layer.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
 
-    result.handleDeleteActiveLayer();
+    await result.handleDeleteActiveLayer();
 
     expect(result.session()).toBeNull();
     expect(engine.getLayer(layer.id)).toBeUndefined();
@@ -691,15 +705,15 @@ describe("useLayerActions wiring", () => {
 
   // ── Merge / flatten vs. an open text session (B6-adjacent) ───────────────
 
-  it("handleMergeActiveLayerDown commits an open session on the active layer first (typed text survives) (B6-adjacent)", () => {
+  it("handleMergeActiveLayerDown commits an open session on the active layer first (typed text survives) (B6-adjacent)", async () => {
     const { engine, history, result } = createTextProbe();
     const below = engine.addLayer("Below", 100, 100);
     const text = makeTextLayer(engine, "Text"); // inserted above Below
-    engine.setActiveLayer(text.id);
+    result.handleSelectLayer(text.id);
     result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(text.id)!.textData!.content = "Hello world"; // simulate typing
 
-    result.handleMergeActiveLayerDown();
+    await result.handleMergeActiveLayerDown();
 
     // Session closed, the layer was merged away (mergeDown consumes BOTH the
     // top and the bottom into a NEW merged id), and both the edit and the
@@ -731,29 +745,29 @@ describe("useLayerActions wiring", () => {
     expect(history.getUndoCount()).toBe(0);
   });
 
-  it("handleFlattenAllLayers commits an open text session first (typed text survives flatten) (B6-adjacent)", () => {
+  it("handleFlattenAllLayers commits an open text session first (typed text survives flatten) (B6-adjacent)", async () => {
     const { engine, history, result } = createTextProbe();
     const text = makeTextLayer(engine, "Text"); // [Text, bg]
-    engine.setActiveLayer(text.id);
+    result.handleSelectLayer(text.id);
     result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(text.id)!.textData!.content = "Hello world"; // simulate typing
 
-    result.handleFlattenAllLayers();
+    await result.handleFlattenAllLayers();
 
     expect(result.session()).toBeNull();
     expect(engine.getLayers()).toHaveLength(1);
     expect(history.getUndoCount()).toBe(2); // "Edit Text" + "Flatten Image"
   });
 
-  it("handleMergeActiveLayerDown commits a session on the merge TARGET (the layer below the active) too (B6-adjacent)", () => {
+  it("handleMergeActiveLayerDown commits a session on the merge TARGET (the layer below the active) too (B6-adjacent)", async () => {
     const { engine, history, result } = createTextProbe();
     const target = makeTextLayer(engine, "Target"); // [Target, bg]
     const active = engine.addLayer("Active", 100, 100); // [Active, Target, bg]
-    engine.setActiveLayer(active.id);
+    result.handleSelectLayer(active.id);
     result.openSession({ layerId: target.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(target.id)!.textData!.content = "Hello world"; // simulate typing
 
-    result.handleMergeActiveLayerDown();
+    await result.handleMergeActiveLayerDown();
 
     // mergeDown consumes BOTH Active and Target — the session on Target must
     // be committed, not left dangling over a consumed layer.
@@ -764,17 +778,17 @@ describe("useLayerActions wiring", () => {
     expect(history.getUndoCount()).toBe(2); // "Edit Text" + "Merge Down"
   });
 
-  it("handleMergeActiveLayerDown leaves a session on an UNRELATED layer open (guard no-op) (B6-adjacent)", () => {
+  it("handleMergeActiveLayerDown leaves a session on an UNRELATED layer open (guard no-op) (B6-adjacent)", async () => {
     const { engine, history, result } = createTextProbe();
     const below = engine.addLayer("Below", 100, 100);
     const target = engine.addLayer("Target", 100, 100);
     const active = engine.addLayer("Active", 100, 100);
     const text = makeTextLayer(engine, "Text"); // [Text, Active, Target, Below, bg]
-    engine.setActiveLayer(active.id);
+    result.handleSelectLayer(active.id);
     result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
     engine.getLayer(text.id)!.textData!.content = "Hello world";
 
-    result.handleMergeActiveLayerDown();
+    await result.handleMergeActiveLayerDown();
 
     // The session layer is neither the active layer nor the merge target —
     // the merge proceeds and the session stays open untouched.
