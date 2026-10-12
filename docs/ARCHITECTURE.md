@@ -17,7 +17,7 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 ## Project Status
 
 - **Phase**: Deep-sync & documentation hardening (2026-07-02). Bun migration, mojibake cleanup, print feature, keyboard shortcut expansion, window-state persistence, E2E grand-tour, and multi-cycle bug-fix passes completed.
- - **Core Crate**: `photrez-core` holds the document command engine (layer, transform, selection, adjustment, and history operations) plus the export encoder (PNG/JPEG/WebP via the `image` crate). Last measured run 2026-09-18: `cargo test -p photrez-core` 354 passed / 0 failed (5 ignored); `cargo test -p photrez-desktop` 114 passed / 0 failed. Native command routing is ON by default with a legacy opt-out; for routed operations the Rust engine holds the authoritative copy and the TypeScript `DocumentEngine` keeps a projected view of it.
+ - **Core Crate**: `photrez-core` holds the document command engine (layer, transform, selection, adjustment, and history operations) plus the export encoder (PNG/JPEG/WebP via the `image` crate). Last measured run 2026-09-18: `cargo test -p photrez-core` 354 passed / 0 failed (5 ignored); `cargo test -p photrez-desktop` 114 passed / 0 failed. Native command routing is the unconditional production path; for routed operations the Rust engine holds the authoritative copy and the TypeScript `DocumentEngine` keeps a projected view of it.
 - **Renderer**: MVP rendering is **WebGL2** (`apps/desktop/src/renderer/webgl2.ts`). A standalone GPU crate was evaluated but removed from the workspace (a pre-existing Windows entry-point issue); the future rendering direction keeps WebGL2 and only reintroduces a GPU crate when compute shaders or advanced blend modes exceed WebGL2 capabilities.
 - **WASM Strategy (2026-06-30)**: `photrez-core` is the source for WASM compilation (`wasm-pack` target). Hot-path operations (brush mask, tile ops, transform math, color space, export encode) will be ported from TypeScript to Rust and exposed as zero-copy WASM modules — no Tauri IPC overhead.
 - **Frontend**: Full UI shell with multi-document workspace, document tabs, empty state, drag/drop, and all core editing interactions. Artboard renders via WebGL2 projection-matrix-driven camera viewport.
@@ -265,6 +265,18 @@ Detail lengkap: `docs/reference/command-contract-spec.md`. The current Tauri she
 | `rust_pixels_get_epoch` | Reads a layer change counter (cache-validity check) |
 
 The file, print, font, cursor, and paint-helper commands registered alongside these follow the same envelope contract; see `main.rs` for the full list.
+
+### Native dispatch surface
+
+Every document edit routes through `nativeProtocol.protocol_apply_command_native` (`bridge.ts` `applyCommand`, line 229). The bridge is native-dispatch only: the wasm-dispatch arms (`setProtocolWasm`, `isFacadeArmed`, `ensureFacadeReady`, `getContractVersion`, `resetWasmDoc`) are gone, and the retired `photrez.facade` / `photrez.facadeAuthority` opt-out pair has zero production reads — enforced by the census guard in `apps/desktop/src/lib/protocol/__tests__/flagRetirementCensus.test.ts`.
+
+The TypeScript `DocumentEngine` keeps a projected view of the canonical Rust engine rather than a separate history. `bridge_emu.ts` carries only test-only instrumentation: `emulateGetHistoryQuery` (line 194) and `emulateHistoryCursorCommit` (line 227) are emulator seams whose headers state production dispatch is native-only, kept so parity suites can drive the emulator directly; `emulateApply` (line 312) stays reachable through `bridge.ts`'s `export * from "./bridge_emu"` (line 477, comment "It is test-only instrumentation now: production dispatches to the native engine above").
+
+Undo/redo is gated per-ACTIVE-document: `useEditorCommands.activeDocumentOwnsFacadeLayers` (lines 162-164) reads `document.facadeOwnedIdsOf(editor.activeDocumentId())` (`document.ts` line 96). When the active document's native stream holds no user work, `facadeHistoryHandoff.runFacadeExternalHandoff` (lines 203-390; the refusal no-op returns at lines 241-248) logs "nothing above the document-open baseline", resyncs via `resyncFromNativeQuery`, and returns `true` — a handled no-op, not a fall-through to a host executor.
+
+`file.new` / open goes through `WorkspaceManager.addSeededDocument` (`workspace.ts` line 75), which awaits `awaitBackgroundFlagCommit` (a per-document commit gate, distinct from the retired opt-out) and refuses the open on a refused seed; the unrelated `photrez.bgFlagRoute` opt-out still resolves immediately against the legacy direct setter.
+
+The commit shim `facadeRegistry.installFacadeCommitShim` (`facadeRegistry.ts` line 1205) is installed unconditionally (`EditorShell.tsx` lines 126-127: "Legacy commit shim. Its body is unconditional now."); it forwards all `commit` arguments and mirrors the TS history entry into the native order, skipping the mirror where `alreadyRecordedInRust` is set (Rust already recorded that op).
 
 ---
 
