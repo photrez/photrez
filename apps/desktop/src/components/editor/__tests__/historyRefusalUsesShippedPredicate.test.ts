@@ -286,7 +286,6 @@ describe("undo/redo refusal: the shipped predicate, not a reimplementation", () 
     __resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
     clearFacadeOwnedClaims();
-    localStorage.setItem("photrez.facadeAuthority", "native");
   });
   afterEach(() => {
     localStorage.clear();
@@ -382,7 +381,6 @@ describe("the refusal is HANDLED: the press never reaches a host executor", () =
     __resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
     clearFacadeOwnedClaims();
-    localStorage.setItem("photrez.facadeAuthority", "native");
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
       {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
     );

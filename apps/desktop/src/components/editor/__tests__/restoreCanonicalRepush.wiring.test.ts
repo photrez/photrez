@@ -174,7 +174,6 @@ describe("history-restore heal re-push (handoff-fallthrough, native authority)",
   });
 
   it("native-authority: on fallthrough restore, re-pushes canonical with RESTORED dims (not pre-restore)", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
     // Native seed arms the facade's native routing so its empty-stack undo routes
     // to the native engine and returns status:"ok" with an empty delta => fallthrough.
@@ -209,8 +208,6 @@ describe("history-restore heal re-push (handoff-fallthrough, native authority)",
   });
 
   it("native-authority OFF: fallthrough restore triggers no re-push", async () => {
-    // wasm opt-out => isNativeAuthority() false.
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     routeNative();
     await bridge.createNativeSeed(DOC_ID, 0, []);
 

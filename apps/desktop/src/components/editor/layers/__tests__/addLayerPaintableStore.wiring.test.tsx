@@ -26,10 +26,9 @@
 //     the projection (document.ts:2302-2304). Observed: after two Ctrl+Shift+N the
 //     active layer was still `Background` - so the user painted on the wrong layer.
 //
-// THE ARM. The REAL `handleAddLayer` from the REAL hook, under the shipped default
-// (`photrez.facade=1`, `facadeAuthority=native`), with the real wasm ProtocolEngine
-// behind the transport and the transport-faithful pixel emulator that REJECTS where
-// Rust rejects. The flag-off arm is asserted separately and must be unchanged.
+// THE ARM. The REAL `handleAddLayer` from the REAL hook, with the real wasm
+// ProtocolEngine behind the transport and the transport-faithful pixel emulator
+// that REJECTS where Rust rejects.
 //
 // NOT ASSERTED HERE, AND DELIBERATELY SO: the stroke's own pixel bytes. Driving
 // `useBrushOverlay`'s pointer chain needs the overlay canvas, the C4 deferred enqueue
@@ -82,22 +81,6 @@ function handlerToasts(): Array<{ message: string; kind?: string }> {
   return toastCalls.filter(
     (t) => t.message.includes("Cannot add layer") || t.message.includes("Version conflict"),
   );
-}
-
-/**
- * The arm this body is about to run, asserted where it cannot be misread. `isFacadeEnabled`
- * is `localStorage.getItem("photrez.facade") !== "0"` (bridge.ts:78-85), so REMOVING the key
- * ENABLES the facade - `null !== "0"` is true. A test named for the flag-off arm that clears
- * the key silently runs the facade arm instead, and then its pass/fail tracks only the facade
- * fix. That is what happened here for three rounds.
- */
-function assertArm(expected: "on" | "off"): void {
-  const raw = localStorage.getItem("photrez.facade");
-  const enabled = raw !== "0";
-  expect(
-    { raw, enabled, expected, expectedRaw: expected === "on" ? "1" : "0" },
-    "the arm under test must be the arm this case is named for: isFacadeEnabled reads !== \"0\", so an absent key ENABLES the facade",
-  ).toMatchObject({ enabled: expected === "on", expectedRaw: raw });
 }
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -298,8 +281,6 @@ afterAll(() => {
 beforeEach(() => {
   localStorage.clear();
   toastCalls.length = 0;
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "native");
   restoreCanvas = installFaithfulCanvas();
   invokeMock.mockReset();
   store = createRustStoreEmulator();
@@ -330,7 +311,6 @@ describe("adding a layer leaves the user on a paintable, Rust-owned layer", () =
     const m = mountEditor(DOC);
     try {
       await primeFacade(m.engine, DOC);
-      assertArm("on");
 
       const beforeIds = m.engine.getLayers().map((l) => l.id);
       const beforeActive = m.engine.getActiveLayerId();
@@ -346,13 +326,11 @@ describe("adding a layer leaves the user on a paintable, Rust-owned layer", () =
         {
           handlerToasts: handlerToasts(),
           allToasts: toastCalls.map((t) => t.message),
-          facadeFlag: localStorage.getItem("photrez.facade"),
-          authorityFlag: localStorage.getItem("photrez.facadeAuthority"),
           beforeIdsCount: beforeIds.length,
           idsAfter: m.engine.getLayers().map((l) => l.id),
         },
         "handleAddLayer must not have taken its error path; a handler toast means the post-projection block threw and the raster was never set. allToasts is here because startup toasts are expected and are not the handler's",
-      ).toMatchObject({ handlerToasts: [], facadeFlag: "1" });
+      ).toMatchObject({ handlerToasts: [] });
 
       const afterIds = m.engine.getLayers().map((l) => l.id);
       const added = afterIds.filter((id) => !beforeIds.includes(id));
@@ -410,33 +388,6 @@ describe("adding a layer leaves the user on a paintable, Rust-owned layer", () =
         stroke,
         "the first stroke on the added layer must seed the Rust store and take the one canonical write",
       ).toEqual({ seeded: true, wroteBytes: SIZE * SIZE * 4, steps: 1 });
-    } finally {
-      m.dispose();
-    }
-  });
-
-  it("the flag-off arm is unchanged: it still selects through engine.addLayer", async () => {
-    // "0", NOT removeItem. `isFacadeEnabled` is `getItem(...) !== "0"` (bridge.ts:78-85),
-    // so removing the key leaves null and ENABLES the facade - this case would run the
-    // facade arm and its result would only ever track the facade fix.
-    localStorage.setItem("photrez.facade", "0");
-    const m = mountEditor(DOC);
-    try {
-      assertArm("off");
-      const beforeIds = m.engine.getLayers().map((l) => l.id);
-      await m.addLayer();
-      // The handler's own error path must not have run here either.
-      expect(
-        { handlerToasts: handlerToasts(), allToasts: toastCalls.map((t) => t.message) },
-        "the flag-off arm must not have thrown",
-      ).toMatchObject({ handlerToasts: [] });
-      const afterIds = m.engine.getLayers().map((l) => l.id);
-      const added = afterIds.filter((id) => !beforeIds.includes(id));
-      expect(added.length, "the flag-off arm still adds exactly one layer").toBe(1);
-      expect(
-        { engineActive: m.engine.getActiveLayerId(), newId: added[0] },
-        "the flag-off arm selected the new layer before this change and must still",
-      ).toEqual({ engineActive: added[0], newId: added[0] });
     } finally {
       m.dispose();
     }

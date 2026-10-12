@@ -93,12 +93,6 @@ function arrowUp() {
 
 describe("legacy arrow-nudge silent burst + flush", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-  });
-  afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     clearRegistry();
     vi.restoreAllMocks();
   });

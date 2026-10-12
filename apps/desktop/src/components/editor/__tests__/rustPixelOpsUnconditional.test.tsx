@@ -353,8 +353,6 @@ async function expectOneUndoableRustStep(label: string, beforeHash: string) {
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   localStorage.clear();
-  // The facade cursor must not own the step under test.
-  localStorage.setItem("photrez.facade", "0");
   restoreCanvas = installFaithfulCanvas();
   store = createStore(SIZE, SIZE);
 });

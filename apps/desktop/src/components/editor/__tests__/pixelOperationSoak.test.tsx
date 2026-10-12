@@ -104,15 +104,11 @@ beforeEach(() => {
   };
   mockInvoke.mockReset();
   showToastMock.mockClear();
-  localStorage.setItem("photrez.facade", "0");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 afterEach(() => {
   (globalThis as any).OffscreenCanvas = OriginalOffscreenCanvas;
   (globalThis as any).ImageData = OriginalImageData;
   (globalThis as any).createImageBitmap = OriginalCreateImageBitmap;
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   vi.restoreAllMocks();
 });
 

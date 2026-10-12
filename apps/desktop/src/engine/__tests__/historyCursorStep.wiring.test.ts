@@ -92,10 +92,6 @@ describe("the Rust cursor step reports what it did", () => {
   beforeEach(() => {
     resetStreams();
     localStorage.clear();
-    // The shim arm of `stepRustCursor` is the live recorder for a metadata pop,
-    // and it is armed by `isFacadeEnabled()` - `photrez.facade !== "0"`, ON by
-    // default; stated explicitly so the arm cannot drift under this file.
-    localStorage.setItem("photrez.facade", "1");
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(invoke).mockReset();

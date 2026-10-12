@@ -133,8 +133,6 @@ describe("undo/redo mirrors the restored selection into the native shadow", () =
     vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
       {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
     );
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetEmulatedForTests();
     bridge.__resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
@@ -142,8 +140,6 @@ describe("undo/redo mirrors the restored selection into the native shadow", () =
   });
 
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
@@ -168,23 +164,6 @@ describe("undo/redo mirrors the restored selection into the native shadow", () =
     // Redo restores the select-all state (full canvas) and must re-seed the shadow.
     commands.redo();
     await flush();
-    expect(bridge.getEmuSelection()).toEqual(FULL);
-  });
-
-  it("photrez.facade=0 opt-out: undo/redo never dispatch a mirror (opt-out path byte-identical)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    bridge.setEmuDocumentDims(800, 600);
-    bridge.emulateApply({
-      contractVersion: CONTRACT_VERSION,
-      command: { type: "selectAll" },
-    });
-
-    mockUseEditor(makeContext());
-    const commands = useEditorCommands(() => {});
-    commands.undo();
-    await flush();
-
-    // No mirror ran, so the shadow is exactly the pre-seeded select-all state.
     expect(bridge.getEmuSelection()).toEqual(FULL);
   });
 });

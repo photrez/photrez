@@ -1,15 +1,15 @@
 // Call-site wiring for the Select-menu selection commands
 // (edit.select-all / edit.deselect / edit.invert-selection) in
 // useEditorCommands. Mirrors the metadata wiring pattern: the commit helpers are
-// mocked spies, the facade flag is controlled through localStorage, and each
-// test asserts BOTH that the mirror helper fires (flag ON) and that the host
-// engine mutation still runs, plus that flag OFF leaves the legacy path
-// untouched.
+// mocked spies, and each test asserts BOTH that the mirror helper fires (flag
+// ON) and that the host engine mutation still runs, plus that flag OFF leaves
+// the legacy path untouched.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorCommands } from "../useEditorCommands";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "../dialogs/DialogProvider";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
 const h = vi.hoisted(() => ({
   commitFacadeSetSelection: vi.fn(() => Promise.resolve({ status: "applied" })),
@@ -36,6 +36,15 @@ vi.mock("@/engine/document", async (importOriginal) => ({
   facadeOwnedIdsOf: () => undefined,
   isFacadeOwnedLayer: () => false,
 }));
+
+// The retired `photrez.facade` key used to select the wasm arm of the
+// bridge; the shared factory below arms the same engine on the bridge
+// surface the suite drives.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -91,12 +100,15 @@ function makeEditorContext(engine: Record<string, unknown>) {
   };
 }
 
+beforeAll(async () => {
+  await armWasmModule();
+});
+
 beforeEach(() => {
   vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({} as unknown as ReturnType<typeof DialogProviderModule.useDialog>);
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   vi.restoreAllMocks();
   h.commitFacadeClearSelection.mockClear();
   h.commitFacadeSelectAll.mockClear();
@@ -105,7 +117,6 @@ afterEach(() => {
 
 describe("useEditorCommands selection commands (mirror dispatch)", () => {
   it("edit.select-all: flag ON mirrors selectAll AND still runs the host engine op", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = makeEngine(null);
     mockUseEditor(makeEditorContext(engine));
     const commands = useEditorCommands(() => {});
@@ -129,7 +140,6 @@ describe("useEditorCommands selection commands (mirror dispatch)", () => {
   });
 
   it("edit.deselect: flag ON mirrors clearSelection AND still runs the host engine op", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = makeEngine({ x: 1, y: 2, width: 3, height: 4, angle: 0 });
     mockUseEditor(makeEditorContext(engine));
     const commands = useEditorCommands(() => {});
@@ -142,7 +152,6 @@ describe("useEditorCommands selection commands (mirror dispatch)", () => {
   });
 
   it("edit.invert-selection: flag ON mirrors invertSelection AND still runs the host engine op", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = makeEngine({ x: 1, y: 2, width: 3, height: 4, angle: 0 });
     mockUseEditor(makeEditorContext(engine));
     const commands = useEditorCommands(() => {});

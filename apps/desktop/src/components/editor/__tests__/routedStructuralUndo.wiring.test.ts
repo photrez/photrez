@@ -34,8 +34,7 @@
  * handoff, so a "fix" that drops the structural entry to make the cursor agree fails
  * here too.
  *
- * THE ARM. Every routed case drives the ROUTED function at the shipped origin
- * (`photrez.facade=1`, `facadeAuthority=native`) and asserts the route returned
+ * THE ARM. Every routed case drives the ROUTED function and asserts the route returned
  * `"applied"`, so a silent fall back to the legacy helper cannot leave these green on
  * the wrong arm. The pixel surface is the existing transport-faithful emulator, which
  * REJECTS where Rust rejects.
@@ -392,8 +391,6 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "native");
   restoreCanvas = installFaithfulCanvas();
   invokeMock.mockReset();
   store = createRustStoreEmulator();
