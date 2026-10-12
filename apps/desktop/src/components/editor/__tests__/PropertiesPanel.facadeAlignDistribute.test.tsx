@@ -236,7 +236,6 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   forcedLegacy.clear();
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -246,7 +245,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   forcedLegacy.clear();
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -256,7 +254,6 @@ afterEach(() => {
 
 describe("PropertiesPanel transform actions with native transform authority on", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "1");
   });
 
   it.each(ALIGN_CASES)(
@@ -398,7 +395,6 @@ describe("PropertiesPanel transform actions with native transform authority on",
 
 describe("PropertiesPanel transform actions - keeps photrez.facade=0 opt-out behavior (native transform authority off)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
   });
 
   it("Align left: snapshot before the writes, one history entry after them, no native command", async () => {

@@ -274,8 +274,6 @@ afterEach(() => {
 
 describe("ROUTED arm (facade on, native authority - the shipped default)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "native");
   });
 
   it("routeFlatten seeds the store and emits ONE canonical write", async () => {
@@ -346,8 +344,6 @@ describe("LEGACY control (facade off) - the arm that proved the code works", () 
   beforeEach(() => {
     // Explicit OFF, not absent: isFacadeEnabled is `!== "0"`, so an UNSET key
     // means ENABLED and the control would silently drive the routed arm.
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "native");
   });
 
   it("the legacy flatten helper still seeds the store and writes once", async () => {

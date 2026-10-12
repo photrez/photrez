@@ -25,17 +25,25 @@ import {
   seedFacadeFromEngine,
   __resetFacadeRegistryForTests,
 } from "../facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
-// Facade readiness: the leak-cleanup test sets photrez.facade=1 and drives the
-// facade layer through EditorFacade.addLayer/deleteLayer, which must run on the
-// REAL Rust engine (never silently emulate). Arm the bridge once and reset
-// between tests.
+// ENGINE: the leak-cleanup test drives the facade layer through
+// EditorFacade.addLayer/deleteLayer on the REAL Rust engine (never
+// silently emulate). The shared factory arms that engine on the
+// bridge surface; reset the module between tests.
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
+// The leak-cleanup case dispatches through bridge.applyCommand; the
+// shared factory routes that surface onto the real wasm ProtocolEngine
+// module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+  wasmModule = await armWasmModule();
 });
 
 // Minimal OffscreenCanvas stub so PaintTileSurface can exist under test
@@ -129,7 +137,6 @@ function snapOf(ids: string[]): RenderSnapshot {
 }
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
@@ -189,8 +196,6 @@ describe("EditorClient.deleteLayer split-brain", () => {
 
 describe("applyFacadeSnapshot leak-cleanup", () => {
   it("reclaims paint surface + texture handle for a layer id that vanished from the projection", async () => {
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const engine = new DocumentEngine("docLeak", "Leak", 64, 64);
     engine.addLayer("Background");
     const facade = getFacade("docLeak");
@@ -200,7 +205,12 @@ describe("applyFacadeSnapshot leak-cleanup", () => {
     // production projection path). The engine now owns the victim metadata.
     const addSnap = await facade.addLayer("Victim");
     engine.applyFacadeSnapshot(addSnap as never);
-    const victim = addSnap.layers[addSnap.layers.length - 1];
+    // The engine inserts at the host index (0), so the just-added
+    // layer sits at the stack front; the tail is the client-seeded
+    // Background, which the wasm module never learned (the native
+    // seed surface no-ops under this arm). Select the added layer
+    // by name so the delete targets a layer the module knows.
+    const victim = addSnap.layers.find((l) => l.name === "Victim")!;
 
     // Give the victim real per-layer resources: a cached paint surface + texture.
     engine.setLayerImageBitmap(victim.id, fakeBitmap(64, 64, 9));

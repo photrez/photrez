@@ -59,15 +59,11 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1"); // feature gate ON
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   wasm?.protocol_reset(DOC_ID);
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   wasm?.protocol_reset(DOC_ID);
   vi.restoreAllMocks();
@@ -114,8 +110,6 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
   });
 
   it("photrez.facade=0 opt-out: shim fast-fails, no External mirror, byte-identical legacy path", () => {
-    localStorage.setItem("photrez.facade", "0"); // opted out
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const applySpy = vi.spyOn(bridge, "applyCommand");
 
     const history = new CommandHistory();

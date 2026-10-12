@@ -86,14 +86,10 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   liveEngine = null;
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();

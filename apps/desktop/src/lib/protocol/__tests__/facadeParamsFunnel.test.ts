@@ -85,16 +85,12 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 
 afterEach(() => {
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.unstubAllGlobals();

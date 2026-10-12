@@ -3,11 +3,11 @@
 // (facadeOpacity.test.ts). The arms already exist in document_core_apply.rs and
 // are proven MEASURED-EQUAL in the parity matrix; this file proves the PRODUCTION
 // dispatch (commitFacadeX helpers) issues the correct envelope and projects the
-// result, and that the photrez.facade=0 opt-out is byte-identical (zero applyCommand).
+// result, and that a non-owned target falls to legacy with zero applyCommand.
 //
 // Per-op coverage satisfies AGENTS.md wiring-test rule:
-//  (1) opted out -> legacy (zero applyCommand invocations)
-//  (2) flag ON + facade-owned -> applyCommand with correct command type + payload
+//  (1) a non-owned target -> legacy (zero applyCommand invocations)
+//  (2) facade-owned -> applyCommand with correct command type + payload
 //      shape; engine projection reflects the change
 //  (3) rejection path -> applyCommand rejects -> error propagates (no silent
 //      TS-only mutation; the call site's try/catch surfaces it as a toast)
@@ -29,32 +29,33 @@ import {
   seedFacadeFromEngine,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "./wasmBridgeArm";
 import { invoke } from "@tauri-apps/api/core";
 
-// Native-authority harness: the real Tauri `invoke` is mocked (vi.mock below); the
-// native describe routes it to an emulated per-document ProtocolEngine (routeNative)
-// that returns a FULLY-ORDERED snapshot after every command. This mirrors the proven
+// Transport harness: the real Tauri `invoke` is mocked (vi.mock below).
+// The DEFAULT dispatch routes the native protocol commands to the REAL
+// wasm ProtocolEngine module (the arm the retired `photrez.facadeAuthority`
+// diversion used to select - the same Rust engine the parity matrix
+// measured); the native-authority describes override the mock with
+// routeNative, an emulated per-document ProtocolEngine that returns a
+// FULLY-ORDERED snapshot after every command. This mirrors the proven
 // pattern in canonicalSeedBarrier.wiring.test.ts / nativeAuthorityReroute.test.ts.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const invokeMock = invoke as unknown as Mock<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>;
 
-// Facade readiness: photrez.facade=1 metadata routing tests run against the REAL
-// Rust engine (same harness as facadeOpacity.test.ts).
-let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
+// The real wasm ProtocolEngine module, armed once for this file. The
+// metadata ops run against the REAL Rust arms (the NaN-channel rejection
+// below is a real-arm behavior the emulator does not share).
+let wasmModule: Awaited<ReturnType<typeof armWasmModule>> | null = null;
 
 beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+  wasmModule = await armWasmModule();
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+  invokeMock.mockImplementation(wasmDispatch);
 });
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   // `__resetFacadeRegistryForTests` does NOT clear the process-global
   // `facadeOwnedIds`; the retired `photrez.facade` flag used to mask that leak
@@ -76,6 +77,41 @@ function makeDoc(id: string) {
 function lastOwnedId(facade: ReturnType<typeof getFacade>): string {
   const layers = facade.snapshot.layers;
   return layers[layers.length - 1].id;
+}
+
+// Default invoke dispatch: route the native protocol commands to the REAL
+// wasm ProtocolEngine module. The native seed surface no-ops here -
+// faithful to the retired wasm arm, which gated every seed helper off
+// (the wasm module creates its document state on the first command).
+// The native-authority describes override this with routeNative in their
+// own beforeEach, which runs after this file-level beforeEach.
+function wasmDispatch(cmd: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  const w = wasmModule;
+  if (!w) throw new Error("facadeMetadataOps: wasm module not armed");
+  const docId = (args.docId as string) ?? "default";
+  switch (cmd) {
+    case "rust_pixels_open_document":
+    case "protocol_seed_native":
+    case "protocol_seed_canonical_native":
+    case "protocol_register_adapter_native":
+      return Promise.resolve(null);
+    case "protocol_apply_command_native":
+      return Promise.resolve(
+        w.protocol_apply_command((args.envelopeJson as string) ?? "{}", docId),
+      );
+    case "protocol_snapshot_native":
+      return Promise.resolve(w.protocol_snapshot_json(docId));
+    case "protocol_version_native":
+      return Promise.resolve(JSON.parse(w.protocol_snapshot_json(docId)).version);
+    case "protocol_layer_ids_native":
+      return Promise.resolve(
+        (JSON.parse(w.protocol_snapshot_json(docId)) as { layers: Array<{ id: string }> }).layers.map((l) => l.id),
+      );
+    case "protocol_history_query_native":
+      return Promise.resolve(w.protocol_history_query_json(docId));
+    default:
+      return Promise.reject(new Error(`E_UNKNOWN_COMMAND: ${cmd}`));
+  }
 }
 
 // Emulated native ProtocolEngine for the native-authority reorder tests. Mirrors the
@@ -325,7 +361,7 @@ function routeNative(): void {
 }
 
 describe("commitFacadeVisibility (SetVisible arm)", () => {
-  it("flag ON + facade-owned: ONE setVisible command w/ expectedVersion + projection, zero legacy mutation", async () => {
+  it("facade-owned: ONE setVisible command w/ expectedVersion + projection, zero legacy mutation", async () => {
     const { engine, facade } = makeDoc("vis1");
     await facade.addLayer("L");
     engine.applyFacadeSnapshot(facade.snapshot as never);
@@ -403,7 +439,7 @@ describe("commitFacadeVisibility (SetVisible arm)", () => {
 });
 
 describe("commitFacadeRename (Rename arm)", () => {
-  it("flag ON + facade-owned: ONE rename command w/ expectedVersion + projection", async () => {
+  it("facade-owned: ONE rename command w/ expectedVersion + projection", async () => {
     const { engine, facade } = makeDoc("ren1");
     await facade.addLayer("L");
     engine.applyFacadeSnapshot(facade.snapshot as never);
@@ -424,8 +460,11 @@ describe("commitFacadeRename (Rename arm)", () => {
     expect(engine.getLayer(id)!.name).toBe("Renamed");
   });
 
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
+  it("a non-owned target falls to legacy with zero applyCommand (byte-identical shipped path)", async () => {
+    // No flag write: the retired `photrez.facade` opt-out is gone. The route falls
+    // to legacy because `"any"` is not a facade-owned id (the real reason, not the
+    // retired flag); the cross-test `facadeOwnedIds` is cleared in afterEach so the
+    // global set is empty here.
     const { engine } = makeDoc("renL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeRename(engine as never, ["any"], "X");
@@ -469,7 +508,7 @@ describe("commitFacadeRename (Rename arm)", () => {
 });
 
 describe("commitFacadeLock (SetLocked arm, 4 kinds)", () => {
-  it("flag ON + facade-owned: ONE setLocked command w/ kind + expectedVersion + projection", async () => {
+  it("facade-owned: ONE setLocked command w/ kind + expectedVersion + projection", async () => {
     const { engine, facade } = makeDoc("loc1");
     await facade.addLayer("L");
     engine.applyFacadeSnapshot(facade.snapshot as never);
@@ -505,8 +544,11 @@ describe("commitFacadeLock (SetLocked arm, 4 kinds)", () => {
     expect(kinds).toEqual(["transparency", "position", "rotation"]);
   });
 
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
+  it("a non-owned target falls to legacy with zero applyCommand (byte-identical shipped path)", async () => {
+    // No flag write: the retired `photrez.facade` opt-out is gone. The route falls
+    // to legacy because `"any"` is not a facade-owned id (the real reason, not the
+    // retired flag); the cross-test `facadeOwnedIds` is cleared in afterEach so the
+    // global set is empty here.
     const { engine } = makeDoc("locL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeLock(engine as never, ["any"], "base", true);
@@ -550,7 +592,7 @@ describe("commitFacadeLock (SetLocked arm, 4 kinds)", () => {
 });
 
 describe("commitFacadeBlendMode (SetBlendMode arm)", () => {
-  it("flag ON + facade-owned: ONE setBlendMode command w/ expectedVersion + projection", async () => {
+  it("facade-owned: ONE setBlendMode command w/ expectedVersion + projection", async () => {
     const { engine, facade } = makeDoc("bld1");
     await facade.addLayer("L");
     engine.applyFacadeSnapshot(facade.snapshot as never);
@@ -571,8 +613,11 @@ describe("commitFacadeBlendMode (SetBlendMode arm)", () => {
     expect(engine.getLayer(id)!.blendMode).toBe("multiply");
   });
 
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
+  it("a non-owned target falls to legacy with zero applyCommand (byte-identical shipped path)", async () => {
+    // No flag write: the retired `photrez.facade` opt-out is gone. The route falls
+    // to legacy because `"any"` is not a facade-owned id (the real reason, not the
+    // retired flag); the cross-test `facadeOwnedIds` is cleared in afterEach so the
+    // global set is empty here.
     const { engine } = makeDoc("bldL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeBlendMode(engine as never, ["any"], "multiply");
@@ -618,7 +663,7 @@ describe("commitFacadeBlendMode (SetBlendMode arm)", () => {
 describe("commitFacadeAdjustment (SetAdjustment arm)", () => {
   const adj = { brightness: 20, contrast: -10, saturation: 5 };
 
-  it("flag ON + facade-owned: ONE setAdjustment command w/ expectedVersion + projection", async () => {
+  it("facade-owned: ONE setAdjustment command w/ expectedVersion + projection", async () => {
     const { engine, facade } = makeDoc("adj1");
     await facade.addLayer("L");
     engine.applyFacadeSnapshot(facade.snapshot as never);
@@ -662,8 +707,11 @@ describe("commitFacadeAdjustment (SetAdjustment arm)", () => {
     expect(engine.getLayer(id)!.hasAdjustments).toBe(false);
   });
 
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
+  it("a non-owned target falls to legacy with zero applyCommand (byte-identical shipped path)", async () => {
+    // No flag write: the retired `photrez.facade` opt-out is gone. The route falls
+    // to legacy because `"any"` is not a facade-owned id (the real reason, not the
+    // retired flag); the cross-test `facadeOwnedIds` is cleared in afterEach so the
+    // global set is empty here.
     const { engine } = makeDoc("adjL");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeAdjustment(engine as never, ["any"], adj);
@@ -863,46 +911,17 @@ describe("SetAdjustment arm: non-finite channel (emulator vs TS oracle)", () => 
   });
 });
 
-describe("commitFacadeReorder (Reorder arm) - wasm authority (legacy route)", () => {
-  // Under wasm authority the reorder arm never routes to native: commitFacadeReorder
-  // returns {status:"legacy"} before any selection resolve, so applyCommand is never
-  // called (the production routing decision: reorder is gated to native authority).
-  // These tests pin that default path.
+describe("commitFacadeReorder (Reorder arm) - non-owned target (legacy route)", () => {
+  // A non-owned target never reaches the Reorder arm: resolveSelectionRoute
+  // returns "legacy" before any selection resolve, so applyCommand is never
+  // called (the production routing decision: ownership, not authority, gates
+  // the route). These tests pin that default path.
   it("non-facade-owned id routes to legacy status (zero applyCommand)", async () => {
     const { engine } = makeDoc("reM");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeReorder(engine as never, "legacy-layer", 0);
     expect(r.status).toBe("legacy");
     expect(spy).not.toHaveBeenCalled();
-  });
-
-  // T3 (routing pin): under WASM authority the reorder arm returns {status:"legacy"}
-  // and applyCommand is NOT called. Under the facade=0 opt-out the path is byte-identical:
-  // still legacy, still zero applyCommand.
-  it("T3: wasm authority -> legacy status, applyCommand NOT called (pins routing); photrez.facade=0 opt-out also legacy", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm"); // pin wasm authority
-    const { engine, facade } = makeDoc("reT3w");
-    await facade.addLayer("T");
-    engine.applyFacadeSnapshot(facade.snapshot as never);
-    const id = lastOwnedId(facade);
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const r = await commitFacadeReorder(engine as never, id, 0);
-    expect(r.status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
-
-    // facade=0 opt-out is byte-identical: still legacy, no applyCommand
-    // from commitFacadeReorder itself. (addLayer mints the layer via applyCommand first;
-    // isolate the commit under test by clearing the spy after the mint settles.)
-    localStorage.setItem("photrez.facade", "0");
-    const spy2 = vi.spyOn(bridge, "applyCommand");
-    const { engine: e2, facade: f2 } = makeDoc("reT3f");
-    await f2.addLayer("U");
-    await new Promise((r) => setTimeout(r, 0));
-    spy2.mockClear();
-    const id2 = lastOwnedId(f2);
-    const r2 = await commitFacadeReorder(e2 as never, id2, 0);
-    expect(r2.status).toBe("legacy");
-    expect(spy2).not.toHaveBeenCalled();
   });
 });
 
@@ -914,18 +933,16 @@ describe("commitFacadeReorder (Reorder arm) - wasm authority (legacy route)", ()
 // arm deltas so these exercise the real production routing.
 describe("commitFacadeReorder (Reorder arm) - native authority", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
     routeNative();
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
   });
 
-  it("flag ON + facade-owned: ONE reorder command w/ expectedVersion + projection", async () => {
+  it("facade-owned: ONE reorder command w/ expectedVersion + projection", async () => {
     const { engine, facade } = makeDoc("re1");
     for (const n of ["A", "B"]) {
       await facade.addLayer(n);
@@ -1052,13 +1069,11 @@ describe("commitFacadeReorder (Reorder arm) - native authority", () => {
 // (the class of silent clobber this contract exists to prevent).
 describe("canonical seed known-id up-projection (mock fidelity)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
     routeNative();
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
   });

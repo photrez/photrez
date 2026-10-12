@@ -34,8 +34,6 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
@@ -44,8 +42,6 @@ afterEach(() => {
   // observe a version it never wrote.
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -236,7 +232,6 @@ describe("overlapping numeric transform commits", () => {
     const { engine, facade, ids } = await docWithLayers(docId, 1);
     const versionBefore = facade.renderedVersion;
     const commitSpy = vi.spyOn(facade, "commitTransform");
-    localStorage.setItem("photrez.facade", "0");
 
     await expect(facadeCommitNumericTransform(engine, ids[0], { x: 150 })).resolves.toBe(false);
 

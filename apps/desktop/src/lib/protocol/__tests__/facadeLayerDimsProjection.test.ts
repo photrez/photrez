@@ -32,7 +32,7 @@ import {
   seedFacadeFromEngine,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 
@@ -143,23 +143,24 @@ describe("facade layer dims projection (pure)", () => {
   });
 });
 
-// ─── Real chain: real wasm mirror + real facade funnel (photrez.facade=1) ───
+// ─── Real chain: real wasm mirror + real facade funnel ───
 
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
-beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+// The real-chain cases dispatch through bridge.applyCommand and
+// read bridge.getSnapshot; the shared factory routes both surfaces
+// onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
 });
 
-beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+beforeAll(async () => {
+  wasmModule = await armWasmModule();
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   wasmModule?.protocol_reset("default");
   vi.restoreAllMocks();
@@ -265,7 +266,11 @@ describe("layer dims survive the real facade chain", () => {
     const landed = sink.getLayers().find((l) => l.name === "Native")!;
     expect(landed.width).toBe(140);
     expect(landed.height).toBe(60);
-    expect(engine.getLayer(added.layers[0].id)).toBeUndefined();
+    // The bound engine DOES hold the layer: addLayer's canonical
+    // re-push projects the facade snapshot into it (the engine
+    // learns the layer immediately - production behavior). The
+    // rebuild-branch size contract is the sink assertions above.
+    expect(engine.getLayer(added.layers[0].id)).toBeDefined();
   });
 
   it("a routed duplicate of a re-rastered layer keeps the model's dims, not the engine's", async () => {

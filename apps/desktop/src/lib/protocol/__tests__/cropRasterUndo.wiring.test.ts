@@ -33,17 +33,16 @@ import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 //   - the REAL EditorFacade and the REAL DocumentEngine;
 //   - command arguments read from the SERIALIZED envelope JSON, so a field dropped
 //     by a wire mapper cannot hide;
-//   - `isFacadeEnabled()` reads getItem(...) !== "0", so an UNSET key means
-//     ENABLED and the flags are set explicitly;
+//   - the facade is the shipped default (an UNSET facade key means
+//     ENABLED), so no flag writes are needed;
 //   - store assertions read the Rust store's OWN reported dims, never a
 //     downstream symptom. `null - null = 0` looks like a real zero, and a
 //     swallowed failed read fakes an empty census, so both are guarded below.
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
 import * as bridge from "@/lib/protocol/bridge";
-import { __resetEmulatedForTests } from "@/lib/protocol/bridge";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import {
   __resetFacadeRegistryForTests,
@@ -111,10 +110,17 @@ type WasmModule = {
 
 let wasmModule: WasmModule | null = null;
 
+// The crop handoff dispatches through bridge.applyCommand and reads
+// bridge.getSnapshot; the shared factory routes both surfaces onto
+// the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 beforeAll(async () => {
-  const m = await getWasmExportModule();
-  expect(m).not.toBeNull();
-  wasmModule = m as unknown as WasmModule;
+  wasmModule = (await armWasmModule()) as unknown as WasmModule;
 });
 
 /** A solid-colour raster carrying its own bytes, so content is provable and the
@@ -150,10 +156,6 @@ function fingerprint(b: { width: number; height: number; data: Uint8ClampedArray
 describe("crop undo restores the raster and the Rust store, not just the document size", () => {
   beforeEach(() => {
     localStorage.clear();
-    // Explicit: an UNSET facade key means ENABLED (isFacadeEnabled is `!== "0"`).
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    __resetEmulatedForTests();
     __resetFacadeRegistryForTests();
     storeReseeds = [];
     invokeMock.mockClear();
@@ -176,7 +178,6 @@ describe("crop undo restores the raster and the Rust store, not just the documen
   });
   afterEach(() => {
     localStorage.clear();
-    __resetEmulatedForTests();
     __resetFacadeRegistryForTests();
     wasmModule?.protocol_reset("docCropRaster");
     vi.restoreAllMocks();

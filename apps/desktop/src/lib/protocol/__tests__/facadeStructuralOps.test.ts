@@ -64,16 +64,12 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "native");
   bridge.__resetNativeAuthorityForTests();
   invokeMock.mockReset();
   routeNative();
 });
 afterEach(() => {
   vi.restoreAllMocks();
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   bridge.__resetNativeAuthorityForTests();
   invokeMock.mockReset();
   __resetFacadeRegistryForTests();
@@ -361,7 +357,6 @@ describe("commitFacadeDuplicate (Duplicate arm)", () => {
   });
 
   it("photrez.facade=0 opt-out: legacy status, zero applyCommand (byte-identical opt-out path)", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeDuplicate(engine as never, "any", "layer-dup-2");
@@ -400,7 +395,6 @@ describe("commitFacadeMergeDown (MergeDown arm)", () => {
   });
 
   it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeMergeDown(engine as never, "any", "layer-merge-2");
@@ -491,7 +485,6 @@ describe("commitFacadeMergeSelected (MergeSelected arm)", () => {
   });
 
   it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeMergeSelected(engine as never, ["a", "b"], "layer-msel-3");
@@ -523,7 +516,6 @@ describe("commitFacadeFlatten (Flatten arm)", () => {
   });
 
   it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeFlatten(engine as never, "layer-flat-2");
@@ -556,7 +548,6 @@ describe("commitFacadeRasterize (Rasterize arm)", () => {
   });
 
   it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const r = await commitFacadeRasterize(engine as never, "any");
@@ -574,16 +565,12 @@ describe("structuralRouting pre-dispatch pixel guard", () => {
   const fakeBitmap = { width: 4, height: 4 } as unknown as ImageBitmap;
 
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
     routeNative();
     compositeTwoLayersMock.mockReset();
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
     __resetFacadeRegistryForTests();
@@ -675,8 +662,6 @@ describe("routeDuplicate retention + authority gates", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("wasm authority: legacy status, zero commands, no clone side effects", async () => {
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     const { engine } = makeDoc("struct1");
     const spy = vi.spyOn(bridge, "applyCommand");
     const res = await routeDuplicate(

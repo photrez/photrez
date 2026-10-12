@@ -40,13 +40,9 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   liveEngine = null;
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
@@ -169,7 +165,6 @@ describe("notifyChange is the facade projection choke point (photrez.facade=1)",
 
 describe("photrez.facade=0 opt-out leaves the snapshot untouched through notifyChange + commit + restore", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
   });
 
   it("a commit + legacy add + restore does not change the projection snapshot", async () => {

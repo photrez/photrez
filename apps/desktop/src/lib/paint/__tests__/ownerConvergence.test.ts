@@ -321,8 +321,6 @@ beforeEach(async () => {
   vi.mocked(invoke).mockImplementation(((c: string, a: unknown, o?: any) => hoist.invoke!(c, a, o)) as never);
   localStorage.clear();
   // Explicit: an UNSET facade key means ENABLED (isFacadeEnabled is `!== "0"`).
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetEmulatedForTests();
   __resetFacadeRegistryForTests();
   store = createRustStoreEmulator();

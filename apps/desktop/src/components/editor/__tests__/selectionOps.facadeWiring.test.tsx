@@ -98,7 +98,6 @@ function findButton(root: HTMLElement, text: string): HTMLButtonElement {
 
 afterEach(() => {
   document.body.replaceChildren();
-  localStorage.removeItem("photrez.facade");
   vi.restoreAllMocks();
   h.commitFacadeSetSelection.mockClear();
   h.commitFacadeClearSelection.mockClear();
@@ -108,7 +107,6 @@ afterEach(() => {
 
 describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
   it("create (W submit): flag ON mirrors setSelection AND still mutates the host engine", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -126,7 +124,6 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
   });
 
   it("create (W submit): photrez.facade=0 opt-out uses the host engine only, zero facade calls", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -143,7 +140,6 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
   });
 
   it("invert: flag ON mirrors invertSelection AND still mutates the host engine", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -156,7 +152,6 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
   });
 
   it("deselect: flag ON mirrors clearSelection AND still mutates the host engine", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -169,7 +164,6 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
   });
 
   it("deselect: photrez.facade=0 opt-out uses the host engine only, zero facade calls", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -183,7 +177,6 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
 
 describe("marquee selection routing (input-handler)", () => {
   it("flag ON: createSelection runs on the host AND mirrors setSelection", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = createMockEngine(["createSelection", "clearSelection", "snapshot"]);
     const ctx = createToolContext({ selectedLayerId: null, onSelectionCreated: vi.fn() });
 
@@ -197,7 +190,6 @@ describe("marquee selection routing (input-handler)", () => {
   });
 
   it("photrez.facade=0 opt-out: createSelection runs on the host with zero facade calls", () => {
-    localStorage.setItem("photrez.facade", "0");
     const engine = createMockEngine(["createSelection", "clearSelection", "snapshot"]);
     const ctx = createToolContext({ selectedLayerId: null, onSelectionCreated: vi.fn() });
 
@@ -210,7 +202,6 @@ describe("marquee selection routing (input-handler)", () => {
   });
 
   it("move commit (pointerup): mirrors setSelection once with the final host geometry", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = createMockEngine(["snapshot"]);
     (engine as unknown as { getSelection: unknown }).getSelection = vi.fn(() => ({ x: 150, y: 150, width: 200, height: 150, angle: 0 }));
     const ctx = createToolContext({

@@ -54,13 +54,9 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   liveEngine = null;
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
@@ -177,7 +173,6 @@ describe("facade projection snapshot across legacy commit-before-mutation (photr
 
 describe("photrez.facade=0 opt-out is byte-identical", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
   });
 
   it("a commit + legacy add + restore leaves the facade projection snapshot untouched", async () => {
@@ -276,7 +271,6 @@ describe("commit shim skips the External mirror for an already-Rust-recorded com
   // skip, so the probe below reads the production branch directly and does not
   // depend on the authority flag.
   it("skips the mirror branch for a pixel commit under the default native authority", async () => {
-    localStorage.removeItem("photrez.facadeAuthority");
     const docId = "docPixelCommitNative";
     const engine = new DocumentEngine(docId, docId, 800, 600);
     engine.addLayer("Base");

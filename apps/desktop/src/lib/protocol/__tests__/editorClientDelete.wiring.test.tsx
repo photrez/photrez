@@ -29,16 +29,23 @@ import { getFacade, seedFacadeFromEngine, __resetFacadeRegistryForTests } from "
 import { createEditorClient } from "@/lib/protocol/editorClient";
 import * as bridge from "@/lib/protocol/bridge";
 import { showToast } from "@/components/editor/Toast";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
-// Facade readiness: photrez.facade=1 routing tests run against the REAL Rust
-// engine. Arm the bridge once via the production loader and reset the
+// ENGINE: the routing tests run against the REAL Rust engine. The
+// shared factory arms that engine on the bridge surface; reset the
 // module-lifetime engine between tests.
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
+// The routing cases dispatch through bridge.applyCommand; the shared
+// factory routes that surface onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+  wasmModule = await armWasmModule();
 });
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
@@ -157,7 +164,6 @@ async function seedFacadeWithLayers(engine: any, facade: any, names: string[]) {
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.mocked(isTauriRuntime).mockReset();
@@ -165,7 +171,6 @@ beforeEach(() => {
   toastMock.mockClear();
 });
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
   wasmModule?.protocol_reset("default");
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -173,12 +178,17 @@ afterEach(() => {
 });
 
 describe("Delete Layer EditorClient routing", () => {
-  it("facade ON: routes Delete Layer through the facade client -> snapshot projected, no legacy history", async () => {
-    localStorage.setItem("photrez.facade", "1");
+  it("routes Delete Layer through the facade client -> snapshot projected, no legacy history", async () => {
     const { engine, history, renderer, wrapper } = createWrapper();
     const facade = getFacade("doc-a");
     const snap = await seedFacadeWithLayers(engine, facade, ["Victim"]);
-    const victim = snap.layers[snap.layers.length - 1];
+    // Stack-order note: the engine inserts at the host index (0), so
+    // the just-added layer sits at the stack front; the tail is the
+    // client-seeded Background, which the wasm module never learned
+    // (the native seed surface no-ops under this arm). Select the
+    // added layer by name so the delete targets a layer the module
+    // knows.
+    const victim = snap.layers.find((l: any) => l.name === "Victim")!;
     engine.setActiveLayer(victim.id);
 
     const delSpy = vi.spyOn(facade, "deleteLayer");
@@ -195,8 +205,7 @@ describe("Delete Layer EditorClient routing", () => {
     expect(history.getUndoCount()).toBe(0);
   });
 
-  it("photrez.facade=0 opt-out: routes to the byte-identical legacy TS path (no facade, no applyCommand)", async () => {
-    localStorage.setItem("photrez.facade", "0");
+  it("legacy-owned selection routes the byte-identical legacy TS path (no facade delete)", async () => {
     const { engine, history, wrapper } = createWrapper();
     const layer = engine.addLayer("Extra");
     engine.setActiveLayer(layer.id);
@@ -207,15 +216,27 @@ describe("Delete Layer EditorClient routing", () => {
 
     expect(engine.getLayer(layer.id)).toBeUndefined();
     expect(history.getUndoCount()).toBe(1);
-    expect(facadeSpy).not.toHaveBeenCalled(); // no facade command issued
+    // The open-path background-flag commit issues its own command at
+    // document open; the LEGACY delete itself must not. Assert on the
+    // command type, not the call count.
+    expect(
+      facadeSpy.mock.calls.every(
+        (c) => (c[0] as { command: { type: string } }).command.type !== "deleteLayer",
+      ),
+    ).toBe(true);
   });
 
   it("ERR SAFE: a Rust Err (applyCommand throws) fails closed — no half-mutation, toast shown", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { engine, wrapper } = createWrapper();
     const facade = getFacade("doc-a");
     const snap = await seedFacadeWithLayers(engine, facade, ["Victim"]);
-    const victim = snap.layers[snap.layers.length - 1];
+    // Stack-order note: the engine inserts at the host index (0), so
+    // the just-added layer sits at the stack front; the tail is the
+    // client-seeded Background, which the wasm module never learned
+    // (the native seed surface no-ops under this arm). Select the
+    // added layer by name so the delete targets a layer the module
+    // knows.
+    const victim = snap.layers.find((l: any) => l.name === "Victim")!;
     engine.setActiveLayer(victim.id);
 
     // A Rust Err surfaces as a throw from wasm.protocol_apply_command; the
@@ -237,11 +258,16 @@ describe("Delete Layer EditorClient routing", () => {
   });
 
   it("GHOST GUARD: a facade no-op delete (victim left present) is blocked — texture NOT destroyed, toast shown", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { engine, renderer, wrapper } = createWrapper();
     const facade = getFacade("doc-a");
     const snap = await seedFacadeWithLayers(engine, facade, ["Victim"]);
-    const victim = snap.layers[snap.layers.length - 1];
+    // Stack-order note: the engine inserts at the host index (0), so
+    // the just-added layer sits at the stack front; the tail is the
+    // client-seeded Background, which the wasm module never learned
+    // (the native seed surface no-ops under this arm). Select the
+    // added layer by name so the delete targets a layer the module
+    // knows.
+    const victim = snap.layers.find((l: any) => l.name === "Victim")!;
     engine.setActiveLayer(victim.id);
 
     // The facade delete becomes a NO-OP: the returned delta carries no Remove
@@ -271,7 +297,6 @@ describe("Delete Layer EditorClient routing", () => {
 
 describe("Delete Layer parity oracle (independent-copy legacy reference)", () => {
   it("facade delete projection == independent-copy legacy reference on layer set/metadata", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { engine } = createWrapper();
     const facade = getFacade("doc-a");
     await seedFacadeWithLayers(engine, facade, ["A", "B"]); // Background + A + B

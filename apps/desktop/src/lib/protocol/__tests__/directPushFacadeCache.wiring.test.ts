@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Direct pushModelToRust() call sites and the facade projection snapshot
-// (photrez.facade=1).
+// Direct pushModelToRust() call sites and the facade projection snapshot.
 //
 // The projection snapshot is the layer vector the next routed op rebuilds the
 // model from (applyFacadeSnapshot replaces model.layers with it). Two legacy
@@ -21,9 +20,9 @@
 // mock. The commit shim is installed the way production installs it once at
 // EditorShell boot.
 
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { DocumentEngine } from "@/engine/document";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import {
   getFacade,
   installFacadeCommitShim,
@@ -34,20 +33,24 @@ import {
 
 let liveEngine: DocumentEngine | null = null;
 
+// The projection refresh reads bridge.getSnapshot; the shared
+// factory routes that surface onto the real wasm ProtocolEngine
+// module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 beforeAll(async () => {
-  await getWasmExportModule();
+  await armWasmModule();
   installFacadeCommitShim({
     getEngine: () => liveEngine as never,
     getDocId: () => liveEngine?.getId() ?? "default",
   });
 });
 
-beforeEach(() => {
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
-});
-
 afterEach(() => {
-  localStorage.removeItem("photrez.facadeAuthority");
   liveEngine = null;
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
@@ -69,7 +72,7 @@ async function setupDoc(id: string) {
   return { engine, facade, ownedId };
 }
 
-describe("direct pushModelToRust() paths refresh the facade projection snapshot (photrez.facade=1)", () => {
+describe("direct pushModelToRust() paths refresh the facade projection snapshot", () => {
   it("applyBasicAdjustment with no commit republishes the new adjustment", async () => {
     const { engine, facade, ownedId } = await setupDoc("docDirectAdjust");
     // No live engine: the commit shim must not be the reason the snapshot updates.

@@ -29,8 +29,6 @@ function setFlags(opts: { facade: boolean; native: boolean }): void {
 }
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   vi.restoreAllMocks();
 });
 

@@ -3445,7 +3445,6 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
 // below; see the report for the precise per-site reason each was not driven here.
 describe("Native authority: pixel-commit facade version sync (sink gating)", () => {
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
@@ -3454,7 +3453,6 @@ describe("Native authority: pixel-commit facade version sync (sink gating)", () 
     const run = (docId: string, version: number) => syncFacadeVersionFromPixel(docId, version);
 
     // Native authority ARMED -> facade must advance to the committed version.
-    localStorage.setItem("photrez.facadeAuthority", "native");
     const f = getFacade("syncSink");
     const spy = vi.spyOn(f, "syncRenderedVersionTo");
 
@@ -3463,7 +3461,6 @@ describe("Native authority: pixel-commit facade version sync (sink gating)", () 
 
     // wasm opt-out path: byte-identical, the facade is never touched.
     spy.mockClear();
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     run("syncSink", 9);
     expect(spy).not.toHaveBeenCalled();
   });
@@ -3540,12 +3537,10 @@ describe("Native authority: paint-bucket pixel commit syncs facade version (real
 
   beforeEach(() => {
     invokeMock.mockReset();
-    localStorage.setItem("photrez.facadeAuthority", "native");
     facade = getFacade(DOC);
     spy = vi.spyOn(facade, "syncRenderedVersionTo");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
@@ -3562,7 +3557,6 @@ describe("Native authority: paint-bucket pixel commit syncs facade version (real
   });
 
   it("the same paint-bucket commit does NOT touch the facade when native authority is off (byte-identical wasm opt-out path)", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     armInvoke(1);
     const { ctx } = makeBucketCtx();
 

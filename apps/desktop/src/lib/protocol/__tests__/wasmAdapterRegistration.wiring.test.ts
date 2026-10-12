@@ -24,23 +24,21 @@
 // loads the REAL .wasm bytes, so this is the true production boundary (serde
 // JSON in/out), not a fake.
 
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { recordExternalTransitionFor } from "@/lib/protocol/facadeRegistry";
 
-beforeAll(async () => {
-  // First getWasmExportModule() call in this file triggers the production
-  // wiring: getWasmExportModule -> setProtocolWasm(mod). It does NOT pre-register
-  // the ts-external adapter (see header).
-  const m = await getWasmExportModule();
-  expect(m).not.toBeNull();
-  expect(typeof m.protocol_apply_command).toBe("function");
+// recordExternalTransitionFor dispatches through bridge.applyCommand
+// and bridge.registerPayloadAdapter; the shared factory routes both
+// surfaces onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
 });
 
-beforeEach(() => {
-  // recordExternalTransitionFor routes on authority: pin wasm so this file
-  // exercises the real wasm engine (unset authority now defaults to native).
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+beforeAll(async () => {
+  await armWasmModule();
 });
 
 describe("real-wasm ts-external adapter is registered inline per document", () => {
