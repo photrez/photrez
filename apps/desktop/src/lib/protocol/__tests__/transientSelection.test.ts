@@ -41,9 +41,8 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import { routeNumericTransformBatch } from "@/components/editor/layers/transformRouting";
 import { showToast } from "@/components/editor/Toast";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { useSelectionTransformDrag } from "@/components/editor/useSelectionTransformDrag";
-import type { CommandEnvelope } from "@/lib/protocol/types";
 
 const { mockEditorState, commandLog } = vi.hoisted(() => ({
   mockEditorState: {} as Record<string, unknown>,
@@ -60,13 +59,8 @@ vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 // and the native arm alike, so its call list IS the dispatch count.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
-  return {
-    ...actual,
-    applyCommand: (envelope: CommandEnvelope) => {
-      commandLog.types.push(envelope.command.type);
-      return actual.applyCommand(envelope);
-    },
-  };
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual, commandLog);
 });
 
 const toastMock = vi.mocked(showToast);
@@ -75,7 +69,7 @@ let wasm: { protocol_reset: (docId: string) => void } | null = null;
 const usedDocs: string[] = [];
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
+  wasm = await armWasmModule();
 });
 
 beforeEach(() => {

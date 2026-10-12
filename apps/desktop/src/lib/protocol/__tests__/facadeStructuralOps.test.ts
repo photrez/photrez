@@ -355,14 +355,6 @@ describe("commitFacadeDuplicate (Duplicate arm)", () => {
     // "B 2" duplicating with "B 2" in the stack -> the next free suffix is "B 3".
     expect(engine.getLayer(newId)?.name).toBe("B 3");
   });
-
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand (byte-identical opt-out path)", async () => {
-    const { engine } = makeDoc("struct1");
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const r = await commitFacadeDuplicate(engine as never, "any", "layer-dup-2");
-    expect(r.status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
-  });
 });
 
 describe("commitFacadeMergeDown (MergeDown arm)", () => {
@@ -392,14 +384,6 @@ describe("commitFacadeMergeDown (MergeDown arm)", () => {
     // [C, B, A], so B merges into A): both victims go, the merged node takes
     // the pair's position, C is untouched.
     expect(after).toEqual([ids[0], mergedId]);
-  });
-
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    const { engine } = makeDoc("struct1");
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const r = await commitFacadeMergeDown(engine as never, "any", "layer-merge-2");
-    expect(r.status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
   });
 
   it("routed merge -> undo restores BOTH victims with their bitmap identities; redo restores merged node (truthfully pinned)", async () => {
@@ -483,14 +467,6 @@ describe("commitFacadeMergeSelected (MergeSelected arm)", () => {
     expect(r.status).toBe("mixed-rejected");
     expect(spy).not.toHaveBeenCalled();
   });
-
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    const { engine } = makeDoc("struct1");
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const r = await commitFacadeMergeSelected(engine as never, ["a", "b"], "layer-msel-3");
-    expect(r.status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
-  });
 });
 
 describe("commitFacadeFlatten (Flatten arm)", () => {
@@ -513,14 +489,6 @@ describe("commitFacadeFlatten (Flatten arm)", () => {
     expect((env.command as unknown as { id?: string }).id).toBeUndefined(); // flatten carries no id
     engine.applyFacadeSnapshot(facade.snapshot as never);
     expect(engine.getLayers().map((l) => l.id)).toEqual([mergedId]);
-  });
-
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    const { engine } = makeDoc("struct1");
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const r = await commitFacadeFlatten(engine as never, "layer-flat-2");
-    expect(r.status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
   });
 });
 
@@ -545,14 +513,6 @@ describe("commitFacadeRasterize (Rasterize arm)", () => {
     // carries no type field - graph ops never detach or retype nodes here).
     // The flip itself is pinned route-level in this file's routeRasterize test.
     expect(engine.getLayer(id)?.type).toBe("shape"); // funnel alone must NOT retype
-  });
-
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    const { engine } = makeDoc("struct1");
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const r = await commitFacadeRasterize(engine as never, "any");
-    expect(r.status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
   });
 });
 

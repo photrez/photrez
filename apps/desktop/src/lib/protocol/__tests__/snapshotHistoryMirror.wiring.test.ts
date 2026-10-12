@@ -32,7 +32,13 @@ import {
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
 import { CommandHistory } from "@/engine/history";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
+
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 const DOC_ID = "docSnapshotMirror";
 
@@ -48,7 +54,7 @@ const engineStub = {
 let wasm: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
-  wasm = (await getWasmExportModule()) as never;
+  wasm = await armWasmModule();
   // Install the production shim once. shimInstalled is module-sticky, so the
   // first install wins; all tests share these providers (matches production:
   // EditorShell installs once at boot).
@@ -107,22 +113,6 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     expect(externalEntries.length).toBe(3);
     expect(proj.cursor).toBe(3);
     expect(history.canUndo()).toBe(true); // TS authority still records each undo-point
-  });
-
-  it("photrez.facade=0 opt-out: shim fast-fails, no External mirror, byte-identical legacy path", () => {
-    const applySpy = vi.spyOn(bridge, "applyCommand");
-
-    const history = new CommandHistory();
-    const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
-    const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
-
-    history.recordSnapshotHistory(before, after, "Delete Layer");
-
-    const mirrorCalls = applySpy.mock.calls.filter(
-      (c) => (c[0] as { command?: { type?: string } })?.command?.type === "recordExternalTransition",
-    );
-    expect(mirrorCalls.length).toBe(0); // zero protocol work when OFF
-    expect(history.canUndo()).toBe(true); // TS authority still records
   });
 
   it("mirror forwards the PRE-action `before` payload (undo point), not `after`", async () => {

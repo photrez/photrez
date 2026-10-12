@@ -4,7 +4,7 @@
 // empty selection; undo/redo via H0 stream; expectedVersion mandatory;
 // ZERO IPC during transient preview ticks; legacy path unchanged.
 
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { DocumentEngine, hasFacadeOwnedLayers, isFacadeOwnedLayer } from "@/engine/document";
 import * as bridge from "@/lib/protocol/bridge";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
@@ -22,18 +22,20 @@ import {
   applyFacadePreviews,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
-// Facade readiness: photrez.facade=1 opacity tests must run against the REAL
-// Rust engine.
+// The facade funnel dispatches through bridge.applyCommand; the shared
+// factory routes that surface onto the real wasm ProtocolEngine module.
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
-beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
 });
 
-beforeEach(() => {
+beforeAll(async () => {
+  wasmModule = await armWasmModule();
 });
 afterEach(() => {
   clearOpacityPreview();

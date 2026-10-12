@@ -15,26 +15,21 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import { DEFAULT_TEXT_DATA, type TextData } from "@/engine/textTypes";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import {
   commitFacadeParams,
   getFacade,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
-import { CONTRACT_VERSION, type CommandEnvelope } from "@/lib/protocol/types";
+import { CONTRACT_VERSION } from "@/lib/protocol/types";
 
 const { commandLog } = vi.hoisted(() => ({ commandLog: { types: [] as string[] } }));
 
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
-  return {
-    ...actual,
-    applyCommand: (envelope: CommandEnvelope) => {
-      commandLog.types.push(envelope.command.type);
-      return actual.applyCommand(envelope);
-    },
-  };
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual, commandLog);
 });
 
 // jsdom has no OffscreenCanvas; stub the seam the text rasterizer uses so a typed
@@ -81,7 +76,7 @@ let wasm: { protocol_reset: (docId: string) => void } | null = null;
 const usedDocs: string[] = [];
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
+  wasm = await armWasmModule();
 });
 
 beforeEach(() => {

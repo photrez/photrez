@@ -21,7 +21,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { addLayerFromCrossDoc } from "@/components/editor/crossDocLayerOps";
 import {
   commitFacadeOpacity,
@@ -33,6 +33,12 @@ import {
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
 
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 // The shim reads getEngine()/getId() at commit time; hand it the per-test engine.
 let liveEngine: DocumentEngine | null = null;
 // Counts how often the shim decided to mirror: providers.getEngine() is reached
@@ -41,7 +47,7 @@ let liveEngine: DocumentEngine | null = null;
 let engineProbeCount = 0;
 
 beforeAll(async () => {
-  await getWasmExportModule();
+  await armWasmModule();
   // Install the production shim once (shimInstalled is module-sticky; production
   // installs it once at EditorShell boot).
   installFacadeCommitShim({
@@ -168,29 +174,6 @@ describe("facade projection snapshot across legacy commit-before-mutation (photr
     engine.applyFacadeSnapshot(pSnap as never);
     expect(engine.getLayers().map((l) => l.id)).not.toContain(added.id);
     expect(engine.getLayers().map((l) => l.id)).toContain(base.id);
-  });
-});
-
-describe("photrez.facade=0 opt-out is byte-identical", () => {
-  beforeEach(() => {
-  });
-
-  it("a commit + legacy add + restore leaves the facade projection snapshot untouched", async () => {
-    const engine = new DocumentEngine("docOffChoke", "docOffChoke", 800, 600);
-    const facade = getFacade("docOffChoke");
-    engine.addLayer("Base");
-    await seedFacadeFromEngine(engine as never, facade);
-    const before = JSON.stringify(facade.snapshot);
-    liveEngine = engine;
-
-    const history = new CommandHistory();
-    const preAdd = engine.snapshot();
-    history.commit(preAdd, "Flag Off Commit");
-    engine.addLayer("Legacy");
-    engine.resizeCanvas(1024, 768);
-    engine.restore(preAdd);
-
-    expect(JSON.stringify(facade.snapshot)).toBe(before);
   });
 });
 

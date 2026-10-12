@@ -17,7 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { addLayerFromCrossDoc } from "@/components/editor/crossDocLayerOps";
 import {
   commitFacadeOpacity,
@@ -28,11 +28,17 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import type { RenderBackend } from "@/renderer/types";
 
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 // The shim reads getEngine()/getId() at commit time; hand it the per-test engine.
 let liveEngine: DocumentEngine | null = null;
 
 beforeAll(async () => {
-  await getWasmExportModule();
+  await armWasmModule();
   installFacadeCommitShim({
     getEngine: () => liveEngine as never,
     getDocId: () => liveEngine?.getId() ?? "default",
@@ -160,29 +166,5 @@ describe("notifyChange is the facade projection choke point (photrez.facade=1)",
     expect(engine.getHeight()).toBe(600);
     expect(facade.snapshot.width).toBe(800);
     expect(facade.snapshot.height).toBe(600);
-  });
-});
-
-describe("photrez.facade=0 opt-out leaves the snapshot untouched through notifyChange + commit + restore", () => {
-  beforeEach(() => {
-  });
-
-  it("a commit + legacy add + restore does not change the projection snapshot", async () => {
-    const docId = "docOffAll";
-    const engine = new DocumentEngine(docId, docId, 800, 600);
-    const facade = getFacade(docId);
-    engine.addLayer("Base");
-    await seedFacadeFromEngine(engine as never, facade);
-    const before = JSON.stringify(facade.snapshot);
-    liveEngine = engine;
-
-    const history = new CommandHistory();
-    const preAdd = engine.snapshot();
-    history.commit(preAdd, "Flag Off Commit");
-    engine.addLayer("Legacy");
-    engine.resizeCanvas(1024, 768);
-    engine.restore(preAdd);
-
-    expect(JSON.stringify(facade.snapshot)).toBe(before);
   });
 });

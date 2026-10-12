@@ -22,15 +22,25 @@ import {
 } from "../facadeRegistry";
 import { routeNumericTransform } from "@/components/editor/layers/transformRouting";
 import { showToast } from "@/components/editor/Toast";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
+
+// The real-chain cases dispatch through bridge.applyCommand; the
+// shared factory routes that surface onto the real wasm ProtocolEngine
+// module. The seed surface no-ops under it - faithful to the retired
+// wasm arm, which created the document state on the first command.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 let wasm: { protocol_reset: (docId: string) => void } | null = null;
 const usedDocs: string[] = [];
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
+  wasm = await armWasmModule();
 });
 
 beforeEach(() => {
@@ -225,19 +235,6 @@ describe("overlapping numeric transform commits", () => {
       "error",
     );
     expect(requestRender).not.toHaveBeenCalled();
-  });
-
-  it("photrez.facade=0 opt-out: the funnel dispatches nothing even when a caller forgets the gate", async () => {
-    const docId = "race-flag-off";
-    const { engine, facade, ids } = await docWithLayers(docId, 1);
-    const versionBefore = facade.renderedVersion;
-    const commitSpy = vi.spyOn(facade, "commitTransform");
-
-    await expect(facadeCommitNumericTransform(engine, ids[0], { x: 150 })).resolves.toBe(false);
-
-    expect(commitSpy).not.toHaveBeenCalled();
-    expect(facade.renderedVersion).toBe(versionBefore);
-    expect(transformOf(engine, ids[0]).x).toBe(0);
   });
 
   it("a hop queued behind a tail that never settles warns instead of parking silently", async () => {

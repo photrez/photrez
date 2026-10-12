@@ -5,8 +5,7 @@
 // engine mutation is the visual authority and always runs, and the native
 // dispatch is an additional shadow sync. These tests pin:
 //  (1) the facade methods issue the right command envelope;
-//  (2) flag/authority gating returns "legacy" and touches no facade method;
-//  (3) the funnel never projects the (selection-less) facade snapshot back onto
+//  (2) the funnel never projects the (selection-less) facade snapshot back onto
 //      the engine, so a routed op cannot clobber the host's model.selection.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
@@ -21,13 +20,6 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import type { SelectionState } from "@/lib/protocol/types";
 
-function setFlags(opts: { facade: boolean; native: boolean }): void {
-  if (opts.facade) localStorage.setItem("photrez.facade", "1");
-  else localStorage.setItem("photrez.facade", "0");
-  if (opts.native) localStorage.setItem("photrez.facadeAuthority", "native");
-  else localStorage.setItem("photrez.facadeAuthority", "wasm");
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -36,7 +28,6 @@ const OK_RESULT = { delta: { baseVersion: 0, version: 1, changes: [] }, status: 
 
 describe("EditorFacade selection arms issue the right command envelope", () => {
   beforeEach(() => {
-    setFlags({ facade: true, native: true });
     vi.spyOn(bridge, "getVersion").mockResolvedValue(0);
     vi.spyOn(bridge, "flushExternalTransitions").mockResolvedValue();
   });
@@ -69,32 +60,8 @@ describe("EditorFacade selection arms issue the right command envelope", () => {
   });
 });
 
-describe("selection commit mirrors: gate + no projection write-back", () => {
-  it("flag OFF -> legacy; the facade method is never called", async () => {
-    setFlags({ facade: false, native: true });
-    const engine = new DocumentEngine("d1", "D", 800, 600);
-    engine.createSelection(10, 20, 30, 40, 0);
-    const f = { setSelection: vi.fn() } as unknown as EditorFacade;
-
-    const r = await commitFacadeSetSelection(engine as never, engine.getSelection()!, f);
-
-    expect(r.status).toBe("legacy");
-    expect(f.setSelection).not.toHaveBeenCalled();
-  });
-
-  it("flag ON but wasm authority -> legacy; the facade method is never called", async () => {
-    setFlags({ facade: true, native: false });
-    const engine = new DocumentEngine("d1b", "D", 800, 600);
-    const f = { clearSelection: vi.fn() } as unknown as EditorFacade;
-
-    const r = await commitFacadeClearSelection(engine as never, f);
-
-    expect(r.status).toBe("legacy");
-    expect(f.clearSelection).not.toHaveBeenCalled();
-  });
-
-  it("flag ON + native authority -> dispatches to the facade and does NOT project the snapshot back", async () => {
-    setFlags({ facade: true, native: true });
+describe("selection commit mirrors: dispatch + no projection write-back", () => {
+  it("dispatches to the facade and does NOT project the snapshot back", async () => {
     const engine = new DocumentEngine("d2", "D", 800, 600);
     engine.createSelection(10, 20, 30, 40, 0);
     const hostSelection = engine.getSelection();
@@ -111,7 +78,6 @@ describe("selection commit mirrors: gate + no projection write-back", () => {
   });
 
   it("each op routes to its own facade method", async () => {
-    setFlags({ facade: true, native: true });
     const engine = new DocumentEngine("d3", "D", 800, 600);
     const f = {
       clearSelection: vi.fn().mockResolvedValue({}),
@@ -129,7 +95,6 @@ describe("selection commit mirrors: gate + no projection write-back", () => {
   });
 
   it("host selection survives a routed invert (mirror does not suppress/clobber it)", async () => {
-    setFlags({ facade: true, native: true });
     const engine = new DocumentEngine("d4", "D", 800, 600);
     // Simulate the production order: host mutation first, then the mirror.
     engine.createSelection(10, 20, 30, 40, 0);

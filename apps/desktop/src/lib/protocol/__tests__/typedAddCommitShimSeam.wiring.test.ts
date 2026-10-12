@@ -22,8 +22,14 @@ import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vite
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import * as bridge from "@/lib/protocol/bridge";
+
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 import {
   getFacade,
   installFacadeCommitShim,
@@ -76,7 +82,7 @@ function stubOffscreenCanvas(): void {
 let liveEngine: DocumentEngine | null = null;
 
 beforeAll(async () => {
-  await getWasmExportModule();
+  await armWasmModule();
   // Install the production shim once (shimInstalled is module-sticky; production
   // installs it once at EditorShell boot).
   installFacadeCommitShim({
