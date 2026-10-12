@@ -46,8 +46,6 @@ let bgFlagApplies = 0;
 let lastApplyEnvelope: { expectedVersion?: number; command: Record<string, unknown> } | null = null;
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "native");
   // No photrez.bgFlagRoute key: the guard arms by default (missing key = ON).
   localStorage.removeItem(GUARD_KEY);
   applyCount = 0;
@@ -56,8 +54,6 @@ beforeEach(() => {
   routeNative();
 });
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   localStorage.removeItem(GUARD_KEY);
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();

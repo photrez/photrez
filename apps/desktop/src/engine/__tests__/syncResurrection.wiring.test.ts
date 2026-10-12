@@ -312,8 +312,6 @@ let docSeq = 0;
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "native");
   DOC = `syncResurrection-${(docSeq += 1)}`;
   restoreCanvas = installFaithfulCanvas();
   invokeMock.mockReset();

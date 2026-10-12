@@ -170,7 +170,6 @@ describe("Alt+Delete refuses a parametric layer instead of filling it", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
     invokeMock.mockReset();
     (showToast as unknown as Mock).mockClear();
     store = createRustStoreEmulator();
@@ -264,7 +263,6 @@ describe("Delete Selection Pixels refuses a parametric layer instead of clearing
 
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
     invokeMock.mockReset();
     (showToast as unknown as Mock).mockClear();
     store = createRustStoreEmulator();

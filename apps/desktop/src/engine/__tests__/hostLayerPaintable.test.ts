@@ -50,8 +50,6 @@ function brushBlocked(engine: DocumentEngine, layerId: string): boolean {
 describe("a host-created layer is paintable (the crop-undo paint death)", () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   });
   afterEach(() => {

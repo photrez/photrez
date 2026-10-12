@@ -233,7 +233,6 @@ afterEach(() => {
 
 describe("native authority reroute", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
 
@@ -310,7 +309,6 @@ describe("native authority reroute", () => {
 
 describe("cutover seed (open-before-seed + idempotency)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
 
@@ -342,7 +340,6 @@ describe("cutover seed (open-before-seed + idempotency)", () => {
 
 describe("native seed carries real layers; bridge commands never seed empty", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
 
@@ -395,7 +392,6 @@ describe("native seed carries real layers; bridge commands never seed empty", ()
 
 describe("native-authority acceptance checks (each exercises a real Rust contract)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
 
@@ -521,7 +517,6 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
 
 describe("error path (native rejection normalizes to uniform CODE: message)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
 

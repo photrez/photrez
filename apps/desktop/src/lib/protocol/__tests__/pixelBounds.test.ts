@@ -242,7 +242,6 @@ describe("full-document canonical upload bound (per commit)", () => {
     invokeMock.mockReset();
     __resetNativeAuthorityForTests();
     __resetCanonicalRepushForTests();
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
   afterEach(() => {

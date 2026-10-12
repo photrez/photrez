@@ -75,12 +75,8 @@ afterEach(() => {
 describe("adjustment bake binary transport", () => {
   beforeEach(() => {
     mockInvoke.mockReset();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
@@ -197,12 +193,8 @@ describe("adjustment bake writes the post-bake bytes once and refuses without a 
   beforeEach(() => {
     mockInvoke.mockReset();
     vi.mocked(showToast).mockClear();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
@@ -254,13 +246,9 @@ describe("adjustment bake writes the post-bake bytes once and refuses without a 
 describe("adjustment bake commit pin (Tauri runtime ON)", () => {
   beforeEach(() => {
     mockInvoke.mockReset();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     vi.restoreAllMocks();
   });

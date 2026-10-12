@@ -78,8 +78,6 @@ function fakeBitmap(w: number, h: number): ImageBitmap {
 describe("falsifier: can a stroke re-add a layer Rust has deleted?", () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => localStorage.clear());
 

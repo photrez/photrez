@@ -693,9 +693,6 @@ describe("with the facade mirror ACTIVE (the shipping default), one stamp is one
 
   beforeEach(async () => {
     localStorage.clear();
-    // ON, and stated explicitly: an ABSENT key also means enabled, so a case named
-    // for the armed configuration must set it rather than rely on the default.
-    localStorage.setItem("photrez.facade", "1");
     invokeMock.mockReset();
     resetStreams();
     store = createRustStoreEmulator();

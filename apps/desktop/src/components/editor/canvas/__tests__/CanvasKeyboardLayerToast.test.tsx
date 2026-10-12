@@ -61,14 +61,11 @@ describe("layer keyboard: flag-OFF legacy toast parity", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     clearRegistry();
-    localStorage.removeItem("photrez.facade");
   });
 
   it("Ctrl+Shift+E on a single-layer doc shows the legacy 'Could not flatten layers' warn toast", async () => {
     const session = WorkspaceManager.createBlankDocument("flatten-toast", "Flatten Toast", 800, 600);
     const { dispose } = renderHarness(session);
-    // Flag OFF -> the routed op defers to the byte-identical legacy helper.
-    localStorage.removeItem("photrez.facade");
     await new Promise((r) => setTimeout(r, 0));
 
     const toastSpy = vi.spyOn(Toast, "showToast");

@@ -55,13 +55,11 @@ function unknownCommand(cmd: string): never {
 }
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facadeAuthority", "native");
   __resetNativeAuthorityForTests();
   invokeMock.mockReset();
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetNativeAuthorityForTests();
   vi.restoreAllMocks();
 });

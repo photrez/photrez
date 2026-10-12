@@ -71,15 +71,11 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  // Photrez.facade stays OFF - these tests are about the always-on Rust SSOT
-  // graph mirror (USE_RUST_SSOT=true), not the facade-gated ownership stream.
-  localStorage.removeItem("photrez.facade");
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  localStorage.removeItem("photrez.facade");
   // Reset the device-adaptive dimension cap so a test that lowers it does not
   // leak into siblings (the default is MAX_CANVAS_DIM).
   setDeviceMaxTextureSize(MAX_CANVAS_DIM);

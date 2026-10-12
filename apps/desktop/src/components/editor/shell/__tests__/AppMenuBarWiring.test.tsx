@@ -120,7 +120,6 @@ function renderTitleBar() {
 
 describe("custom application menu wiring", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     nativeSeeds.accepted = true;
     seededLayers.clear();
     resetStreams();
@@ -130,7 +129,6 @@ describe("custom application menu wiring", () => {
     );
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
     vi.restoreAllMocks();
   });

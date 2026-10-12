@@ -87,10 +87,8 @@ function renderLayersPanel(session = WorkspaceManager.createBlankDocument("test"
 
 describe("Delete layer (no confirm dialog)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

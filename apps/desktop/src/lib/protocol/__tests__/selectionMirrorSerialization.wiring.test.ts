@@ -71,8 +71,6 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe("selection mirror serialization (mirrorSelectionCommand)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetEmulatedForTests();
     bridge.__resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
@@ -80,8 +78,6 @@ describe("selection mirror serialization (mirrorSelectionCommand)", () => {
   });
 
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
@@ -127,14 +123,5 @@ describe("selection mirror serialization (mirrorSelectionCommand)", () => {
     mirrorSelectionCommand(engine, () => commitFacadeSetSelection(engine as never, hostSel));
     await flush();
     expect(bridge.getEmuSelection()).toEqual(hostSel);
-  });
-
-  it("flag OFF: mirrorSelectionCommand is a no-op (default path byte-identical)", () => {
-    localStorage.removeItem("photrez.facade");
-    const engine = new DocumentEngine(DOC, "D", 800, 600);
-    engine.createSelection(10, 20, 30, 40, 0);
-    mirrorSelectionCommand(engine, () => commitFacadeSetSelection(engine as never, { ...engine.getSelection()! }));
-    // No dispatch happened, so the shadow was never touched.
-    expect(bridge.getEmuSelection()).toBeNull();
   });
 });
