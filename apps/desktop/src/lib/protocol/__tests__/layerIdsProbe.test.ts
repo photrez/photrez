@@ -2,10 +2,9 @@
 //
 // The guarded funnels (commitFacadeOpacity/Rename/Visibility/Lock/Blend/
 // Adjustment/Params) used to read the FULL guard snapshot for the layer-id
-// membership check. getLayerIds drives protocol_layer_ids_native under native
-// authority instead and falls back to the full snapshot when the probe is
-// unavailable (older backend) or on the wasm/emulator paths (no probe export,
-// same stance as the version probe). The settled-value guards are untouched.
+// membership check. getLayerIds drives protocol_layer_ids_native and falls
+// back to the full snapshot when the probe is unavailable (older backend).
+// The settled-value guards are untouched.
 //
 // Mock fidelity: Tauri v2 invoke() REJECTS with the bare string on a Rust
 // Err(String); an unregistered command on an older backend rejects the same
@@ -15,12 +14,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import {
   getLayerIds,
-  setProtocolWasm,
   __resetNativeAuthorityForTests,
   __resetEmulatedForTests,
-  emulateApply,
 } from "../bridge";
-import { CONTRACT_VERSION } from "../types";
 import { commitFacadeOpacity, __resetFacadeRegistryForTests } from "../facadeRegistry";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -28,8 +24,7 @@ const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
 
 const owned = new Set<string>();
 vi.mock("@/engine/document", () => ({
-  isFacadeOwnedLayer: (id: string) =>
-    localStorage.getItem("photrez.facade") !== "0" && owned.has(id),
+  isFacadeOwnedLayer: (id: string) => owned.has(id),
   hasFacadeOwnedLayers: () => owned.size > 0,
 }));
 
@@ -92,13 +87,11 @@ const FULL_SNAPSHOT = {
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facade", "1");
   invokeMock.mockReset();
   owned.clear();
   __resetNativeAuthorityForTests();
   __resetFacadeRegistryForTests();
   __resetEmulatedForTests();
-  setProtocolWasm(null as unknown as Parameters<typeof setProtocolWasm>[0]);
 });
 
 afterEach(() => {
@@ -107,7 +100,6 @@ afterEach(() => {
   __resetNativeAuthorityForTests();
   __resetFacadeRegistryForTests();
   __resetEmulatedForTests();
-  setProtocolWasm(null as unknown as Parameters<typeof setProtocolWasm>[0]);
   vi.restoreAllMocks();
 });
 
@@ -146,31 +138,6 @@ describe("bridge.getLayerIds", () => {
     });
 
     await expect(getLayerIds("docC")).rejects.toThrow("document not open: docC");
-  });
-
-  it("wasm path: parses ids from the wasm snapshot (no probe export)", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    setProtocolWasm({
-      protocol_contract_version: () => CONTRACT_VERSION,
-      protocol_apply_command: (_json: string, _docId: string) => JSON.stringify({}),
-      protocol_snapshot_json: (_docId: string) => JSON.stringify(FULL_SNAPSHOT),
-    });
-
-    const ids = await getLayerIds("docD");
-
-    expect(ids).toEqual(["L1", "L2"]);
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it("emulator path: reads ids from the emulator snapshot", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", id: "e1", name: "E1", width: 10, height: 10, index: 0 } });
-    emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "addLayer", id: "e2", name: "E2", width: 10, height: 10, index: 1 } });
-
-    const ids = await getLayerIds("docE");
-
-    expect(ids).toEqual(["e1", "e2"]);
-    expect(invokeMock).not.toHaveBeenCalled();
   });
 });
 

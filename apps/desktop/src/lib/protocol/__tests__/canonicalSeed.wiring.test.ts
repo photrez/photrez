@@ -96,8 +96,7 @@ describe("native canonical seed wiring", () => {
     __resetNativeAuthorityForTests();
   });
 
-  it("seeds the canonical shadow after the layer seed when native authority is on", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
+  it("seeds the canonical shadow after the layer seed", async () => {
     const wm = new WorkspaceManager();
     wm.addDocument(WorkspaceManager.createBlankDocument("docCanon", "Canon", 800, 600));
     await flush(); // open + layer seed + canonical seed are fire-and-forget
@@ -132,20 +131,7 @@ describe("native canonical seed wiring", () => {
     expect(payload.layers[0]).not.toHaveProperty("bitmapEpoch");
   });
 
-  it("never seeds the canonical shadow when native authority is off (wasm opt-out)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    const wm = new WorkspaceManager();
-    wm.addDocument(WorkspaceManager.createBlankDocument("docOff", "Off", 800, 600));
-    await flush();
-
-    const cmds = invokeMock.mock.calls.map((c) => c[0]);
-    expect(cmds).not.toContain("protocol_seed_canonical_native");
-    expect(cmds).not.toContain("protocol_seed_native");
-  });
-
   it("surfaces a rejected canonical seed via the workspace console.warn (removing the catch breaks this)", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // Real Tauri v2 semantics: invoke() rejects a Rust Err(String) with the BARE
@@ -238,7 +224,6 @@ function routeNativeFull(): void {
 }
 
 function seedOpen(docId: string, name = "RepushDoc", w = 800, h = 600) {
-  localStorage.setItem("photrez.facadeAuthority", "native");
   const wm = new WorkspaceManager();
   const session = WorkspaceManager.createBlankDocument(docId, name, w, h);
   wm.addDocument(session);
@@ -250,7 +235,6 @@ describe("native canonical re-push after TS-side mutations", () => {
     localStorage.clear();
     invokeMock.mockReset();
     __resetNativeAuthorityForTests();
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNativeFull();
   });
   afterEach(() => {
@@ -258,7 +242,7 @@ describe("native canonical re-push after TS-side mutations", () => {
     __resetNativeAuthorityForTests();
   });
 
-  it("re-pushes the canonical shadow (with the minted layer) after a successful facade addLayer under native authority", async () => {
+  it("re-pushes the canonical shadow (with the minted layer) after a successful facade addLayer", async () => {
     const session = seedOpen("docAdd");
     await flush(); // open + layer seed + baseline canonical seed (fire-and-forget)
     invokeMock.mockClear(); // isolate the addLayer re-push from the open-path seed
@@ -280,7 +264,7 @@ describe("native canonical re-push after TS-side mutations", () => {
     expect(payload.layers.find((l: { id: string }) => l.id === newLayerId)).toBeTruthy();
   });
 
-  it("re-pushes the canonical shadow after a mirrored external transition under native authority", async () => {
+  it("re-pushes the canonical shadow after a mirrored external transition", async () => {
     const session = seedOpen("docExt");
     await flush();
     invokeMock.mockClear();
@@ -297,28 +281,6 @@ describe("native canonical re-push after TS-side mutations", () => {
     const idxApply = cmds.indexOf("protocol_apply_command_native");
     const idxRepush = cmds.indexOf("protocol_seed_canonical_native");
     expect(idxRepush).toBeGreaterThan(idxApply);
-  });
-
-  it("does not re-push after addLayer or external transitions when native authority is off (wasm opt-out)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    const session = (() => {
-      const wm = new WorkspaceManager();
-      const s = WorkspaceManager.createBlankDocument("docOff", "Off", 800, 600);
-      wm.addDocument(s);
-      return s;
-    })();
-    await flush();
-    invokeMock.mockClear();
-
-    const facade = getFacade("docOff");
-    await seedFacadeFromEngine(session.engine as never, facade);
-    await facade.addLayer("Layer 1");
-    await recordExternalTransitionFor("docOff", { label: "Legacy Edit", affectedLayerIds: [], snapshot: {} });
-    await flush();
-
-    const cmds = invokeMock.mock.calls.map((c) => c[0]);
-    expect(cmds).not.toContain("protocol_seed_canonical_native");
   });
 
   it("does not re-push when the addLayer command is rejected (model did not change)", async () => {

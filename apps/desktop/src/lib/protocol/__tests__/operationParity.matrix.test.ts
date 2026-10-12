@@ -16,15 +16,17 @@
 //
 //  SECTION 2 - ARM PATH (ProtocolEngine command arms)
 //  Drives the REAL native authority (the per-document ProtocolEngine behind
-//  `protocol_apply_command(env, docId)`, document_core.rs) through the
-//  production bridge. Side A is the TS `DocumentEngine` as the independent
-//  oracle; layers are compared by NAME (the arm uses the TS-minted id supplied
-//  by the test, so it is no longer a uuid - ids still differ from the TS engine's
-//  own mint, so they are not compared across engines).
+//  `protocol_apply_command(env, docId)`, document_core.rs) through the real
+//  wasm module DIRECTLY (no bridge arm: production dispatch is native-only,
+//  so the bridge no longer carries a wasm arm). Side A is the TS
+//  `DocumentEngine` as the independent oracle; layers are compared by NAME
+//  (the arm uses the TS-minted id supplied by the test, so it is no longer
+//  a uuid - ids still differ from the TS engine's own mint, so they are not
+//  compared across engines).
 //
 //  NO hand-written expected values: the two engines are each other's oracle. If
-//  the wasm module is unavailable, tests fail LOUD (requireWasm / bridge arity
-//  guard) - no TS fallback is allowed.
+//  the wasm module is unavailable, tests fail LOUD (requireWasm) - no TS
+//  fallback is allowed.
 //
 //  Anti-masking (lesson from document-rust-path.test.ts): armed-op tests spy on
 //  the wasm prototype method to prove the TS engine's specific call reached the
@@ -58,23 +60,48 @@ import {
 let wasmMod: any = null;
 
 beforeAll(async () => {
-  wasmMod = await getWasmExportModule(); // also arms bridge.setProtocolWasm
+  wasmMod = await getWasmExportModule();
 });
 
 beforeEach(() => {
-  // photrez.facade=0 + wasm authority stay pinned - these tests measure the
-  // always-on wasm graph mirror (Section 1) and the ProtocolEngine arms
-  // (Section 2) directly, not the gated ownership stream.
-  localStorage.setItem("photrez.facade", "0");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+  // No flag pins: these tests measure the always-on wasm graph mirror
+  // (Section 1) and the ProtocolEngine arms (Section 2) directly, not a
+  // retired authority selection.
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
 });
+
+// Direct ProtocolEngine drive (no bridge arm): the exact envelope the retired
+// bridge wasm arm sent - toRustEnvelope serialization, protocol_apply_command
+// JSON in/out, envelope-error normalization. The bridge's native path sends
+// the same bytes over Tauri IPC; driving the module directly keeps this
+// suite on the real Rust engine without a bridge arm.
+async function armApplyOn(docId: string, command: any): Promise<any> {
+  const mod = requireWasm();
+  try {
+    const out = mod.protocol_apply_command(
+      JSON.stringify(bridge.toRustEnvelope({ contractVersion: CONTRACT_VERSION, docId, command })),
+      docId,
+    );
+    return JSON.parse(out);
+  } catch (e) {
+    throw bridge.normalizeProtocolError(e);
+  }
+}
+
+function armSnapshotOf(docId: string): any {
+  return JSON.parse(requireWasm().protocol_snapshot_json(docId));
+}
+
+function armHistoryOf(docId: string): { cursor: number; entries: unknown[] } {
+  return JSON.parse(requireWasm().protocol_history_query_json(docId)) as {
+    cursor: number;
+    entries: unknown[];
+  };
+}
 
 // Fails LOUD when the native engine is not present, so no test silently runs the
 // TS fallback and reports a false parity pass.
@@ -402,15 +429,15 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
   const armMatrix: Array<Record<string, unknown>> = [];
 
   beforeEach(() => {
-    bridge.resetWasmDoc(ARM_DOC); // protocol_reset equivalent for this doc
+    wasmMod.protocol_reset(ARM_DOC);
   });
 
-  // Drive one command through the production bridge (-> protocol_apply_command).
+  // Drive one command through the real ProtocolEngine directly (see armApplyOn).
   function armApply(command: any): Promise<any> {
-    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: ARM_DOC, command });
+    return armApplyOn(ARM_DOC, command);
   }
   function armSnapshot(): Promise<any> {
-    return bridge.getSnapshot(ARM_DOC);
+    return Promise.resolve(armSnapshotOf(ARM_DOC));
   }
   // Host-owned identity + placement: mint a TS-style id and insert above active
   // (index 0), so the arm now mirrors the TS engine (uuid-mint + append divergences
@@ -483,6 +510,68 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
       overlapAfterDelete: "EQUAL (by name)",
       divergences:
         "none (arm inserts above active; carries full layer shape; uses TS-minted id - divergences #1/#2/#3 resolved)",
+    });
+  });
+
+  // Ported from the retired facadeRustBacked.wiring suite (its subject was the
+  // retired bridge arming; these pins are about the Rust serde wire shape, so
+  // they live on here against the same real engine driven directly). Pure
+  // port: the oracle (real Rust serde JSON in/out) is unchanged, only the
+  // drive channel moved from the retired bridge arm to armApplyOn.
+  it("(a-wire) delta wire shapes: upsert/remove keys + undo/redo shapes + brushStroke layer_id", async () => {
+    requireWasm();
+    const add = await armApply({ type: "addLayer", id: "wire-id", name: "Wire", width: 100, height: 100, index: 0 });
+    expect(add.documentVersion).toBe(1);
+    const upsert = add.delta.changes[0];
+    expect(upsert.kind).toBe("upsert");
+    expect(upsert.layer.resourceId).toBeGreaterThanOrEqual(1);
+
+    const id = add.delta.changes[0].layer.id;
+    const del = await armApply({ type: "deleteLayer", id });
+    const rm = del.delta.changes.find((c: any) => c.kind === "remove");
+    expect(rm?.kind).toBe("remove");
+    expect(rm?.id).toBe(id);
+    // PIN (outbound Remove wire key): the Rust `Remove` struct-variant carries
+    // `resourceId` (camelCase) via the `#[serde(rename_all="camelCase")]` on the
+    // variant. Removing that serde attr emits snake_case `resource_id` instead.
+    expect(rm?.resourceId).toBeGreaterThanOrEqual(1);
+    expect(rm).not.toHaveProperty("resource_id");
+    expect(del.delta.version).toBe(del.documentVersion);
+
+    const undo = await armApply({ type: "undo" });
+    expect(undo.delta.changes.length).toBeGreaterThan(0);
+    expect(undo.documentVersion).toBeGreaterThan(0);
+    const redo = await armApply({ type: "redo" });
+    expect(redo.documentVersion).toBeGreaterThan(undo.documentVersion);
+
+    // PIN (inbound BrushStroke wire key): `#[serde(rename_all="camelCase",
+    // tag="type")]` on the Rust `Command` enum renames the VARIANT only, not
+    // the struct-variant fields - so `BrushStroke` expects `layer_id`
+    // (snake_case). NOT throwing is the discriminator: a sender emitting
+    // `layerId` is rejected with E_ENVELOPE_PARSE (missing field `layer_id`).
+    const add2 = await armApply({ type: "addLayer", id: "stroke-id", name: "Stroke", width: 100, height: 100, index: 0 });
+    const strokeId = add2.delta.changes[0].layer.id;
+    const stroke = await armApply({
+      type: "brushStroke",
+      layerId: strokeId,
+      points: [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 10, y: 10, pressure: 0.8 },
+      ],
+      settings: { size: 20, hardness: 0.5, opacity: 1, flow: 1 },
+    });
+    expect(stroke.documentVersion).toBeGreaterThan(0);
+    const strokeUpsert = stroke.delta.changes.find((c: any) => c.kind === "upsert");
+    expect(strokeUpsert?.layer.id).toBe(strokeId);
+    expect(strokeUpsert?.layer.dirtyRect?.width ?? 0).toBeGreaterThanOrEqual(30);
+
+    armMatrix.push({
+      scenario: "(a-wire) delta wire shapes + brushStroke layer_id",
+      upsert: "kind + resourceId>=1",
+      remove: "kind + id + camelCase resourceId, version==documentVersion",
+      undoRedo: "undo changes>0, versions advance",
+      brushStroke: "snake_case layer_id accepted end-to-end (E_ENVELOPE_PARSE otherwise)",
+      divergences: "none",
     });
   });
 
@@ -635,14 +724,14 @@ describe("operation parity matrix - METADATA ARM PATH (ProtocolEngine command ar
   const metaMatrix: Array<Record<string, unknown>> = [];
 
   beforeEach(() => {
-    bridge.resetWasmDoc(META_DOC);
+    wasmMod.protocol_reset(META_DOC);
   });
 
   function armApply(command: any): Promise<any> {
-    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: META_DOC, command });
+    return armApplyOn(META_DOC, command);
   }
   function armSnapshot(): Promise<any> {
-    return bridge.getSnapshot(META_DOC);
+    return Promise.resolve(armSnapshotOf(META_DOC));
   }
   async function armAdd(name: string): Promise<{ id: string; snapshot: any }> {
     const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
@@ -881,7 +970,7 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
   // add/update (host-side). Mirror shapeRaster.test.ts's stub so the oracle can
   // run the real TS ops. Bitmap pixels are irrelevant to metadata parity.
   beforeEach(() => {
-    bridge.resetWasmDoc(TYPED_DOC);
+    wasmMod.protocol_reset(TYPED_DOC);
     const MockOffscreenCanvas = function (this: any, w: number, h: number) {
       this.width = w;
       this.height = h;
@@ -905,10 +994,10 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
   });
 
   function armApply(command: any): Promise<any> {
-    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: TYPED_DOC, command });
+    return armApplyOn(TYPED_DOC, command);
   }
   function armSnapshot(): Promise<any> {
-    return bridge.getSnapshot(TYPED_DOC);
+    return Promise.resolve(armSnapshotOf(TYPED_DOC));
   }
 
   const shape = {
@@ -1141,14 +1230,14 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
   const selMatrix: Array<Record<string, unknown>> = [];
 
   beforeEach(() => {
-    bridge.resetWasmDoc(SEL_DOC);
+    wasmMod.protocol_reset(SEL_DOC);
   });
 
   function armApply(command: any): Promise<any> {
-    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: SEL_DOC, command });
+    return armApplyOn(SEL_DOC, command);
   }
   async function armSnapshot(): Promise<any> {
-    return bridge.getSnapshot(SEL_DOC);
+    return armSnapshotOf(SEL_DOC);
   }
   async function getArmSel(): Promise<any> {
     return (await armSnapshot()).selection;
@@ -1237,7 +1326,9 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
     requireWasm();
     await armApply({ type: "setSelection", selection: { x: 1, y: 2, width: 3, height: 4, angle: 0, inverted: false } });
     const vBefore = (await armSnapshot()).version;
-    const qBefore = await bridge.getHistoryQuery();
+    // History of the SAME engine under test (the old bridge call read the
+    // reserved "default" engine, which made this comparison vacuous).
+    const qBefore = armHistoryOf(SEL_DOC);
     await armApply({ type: "invertSelection" });
     const armSel = await getArmSel();
     const snap = await armSnapshot();
@@ -1251,7 +1342,7 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
     expect(armSel.inverted).toBe(true);
     expect(tsSel.inverted).toBe(true);
     expect(snap.version).toBe(vBefore + 1);
-    expect((await bridge.getHistoryQuery()).entries.length).toBe(qBefore.entries.length);
+    expect(armHistoryOf(SEL_DOC).entries.length).toBe(qBefore.entries.length);
 
     selMatrix.push({
       scenario: "(s4) invertSelection (with selection)",
@@ -1266,7 +1357,7 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
     // fallback (which reads the canonical shadow) has dims to fill.
     const canon = JSON.stringify({ id: "sel-doc", name: "S", width: 200, height: 200, layers: [] });
     wasmMod.protocol_seed_canonical(canon, SEL_DOC);
-    const qBefore = await bridge.getHistoryQuery();
+    const qBefore = armHistoryOf(SEL_DOC);
     const res = await armApply({ type: "invertSelection" });
     const armSel = await getArmSel();
     const snap = await armSnapshot();
@@ -1274,7 +1365,7 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
     expect(armSel).not.toBeNull();
     expect(selEq(armSel, { x: 0, y: 0, width: 200, height: 200, angle: 0 })).toBe(true);
     expect(snap.version).toBe(qBefore.cursor + 1);
-    expect((await bridge.getHistoryQuery()).entries.length).toBe(qBefore.entries.length);
+    expect(armHistoryOf(SEL_DOC).entries.length).toBe(qBefore.entries.length);
 
     // TS oracle does the SAME fallback: invert-without-selection selects the full
     // canvas. The two agree (no divergence) — the fallback is intentional inherited
@@ -1310,7 +1401,7 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
 // mergeDown / mergeSelectedLayers / flattenLayers / shapeLayerToRaster /
 // textLayerToRaster) run DIRECTLY against a plain DocumentModel object - no
 // DocumentEngine, no wasm graph mirror. Side B is the REAL wasm ProtocolEngine
-// arm driven through the production bridge. The two are genuinely independent
+// arm driven directly. The two are genuinely independent
 // implementations; this is NOT a two-Rust-engine cross-check.
 // Layers are compared by NAME; ids are host-supplied on the arm and oracle-assigned
 // on Side A, so they are not compared across engines.
@@ -1334,16 +1425,16 @@ describe("operation parity matrix - STRUCTURAL ARM PATH (ProtocolEngine structur
   }
 
   beforeEach(() => {
-    bridge.resetWasmDoc(STRUCT_DOC);
+    wasmMod.protocol_reset(STRUCT_DOC);
     const canon = JSON.stringify({ id: STRUCT_DOC, name: "S", width: 200, height: 200, layers: [] });
     wasmMod.protocol_seed_canonical(canon, STRUCT_DOC);
   });
 
   function armApply(command: any): Promise<any> {
-    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: STRUCT_DOC, command });
+    return armApplyOn(STRUCT_DOC, command);
   }
   function armSnapshot(): Promise<any> {
-    return bridge.getSnapshot(STRUCT_DOC);
+    return Promise.resolve(armSnapshotOf(STRUCT_DOC));
   }
   async function armAdd(name: string): Promise<{ id: string }> {
     const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
@@ -1582,14 +1673,14 @@ describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/ap
   const canvasMatrix: Array<Record<string, unknown>> = [];
 
   beforeEach(() => {
-    bridge.resetWasmDoc(CANVAS_DOC);
+    wasmMod.protocol_reset(CANVAS_DOC);
   });
 
   function armApply(command: any): Promise<any> {
-    return bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: CANVAS_DOC, command });
+    return armApplyOn(CANVAS_DOC, command);
   }
   function armSnapshot(): Promise<any> {
-    return bridge.getSnapshot(CANVAS_DOC);
+    return Promise.resolve(armSnapshotOf(CANVAS_DOC));
   }
   async function armAdd(name: string): Promise<{ id: string; snapshot: any }> {
     const id = `layer-${Math.random().toString(36).slice(2, 10)}`;
@@ -1847,18 +1938,14 @@ describe("operation parity matrix - PIXEL-PATH COMPOSITION (pixel store path, no
   const pixelMatrix: Array<Record<string, unknown>> = [];
 
   beforeEach(() => {
-    // Force the emulator path: with wasm null, applyCommand falls through to
-    // emulateApply. The matrix beforeAll arms wasm for the other sections; this
-    // section measures the emulator SetAdjustment arm (the metadata half of the
-    // bake) against the pure-TS oracle.
-    bridge.setProtocolWasm(null as unknown as Parameters<typeof bridge.setProtocolWasm>[0]);
+    // This section measures the emulator SetAdjustment arm (the metadata half
+    // of the bake) against the pure-TS oracle, driven directly through the
+    // emulator's own instrumentation (production dispatch is native-only).
     bridge.__resetEmulatedForTests();
     stubOffscreenCanvas(); // so the oracle's applyBasicAdjustment has a bitmap
   });
   afterEach(async () => {
     vi.unstubAllGlobals();
-    // Defensive restore: re-arm wasm for any later section (getWasmExportModule is cached).
-    await getWasmExportModule();
   });
 
   it("(r1) adjustment-bake metadata: emulator SetAdjustment None == pure-TS clearBasicAdjustments", async () => {
@@ -1866,13 +1953,13 @@ describe("operation parity matrix - PIXEL-PATH COMPOSITION (pixel store path, no
 
     // Emulator side: set an adjustment, then clear it (the metadata half of the
     // bake composition) through the emulator command.
-    const add = await bridge.applyCommand({
+    const add = await bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", id: "px-bake-1", name: "L", width: 10, height: 10, index: 0 },
     });
     const emuId = (add.delta.changes[0] as any).layer.id as string;
-    await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "setAdjustment", id: emuId, adjustment: adj } });
-    const clear = await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "setAdjustment", id: emuId } });
+    await bridge.emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "setAdjustment", id: emuId, adjustment: adj } });
+    const clear = await bridge.emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "setAdjustment", id: emuId } });
     const emuLayer = (clear.delta.changes[0] as any).layer;
 
     // Pure-TS oracle: a raster layer with a bitmap so applyBasicAdjustment takes

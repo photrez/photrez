@@ -1,24 +1,25 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   applyCommand,
-  getContractVersion,
+  emulateApply,
   __resetEmulatedForTests,
 } from "../bridge";
 import { CONTRACT_VERSION, isDeltaApplicable } from "../types";
 
 // Wiring test — proves CommandEnvelope -> CommandResult{delta} boundary without UI change.
-// Uses JS emulation when wasm is absent; when wasm is present the same assertions hold via real Rust.
+// The emulator is driven directly through its own instrumentation (production
+// dispatch is native-only). The contract-version gate below stays on the real
+// applyCommand: that check runs before any transport, and the emulator never
+// enforces it, so moving that case would lose the live gate silently.
 
 describe("protocol wiring — Ticket 1", () => {
   beforeEach(() => {
     __resetEmulatedForTests();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
 
   it("contractVersion vs documentVersion are distinct numbers", async () => {
-    expect(getContractVersion()).toBe(CONTRACT_VERSION);
-    const r = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
+    expect(CONTRACT_VERSION).toBe(2);
+    const r = await emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
     expect(r.documentVersion).toBe(1);
     expect(r.delta.baseVersion).toBe(0);
     expect(r.delta.version).toBe(1);
@@ -29,17 +30,17 @@ describe("protocol wiring — Ticket 1", () => {
   });
 
   it("snapshot vs delta semantics — baseVersion check", async () => {
-    const r1 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
+    const r1 = await emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
     expect(isDeltaApplicable(r1.delta, 0)).toBe(true);
     expect(isDeltaApplicable(r1.delta, 999)).toBe(false);
-    const r2 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
+    const r2 = await emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
     expect(r2.delta.baseVersion).toBe(1);
     expect(isDeltaApplicable(r2.delta, 1)).toBe(true);
     expect(isDeltaApplicable(r2.delta, 0)).toBe(false);
   });
 
   it("delta carries resourceId and dirtyRect (resource registry)", async () => {
-    const r = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "x" } });
+    const r = await emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "x" } });
     const ch = r.delta.changes[0] as { kind: "upsert"; layer: { resourceId: number; dirtyRect: unknown } };
     expect(ch.kind).toBe("upsert");
     expect(ch.layer.resourceId).toBeGreaterThanOrEqual(1);
@@ -47,15 +48,15 @@ describe("protocol wiring — Ticket 1", () => {
   });
 
   it("core is command -> delta, not mutate then refetch", async () => {
-    const r = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
+    const r = await emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "noop" } });
     // No separate snapshot fetch needed; delta arrives with the result
     expect(r.delta.changes.length).toBe(0);
     expect(r.documentVersion).toBe(r.delta.version);
   });
 
   it("stale delta is not applicable — renderer must request snapshot", async () => {
-    const r1 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
-    const r2 = await applyCommand({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
+    const r1 = await emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "a" } });
+    const r2 = await emulateApply({ contractVersion: CONTRACT_VERSION, command: { type: "ping", echo: "b" } });
     // renderedVersion = 0, r2 is base 1 -> not applicable
     expect(isDeltaApplicable(r2.delta, 0)).toBe(false);
     // r1 is still applicable to 0

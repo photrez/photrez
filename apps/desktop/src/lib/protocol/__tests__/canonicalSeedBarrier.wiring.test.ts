@@ -21,6 +21,7 @@ import {
   createNativeSeed,
   flushExternalTransitions,
   nativeCanonicalSeedPromiseByDoc,
+  seedNativeCanonical,
   __resetNativeAuthorityForTests,
 } from "../bridge";
 import { getFacade, seedFacadeFromEngine } from "../facadeRegistry";
@@ -102,13 +103,22 @@ const engineStub = {
   getSelection: () => null,
 };
 
+// Minimal canonical payload for the race test below: the barrier orders the
+// command behind the seeds regardless of payload content.
+const RACE_CANONICAL_JSON = JSON.stringify({
+  id: "docSeedRace",
+  name: "Race",
+  width: 800,
+  height: 600,
+  layers: [],
+});
+
 describe("canonical push barrier ordering", () => {
   beforeEach(() => {
     localStorage.clear();
     invokeMock.mockReset();
     __resetNativeAuthorityForTests();
     __resetCanonicalRepushForTests();
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
   afterEach(() => {
@@ -201,5 +211,45 @@ describe("canonical push barrier ordering", () => {
     await expect(flushExternalTransitions(docId)).resolves.toBeUndefined();
     // ... and a second flush is a harmless no-op (barrier cleared, not stuck on the rejection).
     await expect(flushExternalTransitions(docId)).resolves.toBeUndefined();
+  });
+
+  // Ported from the retired hostPlumbingParity suite (its subject was the
+  // native-arm-vs-wasm-arm comparison; this race is a seed-barrier contract,
+  // and that file's own header says barrier races live here). Pure port: same
+  // barrier, same discriminator - a command issued while both seeds are in
+  // flight must land after BOTH seeds on the wire.
+  it("(d) a command issued while both seeds are in flight lands after both seeds", async () => {
+    const docId = "docSeedRace";
+    // Deliberately do NOT await the seeds. Fire both seed calls and then the
+    // first command back to back, so the command RACES two in-flight seeds:
+    // applyCommand must await the barrier itself or its invoke would be
+    // recorded before the seeds'. Awaiting the seeds first would make this
+    // assertion a restatement of the call order this test just wrote.
+    const layerSeed = createNativeSeed(docId, 0, []);
+    const canonicalSeed = seedNativeCanonical(docId, RACE_CANONICAL_JSON);
+
+    // expectedVersion is 0: neither seed bumps the document version. It must
+    // NOT be read via getVersion, which awaits the same barrier and would hide
+    // the race.
+    await applyCommand({
+      contractVersion: CONTRACT_VERSION,
+      expectedVersion: 0,
+      docId,
+      command: { type: "addLayer", id: "race-1", name: "Race", width: 100, height: 100, index: 0 },
+    });
+    await Promise.all([layerSeed, canonicalSeed]);
+
+    const order = invokeMock.mock.calls.map((c) => c[0]);
+    const openIdx = order.indexOf("rust_pixels_open_document");
+    const layerSeedIdx = order.indexOf("protocol_seed_native");
+    const canonicalSeedIdx = order.indexOf("protocol_seed_canonical_native");
+    const applyIdx = order.indexOf("protocol_apply_command_native");
+    expect(openIdx).toBeGreaterThanOrEqual(0);
+    expect(layerSeedIdx).toBeGreaterThan(openIdx);
+    expect(canonicalSeedIdx).toBeGreaterThan(openIdx);
+    // The barrier itself: the command landed after BOTH seeds even though it
+    // was issued while they were still in flight.
+    expect(applyIdx).toBeGreaterThan(layerSeedIdx);
+    expect(applyIdx).toBeGreaterThan(canonicalSeedIdx);
   });
 });

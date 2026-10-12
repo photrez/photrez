@@ -4,11 +4,13 @@
 // ONE deterministic, multi-step command sequence through TWO engines and compares
 // a canonical state digest after EVERY step, plus undo/redo round-trips:
 //
-//   Engine A (authoritative): bridge.applyCommand -> wasm.protocol_apply_command
-//             (real Rust ProtocolEngine, serde JSON in/out, same .wasm bytes the
-//             production facade uses; loaded via the test shim's initSync).
-//   Engine B (mirror):        emulateApply / bridge_emu (the TS fallback the
-//             bridge uses only when the wasm is unarmed).
+//   Engine A (authoritative): the real Rust ProtocolEngine, driven DIRECTLY
+//             through the wasm module's protocol_apply_command (serde JSON in/
+//             out, same .wasm bytes the pixel kernels ship; loaded via
+//             getWasmExportModule, which no longer arms any bridge - production
+//             dispatch is native-only).
+//   Engine B (mirror):        emulateApply / bridge_emu (the TS emulator, now
+//             test-only instrumentation).
 //
 // WHY THIS MATTERS: the emulator claims to mirror the Rust engine. If it drifts,
 // any test that trusts the emulator to predict Rust behavior overstates coverage.
@@ -16,22 +18,12 @@
 // not a test to be loosened.
 //
 // DISCRIMINATING GUARANTEE
-//   * The test asserts bridge.isFacadeArmed() and that bridge.wasm is the exact
-//     module object handed back by getWasmExportModule(). If the production
-//     setProtocolWasm() wiring is removed, the bridge falls back to the emulator
-//     (or throws E_FACADE_NOT_READY while photrez.facade=1) and engine A's digest
-//     stops being Rust-derived - the suite goes red. A dedicated falsification
-//     case at the bottom proves the gate actually fires when the arm is removed.
-//   * Engine B always runs through the emulator explicitly, so engine A can never
-//     silently BE engine B: right after engine A runs, the emulator globals must
-//     still be EMPTY (they are only populated by engine B's run).
-//
-// READ-BACK CHANNEL
-//   Every engine-A step also reads wasm.protocol_snapshot_json() directly and
-//   asserts it matches the bridge's snapshot digest. The native desktop
-//   counterpart is protocol_canonical_native / protocol_snapshot_native (reached
-//   over Tauri IPC); that surface is not runnable headlessly here and is reserved
-//   for the manual native-executable run. It is deliberately NOT stubbed.
+//   * Engine A calls the wasm module's protocol_apply_command directly with the
+//     production envelope serialization (bridge.toRustEnvelope), so engine A's
+//     digest is Rust-derived by construction. Engine B always runs through the
+//     emulator explicitly, so engine A can never silently BE engine B: right
+//     after engine A runs, the emulator globals must still be EMPTY (they are
+//     only populated by engine B's run).
 
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
@@ -67,9 +59,6 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
-  // Remove flags so this file cannot leak the facade gate into any later test.
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetEmulatedForTests();
 });
 
@@ -259,10 +248,6 @@ type EngineState = {
   width: number | null;
   height: number | null;
   version: number;
-  // Engine A only: digest of the direct wasm.protocol_snapshot_json() read taken
-  // at the same instant as the bridge snapshot, so the observation channel is
-  // compared per step (not after the run).
-  readBackDigest?: string;
 };
 
 function canonicalJson(state: EngineState): string {
@@ -338,10 +323,13 @@ type Runner = { apply: (cmd: Command) => Promise<void>; read: () => Promise<Engi
 function engineAWasm(): Runner {
   return {
     apply: async (cmd) => {
-      await bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: ENGINE_A_DOC, command: cmd });
+      const out = wasmModule!.protocol_apply_command(
+        JSON.stringify(bridge.toRustEnvelope({ contractVersion: CONTRACT_VERSION, docId: ENGINE_A_DOC, command: cmd })),
+        ENGINE_A_DOC,
+      );
+      JSON.parse(out);
     },
     read: async () => {
-      const snap = await bridge.getSnapshot(ENGINE_A_DOC);
       const raw = JSON.parse(wasmModule!.protocol_snapshot_json(ENGINE_A_DOC)) as {
         layers: Array<Record<string, unknown>>;
         selection?: unknown;
@@ -349,20 +337,12 @@ function engineAWasm(): Runner {
         height?: number;
         version: number;
       };
-      const readBackDigest = digestOf({
+      return {
         layers: raw.layers,
         selection: raw.selection ?? null,
         width: raw.width ?? null,
         height: raw.height ?? null,
         version: raw.version,
-      });
-      return {
-        layers: snap.layers as unknown as Array<Record<string, unknown>>,
-        selection: snap.selection ?? null,
-        width: snap.width ?? null,
-        height: snap.height ?? null,
-        version: snap.version,
-        readBackDigest,
       };
     },
   };
@@ -429,20 +409,7 @@ function fullScript(): { steps: Step[]; checkpoints: { tip1: number; tip2: numbe
 }
 
 describe("sequence parity: real Rust protocol engine vs TS emulator", () => {
-  it("is armed to the real wasm module (not the emulator)", () => {
-    expect(bridge.isFacadeArmed()).toBe(true);
-    // Identity: the bridge's armed module IS the module getWasmExportModule()
-    // returned. If the production setProtocolWasm() wiring is removed, bridge.wasm
-    // is null and this fails.
-    expect(bridge.wasm).toBe(wasmModule);
-  });
-
   it("agrees on canonical state at every step, including undo/redo walk-backs", async () => {
-    // Drive engine A with the facade flag ON: if the wasm were unarmed, the
-    // bridge would throw E_FACADE_NOT_READY instead of silently emulating.
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-
     // Engine A must leave the emulator untouched. Reset the emulator first so the
     // "untouched" claim is measured against a known-empty baseline.
     __resetEmulatedForTests();
@@ -451,17 +418,10 @@ describe("sequence parity: real Rust protocol engine vs TS emulator", () => {
     const { steps, checkpoints } = fullScript();
     const engineASteps = await runScript(engineAWasm(), steps);
 
-    // Discriminator: if engine A had fallen back to the emulator, these globals
-    // would be populated (the emulator is only driven by engine B below).
+    // Discriminator: engine A drives the wasm module directly, so these globals
+    // would be populated only if engine A fell back to the emulator (the
+    // emulator is otherwise driven solely by engine B below).
     expect(emulateGetSnapshot().layers.length, "engine A must not run the emulator").toBe(0);
-
-    // Read-back channel: every engine-A step's production snapshot read must equal
-    // the direct wasm export for the same step (captured at read time).
-    for (let i = 0; i < steps.length; i++) {
-      expect(engineASteps[i].state.readBackDigest, `read-back mismatch at step ${i} (${steps[i].op})`).toBe(
-        engineASteps[i].digest,
-      );
-    }
 
     resetEngineB();
     const engineBSteps = await runScript(engineBEmulator(), steps);
@@ -525,14 +485,16 @@ describe("sequence parity: real Rust protocol engine vs TS emulator", () => {
     // for absent optional TextData fields while the emulator keeps the input object
     // (fields absent). This test pins that representation detail so the semantic
     // normalization is a documented decision, not a hidden pass.
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     resetEngineA();
-    await bridge.applyCommand({
-      contractVersion: CONTRACT_VERSION,
-      docId: ENGINE_A_DOC,
-      command: { type: "addLayer", id: "tx", name: "T", width: 10, height: 10, index: 0, layerType: "text", textData: TEXT },
-    });
+    const out = wasmModule!.protocol_apply_command(
+      JSON.stringify(bridge.toRustEnvelope({
+        contractVersion: CONTRACT_VERSION,
+        docId: ENGINE_A_DOC,
+        command: { type: "addLayer", id: "tx", name: "T", width: 10, height: 10, index: 0, layerType: "text", textData: TEXT },
+      })),
+      ENGINE_A_DOC,
+    );
+    JSON.parse(out);
     const raw = JSON.parse(wasmModule!.protocol_snapshot_json(ENGINE_A_DOC)) as {
       layers: Array<Record<string, unknown>>;
     };
@@ -557,24 +519,5 @@ describe("sequence parity: real Rust protocol engine vs TS emulator", () => {
 
     // Semantically identical once absent optionals are dropped on both sides.
     expect(pruneAbsent(wasmText)).toEqual(pruneAbsent(emuText));
-  });
-
-  it("falsification: removing the wasm arm makes the real-engine path fail loud", async () => {
-    // This proves the discriminator above is real: with the bridge unarmed and the
-    // facade flag ON, engine A can no longer silently substitute the emulator.
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    bridge.setProtocolWasm(null as unknown as Parameters<typeof bridge.setProtocolWasm>[0]);
-    __resetEmulatedForTests();
-    expect(bridge.isFacadeArmed()).toBe(false);
-
-    await expect(
-      bridge.applyCommand({ contractVersion: CONTRACT_VERSION, docId: ENGINE_A_DOC, command: { type: "addLayer", id: "x", name: "x", width: 1, height: 1, index: 0 } }),
-    ).rejects.toThrow(/E_FACADE_NOT_READY/);
-
-    // Restore the real arm for any later test in the file (getWasmExportModule is
-    // cached; re-arming uses the captured module object).
-    bridge.setProtocolWasm(wasmModule as unknown as Parameters<typeof bridge.setProtocolWasm>[0]);
-    expect(bridge.isFacadeArmed()).toBe(true);
   });
 });

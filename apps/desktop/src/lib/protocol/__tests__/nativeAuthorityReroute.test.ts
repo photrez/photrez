@@ -1,10 +1,5 @@
-// Native-authority reroute tests: when native engine authority is active, the
-// facade command/query path is rerouted to the native engine.
-//
-// The facade command/query path is rerouted to the native Rust ProtocolEngine
-// (Tauri `invoke`) ONLY when `photrez.facadeAuthority === "native"`. Every native
-// branch is gated: when the flag is unset (production default) the wasm path runs
-// byte-identical and NO Tauri `invoke` for the native commands is ever issued.
+// Native-authority reroute tests: the facade command/query path is routed to
+// the native engine (the per-document Rust ProtocolEngine over Tauri `invoke`).
 //
 // Mock fidelity (CRITICAL): Tauri v2 `invoke()` REJECTS with the bare
 // `"CODE: message"` string on a Rust `Err(String)`. A mock that RESOLVES with
@@ -23,7 +18,6 @@ import {
   createNativeSeed,
   clearNativeSeed,
   normalizeProtocolError,
-  setProtocolWasm,
   __resetNativeAuthorityForTests,
 } from "../bridge";
 import { seedFacadeFromEngine, getFacade, recordExternalTransitionFor, __resetFacadeRegistryForTests } from "../facadeRegistry";
@@ -224,66 +218,23 @@ function routeNative(): void {
   });
 }
 
-function makeWasm(applyResult: CommandResult) {
-  return {
-    protocol_contract_version: () => CONTRACT_VERSION,
-    protocol_apply_command: (_json: string, _docId: string) => JSON.stringify(applyResult),
-    protocol_snapshot_json: (_docId: string) => JSON.stringify({ version: 0, layers: [] }),
-    protocol_history_query_json: (_docId: string) =>
-      JSON.stringify({ cursor: 0, lastSeq: 0, degradedHint: false, entries: [] }),
-    protocol_history_cursor_commit: (_json: string, _docId: string) => JSON.stringify(applyResult),
-  };
-}
-
 beforeEach(() => {
   localStorage.clear();
   invokeMock.mockReset();
   __resetNativeAuthorityForTests();
   __resetFacadeRegistryForTests();
-  setProtocolWasm(null as unknown as Parameters<typeof setProtocolWasm>[0]);
 });
 
 afterEach(() => {
   localStorage.clear();
   __resetNativeAuthorityForTests();
   __resetFacadeRegistryForTests();
-  setProtocolWasm(null as unknown as Parameters<typeof setProtocolWasm>[0]);
-});
-
-describe("wasm opt-out path is byte-identical", () => {
-  it("uses the wasm engine and never issues a native invoke", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    setProtocolWasm(makeWasm({ documentVersion: 7, delta: { baseVersion: 0, version: 7, changes: [] } }));
-    const res = await applyCommand({
-      contractVersion: CONTRACT_VERSION,
-      expectedVersion: 0,
-      command: { type: "ping", echo: "x" },
-    });
-    expect(res.documentVersion).toBe(7); // came from wasm
-    expect(invokeMock).not.toHaveBeenCalledWith("protocol_apply_command_native", expect.anything());
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it("getSnapshot/historyQuery/cursorCommit/getVersion stay on wasm when native authority is off", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    setProtocolWasm(makeWasm({ documentVersion: 3, delta: { baseVersion: 0, version: 3, changes: [] } }));
-    await getSnapshot("docA");
-    await getHistoryQuery("docA");
-    await historyCursorCommit(1, "undo", "docA");
-    await getVersion("docA");
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("native authority reroute", () => {
   beforeEach(() => {
     localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
-    // Arm wasm so the `!wasm` guards in getSnapshot/getHistoryQuery/
-    // historyCursorCommit do not short-circuit before the native branch. The
-    // native commands are dispatched first (isNativeAuthority wins), so the wasm
-    // engine is only the fallback path here.
-    setProtocolWasm(makeWasm({ documentVersion: 1, delta: { baseVersion: 0, version: 1, changes: [] } }));
   });
 
   it("applyCommand reroutes to protocol_apply_command_native with the rust envelope", async () => {
@@ -361,11 +312,6 @@ describe("cutover seed (open-before-seed + idempotency)", () => {
   beforeEach(() => {
     localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
-    // Arm wasm so the `!wasm` guards in getSnapshot/getHistoryQuery/
-    // historyCursorCommit do not short-circuit before the native branch. The
-    // native commands are dispatched first (isNativeAuthority wins), so the wasm
-    // engine is only the fallback path here.
-    setProtocolWasm(makeWasm({ documentVersion: 1, delta: { baseVersion: 0, version: 1, changes: [] } }));
   });
 
   it("opens the document before seeding (open-before-seed ordering)", async () => {
@@ -398,8 +344,6 @@ describe("native seed carries real layers; bridge commands never seed empty", ()
   beforeEach(() => {
     localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
-    // Arm wasm so the `!wasm` guards do not short-circuit before the native branch.
-    setProtocolWasm(makeWasm({ documentVersion: 1, delta: { baseVersion: 0, version: 1, changes: [] } }));
   });
 
   it("the open-path seed carries the doc's REAL layers, and a legacy commit awaits it (no empty seed)", async () => {
@@ -453,7 +397,6 @@ describe("native-authority acceptance checks (each exercises a real Rust contrac
   beforeEach(() => {
     localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
-    setProtocolWasm(makeWasm({ documentVersion: 1, delta: { baseVersion: 0, version: 1, changes: [] } }));
   });
 
   // Reopening the SAME doc id must re-seed the native engine AND give a fresh
@@ -580,11 +523,6 @@ describe("error path (native rejection normalizes to uniform CODE: message)", ()
   beforeEach(() => {
     localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
-    // Arm wasm so the `!wasm` guards in getSnapshot/getHistoryQuery/
-    // historyCursorCommit do not short-circuit before the native branch. The
-    // native commands are dispatched first (isNativeAuthority wins), so the wasm
-    // engine is only the fallback path here.
-    setProtocolWasm(makeWasm({ documentVersion: 1, delta: { baseVersion: 0, version: 1, changes: [] } }));
   });
 
   it("a bare-string invoke rejection surfaces as CODE: message, not a resolved {ok:false}", async () => {
