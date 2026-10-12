@@ -435,9 +435,6 @@ beforeAll(async () => {
 let docSeq = 0;
 
 beforeEach(() => {
-  localStorage.clear();
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "native");
   DOC = `eraserHoles-${(docSeq += 1)}`;
   restoreCanvas = installFaithfulCanvas();
   invokeMock.mockReset();
@@ -458,7 +455,6 @@ beforeEach(() => {
 
 afterEach(() => {
   store.dispose();
-  localStorage.clear();
   restoreCanvas?.();
   restoreCanvas = undefined;
   __resetNativeAuthorityForTests();

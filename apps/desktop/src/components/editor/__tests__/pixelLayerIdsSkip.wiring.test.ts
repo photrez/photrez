@@ -121,9 +121,6 @@ describe("pixelLayerIds upload narrow (bridge OFF)", () => {
     vi.mocked(invoke).mockResolvedValue({ version: 1, epoch: 0 });
     vi.mocked(isTauriRuntime).mockReset();
     vi.mocked(isTauriRuntime).mockReturnValue(false);
-    localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
 
   afterEach(() => {

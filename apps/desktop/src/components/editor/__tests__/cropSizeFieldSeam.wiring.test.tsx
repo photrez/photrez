@@ -166,15 +166,6 @@ async function driveSizeField(
 }
 
 describe("field -> predicate seam: a typed 0 never becomes an accepted crop", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    // isFacadeEnabled() is `getItem("photrez.facade") !== "0"`, so an UNSET key
-    // means ENABLED - which routes the crop asynchronously through the facade.
-    // The default (synchronous) path is what the field seam feeds, so opt out.
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-  });
-  afterEach(() => localStorage.clear());
-
   it('a typed "0" reaches applyCrop as a 0 target and is REJECTED', async () => {
     const r = await driveSizeField("0");
     // The value really does get through the field and the unit conversion.
@@ -233,12 +224,6 @@ describe("field -> predicate seam: a typed 0 never becomes an accepted crop", ()
 });
 
 describe("field -> predicate seam: the smallest legal size still works", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-  });
-  afterEach(() => localStorage.clear());
-
   it('a typed "1" is accepted and records its size pair', async () => {
     const r = await driveSizeField("1");
     expect(r.onSubmitFired).toBe(true);
@@ -252,11 +237,6 @@ describe("field -> predicate seam: the smallest legal size still works", () => {
 });
 
 describe("unit conversion: a negative stays negative across the multiply", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-  });
-  afterEach(() => localStorage.clear());
   // The rejection of "-5 cm" rests on fromUnit preserving the SIGN. If the
   // conversion ever regressed to a magnitude-only form, a negative could cross to
   // positive and slip past the predicate - so the converted value is pinned, not

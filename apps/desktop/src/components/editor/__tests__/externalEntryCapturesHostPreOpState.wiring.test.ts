@@ -192,9 +192,6 @@ let liveEngine: { getId(): string; getLayers(): Array<{ id: string }> } | null =
 
 describe("a non-pixel External undo reverts the operation's effect", () => {
   beforeEach(() => {
-    localStorage.clear();
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "native");
     invokeMock.mockReset();
     __resetNativeAuthorityForTests();
     __resetCanonicalRepushForTests();
@@ -208,7 +205,6 @@ describe("a non-pixel External undo reverts the operation's effect", () => {
     // Drain the shim's fire-and-forget mirror before the resets, so nothing is
     // still in flight when the per-doc engines go away.
     void flushExternalTransitions(DOC);
-    localStorage.clear();
     liveEngine = null;
     __resetNativeAuthorityForTests();
     __resetCanonicalRepushForTests();

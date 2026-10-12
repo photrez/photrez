@@ -57,12 +57,8 @@ function renderAdjustmentsPanel(workspace: WorkspaceManager) {
 }
 
 describe("PropertiesPanel basic adjustments", () => {
-  beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-  });
   afterEach(() => {
     document.body.replaceChildren();
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
     clearRegistry();
   });
@@ -252,13 +248,11 @@ function setupOffscreenCanvasMock() {
 
 describe("AdjustmentsPanel — production engine behavior (no applyBasicAdjustment mock)", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     setupOffscreenCanvasMock();
   });
 
   afterEach(() => {
     document.body.replaceChildren();
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     clearRegistry();

@@ -7,10 +7,12 @@
  * (c) The press projects the returned {delta, pixelPatches?, externalToken?}
  *     onto the engine and re-syncs from the query.
  *
- * MOCK FIDELITY: `photrez.facadeAuthority=wasm` drives these tests through the
- * emulator arm of the protocol bridge (a faithful mirror of the Rust
- * predicate), not the real wasm binary - labeled and not claimed to be the
- * production binary behavior.
+ * MOCK FIDELITY: the retired `photrez.facadeAuthority=wasm` flag used to
+ * select the emulator arm of the protocol bridge. Production dispatch is
+ * native-only now; this suite drives the emulator explicitly through the
+ * shared seam below — the same arms the retired wasm arm fell through to,
+ * reached now via an installed spy instead of a retired flag. A faithful
+ * mirror of the Rust predicate, not the real wasm binary.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEditorCommands } from "../useEditorCommands";
@@ -21,6 +23,7 @@ import * as bridge from "@/lib/protocol/bridge";
 import { hasFacadeOwnedLayers } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { hasOpenBaselineEntry } from "@/lib/protocol/backgroundFlagRouting";
+import { installEmuBridgeSpies } from "@/lib/protocol/__tests__/emulatorBridgeRoute";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn(() => false) }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -87,16 +90,12 @@ describe("undo/redo press consumes CommandResult and the stack derives from the 
     );
     vi.mocked(isTauriRuntime).mockReturnValue(false);
     vi.mocked(hasFacadeOwnedLayers).mockReturnValue(true);
-    localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    installEmuBridgeSpies(bridge);
     facadeRegistry.__resetFacadeRegistryForTests();
     bridge.__resetEmulatedForTests();
   });
 
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 
