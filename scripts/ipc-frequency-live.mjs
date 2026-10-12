@@ -84,12 +84,12 @@ const MODE_RAW = String(process.env.PHOTREZ_FREQ_MODE || "native").trim().toLowe
 const MODE = ["native", "legacy", "both"].includes(MODE_RAW) ? MODE_RAW : "native";
 
 const MODE_FLAGS = {
-  // Native pins facadeAuthority explicitly: the dev webview profile persists
-  // localStorage across launches, so a stale facadeAuthority=wasm from an
-  // earlier session would otherwise reroute every gesture to the wasm path
-  // (real walls, zero native invokes, passing canary).
-  native: "facade=1 facadeAuthority=native",
-  legacy: "facade=0 facadeAuthority=wasm",
+  // Both retired engine-selection flags are gone (the production surface has
+  // zero readers), so every mode now measures the one engine the app has: the
+  // native dispatch. The mode argument survives so existing invocations keep
+  // working; "legacy" is an alias, not a different engine.
+  native: "",
+  legacy: "",
 };
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
@@ -297,7 +297,7 @@ async function waitFacadeReady(cdp, timeoutMs) {
   while (Date.now() - start < timeoutMs) {
     try {
       const ok = await cdp.evaluate(
-        "(async () => { try { const m = await import(location.origin + '/src/lib/protocol/bridge.ts'); if (m.isFacadeArmed && m.isFacadeArmed()) return true; try { await m.ensureFacadeReady(); } catch (e) {} return !!(m.isFacadeArmed && m.isFacadeArmed()); } catch (e) { return false; } })()",
+        "(async () => { try { const m = await import(location.origin + '/src/lib/protocol/bridge.ts'); return typeof m.applyCommand === 'function' && typeof m.getSnapshot === 'function'; } catch (e) { return false; } })()",
       );
       if (ok) return true;
     } catch {}

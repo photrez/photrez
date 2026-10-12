@@ -30,12 +30,13 @@
  *      and remove it the same way.
  *
  * Run (from repo root):
- *   PHOTREZ_FLAGS="facade=1" bun scripts/live-verify.mjs
- *   PHOTREZ_FLAGS="facadeAuthority=native" bun scripts/live-verify.mjs   # future reroute
+ *   bun scripts/live-verify.mjs
  *
  * Env knobs:
- *   PHOTREZ_FLAGS        space/comma separated key=value (e.g. "facade=1");
- *                        mapped to localStorage["photrez.<key>"] at runtime.
+ *   PHOTREZ_FLAGS        retired: the engine-selection keys it used to carry
+ *                        ("facade", "facadeAuthority") no longer exist in
+ *                        production, so the value is refused and nothing is
+ *                        applied. The app boots its one engine.
  *   PHOTREZ_CDP_PORT     CDP debug port (default 9222).
  *   PHOTREZ_LAUNCH_TIMEOUT_MS  launch + CDP-ready budget (default 240000).
  *
@@ -53,10 +54,12 @@ const CDP_PORT = Number(process.env.PHOTREZ_CDP_PORT || 9222);
 const LAUNCH_TIMEOUT_MS = Number(process.env.PHOTREZ_LAUNCH_TIMEOUT_MS || 240000);
 const REPO_ROOT = process.cwd();
 
-// Parse PHOTREZ_FLAGS -> localStorage entries (only the "photrez.<key>" shape
-// the app already reads). Known keys: facade, facadeAuthority. The reserved
-// pixel enablement is refused by the shared parser, with a stderr warning.
-const FLAG_PAIRS = parseHarnessFlags(process.env.PHOTREZ_FLAGS || "facade=1");
+// Parse PHOTREZ_FLAGS -> localStorage entries. The two engine-selection keys
+// this used to carry ("facade", "facadeAuthority") are retired - production has
+// zero readers - so the shared parser refuses them with a stderr warning and an
+// old invocation applies nothing. The reserved pixel enablement is still
+// refused by the same parser.
+const FLAG_PAIRS = parseHarnessFlags(process.env.PHOTREZ_FLAGS || "");
 
 // ── tiny helpers ───────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -181,15 +184,15 @@ async function waitReady(cdp, timeoutMs) {
   return false;
 }
 
-// The facade must be Rust-backed before any command runs (photrez.facade=1 arms
-// the wasm engine via ensureFacadeReady at EditorShell boot, fire-and-forget).
-// That resolves asynchronously, so wait for it explicitly rather than racing it.
+// The facade readiness gate died with the retired flags: the bridge is the
+// native engine from boot now, so the successor probe checks the surviving
+// native dispatch surface is live before any command runs.
 async function waitFacadeReady(cdp, timeoutMs) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
       const ok = await cdp.evaluate(
-        "(async () => { try { const m = await import(location.origin + '/src/lib/protocol/bridge.ts'); if (m.isFacadeArmed && m.isFacadeArmed()) return true; try { await m.ensureFacadeReady(); } catch (e) {} return !!(m.isFacadeArmed && m.isFacadeArmed()); } catch (e) { return false; } })()",
+        "(async () => { try { const m = await import(location.origin + '/src/lib/protocol/bridge.ts'); return typeof m.applyCommand === 'function' && typeof m.getSnapshot === 'function'; } catch (e) { return false; } })()",
       );
       if (ok) return true;
     } catch {}
@@ -502,7 +505,7 @@ async function runSequence(cdp) {
 // ── main ────────────────────────────────────────────────────────────────────
 async function main() {
   log("=== Photrez live verification harness ===");
-  log(`flags: ${FLAG_PAIRS.map((f) => f.key + "=" + f.value).join(", ") || "(none)"}  cdpPort=${CDP_PORT}`);
+  log(`flags: ${FLAG_PAIRS.map((f) => f.key + "=" + f.value).join(", ") || "(retired - the app boots its one engine)"}  cdpPort=${CDP_PORT}`);
 
   // Pre-flight: never attach to / kill a pre-existing user instance.
   if (await netProbe(CDP_PORT)) {
@@ -553,10 +556,9 @@ async function main() {
         err("FAIL: app loaded but window.__photrezEditor never became ready.");
         exitCode = 1;
       } else {
-        // Apply flags via localStorage, then reload so the app boots with them.
-        await cdp.evaluate(
-          FLAG_PAIRS.map((f) => `localStorage.setItem(${JSON.stringify(f.key)}, ${JSON.stringify(f.value)});`).join(""),
-        );
+        // The retired-flag era applied engine-selection flags here and reloaded; with
+        // the flags gone the app boots the only engine it has, so this is a plain
+        // reload check: the app must come back ready with no flag state.
         await cdp.evaluate("location.reload()");
         await sleep(1500);
         // Reconnect (target/ws may have changed after reload).
@@ -576,15 +578,15 @@ async function main() {
         } else {
           cdp = await connectCdp();
           if (!(await waitReady(cdp, 60000))) {
-            err("FAIL: app not ready after reload/flag application.");
+            err("FAIL: app not ready after reload.");
             exitCode = 1;
           } else if (!(await waitFacadeReady(cdp, 90000))) {
-            // The wasm engine never armed: a facade command would throw
-            // E_FACADE_NOT_READY. Surface it instead of a misleading command error.
-            err("FAIL: facade/wasm engine never armed after reload (photrez.facade=1).");
+            // The native dispatch never came up: a command would throw a bare
+            // engine error. Surface it instead of a misleading command error.
+            err("FAIL: the native engine dispatch never became ready after reload.");
             exitCode = 1;
           } else {
-            log("app ready (flags applied). driving facade sequence...");
+            log("app ready (reload clean). driving the sequence...");
             const { captured, consoleErrors } = await runSequence(cdp);
 
             // Verify layer-count sequence for doc A. EXPECTED_DOCA_LAYERS includes

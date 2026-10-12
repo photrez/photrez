@@ -320,10 +320,9 @@ async function openProjectFile(path: string, params: OpenImageParams, fileName: 
   // same undo/redo path a factory document does.
   //
   // Without it, an opened-from-disk document is the one production shape whose
-  // dispatch skips the native walker: `hasFacadeOwnedLayers()` is false, so a
-  // press pops the host stack and the HOST's `stepRustCursor` is the only thing
-  // moving the cursor. That fallback executor cannot be deleted while it is the
-  // sole executor for any real shape.
+  // dispatch skips the native walker: the ACTIVE document holds no claims in
+  // the facade ledger, so a press pops the host stack. That fallback executor
+  // cannot be deleted while it is the sole executor for any real shape.
   //
   // Two halves, and why each is where it is:
   //  - `seedFacadeFromEngine` gives the facade the document's real layers and
@@ -343,10 +342,10 @@ async function openProjectFile(path: string, params: OpenImageParams, fileName: 
   // A refused seed FAILS the open, the way a refused read or a refused layer
   // decode already does: the caller reports it and nothing reaches the workspace.
   // Opening anyway used to leave a document that holds no facade-ownership claims,
-  // and `hasFacadeOwnedLayers()` is what the undo dispatch reads - so its undo
-  // fell off the native walker onto the host stack, whose own `stepRustCursor` is
-  // the only executor it then has. Half an owned document is a state no other
-  // route can reach, so it must not be produced.
+  // and the ACTIVE document's claims (`facadeOwnedIdsOf`) are what the undo
+  // dispatch reads - so its undo fell off the native walker onto the host stack,
+  // which is then the only executor it has. Half an owned document is a state no
+  // other route can reach, so it must not be produced.
   //
   // The session this open supersedes, when the same project is still open. The
   // release above and the facade re-bind inside the seed both mutate state this

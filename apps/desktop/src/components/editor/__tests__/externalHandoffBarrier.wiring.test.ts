@@ -16,13 +16,14 @@
  * is no consumer in this change), and that the facade branch is NOT entered when
  * there are no facade-owned layers.
  *
- * MOCK FIDELITY: the legacy opt-out flags are set, so these
- * tests exercise the emulator arm of historyCursorCommit (a faithful mirror of
- * the Rust predicate), NOT the real wasm binary. facade=1 in production requires
- * an armed wasm, so this is an emulator-only path - labeled as such and not
- * claimed to be the production wasm behavior. The gapped (non-dense) cases are
- * the crux: the old index-arithmetic predicate (cursor == seq) failed there and
- * left the wedge permanently set.
+ * MOCK FIDELITY: the retired flags (photrez.facade / photrez.facadeAuthority)
+ * used to select the emulator implicitly (a wasm authority fell through to the
+ * emu arms). Both flags and the wasm dispatch arm are gone, so this suite
+ * reaches the SAME emulator arms explicitly: the mock below routes the bridge
+ * surface the registry imports onto bridge_emu's own seams - a faithful mirror
+ * of the Rust predicate, NOT the real wasm binary, and labeled as such. The
+ * gapped (non-dense) cases are the crux: the old index-arithmetic predicate
+ * (cursor == seq) failed there and left the wedge permanently set.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -39,6 +40,25 @@ vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@/tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@/tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock("@/tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
+
+// The emulator is this suite's engine. Production dispatch is native-only now,
+// so the bridge surface the registry imports (and that the real press path
+// crosses) is routed onto bridge_emu's own seams - the same emulator arms the
+// retired wasm arm used to fall through to, reached explicitly instead of
+// through a retired flag. Everything else passes through untouched.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const emu = await import("@/lib/protocol/bridge_emu");
+  return {
+    ...actual,
+    applyCommand: ((envelope: unknown) =>
+      emu.emulateApply(envelope as Parameters<typeof emu.emulateApply>[0])) as unknown as typeof actual.applyCommand,
+    getSnapshot: (() => emu.emulateGetSnapshot()) as unknown as typeof actual.getSnapshot,
+    getHistoryQuery: (async () => emu.emulateGetHistoryQuery()) as unknown as typeof actual.getHistoryQuery,
+    historyCursorCommit: (async (seq: number, direction: "undo" | "redo") =>
+      emu.emulateHistoryCursorCommit(seq, direction)) as unknown as typeof actual.historyCursorCommit,
+  };
+});
 
 // Facade-branch gate. Per-test configurable so we can exercise both the
 // branch-entered (the ACTIVE document owns facade layers) and branch-skipped
@@ -134,15 +154,11 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     vi.mocked(isTauriRuntime).mockReturnValue(false);
     vi.mocked(facadeOwnedIdsOf).mockReturnValue(new Set(["owned-layer"]));
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     facadeRegistry.__resetFacadeRegistryForTests();
     bridge.__resetEmulatedForTests();
   });
 
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.restoreAllMocks();
   });
 

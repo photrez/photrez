@@ -113,34 +113,16 @@ export function ResizeCanvasModal() {
 
     // Routed path: the native resize owns the document size and its undo entry,
     // so there is no TS history commit. The route re-uploads layer textures; the
-    // viewport resize stays here. "legacy" falls through to the default path.
+    // viewport resize stays here.
     const status = await routeResizeCanvas(engine, history, renderer, scheduler, newW, newH);
     if (status === "error") {
       showToast("Could not resize canvas", "error");
       return;
     }
-    if (status === "applied") {
-      const dpr = window.devicePixelRatio || 1;
-      renderer.resizeToViewport(viewportWidth(), viewportHeight(), dpr);
-      syncViewport();
-      setShowResizeDialog(false);
-      return;
-    }
-
-    // Default path (the route deferred to legacy) — unchanged.
-    history.commit(engine.snapshot(), "Resize Canvas");
-    engine.resizeCanvas(newW, newH);
-
+    // "applied" is the route's only other status - the legacy deferral died with
+    // the flags' retirement - so the viewport work always runs.
     const dpr = window.devicePixelRatio || 1;
     renderer.resizeToViewport(viewportWidth(), viewportHeight(), dpr);
-
-    for (const layer of engine.getLayers()) {
-      if (layer.imageBitmap) {
-        renderer.uploadImage(layer.id, layer.imageBitmap);
-      }
-    }
-
-    scheduler.requestRender();
     syncViewport();
     setShowResizeDialog(false);
   };

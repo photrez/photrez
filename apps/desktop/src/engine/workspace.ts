@@ -53,9 +53,10 @@ export class WorkspaceManager {
    * the only thing that both seeds the native engine with this document's
    * layers and hands them to the facade ledger, so a commit that never lands
    * leaves a document the native engine does not hold and the ledger does not
-   * claim. `hasFacadeOwnedLayers()` is what the undo dispatch reads, so such a
-   * document's undo runs on the host stack instead of the native walker - the
-   * executor the native-walker's retirement removes. Opening it anyway is what
+   * claim. `facadeOwnedIdsOf(docId)` - the ACTIVE document's claims in the
+   * ledger - is what the undo dispatch reads, so such a document's undo runs
+   * on the host stack instead of the native walker - the executor the
+   * native-walker's retirement removes. Opening it anyway is what
    * this gate exists to prevent; the project-open route refuses a refused seed
    * for the same reason.
    *

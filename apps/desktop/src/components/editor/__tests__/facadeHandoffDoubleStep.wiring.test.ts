@@ -92,8 +92,6 @@ vi.mock("@/lib/protocol/facadeRegistry", () => ({
   syncFacadeVersionFromPixel: vi.fn(),
   getExternalRecordSnapshot: vi.fn(() => null),
   parkExternalReplaySnapshot: vi.fn(),
-  // Read by `stepRustCursor`'s shim arm, so the arm is genuinely armed here.
-  isFacadeEnabled: vi.fn(() => true),
   historyDegraded: vi.fn(() => false),
 }));
 
