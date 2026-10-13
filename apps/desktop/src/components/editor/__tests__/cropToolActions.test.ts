@@ -34,12 +34,6 @@ function controls(overrides: Partial<CropPreviewControls> = {}) {
 }
 
 describe("cropToolActions", () => {
-  beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-  });
-  afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
-  });
   it("clearCropPreview clears rect and rotation", async () => {
     const setCropRect = vi.fn();
     const setCropRotation = vi.fn();
@@ -333,7 +327,10 @@ describe("cropToolActions", () => {
       cropRect: { x: 10.3, y: 20.7, w: 100.9, h: 200.1 },
       cropMode: "free",
       cropSizeTarget: null,
-      cropDeletePixels: false,
+      // Pixel-baking variant: the live route to the legacy fallback (the
+      // retired photrez.facadeAuthority opt-out used to reach it; the
+      // route returns "legacy" for these variants before any dispatch).
+      cropDeletePixels: true,
       cropRotation: 0,
       scheduler: scheduler as any,
       setCropRect: vi.fn(),
@@ -378,7 +375,9 @@ describe("cropToolActions", () => {
       cropRect: { x: 0, y: 0, w: 200, h: 200 },
       cropMode: "free",
       cropSizeTarget: null,
-      cropDeletePixels: false,
+      // Pixel-baking variant: the live route to the legacy fallback (the
+      // retired photrez.facadeAuthority opt-out used to reach it).
+      cropDeletePixels: true,
       cropRotation: 0,
       scheduler: scheduler as any,
       setCropRect: vi.fn(),
@@ -457,12 +456,11 @@ describe("cropToolActions hidden preview", () => {
   });
 });
 
-describe("applyCropPreview routed path (flag ON + native)", () => {
+describe("applyCropPreview routed path", () => {
   let emulator: CanvasRouteEmulator;
 
   afterEach(() => {
     vi.restoreAllMocks();
-    localStorage.removeItem("photrez.facadeAuthority");
     bridge.__resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
     invokeMock.mockReset();
@@ -483,7 +481,6 @@ describe("applyCropPreview routed path (flag ON + native)", () => {
   }
 
   async function nativeDoc() {
-    localStorage.setItem("photrez.facadeAuthority", "native");
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
     emulator = installCanvasRouteEmulator(invokeMock);

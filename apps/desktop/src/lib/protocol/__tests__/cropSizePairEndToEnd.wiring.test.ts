@@ -4,11 +4,9 @@
 //   recordExternalTransitionFor -> applyCommand -> emulateApply -> undo
 //     -> delta carrying the restored document size -> engine dims updated
 //
-// WHAT THIS FILE DOES NOT PIN: the wire mapping in toRustEnvelope. With the facade
-// off and wasm unarmed, applyCommand takes the emulator branch (bridge.ts:360-368)
-// and hands emulateApply the RAW camelCase envelope; the toRustEnvelope call on the
-// way there computes `json` and then discards it. So deleting the wire mapping
-// entirely would leave this file green.
+// WHAT THIS FILE DOES NOT PIN: the wire mapping in toRustEnvelope. The
+// emulator takes the envelope object directly (no JSON round-trip), so
+// deleting the wire mapping entirely would leave this file green.
 //
 // The wire is covered where it actually happens, in
 // toRustEnvelopeCarriesDocSize.wiring.test.ts, which drives toRustEnvelope
@@ -27,11 +25,13 @@ import {
   setEmuDocumentDims,
   getEmuDocumentDims,
 } from "@/lib/protocol/bridge_emu";
+import * as bridge from "@/lib/protocol/bridge";
 import { applyCommand } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import { __resetFacadeRegistryForTests, getFacade } from "@/lib/protocol/facadeRegistry";
 import { resolveCropDocumentSize } from "@/engine/document";
 import { MAX_CANVAS_DIM } from "@/engine/types";
+import { installEmuBridgeSpies } from "./emulatorBridgeRoute";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const invokeMock = invoke as unknown as (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -60,20 +60,15 @@ describe("crop document-size pair survives the real bridge to the engine", () =>
     invokeMock && (invokeMock as unknown as { mockReset?: () => void });
     __resetEmulatedForTests();
     __resetFacadeRegistryForTests();
-    // facade OFF + wasm authority: the emulator backs the stream. The facade flag
-    // must be OFF here - with it ON, applyCommand refuses to emulate and demands
-    // a real armed wasm engine (E_FACADE_NOT_READY), which is the correct
-    // production behaviour and exactly why the emulator is the only seam
-    // available to a jsdom test. What is under test is the SERIALIZER and the
-    // stream handoff, both of which are the same either way.
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    // The emulator backs the stream (production dispatch is native-only).
+    installEmuBridgeSpies(bridge);
     setEmuDocumentDims(128, 128);
   });
   afterEach(() => {
     localStorage.clear();
     __resetEmulatedForTests();
     __resetFacadeRegistryForTests();
+    vi.restoreAllMocks();
   });
 
   it("a crop's undo emits the restored document size (the pair is not dropped)", async () => {

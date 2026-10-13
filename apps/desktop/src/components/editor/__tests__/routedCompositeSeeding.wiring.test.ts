@@ -30,15 +30,17 @@
  * make every routed merge skip its seed and report convergence with nothing behind
  * it - the third shipped green-suite defect, avoided by construction.
  *
- * LEGACY CONTROL: one case pins the `facade=0` arm still seeding and writing. It is
- * the control that proves the code itself works, and it must never regress.
+ * The `facade=0` control case that previously lived here was retired with the
+ * opt-out flag (no production source reads `isFacadeEnabled`; see
+ * `flagRetirementCensus.test.ts`). The structural `"legacy"` fallback still runs
+ * the `layerOperations` helpers, which remain pinned by `layerOperations.test.tsx`
+ * and `syncResurrection.wiring.test.ts`.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceManager } from "@/engine/workspace";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { routeFlatten, routeMergeDown, routeMergeSelected } from "@/components/editor/layers/structuralRouting";
-import { flattenAllLayers, mergeActiveLayerDown } from "@/components/editor/layers/layerOperations";
 import {
   __resetFacadeRegistryForTests,
   seedFacadeFromEngine,
@@ -337,59 +339,5 @@ describe("ROUTED arm (facade on, native authority - the shipped default)", () =>
       "the merged layer is seeded in the Rust store",
     ).toEqual([{ x: 0, y: 0, w: SIZE, h: SIZE }]);
     expect(countWrites(), "exactly one canonical write for the merge-down").toBe(1);
-  });
 });
-
-describe("LEGACY control (facade off) - the arm that proved the code works", () => {
-  beforeEach(() => {
-    // Explicit OFF, not absent: isFacadeEnabled is `!== "0"`, so an UNSET key
-    // means ENABLED and the control would silently drive the routed arm.
-  });
-
-  it("the legacy flatten helper still seeds the store and writes once", async () => {
-    const { engine } = await openSeededDocument();
-    // Host-created layers, NOT facade-owned: the legacy arm is what a
-    // non-owned selection takes, so adding owned layers here would route around
-    // the very control this case exists to pin.
-    const extra = engine.addLayer("Host", SIZE, SIZE);
-    const canvas = new OffscreenCanvas(SIZE, SIZE);
-    (canvas.getContext("2d") as unknown as CanvasRenderingContext2D).fillRect(0, 0, SIZE, SIZE);
-    engine.setLayerImageBitmap(extra.id, canvas as unknown as ImageBitmap);
-    expect(engine.getLayers().length, "premise: flatten needs more than one layer").toBeGreaterThan(1);
-    store.calls.length = 0;
-
-    // Prove the CONTROL is on the legacy arm: with the facade off the routed arm
-    // must decline, or this control is not a control.
-    expect(await routeFlatten(engine as never, null, makeRenderer())).toBe("legacy");
-
-    expect(flattenAllLayers(engine as never, { commit: () => {} } as never, makeRenderer())).toBe(true);
-
-    const flattened = engine.getLayer(engine.getActiveLayerId() || "")!;
-    expect(
-      await pollForStore(flattened.id),
-      "the legacy control still seeds the store",
-    ).toEqual([{ x: 0, y: 0, w: SIZE, h: SIZE }]);
-    expect(countWrites(), "the legacy control still writes once").toBe(1);
-  });
-
-  it("the legacy merge-down helper still seeds the store and writes once", async () => {
-    const { engine } = await openSeededDocument();
-    const extra = engine.addLayer("Host", SIZE, SIZE);
-    const canvas = new OffscreenCanvas(SIZE, SIZE);
-    (canvas.getContext("2d") as unknown as CanvasRenderingContext2D).fillRect(0, 0, SIZE, SIZE);
-    engine.setLayerImageBitmap(extra.id, canvas as unknown as ImageBitmap);
-    const activeId = engine.getLayer(engine.getActiveLayerId() || "")!.id;
-    store.calls.length = 0;
-
-    expect(await routeMergeDown(engine as never, null, makeRenderer(), activeId)).toBe("legacy");
-
-    expect(mergeActiveLayerDown(engine as never, { commit: () => {} } as never, makeRenderer(), activeId)).toBe(true);
-
-    const merged = engine.getLayer(engine.getActiveLayerId() || "")!;
-    expect(
-      await pollForStore(merged.id),
-      "the legacy control still seeds the store",
-    ).toEqual([{ x: 0, y: 0, w: SIZE, h: SIZE }]);
-    expect(countWrites(), "the legacy control still writes once").toBe(1);
-  });
 });
