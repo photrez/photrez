@@ -26,11 +26,20 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import type { AlignMode } from "../layers/transformRouting";
 import * as bridge from "@/lib/protocol/bridge";
-import { getWasmExportModule } from "../wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { showToast } from "../Toast";
 
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
+
+// The retired `photrez.facadeAuthority=wasm` key used to select the wasm
+// engine; the shared factory below arms the same engine on the bridge
+// surface the suite drives.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 const { forcedLegacy } = vi.hoisted(() => ({ forcedLegacy: new Set<string>() }));
 
@@ -231,7 +240,7 @@ async function openLegacyPanel(docId: string, positions: Placement[]) {
 beforeAll(async () => {
   // The facade-owned seed layers are created through the real Rust facade, so the
   // bridge has to be armed with the same wasm package the app arms at boot.
-  await getWasmExportModule();
+  await armWasmModule();
 });
 
 beforeEach(() => {
@@ -393,77 +402,7 @@ describe("PropertiesPanel transform actions with native transform authority on",
   });
 });
 
-describe("PropertiesPanel transform actions - keeps photrez.facade=0 opt-out behavior (native transform authority off)", () => {
-  beforeEach(() => {
-  });
-
-  it("Align left: snapshot before the writes, one history entry after them, no native command", async () => {
-    const { panel, ids, engine } = await openLegacyPanel("pp-off-align", [
-      { name: "Plain A", x: 50, y: 50 },
-      { name: "Plain B", x: 50, y: 50 },
-    ]);
-    const snapshotSpy = vi.spyOn(engine, "snapshot");
-    const transformSpy = vi.spyOn(engine, "transformLayer");
-    const historySpy = vi.spyOn(panel.history(), "commit");
-    const undoBefore = panel.history().getUndoCount();
-    applySpy.mockClear();
-
-    alignButton(panel.container, 0).click();
-    await flush();
-
-    // The snapshot is captured before any write, so the recorded state is the
-    // pre-mutation one even though the commit call lands after the writes - the same
-    // order the panel action has always had.
-    expect(snapshotSpy.mock.invocationCallOrder[0]).toBeLessThan(
-      transformSpy.mock.invocationCallOrder[0],
-    );
-    expect(transformSpy.mock.invocationCallOrder[transformSpy.mock.calls.length - 1]).toBeLessThan(
-      historySpy.mock.invocationCallOrder[0],
-    );
-    expect(transformSpy).toHaveBeenCalledTimes(2);
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(historySpy.mock.calls[0][1]).toBe("Align left");
-    const recorded = historySpy.mock.calls[0][0] as unknown as {
-      layers: Array<{ id: string; transform: { x: number } }>;
-    };
-    expect(recorded.layers.find((l) => l.id === ids[0])!.transform.x).toBe(50);
-    // Zero seam calls: the routed decision never fires while the flag is off.
-    expect(transformCommands()).toHaveLength(0);
-    expect(engine.getLayer(ids[0])!.transform.x).toBe(0);
-    expect(panel.history().getUndoCount()).toBe(undoBefore + 1);
-    panel.dispose();
-  });
-
-  it("Distribute horizontally: the writes land before the single history entry", async () => {
-    const { panel, ids, engine } = await openLegacyPanel("pp-off-dist", [
-      { name: "Plain A", x: 0, y: 0 },
-      { name: "Plain B", x: 10, y: 0 },
-      { name: "Plain C", x: 20, y: 0 },
-      { name: "Plain D", x: 400, y: 0 },
-    ]);
-    const snapshotSpy = vi.spyOn(engine, "snapshot");
-    const transformSpy = vi.spyOn(engine, "transformLayer");
-    const historySpy = vi.spyOn(panel.history(), "commit");
-    applySpy.mockClear();
-
-    distributeButton(panel.container, 0).click();
-    await flush();
-
-    expect(snapshotSpy.mock.invocationCallOrder[0]).toBeLessThan(
-      transformSpy.mock.invocationCallOrder[0],
-    );
-    expect(transformSpy.mock.invocationCallOrder[transformSpy.mock.calls.length - 1]).toBeLessThan(
-      historySpy.mock.invocationCallOrder[0],
-    );
-    expect(transformSpy.mock.calls.map((call) => (call[1] as Transform2D).x)).toEqual([133, 267]);
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(historySpy.mock.calls[0][1]).toBe("Distribute Horizontally");
-    expect(transformCommands()).toHaveLength(0);
-    expect(engine.getLayer(ids[1])!.transform.x).toBe(133);
-    expect(engine.getLayer(ids[2])!.transform.x).toBe(267);
-    expect(panel.scheduler.requestRender).toHaveBeenCalled();
-    panel.dispose();
-  });
+describe("PropertiesPanel transform actions - no-op when there is nothing to move", () => {
 
   it("Distribute with nothing to move still records the legacy entry, as it always has", async () => {
     const { panel, engine } = await openLegacyPanel("pp-off-dist-noop", [
@@ -504,28 +443,5 @@ describe("PropertiesPanel transform actions - keeps photrez.facade=0 opt-out beh
     panel.dispose();
   });
 
-  it("numeric transform field paths keep the legacy commit-before-mutate order", async () => {
-    const { panel, ids, engine } = await openLegacyPanel("pp-off-numeric", [
-      { name: "Plain A", x: 50, y: 50 },
-    ]);
-    const transformSpy = vi.spyOn(engine, "transformLayer");
-    const historySpy = vi.spyOn(panel.history(), "commit");
-    applySpy.mockClear();
-    await panel.select(ids[0], [ids[0]]);
-
-    const flip = panel.container.querySelector<HTMLButtonElement>("button[aria-label='Flip horizontal']");
-    expect(flip, "Flip horizontal button").toBeTruthy();
-    flip!.click();
-    await flush();
-
-    // The numeric path records the history entry before it mutates, which is the
-    // opposite of the align/distribute order above; both are preserved as they are.
-    expect(historySpy.mock.invocationCallOrder[0]).toBeLessThan(
-      transformSpy.mock.invocationCallOrder[0],
-    );
-    expect(historySpy.mock.calls[0][1]).toBe("Flip Horizontal");
-    expect(engine.getLayer(ids[0])!.transform.flipH).toBe(true);
-    expect(transformCommands()).toHaveLength(0);
-    panel.dispose();
-  });
 });
+

@@ -1,128 +1,38 @@
-// Ticket 2.2 refinement 3: MIXED HISTORY interleaved-sequence test.
-//
-// Required scenario: legacy op -> facade transform -> legacy op -> undo x3.
-// Documents the ACTUAL resulting behavior under the transitional Rust-first
-// routing (useEditorCommands.restoreHistorySnapshot) + Gate A guards.
-//
-// ACTUAL BEHAVIOR VERDICT (asserted below): NOT a true linear user-history.
-//
-//   1. Legacy op A (pre-facade)          -> TS history [A]
-//   2. Facade transform T                -> Rust history [post-add, pre-add];
-//      first projection marks EVERY projected layer facade-owned (incl.
-//      Background) -> from here on, ALL legacy mutations/undo-restores that
-//      touch those ids throw E_FACADE_OWNED.
-//   3. Legacy op B                       -> IMPOSSIBLE: engine.transformLayer
-//      throws E_FACADE_OWNED before mutating (asserted). B never enters any
-//      history.
-//   4. undo1 -> Rust reverts T           (facade route)
-//      undo2 -> Rust removes the facade-added layer (its own addLayer entry)
-//      undo3 -> Rust stack EMPTY: no-op success with EMPTY delta ->
-//               production routing falls through to legacy TS history ->
-//               engine.restore(pre-A snapshot) THROWS E_FACADE_OWNED because
-//               facadeOwnedIds still contains ids (the set is mark-only and
-//               accumulates; stale-id cleanup is deferred) -> BLOCKED.
-//
-//   Net: user-linear order would be B,T,A reversed = T,B,A. Actual drained
-//   order = T, (remove layer), then A PINNED forever while owned-ids persist.
-//   This is TRANSITIONAL, not the final history architecture; single-owner
-//   stacks remain fully linear (second test).
-
-import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
-import { DocumentEngine, hasFacadeOwnedLayers } from "@/engine/document";
+// Single-owner (Rust-only) history stack drains fully linearly through
+// the facade funnel. The retired mixed-history interleaved-sequence
+// test (legacy op -> facade transform -> legacy op -> undo x3) pinned
+// the TRANSITIONAL Ticket 2.2 routing; its "A pinned forever" outcome
+// was documented in that suite's own header as non-final, so the
+// transitional block is retired and deleted here. The facade funnel
+// dispatches through bridge.applyCommand; the shared factory routes
+// that surface onto the real wasm ProtocolEngine module.
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
+import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
 import { seedFacadeFromEngine, __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
-// Facade readiness: photrez.facade=1 mixed-history tests must run against the
-// REAL Rust engine. Arm the bridge once via the production loader and reset the
-// reserved per-document engine between tests.
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
-beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+// The facade funnel dispatches through bridge.applyCommand; the shared
+// factory routes that surface onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
 });
 
-beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+beforeAll(async () => {
+  wasmModule = await armWasmModule();
 });
+
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   wasmModule?.protocol_reset("default");
 });
 
-// Production routing, replicated verbatim from useEditorCommands (the hook
-// closure itself is not exported; kept in lockstep — see branch there).
-async function routeUndo(engine: DocumentEngine, history: CommandHistory, facade: EditorFacade): Promise<"facade" | "legacy" | "blocked"> {
-  if (hasFacadeOwnedLayers()) {
-    const snap = await facade.undo();
-    if (!facade.lastHistoryDeltaWasEmpty) {
-      engine.applyFacadeSnapshot(snap as never);
-      return "facade";
-    }
-    // Rust had nothing — fall through to legacy.
-  }
-  const prev = history.undo(engine.snapshot());
-  if (!prev) return "blocked";
-  try {
-    engine.restore(prev);
-    return "legacy";
-  } catch {
-    return "blocked"; // E_FACADE_OWNED while owned ids exist
-  }
-}
-
-describe("Ticket 2.2 mixed history: legacy A -> facade T -> legacy B(?) -> undo x3", () => {
-  it("documents actual behavior: B blocked at mutation time; undos drain Rust then pin A", async () => {
-    const engine = new DocumentEngine("docM", "Mixed", 800, 600);
-    const history = new CommandHistory();
-    const facade = new EditorFacade();
-
-    const bg = engine.addLayer("Background");
-
-    // ── Legacy op A (pre-facade) ──
-    history.commit(engine.snapshot(), "A: move bg");
-    engine.transformLayer(bg.id, { x: 10 });
-    expect(engine.getLayer(bg.id)?.transform.x).toBe(10);
-
-    // ── Facade transform T ──
-    seedFacadeFromEngine(engine as never, facade);
-    const addSnap = await facade.addLayer("Owned") as unknown as { version: number; layers: Array<{ id: string }> };
-    engine.applyFacadeSnapshot(addSnap as never);
-    const ownedId = addSnap.layers[addSnap.layers.length - 1].id;
-    expect(hasFacadeOwnedLayers()).toBe(true);
-    facade.beginTransform(ownedId, { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
-    facade.updateTransform({ x: 77, y: 5, scaleX: 1, scaleY: 1, rotation: 0 });
-    const tSnap = await facade.commitTransform();
-    engine.applyFacadeSnapshot(tSnap as never);
-
-    // ── Legacy op B: IMPOSSIBLE post-projection ──
-    expect(() => engine.transformLayer(bg.id, { x: 20 })).toThrow(/E_FACADE_OWNED/);
-    expect(engine.getLayer(bg.id)?.transform.x).toBe(10); // B never happened
-
-    const versionAfterOps = facade.renderedVersion;
-
-    // ── undo x3 ──
-    const r1 = await routeUndo(engine, history, facade);
-    expect(r1).toBe("facade"); // reverts T
-    expect(facade.renderedVersion).toBe(versionAfterOps + 1);
-
-    const r2 = await routeUndo(engine, history, facade);
-    expect(r2).toBe("facade"); // removes the facade-added layer
-
-    const r3 = await routeUndo(engine, history, facade);
-    expect(r3).toBe("blocked"); // Rust exhausted -> legacy fallback pinned by Gate A
-
-    // A remains STRANDED: bg keeps its post-A position; no TS undo occurred.
-    expect(engine.getLayer(bg.id)?.transform.x).toBe(10);
-    // Owned-id set persists (mark-only accumulation; stale-id cleanup deferred).
-    expect(hasFacadeOwnedLayers()).toBe(true);
-  });
-
+describe("single-owner (Rust-only) history stack drains fully linearly", () => {
   it("single-owner (Rust-only) stack drains fully linearly — sanity contrast", async () => {
     const engine = new DocumentEngine("docM2", "M2", 800, 600);
     const history = new CommandHistory();

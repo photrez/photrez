@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi, type Mock } from "vitest";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { ResizeCanvasModal } from "../ResizeCanvasModal";
@@ -11,8 +11,19 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import { installCanvasRouteEmulator, type CanvasRouteEmulator } from "@/__tests__/canvasRouteEmulator";
 import { invoke } from "@tauri-apps/api/core";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+// The retired `photrez.facadeAuthority=wasm` key used to select the wasm
+// engine; the shared factory arms the same engine on the bridge surface this
+// suite drives. The helper must be imported INSIDE the factory: vi.mock is
+// hoisted above imports.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 const invokeMock = invoke as unknown as Mock<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>;
 let emulator: CanvasRouteEmulator | null = null;
 
@@ -69,12 +80,11 @@ const button = (dialog: HTMLElement, label: string) => Array.from(dialog.querySe
   .find((candidate) => candidate.textContent?.trim() === label) as HTMLButtonElement;
 
 describe("ResizeCanvasModal", () => {
-  beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+  beforeAll(async () => {
+    await armWasmModule();
   });
   afterEach(() => {
     vi.restoreAllMocks();
-    localStorage.removeItem("photrez.facadeAuthority");
     bridge.__resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
     invokeMock.mockReset();
@@ -118,7 +128,17 @@ describe("ResizeCanvasModal", () => {
   });
 
   it("resizes through the production path and preserves undo", async () => {
+    bridge.__resetNativeAuthorityForTests();
+    invokeMock.mockReset();
+    emulator = installCanvasRouteEmulator(invokeMock);
+
     const view = renderModal();
+    const facade = getFacade("test");
+    await seedFacadeFromEngine(view.session.engine as never, facade);
+    // Establish a native baseline size so the routed undo has a prior size to restore.
+    await facade.resizeCanvas(800, 600);
+    view.session.engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
+
     const dialog = view.dialog()!;
     const width = dialog.querySelector<HTMLInputElement>("#resize-canvas-width")!;
     width.value = "400";
@@ -126,24 +146,24 @@ describe("ResizeCanvasModal", () => {
     button(dialog, "Resize").click();
     // The resize runs through the routed arm, which settles the host write on a
     // later microtask.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(view.session.engine.getWidth()).toBe(400);
+    await vi.waitFor(() => {
+      expect(view.session.engine.getWidth()).toBe(400);
+    });
     expect(view.session.engine.getHeight()).toBe(300);
     expect(view.renderer.resizeToViewport).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 1);
-    // The host arm requests a render for the resize and the viewport sync that
-    // follows it, so this asserts the render HAPPENED rather than an exact count
-    // that depended on which arm was taken.
     expect(view.scheduler.requestRender).toHaveBeenCalled();
     expect(view.dialog()).toBeNull();
-    const previous = view.session.history.undo(view.session.engine.snapshot());
-    expect(previous).not.toBeNull();
-    view.session.engine.restore(previous!);
+    // Routed ops own undo through the native cursor: no TS history entry.
+    expect(view.session.history.undo(view.session.engine.snapshot())).toBeNull();
+
+    await facade.undo();
+    expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
+    view.session.engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     expect([view.session.engine.getWidth(), view.session.engine.getHeight()]).toEqual([800, 600]);
     view.dispose();
   });
 
-  it("routed resize (flag ON + native) applies dims through the facade, leaves TS history empty, and facade undo restores dims", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
+  it("routed resize through the native route applies dims through the facade, leaves TS history empty, and facade undo restores dims", async () => {
     bridge.__resetNativeAuthorityForTests();
     invokeMock.mockReset();
     emulator = installCanvasRouteEmulator(invokeMock);

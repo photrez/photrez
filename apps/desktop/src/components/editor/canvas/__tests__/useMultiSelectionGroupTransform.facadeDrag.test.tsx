@@ -17,7 +17,7 @@
 //     per-frame mutator landed. The parity cases in the last block are what pin that.
 //
 // Real hook, real DocumentEngine, real history, real protocol arm.
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import { useMultiSelectionGroupTransform } from "../useMultiSelectionGroupTransform";
 import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
@@ -44,26 +44,23 @@ import {
   seedFacadeFromEngine,
   transformPreview,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "../../wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { showToast } from "../../Toast";
-import type { CommandEnvelope } from "@/lib/protocol/types";
 
 vi.mock("../../Toast", () => ({ showToast: vi.fn() }));
 const { mockEditorState } = vi.hoisted(() => ({ mockEditorState: {} as Record<string, unknown> }));
 vi.mock("../../shell/EditorContext", () => ({ useEditor: () => mockEditorState }));
 
 // applyCommand is the one function every protocol command crosses, under the wasm
-// arm and the native arm alike, so its call list IS the dispatch count.
+// arm and the native arm alike, so its call list IS the dispatch count. The
+// retired `facadeAuthority=wasm` key used to select the wasm engine; the shared
+// factory below arms the same engine on the bridge surface the suite drives
+// (it must be imported INSIDE the factory: vi.mock is hoisted above imports).
 const { commandLog } = vi.hoisted(() => ({ commandLog: { types: [] as string[] } }));
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
-  return {
-    ...actual,
-    applyCommand: (envelope: CommandEnvelope) => {
-      commandLog.types.push(envelope.command.type);
-      return actual.applyCommand(envelope);
-    },
-  };
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual, commandLog);
 });
 
 const DOC = "group-transform-facade";
@@ -76,19 +73,12 @@ let wasm: { protocol_reset: (docId: string) => void } | null = null;
 const usedDocs: string[] = [];
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
-});
-
-beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+  wasm = await armWasmModule();
 });
 
 afterEach(() => {
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -145,11 +135,10 @@ async function harness(opts: {
 }): Promise<Ctx> {
   const doc = opts.doc ?? DOC;
   usedDocs.push(doc);
+  // `flag:false` builds UNOWNED fixtures (layers created straight through the
+  // engine). The retired photrez.facade key used to flip this switch; ownership
+  // is per-layer in production now, so both branches stay live without it.
   const flagOn = opts.flag !== false;
-  // Set it, not just clear the other way: a case that builds one fixture per authority
-  // shares this module-level switch with the fixture it built before it.
-  if (flagOn) localStorage.setItem("photrez.facade", "1");
-  else localStorage.setItem("photrez.facade", "0");
 
   const engine = new DocumentEngine(doc, "Group", 800, 600);
   const facade = getFacade(doc);
@@ -541,7 +530,7 @@ describe("group transform on native-owned layers", () => {
     }
   });
 
-  it("flag OFF: the same chain still mutates the model per frame and writes one history entry", async () => {
+  it("unowned layers: the same chain still mutates the model per frame and writes one history entry", async () => {
     const ctx = await harness({ owned: 2, flag: false });
     try {
       const [a, b] = ctx.owned;

@@ -45,13 +45,9 @@ function perLayer(l: RenderLayer): number {
 
 beforeEach(() => {
   __resetEmulatedForTests();
-  localStorage.setItem("photrez.facade", "0");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 afterEach(() => {
   __resetEmulatedForTests();
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   vi.restoreAllMocks();
 });
 
@@ -93,23 +89,28 @@ describe("emulator history memoryCostBytes is a plausible non-double-counted num
   it("a shared-layer op yields memoryCostBytes below the naive before+after sum", async () => {
     // Drive the emulator (no wasm wired in this file) through a shared-layer op:
     // addLayer A, addLayer B, then transform A (B is unchanged => shared ref).
-    const addA = await bridge.applyCommand({
+    const addA = await bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", id: "A-id", name: "A", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: RenderLayer }> } };
     const idA = addA.delta.changes[0].layer.id;
-    const addB = await bridge.applyCommand({
+    const addB = await bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", id: "B-id", name: "B", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: RenderLayer }> } };
     const idB = addB.delta.changes[0].layer.id;
 
-    await bridge.applyCommand({
+    await bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,
       command: { type: "transformLayer", id: idA, transform: { x: 5, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } },
     });
 
-    const q = await bridge.getHistoryQuery();
+    // Emulator-driven suite (emulateApply wrote emuEntries directly), so the
+    // history read must come from the emulator's own query seam - NOT the
+    // native transport getHistoryQuery, which post-collapse is native-only and
+    // cannot resolve under jsdom (no Tauri invoke). This is the seam the
+    // retired getHistoryQuery fallback arm became after the flag collapse.
+    const q = bridge.emulateGetHistoryQuery();
     const entry = q.entries[q.entries.length - 1]; // the transform entry
     expect(entry.memoryCostBytes).toBeGreaterThan(0);
 

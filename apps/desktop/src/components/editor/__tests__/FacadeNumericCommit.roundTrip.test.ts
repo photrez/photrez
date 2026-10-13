@@ -3,13 +3,18 @@
 // model. The option-bar routing tests replace this funnel with a double, so this file
 // is what proves a committed edit (including a flip) survives the whole round trip.
 //
+// ENGINE: the retired `photrez.facadeAuthority=wasm` pin used to select the
+// real Rust arm through the flag-driven dispatch; production dispatch is
+// native-only now, so the shared wasm factory below arms the same engine on
+// the bridge surface the facade funnel crosses.
+//
 // Shape note: the engine is constructed directly rather than through
 // WorkspaceManager.createBlankDocument. The blank-document path has already mutated the
 // native document before a facade exists, so the first facade command of a freshly
 // seeded document is rejected with E_VERSION_MISMATCH ("expected version 0 got 1")
 // instead of committing - measured while writing these tests. Direct construction is
 // the same shape `mixedHistory.test.ts` uses for this funnel.
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import {
   __resetFacadeRegistryForTests,
@@ -17,22 +22,23 @@ import {
   getFacade,
   seedFacadeFromEngine,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "../wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
+
+// The facade funnel dispatches through bridge.applyCommand; the shared
+// factory routes that surface onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 let wasm: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
-});
-
-beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+  wasm = await armWasmModule();
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();

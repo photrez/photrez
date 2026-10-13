@@ -659,7 +659,13 @@ describe("the undo dispatch will not step the Rust cursor past the open baseline
 
     const handled6 = await runFacadeExternalHandoff(ctx, "undo");
 
-    expect(handled6, "the press past the baseline is refused, not claimed").toBe(false);
+    // Commit 9a1372f8 made the baseline refusal a HANDLED no-op
+    // (refresh the derived view, stop the press) instead of a
+    // fall-through that spent a legacy entry and reported
+    // "Undo failed: E_FACADE_OWNED". So the handoff answers the press
+    // `true` while still moving nothing - the cursor, the projection,
+    // the upload and the cursor-command census below all stay frozen.
+    expect(handled6, "the press past the baseline is refused (handled no-op), not claimed").toBe(true);
     expect(cursor, "the baseline entry was NOT stepped").toBe(1);
     expect(history.getUndoCount(), "TS depth unchanged").toBe(before6.undoCount);
     expect(history.getRedoCount(), "no redo slot stolen").toBe(before6.redoCount);

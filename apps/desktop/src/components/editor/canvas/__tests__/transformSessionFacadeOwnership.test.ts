@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Transform-session keyboard on facade-owned layers (photrez.facade=1).
+// Transform-session keyboard on facade-owned layers.
 //
 // Production reachability: NO production code creates a non-null session.
 // Every production setLayerTransformSession call passes null (editorState
@@ -19,10 +19,10 @@
 // the commit shim) mutates no engine state. The unowned-layer case proves
 // the test is not vacuous: the same keys apply there without throwing.
 
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { handleTransformSessionKey } from "@/components/editor/canvas/keyboardShortcuts/transformSession";
 import {
   getFacade,
@@ -31,18 +31,21 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import type { LayerTransformSession } from "@/components/editor/tools/editorState";
 
-beforeAll(async () => {
-  await getWasmExportModule();
+// The retired `photrez.facadeAuthority=wasm` key used to select the wasm
+// engine; the shared factory arms the same engine on the bridge surface this
+// suite drives (seedFacadeFromEngine dispatches through applyCommand). The
+// helper must be imported INSIDE the factory: vi.mock is hoisted above imports.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
 });
 
-beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+beforeAll(async () => {
+  await armWasmModule();
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -91,7 +94,7 @@ const keyZ = () => new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbl
 const keyEnter = () => new KeyboardEvent("keydown", { key: "Enter", bubbles: true });
 const keyEsc = () => new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
 
-describe("transform-session keyboard on a facade-owned layer (photrez.facade=1)", () => {
+describe("transform-session keyboard on a facade-owned layer", () => {
   it("Ctrl+Z refuses loud and mutates nothing", async () => {
     const { engine, ownedId } = await setupOwnedDoc("docSessOwn");
     const history = new CommandHistory();
@@ -135,7 +138,6 @@ describe("transform-session keyboard on a facade-owned layer (photrez.facade=1)"
 
 describe("transform-session keyboard on an unowned layer (non-vacuous control)", () => {
   it("Ctrl+Z applies without throwing", async () => {
-    localStorage.setItem("photrez.facade", "0");
     const engine = new DocumentEngine("docSessLegacy", "docSessLegacy", 800, 600);
     const layer = engine.addLayer("Plain", 100, 100);
     const history = new CommandHistory();
@@ -147,21 +149,5 @@ describe("transform-session keyboard on an unowned layer (non-vacuous control)",
     expect(handled).toBe(true);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(11);
     expect(engine.getLayer(layer.id)!.transform.y).toBe(22);
-  });
-});
-
-describe("photrez.facade=0 opt-out is byte-identical", () => {
-  it("Ctrl+Z applies without throwing", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const engine = new DocumentEngine("docSessOff", "docSessOff", 800, 600);
-    const layer = engine.addLayer("Plain", 100, 100);
-    const history = new CommandHistory();
-    const session = makeSession(engine, layer.id);
-    const { ctx } = makeCtx(session);
-
-    const handled = handleTransformSessionKey(ctx, keyZ(), engine, history);
-
-    expect(handled).toBe(true);
-    expect(engine.getLayer(layer.id)!.transform.x).toBe(11);
   });
 });

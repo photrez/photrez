@@ -9,6 +9,7 @@ import type { RenderScheduler } from "@/renderer/scheduler";
 import { navigateHistoryNative } from "../nativeHistoryJump";
 import * as bridge from "@/lib/protocol/bridge";
 import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
+import { installEmuBridgeSpies } from "@/lib/protocol/__tests__/emulatorBridgeRoute";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -167,10 +168,13 @@ describe("HistoryPanel", () => {
   });
 
   it("a real panel click moves aria-current to the clicked row", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    // The retired photrez.facade/photrez.facadeAuthority pins used to
+    // select the emulator arms through the flag-driven dispatch; production
+    // dispatch is native-only now, so the suite reaches the same emulator
+    // arms explicitly (the shared route below mirrors the Rust predicate).
     facadeRegistry.__resetFacadeRegistryForTests();
     bridge.__resetEmulatedForTests();
+    installEmuBridgeSpies(bridge);
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockImplementation(async () => undefined);
 
@@ -224,10 +228,11 @@ describe("HistoryPanel", () => {
   });
 
   it("a metadata commit through the real facade shim appears in the panel with no manual resync or notify", async () => {
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    // Same emulator route as the aria-current test above (see there for
+    // why the retired pins are gone).
     facadeRegistry.__resetFacadeRegistryForTests();
     bridge.__resetEmulatedForTests();
+    installEmuBridgeSpies(bridge);
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockImplementation(async () => undefined);
 

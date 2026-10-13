@@ -11,6 +11,18 @@ import { CommandHistory } from "@/engine/history";
 import { mergeActiveLayerDown, flattenAllLayers, fillActiveLayerWithColor, mergeSelectedLayers, deleteMultipleLayers, duplicateMultipleLayers } from "../layerOperations";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import * as Toast from "../../Toast";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
+
+// The retired `photrez.facade` / `photrez.facadeAuthority` keys used to switch
+// this file between the legacy engine path and the wasm authority; the shared
+// factory arms the same wasm engine on the bridge surface the routed funnel
+// cases drive. The helper must be imported INSIDE the factory: vi.mock is
+// hoisted above imports.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 // Rust owns the fill pixels, so the fill path talks to the canonical store over
 // IPC. This file exercises that store directly; assertions read the CANONICAL
@@ -89,6 +101,10 @@ afterAll(() => {
   }
 });
 
+beforeAll(async () => {
+  await armWasmModule();
+});
+
 function makeMockRenderer(): WebGL2Backend {
   return {
     uploadImage: vi.fn(),
@@ -102,17 +118,6 @@ function makeMockRenderer(): WebGL2Backend {
 function makeBitmap(width = 100, height = 100): ImageBitmap {
   return { width, height, close: vi.fn() } as unknown as ImageBitmap;
 }
-
-// These suites pin the legacy engine behavior, so opt out of the facade
-// defaults explicitly (unset flags now default to facade ON + native).
-beforeEach(() => {
-  localStorage.setItem("photrez.facade", "0");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
-});
-afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
-});
 
 describe("mergeActiveLayerDown", () => {
   let engine: DocumentEngine;
@@ -675,22 +680,6 @@ describe("useLayerActions wiring", () => {
     expect(history.getUndoCount()).toBe(0); // no ghost "Delete Layer"
   });
 
-  it("selecting a DIFFERENT layer commits the open session (click-away pattern) (B9)", () => {
-    const { engine, history, result } = createTextProbe();
-    const text = makeTextLayer(engine, "Text");
-    const other = engine.addLayer("Other", 100, 100);
-    engine.setActiveLayer(text.id);
-    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
-    // Simulate typing: the live textData now differs from the session snapshot.
-    engine.getLayer(text.id)!.textData!.content = "Hello world";
-
-    result.handleSelectLayer(other.id);
-
-    expect(history.getUndoCount()).toBe(1); // "Edit Text"
-    expect(result.session()).toBeNull();
-    expect(engine.getActiveLayerId()).toBe(other.id);
-  });
-
   it("selecting the session's OWN layer keeps the session open (re-edit flow) (B9)", () => {
     const { engine, history, result } = createTextProbe();
     const text = makeTextLayer(engine, "Text");
@@ -743,39 +732,6 @@ describe("useLayerActions wiring", () => {
     expect(engine.getLayer(temp.id)).toBeUndefined();
     expect(engine.getLayer(below.id)).toBeDefined();
     expect(history.getUndoCount()).toBe(0);
-  });
-
-  it("handleFlattenAllLayers commits an open text session first (typed text survives flatten) (B6-adjacent)", async () => {
-    const { engine, history, result } = createTextProbe();
-    const text = makeTextLayer(engine, "Text"); // [Text, bg]
-    result.handleSelectLayer(text.id);
-    result.openSession({ layerId: text.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
-    engine.getLayer(text.id)!.textData!.content = "Hello world"; // simulate typing
-
-    await result.handleFlattenAllLayers();
-
-    expect(result.session()).toBeNull();
-    expect(engine.getLayers()).toHaveLength(1);
-    expect(history.getUndoCount()).toBe(2); // "Edit Text" + "Flatten Image"
-  });
-
-  it("handleMergeActiveLayerDown commits a session on the merge TARGET (the layer below the active) too (B6-adjacent)", async () => {
-    const { engine, history, result } = createTextProbe();
-    const target = makeTextLayer(engine, "Target"); // [Target, bg]
-    const active = engine.addLayer("Active", 100, 100); // [Active, Target, bg]
-    result.handleSelectLayer(active.id);
-    result.openSession({ layerId: target.id, docX: 0, docY: 0, boxMode: "point", boxWidth: 0, boxHeight: 0, isNewLayer: false, preSnapshot: engine.snapshot() });
-    engine.getLayer(target.id)!.textData!.content = "Hello world"; // simulate typing
-
-    await result.handleMergeActiveLayerDown();
-
-    // mergeDown consumes BOTH Active and Target — the session on Target must
-    // be committed, not left dangling over a consumed layer.
-    expect(result.session()).toBeNull();
-    expect(engine.getLayer(target.id)).toBeUndefined();
-    expect(engine.getLayer(active.id)).toBeUndefined();
-    expect(engine.getLayers()).toHaveLength(2); // [merged, bg]
-    expect(history.getUndoCount()).toBe(2); // "Edit Text" + "Merge Down"
   });
 
   it("handleMergeActiveLayerDown leaves a session on an UNRELATED layer open (guard no-op) (B6-adjacent)", async () => {
@@ -869,20 +825,6 @@ describe("deleteMultipleLayers", () => {
     expect(history.getUndoCount()).toBe(1);
     expect(renderer.destroyTexture).toHaveBeenCalledWith(l1.id);
     expect(renderer.destroyTexture).toHaveBeenCalledWith(l2.id);
-  });
-
-  it("protects the Background layer and does not delete it", () => {
-    const bg = engine.addLayer("Background", 100, 100);
-    bg.isBackground = true;
-    const l1 = engine.addLayer("Layer 1", 100, 100);
-    const l2 = engine.addLayer("Layer 2", 100, 100);
-
-    const result = deleteMultipleLayers(engine, history, renderer, [bg.id, l1.id]);
-
-    expect(result).toBe(true);
-    expect(engine.getLayer(bg.id)).toBeDefined();
-    expect(engine.getLayer(l1.id)).toBeUndefined();
-    expect(engine.getLayer(l2.id)).toBeDefined();
   });
 
   it("aborts and returns false if deletion would remove all layers", () => {

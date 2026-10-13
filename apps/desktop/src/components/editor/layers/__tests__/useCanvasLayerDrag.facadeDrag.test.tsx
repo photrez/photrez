@@ -30,25 +30,22 @@ import {
 } from "@/lib/protocol/facadeRegistry";
 import { routeNumericTransformBatch } from "../transformRouting";
 import { showToast } from "../../Toast";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import type { CommandEnvelope } from "@/lib/protocol/types";
 import type { Transform2D } from "@/engine/types";
 
 vi.mock("../../Toast", () => ({ showToast: vi.fn() }));
 
 // applyCommand is the one function every protocol command crosses, under the wasm
-// arm and the native arm alike, so its call list IS the dispatch count.
+// arm and the native arm alike, so its call list IS the dispatch count. The
+// retired `facadeAuthority=wasm` key used to select the wasm engine; the shared
+// factory below arms the same engine on the bridge surface the suite drives.
 const { commandLog } = vi.hoisted(() => ({ commandLog: { types: [] as string[] } }));
 
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
-  return {
-    ...actual,
-    applyCommand: (envelope: CommandEnvelope) => {
-      commandLog.types.push(envelope.command.type);
-      return actual.applyCommand(envelope);
-    },
-  };
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual, commandLog);
 });
 
 const DOC = "canvas-drag-facade";
@@ -57,19 +54,15 @@ let wasm: { protocol_reset: (docId: string) => void } | null = null;
 const usedDocs: string[] = [];
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
+  wasm = await armWasmModule();
 });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 
 afterEach(() => {
   for (const id of usedDocs) wasm?.protocol_reset(id);
   usedDocs.length = 0;
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   vi.restoreAllMocks();
@@ -108,8 +101,6 @@ interface Ctx {
 async function setup(opts: { owned: number; legacy?: boolean; flag?: boolean }): Promise<Ctx> {
   usedDocs.push(DOC);
   const flagOn = opts.flag !== false;
-  if (!flagOn) localStorage.setItem("photrez.facade", "0");
-
   const engine = new DocumentEngine(DOC, "Canvas", 800, 600);
   const ws = new WorkspaceManager();
   ws.addDocument({
@@ -133,13 +124,15 @@ async function setup(opts: { owned: number; legacy?: boolean; flag?: boolean }):
       const layer = engine.getLayers().find((l) => l.name === name);
       if (!layer) throw new Error("setup: facade-created layer did not project into the engine");
       owned.push(layer.id);
-      // Park it where the harness clicks, through the real commit seam.
-      await facadeCommitNumericTransform(engine, layer.id, { x: 100, y: 100 });
+      // Owned[0] sits under the harness click point (150,150); siblings go to
+      // a distinct, non-overlapping slot so findLayerAt returns owned[0]
+      // unambiguously when multiple layers coexist.
+      await facadeCommitNumericTransform(engine, layer.id, { x: 100 + i * 250, y: 100 });
     }
   } else {
     for (let i = 0; i < opts.owned; i++) {
       const layer = engine.addLayer(`Owned ${i}`, 200, 200);
-      layer.transform.x = 100;
+      layer.transform.x = 100 + i * 250;
       layer.transform.y = 100;
       owned.push(layer.id);
     }

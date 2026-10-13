@@ -10,15 +10,16 @@
 //     gesture fires at frame rate), the box size travels with the preview so the
 //     quad tracks the pointer instead of freezing at the model size, and exactly
 //     one transform + one params command land at release.
-//  2. Flag OFF is untouched: the per-frame model write and the single TS history
-//     entry stay exactly where they were, and no facade call is made.
+//  2. An unowned layer is untouched: the per-frame model write and the single
+//     TS history entry stay exactly where they were, and no protocol command
+//     is dispatched.
 //  3. Abandon mid-resize leaves nothing behind: preview cleared, texture taken back
 //     from the model bitmap, transform slot released so a later numeric edit lands.
 //  4. Typing on an owned layer is routed at session close: the keystrokes do not
 //     write the model (engine.updateTextData has no ownership guard, so that write
 //     would silently diverge from the native arm), and the close sends ONE params
 //     command whose projection puts both sides back in agreement.
-//  5. A never-owned temp layer keeps the legacy path on both sides of the flag.
+//  5. A never-owned temp layer keeps the legacy path.
 //
 // Real component, real DocumentEngine, real facade projection, real protocol arm.
 // Command counts are taken at the single boundary every protocol command crosses
@@ -43,27 +44,24 @@ import {
   setTransformPreview,
   transformPreview,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { rasterizeText } from "@/engine/textRasterizer";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
-import type { CommandEnvelope } from "@/lib/protocol/types";
 import { showToast } from "../Toast";
 
 vi.mock("../Toast", () => ({ showToast: vi.fn() }));
 
 // applyCommand is the one function every protocol command crosses, under the wasm
-// arm and the native arm alike, so its call list IS the dispatch count.
+// arm and the native arm alike, so its call list IS the dispatch count. The
+// retired `photrez.facadeAuthority=wasm` key used to select the wasm engine;
+// the shared factory below arms the same engine on the bridge surface the
+// suite drives, keeping this log.
 const { commandLog } = vi.hoisted(() => ({ commandLog: { types: [] as string[] } }));
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
-  return {
-    ...actual,
-    applyCommand: (envelope: CommandEnvelope) => {
-      commandLog.types.push(envelope.command.type);
-      return actual.applyCommand(envelope);
-    },
-  };
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual, commandLog);
 });
 
 // jsdom has no OffscreenCanvas; stub the seam the text rasterizer uses so the
@@ -114,7 +112,7 @@ let wasm: { protocol_reset: (docId: string) => void } | null = null;
 const usedDocs: string[] = [];
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
+  wasm = await armWasmModule();
 });
 
 beforeEach(() => {
@@ -152,7 +150,6 @@ interface Harness {
 
 async function setup(opts: { owned: boolean; isNewLayer?: boolean; unheld?: boolean }): Promise<Harness> {
   usedDocs.push(DOC);
-  if (!opts.owned && !opts.unheld) localStorage.setItem("photrez.facade", "0");
 
   const engine = new DocumentEngine(DOC, "Doc", 800, 600);
   const data: TextData = {
@@ -335,7 +332,7 @@ describe("TextEditOverlay corner resize", () => {
     h.cleanup();
   });
 
-  it("flag OFF: per-frame model writes and bitmap uploads stay as they were, no facade call", async () => {
+  it("an unowned layer: per-frame model writes and bitmap uploads stay as they were, no protocol command", async () => {
     const h = await setup({ owned: false });
     expect(isFacadeOwnedLayer(h.layerId)).toBe(false);
 
@@ -455,7 +452,7 @@ describe("TextEditOverlay corner resize", () => {
     expect(transformPreview()).toEqual([]);
   });
 
-  it("never-owned temp layer: both sides of the flag keep the legacy per-frame path", async () => {
+  it("a never-owned temp layer keeps the legacy per-frame path", async () => {
     const on = await setup({ owned: false, isNewLayer: true });
     const off = await setup({ owned: false, isNewLayer: true });
 
@@ -521,7 +518,7 @@ describe("TextEditOverlay content path", () => {
       h.container.querySelector("[data-text-edit-overlay]") as HTMLTextAreaElement;
 
     // Round 1: type, wait out the 50ms re-raster debounce with real timers
-    // (the same 80ms wait the flag-OFF push test uses), then Ctrl+Enter.
+    // (the same 80ms wait the unowned push test uses), then Ctrl+Enter.
     const first = overlayBox();
     first.value = "hello world";
     first.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -583,7 +580,7 @@ describe("TextEditOverlay content path", () => {
     h.cleanup();
   });
 
-  it("flag OFF: typing still writes the model through the debounced push", async () => {
+  it("an unowned layer: typing still writes the model through the debounced push", async () => {
     const h = await setup({ owned: false });
     const textarea = h.container.querySelector("[data-text-edit-overlay]") as HTMLTextAreaElement;
 

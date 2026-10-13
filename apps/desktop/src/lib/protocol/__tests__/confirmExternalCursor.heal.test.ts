@@ -7,8 +7,8 @@
 // AFTER the legacy TS restore completes (useEditorCommands.restoreHistorySnapshot,
 // handoff-fallthrough branch), so the re-pushed payload reflects the post-restore
 // state. This test pins the INVERTED contract of confirmExternalCursor itself: it
-// clears the barrier and must NOT fire the re-push, regardless of native authority
-// or whether an engine is supplied. The actual re-push is covered by the
+// clears the barrier and must NOT fire the re-push, whether or not an
+// engine is supplied. The actual re-push is covered by the
 // restore-history wiring test.
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
@@ -16,7 +16,6 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   createNativeSeed,
   __resetNativeAuthorityForTests,
-  __resetEmulatedForTests,
 } from "../bridge";
 import {
   getFacade,
@@ -103,8 +102,7 @@ describe("external-handoff confirmExternalCursor must NOT re-push (heal moved to
     vi.restoreAllMocks();
   });
 
-  it("native-authority path: clears the barrier but does NOT fire a canonical re-push", async () => {
-    localStorage.setItem("photrez.facadeAuthority", "native");
+  it("clears the barrier but does NOT fire a canonical re-push", async () => {
     const docId = "docHeal";
     await createNativeSeed(docId, 0, []);
 
@@ -120,27 +118,6 @@ describe("external-handoff confirmExternalCursor must NOT re-push (heal moved to
       .mockResolvedValue(undefined as never);
 
     // No engine argument: confirmExternalCursor no longer takes one.
-    const res = await confirmExternalCursor(docId, seq, "undo");
-
-    expect(res.ok).toBe(true);
-    expect(repushSpy).not.toHaveBeenCalled();
-  });
-
-  it("flag-off path: also no re-push (symmetry — re-push is on the restore path, not here)", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    const docId = "docHealOff";
-
-    await recordExternalTransitionFor(docId, { label: "Legacy", affectedLayerIds: [], snapshot: null });
-    const facade = getFacade(docId);
-    await facade.undo();
-    expect(facade.lastExternalHandoff).not.toBeNull();
-    const seq = facade.lastExternalHandoff!.seq;
-
-    const repushSpy = vi
-      .spyOn(canonicalSeed, "repushCanonicalDocument")
-      .mockResolvedValue(undefined as never);
-
     const res = await confirmExternalCursor(docId, seq, "undo");
 
     expect(res.ok).toBe(true);

@@ -10,7 +10,7 @@ import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
 import { OptionBar } from "../../shell/OptionBar";
 import * as Toast from "../../Toast";
 import { applyPaintBucketFill } from "../pointerTools/paintBucket";
-import { getFacade, syncFacadeVersionFromPixel } from "@/lib/protocol/facadeRegistry";
+import { getFacade } from "@/lib/protocol/facadeRegistry";
 
 // Mock useViewportRenderer
 const { mockFitToScreenAndRender } = vi.hoisted(() => ({
@@ -3443,29 +3443,6 @@ if (typeof (globalThis as { ImageData?: unknown }).ImageData === "undefined") {
 // Their identical `syncFacadeVersionFromPixel(docId,
 // res.version)` call is exercised through the sink + the paint-bucket path
 // below; see the report for the precise per-site reason each was not driven here.
-describe("Native authority: pixel-commit facade version sync (sink gating)", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("mirrors the committed version into the facade only when native authority is armed (wasm default is a no-op)", () => {
-    // Real production call-site shape feeding the shared sink:
-    const run = (docId: string, version: number) => syncFacadeVersionFromPixel(docId, version);
-
-    // Native authority ARMED -> facade must advance to the committed version.
-    const f = getFacade("syncSink");
-    const spy = vi.spyOn(f, "syncRenderedVersionTo");
-
-    run("syncSink", 7);
-    expect(spy).toHaveBeenCalledWith(7);
-
-    // wasm opt-out path: byte-identical, the facade is never touched.
-    spy.mockClear();
-    run("syncSink", 9);
-    expect(spy).not.toHaveBeenCalled();
-  });
-});
-
 describe("Native authority: paint-bucket pixel commit syncs facade version (real applyPaintBucketFill)", () => {
   const DOC = "sync-bucket";
   let facade: any;
@@ -3554,16 +3531,5 @@ describe("Native authority: paint-bucket pixel commit syncs facade version (real
     await vi.waitFor(() => {
       expect(spy).toHaveBeenCalledWith(1);
     }, { timeout: 3000 });
-  });
-
-  it("the same paint-bucket commit does NOT touch the facade when native authority is off (byte-identical wasm opt-out path)", async () => {
-    armInvoke(1);
-    const { ctx } = makeBucketCtx();
-
-    applyPaintBucketFill(ctx, { pointerId: 1 } as any);
-
-    // Flush the async fill; the sink must remain a no-op (no sync call).
-    await new Promise((r) => setTimeout(r, 60));
-    expect(spy).not.toHaveBeenCalled();
   });
 });

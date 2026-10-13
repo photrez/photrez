@@ -37,11 +37,11 @@ import { decodeRustBytes, pixelRegionDispatch } from "@/lib/protocol/pixelSeedCa
  * `converged` is proven able to see a disagreement before it is trusted to report
  * one.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
 import * as bridge from "@/lib/protocol/bridge";
 import { __resetEmulatedForTests } from "@/lib/protocol/bridge";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import {
   __resetFacadeRegistryForTests,
@@ -67,6 +67,27 @@ import {
   settlePixelOps,
   type RustStoreEmulator,
 } from "@/lib/paint/__tests__/rustStoreEmulator";
+
+// The two live pixel owners are the TS projection (`layer.imageBitmap`) and the
+// Rust pixel store (rustStoreEmulator, served through `hoist.invoke`). The
+// HISTORY/EXTERNAL-TRANSITION commands the harness steps through (addLayer,
+// recordExternalTransition, undo, redo) drive the ProtocolEngine, and the header
+// demands that engine be the REAL wasm pkg - "Never bridge_emu". The retired
+// `photrez.facadeAuthority=wasm` discriminator that used to route applyCommand
+// onto the wasm pkg is gone, so route it explicitly through the shared factory,
+// which arms the same wasm engine the production bridge armed before the flag
+// collapse. Pixel commands keep flowing through `hoist.invoke` (the store),
+// since the wasm arm never reaches Tauri IPC for `rust_pixels_*`.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
+beforeAll(async () => {
+  wasmModule = (await armWasmModule()) as unknown as WasmModule;
+  expect(wasmModule, "the REAL wasm pkg must load; bridge_emu cannot prove convergence").not.toBeNull();
+});
 
 // MOCK FIDELITY. Tauri v2 `invoke` REJECTS with an error envelope when a Rust
 // command returns Err and resolves `null` for Ok(None). A mock that resolved
@@ -325,11 +346,6 @@ beforeEach(async () => {
   __resetFacadeRegistryForTests();
   store = createRustStoreEmulator();
   hoist.invoke = store.invoke;
-  if (!wasmModule) {
-    const m = await getWasmExportModule();
-    expect(m, "the REAL wasm pkg must load; bridge_emu cannot prove convergence").not.toBeNull();
-    wasmModule = m as unknown as WasmModule;
-  }
 });
 
 afterEach(() => {

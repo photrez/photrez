@@ -272,8 +272,6 @@ describe("pixel undo leaves layer.imageBitmap truthful", () => {
   afterAll(() => vi.restoreAllMocks());
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     localStorage.removeItem("photrez.canonicalCommit"); // C3 off -> C4 deferred commit path
   });
   afterEach(() => localStorage.clear());

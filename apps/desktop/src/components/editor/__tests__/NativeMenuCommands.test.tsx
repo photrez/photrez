@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import type { Event } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 import type { RenderScheduler } from "@/renderer/scheduler";
 import { WorkspaceManager } from "@/engine/workspace";
 import { EditorProvider, useEditor } from "../shell/EditorContext";
+import * as bridge from "@/lib/protocol/bridge";
+import {
+  installEmuBridgeSpies,
+  installSeedOnlyTransport,
+} from "@/lib/protocol/__tests__/emulatorBridgeRoute";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
@@ -73,12 +81,18 @@ function emitNativeMenu(command: string) {
 
 describe("native menu command wiring", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    // The retired photrez.facade=0 / photrez.facadeAuthority=wasm pins
+    // used to select the emulator arms through the flag-driven dispatch
+    // (the wasm opt-out also no-op'd the native seed); production
+    // dispatch is native-only now, so the routed commands the menu
+    // wires (the shared layer add) reach the same emulator arms
+    // explicitly, and the open-path seed the add awaits resolves
+    // through the seed-only transport (the shared route below mirrors
+    // the Rust predicate).
+    installEmuBridgeSpies(bridge);
+    installSeedOnlyTransport(vi.mocked(invoke));
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     eventMock.listener = undefined;
     eventMock.unlisten.mockClear();
     delete window.__TAURI_INTERNALS__;
@@ -92,6 +106,14 @@ describe("native menu command wiring", () => {
     host.workspace.getActiveHistory()!.commit(session.engine.snapshot());
     session.engine.addLayer("Layer 2");
     await tick();
+    // The factory's background-flag commit cannot land on the
+    // emulator (the emulator never holds the factory's TS-minted
+    // layers), and its failure path leaves the pre-check ownership
+    // claim behind. The state the failed commit corresponds to is a
+    // document the native engine does not hold, so the undo press
+    // under test falls through to the TS store - the only history
+    // this document actually has.
+    (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
 
     emitNativeMenu("edit.undo");
 

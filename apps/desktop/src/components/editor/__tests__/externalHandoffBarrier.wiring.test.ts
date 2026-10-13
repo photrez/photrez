@@ -34,10 +34,14 @@ import * as DialogProviderModule from "../dialogs/DialogProvider";
 import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
 import * as bridge from "@/lib/protocol/bridge";
 import { facadeOwnedIdsOf } from "@/engine/document";
+import { installSeedOnlyTransport } from "@/lib/protocol/__tests__/emulatorBridgeRoute";
 
 // Tauri runtime + dynamic imports used by the hook's tile path.
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
-vi.mock("@/tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+// Real package specifier (NOT the "@/tauri-apps" alias): nativeClient.ts imports
+// "@tauri-apps/api/core", so the mock must target that exact path to intercept the
+// fire-and-forget protocol_register_adapter_native this suite triggers.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@/tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock("@/tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
 
@@ -153,6 +157,12 @@ describe("external history handoff barrier - facade undo/redo must clear the wed
     );
     vi.mocked(isTauriRuntime).mockReturnValue(false);
     vi.mocked(facadeOwnedIdsOf).mockReturnValue(new Set(["owned-layer"]));
+    // The suite measures barrier clearing through the emulator route (bridge is
+    // mocked above); the only commands that legitimately reach the transport are
+    // the seed/registration arms the legacy mirror runs (open + seed + adapter
+    // registration), which the seed-only transport resolves. Any command-path
+    // invoke leaks E_LEAK here instead of silently resolving undefined.
+    installSeedOnlyTransport(vi.mocked(invoke));
     localStorage.clear();
     facadeRegistry.__resetFacadeRegistryForTests();
     bridge.__resetEmulatedForTests();

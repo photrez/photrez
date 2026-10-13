@@ -32,11 +32,18 @@
 // explicitly because `isFacadeEnabled()` reads `getItem(...) !== "0"`, so an
 // UNSET key means ENABLED.
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
 import { seedFacadeFromEngine } from "@/lib/protocol/facadeRegistry";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
+
+// Mocked at module scope; the seed-only implementation is attached in beforeEach.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const invokeMock = invoke as unknown as Mock<
+  (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
+>;
 
 beforeAll(async () => {
   await getWasmExportModule();
@@ -49,6 +56,23 @@ function brushBlocked(engine: DocumentEngine, layerId: string): boolean {
 
 describe("a host-created layer is paintable (the crop-undo paint death)", () => {
   beforeEach(() => {
+    // Transport-agnostic suite: it measures the wasm-mirror paint fence
+    // (`engine.rustHoldsLayer`), not IPC. seedFacadeFromEngine's seeding is
+    // incidental setup, so the transport resolves exactly the three commands
+    // that path legitimately sends (open + seed, then the version-sync
+    // snapshot) and throws E_LEAK on anything else to keep the leak tripwire.
+    invokeMock.mockImplementation(async (cmd: string, args: Record<string, unknown> = {}) => {
+      const docId = ((args.docId as string) ?? "default") || "default";
+      switch (cmd) {
+        case "rust_pixels_open_document":
+          return undefined;
+        case "protocol_seed_native":
+        case "protocol_snapshot_native": // getSnapshot JSON.parses this
+          return JSON.stringify({ version: 0, layers: [] });
+        default:
+          throw `E_LEAK: ${cmd} reached the seed-only transport (docId=${docId})`;
+      }
+    });
     localStorage.clear();
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   });
@@ -71,7 +95,11 @@ describe("a host-created layer is paintable (the crop-undo paint death)", () => 
     const engine = new DocumentEngine("docPaint2", "P", 128, 128);
     const facade = new EditorFacade();
     const paint = engine.addLayer("Paint");
-    seedFacadeFromEngine(engine as never, facade);
+    // Await the seed (as production does at useLayerActions.ts:700) so the
+    // native cutover seed + version sync complete before assertions; an
+    // unawaited seed lands a microtask late and its rejection surfaces as an
+    // unhandled error after this block returns.
+    await seedFacadeFromEngine(engine as never, facade);
 
     // The exact state the bug produced: a projection has marked the layer, and
     // Rust still holds it. Under the OLD gate this was a permanent refusal.

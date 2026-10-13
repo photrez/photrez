@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { EditorFacade } from "../editorFacade";
 import { __resetEmulatedForTests } from "../bridge";
 import * as bridge from "../bridge";
+import { installEmuBridgeSpies, resetEmulatorRoute } from "./emulatorBridgeRoute";
 
 describe("facade ownership — Ticket 2 invariants", () => {
   beforeEach(() => {
-    __resetEmulatedForTests();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    resetEmulatorRoute(bridge);
+    installEmuBridgeSpies(bridge);
   });
 
   it("has no persistent layers field — only snapshot cache", async () => {
@@ -60,7 +60,8 @@ describe("facade ownership — Ticket 2 invariants", () => {
     const id = f.snapshot.layers[0].id;
     const spy = vi.spyOn(bridge, "applyCommand");
     const v0 = f.renderedVersion;
-    // Construction + read-only snapshot query issue zero commands (no eager sync).
+    spy.mockClear(); // construction's eager sync already ran before the spy
+    // read-only snapshot query issues zero commands (no eager sync).
     expect(f.snapshot.layers.length).toBe(1);
     expect(spy).toHaveBeenCalledTimes(0);
     await f.setOpacity(id, 0.5);

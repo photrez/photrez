@@ -7,7 +7,6 @@
 // the step, and a TS entry would strand an undo point whose engine.restore()
 // rejects with E_FACADE_OWNED. On a layer the arm does not hold the command
 // restates nothing, so the edit is kept and the miss is reported out loud.
-// The flag-OFF assertions pin the legacy commit-before-mutate path unchanged.
 //
 // The color picker drives the same commitTextDataEdit, but it emits onChange on
 // every HSV tick and once at mount, so its ticks stay transient on a routed layer
@@ -31,13 +30,28 @@ import * as bridge from "@/lib/protocol/bridge";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import type { CommandEnvelope } from "@/lib/protocol/types";
-import { getWasmExportModule } from "../wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { showToast } from "../Toast";
 
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 
+// The text-params commit dispatches through bridge.applyCommand; the
+// shared factory routes that surface onto the real wasm ProtocolEngine
+// module - the engine the retired `photrez.facadeAuthority=wasm`
+// diversion used to select.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 const toastMock = vi.mocked(showToast);
+
+// Every case re-opens the same document id against the per-file wasm
+// module singleton, so the module's copy of that document is reset
+// between cases: the push harness below starts each case at version 0.
+let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 const DOC_W = 800;
 const DOC_H = 600;
@@ -190,12 +204,11 @@ async function openPanel(opts: { pushedToEngine: boolean }) {
 }
 
 beforeAll(async () => {
-  await getWasmExportModule();
+  wasmModule = await armWasmModule();
 });
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   toastMock.mockClear();
@@ -203,6 +216,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  wasmModule?.protocol_reset("panel-text-params");
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
   document.body.replaceChildren();

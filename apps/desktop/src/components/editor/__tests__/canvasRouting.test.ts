@@ -1,7 +1,6 @@
 // Routing of the two document-size ops (resize canvas, apply crop). Mirrors
-// facadeStructuralOps.test.ts but exercises the CANVAS arms under native
-// authority: the routes gate on the facade flag plus native authority, run the
-// host floors (finite/positive/device max), the resize memory budget, and the
+// facadeStructuralOps.test.ts but exercises the CANVAS arms: the host floors
+// (finite/positive/device max), the resize memory budget, and the
 // pixel-baking crop variants (which stay on the host path), then dispatch the
 // facade command and project the projected document size back into the model.
 //
@@ -9,6 +8,15 @@
 // parity matrix; this file proves the PRODUCTION dispatch (EditorFacade methods +
 // commitFacadeX funnels) issues the correct envelope (camel at the seam, snake on
 // the wire), adopts the returned document size, and defers to legacy when asked.
+//
+// ENGINE: the suite runs the production bridge against a Tauri-invoke-level
+// emulator (canvasRouteEmulator) - the same wire the native engine owns -
+// because jsdom has no Rust runtime. The retired `photrez.facade` /
+// `photrez.facadeAuthority` pins used to select that world through the
+// flag-driven dispatch; production dispatch is native-only now, so the suite
+// reaches the same emulator transport explicitly. The invoke-level emulator
+// (not bridge_emu) is required here: the assertions pin the snake_case wire
+// envelopes as they arrive on the transport.
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { DocumentEngine } from "@/engine/document";
@@ -33,8 +41,6 @@ const makeRenderer = () => ({ uploadImage: vi.fn() });
 const makeScheduler = () => ({ requestRender: vi.fn() });
 
 beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "native");
   bridge.__resetNativeAuthorityForTests();
   invokeMock.mockReset();
   emulator = installCanvasRouteEmulator(invokeMock);
@@ -42,8 +48,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   bridge.__resetNativeAuthorityForTests();
   invokeMock.mockReset();
   __resetFacadeRegistryForTests();
@@ -66,22 +70,6 @@ function typeOf(call: unknown): string {
 }
 
 describe("routeResizeCanvas", () => {
-  it("photrez.facade=0 opt-out: legacy status, zero applyCommand", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const { engine } = await newDoc("canvas1");
-    const spy = vi.spyOn(bridge, "applyCommand");
-    const status = await routeResizeCanvas(
-      engine,
-      {},
-      makeRenderer() as never,
-      makeScheduler() as never,
-      400,
-      300,
-    );
-    expect(status).toBe("legacy");
-    expect(spy).not.toHaveBeenCalled();
-  });
-
   it("applied: camel envelope + expectedVersion, engine and snapshot adopt the new size, no TS history commit", async () => {
     const { engine, facade } = await newDoc("canvas1", true);
     const renderer = makeRenderer();

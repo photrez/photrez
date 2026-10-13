@@ -17,11 +17,16 @@
  * and the undo/redo refusal predicate - are driven off that real read.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { __resetEmulatedForTests, emulateApply } from "@/lib/protocol/bridge";
+import {
+  __resetEmulatedForTests,
+  emulateApply,
+} from "@/lib/protocol/bridge";
+import * as bridge from "@/lib/protocol/bridge";
 import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
 import { deriveOpenBaselineFloor } from "@/engine/nativeHistoryView";
 import { rustStreamHoldsUserWork } from "../facadeHistoryHandoff";
 import type { EditorContextValue } from "../shell/EditorContext";
+import { installEmuBridgeSpies } from "@/lib/protocol/__tests__/emulatorBridgeRoute";
 
 const editor = {
   workspace: { getActiveDocumentId: () => "default" },
@@ -36,13 +41,17 @@ function addLayer(id: string, name: string): void {
 
 describe("the open-baseline boundary read from the emulated native engine", () => {
   beforeEach(() => {
-    // The emulator arm of getHistoryQuery, not the native Tauri path.
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    // The retired photrez.facadeAuthority=wasm pin used to select
+    // the emulator arm of getHistoryQuery through the flag-driven
+    // dispatch; production dispatch is native-only now, so the
+    // shared emulator route reroutes the query seam explicitly
+    // (this file's own reads and rustStreamHoldsUserWork's direct
+    // bridge_emu import both resolve to the emulator).
     __resetEmulatedForTests();
+    installEmuBridgeSpies(bridge);
   });
 
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
     __resetEmulatedForTests();
   });
 

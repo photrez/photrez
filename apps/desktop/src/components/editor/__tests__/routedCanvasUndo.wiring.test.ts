@@ -12,6 +12,7 @@
 // workspace notifier). The emulator backs the native delta so the size plumbing
 // is exercised end to end; the real-wasm parity matrix owns layer geometry.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import {
@@ -22,9 +23,18 @@ import {
 import { __resetEmulatedForTests, setEmuDocumentDims } from "@/lib/protocol/bridge";
 import { runFacadeExternalHandoff } from "../facadeHistoryHandoff";
 import type { EditorContextValue } from "../shell/EditorContext";
+import * as bridge from "@/lib/protocol/bridge";
+import { installEmuBridgeSpies } from "@/lib/protocol/__tests__/emulatorBridgeRoute";
+
+// Production dispatch is native-only; the emulator route below backs the
+// command surface, and the seed path (rust_pixels_open_document /
+// protocol_seed_native) resolves on the mocked transport.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 describe("routed canvas undo through the production handoff", () => {
   beforeEach(() => {
+    installEmuBridgeSpies(bridge);
+    vi.mocked(invoke).mockImplementation(async () => undefined);
     __resetEmulatedForTests();
     __resetFacadeRegistryForTests();
   });

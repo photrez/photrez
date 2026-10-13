@@ -31,18 +31,24 @@ import { useLayerActions } from "../../layers/useLayerActions";
 import { WorkspaceManager } from "@/engine/workspace";
 import type { DocumentEngine } from "@/engine/document";
 import { getFacade, seedFacadeFromEngine, __resetFacadeRegistryForTests, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { showToast } from "@/components/editor/Toast";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 
+// The facade funnel dispatches through bridge.applyCommand; the shared
+// factory routes that surface onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 const toastMock = showToast as unknown as ReturnType<typeof vi.fn>;
 
-// Real Rust facade engine (the same path the production app arms at boot).
-let wasmModule: unknown | null = null;
 beforeAll(async () => {
-  wasmModule = await getWasmExportModule();
+  await armWasmModule();
 });
 
 const OriginalOffscreenCanvas = (globalThis as any).OffscreenCanvas;
@@ -151,8 +157,6 @@ function fireKey(opts: KeyboardEventInit) {
 }
 
 beforeEach(() => {
-  localStorage.clear();
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   const clearFn = (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests;
   if (typeof clearFn === "function") clearFn();

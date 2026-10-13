@@ -22,7 +22,7 @@ import {
   removeFacade,
   seedFacadeFromEngine,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "../wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { useSelectionTransformDrag } from "../useSelectionTransformDrag";
 
 const { mockEditorState } = vi.hoisted(() => ({
@@ -33,11 +33,22 @@ vi.mock("../shell/EditorContext", () => ({
   useEditor: () => mockEditorState,
 }));
 
+// The retired `photrez.facadeAuthority=wasm` key used to select the
+// wasm engine on the bridge surface; the shared factory below arms the
+// same engine the hook's numeric commit funnel dispatches through, so
+// the transform commands land on a real arm instead of the native-only
+// transport (which has no Tauri in jsdom).
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 let wasm: { protocol_reset: (docId: string) => void } | null = null;
 const usedDocs: string[] = [];
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
+  wasm = await armWasmModule();
 });
 
 beforeEach(() => {

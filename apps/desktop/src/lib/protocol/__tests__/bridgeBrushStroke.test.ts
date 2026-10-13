@@ -1,12 +1,12 @@
 // Emulator-side brushStroke consistency.
 //
-// The wasm-backed discriminating test in facadeRustBacked.wiring.test.ts proves
-// the wire format matches Rust (`toRustEnvelope` emits snake_case `layer_id`).
-// This file runs the SAME production TS command through the TS emulator fallback
-// (no wasm wired here) and asserts it works too - the emulator reads `cmd.layerId`
-// from the ORIGINAL envelope, so the command contract must be consistent across
-// both backends. A pure-function/serde test alone would NOT prove the emulator
-// and Rust agree on the command shape; this does.
+// The (a-wire) row in operationParity.matrix.test.ts proves the wire format
+// matches Rust (`toRustEnvelope` emits snake_case `layer_id`). This file runs
+// the SAME production TS command through the TS emulator directly and asserts
+// it works too - the emulator reads `cmd.layerId` from the ORIGINAL envelope,
+// so the command contract must be consistent across both backends. A
+// pure-function/serde test alone would NOT prove the emulator and Rust agree
+// on the command shape; this does.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as bridge from "@/lib/protocol/bridge";
 import { __resetEmulatedForTests } from "@/lib/protocol/bridge";
@@ -14,19 +14,15 @@ import { CONTRACT_VERSION } from "../types";
 
 beforeEach(() => {
   __resetEmulatedForTests();
-  localStorage.setItem("photrez.facade", "0");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
 });
 afterEach(() => {
   __resetEmulatedForTests();
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   vi.restoreAllMocks();
 });
 
 describe("emulator brushStroke command consistency (no wasm wired)", () => {
   it("applies the brushStroke wire contract the emulator and wasm both accept", async () => {
-    const add = await bridge.applyCommand({
+    const add = await bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,
       command: { type: "addLayer", id: "L-id", name: "L", width: 100, height: 100, index: 0 },
     }) as unknown as { delta: { changes: Array<{ layer: { id: string } }> } };
@@ -34,7 +30,7 @@ describe("emulator brushStroke command consistency (no wasm wired)", () => {
 
     // Command shape is the wire contract accepted by both the emulator and the
     // Rust/wasm backend (layerId / points / settings).
-    const res = await bridge.applyCommand({
+    const res = await bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,
       command: {
         type: "brushStroke",
@@ -55,7 +51,7 @@ describe("emulator brushStroke command consistency (no wasm wired)", () => {
   });
 
   it("brushStroke on a missing layer produces an empty delta, not a throw", async () => {
-    const res = await bridge.applyCommand({
+    const res = await bridge.emulateApply({
       contractVersion: CONTRACT_VERSION,
       command: {
         type: "brushStroke",

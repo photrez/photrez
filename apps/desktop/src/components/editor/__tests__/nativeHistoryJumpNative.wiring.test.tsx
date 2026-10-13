@@ -109,8 +109,6 @@ function makeHost(engine: unknown, history: CommandHistory) {
 describe("navigateHistoryNative over a native pixel stream", () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "native");
     __resetNativeAuthorityForTests();
     invokeMock.mockReset();
   });

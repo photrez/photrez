@@ -1,27 +1,32 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from "vitest";
 import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
 import { EditorFacade } from "../editorFacade";
-import { __resetEmulatedForTests } from "../bridge";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
-// Facade readiness: photrez.facade=1 tests must run against the REAL Rust
-// engine (the facade is Rust-backed under the flag). Arm the bridge once via
-// the production loader (getWasmExportModule -> setProtocolWasm) and reset the
-// reserved per-document engine between tests so state/version do not leak across cases.
+// ENGINE: the retired `photrez.facadeAuthority=wasm` pin used to select the
+// real Rust arm through the flag-driven dispatch; production dispatch is
+// native-only now, so the shared wasm factory below arms the same engine on
+// the bridge surface the facade funnel crosses. The per-document engine is
+// reset between tests so state/version do not leak across cases.
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
+// The facade funnel dispatches through bridge.applyCommand; the shared
+// factory routes that surface onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+  wasmModule = await armWasmModule();
 });
 
 describe("Gate A — facade isolation", () => {
   beforeEach(() => {
-    __resetEmulatedForTests();
     wasmModule?.protocol_reset("default");
     (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
     localStorage.clear();
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
   afterEach(() => {
     localStorage.clear();
@@ -30,8 +35,7 @@ describe("Gate A — facade isolation", () => {
     vi.restoreAllMocks();
   });
 
-  it("legacy transform blocked on facade-owned layer while flag=1", async () => {
-    localStorage.setItem("photrez.facade", "1");
+  it("legacy transform blocked on a facade-owned layer", async () => {
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
     const snap = await facade.addLayer("FacadeLayer");
@@ -44,7 +48,6 @@ describe("Gate A — facade isolation", () => {
   });
 
   it("legacy restore blocked while facade owns layers", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
     const snap = await facade.addLayer("A");
@@ -54,7 +57,6 @@ describe("Gate A — facade isolation", () => {
   });
 
   it("facade addLayer remains sole owner, no history entry in legacy engine", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
     const before = engine.snapshot().layers.length;
@@ -66,7 +68,6 @@ describe("Gate A — facade isolation", () => {
   });
 
   it("facade layer + legacy brush -> blocked, no paint surface, no history, no pixel mutation", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const engine = new DocumentEngine("doc", "Test", 100, 100);
     const facade = new EditorFacade();
     const snap = await facade.addLayer("FacadeBrushLayer");

@@ -36,8 +36,7 @@ import { deleteMultipleLayers } from "@/components/editor/layers/layerOperations
 import { showToast } from "@/components/editor/Toast";
 const toastMock = showToast as unknown as ReturnType<typeof vi.fn>;
 
-function setup(opts: { facadeFlag: boolean; ids: IdSpec[] }) {
-  localStorage.setItem("photrez.facade", opts.facadeFlag ? "1" : "0");
+function setup(opts: { ids: IdSpec[] }) {
   owned.clear();
   for (const l of opts.ids) if (l.owned) owned.add(l.id);
 
@@ -99,7 +98,6 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   __reset();
   vi.restoreAllMocks();
 });
@@ -112,7 +110,6 @@ describe("DeleteLayer UX guard — mixed ownership selection rejected atomically
   it("mixed selection: ZERO protocol commands, ZERO facade deletes, ZERO legacy commits/deletes; shared message toast", async () => {
     const mod = await import("@/components/editor/layers/useLayerActions");
     const { engine, history } = setup({
-      facadeFlag: true,
       ids: ids([
         ["victim", true],
         ["bg", false],
@@ -133,10 +130,9 @@ describe("DeleteLayer UX guard — mixed ownership selection rejected atomically
     expect(String(toastMock.mock.calls[0][0])).toBe(MIXED_OWNERSHIP_MESSAGE);
   });
 
-  it("all-owned selection under flag ON still deletes via facade (unchanged)", async () => {
+  it("all-owned selection still deletes via facade (unchanged)", async () => {
     const mod = await import("@/components/editor/layers/useLayerActions");
     const { engine } = setup({
-      facadeFlag: true,
       ids: ids([
         ["a", true],
         ["b", true],
@@ -152,10 +148,9 @@ describe("DeleteLayer UX guard — mixed ownership selection rejected atomically
     expect(engine.deleteLayer).not.toHaveBeenCalled();
   });
 
-  it("all-legacy selection unchanged (legacy multi path even under flag ON)", async () => {
+  it("all-legacy selection unchanged (legacy multi path)", async () => {
     const mod = await import("@/components/editor/layers/useLayerActions");
     const { engine, history } = setup({
-      facadeFlag: true,
       ids: ids([
         ["bg", false],
         ["other2", false],

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Cross-document drop onto a facade-enabled document, followed by a routed op
-// ON THE DROPPED LAYER ITSELF (photrez.facade=1).
+// ON THE DROPPED LAYER ITSELF.
 //
 // The cross-doc branch of addLayerFromCrossDoc creates layers engine-direct
 // and commits TS history. The commit shim mirrors every history.commit into
@@ -19,11 +19,11 @@
 // cross-document canvas drop, and useCanvasDrop.ts calls it on an OS/canvas
 // drop onto another document. Both are live production drag paths.
 
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
 import { DEFAULT_TEXT_DATA, type TextData } from "@/engine/textTypes";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { addLayerFromCrossDoc } from "@/components/editor/crossDocLayerOps";
 import {
   commitFacadeAdjustment,
@@ -43,8 +43,17 @@ import { getSnapshot } from "@/lib/protocol/bridge";
 // The shim reads getEngine() at commit time; hand it the per-test engine.
 let liveEngine: DocumentEngine | null = null;
 
+// The routed funnels dispatch through bridge.applyCommand and the
+// mirror reads go through bridge.getSnapshot; the shared factory
+// routes both surfaces onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
 beforeAll(async () => {
-  await getWasmExportModule();
+  await armWasmModule();
   // Install the production shim once (shimInstalled is module-sticky; production
   // installs it once at EditorShell boot).
   installFacadeCommitShim({
@@ -53,12 +62,7 @@ beforeAll(async () => {
   });
 });
 
-beforeEach(() => {
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
-});
-
 afterEach(() => {
-  localStorage.removeItem("photrez.facadeAuthority");
   liveEngine = null;
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -98,7 +102,7 @@ function dropFromOtherDoc(sourceId: string, targetId: string, targetEngine: Docu
   return newLayerId!;
 }
 
-describe("cross-doc drop then a routed op on the dropped layer (photrez.facade=1)", () => {
+describe("cross-doc drop then a routed op on the dropped layer", () => {
   it("a routed op on the dropped layer fails loud, never silent (native set lacks it)", async () => {
     const targetId = "docDropFollowTgt";
     const { engine: targetEngine, facade, ownedId } = await setupDoc(targetId);
@@ -157,7 +161,7 @@ describe("cross-doc drop then a routed op on the dropped layer (photrez.facade=1
 // the marking projection the dropped layer is facade-owned but the command
 // engine never received it, so without a settled-value check the funnel would
 // report applied while the model is unchanged. One case per funnel below.
-describe("cross-doc drop then each sibling funnel fails loud on the dropped layer (photrez.facade=1)", () => {
+describe("cross-doc drop then each sibling funnel fails loud on the dropped layer", () => {
   async function setupMarkedDrop(targetId: string, sourceId: string) {
     const { engine: targetEngine, facade, ownedId } = await setupDoc(targetId);
     liveEngine = targetEngine;
@@ -229,7 +233,7 @@ describe("cross-doc drop then each sibling funnel fails loud on the dropped laye
 // The command engine limits each adjustment channel to [-100, 100], so an
 // out-of-range send on a layer the engine holds is a working op that lands
 // limited. The guard must compare against the limited value, not the raw send.
-describe("adjustment guard honors the arm channel limits (photrez.facade=1)", () => {
+describe("adjustment guard honors the arm channel limits", () => {
   it("brightness 150 on an owned layer applies and settles at 100", async () => {
     const { engine: targetEngine, ownedId } = await setupDoc("docAdjClampProbe");
     liveEngine = targetEngine;
@@ -251,7 +255,7 @@ describe("adjustment guard honors the arm channel limits (photrez.facade=1)", ()
 // The command engine limits opacity to [0, 1] before storing, so an
 // out-of-range send on a layer the engine holds is a working op that lands
 // limited. The guard must compare against the limited value, not the raw send.
-describe("opacity guard honors the arm limits (photrez.facade=1)", () => {
+describe("opacity guard honors the arm limits", () => {
   it("opacity 1.5 on an owned layer applies and settles at 1", async () => {
     const { engine: targetEngine, ownedId } = await setupDoc("docOpacityClampProbe");
     liveEngine = targetEngine;
@@ -266,7 +270,7 @@ describe("opacity guard honors the arm limits (photrez.facade=1)", () => {
 // engine never received. The dropped layer rests at opacity 1, so sending 1
 // (and 1.5, which the arm limits to 1) coincides and the old value-only check
 // resolved applied. The membership check must still throw.
-describe("coincident value still fails loud on an engine-missing id (photrez.facade=1)", () => {
+describe("coincident value still fails loud on an engine-missing id", () => {
   it("opacity 1 on the marked-but-engine-missing dropped id throws", async () => {
     const targetId = "docDropCoincidentTgt";
     const { engine: targetEngine, facade, ownedId } = await setupDoc(targetId);

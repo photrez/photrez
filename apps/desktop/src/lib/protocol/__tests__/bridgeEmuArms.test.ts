@@ -1,9 +1,8 @@
 // Emulator parity for the metadata command arms.
 //
-// Drives the TS emulator (wasm NOT armed in this file, and the legacy opt-out
-// flags photrez.facade="0" + photrez.facadeAuthority="wasm" are set, so
-// applyCommand falls through to emulateApply) through each metadata arm and asserts the emulator
-// mirrors the Rust ProtocolEngine arm semantics: silent no-op on an unknown id
+// Drives the TS emulator through its own instrumentation (production dispatch
+// is native-only) through each metadata arm and asserts the emulator mirrors
+// the Rust ProtocolEngine arm semantics: silent no-op on an unknown id
 // (mirroring DeleteLayer + the TS apply ops), and E_INVALID on an empty or
 // duplicate addLayer id. The emulator layer shape is the flat RenderLayer, so
 // metadata fields live top-level (flipH/flipV included).
@@ -13,6 +12,7 @@ import { __resetEmulatedForTests, setEmuDocumentDims, getEmuSelection, getEmuDoc
 import { EditorFacade } from "../editorFacade";
 import { CONTRACT_VERSION } from "../types";
 import type { RenderLayer } from "../types";
+import { installEmuBridgeSpies, resetEmulatorRoute } from "./emulatorBridgeRoute";
 
 function mkLayer(id: string, name: string, opacity = 1): RenderLayer {
   return {
@@ -41,14 +41,11 @@ function addedLayer(result: any): RenderLayer {
 }
 
 beforeEach(() => {
-  __resetEmulatedForTests();
-  localStorage.setItem("photrez.facade", "0");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+  resetEmulatorRoute(bridge);
+  installEmuBridgeSpies(bridge);
 });
 afterEach(() => {
-  __resetEmulatedForTests();
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
+  resetEmulatorRoute(bridge);
 });
 
 describe("emulator metadata arms mirror the Rust arms", () => {
@@ -826,14 +823,11 @@ describe("emulator canvas-size arms mirror the Rust arms", () => {
 // pins). Metadata / unchanged-size steps stay dims-less and remain empty.
 describe("facade undo over emulator canvas entries", () => {
   beforeEach(() => {
-    __resetEmulatedForTests();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    resetEmulatorRoute(bridge);
+    installEmuBridgeSpies(bridge);
   });
   afterEach(() => {
-    __resetEmulatedForTests();
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
+    resetEmulatorRoute(bridge);
   });
 
   it("resize via the emulator: facade.undo() carries restored dims (handled step, not empty)", async () => {

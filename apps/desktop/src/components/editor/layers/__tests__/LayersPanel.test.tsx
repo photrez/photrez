@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { LayersPanel } from "../LayersPanel";
@@ -7,12 +7,46 @@ import { WorkspaceManager } from "@/engine/workspace";
 import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
 import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
+import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { seedNativeCanonical } from "@/lib/protocol/bridge";
+import { buildCanonicalDocumentPayload } from "@/lib/protocol/canonicalSeed";
 
 // Adjustment Bake records the baked pixels in the canonical Rust store over
-// IPC. Only the pixel commands are served; everything else REJECTS, which is
-// what the unmocked Tauri invoke already did in jsdom, so the rest of this file
-// keeps its current failure semantics.
+// IPC. Only the pixel commands and the routed protocol arms are served;
+// everything else REJECTS, which is what the unmocked Tauri invoke already did
+// in jsdom, so the rest of this file keeps its current failure semantics.
 const canonicalBake = { epoch: 0, writes: 0 };
+
+// Routed protocol arms dispatch to the armed wasm engine - the same
+// per-document authority the production app arms at boot. Flatten All Layers
+// routes through the facade unconditionally (it is a whole-document op with no
+// ownership gate), so without this transport the dispatch rejects and the
+// flattened layer never gets its bitmap.
+type WasmModule = {
+  protocol_reset: (docId: string) => void;
+  protocol_apply_command: (json: string, docId: string) => string;
+  protocol_snapshot_json: (docId: string) => string;
+  protocol_version: (docId: string) => bigint;
+  protocol_history_query_json: (docId: string) => string;
+  protocol_history_cursor_commit: (json: string, docId: string) => string;
+  protocol_register_payload_adapter: (adapterId: string, docId: string) => void;
+  protocol_seed_canonical: (json: string, docId: string) => string;
+};
+const NS = "native::";
+const openedDocs = new Set<string>();
+let wasmMod: WasmModule;
+function nativeRejection(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  try {
+    const parsed = JSON.parse(raw) as { code?: unknown; message?: unknown };
+    if (typeof parsed?.code === "string" && typeof parsed?.message === "string") {
+      return `${parsed.code}: ${parsed.message}`;
+    }
+  } catch {
+    /* not a JSON envelope */
+  }
+  return raw;
+}
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args: any) => {
     if (cmd === "rust_pixels_get_epoch") return canonicalBake.epoch;
@@ -30,9 +64,54 @@ vi.mock("@tauri-apps/api/core", () => ({
         version: canonicalBake.epoch,
       };
     }
-    return Promise.reject(`no IPC in jsdom: ${cmd}`);
+    const rawDocId = (args?.docId as string) ?? "";
+    const key = `${NS}${rawDocId === "" ? "default" : rawDocId}`;
+    switch (cmd) {
+      case "rust_pixels_open_document":
+        if (!openedDocs.has(key)) {
+          openedDocs.add(key);
+          wasmMod.protocol_reset(key);
+        }
+        return undefined;
+      case "protocol_seed_native":
+        return JSON.stringify({ version: 0, layers: [] });
+      case "protocol_seed_canonical_native":
+        return wasmMod.protocol_seed_canonical(args.payloadJson as string, key);
+      case "protocol_apply_command_native":
+        try {
+          return wasmMod.protocol_apply_command(args.envelopeJson as string, key);
+        } catch (e) {
+          throw nativeRejection(e);
+        }
+      case "protocol_snapshot_native":
+        return wasmMod.protocol_snapshot_json(key);
+      case "protocol_version_native":
+        return Number(wasmMod.protocol_version(key));
+      case "protocol_history_query_native":
+        return wasmMod.protocol_history_query_json(key);
+      case "protocol_history_cursor_commit_native":
+        try {
+          return wasmMod.protocol_history_cursor_commit(
+            JSON.stringify({ seq: args.seq, direction: args.direction }),
+            key,
+          );
+        } catch (e) {
+          throw nativeRejection(e);
+        }
+      case "protocol_register_adapter_native":
+        wasmMod.protocol_register_payload_adapter(args.adapterId as string, key);
+        return null;
+      default:
+        throw `no IPC in jsdom: ${cmd}`;
+    }
   }),
 }));
+
+beforeAll(async () => {
+  const mod = (await getWasmExportModule()) as WasmModule | null;
+  if (!mod) throw new Error("WASM export module failed to load");
+  wasmMod = mod;
+});
 
 function installCanvasMocks(bitmap: ImageBitmap) {
   // The canonical bake projects Rust's returned tiles into the derived surface
@@ -161,12 +240,17 @@ function renderLayersPanel(session = WorkspaceManager.createBlankDocument("layer
 
 describe("LayersPanel interactions", () => {
   beforeEach(() => {
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    // Opt out of the background-flag facade commit during document creation:
+    // `createBlankDocument` would otherwise run `commitFacadeBackgroundFlag`,
+    // whose membership check rejects under this jsdom transport after the
+    // snapshot already marked every layer facade-owned. Setting this key to
+    // "0" is the documented test opt-out (see setBackgroundFlag.wiring.test.ts).
+    localStorage.setItem("photrez.bgFlagRoute", "0");
     canonicalBake.epoch = 0;
     canonicalBake.writes = 0;
   });
   afterEach(() => {
-    localStorage.removeItem("photrez.facadeAuthority");
+    localStorage.removeItem("photrez.bgFlagRoute");
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

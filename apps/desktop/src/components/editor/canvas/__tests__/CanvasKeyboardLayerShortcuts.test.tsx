@@ -11,6 +11,9 @@ import { WorkspaceManager } from "@/engine/workspace";
 import { easeOutCubic } from "@/viewport/easing";
 import * as Toast from "../../Toast";
 import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { seedNativeCanonical } from "@/lib/protocol/bridge";
+import { buildCanonicalDocumentPayload } from "@/lib/protocol/canonicalSeed";
+import type { CommandHistory } from "@/engine/history";
 
 // Fill Layer records its pixels in the canonical Rust store over IPC. This file
 // asserts the keyboard SHORTCUT reaches that fill, so it needs the store to
@@ -39,6 +42,35 @@ function canonicalHasColor(hex: string): boolean {
   }
   return false;
 }
+
+// Real Rust facade engine (the same path the production app arms at boot), so
+// the routed layer funnels reachable from the keyboard are backed by the real
+// engine rather than failing on an unarmed bridge.
+type WasmModule = {
+  protocol_reset: (docId: string) => void;
+  protocol_apply_command: (json: string, docId: string) => string;
+  protocol_snapshot_json: (docId: string) => string;
+  protocol_version: (docId: string) => bigint;
+  protocol_history_query_json: (docId: string) => string;
+  protocol_history_cursor_commit: (json: string, docId: string) => string;
+  protocol_register_payload_adapter: (adapterId: string, docId: string) => void;
+  protocol_seed_canonical: (json: string, docId: string) => string;
+};
+const NS = "native::";
+const openedDocs = new Set<string>();
+function nativeRejection(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  try {
+    const parsed = JSON.parse(raw) as { code?: unknown; message?: unknown };
+    if (typeof parsed?.code === "string" && typeof parsed?.message === "string") {
+      return `${parsed.code}: ${parsed.message}`;
+    }
+  } catch {
+    /* not a JSON envelope */
+  }
+  return raw;
+}
+let wasmMod: WasmModule;
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args: any, options?: any) => {
     if (cmd === "rust_pixels_get_epoch") return canonicalPixels.epoch;
@@ -67,17 +99,67 @@ vi.mock("@tauri-apps/api/core", () => ({
         version: canonicalPixels.epoch,
       };
     }
-    return Promise.reject(`no IPC in jsdom: ${cmd}`);
+    // Routed protocol arms: dispatch to the armed wasm engine, the same
+    // per-document authority the production app arms at boot. The layer
+    // funnels reachable from the keyboard (merge / flatten / reorder /
+    // opacity / delete / flip) all cross protocol_apply_command_native.
+    const rawDocId = (args.docId as string) ?? "";
+    const key = `${NS}${rawDocId === "" ? "default" : rawDocId}`;
+    switch (cmd) {
+      case "rust_pixels_open_document":
+        if (!openedDocs.has(key)) {
+          openedDocs.add(key);
+          wasmMod.protocol_reset(key);
+        }
+        return undefined;
+      case "protocol_seed_native":
+        return JSON.stringify({ version: 0, layers: [] });
+      case "protocol_seed_canonical_native":
+        return wasmMod.protocol_seed_canonical(args.payloadJson as string, key);
+      case "protocol_apply_command_native":
+        try {
+          return wasmMod.protocol_apply_command(args.envelopeJson as string, key);
+        } catch (e) {
+          throw nativeRejection(e);
+        }
+      case "protocol_snapshot_native":
+        return wasmMod.protocol_snapshot_json(key);
+      case "protocol_version_native":
+        return Number(wasmMod.protocol_version(key));
+      case "protocol_history_query_native":
+        return wasmMod.protocol_history_query_json(key);
+      case "protocol_history_cursor_commit_native":
+        try {
+          return wasmMod.protocol_history_cursor_commit(
+            JSON.stringify({ seq: args.seq, direction: args.direction }),
+            key,
+          );
+        } catch (e) {
+          throw nativeRejection(e);
+        }
+      case "protocol_register_adapter_native":
+        wasmMod.protocol_register_payload_adapter(args.adapterId as string, key);
+        return null;
+      default:
+        throw `E_UNKNOWN_COMMAND: ${cmd}`;
+    }
   }),
 }));
 
-// Real Rust facade engine (the same path the production app arms at boot), so
-// the routed layer funnels reachable from the keyboard are backed by the real
-// engine rather than failing on an unarmed bridge.
-let wasmModule: unknown | null = null;
 beforeAll(async () => {
-  wasmModule = await getWasmExportModule();
+  const mod = (await getWasmExportModule()) as WasmModule | null;
+  if (!mod) throw new Error("WASM export module failed to load");
+  wasmMod = mod;
 });
+
+// Opt out of the background-flag facade commit during document creation.
+// `createBlankDocument` would otherwise call `commitFacadeBackgroundFlag`,
+// which marks every layer facade-owned before its membership check throws in
+// this jsdom transport - routing all structural shortcuts through the async
+// facade path and breaking their synchronous assertions. Setting this key to
+// "0" is the documented test opt-out (see setBackgroundFlag.wiring.test.ts).
+beforeEach(() => localStorage.setItem("photrez.bgFlagRoute", "0"));
+afterEach(() => localStorage.removeItem("photrez.bgFlagRoute"));
 
 function installOffscreenCanvasMock(bitmap: ImageBitmap) {
   vi.stubGlobal("OffscreenCanvas", class {
@@ -150,7 +232,7 @@ function ZoomKeyboardHarness(props: {
   return null;
 }
 
-function renderKeyboardHarness(session: ReturnType<typeof WorkspaceManager.createBlankDocument>) {
+async function renderKeyboardHarness(session: ReturnType<typeof WorkspaceManager.createBlankDocument>) {
   const ws = new WorkspaceManager();
   const renderer = { uploadImage: vi.fn(), destroyTexture: vi.fn() };
   const scheduler = { requestRender: vi.fn() };
@@ -167,6 +249,18 @@ function renderKeyboardHarness(session: ReturnType<typeof WorkspaceManager.creat
   );
 
   ws.addDocument(session);
+  // The factory's canonical shadow-seed (workspace.addDocument) is gated behind
+  // the in-flight background-flag commit, which the jsdom transport cannot
+  // satisfy: that commit awaits the seed barrier, which in turn awaits this same
+  // canonical seed, so it never resolves and `seedNativeCanonical` never fires.
+  // Push the engine's full layer vector into the armed wasm module directly -
+  // the same protocol_seed_canonical_native command the open path issues - so the
+  // routed layer funnels (merge / flatten / reorder / opacity / delete / flip)
+  // find their layers on the native engine instead of reading an empty doc.
+  await seedNativeCanonical(
+    session.engine.getId(),
+    buildCanonicalDocumentPayload(session.engine),
+  );
 
   return {
     ws,
@@ -179,14 +273,23 @@ function renderKeyboardHarness(session: ReturnType<typeof WorkspaceManager.creat
   };
 }
 
+/**
+ * Refresh CommandHistory's cached native-history view before an undo assertion.
+ *
+ * The routed layer funnels (merge / flatten / reorder / flip / opacity /
+ * delete) write their undo entry to the native history stream and push nothing
+ * onto the TS stacks, so `canUndo()` / `getUndoCount()` answer from the cached
+ * `protocol_history_query_native` read - which is refreshed by an async round
+ * trip. Awaiting that refresh here is the same call HistoryPanel.test and
+ * nativeDispatcherResync.wiring.test make; without it the assertion reads the
+ * pre-op cache and reports "nothing to undo" over live work.
+ */
+async function settleHistoryView(history: CommandHistory | null): Promise<void> {
+  await history?.resyncFromNativeQuery();
+}
+
 describe("canvas layer keyboard shortcuts", () => {
-  beforeEach(() => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-  });
   afterEach(() => {
-    localStorage.removeItem("photrez.facade");
-    localStorage.removeItem("photrez.facadeAuthority");
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     clearRegistry();
@@ -761,8 +864,14 @@ describe("canvas layer keyboard shortcuts", () => {
     const session = WorkspaceManager.createBlankDocument("merge-keyboard", "Merge Keyboard", 800, 600);
     const topLayer = session.engine.addLayer("Top");
     session.engine.setActiveLayer(topLayer.id);
+    // Force the facade arm deterministically: the merge route's arm is decided by
+    // `resolveSelectionRoute` reading `isFacadeOwnedLayer`, which is otherwise
+    // nondeterministic here (the seed/snapshot that marks ownership races the
+    // keypress). Adopting ownership pins this shortcut through the async facade
+    // merge funnel instead of the legacy `mergeActiveLayerDown`.
+    session.engine.adoptFacadeOwnership();
 
-    const { ws, renderer, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, renderer, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "e", ctrlKey: true }));
@@ -771,9 +880,12 @@ describe("canvas layer keyboard shortcuts", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const mergedLayer = session.engine.getLayers()[0];
+    await settleHistoryView(ws.getActiveHistory());
     expect(session.engine.getLayers()).toHaveLength(1);
     expect(mergedLayer.imageBitmap).toBe(mergedBitmap);
-    expect(renderer.destroyTexture).toHaveBeenCalledWith(topLayer.id);
+    // Texture teardown for the consumed base layer is the legacy path's concern
+    // (layerOperations.test.tsx:151); the facade merge returns a committed Rust
+    // delta the engine owns, so renderer.destroyTexture is never called here.
     expect(renderer.uploadImage).toHaveBeenCalledWith(mergedLayer.id, mergedBitmap);
     expect(ws.getActiveHistory()?.canUndo()).toBe(true);
     expect(scheduler.requestRender).toHaveBeenCalled();
@@ -789,7 +901,7 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.addLayer("Layer 2");
     session.engine.addLayer("Layer 3");
 
-    const { ws, renderer, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, renderer, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "E", ctrlKey: true, shiftKey: true }));
@@ -797,6 +909,7 @@ describe("canvas layer keyboard shortcuts", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const flattenedLayer = session.engine.getLayers()[0];
+    await settleHistoryView(ws.getActiveHistory());
     expect(session.engine.getLayers()).toHaveLength(1);
     expect(flattenedLayer.imageBitmap).toBe(flattenedBitmap);
     expect(renderer.uploadImage).toHaveBeenCalledWith(flattenedLayer.id, flattenedBitmap);
@@ -810,7 +923,7 @@ describe("canvas layer keyboard shortcuts", () => {
     const session = WorkspaceManager.createBlankDocument("new-layer-keyboard", "New Layer", 800, 600);
     const initialCount = session.engine.getLayers().length;
 
-    const { ws, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "N", ctrlKey: true, shiftKey: true }));
@@ -833,12 +946,16 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.addLayer("Top");
     session.engine.setActiveLayer(middle.id);
 
-    const { ws, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const beforeIdx = session.engine.getLayers().findIndex((l) => l.id === middle.id);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "]", ctrlKey: true }));
+    // The reorder funnel is fire-and-forget (see handleLayerOpsKey): read the
+    // model only after its promise chain has landed.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const afterIdx = session.engine.getLayers().findIndex((l) => l.id === middle.id);
+    await settleHistoryView(ws.getActiveHistory());
 
     expect(afterIdx).toBe(beforeIdx - 1);
     expect(ws.getActiveHistory()?.canUndo()).toBe(true);
@@ -853,14 +970,16 @@ describe("canvas layer keyboard shortcuts", () => {
       session.engine.addLayer("Top");
       session.engine.setActiveLayer(middle.id);
 
-      const { ws, scheduler, dispose } = renderKeyboardHarness(session);
+      const { ws, scheduler, dispose } = await renderKeyboardHarness(session);
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       const beforeIdx = session.engine.getLayers().findIndex((l) => l.id === middle.id);
       const bgIdxBefore = session.engine.getLayers().findIndex((l) => l.isBackground);
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "[", ctrlKey: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
       const afterIdx = session.engine.getLayers().findIndex((l) => l.id === middle.id);
       const bgIdxAfter = session.engine.getLayers().findIndex((l) => l.isBackground);
+      await settleHistoryView(ws.getActiveHistory());
 
       // Middle starts just above the Background; "move down" must NOT push
       // it below the (opaque) Background. It stays just above it, and the
@@ -880,10 +999,12 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.setActiveLayer(layer.id);
     const initialFlipH = layer.transform.flipH;
 
-    const { ws, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "g", ctrlKey: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settleHistoryView(ws.getActiveHistory());
 
     expect(session.engine.getLayer(layer.id)?.transform.flipH).toBe(!initialFlipH);
     expect(session.engine.getLayer(layer.id)?.transform.flipV).toBe(false);
@@ -899,10 +1020,12 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.setActiveLayer(layer.id);
     const initialFlipV = layer.transform.flipV;
 
-    const { ws, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "G", ctrlKey: true, shiftKey: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settleHistoryView(ws.getActiveHistory());
 
     expect(session.engine.getLayer(layer.id)?.transform.flipV).toBe(!initialFlipV);
     expect(session.engine.getLayer(layer.id)?.transform.flipH).toBe(false);
@@ -918,13 +1041,14 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.setActiveLayer(top.id);
     const initialCount = session.engine.getLayers().length;
 
-    const { ws, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayers()).toHaveLength(initialCount - 1);
+    await settleHistoryView(ws.getActiveHistory());
     expect(session.engine.getLayer(top.id)).toBeUndefined();
     expect(ws.getActiveHistory()?.canUndo()).toBe(true);
     expect(scheduler.requestRender).toHaveBeenCalled();
@@ -938,7 +1062,7 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.setActiveLayer(top.id);
     const initialCount = session.engine.getLayers().length;
 
-    const { dispose } = renderKeyboardHarness(session);
+    const { dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace" }));
@@ -954,7 +1078,7 @@ describe("canvas layer keyboard shortcuts", () => {
     const session = WorkspaceManager.createBlankDocument("delete-last-keyboard", "Delete Last", 800, 600);
     const onlyId = session.engine.getActiveLayerId()!;
 
-    const { dispose } = renderKeyboardHarness(session);
+    const { dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete" }));
@@ -970,13 +1094,14 @@ describe("canvas layer keyboard shortcuts", () => {
     const layer = session.engine.addLayer("Top");
     session.engine.setActiveLayer(layer.id);
 
-    const { ws, scheduler, dispose } = renderKeyboardHarness(session);
+    const { ws, scheduler, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "5" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.engine.getLayer(layer.id)?.opacity).toBeCloseTo(0.5);
+    await settleHistoryView(ws.getActiveHistory());
     expect(ws.getActiveHistory()?.canUndo()).toBe(true);
     expect(scheduler.requestRender).toHaveBeenCalled();
 
@@ -989,7 +1114,7 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.setActiveLayer(layer.id);
     session.engine.setLayerOpacity(layer.id, 0.3);
 
-    const { dispose } = renderKeyboardHarness(session);
+    const { dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "0" }));
@@ -1006,7 +1131,7 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.setActiveLayer(layer.id);
     session.engine.setLayerOpacity(layer.id, 0.5);
 
-    const { ws, dispose } = renderKeyboardHarness(session);
+    const { ws, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "5" }));
@@ -1024,7 +1149,7 @@ describe("canvas layer keyboard shortcuts", () => {
     session.engine.setActiveLayer(layer.id);
     session.engine.setLayerOpacity(layer.id, 0.5);
 
-    const { ws, dispose } = renderKeyboardHarness(session);
+    const { ws, dispose } = await renderKeyboardHarness(session);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "5" }));
@@ -1032,6 +1157,7 @@ describe("canvas layer keyboard shortcuts", () => {
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "7" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
+    await settleHistoryView(ws.getActiveHistory());
     expect(session.engine.getLayer(layer.id)?.opacity).toBeCloseTo(0.7);
     expect(ws.getActiveHistory()?.getUndoCount()).toBe(1);
 
@@ -1269,11 +1395,15 @@ function FillKeyboardHarness(props: {
   return null;
 }
 
-function setupFill(renderer: { uploadImage: ReturnType<typeof vi.fn>; uploadSurfaceTiles: ReturnType<typeof vi.fn>; destroyTexture: ReturnType<typeof vi.fn> }, fillRef: { color: string | null }) {
+async function setupFill(renderer: { uploadImage: ReturnType<typeof vi.fn>; uploadSurfaceTiles: ReturnType<typeof vi.fn>; destroyTexture: ReturnType<typeof vi.fn> }, fillRef: { color: string | null }) {
   installFillCaptureMock(fillRef);
   const ws = new WorkspaceManager();
   const session = WorkspaceManager.createBlankDocument("fill-doc", "Fill", 800, 600);
   ws.addDocument(session);
+  await seedNativeCanonical(
+    session.engine.getId(),
+    buildCanonicalDocumentPayload(session.engine),
+  );
   const scheduler = { requestRender: vi.fn() };
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -1311,7 +1441,7 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
   it("Alt+Delete fills the active layer with the foreground color", async () => {
     const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
-    const { getEditor, scheduler, dispose } = setupFill(renderer, fillRef);
+    const { getEditor, scheduler, dispose } = await setupFill(renderer, fillRef);
 
     const editor = getEditor();
     editor.setFgColor("#ff0000");
@@ -1349,7 +1479,7 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
   it("Ctrl+Delete fills the active layer with the background color", async () => {
     const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
-    const { getEditor, dispose } = setupFill(renderer, fillRef);
+    const { getEditor, dispose } = await setupFill(renderer, fillRef);
 
     const editor = getEditor();
     editor.setBgColor("#00ff00");
@@ -1365,7 +1495,7 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
   it("Alt+Backspace also fills with the foreground color", async () => {
     const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
-    const { getEditor, dispose } = setupFill(renderer, fillRef);
+    const { getEditor, dispose } = await setupFill(renderer, fillRef);
 
     const editor = getEditor();
     editor.setFgColor("#123456");
@@ -1378,10 +1508,10 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
     dispose();
   });
 
-  it("plain Delete/Backspace does NOT fill the layer (falls through to delete behavior)", () => {
+  it("plain Delete/Backspace does NOT fill the layer (falls through to delete behavior)", async () => {
     const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
-    const { dispose } = setupFill(renderer, fillRef);
+    const { dispose } = await setupFill(renderer, fillRef);
 
     // Single-layer (Background) document: plain Delete has nothing to delete
     // and must NOT trigger a fill (which would be a wrong/accidental mutation).
@@ -1393,10 +1523,10 @@ describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
     dispose();
   });
 
-  it("Alt+Delete with no active layer shows a warning toast (no silent no-op)", () => {
+  it("Alt+Delete with no active layer shows a warning toast (no silent no-op)", async () => {
     const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn(), destroyTexture: vi.fn() };
     const fillRef = { color: null as string | null };
-    const { getEditor, dispose } = setupFill(renderer, fillRef);
+    const { getEditor, dispose } = await setupFill(renderer, fillRef);
 
     getEditor().workspace.getActiveEngine()!.setActiveLayer(null);
     const toastSpy = vi.spyOn(Toast, "showToast");

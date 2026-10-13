@@ -1,9 +1,8 @@
 // Call-site wiring for the four selection ops routed through the native
 // selection arms. The commit helpers are mocked spies, so these tests prove the
-// PRODUCTION dispatch: with the facade flag ON the helper fires, and - crucially
+// PRODUCTION dispatch: the mirror helper fires on the routed arm, and - crucially
 // - the host engine mutation still runs (selection routing is mirror-shaped: the
-// host stays the visual authority). Flag OFF must leave the legacy path
-// untouched with zero facade calls.
+// host stays the visual authority).
 //
 // Coverage: SelectionOptionBar create/invert/deselect and the marquee
 // (input-handler commitSelection).
@@ -106,7 +105,7 @@ afterEach(() => {
 });
 
 describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
-  it("create (W submit): flag ON mirrors setSelection AND still mutates the host engine", async () => {
+  it("create (W submit): mirrors setSelection AND still mutates the host engine", async () => {
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -123,23 +122,7 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
     dispose();
   });
 
-  it("create (W submit): photrez.facade=0 opt-out uses the host engine only, zero facade calls", async () => {
-    const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
-    const { root, dispose } = mountOptionBar(engine);
-
-    const w = root.querySelectorAll("input").item(2);
-    w.dispatchEvent(new Event("focus", { bubbles: true }));
-    w.value = "400";
-    w.dispatchEvent(new Event("input", { bubbles: true }));
-    w.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    await tick();
-
-    expect(engine.createSelection).toHaveBeenCalledTimes(1);
-    expect(h.commitFacadeSetSelection).not.toHaveBeenCalled();
-    dispose();
-  });
-
-  it("invert: flag ON mirrors invertSelection AND still mutates the host engine", async () => {
+  it("invert: mirrors invertSelection AND still mutates the host engine", async () => {
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -151,7 +134,7 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
     dispose();
   });
 
-  it("deselect: flag ON mirrors clearSelection AND still mutates the host engine", async () => {
+  it("deselect: mirrors clearSelection AND still mutates the host engine", async () => {
     const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
     const { root, dispose } = mountOptionBar(engine);
 
@@ -162,21 +145,10 @@ describe("SelectionOptionBar selection routing (mirror dispatch)", () => {
     expect(h.commitFacadeClearSelection).toHaveBeenCalledTimes(1);
     dispose();
   });
-
-  it("deselect: photrez.facade=0 opt-out uses the host engine only, zero facade calls", async () => {
-    const { engine } = makeEngine({ x: 10, y: 20, width: 300, height: 200, angle: 0 });
-    const { root, dispose } = mountOptionBar(engine);
-
-    findButton(root, "Deselect").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    expect(engine.clearSelection).toHaveBeenCalledTimes(1);
-    expect(h.commitFacadeClearSelection).not.toHaveBeenCalled();
-    dispose();
-  });
 });
 
 describe("marquee selection routing (input-handler)", () => {
-  it("flag ON: createSelection runs on the host AND mirrors setSelection", async () => {
+  it("createSelection runs on the host AND mirrors setSelection", async () => {
     const engine = createMockEngine(["createSelection", "clearSelection", "snapshot"]);
     const ctx = createToolContext({ selectedLayerId: null, onSelectionCreated: vi.fn() });
 
@@ -187,18 +159,6 @@ describe("marquee selection routing (input-handler)", () => {
 
     expect(engine.createSelection).toHaveBeenCalledWith(100, 100, 100, 150);
     expect(h.commitFacadeSetSelection).toHaveBeenCalledTimes(1);
-  });
-
-  it("photrez.facade=0 opt-out: createSelection runs on the host with zero facade calls", () => {
-    const engine = createMockEngine(["createSelection", "clearSelection", "snapshot"]);
-    const ctx = createToolContext({ selectedLayerId: null, onSelectionCreated: vi.fn() });
-
-    handlePointerDown("selection", 100, 100, engine, createMockHistory(), vi.fn(), ctx);
-    handlePointerMove("selection", 200, 250, engine, vi.fn(), ctx);
-    handlePointerUp("selection", 200, 250, engine, createMockHistory(), vi.fn(), ctx);
-
-    expect(engine.createSelection).toHaveBeenCalledWith(100, 100, 100, 150);
-    expect(h.commitFacadeSetSelection).not.toHaveBeenCalled();
   });
 
   it("move commit (pointerup): mirrors setSelection once with the final host geometry", async () => {

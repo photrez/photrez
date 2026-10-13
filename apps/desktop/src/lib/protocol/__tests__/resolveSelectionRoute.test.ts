@@ -1,9 +1,9 @@
 // ADR 0009 helper contract tests — resolveSelectionRoute (pure function).
 //
-// Covers the mandated cases: empty, duplicates, all-legacy, all-owned, mixed,
-// and the photrez.facade=0 opt-out. Pure: no protocol traffic, no mutation, no UI.
+// Covers the mandated cases: empty, duplicates, all-legacy, all-owned, mixed.
+// Pure: no protocol traffic, no mutation, no UI.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   resolveSelectionRoute,
   MIXED_OWNERSHIP_MESSAGE,
@@ -12,22 +12,19 @@ import {
 
 const owned = new Set<string>();
 vi.mock("@/engine/document", () => ({
-  isFacadeOwnedLayer: (id: string) => localStorage.getItem("photrez.facade") !== "0" && owned.has(id),
+  // The real predicate is a pure ownership-set check (document.ts:44);
+  // the retired `photrez.facade` flag read is gone from both.
+  isFacadeOwnedLayer: (id: string) => owned.has(id),
   hasFacadeOwnedLayers: () => owned.size > 0,
 }));
 
-beforeEach(() => localStorage.setItem("photrez.facade", "1"));
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   owned.clear();
   __resetFacadeRegistryForTests();
 });
 
 describe("resolveSelectionRoute", () => {
   it("empty selection -> { mode: 'empty' } (silent no-op; never facade)", () => {
-    expect(resolveSelectionRoute([])).toEqual({ mode: "empty" });
-    // even when opted out
-    localStorage.setItem("photrez.facade", "0");
     expect(resolveSelectionRoute([])).toEqual({ mode: "empty" });
   });
 
@@ -41,7 +38,7 @@ describe("resolveSelectionRoute", () => {
     expect(r2).toEqual({ mode: "facade", ownedIds: ["a"] });
   });
 
-  it("all legacy -> legacy (flag ON but nothing owned)", () => {
+  it("all legacy -> legacy (nothing owned)", () => {
     const r = resolveSelectionRoute(["bg", "other2"]);
     expect(r).toEqual({ mode: "legacy" });
   });
@@ -57,13 +54,6 @@ describe("resolveSelectionRoute", () => {
     owned.add("a");
     const r = resolveSelectionRoute(["a", "bg"]);
     expect(r).toEqual({ mode: "mixed-rejected" });
-  });
-
-  it("photrez.facade=0 opt-out forces legacy even for previously-owned ids", () => {
-    owned.add("a"); // stale ownership record from a prior session state
-    localStorage.setItem("photrez.facade", "0");
-    const r = resolveSelectionRoute(["a", "b"]);
-    expect(r).toEqual({ mode: "legacy" });
   });
 
   it("exports the single shared UX message constant", () => {

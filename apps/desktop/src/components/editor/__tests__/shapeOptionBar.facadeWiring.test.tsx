@@ -9,10 +9,10 @@
 //  1. Edit mode on an owned layer: ONE setLayerParams command, no TS history
 //     entry (the native engine records the step), and the model ends on the value
 //     the arm holds.
-//  2. Flag OFF is untouched: one history entry committed BEFORE the engine write,
-//     the engine write carries the locally computed params, zero commands.
-//  3. An unowned layer keeps the legacy path on both sides of the flag: the
-//     funnel is never reached, so nothing is partially applied.
+//  2. An unowned layer is untouched: one history entry committed BEFORE the engine
+//     write, the engine write carries the locally computed params, zero commands.
+//  3. An unowned layer keeps the legacy path (the funnel is only reached for an
+//     owned id, so nothing is partially applied).
 //  4. A rejected command leaves the model on the previous params and reports the
 //     failure instead of keeping a change the authority never took.
 //  5. Invalid payloads on the real arm: the arm rejects them at its own boundary
@@ -35,7 +35,7 @@ import {
   getFacade,
   seedFacadeFromEngine,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import type { CommandEnvelope } from "@/lib/protocol/types";
@@ -48,17 +48,14 @@ vi.mock("../dialogs/DialogProvider", () => ({
 }));
 
 // applyCommand is the one function every protocol command crosses, so its call
-// list IS the dispatch count.
+// list IS the dispatch count. The retired `photrez.facadeAuthority=wasm` key
+// used to select the wasm engine; the shared factory below arms the same
+// engine on the bridge surface the suite drives, keeping this log.
 const { commandLog } = vi.hoisted(() => ({ commandLog: { types: [] as string[] } }));
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
-  return {
-    ...actual,
-    applyCommand: (envelope: CommandEnvelope) => {
-      commandLog.types.push(envelope.command.type);
-      return actual.applyCommand(envelope);
-    },
-  };
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual, commandLog);
 });
 
 // jsdom has no OffscreenCanvas; the shape rasterizer (creation and the routed
@@ -107,7 +104,7 @@ const PARAMS: ShapeParams = {
 let wasm: { protocol_reset: (docId: string) => void } | null = null;
 
 beforeAll(async () => {
-  wasm = await getWasmExportModule();
+  wasm = await armWasmModule();
 });
 
 beforeEach(() => {
@@ -342,9 +339,9 @@ describe("ShapeOptionBar edit mode - owned layer", () => {
   });
 });
 
-describe("ShapeOptionBar edit mode - keeps photrez.facade=0 opt-out behavior (and unowned layers)", () => {
+describe("ShapeOptionBar edit mode - unowned layers keep the legacy path", () => {
 
-  it("flag ON but the layer is not owned: legacy path, zero commands, nothing partially applied", async () => {
+  it("an unowned layer keeps the legacy path: zero commands, nothing partially applied", async () => {
     // Single-target call site: the funnel is only reached for an owned id, so its
     // mixed-ownership rejection (covered in facadeParamsFunnel.test.ts) cannot be
     // produced from here and no half-applied state is reachable.

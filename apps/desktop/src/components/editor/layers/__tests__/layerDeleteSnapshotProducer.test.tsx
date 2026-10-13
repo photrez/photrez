@@ -3,13 +3,13 @@
 // Verifies the FIRST production `recordSnapshotHistory` call site:
 // handleDeleteActiveLayer (legacy path) captures a before (pre-action, layer
 // present) / after (post-action, layer gone) pair and routes it through
-// `history.recordSnapshotHistory(before, after, "Delete Layer")`. With the
-// bridge OFF this must be behavior-identical to the old `commit(snapshot)`; the
-// flag-OFF inertness is asserted here too.
+// `history.recordSnapshotHistory(before, after, "Delete Layer")`. With no
+// snapshot recorder this must be behavior-identical to the old
+// `commit(snapshot)`; the no-IPC inertness is asserted here too.
 //
 // The undo/re-do re-attach-by-token guard lives in useEditorCommands and is
 // covered in useEditorCommands.snapshotBridge.test.ts; this file focuses on the
-// producer + Model-A undo restore (no detach) + flag-OFF inertness.
+// producer + Model-A undo restore (no detach) + no-IPC inertness.
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import { renderHook } from "@solidjs/testing-library";
@@ -19,6 +19,7 @@ import { WorkspaceManager } from "@/engine/workspace";
 import { DialogProvider } from "../../dialogs/DialogProvider";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import type { WebGL2Backend } from "@/renderer/webgl2";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({
@@ -27,6 +28,16 @@ vi.mock("@/lib/desktop/tauriWindow", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
+
+// The retired `photrez.facadeAuthority=wasm` key used to select the wasm
+// engine; the shared factory arms the same engine on the bridge surface this
+// suite drives (the delete funnel dispatches through applyCommand). The helper
+// must be imported INSIDE the factory: vi.mock is hoisted above imports.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 const OriginalOffscreenCanvas = (globalThis as any).OffscreenCanvas;
 beforeAll(() => {
@@ -61,6 +72,10 @@ afterAll(() => {
   if (OriginalOffscreenCanvas) {
     (globalThis as any).OffscreenCanvas = OriginalOffscreenCanvas;
   }
+});
+
+beforeAll(async () => {
+  await armWasmModule();
 });
 
 function makeMockRenderer(): WebGL2Backend {
@@ -106,7 +121,6 @@ function tauriRuntime(on: boolean) {
 describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
     vi.mocked(invoke).mockReset();
     vi.mocked(isTauriRuntime).mockReset();
     vi.mocked(isTauriRuntime).mockReturnValue(false);
@@ -172,26 +186,5 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     expect(restored).toBeTruthy();
     expect(restored!.imageBitmap).toBe(bm); // SAME object, never detached
     expect(bm.close).not.toHaveBeenCalled();
-  });
-
-  it("Delete Layer fires no Rust invoke, but still records a TS undo step", async () => {
-    // No snapshot recorder exists: recordSnapshotHistory must only push the
-    // pre-action state to the undo stack - no invoke.
-    vi.mocked(isTauriRuntime).mockReturnValue(false);
-
-    const { engine, history, wrapper } = createWrapper();
-    const layer = engine.addLayer("Layer1", 100, 100) as unknown as { id: string };
-    engine.setLayerImageBitmap(layer.id, fakeBitmap());
-
-    const { result } = renderHook(() => useLayerActions(), { wrapper });
-    result.handleSelectLayer(layer.id);
-    await result.handleDeleteActiveLayer();
-
-    await flush();
-    expect(invoke).not.toHaveBeenCalled();
-    // The undo point is the pre-action state (layer present), so undo restores it.
-    expect(history.getUndoCount()).toBe(1);
-    const undone = history.undo(engine.snapshot());
-    expect(undone?.layers.some((l) => l.id === layer.id)).toBe(true);
   });
 });

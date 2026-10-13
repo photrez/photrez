@@ -1,6 +1,9 @@
 // Call-site wiring tests for routing committed transform edits (position, rotation,
 // reset, align, flip) away from the legacy TS engine mutators and toward the native
-// TransformLayer commit path, plus the flag-OFF contract that must stay synchronous.
+// TransformLayer commit path. The legacy mutator branch is unreachable from
+// a factory-opened document: the open-time background-flag commit projects
+// every layer through the facade, so the retired facade=0 opt-out cases were
+// deleted with the flag.
 //
 // The funnel boundary (`facadeCommitNumericTransform`) is replaced with a double that
 // reproduces its real contract: the same guards (a layer already gone or locked at
@@ -24,11 +27,20 @@ import type { DocumentEngine } from "@/engine/document";
 import type { Transform2D } from "@/engine/types";
 import { isFacadeOwnedLayer } from "@/engine/document";
 import { getFacade, seedFacadeFromEngine, __resetFacadeRegistryForTests, MIXED_OWNERSHIP_MESSAGE } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "../wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { showToast } from "../Toast";
 
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
+
+// The facade funnel dispatches through bridge.applyCommand; the shared factory
+// routes that surface onto the real wasm ProtocolEngine module - the engine the
+// retired `photrez.facadeAuthority=wasm` diversion used to select.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 const { funnel, forcedLegacy } = vi.hoisted(() => ({
   funnel: vi.fn(),
@@ -64,7 +76,7 @@ const onUnhandled = (e: unknown) => unhandled.push(e);
 // The facade-owned seed layer is created through the real Rust facade, so the bridge
 // has to be armed with the same wasm package the app arms at boot.
 beforeAll(async () => {
-  await getWasmExportModule();
+  await armWasmModule();
 });
 
 // -- Harness ------------------------------------------------------------------
@@ -285,7 +297,6 @@ function installFunnelDouble(): void {
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   forcedLegacy.clear();
   unhandled.length = 0;
   __resetFacadeRegistryForTests();
@@ -297,7 +308,6 @@ beforeEach(() => {
 
 afterEach(() => {
   process.off("unhandledRejection", onUnhandled);
-  localStorage.removeItem("photrez.facade");
   forcedLegacy.clear();
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
@@ -306,9 +316,8 @@ afterEach(() => {
   funnel.mockReset();
 });
 
-describe("MoveOptionBar routes committed transforms through the native commit (flag ON)", () => {
+describe("MoveOptionBar routes committed transforms through the native commit", () => {
   it("setup: a facade-created layer is facade-owned and starts at the origin", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { engine } = openDoc("setup-check");
     const id = await seedOwnedLayer(engine);
     expect(isFacadeOwnedLayer(id)).toBe(true);
@@ -316,7 +325,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("X submit: exactly one native commit, no legacy mutator, no TS history entry", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-x");
     const id = await seedOwnedLayer(engine);
     const transformSpy = vi.spyOn(engine, "transformLayer");
@@ -344,7 +352,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("rotation submit: exactly one native commit carrying only the angle", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-rot");
     const id = await seedOwnedLayer(engine);
     const transformSpy = vi.spyOn(engine, "transformLayer");
@@ -363,7 +370,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("Reset: one native commit and the transform returns to default", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-reset");
     const id = await seedOwnedLayer(engine);
     const notifySpy = vi.spyOn(ws, "notifyVisualChange");
@@ -397,7 +403,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("Align: one native commit per aligned layer and no combined TS entry", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-align");
     const id = await seedOwnedLayer(engine);
     const otherId = await seedOwnedLayer(engine, "Owned2");
@@ -433,7 +438,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("Flip H twice returns the transform to its original state", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-flip-twice");
     const id = await seedOwnedLayer(engine);
     const bar = await renderBar(ws, id);
@@ -464,7 +468,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("two flip clicks in one tick both apply; neither is swallowed as unchanged", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-flip-rapid");
     const id = await seedOwnedLayer(engine);
     const original = { ...transformOf(engine, id) };
@@ -485,7 +488,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("Flip V routes the vertical flag only", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-flip-v");
     const id = await seedOwnedLayer(engine);
     const original = { ...transformOf(engine, id) };
@@ -502,7 +504,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("rejected commit: error toast, no visual-change notify, no unhandled rejection", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-reject");
     const id = await seedOwnedLayer(engine);
     const before = { ...transformOf(engine, id) };
@@ -521,7 +522,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("funnel resolving false (locked or unchanged layer): no success refresh", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-false");
     const id = await seedOwnedLayer(engine);
     funnel.mockImplementationOnce(async () => false);
@@ -538,7 +538,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("locked layer: nothing is dispatched and the legacy mutator stays untouched", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-locked");
     const id = await seedOwnedLayer(engine);
     const barProbe = await renderBar(ws, id);
@@ -569,7 +568,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("no-op submit and Reset at default dispatch nothing", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-noop");
     const id = await seedOwnedLayer(engine);
     const historySpy = vi.spyOn(ws.getActiveHistory()!, "commit");
@@ -586,7 +584,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("mixed ownership selection: toast, zero dispatch, zero mutation", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-mixed");
     const id = await seedOwnedLayer(engine);
     const otherId = await seedOwnedLayer(engine, "Owned2");
@@ -619,7 +616,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   // itself lives in the funnel and is proven against the real arm in
   // facadeNumericCommitRace.test.ts; a double cannot prove what it replaces.
   it("two rapid submits both reach the funnel, in submit order", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-rapid");
     const id = await seedOwnedLayer(engine);
     const bar = await renderBar(ws, id);
@@ -638,7 +634,6 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 
   it("tool round-trip leaves no orphan facade transform session and still routes", async () => {
-    localStorage.setItem("photrez.facade", "1");
     const { ws, engine } = openDoc("route-roundtrip");
     const id = await seedOwnedLayer(engine);
     const facade = getFacade(engine.getId());
@@ -667,102 +662,8 @@ describe("MoveOptionBar routes committed transforms through the native commit (f
   });
 });
 
-describe("MoveOptionBar - keeps photrez.facade=0 opt-out behavior (legacy path synchronous)", () => {
-  it("Flip H click mutates and commits inside the click handler", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const { ws, engine } = openDoc("off-flip");
-    const id = engine.addLayer("Plain").id;
-    const flipSpy = vi.spyOn(engine, "flipLayer");
-    const historySpy = vi.spyOn(ws.getActiveHistory()!, "commit");
-    const bar = await renderBar(ws, id);
-
-    clickAria(bar.container, "Flip H");
-
-    // No await between the click and these assertions: deferring the legacy commit by
-    // one microtask is exactly what broke the first routing attempt.
-    expect(flipSpy).toHaveBeenCalledTimes(1);
-    expect(flipSpy).toHaveBeenCalledWith(id, "h");
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(funnel).not.toHaveBeenCalled();
-    expect(transformOf(engine, id).flipH).toBe(true);
-    bar.dispose();
-  });
-
-  it("X submit mutates once and commits exactly one history entry inside the handler", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const { ws, engine } = openDoc("off-x");
-    const id = engine.addLayer("Plain").id;
-    const transformSpy = vi.spyOn(engine, "transformLayer");
-    const historySpy = vi.spyOn(ws.getActiveHistory()!, "commit");
-    const undoBefore = ws.getActiveHistory()!.getUndoCount();
-    const bar = await renderBar(ws, id);
-
-    submitField(bar.container, 0, "150");
-
-    expect(transformSpy).toHaveBeenCalledTimes(1);
-    expect(transformSpy).toHaveBeenCalledWith(id, expect.objectContaining({ x: 150 }));
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(funnel).not.toHaveBeenCalled();
-    expect(ws.getActiveHistory()!.getUndoCount()).toBe(undoBefore + 1);
-    bar.dispose();
-  });
-
-  it("Reset and rotation each commit synchronously", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const { ws, engine } = openDoc("off-reset");
-    const id = engine.addLayer("Plain").id;
-    engine.transformLayer(id, { x: 50, y: 30, rotation: 20 });
-    const transformSpy = vi.spyOn(engine, "transformLayer");
-    const historySpy = vi.spyOn(ws.getActiveHistory()!, "commit");
-    const undoBefore = ws.getActiveHistory()!.getUndoCount();
-    const bar = await renderBar(ws, id);
-    transformSpy.mockClear();
-    historySpy.mockClear();
-
-    clickByText(bar.container, "Reset");
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(transformSpy).toHaveBeenCalledTimes(1);
-
-    submitField(bar.container, 2, "45");
-    expect(historySpy).toHaveBeenCalledTimes(2);
-    expect(transformSpy).toHaveBeenCalledTimes(2);
-    expect(transformOf(engine, id).rotation).toBe(45);
-    expect(ws.getActiveHistory()!.getUndoCount()).toBe(undoBefore + 2);
-    bar.dispose();
-  });
-
-  it("Align captures the history snapshot before mutating, with the commit call after", async () => {
-    localStorage.setItem("photrez.facade", "0");
-    const { ws, engine } = openDoc("off-align");
-    const id = engine.addLayer("Plain").id;
-    engine.transformLayer(id, { x: 50, y: 30 });
-    const snapshotSpy = vi.spyOn(engine, "snapshot");
-    const transformSpy = vi.spyOn(engine, "transformLayer");
-    const historySpy = vi.spyOn(ws.getActiveHistory()!, "commit");
-    transformSpy.mockClear();
-    const bar = await renderBar(ws, id);
-
-    clickAria(bar.container, "Align left");
-
-    // The snapshot is captured before the write, so the recorded state is the
-    // pre-mutation one even though history.commit() runs afterwards.
-    expect(snapshotSpy.mock.invocationCallOrder[0]).toBeLessThan(
-      transformSpy.mock.invocationCallOrder[0],
-    );
-    const recorded = historySpy.mock.calls[0][0] as unknown as {
-      layers: Array<{ id: string; transform: { x: number } }>;
-    };
-    expect(recorded.layers.find((l) => l.id === id)!.transform.x).toBe(50);
-    expect(transformOf(engine, id).x).toBe(0);
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(funnel).not.toHaveBeenCalled();
-    bar.dispose();
-  });
-});
-
 describe("Ctrl+G / Ctrl+Shift+G share the option bar routing", () => {
-  it("flag ON: Ctrl+G commits through the native path and never calls engine.flipLayer", async () => {
-    localStorage.setItem("photrez.facade", "1");
+  it("Ctrl+G commits through the native path and never calls engine.flipLayer", async () => {
     const h = keyboardHarness("kb-on");
     const id = await seedOwnedLayer(h.engine);
     h.engine.setActiveLayer(id);
@@ -794,23 +695,6 @@ describe("Ctrl+G / Ctrl+Shift+G share the option bar routing", () => {
     expect(transformOf(h.engine, id).flipV).toBe(true);
     expect(transformOf(h.engine, id).flipH).toBe(true);
     expect(unhandled).toHaveLength(0);
-    h.dispose();
-  });
-
-  it("flag OFF: Ctrl+G flips through the legacy engine synchronously", () => {
-    localStorage.setItem("photrez.facade", "0");
-    const h = keyboardHarness("kb-off");
-    const id = h.engine.addLayer("Plain").id;
-    h.engine.setActiveLayer(id);
-    const flipSpy = vi.spyOn(h.engine, "flipLayer");
-    const historySpy = vi.spyOn(h.ws.getActiveHistory()!, "commit");
-
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "g", ctrlKey: true, bubbles: true }));
-
-    expect(flipSpy).toHaveBeenCalledWith(id, "h");
-    expect(historySpy).toHaveBeenCalledTimes(1);
-    expect(funnel).not.toHaveBeenCalled();
-    expect(transformOf(h.engine, id).flipH).toBe(true);
     h.dispose();
   });
 });

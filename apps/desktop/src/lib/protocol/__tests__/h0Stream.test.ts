@@ -1,10 +1,8 @@
 // ADR 0008 H0 — history stream infrastructure tests.
 //
-// These tests exercise the BRIDGE'S TS EMULATOR, i.e. the flag-OFF legacy
-// stream path. Under photrez.facade=1 the facade is Rust-backed and the bridge
-// refuses to silently emulate (E_FACADE_NOT_READY, see the facade-readiness
-// tests), so these stream semantics are pinned against the emulator (the
-// non-facade authority). Covers the 12 required behaviors:
+// These tests exercise the TS EMULATOR's stream semantics through its own
+// instrumentation (production dispatch is native-only). Covers the required
+// behaviors:
 //  1 native append            (query shape: seq/origin/label)
 //  2 external append          (adapter validation + token payloadRef)
 //  3 seq uniqueness           (monotonic across truncation)
@@ -16,9 +14,9 @@
 //  9 stale expectedVersion rejection on the stream path
 // 10 UNRECORDED_EXTERNAL_TRANSITION detection
 // 11 history-degraded state surfacing in projection
-// 12 legacy (flag-OFF) path unchanged (shim inert, zero registry activity)
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import * as bridge from "@/lib/protocol/bridge";
 import { EditorFacade } from "@/lib/protocol/editorFacade";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
@@ -32,18 +30,22 @@ import {
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
 import { CommandHistory } from "@/engine/history";
+import { installEmuBridgeSpies, installSeedOnlyTransport } from "./emulatorBridgeRoute";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const invokeMock = invoke as unknown as Mock<
+  (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
+>;
 
 beforeEach(() => {
-  // The TS emulator is the legacy path. These tests exercise
-  // the bridge's H0 stream semantics on the emulator, so run them with the
-  // legacy opt-out flags. Without them the bridge would require the wasm engine to
-  // be armed (E_FACADE_NOT_READY) and never silently emulate.
-  localStorage.setItem("photrez.facade", "0");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+  // The emulator backs the stream (production dispatch is native-only): route
+  // the command surface onto it, resolve the seed/registration path the
+  // legacy mirror runs through, and register the mirror's adapter.
+  installEmuBridgeSpies(bridge);
+  installSeedOnlyTransport(invokeMock);
   bridge.registerPayloadAdapter("ts-external");
 });
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
 });
@@ -176,44 +178,6 @@ describe("H0 shim — unrecorded transition detection & degraded projection", ()
   });
 });
 
-describe("photrez.facade=0 opt-out - legacy path unchanged (zero H0 work)", () => {
-  it("shim records nothing when opted out; legacy commit behaves as before", () => {
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
-    __resetFacadeRegistryForTests();
-    const applySpy = vi.spyOn(bridge, "applyCommand");
-    const engine = {
-      getId: () => "docOff",
-      getLayers: () => [{ id: "bg" }],
-      transformLayer: vi.fn(),
-      snapshot: () => ({ snap: 1, layers: [{ id: "bg" }] }),
-      restore: vi.fn(),
-      getLayer: () => ({ id: "bg", locked: false, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } }),
-    };
-    let current = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 };
-    engine.transformLayer.mockImplementation((_id: string, t: Partial<{ x: number }>) => {
-      current = { ...current, ...t };
-    });
-    engine.getLayer = () => ({ id: "bg", locked: false, transform: { ...current } }) as never;
-    const history = { commit: vi.fn() };
-
-    installFacadeCommitShim({
-      getEngine: () => engine as never,
-      getDocId: () => "docOff",
-    });
-    history.commit(engine.snapshot(), "Move Layer"); // legacy commit goes through wrapped prototype
-    engine.transformLayer("bg", { x: 25 });
-
-    expect(applySpy).not.toHaveBeenCalled(); // zero protocol work
-    expect(history.commit).toHaveBeenCalledTimes(1);
-    expect(current.x).toBe(25); // legacy mutation untouched
-    expect(historyDegraded()).toBeNull();
-  });
-});
-
-
-// ── Final H0 review invariants (3 mandated tests) ────────────────────────
-
 describe("H0 final invariants", () => {
   it("INV1: pending external barrier - mutating/undo commands rejected with E_EXTERNAL_PENDING until cursor_commit succeeds", async () => {
     bridge.registerPayloadAdapter("ts-external");
@@ -297,8 +261,9 @@ describe("H0 final invariants", () => {
     expect(deg?.reason).toBe("CURSOR_COMMIT_FAILED");
 
     // deterministic afterwards: further records / commits fail fast WITHOUT
-    // touching the protocol (spy count stays zero)
+    // touching the protocol (spy count stays at zero)
     const recSpy = vi.spyOn(bridge, "applyCommand");
+    recSpy.mockClear(); // the beforeEach spy already logged pre-recSpy calls; clear for a clean count
     const r2 = await recordExternalTransitionFor("docH0b", { label: "x", affectedLayerIds: [], snapshot: null });
     const c2 = await confirmExternalCursor("docH0b", hand.externalSeq!, "undo");
     expect(r2.ok).toBe(false);
@@ -317,10 +282,8 @@ describe("H0 final invariants", () => {
 // broke brush undo (undo() could not replay tile patches). Locked here.
 describe("history facade shim forwards imperative arg", () => {
   it("preserves the 3rd imperative payload through commit -> undo -> redo", () => {
-    // Isolate forwarding: opted out => shim forwards to real commit and
-    // returns without touching the bridge.
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
+    // Isolate forwarding: the shim forwards to the real commit; the
+    // imperative payload must survive regardless of the mirror.
     installFacadeCommitShim({ getEngine: () => null, getDocId: () => "docC3" });
 
     const h = new CommandHistory();

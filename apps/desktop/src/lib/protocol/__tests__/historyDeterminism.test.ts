@@ -357,9 +357,6 @@ async function seedDoc(docId: string) {
 
 describe("native history determinism (idle -> addLayer -> committed -> undo -> redo -> cleanup)", () => {
   beforeEach(() => {
-    localStorage.clear();
-    localStorage.setItem("photrez.facade", "1");
-    localStorage.setItem("photrez.facadeAuthority", "native");
     invokeMock.mockReset();
     __resetNativeAuthorityForTests();
     __resetFacadeRegistryForTests();
@@ -370,7 +367,6 @@ describe("native history determinism (idle -> addLayer -> committed -> undo -> r
     __resetFacadeRegistryForTests();
     __resetNativeAuthorityForTests();
     invokeMock.mockReset();
-    localStorage.clear();
   });
 
   it("advances DocumentVersion by exactly 1 per transition and round-trips the cursor", async () => {

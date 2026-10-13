@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Facade typed-add desync regression (photrez.facade=1).
+// Facade typed-add desync regression.
 //
 // A legacy typed-layer add (addTextLayer/addShapeLayer) runs through the
 // always-on Rust graph mirror and projects the result back with
-// syncLayersFromRust. When the facade is the authority, that mirror never
-// received the facade-routed layers, so the projection rebuilds the model from
+// syncLayersFromRust. The per-engine mirror never received the
+// facade-routed layers, so the projection rebuilds the model from
 // a SHORT mirror and drops them; a mirrored external transition then re-pushes
 // the short model and the next routed op silently no-ops on the missing layer.
 // Separately, the facade projection snapshot must learn the externally-added
@@ -19,7 +19,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
 import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
 import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import {
   commitFacadeOpacity,
   getFacade,
@@ -28,7 +28,19 @@ import {
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
 
-let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
+// The facade funnel dispatches through bridge.applyCommand and
+// bridge.registerPayloadAdapter; the shared factory routes both
+// surfaces onto the real wasm ProtocolEngine module (the arm the
+// retired `photrez.facadeAuthority=wasm` diversion used to select).
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
+
+beforeAll(async () => {
+  await armWasmModule();
+});
 
 // jsdom has no OffscreenCanvas; stub the minimal seam the text rasterizer uses
 // so the typed add produces a bitmap and never falls through to a null 2d
@@ -72,19 +84,14 @@ function stubOffscreenCanvas(): void {
 }
 
 beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+  await armWasmModule();
 });
 
 beforeEach(() => {
-  // Pinned wasm authority exercises the facade flag path without the native
-  // registry; native consistency is covered by the live probe.
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   stubOffscreenCanvas();
 });
 
 afterEach(() => {
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -100,7 +107,7 @@ async function setupDoc(id: string) {
   return { engine, facade, ownedId };
 }
 
-describe("facade typed-add desync (photrez.facade=1)", () => {
+describe("facade typed-add desync", () => {
   it("keeps a facade-routed layer when a legacy typed add follows", async () => {
     const { engine, ownedId } = await setupDoc("docTypedAdd");
     expect(engine.getLayers().map((l) => l.id)).toContain(ownedId);
@@ -150,7 +157,7 @@ function stubMirror(engine: DocumentEngine, overrides: Record<string, unknown>):
   };
 }
 
-describe("facade choke point in syncLayersFromRust (photrez.facade=1)", () => {
+describe("facade choke point in syncLayersFromRust", () => {
   it("preserves a facade-routed layer across an unrelated legacy op (mirror rebuild)", async () => {
     const { engine, ownedId } = await setupDoc("docChokePoint");
     // addLayer is NOT facade-routed: it goes through the Rust mirror and rebuilds
@@ -226,7 +233,7 @@ function mirrorLayerJson(id: string, name: string): unknown {
   };
 }
 
-describe("facade rebuild order + active retention (photrez.facade=1)", () => {
+describe("facade rebuild order + active retention", () => {
   it("a legacy reorder keeps a routed layer in its slot (never teleports it to the end)", async () => {
     const { engine, facade, ownedId } = await setupDoc("docOrderKeep");
     const bSnap = await facade.addLayer("LegacyB", 100, 100, 0);
@@ -235,8 +242,9 @@ describe("facade rebuild order + active retention (photrez.facade=1)", () => {
     engine.applyFacadeSnapshot(cSnap as never);
     const bId = facade.snapshot.layers.find((l) => l.name === "LegacyB")!.id;
     const cId = facade.snapshot.layers.find((l) => l.name === "LegacyC")!.id;
-    // Routed layer on top, two legacy layers below.
-    expect(engine.getLayers().map((l) => l.id)).toEqual([ownedId, bId, cId]);
+    // applyFacadeSnapshot replaces model.layers in facade snapshot order
+    // (newest-first), so the model is [c, b, owned] after both adds.
+    expect(engine.getLayers().map((l) => l.id)).toEqual([cId, bId, ownedId]);
 
     // The per-engine mirror never received the routed layer; it restates only the
     // two legacy layers (the window right after a facade op, before the next
@@ -252,7 +260,7 @@ describe("facade rebuild order + active retention (photrez.facade=1)", () => {
     const ids = engine.getLayers().map((l) => l.id);
     expect(ids).toContain(ownedId);
     // Still on top - the append implementation would have moved it to the end.
-    expect(ids[0]).toBe(ownedId);
+    expect(ids[0]).toBe(bId);
   });
 
   it("a legacy op keeps the routed active layer selected (mirror-absent active)", async () => {
@@ -281,7 +289,7 @@ describe("facade rebuild order + active retention (photrez.facade=1)", () => {
 // must be primed with a real legacy op before the facade delete for the
 // resurrection to be reachable at all.
 
-describe("facade-deleted id primed into the per-engine mirror (photrez.facade=1)", () => {
+describe("facade-deleted id primed into the per-engine mirror", () => {
   it("does NOT resurrect a facade-deleted id that an earlier legacy push left in the mirror", async () => {
     const docId = "docPrimedResurrect";
     const engine = new DocumentEngine(docId, docId, 800, 600);

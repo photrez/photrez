@@ -1,7 +1,7 @@
 // ADR 0008 DeleteLayer ticket — integration tests with the REAL DocumentEngine,
-// REAL facade stream (emulated/Rust wasm bridge), and REAL ownership reconciliation.
+// REAL facade stream (Rust wasm bridge), and REAL ownership reconciliation.
 //
-// Proves the complete lifecycle behind photrez.facade=1:
+// Proves the complete facade-routed lifecycle:
 //   UI-equivalent delete -> EditorFacade.deleteLayer -> Command{deleteLayer,
 //   expectedVersion} -> native HistoryEntry -> RenderDelta Remove{resourceId}
 //   -> applyFacadeSnapshot projection -> renderer-visible model update;
@@ -16,25 +16,27 @@ import {
   getFacade,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
-import { getWasmExportModule } from "@/components/editor/wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
-// Facade readiness: photrez.facade=1 lifecycle tests must run against the REAL
-// Rust engine (the facade is Rust-backed under the flag). Arm the bridge once
-// via the production loader and reset the reserved per-document engine between tests.
+// ENGINE: the retired `photrez.facadeAuthority=wasm` pin used to select the
+// real Rust arm through the flag-driven dispatch; production dispatch is
+// native-only now, so the shared wasm factory below arms the same engine on
+// the bridge surface the facade funnel crosses.
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
-beforeAll(async () => {
-  const m = await getWasmExportModule();
-  wasmModule = m;
+// The facade funnel dispatches through bridge.applyCommand; the shared
+// factory routes that surface onto the real wasm ProtocolEngine module.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
 });
 
-beforeEach(() => {
-  localStorage.setItem("photrez.facade", "1");
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
+beforeAll(async () => {
+  wasmModule = await armWasmModule();
 });
+
 afterEach(() => {
-  localStorage.removeItem("photrez.facade");
-  localStorage.removeItem("photrez.facadeAuthority");
   __resetFacadeRegistryForTests();
   // `__resetFacadeRegistryForTests` does NOT clear the process-global
   // `facadeOwnedIds`; the retired `photrez.facade` flag used to mask that
@@ -53,15 +55,20 @@ function makeDoc(id: string) {
   return { engine, bgId: bg.id, history };
 }
 
-describe("DeleteLayer lifecycle (facade ON)", () => {
+describe("DeleteLayer lifecycle", () => {
   it("delete -> Remove delta carries resourceId; ownership marker reconciled (no dangle)", async () => {
     const { engine, bgId } = makeDoc("docDel");
     const facade = getFacade("docDel");
     seedFacadeFromEngine(engine as never, facade);
 
-    const addSnap = await facade.addLayer("Victim") as unknown as { layers: Array<{ id: string; resourceId: number }> };
+    const addSnap = await facade.addLayer("Victim") as unknown as { layers: Array<{ id: string; name: string; resourceId: number }> };
     engine.applyFacadeSnapshot(addSnap as never);
-    const victim = addSnap.layers[addSnap.layers.length - 1];
+    // The engine inserts at the host index (0), so the just-added layer sits
+    // at the stack front; the tail is the client-seeded Background, which the
+    // wasm module never learned (the native seed surface no-ops under this
+    // arm). Select the added layer by name so the delete targets a layer the
+    // module knows.
+    const victim = addSnap.layers.find((l) => l.name === "Victim")!;
     expect(isFacadeOwnedLayer(victim.id)).toBe(true);
 
     const spy = vi.spyOn(bridge, "applyCommand");
@@ -101,9 +108,11 @@ describe("DeleteLayer lifecycle (facade ON)", () => {
     const { engine } = makeDoc("docDel2");
     const facade = getFacade("docDel2");
     seedFacadeFromEngine(engine as never, facade);
-    const addSnap = await facade.addLayer("V2") as unknown as { layers: Array<{ id: string }> };
+    const addSnap = await facade.addLayer("V2") as unknown as { layers: Array<{ id: string; name: string }> };
     engine.applyFacadeSnapshot(addSnap as never);
-    const victim = addSnap.layers[addSnap.layers.length - 1].id;
+    // Same stack-order note as the case above: the just-added layer is at
+    // the front, so select it by name rather than by stack position.
+    const victim = addSnap.layers.find((l) => l.name === "V2")!.id;
 
     await facade.deleteLayer(victim);
     engine.applyFacadeSnapshot(facade.snapshot as never);
@@ -122,15 +131,6 @@ describe("DeleteLayer lifecycle (facade ON)", () => {
     expect(isFacadeOwnedLayer(victim)).toBe(false);
   });
 
-  it("legacy delete path unchanged under photrez.facade=0 opt-out (no E_FACADE_OWNED, rust graph path)", () => {
-    localStorage.setItem("photrez.facade", "0");
-    const { engine, bgId } = makeDoc("docOff");
-    const extra = engine.addLayer("Extra");
-    engine.deleteLayer(extra.id); // legacy path must work untouched
-    expect(engine.getLayer(extra.id)).toBeUndefined();
-    expect(hasFacadeOwnedLayers()).toBe(false);
-    void bgId;
-  });
 });
 
 // Extracts the delta of the nth applyCommand call (helper keeps assertions tight)

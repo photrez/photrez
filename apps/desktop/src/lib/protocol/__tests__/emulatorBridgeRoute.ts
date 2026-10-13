@@ -83,18 +83,20 @@ export function installEmuBridgeSpies(
       );
     }
     if (record) record(envelope.command.type);
-    return bridge.emulateApply(envelope);
+    return bridgeEmu.emulateApply(envelope);
   });
-  vi.spyOn(bridge, "getSnapshot").mockImplementation(async () => bridge.emulateGetSnapshot());
-  vi.spyOn(bridge, "getVersion").mockImplementation(async () => bridge.emulateGetSnapshot().version);
+  vi.spyOn(bridge, "getSnapshot").mockImplementation(async () => bridgeEmu.emulateGetSnapshot());
+  vi.spyOn(bridge, "getVersion").mockImplementation(async () =>
+    bridgeEmu.emulateGetSnapshot().version,
+  );
   vi.spyOn(bridge, "getLayerIds").mockImplementation(async () =>
-    (bridge.emulateGetSnapshot().layers ?? []).map((l) => l.id),
+    (bridgeEmu.emulateGetSnapshot().layers ?? []).map((l) => l.id),
   );
   vi.spyOn(bridge, "getHistoryQuery").mockImplementation(async () =>
-    bridge.emulateGetHistoryQuery(),
+    bridgeEmu.emulateGetHistoryQuery(),
   );
   vi.spyOn(bridge, "historyCursorCommit").mockImplementation(async (seq, direction) =>
-    bridge.emulateHistoryCursorCommit(seq, direction),
+    bridgeEmu.emulateHistoryCursorCommit(seq, direction),
   );
   // bridge_emu.getHistoryQuery is spied on the bridge_emu namespace
   // (not the bridge surface above) because the direct-import readers

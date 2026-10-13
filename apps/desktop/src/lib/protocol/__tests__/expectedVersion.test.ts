@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { applyCommand, __resetEmulatedForTests } from "../bridge";
+import { emulateApply, __resetEmulatedForTests } from "../bridge";
 import { CONTRACT_VERSION } from "../types";
+
+// emulateApply is sync; the guard assertions use .rejects, so drive it async.
+function applyCommand(
+  env: Parameters<typeof emulateApply>[0],
+): Promise<ReturnType<typeof emulateApply>> {
+  return Promise.resolve().then(() => emulateApply(env));
+}
 
 describe("expectedVersion guard", () => {
   beforeEach(() => {
     __resetEmulatedForTests();
-    localStorage.setItem("photrez.facade", "0");
-    localStorage.setItem("photrez.facadeAuthority", "wasm");
   });
 
   it("expectedVersion matches -> accepted", async () => {

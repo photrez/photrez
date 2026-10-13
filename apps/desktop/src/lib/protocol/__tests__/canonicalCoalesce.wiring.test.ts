@@ -95,7 +95,6 @@ describe("coalesced canonical re-push slot", () => {
     invokeMock.mockReset();
     __resetNativeAuthorityForTests();
     __resetCanonicalRepushForTests();
-    localStorage.setItem("photrez.facadeAuthority", "native");
     routeNative();
   });
   afterEach(() => {

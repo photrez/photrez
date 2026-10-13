@@ -8,8 +8,7 @@
 // rejects with E_FACADE_OWNED. On a layer the arm does not hold the command
 // restates nothing, so the edit is kept and the miss is reported out loud.
 //
-// The flag-OFF assertions pin the legacy commit-before-mutate path unchanged, and
-// the live-session assertions pin the no-history live-mutate path (the session
+// The live-session assertions pin the no-history live-mutate path (the session
 // commits exactly once at close).
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { render } from "solid-js/web";
@@ -27,11 +26,21 @@ import * as bridge from "@/lib/protocol/bridge";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import type { CommandEnvelope } from "@/lib/protocol/types";
-import { getWasmExportModule } from "../wasmExport";
+import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { showToast } from "../Toast";
 
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn(() => false) }));
+
+// The text-params commit dispatches through bridge.applyCommand; the
+// shared factory routes that surface onto the real wasm ProtocolEngine
+// module - the engine the retired `photrez.facadeAuthority=wasm`
+// diversion used to select.
+vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
+  const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  return makeWasmArmedBridge(actual);
+});
 
 const toastMock = vi.mocked(showToast);
 
@@ -163,12 +172,11 @@ async function openBar(opts: { pushedToEngine: boolean }) {
 }
 
 beforeAll(async () => {
-  await getWasmExportModule();
+  await armWasmModule();
 });
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("photrez.facadeAuthority", "wasm");
   __resetFacadeRegistryForTests();
   (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
   toastMock.mockClear();
