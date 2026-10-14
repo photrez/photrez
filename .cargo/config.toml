@@ -1,3 +1,9 @@
+# Unify all build output into ONE root target dir. Cargo discovers this config
+# from any subdirectory, so every workspace member shares it and a second
+# (multi-GB) target tree can never be created under a member folder.
+[build]
+target-dir = "target"
+
 [target.wasm32-unknown-unknown]
 rustflags = [
     "-C", "target-feature=+simd128",
