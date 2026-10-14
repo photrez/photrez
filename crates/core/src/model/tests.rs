@@ -1,12 +1,12 @@
 use super::*;
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::history::*;
 use std::sync::Arc;
 
 #[test]
 fn contract_and_document_versions_are_distinct() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     assert_eq!(eng.version(), 0);
     let r = eng
         .apply(CommandEnvelope {
@@ -22,7 +22,7 @@ fn contract_and_document_versions_are_distinct() {
 
 #[test]
 fn rejects_wrong_contract_version() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let err = eng
         .apply(CommandEnvelope {
             contract_version: 999,
@@ -35,7 +35,7 @@ fn rejects_wrong_contract_version() {
 
 #[test]
 fn snapshot_vs_delta_semantics() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let r1 = eng
         .apply(CommandEnvelope {
             contract_version: CONTRACT_VERSION,
@@ -52,7 +52,7 @@ fn snapshot_vs_delta_semantics() {
 
 #[test]
 fn add_delete_transform_opacity_single_owner() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let a = eng
         .apply(CommandEnvelope {
             contract_version: CONTRACT_VERSION,
@@ -130,7 +130,7 @@ impl IsUpsert for RenderLayerChange {
 
 #[test]
 fn undo_redo_via_delta() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(CommandEnvelope {
         contract_version: CONTRACT_VERSION,
         expected_version: None,
@@ -179,7 +179,7 @@ fn undo_redo_via_delta() {
 
 #[test]
 fn brush_stroke_is_single_command() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(CommandEnvelope {
         contract_version: CONTRACT_VERSION,
         expected_version: None,
@@ -238,7 +238,7 @@ fn brush_stroke_is_single_command() {
 
 #[test]
 fn expected_version_matches_accepted() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(CommandEnvelope {
         contract_version: CONTRACT_VERSION,
         expected_version: None,
@@ -277,7 +277,7 @@ fn expected_version_matches_accepted() {
 
 #[test]
 fn expected_version_stale_rejected_document_unchanged() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(CommandEnvelope {
         contract_version: CONTRACT_VERSION,
         expected_version: None,
@@ -318,7 +318,7 @@ fn expected_version_stale_rejected_document_unchanged() {
 
 #[test]
 fn two_concurrent_same_expected_version_exactly_one_accepted() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(CommandEnvelope {
         contract_version: CONTRACT_VERSION,
         expected_version: None,
@@ -373,7 +373,7 @@ fn two_concurrent_same_expected_version_exactly_one_accepted() {
 
 #[test]
 fn retry_after_snapshot_succeeds_against_new_version() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(CommandEnvelope {
         contract_version: CONTRACT_VERSION,
         expected_version: None,
@@ -533,7 +533,7 @@ fn cow_builders_share_untouched_arcs_and_only_changed_layer_is_new() {
 
 #[test]
 fn engine_native_entry_before_after_share_unchanged_layer_arcs() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(env(Command::AddLayer {
         id: "layer-A".into(),
         name: "A".into(),
@@ -592,7 +592,7 @@ fn engine_native_entry_before_after_share_unchanged_layer_arcs() {
 
 #[test]
 fn native_entry_memory_cost_does_not_double_count_shared_layers() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(env(Command::AddLayer {
         id: "layer-A".into(),
         name: "A".into(),
@@ -638,11 +638,11 @@ fn native_entry_memory_cost_does_not_double_count_shared_layers() {
         EntryPayload::Native { before, after, .. } => {
             let b: u64 = before
                 .iter()
-                .map(|a| ProtocolEngine::estimate_layer_meta_bytes(a.as_ref()))
+                .map(|a| DocumentCore::estimate_layer_meta_bytes(a.as_ref()))
                 .sum();
             let a: u64 = after
                 .iter()
-                .map(|a| ProtocolEngine::estimate_layer_meta_bytes(a.as_ref()))
+                .map(|a| DocumentCore::estimate_layer_meta_bytes(a.as_ref()))
                 .sum();
             b + a
         }
@@ -690,7 +690,7 @@ fn brush_stroke_wire_format_expects_snake_case_layer_id() {
 // exact under structural sharing, not just a 1-step happy path.
 #[test]
 fn multi_step_undo_redo_restores_exact_field_state() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let mut checkpoints: Vec<Vec<RenderLayer>> = Vec::new();
 
     eng.apply(env(Command::AddLayer {
@@ -839,7 +839,7 @@ fn seed_layer(id: &str, name: &str) -> RenderLayer {
 
 #[test]
 fn seed_loads_explicit_ids_no_uuid_minting() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let layers = vec![seed_layer("L-fixed-1", "A"), seed_layer("L-fixed-2", "B")];
     eng.seed_layers(layers, 7);
     // (a) snapshot shows the EXACT supplied ids (no uuid minting).
@@ -856,7 +856,7 @@ fn seed_loads_explicit_ids_no_uuid_minting() {
 
 #[test]
 fn seed_then_add_layer_uses_expected_version_without_mismatch() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.seed_layers(vec![seed_layer("L-1", "A")], 7);
     // (c) a subsequent AddLayer with expected_version == seeded version is accepted.
     let r = eng
@@ -904,7 +904,7 @@ fn seed_then_add_layer_uses_expected_version_without_mismatch() {
 
 #[test]
 fn seed_is_idempotent_and_only_when_empty() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.seed_layers(vec![seed_layer("L-1", "A")], 5);
     // (d) second seed on the now-populated engine is a silent no-op.
     eng.seed_layers(vec![seed_layer("DIFFERENT", "Z")], 99);
@@ -937,7 +937,7 @@ fn seed_is_idempotent_and_only_when_empty() {
 
 #[test]
 fn seed_creates_no_history_entry_even_after_real_command() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let n0 = eng.entries.len();
     // (e) seed pushes no history entry.
     eng.seed_layers(vec![seed_layer("L-1", "A")], 3);
@@ -978,7 +978,7 @@ fn seed_layer_res(id: &str, name: &str, res: ResourceId) -> RenderLayer {
 
 #[test]
 fn seed_bumps_next_resource_above_seeded_max() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     // Seed a layer that already owns resource_id 9.
     eng.seed_layers(vec![seed_layer_res("L-1", "A", 9)], 7);
     // A later AddLayer must take resource_id 10 (max+1), not collide with 9.
@@ -1012,7 +1012,7 @@ fn seed_bumps_next_resource_above_seeded_max() {
 
 #[test]
 fn seed_next_resource_is_max_plus_one_not_count() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     // Two seeded layers with a gap: 3 and 9 (not contiguous, not count-based).
     eng.seed_layers(
         vec![seed_layer_res("L-1", "A", 3), seed_layer_res("L-2", "B", 9)],

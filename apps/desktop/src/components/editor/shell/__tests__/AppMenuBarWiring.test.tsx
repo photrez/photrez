@@ -55,7 +55,39 @@ vi.mock("@/lib/protocol/nativeClient", () => ({
     ),
     protocol_version_native: vi.fn(async () => JSON.stringify({ version: 0 })),
     protocol_register_adapter_native: vi.fn(async () => JSON.stringify({ ok: true })),
-    protocol_history_query_native: vi.fn(async () => JSON.stringify({ cursor: 0, entries: [] })),
+    // Authoritative native query: document-open baseline (Set Background Flag)
+    // plus one edit under the cursor, so getNativeUndoCount() = cursor(2) -
+    // floor(1) = 1 -> canUndo() === true for the history-backed menu actions.
+    protocol_history_query_native: vi.fn(async () =>
+      JSON.stringify({
+        cursor: 2,
+        lastSeq: 2,
+        degradedHint: false,
+        pendingExternal: null,
+        entries: [
+          {
+            seq: 1,
+            groupId: 1,
+            origin: "native",
+            label: "Set Background Flag",
+            affectedLayerIds: [],
+            versionBefore: 0,
+            versionAfter: 1,
+            memoryCostBytes: 0,
+          },
+          {
+            seq: 2,
+            groupId: 2,
+            origin: "external:ts-external",
+            label: "Duplicate Layer",
+            affectedLayerIds: [],
+            versionBefore: 1,
+            versionAfter: 2,
+            memoryCostBytes: 0,
+          },
+        ],
+      }),
+    ),
     protocol_history_cursor_commit_native: vi.fn(async () => JSON.stringify({ ok: true })),
     protocol_apply_command_native: vi.fn(async () =>
       JSON.stringify({ documentVersion: 0, delta: { changes: [], baseVersion: 0, version: 0 } }),

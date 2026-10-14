@@ -11,7 +11,7 @@
  * predicate stops matching the real stream.
  *
  * So here the query is never built by hand. The emulated native engine (the TS
- * mirror of the Rust ProtocolEngine; Rust writes the same label via
+ * mirror of the Rust DocumentCore; Rust writes the same label via
  * `begin_forward("Set Background Flag", ...)` in document_core_apply.rs) emits
  * the entry from its own apply arm, and both consumers - the floor derivation
  * and the undo/redo refusal predicate - are driven off that real read.

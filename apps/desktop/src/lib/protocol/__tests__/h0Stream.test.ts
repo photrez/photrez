@@ -24,12 +24,10 @@ import {
   getFacade,
   getHistoryProjection,
   historyDegraded,
-  installFacadeCommitShim,
   recordExternalTransitionFor,
   confirmExternalCursor,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
-import { CommandHistory } from "@/engine/history";
 import { installEmuBridgeSpies, installSeedOnlyTransport } from "./emulatorBridgeRoute";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -271,38 +269,5 @@ describe("H0 final invariants", () => {
     expect(recSpy).not.toHaveBeenCalled();
     expect((await getHistoryProjection("docH0b")).degraded).toBe(true);
     expect((await getHistoryProjection("docH0b")).degradeReason).toBe("CURSOR_COMMIT_FAILED");
-  });
-});
-
-// ── C3 history-shim regression: third `imperative` arg must survive ──────
-// installFacadeCommitShim wraps CommandHistory.prototype.commit. It must
-// forward ALL arguments unchanged — including the HistoryTilePatches
-// `imperative` payload that the brush tile-commit path relies on for
-// undo/redo replay. A pre-existing 2-arg wrapper dropped imperative, which
-// broke brush undo (undo() could not replay tile patches). Locked here.
-describe("history facade shim forwards imperative arg", () => {
-  it("preserves the 3rd imperative payload through commit -> undo -> redo", () => {
-    // Isolate forwarding: the shim forwards to the real commit; the
-    // imperative payload must survive regardless of the mirror.
-    installFacadeCommitShim({ getEngine: () => null, getDocId: () => "docC3" });
-
-    const h = new CommandHistory();
-    const imperative = {
-      layerId: "brush-layer",
-      surfaceWidth: 256,
-      surfaceHeight: 256,
-      before: [{ x: 0, y: 0, width: 4, height: 4, data: new Uint8ClampedArray(64) }],
-      after: [{ x: 0, y: 0, width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) }],
-    };
-    h.commit({ layers: [], width: 1, height: 1 } as never, "Brush Stroke", imperative);
-
-    const undone = h.undo({ layers: [], width: 1, height: 1 } as never);
-    expect(undone).not.toBeNull();
-    // Entry-owned memento travels with the entry; undo replays THIS stroke.
-    expect(h.consumeLastUndoPatches()).toBe(imperative);
-
-    const redone = h.redo({ layers: [], width: 1, height: 1 } as never);
-    expect(redone).not.toBeNull();
-    expect(h.consumeLastRedoPatches()).toBe(imperative);
   });
 });

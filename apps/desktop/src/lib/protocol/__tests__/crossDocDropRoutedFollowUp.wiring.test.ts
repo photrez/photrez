@@ -45,7 +45,7 @@ let liveEngine: DocumentEngine | null = null;
 
 // The routed funnels dispatch through bridge.applyCommand and the
 // mirror reads go through bridge.getSnapshot; the shared factory
-// routes both surfaces onto the real wasm ProtocolEngine module.
+// routes both surfaces onto the real wasm DocumentCore module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");

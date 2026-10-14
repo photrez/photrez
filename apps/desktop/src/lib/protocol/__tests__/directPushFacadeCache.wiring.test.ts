@@ -34,7 +34,7 @@ import {
 let liveEngine: DocumentEngine | null = null;
 
 // The projection refresh reads bridge.getSnapshot; the shared
-// factory routes that surface onto the real wasm ProtocolEngine
+// factory routes that surface onto the real wasm DocumentCore
 // module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();

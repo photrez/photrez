@@ -178,7 +178,14 @@ Note 2026-06-19: the diagram below is historical and retained only for ownership
 ```text
 1. User action (click/drag/shortcut) in SolidJS frontend
         ↓
-2. TS DocumentEngine mutates state synchronously (zero IPC)
+2. TS DocumentEngine holds the live layer graph + projected state; pixel hot path is
+   TS -> paintRegionIpc -> rust_pixels_write_region (or rust_pixels_write_region_raw
+   when the webview probe proves the raw channel works). Metadata/history dispatch
+   is NATIVE-ONLY: the TS history mirror's cursor/stepper/tile machinery and its
+   undo()/redo() pop are deleted; the dispatcher is the native Rust walk
+   (protocol_history_cursor_commit_native), and CommandHistory keeps the TS stacks
+   only as the replay payloads (history-panel rows, undo/redo counts, and the
+   current-position highlight are read from protocol_history_query_native).
         ↓
 3. Future: WASM module called for compute-heavy ops:
    - brushMask(radius, hardness, size)   → Uint8Array

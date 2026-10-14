@@ -191,7 +191,7 @@ fn registry_epoch_per_layer_independent() {
     assert_eq!(r.get_epoch("docA", "L2").unwrap(), 0);
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Unified pixel history (ProtocolEngine is the sole authoritative cursor) Î“Ã¶Ã‡Î“Ã¶Ã‡
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Unified pixel history (DocumentCore is the sole authoritative cursor) Î“Ã¶Ã‡Î“Ã¶Ã‡
 
 #[test]
 fn apply_pixel_patch_moves_cursor_and_bumps_version_once() {
@@ -667,7 +667,7 @@ fn c5_4_write_region_history_bounded_to_50() {
     assert!(r.undo_pixel("d").is_none(), "history bounded to 50 entries");
 }
 
-// (The external-pending barrier rejection is covered by the ProtocolEngine
+// (The external-pending barrier rejection is covered by the DocumentCore
 //  unit test `pixel_undo_redo_rejected_while_external_pending` in protocol.rs.)
 
 #[test]
@@ -731,7 +731,7 @@ fn c4_dirty_region_brush_contract() {
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ History unification Î“Ã¶Ã‡Î“Ã¶Ã‡
 // Proof target: TS (non-pixel) and Rust (pixel) operations share EXACTLY ONE
-// logical history cursor. The Rust `ProtocolEngine` already routes both
+// logical history cursor. The Rust `DocumentCore` already routes both
 // `apply_pixel_patch` (Pixel entry) and `record_external` (External entry)
 // into the same `entries`/`cursor`/`version` stream. These tests assert the
 // invariants the gate requires on the REAL carrier (no hand-rolled cursor).
@@ -1248,7 +1248,7 @@ fn write_region_parity_with_oracle() {
 }
 
 // â”€â”€ native authority command surface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Proves the per-document native `ProtocolEngine` serves the AUTHORITY methods
+// Proves the per-document native `DocumentCore` serves the AUTHORITY methods
 // (apply / history_query / history_cursor_commit / register_adapter / snapshot)
 // through the REAL `PixelStoreRegistry` + per-doc engine â€” the exact code path
 // the Tauri `protocol_*_native` commands invoke. No mocks; drives the real
@@ -1257,7 +1257,7 @@ fn write_region_parity_with_oracle() {
 mod protocol_native_authority_tests {
     use super::*;
     use crate::protocol::{
-        Command, CommandEnvelope, CommandResult, HistoryQuery, ProtocolEngine, RenderLayerChange,
+        Command, CommandEnvelope, CommandResult, DocumentCore, HistoryQuery, RenderLayerChange,
     };
 
     fn envelope(cmd: Command) -> CommandEnvelope {
@@ -1268,13 +1268,13 @@ mod protocol_native_authority_tests {
         }
     }
 
-    /// Get the per-doc `ProtocolEngine` exactly as the native command's REAL path
+    /// Get the per-doc `DocumentCore` exactly as the native command's REAL path
     /// expects: the doc must already be OPEN (the client opens it via
     /// `rust_pixels_open_document` before issuing protocol commands), then `get_mut`
     /// returns it. This mirrors the command (`open_document` precedes `get_mut`) and
     /// does NOT silently create an unopened doc - a missing doc is the command's error
     /// contract, exercised separately below.
-    fn engine_for<'a>(reg: &'a mut PixelStoreRegistry, doc_id: &str) -> &'a mut ProtocolEngine {
+    fn engine_for<'a>(reg: &'a mut PixelStoreRegistry, doc_id: &str) -> &'a mut DocumentCore {
         reg.open_document(doc_id);
         &mut reg.docs.get_mut(doc_id).unwrap().history
     }

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readRenderedPixelAtRatio } from "./helpers/screenshotPixels";
 
 /**
- * Facade-armed visible sequence in the real browser (Vite dev server, chromium).
+ * Visible sequence in the real browser (Vite dev server, chromium).
  *
  * The vitest parity harness proves the Rust engine and the TS mirror agree on
  * canonical state. This spec proves the routed metadata ops actually RENDER:
@@ -10,18 +10,15 @@ import { readRenderedPixelAtRatio } from "./helpers/screenshotPixels";
  * undo/redo must restore them pixel-for-pixel (the "unit tests green, app
  * broken" class the headless suite cannot catch).
  *
- * STEP 0 is a hard gate: the facade flag is set before app load and the spec
- * asserts the real wasm engine is armed (bridge.isFacadeArmed() plus a wired
- * addLayer that does not throw E_FACADE_NOT_READY). If that gate fails here,
- * the spec SKIPS with the measured reason instead of faking a native result.
+ * STEP 0 is a hard gate: it drives one addLayer through the shipped
+ * command path and asserts the engine applied it (no apply error, one layer
+ * in the snapshot). If that gate fails here, the spec SKIPS with the measured
+ * reason instead of faking a result. There is no arm step: production
+ * dispatch is native-only, so reachability of the native engine IS the gate.
  *
- * Scope: this runs the wasm-backed facade in chromium. It does NOT exercise the
- * desktop native-IPC engine (Tauri), which is a separate manual executable run.
- *
- * The bridge module is imported as "/src/lib/protocol/bridge.ts". The extension
- * matters: an extensionless specifier resolves to a DIFFERENT module instance in
- * the Vite dev server than the one the app armed, which would make the probe read
- * an unarmed instance (measured, see the probe's history).
+ * Scope: this runs against the dev server in chromium. It does NOT exercise
+ * the desktop native-IPC engine (Tauri), which is a separate manual
+ * executable run; without a reachable engine this spec skips.
  */
 
 async function createBlankCanvas(page: import("@playwright/test").Page, width: number, height: number) {
@@ -34,24 +31,13 @@ async function createBlankCanvas(page: import("@playwright/test").Page, width: n
   await page.waitForTimeout(300);
 }
 
-test("facade-armed visibility toggle renders and undo/redo restores pixels", async ({ page }) => {
-  // Facade flag must be set before the app boots (the app arms the engine during
-  // startup when the flag is on).
-  await page.addInitScript(() => {
-    localStorage.setItem("photrez.facade", "1");
-  });
+test("visibility toggle renders and undo/redo restores pixels", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 760 });
   await page.goto("/");
 
-  // ── STEP 0: hard arm gate ──────────────────────────────────────────────
+  // ── STEP 0: hard engine gate ─────────────────────────────────────────
   const probe = await page.evaluate(async (bridgeSpec: string) => {
     const bridge = await import(/* @vite-ignore */ bridgeSpec);
-    let readyError: string | null = null;
-    try {
-      await bridge.ensureFacadeReady();
-    } catch (e) {
-      readyError = String((e as Error)?.message ?? e);
-    }
     let applyError: string | null = null;
     try {
       await bridge.applyCommand({
@@ -64,15 +50,13 @@ test("facade-armed visibility toggle renders and undo/redo restores pixels", asy
     }
     const snap = await bridge.getSnapshot("e2e-arm-gate").catch(() => null);
     return {
-      armed: bridge.isFacadeArmed(),
-      readyError,
       applyError,
       layers: snap?.layers?.length ?? -1,
     };
   }, "/src/lib/protocol/bridge.ts");
 
-  if (!probe.armed || probe.applyError !== null || probe.layers !== 1) {
-    test.skip(true, `facade arm gate failed in chromium: ${JSON.stringify(probe)}`);
+  if (probe.applyError !== null || probe.layers !== 1) {
+    test.skip(true, `engine gate failed in chromium: ${JSON.stringify(probe)}`);
     return;
   }
 

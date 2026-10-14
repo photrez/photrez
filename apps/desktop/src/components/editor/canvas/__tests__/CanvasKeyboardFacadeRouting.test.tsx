@@ -38,7 +38,7 @@ vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 
 // The facade funnel dispatches through bridge.applyCommand; the shared
-// factory routes that surface onto the real wasm ProtocolEngine module.
+// factory routes that surface onto the real wasm DocumentCore module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");

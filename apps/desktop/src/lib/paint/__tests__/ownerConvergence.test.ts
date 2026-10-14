@@ -16,7 +16,7 @@ import { decodeRustBytes, pixelRegionDispatch } from "@/lib/protocol/pixelSeedCa
  * testable as "one canonical owner plus a projection that never diverges".
  *
  * WHAT IS REAL HERE, AND WHAT CANNOT BE.
- *   - REAL `ProtocolEngine` (the wasm pkg), reached the same way the production
+ *   - REAL `DocumentCore` (the wasm pkg), reached the same way the production
  *     bridge reaches it, armed by the bridge-side discriminator rather than
  *     assumed. Never `bridge_emu`.
  *   - REAL `DocumentEngine`. Every operation below is a production entry point:
@@ -71,7 +71,7 @@ import {
 // The two live pixel owners are the TS projection (`layer.imageBitmap`) and the
 // Rust pixel store (rustStoreEmulator, served through `hoist.invoke`). The
 // HISTORY/EXTERNAL-TRANSITION commands the harness steps through (addLayer,
-// recordExternalTransition, undo, redo) drive the ProtocolEngine, and the header
+// recordExternalTransition, undo, redo) drive the DocumentCore, and the header
 // demands that engine be the REAL wasm pkg - "Never bridge_emu". The retired
 // `photrez.facadeAuthority=wasm` discriminator that used to route applyCommand
 // onto the wasm pkg is gone, so route it explicitly through the shared factory,
@@ -947,16 +947,15 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     engine.setActiveLayer(lower.id);
 
     const history = makeHistory();
+    // Captured BEFORE the merge, so the restore below rolls back to a state
+    // both layers are genuinely present in (the pre-gesture snapshot is the
+    // primitive layer-panel and routed-composite undos go through).
+    const preMerge = engine.snapshot();
     mergeActiveLayerDown(engine, history, makeRenderer(), lower.id);
     await settlePixelOps();
     expect(engine.getLayers().map((l) => l.id), "premise: one layer after").toHaveLength(1);
 
-    // Undo, exactly as restoreHistorySnapshot does it: pop the entry, then
-    // engine.restore the popped snapshot.
-    const restored = (history as unknown as { undo: (s: unknown) => unknown }).undo(
-      engine.snapshot(),
-    );
-    engine.restore(restored as never);
+    engine.restore(preMerge);
     await settlePixelOps();
 
     const after = engine.getLayers().map((l) => l.id);
@@ -998,14 +997,12 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     expect(before, "premise: two layers before the merge").toHaveLength(2);
 
     const history = makeHistory();
+    const preMerge = engine.snapshot();
     mergeSelectedLayers(engine, history, makeRenderer(), [layerId, second.id]);
     await settlePixelOps();
     expect(engine.getLayers().map((l) => l.id), "premise: one layer after").toHaveLength(1);
 
-    const restored = (history as unknown as { undo: (s: unknown) => unknown }).undo(
-      engine.snapshot(),
-    );
-    engine.restore(restored as never);
+    engine.restore(preMerge);
     await settlePixelOps();
 
     expect(engine.getLayers().map((l) => l.id), "undo must resurrect both, in order").toEqual(before);
@@ -1046,14 +1043,13 @@ it("the NO-ENTRY verdict is caused by the missing store entry, not by the harnes
     expect(before, "premise: three layers before the flatten").toHaveLength(3);
 
     const history = makeHistory();
+    const preFlatten = engine.snapshot();
     flattenAllLayers(engine, history, makeRenderer());
     await settlePixelOps();
     expect(engine.getLayers().map((l) => l.id), "premise: one layer after").toHaveLength(1);
 
-    const restored = (history as unknown as { undo: (s: unknown) => unknown }).undo(
-      engine.snapshot(),
-    );
-    engine.restore(restored as never);
+    // Undo via the pre-gesture snapshot (history.undo is retired; see MERGE DOWN).
+    engine.restore(preFlatten);
     await settlePixelOps();
 
     expect(engine.getLayers().map((l) => l.id), "undo must resurrect the WHOLE stack in order")

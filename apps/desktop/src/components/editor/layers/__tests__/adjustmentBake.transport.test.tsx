@@ -27,6 +27,39 @@ vi.mock("@/lib/rustShadow", async (importOriginal) => {
   return { ...actual, rehydratePaintSurfaceFromRust: vi.fn() };
 });
 
+// Undo counts read the native history stream (nativeHistoryView.ts): stub
+// bridge_emu's getHistoryQuery to serve `nativeStream` so the pin at line 295
+// observes the live commit instead of the hardwired 0.
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/protocol/bridge_emu")>()),
+  getHistoryQuery: vi.fn(),
+}));
+
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
+
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+
+function appendNativeEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label,
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+
+function nativeQuery(): HistoryQueryResult {
+  return {
+    cursor: nativeStream.length,
+    lastSeq: nativeStream.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: [...nativeStream],
+  };
+}
+
 const OriginalOffscreenCanvas = (globalThis as any).OffscreenCanvas;
 const OriginalImageData = (globalThis as any).ImageData;
 beforeEach(() => {
@@ -186,13 +219,28 @@ describe("adjustment bake writes the post-bake bytes once and refuses without a 
       </DialogProvider>
     );
     const { result } = renderHook(() => useLayerActions(), { wrapper });
-    const commitSpy = vi.spyOn(ws.getActiveHistory()!, "commit");
+    const hist = ws.getActiveHistory()!;
+    // Mirror each real commit into the native stream so getUndoCount() reads a
+    // live count instead of the hardwired 0. Wrap the ORIGINAL first (bound to
+    // hist so `this` stays correct), then spy on the wrapper so commitSpy still
+    // counts one call per commit.
+    const realCommit = hist.commit.bind(hist);
+    hist.commit = ((snapshot, label, ...rest) => {
+      appendNativeEntry(label ?? "Commit");
+      (hist as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+      return realCommit(snapshot, label, ...rest);
+    }) as typeof hist.commit;
+    const commitSpy = vi.spyOn(hist, "commit");
     return { ws, engine, layer, renderer, result, commitSpy, surface };
   }
 
   beforeEach(() => {
     mockInvoke.mockReset();
     vi.mocked(showToast).mockClear();
+    nativeStream.length = 0;
+    nextSeq = 1;
+    QUERY_MOCK.mockReset();
+    QUERY_MOCK.mockImplementation(async () => nativeQuery());
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -247,6 +295,10 @@ describe("adjustment bake commit pin (Tauri runtime ON)", () => {
   beforeEach(() => {
     mockInvoke.mockReset();
     (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    nativeStream.length = 0;
+    nextSeq = 1;
+    QUERY_MOCK.mockReset();
+    QUERY_MOCK.mockImplementation(async () => nativeQuery());
   });
   afterEach(() => {
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -289,9 +341,16 @@ describe("adjustment bake commit pin (Tauri runtime ON)", () => {
       </DialogProvider>
     );
     const { result } = renderHook(() => useLayerActions(), { wrapper });
+    const history = ws.getActiveHistory()!;
+    const realCommit = history.commit.bind(history);
+    history.commit = ((snapshot, label, ...rest) => {
+      appendNativeEntry(label ?? "Commit");
+      (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+      return realCommit(snapshot, label, ...rest);
+    }) as typeof history.commit;
+
     await result.handleApplyAdjustment();
 
-    const history = ws.getActiveHistory()!;
     await vi.waitFor(() => expect(history.getUndoCount()).toBe(1), { timeout: 2000 });
     for (let i = 0; i < 3; i++) {
       await new Promise((r) => setTimeout(r, 0));

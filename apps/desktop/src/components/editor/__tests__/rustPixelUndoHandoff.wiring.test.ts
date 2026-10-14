@@ -394,6 +394,7 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
   it("five rustOwned steps then six undos: depth tracks the cursor, the 6th changes nothing", async () => {
     const calls: Calls = [];
     const history = makeTwinHistory(5);
+    history.attachDocIdGetter(() => DOC_ID);
     const surface = makeSurface(calls);
     const engine = makeEngine("L1", surface, calls);
     const ctx = makeCtx(engine, calls, history);
@@ -404,6 +405,8 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
       switch (cmd) {
         case "protocol_version_native":
           return "1";
+        case "protocol_history_query_native":
+          return historyQueryJson(cursor, 5, false);
         case "protocol_apply_command_native":
           if (cursor === 0) return exhaustedJson();
           cursor -= 1;
@@ -414,16 +417,19 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
     });
 
     // Non-vacuity: five twins exist and nothing has been drained yet.
+    await history.resyncFromNativeQuery();
     expect(history.getUndoCount()).toBe(5);
     expect(history.canUndo()).toBe(true);
 
     for (let i = 1; i <= 5; i++) {
       const handled = await runFacadeExternalHandoff(ctx, "undo");
       expect(handled, `undo ${i} is a pixel step Rust took`).toBe(true);
+      await history.resyncFromNativeQuery();
       expect(history.getUndoCount(), `TS depth after undo ${i}`).toBe(5 - i);
     }
 
     // (a) After 5 undos the TS depth and the Rust cursor agree at the start.
+    await history.resyncFromNativeQuery();
     expect(cursor, "Rust cursor back at its start").toBe(0);
     expect(history.canUndo(), "no pixel work left, so the gate is closed").toBe(false);
     // The drained entries move to the redo stack, not the bin: canRedo() must
@@ -438,13 +444,14 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
     ).mock.calls.length;
     const sixth = await runFacadeExternalHandoff(ctx, "undo");
 
-    expect(sixth, "a step past the start is NOT claimed").toBe(false);
+    expect(sixth, "a step past the start is refused (handled no-op), not a fall-through").toBe(true);
     expect(cursor, "the Rust cursor did not move").toBe(0);
     expect(calls.slice(callsBefore), "no pixel projection ran").toEqual([]);
     expect(
       (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } }).mock.calls.length,
       "no tile upload ran",
     ).toBe(uploadsBefore);
+    await history.resyncFromNativeQuery();
     expect(history.getUndoCount(), "the TS depth is unchanged").toBe(0);
     expect(
       invokeMock.mock.calls.map((c) => c[0]),
@@ -459,49 +466,64 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
   it("a redo step drains the redo stack so canRedo() stops lying in the other direction", async () => {
     const calls: Calls = [];
     const history = makeTwinHistory(2);
+    history.attachDocIdGetter(() => DOC_ID);
     const surface = makeSurface(calls);
     const engine = makeEngine("L1", surface, calls);
     const ctx = makeCtx(engine, calls, history);
 
-    let cursor = 0;
-    invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
+    let cursor = 2;
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown): Promise<unknown> => {
       switch (cmd) {
         case "protocol_version_native":
           return "1";
-        case "protocol_apply_command_native":
-          cursor += 1;
+        case "protocol_history_query_native":
+          return historyQueryJson(cursor, 2, false);
+        case "protocol_apply_command_native": {
+          const env = JSON.parse((args as { envelopeJson: string }).envelopeJson);
+          if (env.command.type === "undo") cursor = Math.max(0, cursor - 1);
+          else cursor = Math.min(2, cursor + 1);
           return pixelStepJson(cursor);
+        }
         default:
           throw `unexpected invoke in the pixel redo path: ${cmd}`;
       }
     });
 
     await runFacadeExternalHandoff(ctx, "undo");
+    await history.resyncFromNativeQuery();
     await runFacadeExternalHandoff(ctx, "undo");
+    await history.resyncFromNativeQuery();
     expect(history.getUndoCount()).toBe(0);
     expect(history.getRedoCount(), "both drained entries sit on the redo stack").toBe(2);
 
     const handled = await runFacadeExternalHandoff(ctx, "redo");
+    await history.resyncFromNativeQuery();
     expect(handled, "redo is a pixel step Rust took").toBe(true);
     expect(history.getRedoCount(), "the redo twin drained too").toBe(1);
     expect(history.canRedo()).toBe(true);
     expect(history.getUndoCount(), "and it moved to the undo stack").toBe(1);
   });
 
-  it("a metadata step drains nothing: the TS store still owns that entry", async () => {
+  it("a metadata step drains nothing: the handoff owns it, the native cursor moves past it", async () => {
     const calls: Calls = [];
-    // No rustOwned mark: a TS-owned metadata entry the TS store must execute.
+    // No rustOwned mark: a TS-owned metadata entry the handoff executes, not the
+    // TS store.
     const history = new CommandHistory();
+    history.attachDocIdGetter(() => DOC_ID);
     history.commit({ layers: [], activeLayerId: "L1" } as never, "Add Layer");
     const surface = makeSurface(calls);
     const engine = makeEngine("L1", surface, calls);
     const ctx = makeCtx(engine, calls, history);
 
+    let cursor = 1;
     invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
       switch (cmd) {
         case "protocol_version_native":
           return "1";
+        case "protocol_history_query_native":
+          return historyQueryJson(cursor, 1, false);
         case "protocol_apply_command_native":
+          if (cursor > 0) cursor -= 1;
           return JSON.stringify({
             documentVersion: 1,
             delta: {
@@ -515,11 +537,13 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
       }
     });
 
+    await history.resyncFromNativeQuery();
     const handled = await runFacadeExternalHandoff(ctx, "undo");
+    await history.resyncFromNativeQuery();
 
     expect(handled, "the metadata step is the handoff's own").toBe(true);
-    expect(history.getUndoCount(), "the TS entry survived for the TS store").toBe(1);
-    expect(history.canUndo()).toBe(true);
+    expect(history.getUndoCount(), "the native cursor drained past the metadata entry").toBe(0);
+    expect(history.canUndo()).toBe(false);
   });
 });
 
@@ -541,7 +565,7 @@ describe("the TS twin drains in lockstep with a Rust pixel step", () => {
  * the document-open baseline (the factory's SetBackgroundFlag commit); every
  * entry above it is user work.
  */
-function historyQueryJson(cursor: number, total: number): string {
+function historyQueryJson(cursor: number, total: number, baseline = true): string {
   return JSON.stringify({
     cursor,
     lastSeq: total,
@@ -551,7 +575,7 @@ function historyQueryJson(cursor: number, total: number): string {
       seq: i + 1,
       groupId: "g1",
       origin: "native",
-      label: i === 0 ? "Set Background Flag" : "pixel",
+      label: baseline && i === 0 ? "Set Background Flag" : "pixel",
       affectedLayerIds: ["L1"],
       versionBefore: i,
       versionAfter: i + 1,
@@ -590,6 +614,7 @@ describe("the undo dispatch will not step the Rust cursor past the open baseline
   it("five rustOwned steps then a 6th undo: nothing moves, and redo round-trips", async () => {
     const calls: Calls = [];
     const history = new CommandHistory();
+    history.attachDocIdGetter(() => DOC_ID);
     for (let i = 1; i <= 5; i++) {
       history.commit(
         { layers: [], activeLayerId: "L1" } as never,
@@ -638,6 +663,7 @@ describe("the undo dispatch will not step the Rust cursor past the open baseline
     for (let i = 1; i <= 5; i++) {
       expect(await runFacadeExternalHandoff(ctx, "undo"), `undo ${i}`).toBe(true);
     }
+    await history.resyncFromNativeQuery();
     expect(cursor, "Rust cursor back at the baseline").toBe(1);
     expect(history.getUndoCount(), "TS depth drained with the cursor").toBe(0);
     expect(history.canUndo(), "the gate is closed").toBe(false);
@@ -716,6 +742,7 @@ describe("the undo dispatch will not step the Rust cursor past the open baseline
     for (let i = 1; i <= 5; i++) {
       expect(await runFacadeExternalHandoff(ctx, "redo"), `redo ${i}`).toBe(true);
     }
+    await history.resyncFromNativeQuery();
     expect(cursor, "back at the 5-stroke position").toBe(6);
     expect(history.getUndoCount(), "five twins back on the undo stack").toBe(5);
     expect(history.getRedoCount(), "nothing left to redo").toBe(0);
@@ -800,10 +827,8 @@ describe("the undo dispatch will not step the Rust cursor past the open baseline
     });
 
     // The External branch calls confirmExternalCursor, mocked to ok at module scope.
-    // It returns FALSE on purpose here: an External step with an empty delta
-    // clears the barrier but must NOT claim the model restore was finished
-    // (see the branch comment in facadeHistoryHandoff). What this test owns is
-    // that the gate let the step through at all - the cursor moved.
+    // An empty delta means Rust already produced the restored state; the branch
+    // resyncs and reports handled so the caller does not pop a second entry.
     const handled = await runFacadeExternalHandoff(ctx, "undo");
 
     expect(cursor, "the External entry above the baseline still stepped the cursor").toBe(1);
@@ -811,8 +836,7 @@ describe("the undo dispatch will not step the Rust cursor past the open baseline
       invokeMock.mock.calls.filter((c) => c[0] === "protocol_apply_command_native").length,
       "a cursor command was issued",
     ).toBe(1);
-    // Documented existing behaviour, pinned so a future change is deliberate.
-    expect(handled, "an empty-delta External step does not claim the restore").toBe(false);
+    expect(handled, "an empty-delta External step claims the restore").toBe(true);
   });
 
   it("a depth probe failure never blocks an undo (fail-open, not fail-closed)", async () => {

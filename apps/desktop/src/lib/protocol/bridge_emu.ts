@@ -13,12 +13,12 @@ import {
   normalizeProtocolError,
 } from "./bridge";
 
-// In-memory emulator: a JS mirror of the Rust ProtocolEngine. Extracted from
+// In-memory emulator: a JS mirror of the Rust DocumentCore. Extracted from
 // bridge.ts to keep that module under the 1000-line guard. Test-only
 // instrumentation now (production dispatches to the native engine); re-exported
 // from bridge.ts so every existing import path stays valid.
 //
-// JS emulation mirrors Rust ProtocolEngine - includes expectedVersion check.
+// JS emulation mirrors Rust DocumentCore - includes expectedVersion check.
 // ADR 0008 H0: entry-stream metadata parallels the Rust engine (cursor/seq/
 // adapters), and undo/redo walk entries exactly like the Rust walker.
 let emuVersion = 0;
@@ -154,7 +154,7 @@ function finishEmu(idx: number): void {
 // every `${key}::` entry), so the next record re-registers against the fresh
 // engine: the dedup does NOT block re-registration after a reset.
 export function registerPayloadAdapter(adapterId: string, docId = "default"): void {
-  // Register the adapter on the per-document native ProtocolEngine so the first
+  // Register the adapter on the per-document native DocumentCore so the first
   // legacy-commit mirror (recordExternalTransitionFor) does not hit Rust
   // E_UNKNOWN_ADAPTER. Chained after the authoritative seed so the engine exists;
   // idempotent per (doc, adapter).
@@ -292,7 +292,7 @@ function diffEmu(old: RenderSnapshot["layers"], next: RenderSnapshot["layers"]):
   return changes;
 }
 
-// Local mirror of the Rust ProtocolEngine's next_duplicate_name (parity with the
+// Local mirror of the Rust DocumentCore's next_duplicate_name (parity with the
 // TS layerOps.nextDuplicateName): bump a numeric suffix past any existing sibling.
 // The emulator has no canonical shadow, so names come from emuLayers directly.
 function emuNextDuplicateName(names: string[], layerName: string): string {

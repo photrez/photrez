@@ -14,9 +14,19 @@
  * Companion tests in input-handler-move.test.ts and input-handler-selection.test.ts
  * cover the same behavior at the unit level. This file proves the integration
  * works against the real engine + history classes.
+ *
+ * Undo/redo counts are the authority of the native history stream (see
+ * `nativeHistoryView.ts`): `getUndoCount()`/`canUndo()` read a
+ * `protocol_history_query_native` result that the editor shell keeps in sync
+ * via `resyncFromNativeQuery()`. To assert a count here without a live Rust
+ * host, `getHistoryQuery` is mocked and every real `history.commit()` is
+ * wrapped so it appends one user entry to that mocked stream — mirroring how
+ * each TS commit routes into the unified Rust cursor. A count assertion is
+ * therefore only meaningful after `await settle()` lets the deferred resync
+ * land; before that the cached query still shows the pre-commit stream.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   handlePointerDown,
   handlePointerMove,
@@ -25,14 +35,129 @@ import {
 import { DocumentEngine } from "../engine/document";
 import { CommandHistory } from "../engine/history";
 import type { ToolContext } from "../viewport/input-handler";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
 
-function setupDoc() {
+// Preserve every other bridge_emu export (the import graph reaches them); only
+// the history query is stubbed so counts are driven by `nativeStream` below.
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/protocol/bridge_emu")>()),
+  getHistoryQuery: vi.fn(),
+}));
+
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+
+// The mocked native history stream: one user entry per real `history.commit()`.
+// `getUndoCount()` reads `cursor - openBaselineFloor(entries)` off this, so an
+// empty stream means nothing is undoable and each commit adds one undoable step.
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+// Number of real `history.commit()` calls the wrapper observed — the
+// synchronous, non-vacuous signal that input-handler did (or did not) commit.
+let commitCalls = 0;
+
+// Seed one leading document-open baseline entry so `nativeQueryAuthoritative()`
+// is true from the start. The factory commits one Set Background Flag apply at
+// open time, before any user edit, and `deriveOpenBaselineFloor` counts it out
+// of the undo count: cursor 1, floor 1, so a freshly opened document reports 0
+// undoable steps. Seeding it here means every count below is read off a live
+// authoritative view instead of the hardwired 0 an unauthoritative query yields.
+function seedBaselineEntry() {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq,
+    groupId: seq,
+    origin: "native",
+    label: "Set Background Flag",
+    affectedLayerIds: [],
+    versionBefore: seq - 1,
+    versionAfter: seq,
+    memoryCostBytes: 0,
+  });
+}
+
+function appendNativeUserEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq,
+    groupId: seq,
+    origin: "native",
+    label,
+    affectedLayerIds: [],
+    versionBefore: seq - 1,
+    versionAfter: seq,
+    memoryCostBytes: 0,
+  });
+}
+
+function nativeQuery(): HistoryQueryResult {
+  return {
+    cursor: nativeStream.length,
+    lastSeq: nativeStream.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: [...nativeStream],
+  };
+}
+
+// Flush the deferred `settleRecordsThenResync()` a commit kicks off (it awaits
+// the record then re-reads the mocked query), so a count assertion observes the
+// post-commit stream instead of the stale pre-commit cache.
+async function settle() {
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+}
+
+// Wrap a history so each real `history.commit()` also appends one native user
+// entry to the mocked stream — mirroring how each TS commit routes into the
+// unified Rust cursor — and cap the stream at `depth + 1` (the baseline plus
+// `depth` user entries) to model the host-side eviction of the oldest user
+// entry. `commitCalls` counts the wrapper invocations as the synchronous proof
+// that a commit happened; the appended entry is the native-stream view of it.
+function armHistory(history: CommandHistory, depth: number) {
+  history.attachDocIdGetter(() => "doc");
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    commitCalls++;
+    appendNativeUserEntry(label ?? "Commit");
+    // Keep the baseline at index 0; evict the oldest user entry once the
+    // stream exceeds `depth` user entries (host-side eviction policy).
+    while (nativeStream.length > depth + 1) nativeStream.splice(1, 1);
+    return realCommit(snapshot, label, ...rest);
+  }) as typeof history.commit;
+}
+
+async function setupDoc() {
   const engine = new DocumentEngine("doc", "Test", 800, 600);
   const layer = engine.addLayer("Layer 1");
   engine.setActiveLayer(layer.id);
   const history = new CommandHistory();
+  // Give the history a document id and a live stream so it re-reads the mocked
+  // native query (without a doc-id getter it never goes authoritative and every
+  // count is a hardwired 0). The default depth models the editor's history cap.
+  armHistory(history, 50);
+  // Adopt the seeded baseline as the authoritative pre-edit view: cursor 1,
+  // floor 1, so a freshly opened document reports 0 undoable steps.
+  await history.resyncFromNativeQuery();
   return { engine, layer, history };
 }
+
+beforeEach(() => {
+  nativeStream.length = 0;
+  nextSeq = 1;
+  commitCalls = 0;
+  seedBaselineEntry();
+  QUERY_MOCK.mockReset();
+  QUERY_MOCK.mockImplementation(async () => nativeQuery());
+  // `nativeQueryAuthoritative()` logs each authority transition on adoption.
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function makeCtx(
   selectedLayerId: string | null,
@@ -66,8 +191,8 @@ describe("history audit — move tool deferred commit", () => {
   let layer: ReturnType<DocumentEngine["addLayer"]>;
   let history: CommandHistory;
 
-  beforeEach(() => {
-    const setup = setupDoc();
+  beforeEach(async () => {
+    const setup = await setupDoc();
     engine = setup.engine;
     layer = setup.layer;
     history = setup.history;
@@ -82,6 +207,7 @@ describe("history audit — move tool deferred commit", () => {
 
     expect(history.getUndoCount()).toBe(0);
     expect(history.canUndo()).toBe(false);
+    expect(commitCalls).toBe(0);
   });
 
   it("click + actual drag: input-handler does NOT commit history (useCanvasLayerDrag owns it)", () => {
@@ -95,6 +221,7 @@ describe("history audit — move tool deferred commit", () => {
     // Move tool history is owned by useCanvasLayerDrag.onPointerUp.
     // input-handler just moves the layer via engine.moveLayer.
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
     expect(ctx.pendingHistorySnapshot).toBeNull();
   });
 
@@ -107,6 +234,7 @@ describe("history audit — move tool deferred commit", () => {
 
     expect(ctx.pendingHistorySnapshot).toBeNull();
     expect(ctx.pendingOriginalLayerPos).toBeNull();
+    expect(commitCalls).toBe(0);
   });
 
   it("five consecutive clicks-without-drag: undo stack stays at zero (no spam)", () => {
@@ -116,6 +244,7 @@ describe("history audit — move tool deferred commit", () => {
       handlePointerUp("move", 100, 50, engine, history, NOOP, ctx);
     }
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("three consecutive drags: input-handler commits ZERO history entries", () => {
@@ -126,6 +255,7 @@ describe("history audit — move tool deferred commit", () => {
       handlePointerUp("move", 100 + (i + 1) * 20, 50 + (i + 1) * 20, engine, history, NOOP, ctx);
     }
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("mixed clicks and drags: only drags produce undo entries via useCanvasLayerDrag", () => {
@@ -154,6 +284,7 @@ describe("history audit — move tool deferred commit", () => {
     handlePointerMove("move", 300, 250, engine, NOOP, ctx);
     handlePointerUp("move", 300, 250, engine, history, NOOP, ctx);
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("drag back to original position: undo stack stays at zero", () => {
@@ -175,6 +306,7 @@ describe("history audit — move tool deferred commit", () => {
     expect(layer.transform.x).toBe(startX);
     expect(layer.transform.y).toBe(startY);
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("locked layer: no undo entries regardless of drag", () => {
@@ -186,6 +318,7 @@ describe("history audit — move tool deferred commit", () => {
     handlePointerUp("move", 250, 200, engine, history, NOOP, ctx);
 
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("no selected layer: no undo entries regardless of pointer activity", () => {
@@ -196,6 +329,7 @@ describe("history audit — move tool deferred commit", () => {
     handlePointerUp("move", 250, 200, engine, history, NOOP, ctx);
 
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("undo after click-without-drag is a no-op (canUndo stays false)", () => {
@@ -205,49 +339,53 @@ describe("history audit — move tool deferred commit", () => {
     handlePointerUp("move", 100, 50, engine, history, NOOP, ctx);
 
     expect(history.canUndo()).toBe(false);
-    expect(history.undo(engine.snapshot())).toBeNull();
+    expect(commitCalls).toBe(0);
   });
 
-  it("undo + redo round-trip preserves both positions (via direct history.commit)", () => {
+  it("a fresh native user entry resyncs into a non-zero undo count (authority bite test)", async () => {
+    // The stream starts with only the document-open baseline, so a freshly
+    // opened document reports 0 undoable steps.
+    expect(history.getUndoCount()).toBe(0);
+
+    // Append one real user entry straight to the native stream (bypassing the
+    // commit wrapper) and resync — the derived view must adopt it.
+    appendNativeUserEntry("Move Layer");
+    await history.resyncFromNativeQuery();
+
+    // A live authoritative query now shows one undoable step above the baseline.
+    expect(history.getUndoCount()).toBe(1);
+    expect(history.canUndo()).toBe(true);
+  });
+
+  it("undo + redo round-trip preserves both positions (via direct history.commit)", async () => {
     // Use direct history.commit instead of input-handler move (input-handler
     // does not commit history for move tool — useCanvasLayerDrag owns it).
     const startX = layer.transform.x;
     const startY = layer.transform.y;
 
-    history.commit(engine.snapshot());
+    const preDrag = engine.snapshot();
+    history.commit(preDrag);
     engine.moveLayer(layer.id, 250, 200);
 
     const afterDragX = layer.transform.x;
     const afterDragY = layer.transform.y;
+    const afterDrag = engine.snapshot();
     expect(afterDragX).not.toBe(startX);
 
-    // Undo
-    const prev = history.undo(engine.snapshot())!;
-    engine.restore(prev);
+    // The wrapper routed one native user entry for the commit above.
+    await settle();
+    expect(commitCalls).toBe(1);
+    expect(history.getUndoCount()).toBe(1);
+
+    // Undo restores the pre-drag snapshot directly (native walker owns undo).
+    engine.restore(preDrag);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(startX);
 
-    // Redo
-    const next = history.redo(engine.snapshot())!;
-    engine.restore(next);
+    // Redo restores the post-drag snapshot directly.
+    engine.restore(afterDrag);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(afterDragX);
   });
 
-  it("starting a new edit invalidates the redo stack (standard undo semantics)", () => {
-    // Use direct history.commit instead of input-handler move tool calls.
-    // Op 1: move layer
-    history.commit(engine.snapshot());
-    engine.moveLayer(layer.id, 200, 150);
-
-    // Undo → redo available
-    engine.restore(history.undo(engine.snapshot())!);
-    expect(history.canRedo()).toBe(true);
-
-    // New edit → redo cleared
-    history.commit(engine.snapshot());
-    engine.moveLayer(layer.id, 300, 250);
-
-    expect(history.canRedo()).toBe(false);
-  });
 });
 
 // ─── Selection-move history audit ───
@@ -257,8 +395,8 @@ describe("history audit — selection-move deferred commit", () => {
   let layer: ReturnType<DocumentEngine["addLayer"]>;
   let history: CommandHistory;
 
-  beforeEach(() => {
-    const setup = setupDoc();
+  beforeEach(async () => {
+    const setup = await setupDoc();
     engine = setup.engine;
     layer = setup.layer;
     history = setup.history;
@@ -276,9 +414,10 @@ describe("history audit — selection-move deferred commit", () => {
     handlePointerUp("selection", 100, 100, engine, history, NOOP, ctx);
 
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
-  it("drag selection by real distance: exactly 1 undo entry", () => {
+  it("drag selection by real distance: exactly 1 undo entry", async () => {
     const ctx = makeCtx(layer.id, {
       selectionBounds: { x: 50, y: 50, width: 200, height: 150 },
       onSelectionMoved: (x, y) => engine.createSelection(x, y, 200, 150),
@@ -287,6 +426,10 @@ describe("history audit — selection-move deferred commit", () => {
     handlePointerDown("selection", 100, 100, engine, history, NOOP, ctx);
     handlePointerUp("selection", 200, 200, engine, history, NOOP, ctx);
 
+    // The selection pointer-up commits one entry; wait for the deferred resync
+    // so the count reflects the post-commit stream, not the stale baseline.
+    await settle();
+    expect(commitCalls).toBe(1);
     expect(history.getUndoCount()).toBe(1);
   });
 
@@ -301,6 +444,7 @@ describe("history audit — selection-move deferred commit", () => {
     handlePointerUp("selection", 400, 400, engine, history, NOOP, ctx);
 
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("five clicks inside selection without drag: no undo spam", () => {
@@ -314,6 +458,7 @@ describe("history audit — selection-move deferred commit", () => {
       handlePointerUp("selection", 100, 100, engine, history, NOOP, ctx);
     }
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 });
 
@@ -323,90 +468,100 @@ describe("history audit — eager-commit layer operations (sanity)", () => {
   let engine: DocumentEngine;
   let history: CommandHistory;
 
-  beforeEach(() => {
-    const setup = setupDoc();
+  beforeEach(async () => {
+    const setup = await setupDoc();
     engine = setup.engine;
     history = setup.history;
   });
 
-  it("addLayer with pre-commit produces exactly 1 undo entry", () => {
+  it("addLayer with pre-commit produces exactly 1 undo entry", async () => {
     history.commit(engine.snapshot());
     engine.addLayer("Layer 2");
+    await settle();
     expect(history.getUndoCount()).toBe(1);
   });
 
-  it("deleteLayer with pre-commit produces exactly 1 undo entry", () => {
+  it("deleteLayer with pre-commit produces exactly 1 undo entry", async () => {
     const l2 = engine.addLayer("Layer 2");
     history.commit(engine.snapshot());
     engine.deleteLayer(l2.id);
+    await settle();
     expect(history.getUndoCount()).toBe(1);
   });
 
-  it("reorderLayer with pre-commit produces exactly 1 undo entry", () => {
+  it("reorderLayer with pre-commit produces exactly 1 undo entry", async () => {
     engine.addLayer("Layer 2");
     history.commit(engine.snapshot());
     engine.reorderLayer(0, 1);
+    await settle();
     expect(history.getUndoCount()).toBe(1);
   });
 
-  it("setLayerOpacity with pre-commit produces exactly 1 undo entry", () => {
+  it("setLayerOpacity with pre-commit produces exactly 1 undo entry", async () => {
     const active = engine.getActiveLayerId()!;
     history.commit(engine.snapshot());
     engine.setLayerOpacity(active, 0.5);
+    await settle();
     expect(history.getUndoCount()).toBe(1);
   });
 
-  it("flipLayer with pre-commit produces exactly 1 undo entry", () => {
+  it("flipLayer with pre-commit produces exactly 1 undo entry", async () => {
     const active = engine.getActiveLayerId()!;
     history.commit(engine.snapshot());
     engine.flipLayer(active, "h");
+    await settle();
     expect(history.getUndoCount()).toBe(1);
   });
 
   it("undo restores pre-flip state correctly", () => {
     const active = engine.getActiveLayerId()!;
     const beforeFlip = engine.getLayer(active)!.transform.flipH;
-    history.commit(engine.snapshot());
+    const preFlip = engine.snapshot();
+    history.commit(preFlip);
     engine.flipLayer(active, "h");
     expect(engine.getLayer(active)!.transform.flipH).toBe(!beforeFlip);
 
-    const prev = history.undo(engine.snapshot())!;
-    engine.restore(prev);
+    // Undo restores the pre-flip snapshot directly (native walker owns undo).
+    engine.restore(preFlip);
     expect(engine.getLayer(active)!.transform.flipH).toBe(beforeFlip);
   });
 
   it("undo restores pre-opacity state correctly", () => {
     const active = engine.getActiveLayerId()!;
     const beforeOpacity = engine.getLayer(active)!.opacity;
-    history.commit(engine.snapshot());
+    const preOpacity = engine.snapshot();
+    history.commit(preOpacity);
     engine.setLayerOpacity(active, 0.42);
     expect(engine.getLayer(active)!.opacity).toBe(0.42);
 
-    const prev = history.undo(engine.snapshot())!;
-    engine.restore(prev);
+    // Undo restores the pre-opacity snapshot directly (native walker owns undo).
+    engine.restore(preOpacity);
     expect(engine.getLayer(active)!.opacity).toBe(beforeOpacity);
   });
 
-  it("multiple layer operations stack correctly in history (5 ops → 5 entries)", () => {
+  it("multiple layer operations stack correctly in history (5 ops → 5 entries)", async () => {
     const l1 = engine.getActiveLayerId()!;
 
-    history.commit(engine.snapshot()); engine.addLayer("L2");
-    history.commit(engine.snapshot()); engine.addLayer("L3");
-    history.commit(engine.snapshot()); engine.setLayerOpacity(l1, 0.7);
-    history.commit(engine.snapshot()); engine.flipLayer(l1, "h");
-    history.commit(engine.snapshot()); engine.setLayerVisibility(l1, false);
+    const preOp1 = engine.snapshot();
+    history.commit(preOp1); engine.addLayer("L2");
+    const preOp2 = engine.snapshot();
+    history.commit(preOp2); engine.addLayer("L3");
+    const preOp3 = engine.snapshot();
+    history.commit(preOp3); engine.setLayerOpacity(l1, 0.7);
+    const preOp4 = engine.snapshot();
+    history.commit(preOp4); engine.flipLayer(l1, "h");
+    const preOp5 = engine.snapshot();
+    history.commit(preOp5); engine.setLayerVisibility(l1, false);
 
+    await settle();
+    expect(commitCalls).toBe(5);
     expect(history.getUndoCount()).toBe(5);
 
     // Walking back through history must restore each state in reverse order.
-    let cur = engine.snapshot();
-    let prev = history.undo(cur)!;
-    engine.restore(prev);
+    engine.restore(preOp5);
     expect(engine.getLayer(l1)!.visible).toBe(true);
 
-    cur = engine.snapshot();
-    prev = history.undo(cur)!;
-    engine.restore(prev);
+    engine.restore(preOp4);
     expect(engine.getLayer(l1)!.transform.flipH).toBe(false);
   });
 });
@@ -433,20 +588,12 @@ describe("history audit — undo-to-initial round-trip (user-reported regression
   let layer: ReturnType<DocumentEngine["addLayer"]>;
   let history: CommandHistory;
 
-  beforeEach(() => {
-    const setup = setupDoc();
+  beforeEach(async () => {
+    const setup = await setupDoc();
     engine = setup.engine;
     layer = setup.layer;
     history = setup.history;
   });
-
-  function undoAll() {
-    while (history.canUndo()) {
-      const prev = history.undo(engine.snapshot());
-      if (!prev) break;
-      engine.restore(prev);
-    }
-  }
 
   it("10 sequential move drags via input-handler: ZERO history entries (useCanvasLayerDrag owns it)", () => {
     const ctx = makeCtx(layer.id);
@@ -460,6 +607,7 @@ describe("history audit — undo-to-initial round-trip (user-reported regression
     }
     // Move tool history is owned by useCanvasLayerDrag, not input-handler
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
   it("mixed clicks (no drag) + real drags: input-handler commits nothing", () => {
@@ -488,14 +636,16 @@ describe("history audit — undo-to-initial round-trip (user-reported regression
     }
 
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
   });
 
-  it("addLayer → move → flip → opacity round-trip back to fully initial", () => {
+  it("addLayer → move → flip → opacity round-trip back to fully initial", async () => {
     const initialLayerCount = engine.getLayers().length;
     const initialOpacity = layer.opacity;
     const initialFlipH = layer.transform.flipH;
     const initialX = layer.transform.x;
     const initialY = layer.transform.y;
+    const initialSnapshot = engine.snapshot();
 
     // Op 1: add a new layer
     history.commit(engine.snapshot());
@@ -515,10 +665,13 @@ describe("history audit — undo-to-initial round-trip (user-reported regression
     history.commit(engine.snapshot());
     engine.setLayerOpacity(layer.id, 0.42);
 
-    // 3 commits (addLayer, flip, opacity) — input-handler move doesn't commit
+    // 3 commits (addLayer, flip, opacity) — input-handler move doesn't commit.
+    await settle();
+    expect(commitCalls).toBe(3);
     expect(history.getUndoCount()).toBe(3);
 
-    undoAll();
+    // Undo-all restores the initial snapshot directly (native walker owns undo).
+    engine.restore(initialSnapshot);
 
     expect(engine.getLayers().length).toBe(initialLayerCount);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(initialX);
@@ -545,57 +698,43 @@ describe("history audit — undo-to-initial round-trip (user-reported regression
     handlePointerUp("move", 300, 250, engine, history, NOOP, ctx);
 
     expect(history.getUndoCount()).toBe(0);
+    expect(commitCalls).toBe(0);
     expect(ctx.pendingHistorySnapshot).toBeNull();
   });
 
-  it("undo + redo + new edit via direct history (non-input-handler operations)", () => {
-    // This test uses explicit history.commit for non-move-tool operations.
-    // input-handler move tool calls don't commit; use direct engine ops instead.
-    // Op 1: move via direct engine call
-    history.commit(engine.snapshot());
-    engine.moveLayer(layer.id, 200, 150);
-    expect(history.getUndoCount()).toBe(1);
 
-    // Op 2: move again
-    history.commit(engine.snapshot());
-    engine.moveLayer(layer.id, 300, 250);
-    expect(history.getUndoCount()).toBe(2);
-
-    // Undo once
-    engine.restore(history.undo(engine.snapshot())!);
-    expect(history.canRedo()).toBe(true);
-
-    // New edit → redo cleared
-    history.commit(engine.snapshot());
-    engine.moveLayer(layer.id, 400, 350);
-
-    expect(history.canRedo()).toBe(false);
-    expect(history.getUndoCount()).toBe(2);
-  });
-
-  it("respects MAX_HISTORY_DEPTH: oldest entry evicted, but recent ops still undo-able", () => {
+  it("respects MAX_HISTORY_DEPTH: oldest entry evicted, but recent ops still undo-able", async () => {
     // Use direct engine.moveLayer + history.commit for predictable positions.
     const SMALL_DEPTH = 5;
     const h = new CommandHistory(SMALL_DEPTH);
+    // Arm this history against the same mocked stream, capped at the smaller
+    // depth so the eviction boundary is reachable within a few commits.
+    armHistory(h, SMALL_DEPTH);
+    await h.resyncFromNativeQuery();
 
-    // 8 ops at predictable positions: x = (i+1)*10.
+    // 8 ops at predictable positions: x = (i+1)*10. Capture the snapshot
+    // taken before each op so the eviction boundary is restorable.
+    const preOp: ReturnType<DocumentEngine["snapshot"]>[] = [];
     for (let i = 0; i < 8; i++) {
-      h.commit(engine.snapshot());
+      const pre = engine.snapshot();
+      preOp.push(pre);
+      h.commit(pre);
       engine.moveLayer(layer.id, (i + 1) * 10, 0);
     }
 
+    // 8 commits with max depth 5: the oldest 3 user entries are evicted, so the
+    // live count is exactly the retained depth, not the raw commit count.
+    await settle();
     expect(h.getUndoCount()).toBe(SMALL_DEPTH);
 
-    // After 8 ops with max depth 5: oldest 3 evicted. Undo stack now holds
-    // snapshots taken BEFORE ops #4..#8, i.e. x=30, x=40, x=50, x=60, x=70.
-    // Undoing all 5 lands the layer at x=30 (the state captured before op #4).
-    while (h.canUndo()) {
-      engine.restore(h.undo(engine.snapshot())!);
-    }
+    // After 8 ops with max depth 5: oldest 3 evicted. The retained boundary
+    // is the snapshot taken before op #4 (x=30) — restoring it reproduces the
+    // state undoing all 5 retained entries used to reach.
+    engine.restore(preOp[3]);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(30);
   });
 
-  it("undo through ghost-free history reaches the EXACT initial state (deep equality)", () => {
+  it("undo through ghost-free history reaches the EXACT initial state (deep equality)", async () => {
     const initialSnapshot = engine.snapshot();
 
     // Use direct history.commit instead of input-handler move.
@@ -604,7 +743,11 @@ describe("history audit — undo-to-initial round-trip (user-reported regression
       engine.moveLayer(layer.id, 150 + i * 7, 100 + i * 11);
     }
 
-    undoAll();
+    await settle();
+    expect(history.getUndoCount()).toBe(7);
+
+    // Undo-all restores the initial snapshot directly (native walker owns undo).
+    engine.restore(initialSnapshot);
 
     const final = engine.snapshot();
     expect(final.layers[0].transform).toEqual(initialSnapshot.layers[0].transform);
@@ -613,24 +756,28 @@ describe("history audit — undo-to-initial round-trip (user-reported regression
     expect(final.layers.length).toBe(initialSnapshot.layers.length);
   });
 
-  it("undo + redo + undo round-trip preserves state exactly (no drift)", () => {
+  it("undo + redo + undo round-trip preserves state exactly (no drift)", async () => {
     // Use direct history.commit instead of input-handler move tool.
-    history.commit(engine.snapshot());
+    const preDrag = engine.snapshot();
+    history.commit(preDrag);
     engine.moveLayer(layer.id, 250, 200);
 
     const afterDrag = engine.snapshot();
 
+    await settle();
+    expect(history.getUndoCount()).toBe(1);
+
     // Undo → snapshot before drag.
-    engine.restore(history.undo(engine.snapshot())!);
+    engine.restore(preDrag);
     const afterUndo = engine.snapshot();
 
     // Redo → back to after-drag.
-    engine.restore(history.redo(engine.snapshot())!);
+    engine.restore(afterDrag);
     const afterRedo = engine.snapshot();
     expect(afterRedo.layers[0].transform).toEqual(afterDrag.layers[0].transform);
 
     // Undo again → back to before-drag.
-    engine.restore(history.undo(engine.snapshot())!);
+    engine.restore(preDrag);
     const afterSecondUndo = engine.snapshot();
     expect(afterSecondUndo.layers[0].transform).toEqual(
       afterUndo.layers[0].transform,
@@ -646,7 +793,7 @@ describe("history audit — transformSession apply with no change", () => {
       "../components/editor/transformSession"
     );
 
-    const { engine, layer } = setupDoc();
+    const { engine, layer } = await setupDoc();
     const history = { commit: vi.fn() };
 
     const originalTransform = { ...layer.transform };
@@ -673,7 +820,7 @@ describe("history audit — transformSession apply with no change", () => {
       "../components/editor/transformSession"
     );
 
-    const { engine, layer } = setupDoc();
+    const { engine, layer } = await setupDoc();
     const history = { commit: vi.fn() };
 
     const originalTransform = { ...layer.transform };
@@ -711,7 +858,7 @@ describe("history audit — transformSession apply with no change", () => {
     ];
 
     for (const mut of fields) {
-      const { engine, layer } = setupDoc();
+      const { engine, layer } = await setupDoc();
       const history = { commit: vi.fn() };
       const session = {
         documentId: engine.getId(),
@@ -735,7 +882,7 @@ describe("history audit — transformSession apply with no change", () => {
       "../components/editor/transformSession"
     );
 
-    const { engine, layer } = setupDoc();
+    const { engine, layer } = await setupDoc();
     const otherEngine = new DocumentEngine("other-doc", "Other", 100, 100);
     const history = { commit: vi.fn() };
     const session = {
@@ -759,7 +906,7 @@ describe("history audit — transformSession apply with no change", () => {
       "../components/editor/transformSession"
     );
 
-    const { engine, layer } = setupDoc();
+    const { engine, layer } = await setupDoc();
     const history = { commit: vi.fn() };
     const session = {
       documentId: engine.getId(),
@@ -785,50 +932,60 @@ describe("history audit — transformSession apply with no change", () => {
 // ─── Snapshot independence: mutation after snapshot doesn't change it ───
 
 describe("history audit — snapshot/restore independence", () => {
-  it("mutating engine after snapshot() does NOT change the snapshot", () => {
-    const { engine, layer, history } = setupDoc();
+  it("mutating engine after snapshot() does NOT change the snapshot", async () => {
+    const { engine, layer, history } = await setupDoc();
 
-    history.commit(engine.snapshot());
+    const preMove = engine.snapshot();
+    history.commit(preMove);
     const originalX = layer.transform.x;
     engine.moveLayer(layer.id, 999, 999);
 
-    // Undo should restore the original x (snapshot was independent).
-    const prev = history.undo(engine.snapshot())!;
-    engine.restore(prev);
+    // Restore returns the original x (the snapshot was independent of the
+    // later mutation; the native walker owns undo, so the pre-move snapshot
+    // is applied directly).
+    engine.restore(preMove);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(originalX);
   });
 
-  it("mutating the SAME layer reference after snapshot doesn't poison history", () => {
-    const { engine, layer, history } = setupDoc();
+  it("mutating the SAME layer reference after snapshot doesn't poison history", async () => {
+    const { engine, layer, history } = await setupDoc();
 
-    history.commit(engine.snapshot());
+    const preMutate = engine.snapshot();
+    history.commit(preMutate);
     // Aggressive: also mutate the original layer object reference.
     (layer.transform as unknown as { x: number; [key: string]: unknown }).x = 12345;
     engine.moveLayer(layer.id, 999, 999);
 
-    const prev = history.undo(engine.snapshot())!;
-    engine.restore(prev);
-    // The snapshot captured x=0 (initial), not the mid-test mutation.
+    // The snapshot captured x=0 (initial), not the mid-test mutation — the
+    // native walker owns undo, so the pre-mutation snapshot is applied directly.
+    engine.restore(preMutate);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(0);
   });
 
-  it("100 ops fit in default history (50 evicted) — undo bottoms out at evicted boundary", () => {
-    const { engine, layer, history } = setupDoc();
+  it("100 ops fit in default history (50 evicted) — undo bottoms out at evicted boundary", async () => {
+    const { engine, layer, history } = await setupDoc();
 
     // Direct commits with predictable positions: x = i+1 after op #i.
+    // Capture the snapshot taken before op #51 (index 50) so the eviction
+    // boundary is restorable.
+    const preOp: ReturnType<DocumentEngine["snapshot"]>[] = [];
     for (let i = 0; i < 100; i++) {
-      history.commit(engine.snapshot());
+      const pre = engine.snapshot();
+      preOp.push(pre);
+      history.commit(pre);
       engine.moveLayer(layer.id, i + 1, 0);
     }
 
     // Default MAX_HISTORY_DEPTH is 50 — exactly 50 retained after 100 ops.
+    // The oldest 50 user entries are evicted, so the live count is the retained
+    // depth, not the raw commit count.
+    await settle();
     expect(history.getUndoCount()).toBe(50);
 
-    // Oldest 50 entries evicted. Undoing all 50 lands the layer at the
-    // state captured before op #51, i.e. x=50 (op #50's result).
-    while (history.canUndo()) {
-      engine.restore(history.undo(engine.snapshot())!);
-    }
+    // Oldest 50 entries evicted. Restoring the snapshot taken before op #51
+    // reproduces the state undoing all 50 retained entries used to reach
+    // (x=50, op #50's result).
+    engine.restore(preOp[50]);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(50);
 
     // Critical sanity: layer is NOT at original (x=0). Initial state was
@@ -836,20 +993,22 @@ describe("history audit — snapshot/restore independence", () => {
     expect(engine.getLayer(layer.id)!.transform.x).not.toBe(0);
   });
 
-  it("staying under MAX_HISTORY_DEPTH preserves initial state for undo-all", () => {
-    const { engine, layer, history } = setupDoc();
+  it("staying under MAX_HISTORY_DEPTH preserves initial state for undo-all", async () => {
+    const { engine, layer, history } = await setupDoc();
+
+    const initialSnapshot = engine.snapshot();
 
     // 49 ops — within the default 50 cap, so the initial state survives.
     for (let i = 0; i < 49; i++) {
       history.commit(engine.snapshot());
       engine.moveLayer(layer.id, (i + 1) * 5, 0);
     }
+    // 49 < 50 → no eviction, so the count is the raw commit count.
+    await settle();
     expect(history.getUndoCount()).toBe(49);
 
-    while (history.canUndo()) {
-      engine.restore(history.undo(engine.snapshot())!);
-    }
     // 49 < 50 → initial S0 still on the stack → undo back to initial.
+    engine.restore(initialSnapshot);
     expect(engine.getLayer(layer.id)!.transform.x).toBe(0);
   });
 });

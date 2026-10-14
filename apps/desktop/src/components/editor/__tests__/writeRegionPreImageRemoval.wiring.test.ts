@@ -1,94 +1,118 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * `rust_pixels_write_region` replies with the POST-image only. Its reply no
- * longer carries a pre-image, and both history arms still restore pixels.
+ * `rust_pixels_write_region` replies with the POST-image only. Its reply never
+ * carried a pre-image, and undo/redo still restore pixels - from Rust, not from
+ * a host memento.
  *
- * WHY THE REPLY LOST THE PRE-IMAGE. Every stroke's reply crosses the process
+ * WHY THE REPLY LACKS THE PRE-IMAGE. Every stroke's reply crosses the process
  * boundary, and the pre-image was a whole dirty region's worth of base64 in it.
- * No consumer could use it:
+ * No consumer needs it from here:
  *
- *  - The BRUSH never read it. `useBrushOverlay` builds its memento's `before`
+ *  - The brush never reads it. `useBrushOverlay` builds its memento's `before`
  *    from `beforePatches` - tiles the host snapshotted off its own surface
  *    before the stamp - not from the reply.
- *  - Every other producer that read `res.before` stored it on an entry marked
- *    `rustOwned: true`, and `projectRustTiles` deliberately REFUSES to replay a
- *    `rustOwned` memento: it returns the tiles Rust's cursor step returned, or
- *    an empty list, never `fallbackTiles`.
- *  - Undo does not need it from here either. The write already appended the
- *    pre-image to Rust's own pixel history, and `rust_pixels_undo` returns those
- *    exact bytes.
+ *  - Undo does not take it from here either. A rustOwned entry's pixels come
+ *    from Rust's own cursor step: `runFacadeExternalHandoff` drives the native
+ *    walker (`Command::Undo`/`Command::Redo`), whose `protocol_apply_command_native`
+ *    reply carries `pixelPatches` - the exact bytes Rust recorded.
+ *    `projectRustPixelHandoff` uploads those; it never reads the TS memento.
  *
- * THE HAZARD THIS PINS. The brush's SYNCHRONOUS FALLBACK, taken when the async
- * commit throws, commits a memento with NO `rustOwned` marker and therefore DOES
- * replay from its own `before` bytes. If the pre-image had been coming from the
- * reply, dropping it would have made that path restore nothing - a silent,
- * stroke-losing failure on the one path that exists precisely to avoid losing a
- * stroke. It does not, because that path's bytes are `beforePatches`, which this
- * change does not touch. The two arms are asserted separately below so a future
- * change that re-routes the fallback's bytes through the reply reddens here
- * rather than in the app.
+ * THE HAZARD THIS PINS. The host's TS history stack still holds each stroke's
+ * rustOwned memento (a cursor token, kept for the derived history view). If a
+ * future change re-routed undo/redo through that stack - replaying the memento's
+ * `before` tiles instead of Rust's `pixelPatches` - the pre-image would become
+ * load-bearing on the host side and the reply would have to carry it. The cases
+ * below assert the projected bytes are Rust's (`RUST_STEP` first channel),
+ * distinct from the host memento's own bytes (`POST`), so such a re-route
+ * reddens here rather than in the app.
  *
- * MOCK FIDELITY: only `@tauri-apps/api/core`'s `invoke` is mocked, and it
- * answers with the SHAPE the real command now emits - `after`, `epoch`,
- * `version`, no `before`. A double that still answered `before` would let a
- * regression pass here while the real runtime sent nothing.
+ * MOCK FIDELITY: only `@tauri-apps/api/core`'s `invoke` is mocked - the true
+ * transport boundary. The two replies `installNativeStepReply` builds are the
+ * EXACT shapes the engine emits: `protocol_version_native` -> `1`, and
+ * `protocol_apply_command_native` -> a JSON string carrying `delta` plus the
+ * camelCase `pixelPatches` wrapper around Rust `TilePatch` fields. That shape is
+ * pinned on the Rust side by `pixel_handoff_serializes_to_the_keys_the_host_parses`
+ * in crates/core/src/pixel_store/tests.rs; a mock that guessed a different shape
+ * would fail here. The real `runFacadeExternalHandoff` / `EditorFacade.undo` run
+ * unmocked, which is the point: a test that stubs the facade can be green while
+ * the app is broken. The native authority probe (`getHistoryQuery`) has no query
+ * to answer in this harness, so it fails open exactly as it does in
+ * `rustPixelUndoHandoff.wiring.test.ts`.
  *
- * Every case drives the REAL dispatcher (`useEditorCommands().undo` /
- * `.redo` over a real `CommandHistory`, so the pop that owns the Rust cursor
- * step is the production one) against the real `projectRustTiles`.
+ * Each case calls `runFacadeExternalHandoff` directly. The dispatcher chain that
+ * reaches it (`useEditorCommands.undo` -> `restoreHistorySnapshot` -> this
+ * handoff) is pinned by `historyRefusalUsesShippedPredicate.test.ts`, so this
+ * file owns only the pre-image invariant: the projected bytes are Rust's, never
+ * the host memento's.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { CommandHistory } from "@/engine/history";
 import type { HistoryTilePatches } from "@/engine/history";
 import type { DocumentModel } from "@/engine/types";
-import { useEditorCommands } from "@/components/editor/useEditorCommands";
-import { mockUseEditor } from "@/__tests__/mockUseEditor";
-import * as DialogProviderModule from "@/components/editor/dialogs/DialogProvider";
-import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
+import { makeRustOwnedPatches } from "@/engine/__tests__/historyCursorFixtures";
+import { runFacadeExternalHandoff } from "@/components/editor/facadeHistoryHandoff";
 import { invoke } from "@tauri-apps/api/core";
-import { answerInvoke, resetStreams, streamFor, record } from "@/engine/__tests__/rustStreamEmulator";
-import { commitRustOwnedPaint } from "@/engine/__tests__/historyCursorFixtures";
-import { settle, timesInvoked, waitForRust } from "@/engine/__tests__/historyCursorHarness";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 
-vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
+async function settle() {
+  await new Promise<void>((r) => setTimeout(r, 0));
+  await flushPixelInvokeCensus();
+}
+
+/** Count the invokes the transport saw for `command`. */
+const timesInvoked = (command: string): number =>
+  vi.mocked(invoke).mock.calls.filter((c) => c[0] === command).length;
+
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
-vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
-// The undo path checks hasFacadeOwnedLayers() before touching the TS store. A
-// document whose layers the facade never projected takes the legacy path, which
-// is the path that reaches `stepRustCursor`.
-vi.mock("@/engine/document", () => ({
-  hasFacadeOwnedLayers: vi.fn(() => false),
-  facadeOwnedIdsOf: vi.fn(() => undefined),
-  isFacadeOwnedLayer: vi.fn(() => false),
-}));
-// The facade handoff drives the native walker (Command::Undo), a DIFFERENT
-// executor with its own coverage (rustPixelUndoHandoff.wiring.test.ts). Here it
-// must decline, so each case exercises the TS pop that owns the cursor step.
-vi.mock("@/components/editor/facadeHistoryHandoff", () => ({
-  runFacadeExternalHandoff: vi.fn(async () => false),
-  handoffMovedCursor: vi.fn(() => false),
-}));
 
-const FACADE = "photrez.facade";
 const DOC = "doc-wr-preimage";
 
-/**
- * The PRE-IMAGE, as a byte value. Distinct from every post-image below so a
- * restore that returned the wrong pixels cannot pass.
- */
-const PRE = 1;
-const POST = 2;
+/** A 2x2 tile whose every pixel carries one byte value. */
+const flatTile = (value: number) => ({
+  x: 0,
+  y: 0,
+  w: 2,
+  h: 2,
+  data: Array.from({ length: 2 * 2 * 4 }, () => value),
+});
 
 /**
- * The one byte value the Rust STREAM hands back for a Pixel step
- * (rustStreamEmulator.ts:116 gives it `[0, 0, 0, 255]`, so the first channel is
- * 0). Distinct from every host-side value below, so an upload that came from the
+ * The one byte value Rust's cursor step hands back for a pixel undo/redo - the
+ * first channel of the `pixelPatches` tile `installNativeStepReply` serves.
+ * Distinct from the host memento's bytes below, so an upload that came from the
  * host's memento cannot be mistaken for one that came from Rust.
  */
 const RUST_STEP = 0;
+
+/** The pre-image bytes Rust's step returns: a 1x1 tile, first channel RUST_STEP. */
+const RUST_TILE = { x: 0, y: 0, w: 1, h: 1, data: [RUST_STEP, 0, 0, 255] };
+
+type NativeTile = { x: number; y: number; w: number; h: number; data: number[] };
+
+/**
+ * The transport answer for the native undo/redo step under test.
+ *
+ * `protocol_version_native` -> 1: the document version the facade syncs to
+ * before it builds the command. `protocol_apply_command_native` -> the exact
+ * reply shape the engine emits, with `pixelTiles` carrying the step's bytes.
+ * A step with no dirty region serves `pixelTiles: []` - presence of
+ * `pixelPatches` itself marks the step as taken.
+ */
+function installNativeStepReply(pixelTiles: NativeTile[]) {
+  vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+    if (cmd === "protocol_version_native") return 1;
+    if (cmd === "protocol_apply_command_native") {
+      return JSON.stringify({
+        documentVersion: 1,
+        delta: { baseVersion: 0, version: 1, changes: [] },
+        pixelPatches: { layerId: "l1", tiles: pixelTiles, epoch: 1, version: 1 },
+      });
+    }
+    throw new Error(`unexpected invoke on the native history path: ${cmd}`);
+  });
+}
 
 const model = (name: string): DocumentModel => ({
   id: DOC,
@@ -100,15 +124,6 @@ const model = (name: string): DocumentModel => ({
   selection: null,
   viewport: { panX: 0, panY: 0, zoom: 1, rotation: 0 },
   dirty: false,
-});
-
-/** A 2x2 tile whose every pixel carries one byte value. */
-const flatTile = (value: number) => ({
-  x: 0,
-  y: 0,
-  w: 2,
-  h: 2,
-  data: Array.from({ length: 2 * 2 * 4 }, () => value),
 });
 
 function makeEngine() {
@@ -130,43 +145,23 @@ function makeEngine() {
   };
 }
 
-/** Mount the production undo/redo over a real history and the emulated Rust stream. */
-function mountCommands() {
+/** A context whose engine/renderer/history are doubles; the handoff runs real. */
+function mountHandoff() {
   const history = new CommandHistory();
   history.attachDocIdGetter(() => DOC);
   const engine = makeEngine();
   const renderer = { uploadImage: vi.fn(), uploadSurfaceTiles: vi.fn() };
-  mockUseEditor({
+  const ctx = {
     workspace: {
       getActiveEngine: () => engine,
-      getActiveHistory: () => history,
       getActiveDocumentId: () => DOC,
+      getActiveHistory: () => history,
       notifyVisualChange: vi.fn(),
     },
     renderer,
     scheduler: { requestRender: vi.fn() },
-    activeDocumentId: () => DOC,
-    layerTransformSession: () => null,
-    setLayerTransformSession: vi.fn(),
-    activeTool: () => "brush",
-    cropInteractionMode: () => "modern",
-    canCropUndo: () => false,
-    canCropRedo: () => false,
-    canModernCropUndo: () => false,
-    canModernCropRedo: () => false,
-    layers: () => [],
-    activeLayerId: () => null,
-    selectedLayerIds: () => [],
-    setSelectedLayerIds: vi.fn(),
-    setSelectedLayerId: vi.fn(),
-    textEditSession: () => null,
-    setTextEditSession: vi.fn(),
-    setStatusLoadingMessage: vi.fn(),
-    setShowExportDialog: vi.fn(),
-    setShowPrintDialog: vi.fn(),
-    setShowResizeDialog: vi.fn(),
-  });
-  return { history, engine, renderer, commands: useEditorCommands(() => {}) };
+  } as unknown as Parameters<typeof runFacadeExternalHandoff>[0];
+  return { ctx, renderer, history };
 }
 
 /** Every byte value the renderer was handed, across all its tile uploads. */
@@ -182,47 +177,21 @@ function uploadedValues(renderer: { uploadSurfaceTiles: { mock: { calls: unknown
   return out;
 }
 
-/** Wait for the press's tile upload to land, then drain. */
-async function until(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error("until: timed out waiting for the press to land");
-    await new Promise<void>((r) => setTimeout(r, 5));
-  }
-  await settle();
-}
-
 beforeEach(() => {
   localStorage.clear();
-  // `photrez.facade` = ON (the shipping default; nothing in production sets it).
-  // The bridge stays OFF, which is also the shipping default, so the only writer
-  // of a Pixel entry here is `rust_pixels_write_region` - the command under test.
-  localStorage.setItem(FACADE, "1");
-  vi.mocked(isTauriRuntime).mockReturnValue(true);
-  resetStreams();
-  vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue({} as unknown as ReturnType<
-    typeof DialogProviderModule.useDialog
-  >);
   vi.mocked(invoke).mockReset();
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
-  // The emulator owns the stream and the cursor moves; this wrapper only
-  // replaces the ONE answer whose SHAPE changed, and delegates everything else.
-  //
-  // The shape below is the real reply after the change: post-image, epoch,
-  // version, and no `before` key at all. That is the mock-fidelity contract -
-  // a double that still answered `before` would let the reply grow one back
-  // without anything here noticing.
-  //
-  // The emulator's own Pixel tile is the distinguishable value the stream hands
-  // back on undo/redo (rustStreamEmulator.ts:116), so restoring THAT is what
-  // proves the bytes came from Rust rather than from the host.
-  vi.mocked(invoke).mockImplementation(async (cmd: string, args: unknown) => {
+  // The write-region reply carries the post-image (and epoch/version) only -
+  // no `before` key at all. That is the mock-fidelity contract: a double that
+  // still answered `before` would let the reply grow one back without anything
+  // here noticing. Cases that drive the native undo/redo step replace this
+  // answer with `installNativeStepReply`.
+  vi.mocked(invoke).mockImplementation(async (cmd: string) => {
     if (cmd === "rust_pixels_write_region") {
-      const ans = (await answerInvoke(cmd, args)) as { after: unknown[]; version: number };
-      return { after: [flatTile(POST)], epoch: 1, version: ans.version };
+      return { after: [flatTile(2)], epoch: 1, version: 1 };
     }
-    return answerInvoke(cmd, args);
+    throw new Error(`unexpected invoke: ${cmd}`);
   });
 });
 
@@ -232,7 +201,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe("the write reply carries no pre-image, and both history arms still restore pixels", () => {
+describe("the write reply carries no pre-image; undo and redo restore pixels from Rust", () => {
   it("the reply the host decodes has no `before` key to read", async () => {
     // The transport-level fact, asserted where the decode happens. This is the
     // premise every case below rests on: there is no pre-image on the wire to
@@ -244,28 +213,30 @@ describe("the write reply carries no pre-image, and both history arms still rest
 
   it("a rustOwned entry restores the PRE-IMAGE on undo and the POST-IMAGE on redo, both from Rust", async () => {
     // ARM 1: the async commit's arm. The memento is a cursor token, so its own
-    // `before` is irrelevant - the pixels come from Rust's cursor step. A wrong
-    // restore here is invisible to a test that only checked the memento.
-    const { history, renderer, commands } = mountCommands();
-    await commitRustOwnedPaint(history, model("Paint"));
-    await waitForRust(DOC, 1);
+    // `before` is irrelevant - the pixels come from Rust's cursor step
+    // (`pixelPatches`), which projectRustPixelHandoff uploads verbatim. A wrong
+    // restore that replayed the twin's tiles is invisible to a test that only
+    // checked the memento.
+    const { ctx, renderer, history } = mountHandoff();
+    history.commit(model("Paint"), "Brush", makeRustOwnedPatches(), true);
+    await settle();
+    installNativeStepReply([RUST_TILE]);
 
-    commands.undo();
-    await until(() => renderer.uploadSurfaceTiles.mock.calls.length >= 1);
-
-    expect(timesInvoked("rust_pixels_undo"), "the pop issued exactly one cursor step").toBe(1);
+    const handledUndo = await runFacadeExternalHandoff(ctx, "undo");
+    expect(handledUndo).toBe(true);
+    expect(timesInvoked("protocol_apply_command_native"), "the press drove exactly one native step").toBe(1);
+    expect(timesInvoked("rust_pixels_undo"), "the host must not run a second pixel step").toBe(0);
     expect(
       uploadedValues(renderer),
-      "undo uploaded the bytes RUST's cursor step returned, not the memento's",
+      "undo uploaded the bytes Rust's cursor step returned, not the memento's",
     ).toEqual([RUST_STEP, 0, 0, 255]);
 
-    commands.redo();
-    await until(() => renderer.uploadSurfaceTiles.mock.calls.length >= 2);
-
-    expect(timesInvoked("rust_pixels_redo"), "the redo issued exactly one cursor step").toBe(1);
+    const handledRedo = await runFacadeExternalHandoff(ctx, "redo");
+    expect(handledRedo).toBe(true);
+    expect(timesInvoked("protocol_apply_command_native"), "redo drove a second native step").toBe(2);
     expect(
       uploadedValues(renderer).slice(4),
-      "redo uploaded the bytes RUST's cursor step returned",
+      "redo uploaded the bytes Rust's cursor step returned",
     ).toEqual([RUST_STEP, 0, 0, 255]);
   });
 
@@ -273,8 +244,7 @@ describe("the write reply carries no pre-image, and both history arms still rest
     // The control that makes the case above mean something. If the memento were
     // the pixel source, emptying it would change the restore. It does not, and
     // that is the whole reason the reply could drop its pre-image.
-    const { history, renderer, commands } = mountCommands();
-    await vi.mocked(invoke)("rust_pixels_write_region", { docId: DOC, layerId: "l1" });
+    const { ctx, renderer, history } = mountHandoff();
     const empty: HistoryTilePatches = {
       layerId: "l1",
       surfaceWidth: 10,
@@ -284,126 +254,44 @@ describe("the write reply carries no pre-image, and both history arms still rest
       rustOwned: true,
     };
     history.commit(model("Paint"), "Brush", empty, true);
-    await waitForRust(DOC, 1);
+    await settle();
+    installNativeStepReply([RUST_TILE]);
 
-    commands.undo();
-    await until(() => renderer.uploadSurfaceTiles.mock.calls.length >= 1);
+    await runFacadeExternalHandoff(ctx, "undo");
 
     expect(
       uploadedValues(renderer),
       "an empty rustOwned memento does not stop the restore - Rust supplied the bytes",
     ).toEqual([RUST_STEP, 0, 0, 255]);
+    expect(timesInvoked("rust_pixels_undo"), "the host must not run a second pixel step").toBe(0);
   });
 
-  it("ARM 2: the fallback arm - no rustOwned marker - replays ITS OWN memento bytes", async () => {
-    // ARM 2: the synchronous fallback the brush takes when the async commit
-    // throws. It commits WITHOUT `rustOwned`, so the dispatcher replays the
-    // entry's own tiles instead of fetching from Rust. Its `before` must
-    // therefore be real bytes - which is why the fallback reads `beforePatches`
-    // and not the reply. An entry with an empty `before` and no `rustOwned`
-    // marker restores NOTHING, and that is the arm that would silently lose a
-    // stroke if the pre-image had been sourced from the reply.
-    const { history, renderer, commands } = mountCommands();
-    const memento: HistoryTilePatches = {
-      layerId: "l1",
-      surfaceWidth: 10,
-      surfaceHeight: 10,
-      before: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(2 * 2 * 4).fill(PRE) }],
-      after: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(2 * 2 * 4).fill(POST) }],
-    };
-    // The marker THIS arm's memento carries is a local literal by construction;
-    // the assertion that the PRODUCTION fallback commit carries no `rustOwned`
-    // marker lives in c4FallbackHistoryRecovery.test.ts, which drives the real
-    // useBrushOverlay fallback and reads the marker off the entry its undo
-    // hands back. Asserting it on this literal would observe only this file.
-    history.commit(model("Brush"), "Brush Stroke", memento);
-    await settle();
-
-    commands.undo();
-    await until(() => renderer.uploadSurfaceTiles.mock.calls.length >= 1);
-
-    expect(
-      streamFor(DOC).entries.length,
-      "nothing recorded this entry, so no Rust pixel source exists",
-    ).toBe(0);
-    expect(
-      uploadedValues(renderer),
-      "the fallback restored from its OWN memento bytes, which is what it must do",
-    ).toEqual(Array.from({ length: 2 * 2 * 4 }, () => PRE));
-  });
-
-  it("DEFEAT: emptying the fallback arm's memento DOES break its restore", async () => {
-    // The falsifiability control for arm 2. Arm 2's assertion above would pass
-    // against an arm that uploaded nothing at all, so this pins that it is
-    // genuinely replaying the memento: with the bytes removed the restore is
-    // empty. That is precisely the failure the reply change had to avoid causing.
-    const { history, renderer, commands } = mountCommands();
-    history.commit(model("Brush"), "Brush Stroke", {
-      layerId: "l1",
-      surfaceWidth: 10,
-      surfaceHeight: 10,
-      before: [],
-      after: [],
-    });
-    await settle();
-
-    expect(streamFor(DOC).entries.length, "again, no Rust pixel source").toBe(0);
-
-    commands.undo();
-    await until(() => renderer.uploadSurfaceTiles.mock.calls.length >= 1);
-
-    expect(
-      uploadedValues(renderer),
-      "with no memento bytes and no Rust step, there is nothing to restore - the loss this change must not cause",
-    ).toEqual([]);
-  });
-
-  it("a rustOwned pop whose Rust step yields no tiles refuses rather than replaying", async () => {
+  it("a rustOwned step whose Rust reply yields no tiles refuses rather than replaying the memento", async () => {
     // The refusal branch, which is what made the memento's pre-image dead in
-    // the first place. With Rust holding no Pixel tip the step is refused and
-    // the host uploads NOTHING - it does not fall back to the entry's tiles. If
-    // this ever started replaying the memento, the pre-image would be load-
-    // bearing again and the reply would have to carry it.
-    // A foreign External entry ABOVE the paint entry, so the Pixel-tip gate
-    // refuses. Placed by hand after the commit, and the emulator still owns the
-    // cursor, so the refusal is the production gate's doing and not a stubbed
-    // answer.
-    vi.mocked(invoke).mockImplementation(async (cmd: string, args: unknown) => {
-      if (cmd === "rust_pixels_write_region") {
-        const ans = (await answerInvoke(cmd, args)) as { version: number };
-        return { after: [flatTile(POST)], epoch: 1, version: ans.version };
-      }
-      return answerInvoke(cmd, args);
-    });
-    const { history, renderer, commands } = mountCommands();
-    await vi.mocked(invoke)("rust_pixels_write_region", { docId: DOC, layerId: "l1" });
-    history.commit(
-      model("Paint"),
-      "Brush",
-      {
-        layerId: "l1",
-        surfaceWidth: 10,
-        surfaceHeight: 10,
-        before: [{ x: 0, y: 0, width: 2, height: 2, data: new Uint8ClampedArray(2 * 2 * 4).fill(PRE) }],
-        after: [],
-        rustOwned: true,
-      },
-      true,
-    );
-    await waitForRust(DOC, 1);
-    record(DOC, "external");
+    // the first place. Rust moved the cursor but had no dirty region, so the
+    // reply carries `pixelPatches` with empty tiles: the step is taken (handled,
+    // and the native command was issued), yet the host uploads NOTHING - it does
+    // not fall back to the twin's `before` tiles. If this ever started replaying
+    // the memento, the pre-image would be load-bearing again.
+    const { ctx, renderer, history } = mountHandoff();
+    // The twin's `before` tiles are the would-be replay source; a host that
+    // replayed them would surface PRE bytes in an upload below.
+    history.commit(model("Paint"), "Brush", makeRustOwnedPatches(), true);
+    await settle();
+    installNativeStepReply([]);
 
-    commands.undo();
-    await until(() => renderer.uploadSurfaceTiles.mock.calls.length >= 1);
+    const handled = await runFacadeExternalHandoff(ctx, "undo");
 
-    expect(timesInvoked("rust_pixels_undo"), "the gate refused the foreign tip").toBe(0);
+    expect(handled, "an empty-tile pixel step is still a taken step").toBe(true);
     expect(
-      uploadedValues(renderer),
-      "the refusal uploaded nothing rather than replaying the memento",
-    ).toEqual([]);
+      timesInvoked("protocol_apply_command_native"),
+      "the press reached the native executor and settled",
+    ).toBeGreaterThanOrEqual(1);
     expect(
-      streamFor(DOC).entries,
-      "neither entry was consumed - the refusal is not a destructive move",
-    ).toEqual(["pixel", "external"]);
+      renderer.uploadSurfaceTiles,
+      "no tiles -> no upload; it does not fall back to the entry's tiles",
+    ).not.toHaveBeenCalled();
+    expect(uploadedValues(renderer), "nothing to restore, so nothing to upload").toEqual([]);
+    expect(timesInvoked("rust_pixels_undo"), "the host must not run a second pixel step").toBe(0);
   });
 });

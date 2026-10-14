@@ -212,12 +212,14 @@ describe("navigateHistoryNative over a native pixel stream", () => {
     expect(applyCalls).toBe(1);
     expect(result.blocked).toBe(true);
     expect(result.completedSteps).toBe(0);
-    expect(result.reason).toContain("external entry pending");
+    // The handoff reports every rejection as "handled, cursor did not move", so
+    // the jump's reason no longer names the barrier that caused the rejection.
+    expect(result.reason).toContain("the native cursor did not move");
     expect(calls.filter((c) => c.startsWith("putImageData:"))).toEqual([]);
     expect(warns.some((w) => String(w).includes("blocked"))).toBe(true);
   });
 
-  it("a non-barrier walker rejection falls to the legacy pop, which restores the model", async () => {
+  it("a non-barrier walker rejection is a handled no-op: the jump stops and no legacy fallback runs", async () => {
     const calls: string[] = [];
     const surface = makeSurface(calls);
     const engine = makeEngine(calls, surface);
@@ -225,6 +227,7 @@ describe("navigateHistoryNative over a native pixel stream", () => {
     history.attachDocIdGetter(() => DOC_ID);
     const earlier = { id: "docJumpPixel", name: "n" } as never;
     history.commit(earlier, "Add Layer");
+    let applyCalls = 0;
     invokeMock.mockImplementation(async (cmd: string): Promise<unknown> => {
       switch (cmd) {
         case "protocol_version_native":
@@ -237,8 +240,10 @@ describe("navigateHistoryNative over a native pixel stream", () => {
             pendingExternal: null,
             entries: [BASELINE_ENTRY, PIXEL_ENTRY],
           });
-        case "protocol_apply_command_native":
+        case "protocol_apply_command_native": {
+          applyCalls += 1;
           throw "E_UNKNOWN_ROUTE";
+        }
         default:
           throw `unexpected invoke: ${cmd}`;
       }
@@ -246,10 +251,13 @@ describe("navigateHistoryNative over a native pixel stream", () => {
 
     const result = await navigateHistoryNative(makeHost(engine, history), 0);
 
-    // The legacy pop consumed the TS twin entry instead of throwing or
-    // silently landing short: the model restore ran and the jump continued.
-    expect(engine.restore).toHaveBeenCalled();
-    expect(result.completedSteps).toBe(1);
-    expect(result.blocked).toBe(false);
+    // The walker was actually driven (the rejection is not swallowed before dispatch),
+    // but the legacy TS pop it used to fall through to is retired. A TS entry is
+    // available to pop - history.commit above recorded one - and is NOT consumed.
+    expect(applyCalls).toBe(1);
+    expect(engine.restore).not.toHaveBeenCalled();
+    expect(result.blocked).toBe(true);
+    expect(result.completedSteps).toBe(0);
+    expect(result.reason).toContain("the native cursor did not move");
   });
 });

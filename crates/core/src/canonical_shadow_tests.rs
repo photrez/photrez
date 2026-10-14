@@ -1,6 +1,6 @@
 use crate::canonical_model::*;
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::RenderLayer;
 
 // --- fixtures: three fully-distinct layers, overlap fields aligned between
@@ -124,8 +124,8 @@ fn doc_3() -> CanonicalDocument {
     }
 }
 
-fn seeded_engine() -> ProtocolEngine {
-    let mut e = ProtocolEngine::new();
+fn seeded_engine() -> DocumentCore {
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![render_layer(1), render_layer(2), render_layer(3)], 0);
     e.seed_canonical(doc_3());
     e
@@ -450,7 +450,7 @@ fn rejected_command_does_not_touch_shadow() {
 
 #[test]
 fn no_shadow_no_reconcile_overhead() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![render_layer(1), render_layer(2)], 0);
     assert!(e.canonical().is_none());
     e.apply(env(Command::SetOpacity {

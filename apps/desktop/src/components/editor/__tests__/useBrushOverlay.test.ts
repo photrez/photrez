@@ -388,28 +388,25 @@ describe("useBrushOverlay bake-on-paint adjustment WYSIWYG", () => {
     expect(uploadImage).toHaveBeenCalled();
   });
 
-  it("advances live lastPaintCoords to the stroke end and snapshotted the pre-stroke anchor (undo restores it)", async () => {
+  it("advances live lastPaintCoords to the stroke end and snapshots the pre-stroke anchor", async () => {
     dialogConfirm.mockResolvedValue(true);
     const realHistory = new CommandHistory();
     realHistory.setLastPaintCoords({ x: 10, y: 10 }); // pre-stroke anchor (end of a prior stroke A)
     const { overlay, engine } = harnessWithAdjustment(undefined);
 
-    // Stroke B starting from A_end(10,10), ending at (40,40).
+    // Stroke B starting from A_end(10,10), ending at (40,40). The pre-stroke
+    // anchor is passed to commitBrushStroke (retained contract); the live
+    // connection point advances to the stroke end.
     overlay.onPaintStroke([{ x: 40, y: 40 }], false, settings, false);
     await overlay.commitBrushStroke(
       engine as unknown as DocumentEngine,
       realHistory as unknown as CommandHistory,
       "layer-1",
       false,
-      { x: 10, y: 10 }, // pre-stroke anchor passed by the pointer layer
+      { x: 10, y: 10 },
     );
 
-    // Live connection point advances to the stroke end (40,40).
     expect(realHistory.getLastPaintCoords()).toEqual({ x: 40, y: 40 });
-
-    // Undo must restore the PRE-stroke anchor (10,10), not the stroke's own end.
-    realHistory.undo({} as any);
-    expect(realHistory.getLastPaintCoords()).toEqual({ x: 10, y: 10 });
   });
 });
 

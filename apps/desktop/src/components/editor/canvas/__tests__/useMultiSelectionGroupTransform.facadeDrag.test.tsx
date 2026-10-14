@@ -17,7 +17,7 @@
 //     per-frame mutator landed. The parity cases in the last block are what pin that.
 //
 // Real hook, real DocumentEngine, real history, real protocol arm.
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import { useMultiSelectionGroupTransform } from "../useMultiSelectionGroupTransform";
 import { DocumentEngine, isFacadeOwnedLayer } from "@/engine/document";
@@ -57,11 +57,71 @@ vi.mock("../../shell/EditorContext", () => ({ useEditor: () => mockEditorState }
 // factory below arms the same engine on the bridge surface the suite drives
 // (it must be imported INSIDE the factory: vi.mock is hoisted above imports).
 const { commandLog } = vi.hoisted(() => ({ commandLog: { types: [] as string[] } }));
+
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
   return makeWasmArmedBridge(actual, commandLog);
 });
+
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
+
+// Native-authoritative history view harness (mirrors history-audit.test.ts):
+// getUndoCount()/getHistoryStack() read `protocol_history_query_native` off a cached query
+// the editor shell keeps in sync via resyncFromNativeQuery. Stub bridge_emu's
+// getHistoryQuery to serve a per-test nativeStream, and wrap each real
+// history.commit()/recordSnapshotHistory() so undo-count/undo-step assertions reflect live
+// edits instead of the hardwired 0 an unauthoritative query yields for a bare
+// `new CommandHistory()` (no doc-id getter, no native seed).
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/protocol/bridge_emu")>()),
+  getHistoryQuery: vi.fn(),
+}));
+
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+
+function appendNativeEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label,
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+
+function nativeQuery(): HistoryQueryResult {
+  return {
+    cursor: nativeStream.length,
+    lastSeq: nativeStream.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: [...nativeStream],
+  };
+}
+
+// Wrap a history so each real commit/recordSnapshotHistory also appends one native user
+// entry and publishes the refreshed query synchronously — mirroring each TS commit routing
+// into the unified Rust cursor, so getUndoCount()/getHistoryStack() observe the live op
+// instead of a null (unauthoritative) cache.
+function armHistory(history: import("@/engine/history").CommandHistory) {
+  history.attachDocIdGetter(() => DOC);
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    appendNativeEntry(label ?? "Commit");
+    realCommit(snapshot, label, ...rest);
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+  }) as typeof history.commit;
+  const realRecord = history.recordSnapshotHistory.bind(history);
+  history.recordSnapshotHistory = ((before, after, label, pl) => {
+    appendNativeEntry(label ?? "Commit");
+    realRecord(before, after, label, pl);
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+  }) as typeof history.recordSnapshotHistory;
+  // Seed the baseline immediately so the view is authoritative before any op fires.
+  (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+}
 
 const DOC = "group-transform-facade";
 // A case that runs one fixture per authority needs two documents: the facade registry
@@ -74,6 +134,21 @@ const usedDocs: string[] = [];
 
 beforeAll(async () => {
   wasm = await armWasmModule();
+});
+
+beforeEach(() => {
+  // Reset the shared native stream (seeded with the document-open baseline) and
+  // re-point the query mock before each test so counts are driven by this test's
+  // commits, not a leak from the previous fixture.
+  nativeStream.length = 0;
+  nextSeq = 1;
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label: "Set Background Flag",
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+  QUERY_MOCK.mockReset();
+  QUERY_MOCK.mockImplementation(async () => nativeQuery());
 });
 
 afterEach(() => {
@@ -190,6 +265,9 @@ async function harness(opts: {
   const legacyId = opts.legacy ? engine.addLayer("Legacy", 200, 200).id : "";
 
   const history = new CommandHistory();
+  // Drive undo-count / undo-step assertions onto the native-authoritative view so a
+  // bare CommandHistory (no live Rust host in jsdom) reports real commit counts.
+  armHistory(history);
   const scheduler = { requestRender: vi.fn() };
   const otherEngine = new DocumentEngine(`${doc}-other`, "Other", 800, 600);
   let activeEngine: DocumentEngine | null = engine;

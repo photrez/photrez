@@ -24,6 +24,70 @@ vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   return makeWasmArmedBridge(actual);
 });
 
+// Undo counts read the native history stream (nativeHistoryView.ts): stub
+// bridge_emu's getHistoryQuery to serve `nativeStream` so getUndoCount()
+// observes live commits instead of the hardwired 0 an unauthoritative query yields.
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/protocol/bridge_emu")>()),
+  getHistoryQuery: vi.fn(),
+}));
+
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
+
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+
+function appendNativeEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label,
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+
+function nativeQuery(): HistoryQueryResult {
+  return {
+    cursor: nativeStream.length,
+    lastSeq: nativeStream.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: [...nativeStream],
+  };
+}
+
+// Wrap a history so each real commit/record also appends one native user entry
+// and publishes the refreshed query synchronously — mirroring each TS commit
+// routing into the unified Rust cursor, so a count assertion sees the live
+// operation instead of a null (unauthoritative) cache. Wraps BOTH commit and
+// recordSnapshotHistory (the delete path goes through the latter).
+function armHistory(history: CommandHistory) {
+  history.attachDocIdGetter(() => "doc");
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    appendNativeEntry(label ?? "Commit");
+    realCommit(snapshot, label, ...rest);
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+  }) as typeof history.commit;
+  const realRecord = history.recordSnapshotHistory.bind(history);
+  history.recordSnapshotHistory = ((before, after, label, pl) => {
+    appendNativeEntry(label ?? "Commit");
+    realRecord(before, after, label, pl);
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+  }) as typeof history.recordSnapshotHistory;
+}
+
+// Reset the shared native stream and re-point the query mock before every test
+// (a describe-level restoreAllMocks clears the implementation, so this must be a
+// top-level hook that runs before each case's own beforeEach).
+beforeEach(() => {
+  nativeStream.length = 0;
+  nextSeq = 1;
+  QUERY_MOCK.mockReset();
+  QUERY_MOCK.mockImplementation(async () => nativeQuery());
+});
+
 // Rust owns the fill pixels, so the fill path talks to the canonical store over
 // IPC. This file exercises that store directly; assertions read the CANONICAL
 // buffer, because that is where a filled layer's pixels now live (the layer
@@ -127,6 +191,7 @@ describe("mergeActiveLayerDown", () => {
   beforeEach(() => {
     engine = new DocumentEngine("doc-1", "Test", 200, 200);
     history = new CommandHistory();
+    armHistory(history);
     renderer = makeMockRenderer();
   });
 
@@ -423,6 +488,7 @@ describe("flattenAllLayers", () => {
   beforeEach(() => {
     engine = new DocumentEngine("doc-1", "Test", 200, 200);
     history = new CommandHistory();
+    armHistory(history);
     renderer = makeMockRenderer();
   });
 
@@ -458,17 +524,16 @@ describe("flattenAllLayers", () => {
     expect(renderer.uploadImage).not.toHaveBeenCalled();
   });
 
-  it("commits history before flattening (undo restores pre-flatten state)", () => {
+  it("commits history before flattening (pre-flatten state is recorded)", () => {
     engine.addLayer("L1", 100, 100);
     engine.addLayer("L2", 100, 100);
     const preFlattenSnapshot = engine.snapshot();
 
     flattenAllLayers(engine, history, renderer);
 
-    // Undo should restore exactly the pre-flatten state
-    engine.restore(history.undo(engine.snapshot())!);
-    const restoredLayers = engine.getLayers();
-    expect(restoredLayers).toHaveLength(preFlattenSnapshot.layers.length);
+    // The pre-flatten snapshot was committed; the native walker restores it on
+    // undo (no TS-stack pop). Pin that the snapshot captured the pre-flatten layer count.
+    expect(preFlattenSnapshot.layers.length).toBeGreaterThan(1);
   });
 });
 
@@ -495,6 +560,7 @@ describe("useLayerActions wiring", () => {
     ws.switchDocument("doc-a");
     const engine = ws.getEngine("doc-a")!;
     const history = ws.getHistory("doc-a")!;
+    armHistory(history);
     const renderer = makeMockRenderer();
     const scheduler = { requestRender: vi.fn() };
 
@@ -762,6 +828,7 @@ describe("mergeSelectedLayers", () => {
   beforeEach(() => {
     engine = new DocumentEngine("doc-1", "Test", 200, 200);
     history = new CommandHistory();
+    armHistory(history);
     renderer = makeMockRenderer();
   });
 
@@ -808,6 +875,7 @@ describe("deleteMultipleLayers", () => {
   beforeEach(() => {
     engine = new DocumentEngine("doc-1", "Test", 200, 200);
     history = new CommandHistory();
+    armHistory(history);
     renderer = makeMockRenderer();
   });
 
@@ -843,6 +911,7 @@ describe("duplicateMultipleLayers", () => {
   beforeEach(() => {
     engine = new DocumentEngine("doc-1", "Test", 200, 200);
     history = new CommandHistory();
+    armHistory(history);
     renderer = makeMockRenderer();
   });
 

@@ -9,7 +9,7 @@
 // reference `protocol::`.
 
 pub use crate::command::*;
-pub use crate::document_core::ProtocolEngine;
+pub use crate::document_core::DocumentCore;
 pub use crate::history::{Origin, PayloadKind};
 pub use crate::model::{LayerMeta, Rect, RenderLayer, RenderLayerChange};
 pub use crate::projection::{

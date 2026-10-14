@@ -1,5 +1,5 @@
 // Native-authority reroute tests: the facade command/query path is routed to
-// the native engine (the per-document Rust ProtocolEngine over Tauri `invoke`).
+// the native engine (the per-document Rust DocumentCore over Tauri `invoke`).
 //
 // Mock fidelity (CRITICAL): Tauri v2 `invoke()` REJECTS with the bare
 // `"CODE: message"` string on a Rust `Err(String)`. A mock that RESOLVES with
@@ -76,7 +76,7 @@ function cmdResultJson(docVersion: number): string {
 }
 
 // Faithful Tauri v2 mock backed by per-doc native state. Replicates the REAL Rust
-// ProtocolEngine contract (verified against protocol_native_cmds.rs +
+// DocumentCore contract (verified against protocol_native_cmds.rs +
 // document_core.rs):
 //  - a missing doc (never opened) REJECTS with the bare "document not open: {key}"
 //    string (NOT an invented E_MISSING_DOC code);

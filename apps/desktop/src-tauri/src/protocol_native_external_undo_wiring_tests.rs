@@ -3,7 +3,7 @@
 // the REAL Tauri command layer and the REAL process-global registry.
 //
 // The core crate's `document_core_external_post_state_tests` proves the
-// behaviour of `ProtocolEngine` directly. This file proves the production
+// behaviour of `DocumentCore` directly. This file proves the production
 // surface reaches it: the exact command sequence `recordExternalTransitionFor`
 // issues (apps/desktop/src/lib/protocol/facadeRegistry.ts) plus the host's undo,
 // with no mocks and no emulator.
@@ -116,7 +116,7 @@ fn engine_layer_ids(doc: &str) -> Vec<String> {
 /// undone, is restored by Rust alone: the undo returns a non-empty ordered
 /// `RenderLayerChange` set, the engine's own layer vector changes, and the redo
 /// is the mirror image. Before this file nothing pinned that at the command
-/// layer - the core tests drive `ProtocolEngine`, and the facade's TS caller
+/// layer - the core tests drive `DocumentCore`, and the facade's TS caller
 /// drives these commands.
 #[test]
 fn external_metadata_undo_and_redo_restore_the_layer_vector_through_the_commands() {

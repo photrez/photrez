@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../EditorContext";
 import { RightDock } from "../RightDock";
 import { WorkspaceManager } from "@/engine/workspace";
 import { useEditorCommands, dispatchEditorCommand } from "../../useEditorCommands";
 import { clearRegistry } from "../../keyboardRegistry";
+import * as bridgeEmu from "@/lib/protocol/bridge_emu";
+import type { HistoryQueryResult } from "@/lib/protocol/types";
 
 function renderWithEditor(renderChildren: () => any, workspace = new WorkspaceManager()) {
   const renderer = {
@@ -45,9 +47,36 @@ describe("RightDock layout and tab navigation", () => {
     clearRegistry();
   });
 
-  it("renders with default values and allows switching top-level and sub-tabs", { timeout: 15000 }, () => {
+  it("renders with default values and allows switching top-level and sub-tabs", { timeout: 15000 }, async () => {
     const workspace = new WorkspaceManager();
-    workspace.addDocument(WorkspaceManager.createBlankDocument("dock-test", "Dock Test", 800, 600));
+    const session = WorkspaceManager.createBlankDocument("dock-test", "Dock Test", 800, 600);
+    workspace.addDocument(session);
+
+    // The History panel empty state ("Edits appear here") renders only when
+    // historyItems() has length 1: getHistoryStack() is native-authoritative,
+    // so a resync must land a document-open baseline (cursor 1, one
+    // Set Background Flag entry) before buildNativeHistoryItems() yields the
+    // single [{label:"Open"}] row.
+    const baselineQuery: HistoryQueryResult = {
+      cursor: 1,
+      lastSeq: 1,
+      degradedHint: false,
+      pendingExternal: null,
+      entries: [
+        {
+          seq: 1,
+          groupId: 1,
+          origin: "native",
+          label: "Set Background Flag",
+          affectedLayerIds: [],
+          versionBefore: 0,
+          versionAfter: 1,
+          memoryCostBytes: 0,
+        },
+      ],
+    };
+    vi.spyOn(bridgeEmu, "getHistoryQuery").mockResolvedValue(baselineQuery);
+    await session.history.resyncFromNativeQuery();
 
     const TestComponent = () => {
       const editor = useEditor();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Canvas-size command-arm bodies (Crop Canvas / Apply Crop / Resize Canvas).
 // Extracted from document_core_apply.rs so that module stays under the 1000-line
-// guard; this is a sibling `impl ProtocolEngine` block (method visibility is
+// guard; this is a sibling `impl DocumentCore` block (method visibility is
 // per-impl, not per module).
 //
 // These arms manage the engine document size (`doc_size`), undoable state that is
@@ -37,7 +37,7 @@ fn normalize_rotation(angle_deg: f64) -> f64 {
     a
 }
 
-impl ProtocolEngine {
+impl DocumentCore {
     /// Crop the canvas: shift every unlocked layer's position by (-x, -y) and set
     /// the document size to (width, height). Mirrors the TS `DocumentEngine.cropCanvas`
     /// / `performCropCanvas` non-destructive math, which offsets unlocked layers and

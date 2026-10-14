@@ -175,6 +175,11 @@ function makeSim() {
   // Raw IPC counters, independent of any census: a zero here cannot come from a
   // recorder that was never watching.
   const counts = { writeRegion: 0, undo: 0, redo: 0 };
+  // Native history stream mirror: `protocol_history_query_native` is read from
+  // this stream, and `protocol_apply_command_native` undo/redo walk its cursor.
+  // `rust_pixels_write_region` appends a stream entry (Rust owns the cursor
+  // step), so `canUndo()` becomes true only once the brush stroke has committed.
+  const stream = { entries: [] as Array<Record<string, unknown>>, cursor: 0 };
   const invoke = async (cmd: string, args: any, options?: any): Promise<any> => {
     // The seed arrives as a raw body plus metadata headers, not as JSON fields.
     args = decodeRustBytes({ ...args, ...(cmd === "rust_pixels_init" ? readPixelSeedCall(cmd, args)! : {}) });
@@ -208,24 +213,55 @@ function makeSim() {
       s.redo = [];
       s.epoch += 1;
       s.version += 1;
+      // Rust owns the cursor step, so the native stream records it here.
+      stream.cursor += 1;
+      stream.entries.push({ seq: stream.cursor, groupId: 1, origin: "native", label: "Brush Stroke", affectedLayerIds: [args.layerId], versionBefore: stream.cursor - 1, versionAfter: stream.cursor, memoryCostBytes: 0 });
       const cut = (p: Uint8ClampedArray) => p.slice((args.y * s.w + args.x) * 4, (args.y * s.w + args.x) * 4 + args.w * args.h * 4);
       // Post-image only: the real reply carries no pre-image. The pre-image lives
       // in `s.undo` above, which is where undo reads it back from.
       return { after: [{ x: args.x, y: args.y, w: args.w, h: args.h, data: cut(afterPx) }], epoch: s.epoch, version: s.version };
     }
-    if (cmd === "rust_pixels_undo" || cmd === "rust_pixels_redo") {
-      if (!s) throw new Error("no layer");
-      const undo = cmd === "rust_pixels_undo";
-      if (undo) counts.undo += 1;
+    if (cmd === "protocol_history_query_native") {
+      // `getHistoryQuery` JSON-parses this; the shape pins the native-stream read.
+      return JSON.stringify({
+        cursor: stream.cursor,
+        lastSeq: stream.cursor,
+        degradedHint: false,
+        pendingExternal: null,
+        entries: stream.entries,
+      });
+    }
+    if (cmd === "protocol_apply_command_native") {
+      // The native walker steps a pixel entry: undo/redo walk the SAME `s.undo` /
+      // `s.redo` stacks the retired `rust_pixels_undo` / `rust_pixels_redo` did.
+      // The reply is a JSON string; the host `JSON.parse`s it and projects
+      // `pixelPatches` via `projectRustPixelHandoff`.
+      const cmdType = JSON.parse((decodeRustBytes(args) as { envelopeJson: string }).envelopeJson).command.type;
+      if (cmdType !== "undo" && cmdType !== "redo") {
+        // Fire-and-forget doc-open / `setBackgroundFlag` seed: acknowledge, no-op.
+        return JSON.stringify({ documentVersion: s?.version ?? 0, delta: { baseVersion: s?.version ?? 0, version: s?.version ?? 0, changes: [] } });
+      }
+      // `protocol_apply_command_native` args carry no `layerId`, so derive it from
+      // the single sim layer (this fixture writes one layer only).
+      const layerKey = [...store.keys()].find((k) => k.startsWith(`${args.docId}|`));
+      const layer = layerKey ? store.get(layerKey)! : undefined;
+      if (!layer) throw new Error("no layer");
+      const layerId = layerKey!.split("|")[1];
+      const isUndo = cmdType === "undo";
+      if (isUndo) counts.undo += 1;
       else counts.redo += 1;
-      const e = (undo ? s.undo : s.redo).pop();
-      if (!e) return { tiles: [], epoch: s.epoch, version: s.version, layerId: args.layerId };
-      s.pixels = (undo ? e.before : e.after).slice();
-      (undo ? s.redo : s.undo).push(e);
-      s.epoch += 1;
-      s.version += 1;
-      const src = undo ? e.before : e.after;
-      return { tiles: [{ x: 0, y: 0, w: s.w, h: s.h, data: src.slice() }], epoch: s.epoch, version: s.version, layerId: args.layerId };
+      stream.cursor = isUndo ? stream.cursor - 1 : stream.cursor + 1;
+      const e = (isUndo ? layer.undo : layer.redo).pop();
+      if (e) layer.pixels = (isUndo ? e.before : e.after).slice();
+      (isUndo ? layer.redo : layer.undo).push(e ?? { before: layer.pixels.slice(), after: layer.pixels.slice() });
+      layer.epoch += 1;
+      layer.version += 1;
+      const tile = { x: 0, y: 0, w: layer.w, h: layer.h, data: Array.from(layer.pixels) };
+      return JSON.stringify({
+        documentVersion: layer.version,
+        delta: { baseVersion: layer.version - 1, version: layer.version, changes: [] },
+        pixelPatches: { layerId, tiles: [tile], epoch: layer.epoch, version: layer.version },
+      });
     }
     throw new Error("unknown cmd " + cmd);
   };
@@ -239,6 +275,15 @@ const hoist = vi.hoisted(() => {
 vi.mock("@tauri-apps/api/core", () => ({ invoke: hoist.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(() => Promise.resolve("0.0.0")) }));
+// The undo gate (`useEditorCommands.restoreHistorySnapshot`) only reaches
+// `runFacadeExternalHandoff` when the active document owns facade layers, read via
+// `facadeOwnedIdsOf(docId)?.size > 0`. The real `@/engine/document` returns
+// `undefined` by default, so undo would be a NO-OP and never step the sim store.
+// Keep the real DocumentEngine; only arm the ownership predicate.
+vi.mock("@/engine/document", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/engine/document")>();
+  return { ...actual, facadeOwnedIdsOf: vi.fn(() => new Set([LAYER])) };
+});
 
 /** FNV-1a over the bitmap's bytes - order-sensitive, so a shifted raster fails. */
 function hash(bmp: unknown): string {
@@ -422,6 +467,14 @@ describe("pixel undo leaves layer.imageBitmap truthful", () => {
     overlay.setOverlayCanvasRef(canvas);
     const commands = useEditorCommands(() => {});
 
+    // -- wire the native-stream view so `canUndo()` is authoritative --
+    // `CommandHistory.canUndo` reads `getNativeUndoCount(this.nativeQuery!)` only
+    // after `resyncFromNativeQuery` populates `nativeQuery` from
+    // `protocol_history_query_native`; the doc id must be attached first, and a
+    // resync must run AFTER the stroke's `rust_pixels_write_region` lands,
+    // otherwise the query still reads cursor 0 and `canUndo()` stays false.
+    history.attachDocIdGetter(() => DOC);
+    void history.resyncFromNativeQuery();
     return { sim, engine, history, layerId: layer.id, overlay, commands, preHash: hash(engine.getLayer(layer.id)!.imageBitmap) };
   }
 
@@ -431,14 +484,21 @@ describe("pixel undo leaves layer.imageBitmap truthful", () => {
     f.overlay.onPaintStroke([{ x: 20, y: 20 }], false, settings, false);
     await overlay.commitBrushStroke(engine as never, history as never, layerId, false);
     await flushC4Commits();
+    // Re-read the native stream now that the stroke's `rust_pixels_write_region`
+    // has appended a user entry; without this `canUndo()` stays false (cursor 0)
+    // and the undo press is a no-op.
+    await history.resyncFromNativeQuery();
     // Probes are read BEFORE the undo: undoing pops the Rust entry, so counting
     // it afterwards would always read zero.
     const postHash = hash(engine.getLayer(layerId)!.imageBitmap);
     const epochAfterCommit = engine.getLayer(layerId)!.bitmapEpoch;
     const rustUndoDepth = sim.store.get(`${DOC}|${layerId}`)?.undo.length ?? 0;
+    // `commands.undo()` dispatches the async facade handoff fire-and-forget, so
+    // wait until the native step actually lands, then let the projection +
+    // `ensureBitmapCurrent` settle before the probes below read the model.
     commands.undo();
-    for (let i = 0; i < 40; i++) await Promise.resolve();
-    await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 200 && sim.counts.undo === 0; i++) await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
     const postUndoRustDepth = sim.store.get(`${DOC}|${layerId}`)?.undo.length ?? 0;
     return { postHash, epochAfterCommit, rustUndoDepth, postUndoRustDepth, live: engine.getLayer(layerId)! };
   }

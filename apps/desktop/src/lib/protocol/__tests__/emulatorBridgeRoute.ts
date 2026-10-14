@@ -2,7 +2,7 @@
 // (facades, the legacy mirror, the commit shim) without a native engine.
 //
 // Production dispatch is native-only: bridge.applyCommand/getSnapshot/
-// getHistoryQuery/historyCursorCommit reach the per-document ProtocolEngine
+// getHistoryQuery/historyCursorCommit reach the per-document DocumentCore
 // over Tauri IPC. These suites measure FACADE/REGISTRY behavior against the
 // TS emulator (bridge_emu), whose stream semantics the sequence-parity
 // harness proves equal to the real engine. installEmuBridgeSpies reroutes the

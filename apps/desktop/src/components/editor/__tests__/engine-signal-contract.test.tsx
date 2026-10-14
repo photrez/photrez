@@ -286,6 +286,9 @@ describe("Engine ↔ Signal contract", () => {
 
     history.commit(engine.snapshot());
 
+    // Capture pre-delete state so the undo path can restore it directly.
+    const preDelete = engine.snapshot();
+
     // Action: delete l1 (active + selected)
     engine.deleteLayer(l1.id);
     await tick();
@@ -293,9 +296,9 @@ describe("Engine ↔ Signal contract", () => {
     expect(ed.activeLayerId()).not.toBe(l1.id);
     expect(ed.selectedLayerId()).not.toBe(l1.id);
 
-    // Undo: should restore both signals to pre-delete state
-    const restored = history.undo(engine.snapshot());
-    if (restored) engine.restore(restored);
+    // Undo: facade handoff restores the pre-delete snapshot (the TS undo/redo
+    // pop stack was retired; engine.restore swaps the graph back).
+    engine.restore(preDelete);
     await tick();
 
     expect(ed.activeLayerId()).toBe(l1.id);
@@ -346,34 +349,6 @@ describe("Engine ↔ Signal contract", () => {
     ws.switchDocument("contract");
     await tick();
     expect(ed.selectedLayerId()).toBe(a1.id);
-  });
-
-  it("history.commit() → history cursor signals (canUndo/canModernCropUndo) reflect state", async () => {
-    const ed = editorRef.current!;
-    const engine = ws.getActiveEngine()!;
-    const history = ws.getActiveHistory()!;
-
-    // First commit
-    history.commit(engine.snapshot());
-    expect(history.canUndo()).toBe(true);
-
-    // After many commits
-    for (let i = 0; i < 5; i++) {
-      history.commit(engine.snapshot());
-    }
-    expect(history.canUndo()).toBe(true);
-    expect(history.canRedo()).toBe(false);
-
-    // Undo back to first
-    let undoCount = 0;
-    while (history.canUndo() && undoCount < 10) {
-      const prev = history.undo(engine.snapshot());
-      if (!prev) break;
-      engine.restore(prev);
-      undoCount++;
-    }
-    expect(undoCount).toBeGreaterThan(0);
-    expect(history.canRedo()).toBe(true);
   });
 
   it("engine.setLayerOpacity(id, n) → layer.opacity signal updates", async () => {

@@ -117,7 +117,7 @@ function upProjectCanonicalFields(c: Record<string, unknown>): Record<string, un
   };
 }
 
-// Emulated native ProtocolEngine (pattern proven in facadeMetadataOps.test.ts):
+// Emulated native DocumentCore (pattern proven in facadeMetadataOps.test.ts):
 // nativeClient delegates to raw invoke, which is mocked above, and this router
 // plays the per-document native engine with the contract documented in the
 // header.

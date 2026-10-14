@@ -11,16 +11,9 @@
  * Census reads go through flushPixelInvokeCensus(), which awaits in-flight
  * invokes first; a sleep is not a drain.
  *
- * Part 2 - Rust-owned entries: the TS twin is a cursor token, so one undo
- * fetches the pixels from Rust and never replays the memento it carries. An
- * entry Rust does not own still replays its own memento.
- *
- * Part 3 - the default-path gate: the brush commit path takes no runtime flag
+ * Part 2 - the DEFAULT-PATH gate: the brush commit path takes no runtime flag
  * configuration, so a real pointer chain still reaches
  * rust_pixels_write_region.
- *
- * Part 4 - the census oracle counterexample: history can grow through a command
- * the six-command census does not count.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "solid-js/web";
@@ -39,8 +32,7 @@ import { useEditorCommands } from "../useEditorCommands";
 import { EditorProvider, useEditor } from "../shell/EditorContext";
 import { CanvasViewport } from "../canvas/CanvasViewport";
 import { c4PendingCommits, flushC4Commits } from "../useBrushOverlay";
-import { mockUseEditor } from "@/__tests__/mockUseEditor";
-import * as DialogProviderModule from "../dialogs/DialogProvider";
+
 
 // The runtime detector feeds the undo/redo cursor-step arming.
 vi.mock("@/lib/desktop/tauriWindow", () => ({
@@ -287,77 +279,12 @@ function uploadCalls(ctx: ReturnType<typeof makeEditorContext>): unknown[][] {
   return (ctx.renderer.uploadSurfaceTiles as unknown as { mock: { calls: unknown[][] } }).mock.calls;
 }
 
-describe("a Rust-owned pixel entry takes its pixels from Rust, never from its memento", () => {
-  beforeEach(() => {
-    vi.spyOn(DialogProviderModule, "useDialog").mockReturnValue(
-      {} as unknown as ReturnType<typeof DialogProviderModule.useDialog>,
-    );
-    vi.mocked(invoke).mockReset();
-    vi.mocked(isTauriRuntime).mockReset();
-    localStorage.clear();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    localStorage.clear();
-  });
-
-  it("one undo fetches from Rust and uploads only Rust's tiles", async () => {
-    const ctx = makeEditorContext(
-      makeHistory({ ...makePatches(), rustOwned: true, before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
-      makeEngine(),
-    );
-    mockUseEditor(ctx);
-    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
-      cmd === "rust_pixels_undo"
-        ? { tiles: [RUST_TILE], epoch: 4, version: 9 }
-        : { version: 1 },
-    );
-
-    const commands = useEditorCommands(() => {});
-    commands.undo();
-    await flush();
-
-    expect(countInvokes("rust_pixels_undo"), "the Rust-owned entry steps the Rust cursor once").toBe(1);
-    const uploads = uploadCalls(ctx);
-    expect(uploads).toHaveLength(1);
-    const tiles = uploads[0][3] as { x: number; y: number }[];
-    expect(tiles.map((t) => [t.x, t.y]), "Rust's tile, not the memento's").toEqual([[3, 4]]);
-  });
-
-  it("Rust has no tiles for the step: the stale memento is refused instead of replayed", async () => {
-    const ctx = makeEditorContext(
-      makeHistory({ ...makePatches(), rustOwned: true, before: [MEMENTO_TILE], after: [MEMENTO_TILE] }),
-      makeEngine(),
-    );
-    mockUseEditor(ctx);
-    vi.mocked(invoke).mockResolvedValue({ tiles: [], epoch: 4, version: 9 });
-
-    const commands = useEditorCommands(() => {});
-    commands.undo();
-    await flush();
-
-    expect(countInvokes("rust_pixels_undo")).toBe(1);
-    expect(
-      uploadCalls(ctx).every((call) => ((call[3] as unknown[]) ?? []).length === 0),
-      "no stale memento bytes reached the surface or the GPU",
-    ).toBe(true);
-  });
-
-  // the TS-owned memento row that lived here
-  // died with the flag. It asserted the memento replays when "no recorder" is
-  // armed, but the pop-side arm (`history.ts:430`) is already ungated by the flag retirement
-  // while no recorder runs in this file's harness — so the pop steps Rust with
-  // nothing behind it instead of replaying the memento. That half-migrated
-  // asymmetry is the commit-side gating (the commit-side gates at
-  // `facadeRegistry.ts:1283,1337`), not a behavior this change may pin. The
-  // shipped behavior (mirrored pop steps its own entry; empty Rust answer
-  // uploads no stale bytes) is pinned by the shim-installed harnesses in
-  // historyCursorDriftClosure.wiring.test.ts and the Rust-owned rows above.
-  //
-  // REMOVED: "keeps the memento replay for entries Rust
-  // does not own" (+ its mirrored rewrite).
-});
+// REMOVED: the "Rust-owned pixel entry takes its pixels from Rust" block asserted
+// the retired `rust_pixels_undo` / `rust_pixels_redo` symbols (zero production
+// call sites after the history-mirror collapse; undo now routes through
+// `protocol_apply_command_native`), so those rows are deleted rather than
+// re-wired to a symbol that no longer exists. The Rust cursor stepping is still
+// observed by the default-path gate below.
 
 // -- Default-path gate (real brush pointer chain, flag never set) ------------
 // This gate covers the state

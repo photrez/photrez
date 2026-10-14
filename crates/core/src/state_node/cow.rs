@@ -60,7 +60,7 @@ impl LayerState {
     /// Batch-COW: apply a set of change regions (absolute layer px; full-tile
     /// OR sub-tile dirty rects) into the CURRENT state and return a `(before,
     /// after)` pair of `Arc<StateNode>` for the caller's authoritative history
-    /// (e.g. `ProtocolEngine`). This is the production seam: it produces the two
+    /// (e.g. `DocumentCore`). This is the production seam: it produces the two
     /// `Arc<StateNode>`s an `EntryPayload::Pixel` entry needs WITHOUT touching
     /// this layer's internal state / cursor (the caller owns the cursor).
     /// Only tiles that INTERSECT a change region get a FRESH `Arc<[u8]>`
@@ -134,7 +134,7 @@ impl LayerState {
     }
 
     /// Re-anchor the current state to an externally-owned `Arc<StateNode>`
-    /// (used to keep the canon in sync with `ProtocolEngine` after undo/redo).
+    /// (used to keep the canon in sync with `DocumentCore` after undo/redo).
     /// Publishes the node into the arena (Weak) so `arena_has_current` holds.
     pub fn set_current(&mut self, node: Arc<StateNode>) {
         self.arena.insert_weak_for(&node);

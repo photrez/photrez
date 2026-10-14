@@ -57,14 +57,16 @@ vi.mock("@/components/editor/Toast", async (importOriginal) => {
   };
 });
 
-// The undo/redo dispatch asks whether any layer is facade-owned; keep the
-// predicate off so the TS tile path is the executor under test.
+// Undo routes through runFacadeExternalHandoff only when the active document
+// owns facade layers (facadeOwnedIdsOf(docId)?.size > 0). Return a non-empty
+// Set so the native undo/redo walker fires and the canonical Rust buffer is
+// reverted by the protocol_apply_command_native arm below.
 vi.mock("@/engine/document", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/engine/document")>();
   return {
     ...actual,
     hasFacadeOwnedLayers: vi.fn(() => false),
-  facadeOwnedIdsOf: vi.fn(() => undefined),
+    facadeOwnedIdsOf: vi.fn(() => new Set(["facade-layer"])),
     isFacadeOwnedLayer: vi.fn(() => false),
   };
 });
@@ -80,7 +82,7 @@ let restoreCanvas: (() => void) | undefined;
 // ---- Rust pixel store fake ------------------------------------------------
 
 type StoredTile = { x: number; y: number; w: number; h: number; data: Uint8Array };
-type Entry = { kind: "pixel" | "native"; layerId: string; before?: StoredTile[]; after?: StoredTile[] };
+type Entry = { kind: "pixel" | "native"; layerId: string; before?: StoredTile[]; after?: StoredTile[]; label?: string; origin?: string };
 
 /**
  * In-memory stand-in for the Rust pixel store, faithful to
@@ -163,10 +165,56 @@ function createStore(width: number, height: number) {
       return { total_depth: stream.length, undo_depth: cursor, redo_depth: stream.length - cursor, affected_layer_ids: [] };
     }
     if (command === "protocol_apply_command_native") {
+      const env = decodeRustBytes<{ envelopeJson: string }>(a);
+      let cmdType: string | undefined;
+      try { cmdType = JSON.parse(env.envelopeJson).command?.type; } catch { /* fire-and-forget */ }
+      if (cmdType === "undo") {
+        const entry = stream[cursor - 1];
+        if (entry && entry.kind === "pixel" && entry.before) {
+          for (const t of entry.before) writeTile(t);
+        }
+        cursor = Math.max(0, cursor - 1);
+        epoch += 1;
+        return JSON.stringify({ documentVersion: cursor, delta: { baseVersion: Math.max(0, cursor - 1), version: cursor, changes: [] } });
+      }
+      if (cmdType === "redo") {
+        const entry = stream[cursor];
+        if (entry && entry.kind === "pixel" && entry.after) {
+          for (const t of entry.after) writeTile(t);
+        }
+        cursor = Math.min(stream.length, cursor + 1);
+        epoch += 1;
+        return JSON.stringify({ documentVersion: cursor, delta: { baseVersion: Math.max(0, cursor - 1), version: cursor, changes: [] } });
+      }
+      // Non-undo/redo (setBackgroundFlag, seed, etc.): fire-and-forget.
       dropRedo();
-      stream.push({ kind: "native", layerId: "" });
+      stream.push({ kind: "native", layerId: "", label: cmdType === "setBackgroundFlag" ? "Set Background Flag" : "External", origin: "native" });
       cursor = stream.length;
-      return JSON.stringify({ documentVersion: cursor, delta: {} });
+      return JSON.stringify({ documentVersion: cursor, delta: { baseVersion: Math.max(0, cursor - 1), version: cursor, changes: [] } });
+    }
+    if (command === "protocol_history_query_native") {
+      return JSON.stringify({
+        cursor,
+        lastSeq: stream.length,
+        degradedHint: false,
+        pendingExternal: null,
+        entries: stream.map((e, i) => ({
+          seq: i + 1,
+          groupId: 1,
+          origin: e.origin ?? "native",
+          label: e.label ?? "",
+          affectedLayerIds: e.layerId ? [e.layerId] : [],
+          versionBefore: i,
+          versionAfter: i + 1,
+          memoryCostBytes: 0,
+        })),
+      });
+    }
+    if (command === "protocol_snapshot_native") {
+      return JSON.stringify({ version: cursor, layers: [], width, height, selection: null });
+    }
+    if (command === "protocol_version_native") {
+      return cursor;
     }
     if (command === "rust_pixels_record_external" || command === "rust_pixels_record_snapshot") {
       dropRedo();
@@ -181,6 +229,11 @@ function createStore(width: number, height: number) {
     writes: () => writes,
     rejections,
     pixelEntries: () => stream.filter((e) => e.kind === "pixel").length,
+    /** Label the last stream entry — called by the history.commit intercept in mount(). */
+    labelLastEntry: (label: string) => {
+      const e = stream[stream.length - 1];
+      if (e) { e.label = label; e.origin = e.origin ?? "native"; }
+    },
     /** FNV-1a over the canonical buffer: a committed op must move it. */
     hash: () => {
       let h = 0x811c9dc5;
@@ -238,6 +291,17 @@ function mount() {
   );
   const engine = workspace.getActiveEngine()!;
   const history = workspace.getActiveHistory()!;
+  history.attachDocIdGetter(() => DOC);
+  void history.resyncFromNativeQuery();
+  // Intercept history.commit to label the last stream entry (the pixel entry
+  // that rust_pixels_write_region just pushed). history.commit is async-fire in
+  // production (void settleRecordsThenResync); labeling here is synchronous so
+  // the stream entry is tagged before the deferred resync reads it.
+  const origCommit = history.commit.bind(history);
+  vi.spyOn(history, "commit").mockImplementation((snapshot, label, ...rest) => {
+    if (label) store.labelLastEntry(label);
+    return origCommit(snapshot, label, ...rest);
+  });
   return { workspace, engine, history, renderer, scheduler };
 }
 

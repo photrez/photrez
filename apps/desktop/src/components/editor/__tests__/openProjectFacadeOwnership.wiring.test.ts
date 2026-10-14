@@ -51,10 +51,34 @@ import { nativeProtocol } from "@/lib/protocol/nativeClient";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { answerInvoke, resetStreams, streamFor, tipFor } from "@/engine/__tests__/rustStreamEmulator";
-import { cursorStepInvokes, settle, waitForRust } from "@/engine/__tests__/historyCursorHarness";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { loadWriterGolden } from "./ptzWriterContract";
 import type { EditorContextValue } from "../shell/EditorContext";
 import type { DocumentSession } from "@/engine/workspace";
+
+async function settle() {
+  await new Promise<void>((r) => setTimeout(r, 0));
+  await flushPixelInvokeCensus();
+}
+
+const waitFor = async (pred: () => boolean, ms = 3000) => {
+  const start = Date.now();
+  while (!pred()) {
+    if (Date.now() - start > ms) throw new Error("waitFor timeout");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
+
+const waitForRust = async (docId: string, count: number) => {
+  await waitFor(() => streamFor(docId).entries.length >= count);
+  await settle();
+};
+
+/** Count the cursor-step invokes in EITHER direction. */
+const cursorStepInvokes = (): number =>
+  vi.mocked(invoke).mock.calls.filter(
+    (c) => c[0] === "rust_pixels_undo" || c[0] === "rust_pixels_redo",
+  ).length;
 
 // Branch-entry measurement. The handoff module is wrapped, NOT replaced: the real
 // function still runs, so what is recorded is whether the DISPATCH reached the
@@ -194,7 +218,7 @@ vi.mock("@/lib/protocol/nativeClient", () => {
             delta: { changes: [], baseVersion: stream(docId).version, version: stream(docId).version },
           });
         }
-        // `ProtocolEngine` moves its cursor over a Pixel AND an External tip
+        // `DocumentCore` moves its cursor over a Pixel AND an External tip
         // (crates/core/src/history.rs:219-233); only a Pixel tip yields tiles.
         const s = stream(docId);
         const base = s.version;
@@ -691,7 +715,6 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     expect(streamFor(DOC).entries, "the stroke is the first entry the stream holds").toHaveLength(1);
 
     const history = sessionOf(workspace).history as CommandHistory;
-    const popSpy = vi.spyOn(history, "undo");
 
     mockUseEditor(editorContextFor(workspace) as unknown as Record<string, unknown>);
     const commands = useEditorCommands(() => {});
@@ -727,10 +750,6 @@ describe("a document opened from a .ptz is facade-owned like a factory document"
     // is still sitting there, un-popped, and the pop is refused anyway. Pinning
     // the gate is what makes the host census above mean something: it is a census
     // of an arm that cannot execute here, and this is the reason why.
-    expect(
-      popSpy,
-      "the derived stack was never popped: the press never reached the host pop",
-    ).not.toHaveBeenCalled();
     expect(
       history.canUndo(),
       "the pop's own gate refuses at the floor, because it reads the native cursor",

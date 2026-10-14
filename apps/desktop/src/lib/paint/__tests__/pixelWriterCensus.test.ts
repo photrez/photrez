@@ -155,7 +155,13 @@ describe("single-writer census: every pixel-byte writer is a recognised canonica
     const readSites = SITES.filter((s) => CENSUS_COMMANDS_FOR_TEST.isRead(s.command));
     expect(writerSites.length, "writers are reached from production source").toBeGreaterThan(0);
     expect(projectionSites.length, "projections are reached from production source").toBeGreaterThan(0);
-    expect(cursorSites.length, "cursor movers are reached from production source").toBeGreaterThan(0);
+    // rust_pixels_undo/redo are still registered by Rust but no production
+    // TypeScript source calls them: the native walker (protocol_apply_command_native)
+    // owns the cursor step directly, so the host never fires a cursor command.
+    expect(
+      cursorSites.length,
+      "cursor movers are NOT reached from production source; the native walker owns the cursor step",
+    ).toBe(0);
     expect(readSites.length, "read probes are reached from production source").toBeGreaterThan(0);
     // The canonical writer really is reached from production source, at the
     // expected site - proof the parse found a live production call rather than a
@@ -229,14 +235,17 @@ describe("single-writer census: every pixel-byte writer is a recognised canonica
     ).toEqual([]);
   });
 
-  it("every cursor mover is reachable and is NOT also declared a writer", () => {
+  it("every cursor mover is NOT reached from production source and is NOT also declared a writer", () => {
     // A command that both creates and steps entries would break the "exactly one
     // step per gesture" property the closed history paths depend on, so the two
-    // roles must be disjoint. Asserted rather than assumed.
+    // roles must be disjoint. The native walker (protocol_apply_command_native)
+    // owns the cursor step, so these commands are declared to Rust but have zero
+    // production call sites — asserting false here makes a revived caller go RED
+    // instead of silently re-introducing a second pixel executor.
     const called = new Set(SITES.map((s) => s.command));
     for (const command of CENSUS_COMMANDS_FOR_TEST.censusCommands()) {
       if (!CENSUS_COMMANDS_FOR_TEST.isCursorOnly(command)) continue;
-      expect(called.has(command), `${command} is a declared cursor mover nothing calls`).toBe(true);
+      expect(called.has(command), `${command} is a declared cursor mover reached from production source`).toBe(false);
       expect(
         CENSUS_COMMANDS_FOR_TEST.declaredWriters().includes(command),
         `${command} is both a cursor mover and a declared writer`,

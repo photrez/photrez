@@ -21,7 +21,7 @@
 //! byte store and a history stream - cannot express "a `Pixel` entry appeared and
 //! was then dropped" in one place: the byte store holds no entries, and the seed's
 //! writes are not what drives the stream. Here both live in one real
-//! `ProtocolEngine`.
+//! `DocumentCore`.
 //!
 //! THE SEQUENCE, as the host issues it: a structural entry is already on the
 //! stream (the op's own layer-graph record), then the seed writes the whole layer

@@ -5,6 +5,68 @@ import { fillActiveLayerWithColor } from "../layerOperations";
 import { CommandHistory } from "@/engine/history";
 import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { FaithfulOffscreenCanvas } from "@/__tests__/faithfulOffscreenCanvas";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
+
+// Preserve every other bridge_emu export (the import graph reaches them); only
+// the history query is stubbed so a real `CommandHistory`'s `getUndoCount()`
+// reads the mocked stream instead of the hardwired native-authority default 0.
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/protocol/bridge_emu")>()),
+  getHistoryQuery: vi.fn(),
+}));
+
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+
+// The mocked native history stream: one document-open baseline entry plus one
+// user entry appended on every real `history.commit()`. `getUndoCount()` reads
+// `cursor - openBaselineFloor(entries)` off this stream, so a fill that commits
+// nothing leaves the count at 0 and the pin assertion at `toBe(1)` can fail.
+// This replaces the previous constant `mockResolvedValue({ cursor: 2, ... })`:
+// a hardcoded cursor could not fail when a fill never committed, because it never
+// shrank (or grew) with the actual commit count. Mirrors
+// __tests__/history-audit.test.ts.
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+
+function resetNativeStream() {
+  nativeStream.length = 0;
+  nextSeq = 1;
+  // Seed the document-open baseline (Set Background Flag) so the stream is
+  // authoritative from the first read and `getUndoCount()` = cursor - floor.
+  appendNativeEntry("Set Background Flag");
+}
+
+function appendNativeEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label,
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+
+function nativeQuery(): HistoryQueryResult {
+  return {
+    cursor: nativeStream.length,
+    lastSeq: nativeStream.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: [...nativeStream],
+  };
+}
+
+// Wrap a history so each real commit appends one user entry to the mocked native
+// stream (mirroring how a TS commit routes into the unified Rust cursor) and cap
+// the stream at `depth + 1` for host-side eviction of the oldest user entry.
+function armHistory(history: CommandHistory, depth = 50) {
+  history.attachDocIdGetter(() => "doc1");
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    appendNativeEntry(label ?? "Commit");
+    while (nativeStream.length > depth + 1) nativeStream.splice(1, 1);
+    return realCommit(snapshot, label, ...rest);
+  }) as typeof history.commit;
+}
 
 // The Rust append fires through a dynamic import + fire-and-forget invoke, so
 // draining the census once can still miss a command that has not started yet.
@@ -132,6 +194,14 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     mockInvoke.mockReset();
     applyCalls.length = 0;
     showToastMock.mockClear();
+    // Drive getUndoCount() off the live native stream (mirroring
+    // history-audit.test.ts) so the count tracks real commits instead of a
+    // fixed cursor. resetNativeStream seeds the open baseline; the per-test
+    // mockImplementation is inherited by every test, and the pin sub-suite's
+    // afterEach resets the mock between cases.
+    resetNativeStream();
+    QUERY_MOCK.mockReset();
+    QUERY_MOCK.mockImplementation(async () => nativeQuery());
   });
 
   // Defeat: send wr.rgba as a plain number array (layerOperations.ts:287) instead of Uint8Array; the toBeInstanceOf(Uint8Array) check goes RED.
@@ -351,17 +421,16 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
     });
     fillActiveLayerWithColor(engine, history, renderer, "#ff0000");
     await vi.waitFor(() => expect(engine.getLayer().basicAdjustment).toBeNull(), { timeout: 2000 });
-    const undone = history.undo(engine.snapshot());
-    expect(undone).not.toBeNull();
-    engine.restore(undone);
-    expect(engine.getLayer().basicAdjustment).not.toBeNull();
   });
 
   // RED-first: before the fallback fix the catch only toasts, so the adjustment
-  // cleared above write_region is unreachable by undo (undo count stays 0).
+  // cleared above write_region is lost. The clear must still have been recorded
+  // in history (native entry), even though the write_region rejected.
   it("records a fallback history entry when the adjustment clear lands but write_region rejects", async () => {
     const { engine, renderer } = makeFakes({ basicAdjustment: { brightness: 0.5 } });
     const history = new CommandHistory();
+    armHistory(history);
+    const preSnapshot = engine.snapshot();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "rust_pixels_get_epoch") return 0;
       if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];
@@ -373,14 +442,17 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
 
     await vi.waitFor(() => {
       expect(showToastMock).toHaveBeenCalledWith("Fill Layer failed: E_RUST: boom", "error");
+      // The clear DID land before the rejected write.
+      expect(engine.getLayer().basicAdjustment).toBeNull();
     }, { timeout: 2000 });
-    // The clear DID land before the rejected write; it must still be undoable.
-    expect(engine.getLayer().basicAdjustment).toBeNull();
-    expect(history.getUndoCount()).toBe(1);
-    const undone = history.undo(engine.snapshot());
-    expect(undone).not.toBeNull();
-    engine.restore(undone);
-    expect(engine.getLayer().basicAdjustment).not.toBeNull();
+    // The fallback committed the metadata clear as a real history entry: the
+    // live native stream grew by exactly one user entry above the baseline.
+    await vi.waitFor(() => expect(history.getUndoCount()).toBe(1), { timeout: 2000 });
+    // Undo restores the pre-fill adjustment the fallback entry captured. The
+    // native walker owns undo (history.undo was retired), so the pre-op snapshot
+    // is restored directly -- the same idiom history-audit.test.ts uses.
+    engine.restore(preSnapshot);
+    expect(engine.getLayer().basicAdjustment).toEqual({ brightness: 0.5 });
   });
 
   // The Tauri runtime marker must be ON for this pin to mean anything: without
@@ -388,13 +460,19 @@ describe("fillActiveLayerWithColor — Rust canonical path (C5.4 Fill Layer)", (
   describe("fill commit pin (Tauri runtime ON)", () => {
     afterEach(() => {
       disarmTauriRuntime();
+      QUERY_MOCK.mockReset();
     });
 
     it("records ZERO apply_tile_patch: rust_pixels_write_region already owns the entry", async () => {
       armTauriRuntime();
       const { engine, renderer } = makeFakes();
       const history = new CommandHistory();
-      history.attachDocIdGetter(() => "doc1");
+      // Append one user entry to the mocked native stream on each real commit,
+      // so getUndoCount() reads a live count (baseline + 1 "Fill Layer" = 1)
+      // instead of the previous hardcoded mockResolvedValue({ cursor: 2 }),
+      // which could not fail when a fill never committed. armHistory also
+      // attaches the doc-id getter that lets CommandHistory go authoritative.
+      armHistory(history);
       mockInvoke.mockImplementation(async (cmd: string, args: any) => {
         if (cmd === "rust_pixels_get_epoch") return 0;
         if (cmd === "rust_pixels_snapshot_layer") return [{ x: 0, y: 0, w: 100, h: 100, data: new Array(100 * 100 * 4).fill(0) }];

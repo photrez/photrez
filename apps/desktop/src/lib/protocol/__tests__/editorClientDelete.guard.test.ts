@@ -34,7 +34,7 @@ import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 // The leak-cleanup case dispatches through bridge.applyCommand; the
-// shared factory routes that surface onto the real wasm ProtocolEngine
+// shared factory routes that surface onto the real wasm DocumentCore
 // module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();

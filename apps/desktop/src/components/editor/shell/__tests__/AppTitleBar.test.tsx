@@ -1,29 +1,54 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
+import { invoke } from "@tauri-apps/api/core";
 import { EditorProvider } from "../EditorContext";
 import { AppTitleBar } from "../AppTitleBar";
 import { WorkspaceManager } from "@/engine/workspace";
+import * as bridge from "@/lib/protocol/bridge";
+import {
+  installEmuBridgeSpies,
+  installSeedOnlyTransport,
+} from "@/lib/protocol/__tests__/emulatorBridgeRoute";
+import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
+import type { WebGL2Backend } from "@/renderer/webgl2";
+import type { RenderScheduler } from "@/renderer/scheduler";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    isMaximized: async () => false,
+    onResized: async () => () => {},
+  }),
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => {}),
+}));
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(async () => "0.0.0"),
+}));
 
 function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function renderAppTitleBar() {
+function renderAppTitleBar(onToggleSidePanels = vi.fn()) {
   const ws = new WorkspaceManager();
   const renderer = {
     uploadImage: vi.fn(),
     destroyTexture: vi.fn(),
     resize: vi.fn(),
     resizeToViewport: vi.fn(),
+  } as unknown as WebGL2Backend;
+  const scheduler = { requestRender: vi.fn() } as unknown as RenderScheduler & {
+    requestRender: ReturnType<typeof vi.fn>;
   };
-  const scheduler = { requestRender: vi.fn() };
   const container = document.createElement("div");
   document.body.appendChild(container);
 
   const dispose = render(
     () => (
-      <EditorProvider workspace={ws} renderer={renderer as any} scheduler={scheduler as any}>
-        <AppTitleBar isRightDockOpen={false} onToggleRightDock={vi.fn()} />
+      <EditorProvider workspace={ws} renderer={renderer} scheduler={scheduler}>
+        <AppTitleBar isRightDockOpen={false} onToggleRightDock={onToggleSidePanels} />
       </EditorProvider>
     ),
     container,
@@ -32,7 +57,7 @@ function renderAppTitleBar() {
   return {
     ws,
     renderer,
-    scheduler,
+    scheduler: scheduler as unknown as { requestRender: ReturnType<typeof vi.fn> },
     container,
     dispose: () => {
       dispose();
@@ -41,20 +66,49 @@ function renderAppTitleBar() {
   };
 }
 
+// Undo/redo setup mirrors production: seed the emulator route, route the layer
+// add through the facade (entry lands in the native stream, layers become
+// facade-owned), then resync the derived view. Post-collapse canUndo()/canRedo()
+// only read the native query, so a TS host-stack commit alone no-ops the press.
+async function seedTwoLayers(
+  session: ReturnType<typeof WorkspaceManager.createBlankDocument>,
+): Promise<void> {
+  const facade = facadeRegistry.getFacade(session.engine.getId());
+  await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+  await facade.addLayer("Layer 2");
+  await session.history.resyncFromNativeQuery();
+}
+
 describe("AppTitleBar keyboard shortcuts", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    // createBlankDocument's background-flag commit is fire-and-forget and never
+    // settles on the seed-only transport; it would render (and warn) mid-test
+    // after setup. The tests seed the facade explicitly instead.
+    localStorage.setItem("photrez.bgFlagRoute", "0");
+    facadeRegistry.__resetFacadeRegistryForTests();
+    bridge.__resetEmulatedForTests();
+    installEmuBridgeSpies(bridge);
+    installSeedOnlyTransport(vi.mocked(invoke));
+  });
+
   afterEach(() => {
-    vi.unstubAllGlobals();
+    document.body.replaceChildren();
     vi.restoreAllMocks();
+    vi.clearAllMocks();
+    facadeRegistry.__resetFacadeRegistryForTests();
+    bridge.__resetEmulatedForTests();
+    localStorage.clear();
   });
 
   it("Ctrl+Z triggers undo when document is open and history exists", async () => {
     const { ws, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    await session.history.resyncFromNativeQuery();
     expect(session.engine.getLayers().length).toBe(2);
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
@@ -69,23 +123,21 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { ws, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
-    const snapAfterAdd = session.engine.snapshot();
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    await session.history.resyncFromNativeQuery();
+    expect(session.engine.getLayers().length).toBe(2);
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
     await tick();
     expect(session.engine.getLayers().length).toBe(1);
 
-    // Put the layer back into history so redo works
-    ws.getActiveHistory()!.commit(snapAfterAdd);
-    await tick();
-
+    // Redo re-applies the facade snapshot; cursor advances back to the tip.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "y", ctrlKey: true, bubbles: true }));
     await tick();
 
+    expect(session.engine.getLayers().length).toBe(2);
     expect(scheduler.requestRender).toHaveBeenCalled();
     dispose();
   });
@@ -109,7 +161,7 @@ describe("AppTitleBar keyboard shortcuts", () => {
     ws.addDocument(session);
     await tick();
 
-    // No history committed - canUndo returns false
+    // No facade layer add has committed a native entry, so canUndo() is false.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
     await tick();
 
@@ -132,10 +184,10 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { ws, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    await session.history.resyncFromNativeQuery();
     expect(session.engine.getLayers().length).toBe(2);
 
     // Set focus to an input element
@@ -144,12 +196,15 @@ describe("AppTitleBar keyboard shortcuts", () => {
     input.focus();
     expect(document.activeElement?.tagName).toBe("INPUT");
 
+    // Input guard must swallow the keypress before it reaches the undo handoff;
+    // capture the setup render count and assert it did not rise.
+    const before = scheduler.requestRender.mock.calls.length;
+
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
     await tick();
 
-    // Layer count should remain at 2 (undo not triggered)
     expect(session.engine.getLayers().length).toBe(2);
-    expect(scheduler.requestRender).not.toHaveBeenCalled();
+    expect(scheduler.requestRender.mock.calls.length).toBe(before);
     document.body.removeChild(input);
     dispose();
   });
@@ -158,10 +213,10 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { ws, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    expect(session.engine.getLayers().length).toBe(2);
 
     const textarea = document.createElement("textarea");
     document.body.appendChild(textarea);
@@ -180,10 +235,10 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { ws, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    await session.history.resyncFromNativeQuery();
 
     // Ensure no active element
     if (document.activeElement && "blur" in document.activeElement) {
@@ -201,24 +256,18 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { ws, renderer, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    await session.history.resyncFromNativeQuery();
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
     await tick();
 
-    // Undo restores the engine state and syncs viewport via syncViewport.
-    // The renderer.resize() is no longer called from handleUndo directly
-    // (that caused the "stretched checkerboard" / "squished layer" bug).
-    // Instead the buffer stays at the viewport size (set by ResizeObserver
-    // or by the createEffect on the next zoom change) and the next render
-    // pass re-composites the engine state to the existing FBO.
-    //
-    // This test just verifies that the undo path runs without throwing and
-    // that the engine state is correctly restored.
+    // Undo restores the engine state and re-syncs the derived view; the
+    // layer set drops back to the baseline and a render is requested.
     expect(session.engine.getLayers().length).toBe(1);
+    expect(scheduler.requestRender).toHaveBeenCalled();
     dispose();
   });
 
@@ -226,21 +275,22 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { ws, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
-    session.engine.addLayer("Layer 3");
-
-    // Undo twice in a row
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
-    await tick();
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    await facade.addLayer("Layer 3");
+    await session.history.resyncFromNativeQuery();
+    expect(session.engine.getLayers().length).toBe(3);
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
     await tick();
 
-    // Should not have thrown - shortcut system still works
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    await tick();
+
+    // Two facade layer adds undone back to the baseline; shortcut system intact.
     expect(session.engine.getLayers().length).toBe(1);
+    expect(scheduler.requestRender).toHaveBeenCalled();
     dispose();
   });
 
@@ -262,6 +312,10 @@ describe("AppTitleBar keyboard shortcuts", () => {
 
     const menu = document.querySelector('[role="menu"][aria-label="System menu"]');
     expect(menu).not.toBeNull();
+    // Close before dispose so the Portal is unmounted from a live host; avoids
+    // a leftover fragment tearing during cleanup when the component disposes.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
     dispose();
   });
 
@@ -269,12 +323,10 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { dispose } = renderAppTitleBar();
     await tick();
 
-    // Open via Alt+Space
     window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", altKey: true, bubbles: true }));
     await tick();
     expect(document.querySelector('[role="menu"][aria-label="System menu"]')).not.toBeNull();
 
-    // Close via Escape
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await tick();
     expect(document.querySelector('[role="menu"][aria-label="System menu"]')).toBeNull();
@@ -289,7 +341,6 @@ describe("AppTitleBar keyboard shortcuts", () => {
     await tick();
     expect(document.querySelector('[role="menu"][aria-label="System menu"]')).not.toBeNull();
 
-    // Click outside the menu
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     await tick();
     expect(document.querySelector('[role="menu"][aria-label="System menu"]')).toBeNull();
@@ -331,10 +382,10 @@ describe("AppTitleBar keyboard shortcuts", () => {
     const { ws, container, scheduler, dispose } = renderAppTitleBar();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     ws.addDocument(session);
-    ws.getActiveHistory()!.commit(session.engine.snapshot());
-    await tick();
-
-    session.engine.addLayer("Layer 2");
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    await session.history.resyncFromNativeQuery();
 
     const undoBtn = container.querySelector('button[aria-label="Undo"]') as HTMLButtonElement;
     undoBtn.click();

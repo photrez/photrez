@@ -22,7 +22,7 @@ export function invokePixelCommand(command: string, args: Record<string, unknown
 }
 
 // -- Native dispatch --
-// The protocol command path runs on the per-document native ProtocolEngine in
+// The protocol command path runs on the per-document native DocumentCore in
 // the Rust process-global REGISTRY (reached via rust_pixels_open_document).
 // The single authoritative seed promise per doc. Created exactly ONCE, at the
 // document-open path (workspace.addDocument) with the REAL layers + starting

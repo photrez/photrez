@@ -714,13 +714,12 @@ describe("useLayerActions — commit contract (direct function invocation)", () 
 
 describe("engine.restore() — dirty layer marking contract", () => {
   it("restore marks all restored layers as dirty (for texture re-upload)", () => {
-    const { engine, layer, history } = createEngine();
+    const { engine, layer } = createEngine();
 
-    history.commit(engine.snapshot());
+    const prev = engine.snapshot();
     engine.moveLayer(layer.id, 100, 50);
     engine.clearDirty();
 
-    const prev = history.undo(engine.snapshot())!;
     engine.restore(prev);
 
     const dirtyIds = engine.getDirtyLayerIds();
@@ -731,15 +730,14 @@ describe("engine.restore() — dirty layer marking contract", () => {
   });
 
   it("restore after deleteLayer marks remaining layers dirty, clears stale handles", () => {
-    const { engine, history } = createEngine();
+    const { engine } = createEngine();
     const l2 = engine.addLayer("Layer 2");
     const l2Id = l2.id;
 
-    history.commit(engine.snapshot());
+    const prev = engine.snapshot();
     engine.deleteLayer(l2Id);
     engine.clearDirty();
 
-    const prev = history.undo(engine.snapshot())!;
     engine.restore(prev);
 
     const dirtyIds = engine.getDirtyLayerIds();

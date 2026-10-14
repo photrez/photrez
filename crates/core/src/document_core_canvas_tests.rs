@@ -7,7 +7,7 @@
 use super::arm_tests::{env, layer};
 use crate::canonical_model::{CanonicalDocument, SelectionShape, SelectionState};
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::RenderLayer;
 
 fn mk(id: &str, x: f64, y: f64, w: f64, h: f64) -> RenderLayer {
@@ -24,7 +24,7 @@ fn mk(id: &str, x: f64, y: f64, w: f64, h: f64) -> RenderLayer {
     l
 }
 
-fn layer_by(e: &ProtocolEngine, id: &str) -> RenderLayer {
+fn layer_by(e: &DocumentCore, id: &str) -> RenderLayer {
     e.snapshot()
         .layers
         .into_iter()
@@ -101,7 +101,7 @@ fn ref_apply_crop(
 
 #[test]
 fn crop_canvas_offsets_unlocked_and_resizes_doc() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     let mut locked = mk("B", 5.0, 6.0, 50.0, 50.0);
     locked.locked = Some(true);
     e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0), locked], 0);
@@ -135,7 +135,7 @@ fn crop_canvas_offsets_unlocked_and_resizes_doc() {
 
 #[test]
 fn crop_canvas_clears_selection() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
     e.set_engine_selection(Some(SelectionState {
         x: 1.0,
@@ -162,7 +162,7 @@ fn crop_canvas_clears_selection() {
 #[test]
 fn crop_canvas_no_seeded_shadow_still_sets_doc_size() {
     // Canvas arms do NOT require a seeded canonical shadow (unlike merge/flatten).
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
     assert!(e.canonical().is_none());
 
@@ -180,7 +180,7 @@ fn crop_canvas_no_seeded_shadow_still_sets_doc_size() {
 
 #[test]
 fn crop_canvas_syncs_shadow_dims_when_seeded() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
     e.seed_canonical(canonical_dim_doc());
     assert_eq!(e.canonical().unwrap().width, 10.0);
@@ -199,7 +199,7 @@ fn crop_canvas_syncs_shadow_dims_when_seeded() {
 
 #[test]
 fn crop_canvas_non_positive_is_silent_noop() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0)], 0);
     let snap_before = e.snapshot();
 
@@ -220,7 +220,7 @@ fn crop_canvas_non_positive_is_silent_noop() {
 
 #[test]
 fn crop_canvas_non_finite_rejects_before_mutation() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0)], 0);
     let snap_before = e.snapshot();
 
@@ -241,7 +241,7 @@ fn crop_canvas_non_finite_rejects_before_mutation() {
 
 #[test]
 fn apply_crop_plain_rect_recenters_layer() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 100.0, 100.0, 200.0, 100.0)], 0);
 
     e.apply(env(Command::ApplyCrop {
@@ -268,7 +268,7 @@ fn apply_crop_plain_rect_recenters_layer() {
 
 #[test]
 fn apply_crop_with_rotation_and_target_matches_oracle() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     // Layer at (100,100), 200x100, rotation 179; crop 50x50 at (10,10) rotated -5,
     // exported to 100x200 (forces a normalizeRotation wrap on layer.rotation - cropRotation).
     e.seed_layers(vec![mk("A", 100.0, 100.0, 200.0, 100.0)], 0);
@@ -303,7 +303,7 @@ fn apply_crop_with_rotation_and_target_matches_oracle() {
 
 #[test]
 fn apply_crop_half_target_pair_rejects() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
     let res = e.apply(env(Command::ApplyCrop {
         x: 0.0,
@@ -321,7 +321,7 @@ fn apply_crop_half_target_pair_rejects() {
 
 #[test]
 fn apply_crop_non_finite_rotation_rejects() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
     let snap_before = e.snapshot();
     let res = e.apply(env(Command::ApplyCrop {
@@ -349,7 +349,7 @@ fn crop_then_rename_undo_undo_restores_transforms_doc_size_and_name_lifo() {
     // the correct entry's payload (transform + doc size for the crop, name for the
     // rename), proving the mixed-stack walker restores both layer transforms AND
     // document size on the canvas entry.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0)], 0);
 
     e.apply(env(Command::CropCanvas {
@@ -384,7 +384,7 @@ fn crop_then_rename_undo_undo_restores_transforms_doc_size_and_name_lifo() {
 
 #[test]
 fn apply_crop_non_positive_is_silent_noop() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 100.0, 100.0, 200.0, 100.0)], 0);
     let snap_before = e.snapshot();
     e.apply(env(Command::ApplyCrop {
@@ -405,7 +405,7 @@ fn apply_crop_non_positive_is_silent_noop() {
 
 #[test]
 fn apply_crop_clears_selection() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
     e.set_engine_selection(Some(SelectionState {
         x: 1.0,
@@ -431,7 +431,7 @@ fn apply_crop_clears_selection() {
 
 #[test]
 fn resize_canvas_sets_dims_and_empty_delta() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 10.0, 20.0, 50.0, 50.0)], 0);
 
     let res = e
@@ -455,7 +455,7 @@ fn resize_canvas_sets_dims_and_empty_delta() {
 
 #[test]
 fn resize_canvas_non_positive_is_silent_noop() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 10.0, 20.0, 50.0, 50.0)], 0);
     let snap_before = e.snapshot();
     e.apply(env(Command::ResizeCanvas {
@@ -471,7 +471,7 @@ fn resize_canvas_non_positive_is_silent_noop() {
 
 #[test]
 fn resize_canvas_non_finite_rejects() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 10.0, 20.0, 50.0, 50.0)], 0);
     let res = e.apply(env(Command::ResizeCanvas {
         width: f64::INFINITY,
@@ -484,7 +484,7 @@ fn resize_canvas_non_finite_rejects() {
 
 #[test]
 fn crop_canvas_undo_redo_restores_transforms_and_doc_size() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0)], 0);
 
     e.apply(env(Command::CropCanvas {
@@ -513,7 +513,7 @@ fn crop_canvas_undo_redo_restores_transforms_and_doc_size() {
 
 #[test]
 fn resize_canvas_undo_redo_restores_doc_size() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 10.0, 20.0, 50.0, 50.0)], 0);
 
     e.apply(env(Command::ResizeCanvas {
@@ -540,7 +540,7 @@ fn flatten_then_crop_keeps_shadow_dims_coherent() {
     // though the shadow layer set is otherwise governed by reconcile. A Flatten-
     // minted layer is engine-only and unknown to the seeded shadow, so reconcile
     // correctly marks the shadow incomplete; that is expected, not an arm defect.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     // seed_canonical FIRST: the dim doc carries no layers, so up-projection would
     // otherwise wipe the engine set; seed the layers AFTER so they survive.
     e.seed_canonical(canonical_dim_doc());
@@ -580,7 +580,7 @@ fn flatten_then_crop_keeps_shadow_dims_coherent() {
 
 #[test]
 fn crop_canvas_delta_carries_new_doc_dims() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
     let res = e
         .apply(env(Command::CropCanvas {
@@ -596,7 +596,7 @@ fn crop_canvas_delta_carries_new_doc_dims() {
 
 #[test]
 fn apply_crop_delta_carries_final_target_dims() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 10.0, 10.0, 50.0, 50.0)], 0);
     let res = e
         .apply(env(Command::ApplyCrop {
@@ -615,7 +615,7 @@ fn apply_crop_delta_carries_final_target_dims() {
 
 #[test]
 fn resize_canvas_delta_carries_dims_with_empty_changes() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 10.0, 20.0, 50.0, 50.0)], 0);
     let res = e
         .apply(env(Command::ResizeCanvas {
@@ -630,7 +630,7 @@ fn resize_canvas_delta_carries_dims_with_empty_changes() {
 
 #[test]
 fn undo_and_redo_of_resize_carry_restored_dims() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     // Seed a baseline size so the undo has a concrete size to restore (not None).
     // seed_canonical first: the dim doc carries no layers, so the later seed_layers
     // survives and doc_size keeps its Some((10,10)) baseline.
@@ -655,7 +655,7 @@ fn undo_and_redo_of_resize_carry_restored_dims() {
 
 #[test]
 fn undo_of_metadata_keeps_delta_dims_none() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0)], 0);
     let crop = e
         .apply(env(Command::CropCanvas {
@@ -684,7 +684,7 @@ fn undo_of_metadata_keeps_delta_dims_none() {
 
 #[test]
 fn apply_crop_zero_target_is_silent_noop() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 10.0, 10.0, 50.0, 50.0)], 0);
     let res = e
         .apply(env(Command::ApplyCrop {

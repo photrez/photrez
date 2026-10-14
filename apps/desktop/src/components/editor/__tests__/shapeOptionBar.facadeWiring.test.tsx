@@ -39,6 +39,7 @@ import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 import { applyCommand, getSnapshot } from "@/lib/protocol/bridge";
 import { CONTRACT_VERSION } from "@/lib/protocol/types";
 import type { CommandEnvelope } from "@/lib/protocol/types";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
 import { showToast } from "../Toast";
 
 vi.mock("../Toast", () => ({ showToast: vi.fn() }));
@@ -90,6 +91,44 @@ function stubOffscreenCanvas(): void {
 }
 
 const DOC = "shape-option-bar-routing";
+
+// getUndoCount() reads the NATIVE history stream (nativeHistoryView.ts): it is
+// authoritative only when a native query cache is populated. This harness's bare
+// CommandHistory has no docId getter, so the deferred resync returns early and
+// never refreshes that cache - which would leave a legacy `history.commit` (the
+// unowned-layer path, contract 3) reading 0 instead of 1. `armHistory` mirrors
+// the commit (and any snapshot record) into a mock native stream and publishes
+// the cached view synchronously, so the count asserts read the one entry the
+// legacy commit produced. Owned-layer edits never call commit, so the stream
+// stays empty and their getUndoCount()===0 asserts keep holding.
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+function appendNativeUserEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label, affectedLayerIds: [],
+    versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+function nativeQuery(): HistoryQueryResult {
+  return { cursor: nativeStream.length, lastSeq: nativeStream.length, degradedHint: false, pendingExternal: null, entries: [...nativeStream] };
+}
+function armHistory(history: CommandHistory) {
+  nativeStream.length = 0;
+  nextSeq = 1;
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    appendNativeUserEntry(label ?? "Commit");
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+    return realCommit(snapshot, label, ...rest);
+  }) as typeof history.commit;
+  const realRecord = history.recordSnapshotHistory.bind(history);
+  history.recordSnapshotHistory = ((before, after, label, ...rest) => {
+    appendNativeUserEntry(label ?? "Record");
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+    return realRecord(before, after, label, ...rest);
+  }) as typeof history.recordSnapshotHistory;
+}
 
 const PARAMS: ShapeParams = {
   kind: "rect",
@@ -174,6 +213,7 @@ async function setup(opts: { owned: boolean; unheld?: boolean }): Promise<Harnes
   }
 
   const history = new CommandHistory();
+  armHistory(history);
   const uploadImage = vi.fn();
   const requestRender = vi.fn();
   mockUseEditor({

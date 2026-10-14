@@ -25,7 +25,7 @@ import {
 import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 
 // The facade funnel dispatches through bridge.applyCommand; the shared
-// factory routes that surface onto the real wasm ProtocolEngine module.
+// factory routes that surface onto the real wasm DocumentCore module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");

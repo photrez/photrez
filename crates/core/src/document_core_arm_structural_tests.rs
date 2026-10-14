@@ -11,7 +11,7 @@ use crate::canonical_model::{
     BlendMode, CanonicalDocument, CanonicalLayer, LayerType, Transform2D,
 };
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::{RenderLayer, RenderLayerChange};
 use crate::pixel_store::registry as pixel_registry;
 use crate::projection::RenderSnapshot;
@@ -40,12 +40,12 @@ fn mk(id: &str, name: &str, rid: u32) -> RenderLayer {
 }
 
 /// Stack order of the current snapshot (top first).
-fn ids_of(e: &ProtocolEngine) -> Vec<String> {
+fn ids_of(e: &DocumentCore) -> Vec<String> {
     e.snapshot().layers.iter().map(|l| l.id.clone()).collect()
 }
 
 /// Fetch one layer from the current snapshot by id.
-fn layer_by(e: &ProtocolEngine, id: &str) -> RenderLayer {
+fn layer_by(e: &DocumentCore, id: &str) -> RenderLayer {
     e.snapshot()
         .layers
         .into_iter()
@@ -57,7 +57,7 @@ fn layer_by(e: &ProtocolEngine, id: &str) -> RenderLayer {
 
 #[test]
 fn duplicate_layer_clones_above_source_and_mints_resource() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10)], 0);
     let result = e
         .apply(env(Command::DuplicateLayer {
@@ -84,7 +84,7 @@ fn duplicate_layer_clones_above_source_and_mints_resource() {
 
 #[test]
 fn duplicate_layer_derives_sequence_across_existing_numbers() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     e.apply(env(Command::DuplicateLayer {
         id: "A".into(),
@@ -97,7 +97,7 @@ fn duplicate_layer_derives_sequence_across_existing_numbers() {
 
 #[test]
 fn duplicate_layer_does_not_inherit_background_or_locks() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     let mut src = mk("A", "Layer 1", 10);
     src.is_background = Some(true);
     src.locked = Some(true);
@@ -123,7 +123,7 @@ fn duplicate_layer_clones_full_surface_and_resets_locks() {
     // Divergence ratchet: the clone carries the verbatim parametric
     // surface (type/visible/opacity/shape/text) but mints a fresh resource id and
     // drops background + all locks.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     let mut src = mk("A", "Layer 1", 10);
     src.layer_type = Some(LayerType::Shape);
     src.shape_params = Some(shape_params());
@@ -157,7 +157,7 @@ fn duplicate_layer_clones_full_surface_and_resets_locks() {
 
 #[test]
 fn duplicate_layer_rejects_empty_new_id_e_invalid() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10)], 0);
     let before: RenderSnapshot = e.snapshot();
     let r = e.apply(env(Command::DuplicateLayer {
@@ -175,7 +175,7 @@ fn duplicate_layer_rejects_empty_new_id_e_invalid() {
 
 #[test]
 fn duplicate_layer_rejects_present_new_id_e_invalid() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     let before: RenderSnapshot = e.snapshot();
     let r = e.apply(env(Command::DuplicateLayer {
@@ -195,7 +195,7 @@ fn duplicate_layer_rejects_present_new_id_e_invalid() {
 fn duplicate_layer_unknown_source_is_noop() {
     // Divergence: the host oracle throws on an unknown source id; the native arm
     // no-ops (the host owns identity checks). Recorded, not asserted equal.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10)], 0);
     let result = e
         .apply(env(Command::DuplicateLayer {
@@ -211,7 +211,7 @@ fn duplicate_layer_unknown_source_is_noop() {
 
 #[test]
 fn merge_down_combines_top_bottom_named_and_inherits_bottom_blend() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     e.apply(env(Command::MergeDown {
@@ -235,7 +235,7 @@ fn merge_down_combines_top_bottom_named_and_inherits_bottom_blend() {
 fn merge_down_merged_node_mints_fresh_resource_id() {
     // Fresh-resource-id ratchet: the merged node gets a fresh resource id distinct from both
     // sources (next_resource is minted, not copied).
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     e.apply(env(Command::MergeDown {
@@ -251,7 +251,7 @@ fn merge_down_merged_node_mints_fresh_resource_id() {
 
 #[test]
 fn merge_down_locked_derivation_either_source() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     let mut a = mk("A", "Layer 1", 10);
     a.locked = Some(true);
@@ -266,7 +266,7 @@ fn merge_down_locked_derivation_either_source() {
 
 #[test]
 fn merge_down_unknown_id_is_noop() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     e.apply(env(Command::MergeDown {
@@ -279,7 +279,7 @@ fn merge_down_unknown_id_is_noop() {
 
 #[test]
 fn merge_down_bottommost_is_noop() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     // B is the bottom-most layer; nothing below it to merge into.
@@ -297,7 +297,7 @@ fn merge_down_with_bystanders_places_merged_between_x_and_y() {
     // original position, leaving the bystanders X (above) and Y (below) intact and
     // in place. The delta is a complete restatement: Remove(top), Remove(bottom),
     // then Upsert of every survivor in final stack order.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(
         vec![
@@ -345,7 +345,7 @@ fn merge_down_with_bystanders_places_merged_between_x_and_y() {
 
 #[test]
 fn merge_down_rejects_empty_and_present_merged_id() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     let before: RenderSnapshot = e.snapshot();
@@ -377,7 +377,7 @@ fn merge_down_rejects_empty_and_present_merged_id() {
 
 #[test]
 fn merge_selected_combines_two_named_a_plus_b() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     e.apply(env(Command::MergeSelected {
@@ -395,7 +395,7 @@ fn merge_selected_combines_two_named_a_plus_b() {
 #[test]
 fn merge_selected_merged_node_mints_fresh_resource_id() {
     // Fresh-resource-id ratchet: merge-selected also mints a fresh resource id.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(
         vec![
@@ -419,7 +419,7 @@ fn merge_selected_merged_node_mints_fresh_resource_id() {
 
 #[test]
 fn merge_selected_three_uses_plus_n_merged_label() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(
         vec![
@@ -439,7 +439,7 @@ fn merge_selected_three_uses_plus_n_merged_label() {
 
 #[test]
 fn merge_selected_places_merged_at_highest_selected_position() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(
         vec![
@@ -461,7 +461,7 @@ fn merge_selected_places_merged_at_highest_selected_position() {
 
 #[test]
 fn merge_selected_locked_when_any_selected_locked() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     let mut b = mk("B", "Layer 2", 20);
     b.locked = Some(true);
@@ -476,7 +476,7 @@ fn merge_selected_locked_when_any_selected_locked() {
 
 #[test]
 fn merge_selected_noop_when_fewer_than_two_ids_or_matched() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     // Only one matched id -> silent no-op.
@@ -490,7 +490,7 @@ fn merge_selected_noop_when_fewer_than_two_ids_or_matched() {
 
 #[test]
 fn merge_selected_rejects_empty_and_present_merged_id() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     let before: RenderSnapshot = e.snapshot();
@@ -522,7 +522,7 @@ fn merge_selected_rejects_empty_and_present_merged_id() {
 
 #[test]
 fn flatten_replaces_all_with_single_background_node() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(
         vec![
@@ -553,7 +553,7 @@ fn flatten_replaces_all_with_single_background_node() {
 #[test]
 fn flatten_merged_node_mints_fresh_resource_id() {
     // Fresh-resource-id ratchet: flatten mints a fresh resource id for the background node.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(
         vec![
@@ -572,7 +572,7 @@ fn flatten_merged_node_mints_fresh_resource_id() {
 
 #[test]
 fn flatten_noop_when_single_layer() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10)], 0);
     let result = e
@@ -586,7 +586,7 @@ fn flatten_noop_when_single_layer() {
 
 #[test]
 fn flatten_rejects_empty_and_present_merged_id() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     let before: RenderSnapshot = e.snapshot();
@@ -616,7 +616,7 @@ fn flatten_rejects_empty_and_present_merged_id() {
 fn flatten_rejects_without_seeded_canonical_dims() {
     // The native arm reads the seeded canonical shadow for dims; without it the
     // command rejects rather than guessing.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     let before: RenderSnapshot = e.snapshot();
     let r = e.apply(env(Command::Flatten {
@@ -638,7 +638,7 @@ fn flatten_rejects_without_seeded_canonical_dims() {
 
 #[test]
 fn rasterize_shape_drops_params_and_becomes_raster() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     let mut s = mk("A", "Shape", 10);
     s.layer_type = Some(LayerType::Shape);
     s.shape_params = Some(shape_params());
@@ -652,7 +652,7 @@ fn rasterize_shape_drops_params_and_becomes_raster() {
 
 #[test]
 fn rasterize_text_drops_text_data() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     let mut t = mk("A", "Text", 10);
     t.layer_type = Some(LayerType::Text);
     t.text_data = Some(text_data());
@@ -668,7 +668,7 @@ fn rasterize_text_drops_text_data() {
 fn rasterize_noop_for_non_parametric_layer() {
     // A raster (non-parametric) layer is untouched by rasterize; the arm returns an
     // empty change vector (silent no-op, mirroring the host type guard).
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     let mut s = mk("A", "Raster", 10);
     s.layer_type = Some(LayerType::Raster);
     e.seed_layers(vec![s], 0);
@@ -727,7 +727,7 @@ fn canonical_doc_with_a() -> CanonicalDocument {
 // duplicate id is absent and flags the shadow incomplete.
 #[test]
 fn duplicate_mints_engine_layer_flagging_shadow_incomplete() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     // seed_layers FIRST: the only-when-empty guard means a later seed_canonical
     // (which now up-projects the pushed layer vector) must find engine layer A
     // already present so it preserves the seeded resource_id 10 via up-projection.
@@ -782,7 +782,7 @@ fn structural_arms_never_drop_pixel_store_buffers() {
     }
 
     // MergeDown removes source layers A and B from the engine graph.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     e.apply(env(Command::MergeDown {
@@ -792,7 +792,7 @@ fn structural_arms_never_drop_pixel_store_buffers() {
     .unwrap();
 
     // Flatten (separate arm) removes source layers A and B from its engine graph.
-    let mut e2 = ProtocolEngine::new();
+    let mut e2 = DocumentCore::new();
     e2.seed_canonical(canonical_dim_doc());
     e2.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
     e2.apply(env(Command::Flatten {

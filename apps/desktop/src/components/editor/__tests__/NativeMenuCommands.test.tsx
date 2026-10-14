@@ -7,6 +7,7 @@ import type { RenderScheduler } from "@/renderer/scheduler";
 import { WorkspaceManager } from "@/engine/workspace";
 import { EditorProvider, useEditor } from "../shell/EditorContext";
 import * as bridge from "@/lib/protocol/bridge";
+import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
 import {
   installEmuBridgeSpies,
   installSeedOnlyTransport,
@@ -97,25 +98,33 @@ describe("native menu command wiring", () => {
     eventMock.unlisten.mockClear();
     delete window.__TAURI_INTERNALS__;
     vi.clearAllMocks();
+    // Wipe per-test facade + emulator state: the suites share the doc-1 id, so
+    // a facade seeded by the Undo test must not clobber a later test's engine.
+    facadeRegistry.__resetFacadeRegistryForTests();
+    bridge.__resetEmulatedForTests();
   });
 
   it("routes a mounted native Undo event through the real editor history", async () => {
     const host = renderNativeMenuHost();
     const session = WorkspaceManager.createBlankDocument("doc-1", "Test", 800, 600);
     host.workspace.addDocument(session);
-    host.workspace.getActiveHistory()!.commit(session.engine.snapshot());
-    session.engine.addLayer("Layer 2");
-    await tick();
-    // The factory's background-flag commit cannot land on the
-    // emulator (the emulator never holds the factory's TS-minted
-    // layers), and its failure path leaves the pre-check ownership
-    // claim behind. The state the failed commit corresponds to is a
-    // document the native engine does not hold, so the undo press
-    // under test falls through to the TS store - the only history
-    // this document actually has.
-    (globalThis as unknown as Record<string, () => void>).__clearFacadeOwnedForTests?.();
+    // Seed the emulator with the document's layer set, then route the layer add
+    // through the facade so it records a native entry and claims the layers -
+    // the post-collapse undo gate (activeDocumentOwnsFacadeLayers) only fires
+    // for a facade-owned document.
+    facadeRegistry.__resetFacadeRegistryForTests();
+    bridge.__resetEmulatedForTests();
+    const facade = facadeRegistry.getFacade("doc-1");
+    await facadeRegistry.seedFacadeFromEngine(session.engine as never, facade);
+    await facade.addLayer("Layer 2");
+    // Refresh the derived history view from the emulator stream so canUndo()
+    // reads a non-empty native query (authority = entries.length > 0).
+    await session.history.resyncFromNativeQuery();
 
     emitNativeMenu("edit.undo");
+    // The undo path is async behind the facade external handoff; wait for the
+    // restore to settle before asserting the layer set.
+    await tick();
 
     expect(session.engine.getLayers()).toHaveLength(1);
     expect(host.scheduler.requestRender).toHaveBeenCalled();

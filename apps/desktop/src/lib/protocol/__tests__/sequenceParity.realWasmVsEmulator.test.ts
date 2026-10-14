@@ -4,7 +4,7 @@
 // ONE deterministic, multi-step command sequence through TWO engines and compares
 // a canonical state digest after EVERY step, plus undo/redo round-trips:
 //
-//   Engine A (authoritative): the real Rust ProtocolEngine, driven DIRECTLY
+//   Engine A (authoritative): the real Rust DocumentCore, driven DIRECTLY
 //             through the wasm module's protocol_apply_command (serde JSON in/
 //             out, same .wasm bytes the pixel kernels ship; loaded via
 //             getWasmExportModule, which no longer arms any bridge - production

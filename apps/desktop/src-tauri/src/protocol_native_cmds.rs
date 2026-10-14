@@ -1,5 +1,5 @@
 // Native (Tauri) authority command surface for the per-document
-// `ProtocolEngine`. ADDITIVE ONLY - mirrors the wasm `protocol_*` bridge in
+// `DocumentCore`. ADDITIVE ONLY - mirrors the wasm `protocol_*` bridge in
 // `document_core.rs` but drives the REAL `pixel_store` REGISTRY (keyed by
 // `doc_id`) instead of the wasm `ENGINES` thread_local. The facade dispatches
 // here by default (native authority); set `photrez.facadeAuthority` to `wasm`
@@ -31,7 +31,7 @@ fn resolve_doc_key(doc_id: &str) -> &str {
     }
 }
 
-/// Drive the per-doc native `ProtocolEngine.apply()` through the authority
+/// Drive the per-doc native `DocumentCore.apply()` through the authority
 /// command. Returns the serialized `CommandResult` (same JSON the frontend
 /// already parses from the wasm `protocol_apply_command` path).
 ///
@@ -126,7 +126,7 @@ pub fn protocol_register_adapter_native(
     Ok(serde_json::to_string(&()).unwrap())
 }
 
-/// Seed the native per-doc `ProtocolEngine` with an initial layer load.
+/// Seed the native per-doc `DocumentCore` with an initial layer load.
 ///
 /// ADDITIVE authority command (the native-canonical-engine handoff foundation):
 /// nothing routes through it yet, so production behavior is unchanged. Mirrors the
@@ -165,7 +165,7 @@ pub fn protocol_seed_native(payload_json: String, doc_id: String) -> Result<Stri
 }
 
 /// Seed a complete `CanonicalDocument` copy into the native per-doc
-/// `ProtocolEngine`, alongside the RenderLayer set the sibling `protocol_seed_native`
+/// `DocumentCore`, alongside the RenderLayer set the sibling `protocol_seed_native`
 /// seeds. ADDITIVE authority command (native-canonical-authority handoff plumbing):
 /// nothing routes through it yet, so production behavior is unchanged. Mirrors the
 /// sibling native protocol commands' authority stance -- the doc MUST already be
@@ -195,7 +195,7 @@ pub fn protocol_seed_canonical_native(
 }
 
 /// Read back the seeded `CanonicalDocument` copy for the native per-doc
-/// `ProtocolEngine`. ADDITIVE / UNWIRED: no runtime path consumes the result yet.
+/// `DocumentCore`. ADDITIVE / UNWIRED: no runtime path consumes the result yet.
 ///
 /// Reuses the REGISTRY access the sibling read-only native commands use
 /// (`registry()` -> `docs[doc].history`). Same missing-doc error stance as the
@@ -223,7 +223,7 @@ pub fn protocol_canonical_native(doc_id: String) -> Result<String, String> {
 
 /// Native mirror of wasm `protocol_snapshot_json` (`document_core.rs:774-787`).
 ///
-/// Returns the per-doc native `ProtocolEngine`'s `RenderSnapshot` as JSON,
+/// Returns the per-doc native `DocumentCore`'s `RenderSnapshot` as JSON,
 /// reusing the same REGISTRY access the sibling native commands use
 /// (`registry()` -> `docs[doc].history`). Same missing-doc error stance as the
 /// siblings (`"document not open: {key}"`); unlike the wasm `unwrap_or(empty)`
@@ -245,9 +245,9 @@ pub fn protocol_snapshot_native(doc_id: String) -> Result<String, String> {
     Ok(serde_json::to_string(&snap).unwrap())
 }
 
-/// Native read-only version probe for the native `ProtocolEngine` authority.
+/// Native read-only version probe for the native `DocumentCore` authority.
 ///
-/// Returns the per-doc native `ProtocolEngine`'s `DocumentVersion` (u64) WITHOUT
+/// Returns the per-doc native `DocumentCore`'s `DocumentVersion` (u64) WITHOUT
 /// serializing the full snapshot - the only caller (facade `syncFromEngine`) just
 /// needs the version. There is NO wasm version export: the bridge's wasm fallback
 /// parses `protocol_snapshot_json` instead. Reuses the same REGISTRY access the
@@ -269,9 +269,9 @@ pub fn protocol_version_native(doc_id: String) -> Result<u64, String> {
     Ok(doc.history.version())
 }
 
-/// Native read-only layer-id probe for the native `ProtocolEngine` authority.
+/// Native read-only layer-id probe for the native `DocumentCore` authority.
 ///
-/// Returns the per-doc native `ProtocolEngine`'s layer-id set as JSON (a bare
+/// Returns the per-doc native `DocumentCore`'s layer-id set as JSON (a bare
 /// array of id strings) WITHOUT serializing the full snapshot - the guarded
 /// metadata funnels only need membership, never values. There is NO wasm
 /// version export: the bridge parses the snapshot instead (same stance as the

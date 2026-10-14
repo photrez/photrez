@@ -12,6 +12,7 @@
 // §"every new tool passes unit test but fails in frontend" pattern.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceManager } from "@/engine/workspace";
 import { DEFAULT_TEXT_DATA } from "@/engine/textTypes";
 import { stubTextOffscreenCanvas } from "@/__tests__/test-builders";
@@ -26,6 +27,8 @@ const nativeMock = vi.hoisted(() => ({
 vi.mock("@/tauri/native", () => ({
   readFileBytes: nativeMock.readFileBytes,
 }));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 // Note: we deliberately do NOT mock Toast — the real toast side effects must
 // work with the real engine. If a test triggers an unexpected error toast,
@@ -308,11 +311,32 @@ describe("addFilesAsLayersFromFileDrop — real engine integration (HTML5 file d
     globalThis.createImageBitmap = vi.fn().mockResolvedValue(makeFileBitmap(200, 150));
     ws = new WorkspaceManager();
     ws.addDocument(WorkspaceManager.createBlankDocument("docA", "DocA", 800, 600));
+    // getUndoCount()/canUndo() are native-gated (nativeQueryAuthoritative): a bare
+    // CommandHistory with no docIdGetter + no protocol_history_query_native mock
+    // reads authority=false -> 0/empty. The commit that addFilesAsLayersFromFileDrop
+    // fires calls settleRecordsThenResync as fire-and-forget (void), so the native
+    // query is still settling when the assertion runs — resync explicitly here.
+    vi.mocked(invoke).mockImplementation(async (command: string, _args?: unknown) => {
+      if (command === "protocol_history_query_native") {
+        return JSON.stringify({
+          cursor: 1,
+          lastSeq: 1,
+          degradedHint: false,
+          pendingExternal: null,
+          entries: [
+            { seq: 1, groupId: 1, origin: "native", label: "Add Layers",
+              affectedLayerIds: [], versionBefore: 0, versionAfter: 1, memoryCostBytes: 0 },
+          ],
+        });
+      }
+      return null;
+    });
   });
 
   afterEach(() => {
     globalThis.createImageBitmap = originalCreateImageBitmap;
     vi.restoreAllMocks();
+    vi.mocked(invoke).mockReset();
   });
 
   it("creates layers from File objects using browser createImageBitmap", async () => {
@@ -348,6 +372,7 @@ describe("addFilesAsLayersFromFileDrop — real engine integration (HTML5 file d
     await addFilesAsLayersFromFileDrop([file], { type: "canvas" }, { x: 0, y: 0 }, ws);
 
     expect(commitSpy).toHaveBeenCalledTimes(1);
+    await history.resyncFromNativeQuery();
     expect(history.getUndoCount()).toBe(1);
   });
 

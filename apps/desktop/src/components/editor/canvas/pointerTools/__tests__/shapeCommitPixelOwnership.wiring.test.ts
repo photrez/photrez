@@ -268,59 +268,8 @@ describe("a shape commit between two paint strokes leaves both neighbours undoab
   // would - `rustOwned: true`, so the pop takes `fireGatedOnPixelTip` - and asserts
   // the neighbour's stroke is what gets eaten. If this ever stops reproducing the
   // loss, the guard above is measuring nothing and this file says so.
-  it("DEFEAT: a rustOwned shape twin DOES spend the neighbour stroke's cursor step", async () => {
-    const history = new CommandHistory();
-    history.attachDocIdGetter(() => DOC);
-
-    const first = solid(255, 0, 0);
-    const second = solid(0, 255, 0);
-
-    await paintStroke(first);
-    history.commit(snapshot(), "Brush Stroke", twin(opaque, first), true);
-    // The armed shape commit: identical label and layer graph work, but it claims
-    // a Rust pixel step it never performed.
-    history.commit(
-      snapshot(),
-      "Add Shape",
-      { layerId: LAYER, surfaceWidth: SIZE, surfaceHeight: SIZE, before: [], after: [], rustOwned: true },
-      true,
-    );
-    await paintStroke(second);
-    history.commit(snapshot(), "Brush Stroke", twin(first, second), true);
-
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    invokeMock.mockClear();
-
-    // The shape's pop. `rustOwned` sends it down the pixel-writer arm, so it
-    // issues a step the gesture never earned - against the stroke beneath it.
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(
-      issued().filter((c) => c === "rust_pixels_undo"),
-      "the armed shape twin consumed a cursor step",
-    ).toHaveLength(1);
-    // The pixels that step moved were the STROKE's: the armed shape's pop reverted
-    // the stroke underneath it in one press. Compare the unarmed case above, where
-    // the shape's pop left these pixels at red.
-    expect(
-      store.pixelAt(LAYER, 0, 0),
-      "the armed shape's pop reverted the stroke beneath it, not any shape pixel",
-    ).toEqual([0, 0, 0, 255]);
-
-    // The stroke that lost its step: its own pop still issues a step, but there is
-    // no entry left behind it, so nothing is reverted a second time. Two presses
-    // produced one stroke's worth of change. That is the data loss this file
-    // exists to prevent.
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(
-      issued().filter((c) => c === "rust_pixels_undo"),
-      "the stroke beneath the armed shape still issues a step",
-    ).toHaveLength(2);
-    expect(
-      store.pixelAt(LAYER, 0, 0),
-      "but that step had no entry left to undo, so the pixels are unchanged",
-    ).toEqual([0, 0, 0, 255]);
-  });
+  // The DEFEAT case below formerly pinned the deleted stepper's rustOwned arm
+  // (history.undo + takeLastCursorStep). That arm and its defect are retired;
+  // the neighbour-stroke consumption contract it asserted now lives in
+  // facadeHandoffDoubleStep.wiring, driven through the production press.
 });

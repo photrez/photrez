@@ -28,7 +28,7 @@ import { decodeRustBytes } from "@/lib/protocol/pixelSeedCall";
 // minimum.
 //
 // HARNESS FIDELITY (three green-suite defects in this repo came from infidelity):
-//   - the REAL ProtocolEngine via getWasmExportModule(), NOT bridge_emu - proven
+//   - the REAL DocumentCore via getWasmExportModule(), NOT bridge_emu - proven
 //     armed by a bridge-side discriminator, not assumed;
 //   - the REAL EditorFacade and the REAL DocumentEngine;
 //   - command arguments read from the SERIALIZED envelope JSON, so a field dropped
@@ -112,7 +112,7 @@ let wasmModule: WasmModule | null = null;
 
 // The crop handoff dispatches through bridge.applyCommand and reads
 // bridge.getSnapshot; the shared factory routes both surfaces onto
-// the real wasm ProtocolEngine module.
+// the real wasm DocumentCore module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");

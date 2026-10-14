@@ -73,7 +73,7 @@ export type CompositeSeedResult =
  * Step 3 is not tidiness - it is what keeps ONE gesture to ONE cursor step. The
  * per-document cursor is shared between the pixel store and the graph commands
  * (`crates/core/src/pixel_store.rs`: `DocumentPixelStore::history` is the same
- * `ProtocolEngine` the registry hands `protocol_apply_command_native`), and
+ * `DocumentCore` the registry hands `protocol_apply_command_native`), and
  * `write_region` opens a `Pixel` entry on it. A merge/flatten/merge-selected
  * records its STRUCTURAL change on that same cursor, so a `Pixel` entry left on top
  * of it is the entry an undo press steps: the handoff claims the undo, returns true,

@@ -37,7 +37,7 @@ vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 vi.mock("@/lib/desktop/tauriWindow", () => ({ isTauriRuntime: vi.fn() }));
 
 // The text-params commit dispatches through bridge.applyCommand; the
-// shared factory routes that surface onto the real wasm ProtocolEngine
+// shared factory routes that surface onto the real wasm DocumentCore
 // module - the engine the retired `photrez.facadeAuthority=wasm`
 // diversion used to select.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {

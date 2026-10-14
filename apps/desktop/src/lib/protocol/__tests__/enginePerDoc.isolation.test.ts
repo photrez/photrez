@@ -1,6 +1,6 @@
 // Document-scoped engine isolation proof (photrez per-document engine).
 //
-// PROBLEM: a single shared module-lifetime ProtocolEngine means every document
+// PROBLEM: a single shared module-lifetime DocumentCore means every document
 // id routes to the SAME engine, so docX and docY share documentVersion + layer
 // set + undo/redo history. `protocol_apply_command(json, docId)` MUST route by
 // document id so the two documents are fully independent.

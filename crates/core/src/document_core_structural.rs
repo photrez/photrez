@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Structural-command-arm bodies (duplicate / merge-down / merge-selected / flatten
 // / rasterize). Extracted from document_core_apply.rs so that module stays under
-// the 1000-line guard; this is a sibling `impl ProtocolEngine` block (method
+// the 1000-line guard; this is a sibling `impl DocumentCore` block (method
 // visibility is per-impl, not per module).
 //
 // These arms are UNDOABLE graph transitions: each opens a forward native entry
@@ -31,7 +31,7 @@ fn e_invalid(msg: &str) -> ProtocolError {
 /// The TS oracle reads model.width/height directly; the native arm reads the
 /// seeded canonical shadow instead (the engine keeps no doc dims of its own), so a
 /// merge/flatten before the host seeds the shadow rejects rather than guessing.
-fn canonical_dims(engine: &ProtocolEngine) -> Result<(f64, f64), ProtocolError> {
+fn canonical_dims(engine: &DocumentCore) -> Result<(f64, f64), ProtocolError> {
     match &engine.canonical {
         Some(sh) => Ok((sh.doc.width, sh.doc.height)),
         None => Err(e_invalid(
@@ -40,7 +40,7 @@ fn canonical_dims(engine: &ProtocolEngine) -> Result<(f64, f64), ProtocolError> 
     }
 }
 
-impl ProtocolEngine {
+impl DocumentCore {
     /// Duplicate a layer verbatim, inserting the clone directly above the source.
     /// The clone inherits every field (type/visible/opacity/blend/transform incl.
     /// flip, width/height, adjustments, shape/text params) but gets a fresh

@@ -149,7 +149,7 @@ let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 // The real-chain cases dispatch through bridge.applyCommand and
 // read bridge.getSnapshot; the shared factory routes both surfaces
-// onto the real wasm ProtocolEngine module.
+// onto the real wasm DocumentCore module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");

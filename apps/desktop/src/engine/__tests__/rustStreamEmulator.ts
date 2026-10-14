@@ -7,7 +7,7 @@
  * in one place and the test file stays readable; it is test-only and lives under
  * `__tests__`, so the static writer census does not scan it.
  *
- * EVERY rule here is a real behaviour of `PixelStoreRegistry` / `ProtocolEngine`,
+ * EVERY rule here is a real behaviour of `PixelStoreRegistry` / `DocumentCore`,
  * not a convenience:
  *
  *  - `rust_pixels_record_external` appends an `External` entry, cursor = len. Its
@@ -24,7 +24,7 @@
  *    tile carrying NEITHER spelling is still rejected (see `tilesSurviveTheWire`),
  *    which is the boundary this emulator has to keep modelling in both directions.
  *  - `rust_pixels_undo` / `rust_pixels_redo` MOVE THE CURSOR for both modelled
- *    kinds. `ProtocolEngine::undo_pixel` steps for an `External` tip
+ *    kinds. `DocumentCore::undo_pixel` steps for an `External` tip
  *    (crates/core/src/history.rs:229-233) exactly as for a `Pixel` tip
  *    (history.rs:219-223); only the tile yield differs - an External step
  *    produces no tiles, and `PixelStoreRegistry::undo_pixel` collapses the empty
@@ -93,7 +93,7 @@ export interface RustStream {
    * would model the SUCCESS path as the refusal. External entries carry null.
    */
   payloads: ({ x: number; y: number; w: number; h: number; data: number[] } | null)[];
-  /** Bumped by every cursor move, like `ProtocolEngine.version`. */
+  /** Bumped by every cursor move, like `DocumentCore.version`. */
   version: number;
 }
 
@@ -127,7 +127,7 @@ export function record(docId: string, kind: TipKind): void {
 }
 
 /**
- * Move the cursor one step. `ProtocolEngine::undo_pixel` steps it for a `Pixel`
+ * Move the cursor one step. `DocumentCore::undo_pixel` steps it for a `Pixel`
  * tip AND for an `External` tip; the difference between the two is only the tile
  * yield, which `undo_pixel` discards for an External step AFTER the move. So the
  * cursor moves for every kind this emulator can hold.

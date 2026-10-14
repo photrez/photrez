@@ -129,6 +129,14 @@ describe("undo/redo press consumes CommandResult and the stack derives from the 
 
     const history = new CommandHistory();
     history.attachDocIdGetter(() => DOC_ID);
+    // Populate the native query view first. `canUndo()` reads the cached
+    // native query (`nativeQueryAuthoritative()` returns false when the cache
+    // is empty), so without this the press's `isEnabled("edit.undo")` gate
+    // returns false and `restoreHistorySnapshot` never runs. In production
+    // `history.commit()` refreshes the same cache via its settle-then-resync;
+    // this test drives facade commands only, so it performs the resync
+    // explicitly before pressing.
+    await history.resyncFromNativeQuery();
     const editor = makeEditorContext(history);
     mockUseEditor(editor);
     const commands = useEditorCommands(() => {});

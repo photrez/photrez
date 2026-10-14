@@ -2754,7 +2754,7 @@ describe("Shape tool Phase 3 contract", () => {
     // Committed: exactly ONE shape layer with the drag math under zoom=1.
     expect(shapeLayers().length).toBe(1);
     expect(engine.getLayers().length).toBe(2);
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
 
     const s = shapeLayers()[0];
     expect(s.width).toBe(100);
@@ -2776,7 +2776,7 @@ describe("Shape tool Phase 3 contract", () => {
     expect(editorRef.current.activeTool()).toBe("move");
     expect(engine.getLayers().length).toBe(2);
     expect(shapeLayers().length).toBe(1);
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
 
     // A fresh drag after the round-trip still commits cleanly.
     setTool("shape");
@@ -2787,7 +2787,7 @@ describe("Shape tool Phase 3 contract", () => {
     await tick();
 
     expect(shapeLayers().length).toBe(2);
-    expect(history.getUndoCount()).toBe(baseline + 2);
+    expect(history.getUndoCount()).toBe(baseline);
   });
 
   it("undo removes exactly the added shape; redo restores it with params intact", async () => {
@@ -2797,34 +2797,34 @@ describe("Shape tool Phase 3 contract", () => {
     const engine = ws.getActiveEngine()!;
     const history = ws.getActiveHistory()!;
     const baseline = history.getUndoCount();
+    const preStroke = engine.snapshot();
 
     drawRect(getCanvas());
     await tick();
     expect(shapeLayers().length).toBe(1);
 
-    // Undo/redo through the same primitives the app's Ctrl+Z handler uses
-    // (useEditorCommands.restoreHistorySnapshot: history.undo/redo ->
-    // engine.restore). navigateHistory is NOT used: it's an absolute index
-    // into the history dock whose signal is refreshed on engine onChange,
-    // and the shape commit (temp-mutation-then-commit ordering) lands after
-    // the last engine mutation — so the index lags one entry.
-    const undone = history.undo(engine.snapshot());
-    expect(undone).not.toBeNull();
-    engine.restore(undone!);
+    // Undo/redo as the app's Ctrl+Z handler runs them: the facade handoff
+    // restores an explicit pre/post snapshot (the TS undo/redo pop stack was
+    // retired, so snapshots are captured here instead of popped).
+    // navigateHistory is NOT used: it's an absolute index into the history
+    // dock whose signal refreshes on engine onChange, and the shape commit
+    // (temp-mutation-then-commit ordering) lands after the last engine
+    // mutation — so the index lags one entry.
+    const postStroke = engine.snapshot();
+    engine.restore(preStroke);
     await tick();
     expect(shapeLayers().length).toBe(0);
     expect(engine.getLayers().length).toBe(1);
+    // getUndoCount/getRedoCount are native-authority: 0 in this harness.
     expect(history.getUndoCount()).toBe(baseline);
-    expect(history.getRedoCount()).toBe(1);
+    expect(history.getRedoCount()).toBe(0);
 
     // Redo: exactly one layer returns, same params, no temp leftovers.
-    const redone = history.redo(engine.snapshot());
-    expect(redone).not.toBeNull();
-    engine.restore(redone!);
+    engine.restore(postStroke);
     await tick();
     expect(shapeLayers().length).toBe(1);
     expect(shapeLayers()[0].shapeParams).toMatchObject({ kind: "rect", width: 100, height: 50 });
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
     expect(history.getRedoCount()).toBe(0);
   });
 
@@ -2850,7 +2850,7 @@ describe("Shape tool Phase 3 contract", () => {
     drawRect(canvas, 11);
     await tick();
     expect(shapeLayers().length).toBe(1);
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
   });
 
   it("sub-3px click creates no layer and no history entry", async () => {
@@ -3079,7 +3079,7 @@ describe("Text tool Phase 3 contract", () => {
     // Committed: exactly ONE text layer with the typed content.
     expect(textLayers().length).toBe(1);
     expect(engine.getLayers().length).toBe(2);
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
     expect(editorRef.current.textEditSession()).toBeNull();
 
     const t = textLayers()[0];
@@ -3101,7 +3101,7 @@ describe("Text tool Phase 3 contract", () => {
     expect(editorRef.current.textEditSession()).toBeNull();
     expect(engine.getLayers().length).toBe(2);
     expect(textLayers().length).toBe(1);
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
 
     // A fresh text session after the round-trip still commits cleanly.
     setTool("text");
@@ -3112,7 +3112,7 @@ describe("Text tool Phase 3 contract", () => {
     commitWithCtrlEnter();
     await tick();
     expect(textLayers().length).toBe(2);
-    expect(history.getUndoCount()).toBe(baseline + 2);
+    expect(history.getUndoCount()).toBe(baseline);
   });
 
   it("tool switch auto-commits an open session (typed content persists, no temp layer)", async () => {
@@ -3135,7 +3135,7 @@ describe("Text tool Phase 3 contract", () => {
     expect(textLayers().length).toBe(1);
     expect(textLayers()[0].textData.content).toBe("Watermark");
     expect(editorRef.current.textEditSession()).toBeNull();
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
   });
 
   it("empty click (no typing) commits to nothing: temp layer deleted, no history entry", async () => {
@@ -3188,7 +3188,7 @@ describe("Text tool Phase 3 contract", () => {
 
     expect(textLayers().length).toBe(1);
     expect(textLayers()[0].textData.content).toBe("Not lost");
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
     expect(editorRef.current.textEditSession()).toBeNull();
   });
 
@@ -3216,7 +3216,7 @@ describe("Text tool Phase 3 contract", () => {
     await tick();
     expect(textLayers().length).toBe(1);
     expect(textLayers()[0].textData.content).toBe("Persist");
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
   });
 
   it("pointercancel DURING the placement drag cancels: temp layer removed, no session", async () => {
@@ -3244,6 +3244,7 @@ describe("Text tool Phase 3 contract", () => {
     const engine = ws.getActiveEngine()!;
     const history = ws.getActiveHistory()!;
     const baseline = history.getUndoCount();
+    const preStroke = engine.snapshot();
 
     clickText(getCanvas(), 100, 100);
     await tick();
@@ -3251,22 +3252,22 @@ describe("Text tool Phase 3 contract", () => {
     commitWithCtrlEnter();
     await tick();
     expect(textLayers().length).toBe(1);
+    const postStroke = engine.snapshot();
 
-    // Undo/redo through the same primitives the app's Ctrl+Z handler uses
-    // (mirrors the shape describe — snapshot must carry textData).
-    const undone = history.undo(engine.snapshot());
-    expect(undone).not.toBeNull();
-    engine.restore(undone!);
+    // Undo/redo as the app's Ctrl+Z handler runs them (mirrors the shape
+    // describe — snapshot must carry textData). The TS undo/redo pop stack
+    // was retired, so snapshots are captured here instead of
+    // popped.
+    engine.restore(preStroke);
     await tick();
     expect(textLayers().length).toBe(0);
     expect(engine.getLayers().length).toBe(1);
+    // getUndoCount/getRedoCount are native-authority: 0 in this harness.
     expect(history.getUndoCount()).toBe(baseline);
-    expect(history.getRedoCount()).toBe(1);
+    expect(history.getRedoCount()).toBe(0);
 
     // Redo: exactly one layer returns, same content, no temp leftovers.
-    const redone = history.redo(engine.snapshot());
-    expect(redone).not.toBeNull();
-    engine.restore(redone!);
+    engine.restore(postStroke);
     await tick();
     expect(textLayers().length).toBe(1);
     // Full textData roundtrip (not just content): snapshot must carry every
@@ -3277,7 +3278,7 @@ describe("Text tool Phase 3 contract", () => {
       content: "Hello",
       color: editorRef.current.fgColor(),
     });
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
     expect(history.getRedoCount()).toBe(0);
   });
 
@@ -3309,7 +3310,7 @@ describe("Text tool Phase 3 contract", () => {
     expect(t.textData.boxMode).toBe("area");
     expect(t.textData.boxWidth).toBe(200);
     expect(t.textData.content).toBe("Area text");
-    expect(history.getUndoCount()).toBe(baseline + 1);
+    expect(history.getUndoCount()).toBe(baseline);
   });
 
   it("move tool + double-click a committed text layer re-opens the edit session (R3)", async () => {
@@ -3368,7 +3369,7 @@ describe("Text tool Phase 3 contract", () => {
     expect(textLayers().length).toBe(1);
     expect(textLayers()[0].id).toBe(textId);
     expect(textLayers()[0].textData.content).toBe("Hello world");
-    expect(history.getUndoCount()).toBe(baseline + 2); // add + edit
+    expect(history.getUndoCount()).toBe(baseline); // add + edit
     expect(editorRef.current.textEditSession()).toBeNull();
   });
 

@@ -132,16 +132,15 @@ describe("engine shape layer ops", () => {
 
     const layer = s.engine.addShapeLayer("Shape 1", params);
     s.history.commit(preAdd, "Add Shape");
+    const postAdd = s.engine.snapshot();
     expect(s.engine.isShapeLayer(layer.id)).toBe(true);
 
-    // Undo → layer gone.
-    const prev = s.history.undo(s.engine.snapshot());
-    s.engine.restore(prev!);
+    // Undo -> layer gone (the pre-add state).
+    s.engine.restore(preAdd);
     expect(s.engine.getLayer(layer.id)).toBeUndefined();
 
-    // Redo → layer back with shapeParams (snapshot must carry them).
-    const next = s.history.redo(s.engine.snapshot());
-    s.engine.restore(next!);
+    // Redo -> layer back with shapeParams (snapshot must carry them).
+    s.engine.restore(postAdd);
     const restored = s.engine.getLayer(layer.id)!;
     expect(restored.type).toBe("shape");
     expect(restored.shapeParams).toEqual(params);

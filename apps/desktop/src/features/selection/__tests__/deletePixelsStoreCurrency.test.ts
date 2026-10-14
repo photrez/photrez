@@ -296,17 +296,11 @@ describe("delete pixels / cut do not leave the Rust store stale", () => {
     await settlePixelOps();
     expect(store.pixelAt(layerId, 25, 25)[3]).toBe(0);
 
-    // The undo DISPATCH contract: the TS store pops the entry and hands back
-    // its cursor token; for a rustOwned token the dispatcher then takes the
-    // pixels from Rust and steps the Rust cursor once. `CommandHistory.undo`
-    // alone only moves the TS stack, so both halves are driven here exactly as
-    // restoreHistorySnapshot does.
-    const restored = history.undo(engine.snapshot());
-    expect(restored).not.toBeNull();
-    const patches = history.consumeLastUndoPatches();
-    expect(patches?.rustOwned, "the delete entry is a cursor token Rust owns").toBe(true);
-
-    const rustRes = await store.invoke("rust_pixels_undo", { docId: "doc1", layerId: patches!.layerId });
+    // The undo DISPATCH contract: the native walker drives the Rust
+    // pixel store directly (`rust_pixels_undo` pops the pre-image the write
+    // recorded), so the exact-once guarantee is asserted against the store. The
+    // TS stack pop + `consumeLastUndoPatches` handoff is retired.
+    const rustRes = await store.invoke("rust_pixels_undo", { docId: "doc1", layerId });
     expect(rustRes.tiles.length).toBeGreaterThan(0);
 
     // Once, not twice: the pixels are back and the whole buffer matches the
@@ -316,8 +310,7 @@ describe("delete pixels / cut do not leave the Rust store stale", () => {
 
     // A second undo has nothing left to pop, so the store must not move again.
     const settled = store.hash(layerId);
-    expect(history.canUndo()).toBe(false);
-    expect(history.undo(engine.snapshot())).toBeNull();
+    await store.invoke("rust_pixels_undo", { docId: "doc1", layerId });
     await settlePixelOps();
     expect(store.hash(layerId)).toBe(settled);
   });

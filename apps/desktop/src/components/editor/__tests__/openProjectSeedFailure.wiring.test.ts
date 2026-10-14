@@ -45,7 +45,12 @@ import { getFacade } from "@/lib/protocol/selectionMirror";
 import { isTauriRuntime } from "@/lib/desktop/tauriWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { answerInvoke, resetStreams, streamFor } from "@/engine/__tests__/rustStreamEmulator";
-import { settle } from "@/engine/__tests__/historyCursorHarness";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
+
+async function settle() {
+  await new Promise<void>((r) => setTimeout(r, 0));
+  await flushPixelInvokeCensus();
+}
 import { loadWriterGolden } from "./ptzWriterContract";
 
 type OpenImageParams = import("../editorOpenImage").OpenImageParams;

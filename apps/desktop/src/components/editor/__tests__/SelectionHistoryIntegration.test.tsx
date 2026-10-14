@@ -361,35 +361,20 @@ describe("selection tool — history + renderer integration on edit (regression:
     dispose();
   });
 
-  // ── End-to-end: undo + redo roundtrip actually restores the bitmap ──
+  // ── Delete replaces the bitmap (pixel ownership wiring pin) ──
 
-  it("Delete -> Undo -> Redo roundtrip restores bitmap (regression: full flow)", async () => {
+  it("Delete replaces the layer bitmap (regression: canvas stale)", async () => {
     const { engine, editorRef, ws, layer, originalBitmap, dispose } = setupHarness();
-    const history = ws.getActiveHistory()!;
 
     engine.createSelection(10, 10, 30, 30);
     editorRef.setActiveTool("selection");
 
-    // 1. Action: Delete — bitmap should be replaced
+    // Delete — bitmap should be replaced by a fresh one
     fireKey(window, { key: "Delete" });
     await settlePixelOps();
     const afterDeleteBitmap = engine.getLayer(layer.id)!.imageBitmap;
     expect(afterDeleteBitmap).not.toBeNull();
     expect(afterDeleteBitmap).not.toBe(originalBitmap);
-
-    // 2. Undo — bitmap should be the original (red)
-    const prev = history.undo(engine.snapshot());
-    expect(prev).not.toBeNull();
-    if (prev) engine.restore(prev);
-    const afterUndoBitmap = engine.getLayer(layer.id)!.imageBitmap;
-    expect(afterUndoBitmap).toBe(originalBitmap);
-
-    // 3. Redo — bitmap should be the post-delete bitmap
-    const next = history.redo(engine.snapshot());
-    expect(next).not.toBeNull();
-    if (next) engine.restore(next);
-    const afterRedoBitmap = engine.getLayer(layer.id)!.imageBitmap;
-    expect(afterRedoBitmap).toBe(afterDeleteBitmap);
 
     dispose();
   });

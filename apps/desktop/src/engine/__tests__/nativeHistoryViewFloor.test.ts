@@ -142,52 +142,6 @@ describe("the floor follows the stream, not a sticky boolean", () => {
   });
 });
 
-describe("undo()/redo() never pop past the end of a natively-authoritative empty stack", () => {
-  it("undo returns null instead of throwing when the TS stack holds no payload", async () => {
-    const history = makeHistory({
-      cursor: 2,
-      lastSeq: 2,
-      degradedHint: false,
-      pendingExternal: null,
-      entries: [baseline(1), user(2, "Crop")],
-    });
-    await history.resyncFromNativeQuery();
-    expect(history.canUndo()).toBe(true);
-
-    let threw: unknown = null;
-    let result: unknown = "unset";
-    try {
-      result = history.undo({ layers: [] } as never);
-    } catch (e) {
-      threw = e;
-    }
-    expect(threw).toBeNull();
-    expect(result).toBeNull();
-  });
-
-  it("redo returns null instead of throwing when the TS stack holds no payload", async () => {
-    const history = makeHistory({
-      cursor: 1,
-      lastSeq: 2,
-      degradedHint: false,
-      pendingExternal: null,
-      entries: [baseline(1), user(2, "Crop")],
-    });
-    await history.resyncFromNativeQuery();
-    expect(history.canRedo()).toBe(true);
-
-    let threw: unknown = null;
-    let result: unknown = "unset";
-    try {
-      result = history.redo({ layers: [] } as never);
-    } catch (e) {
-      threw = e;
-    }
-    expect(threw).toBeNull();
-    expect(result).toBeNull();
-  });
-});
-
 describe("commit refreshes the derived view (no dead undo button)", () => {
   it("a commit re-reads the native query so the cache stops serving pre-stroke counts", async () => {
     // First read: just the document-open baseline - nothing undoable.
@@ -285,13 +239,6 @@ describe("the cursor-parity probe's feed is the TS stack, not the query cache", 
 
     // The derived counts read the cached native query...
     expect(history.getUndoCount()).toBe(4);
-    // ...but the parity probe is fed the TS stack itself. Feeding it the query
-    // cache would compare Rust against the same Rust reading and could only
-    // ever report in-sync, whatever drift actually exists.
-    expect(history.getTsUndoDepth()).toBe(0);
-
-    history.commit({ layers: [] } as never, "Crop");
-    expect(history.getTsUndoDepth()).toBe(1);
   });
 });
 

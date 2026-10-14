@@ -153,9 +153,9 @@ describe("ResizeCanvasModal", () => {
     expect(view.renderer.resizeToViewport).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 1);
     expect(view.scheduler.requestRender).toHaveBeenCalled();
     expect(view.dialog()).toBeNull();
-    // Routed ops own undo through the native cursor: no TS history entry.
-    expect(view.session.history.undo(view.session.engine.snapshot())).toBeNull();
-
+    // Routed ops own undo through the native cursor; the TS history carries no
+    // pop-able entry (undo() no longer exists — the native walker restores
+    // dims, proven by the facade.undo() below).
     await facade.undo();
     expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
     view.session.engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
@@ -186,9 +186,9 @@ describe("ResizeCanvasModal", () => {
     });
     expect(view.session.engine.getHeight()).toBe(300);
     expect(view.dialog()).toBeNull();
-    // Routed ops own undo through the native cursor: no TS history entry.
-    expect(view.session.history.undo(view.session.engine.snapshot())).toBeNull();
-
+    // Routed ops own undo through the native cursor; the TS history carries no
+    // pop-able entry (undo() no longer exists — the native walker restores
+    // dims, proven by the facade.undo() below).
     await facade.undo();
     expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
     view.session.engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });

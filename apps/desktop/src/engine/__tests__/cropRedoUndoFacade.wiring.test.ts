@@ -160,10 +160,11 @@ function makeEditor(engine: Engine, history: CommandHistory): EditorContextValue
 type Press = "facade" | "ts" | "none";
 
 /**
- * ONE history press, replicated from `useEditorCommands.restoreHistorySnapshot`: the
- * `hasFacadeOwnedLayers` gate, the production handoff unit, then the TS-history
- * fall-through. The restore is NOT wrapped in a catch - a fall-through that throws IS
- * the defect, and swallowing it here would hide the exact production message.
+ * ONE history press, replicated from `useEditorCommands.restoreHistorySnapshot`
+ * When the active document owns facade layers, the handoff is the
+ * single executor (it now always returns true, so "facade" is the only answer).
+ * The legacy TS pop/restore fall-through is retired - no host executor exists
+ * for a facade-owned document.
  */
 async function press(
   engine: Engine,
@@ -174,11 +175,7 @@ async function press(
   if (hasFacadeOwnedLayers()) {
     if (await runFacadeExternalHandoff(editor, direction)) return "facade";
   }
-  const popped =
-    direction === "undo" ? history.undo(engine.snapshot()) : history.redo(engine.snapshot());
-  if (!popped) return "none";
-  engine.restore(popped as never);
-  return "ts";
+  return "none";
 }
 
 function cursorReading(): string {
@@ -365,14 +362,16 @@ it("a press blocked by a pending external barrier must not reach engine.restore"
     );
     // The press must be consumed by the facade handoff, NOT by the legacy store. It
     // used to fall through, pop the pre-facade TS entry and throw E_FACADE_OWNED.
+    // Refusing the press must COST NOTHING: the native cursor is the only undo
+    // authority left (the native walker retired the TS pop). Capture the real cursor
+    // readings before/after and require them to be identical - a press that
+    // silently drained a step, or that moved the cursor, would read different
+    // values here. The barrier line is the second half of the same invariant:
+    // once it clears the user must still own that step.
+    const beforePress = cursorReading();
     const p1 = await press(engine, history, "undo");
     expect(p1, `wedge=${wedged} rejection=${rejection}`).toBe("facade");
-
-    // Refusing the press must COST NOTHING: the pre-facade entry is still on the TS
-    // stack, so once the barrier clears the user still owns that step. A fix that
-    // returned true by silently draining the stack would pass the assertion above and
-    // lose their work.
-    expect(history.canUndo(), "the refused press must not spend a legacy entry").toBe(true);
+    expect(cursorReading(), "the refused press must not spend a history entry").toBe(beforePress);
     expect(cursorReading(), "and the barrier is untouched").toContain("pending=1");
   });
 });

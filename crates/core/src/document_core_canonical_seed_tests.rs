@@ -15,13 +15,13 @@ fn empty_doc(id: &str) -> CanonicalDocument {
 
 #[test]
 fn canonical_default_is_none() {
-    let engine = ProtocolEngine::new();
+    let engine = DocumentCore::new();
     assert!(engine.canonical().is_none());
 }
 
 #[test]
 fn seed_canonical_stores_copy() {
-    let mut engine = ProtocolEngine::new();
+    let mut engine = DocumentCore::new();
     engine.seed_canonical(empty_doc("doc-A"));
     let c = engine.canonical().expect("canonical shadow stored");
     assert_eq!(c.id, "doc-A");
@@ -29,7 +29,7 @@ fn seed_canonical_stores_copy() {
 
 #[test]
 fn seed_canonical_replaces_existing() {
-    let mut engine = ProtocolEngine::new();
+    let mut engine = DocumentCore::new();
     engine.seed_canonical(empty_doc("doc-A"));
     engine.seed_canonical(empty_doc("doc-B"));
     let c = engine.canonical().expect("canonical shadow stored");
@@ -47,7 +47,7 @@ fn seed_canonical_replaces_existing() {
 
 use super::arm_tests::env;
 use crate::canonical_model::{BasicAdjustment, BlendMode, CanonicalLayer, LayerType, Transform2D};
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::history::EntryPayload;
 use crate::model::RenderLayer;
 
@@ -111,12 +111,12 @@ fn canon_doc(id: &str, w: f64, h: f64, layers: &[&str]) -> CanonicalDocument {
     }
 }
 
-fn shadow_dims(e: &ProtocolEngine) -> (f64, f64) {
+fn shadow_dims(e: &DocumentCore) -> (f64, f64) {
     let c = e.canonical().expect("shadow present");
     (c.width, c.height)
 }
 
-fn layer_ids(e: &ProtocolEngine) -> Vec<String> {
+fn layer_ids(e: &DocumentCore) -> Vec<String> {
     e.snapshot().layers.iter().map(|l| l.id.clone()).collect()
 }
 
@@ -126,7 +126,7 @@ fn layer_ids(e: &ProtocolEngine) -> Vec<String> {
 // captured doc_size pairs verbatim; undo is therefore correct.
 #[test]
 fn reseed_after_addlayer_undo_restores_pre_add_state() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &[]));
     e.seed_layers(vec![mk_layer("A", "Layer A", 10)], 0);
 
@@ -187,7 +187,7 @@ fn reseed_after_addlayer_undo_restores_pre_add_state() {
 // pair in both directions. (Divergent re-push is exercised inertly in t3/t4.)
 #[test]
 fn reseed_after_resize_undo_redo_follows_captured_dims() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &[]));
     e.seed_layers(vec![mk_layer("A", "Layer A", 10)], 0);
 
@@ -241,7 +241,7 @@ fn reseed_after_resize_undo_redo_follows_captured_dims() {
 // baseline stability the single-owner rule guarantees.
 #[test]
 fn repush_never_mutates_native_doc_size() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &[]));
     e.seed_layers(vec![mk_layer("A", "Layer A", 10)], 0);
 
@@ -289,7 +289,7 @@ fn repush_never_mutates_native_doc_size() {
 // the TS truth at mirrored moments).
 #[test]
 fn audit_sequence_repush_preserves_history_and_dims() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &[]));
     e.seed_layers(vec![mk_layer("A", "Layer A", 10)], 0);
 
@@ -356,7 +356,7 @@ fn audit_sequence_repush_preserves_history_and_dims() {
 // test-harness fake cannot be the only thing asserting this contract.
 #[test]
 fn seed_canonical_known_id_takes_pushed_metadata_over_engine_seed() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     // Engine already knows "L" from a metadata-only seed: no adjustment, no
     // blend mode, unlocked, engine-minted resource id 7.
     e.seed_layers(vec![mk_layer("L", "L", 7)], 0);

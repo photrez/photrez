@@ -1,4 +1,4 @@
-﻿// Native (Tauri-runtime) authority client for the per-document `ProtocolEngine`.
+﻿// Native (Tauri-runtime) authority client for the per-document `DocumentCore`.
 //
 // The native protocol commands use a bare `"CODE: message"` string error
 // envelope (`Result<T, String>`). On a Rust `Err(String)`, Tauri v2 `invoke()`
@@ -11,7 +11,7 @@
 // Method names/args mirror `WasmProtocol` (bridge.ts) so the bridge can dispatch
 // to either engine. The native-authority dispatch branch in bridge.applyCommand
 // (and getSnapshot/getHistoryQuery/historyCursorCommit) calls this client to drive
-// the per-document native ProtocolEngine.
+// the per-document native DocumentCore.
 
 import { invoke } from "@tauri-apps/api/core";
 import { recordIpcFreq } from "@/lib/perf/ipcFreqDev";

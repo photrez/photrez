@@ -18,7 +18,7 @@ mod print_settings_cmds;
 #[cfg(target_os = "windows")]
 mod print_windows;
 mod printers;
-// Native (Tauri) authority command surface for the per-doc ProtocolEngine.
+// Native (Tauri) authority command surface for the per-doc DocumentCore.
 mod protocol_native_cmds;
 mod response;
 mod save_stream;

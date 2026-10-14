@@ -106,8 +106,6 @@ export interface PerfAuditOptions {
 export const PERF_AUDIT_OPS: readonly string[] = [
   "meta-routed",
   "brush-commit",
-  "undo-legacy",
-  "undo-facade",
   "save-serialize",
   "export-bake",
   "upload-full-patch",
@@ -299,55 +297,6 @@ export const defaultRunners: Record<string, RowRunner> = {
       uploadMs: NOT_PART,
       snapHistMs: round1(snapMs + histMs),
       notes: "snapshot+history+composite floor; live surface/upload split in [paint-commit] lines",
-    };
-  },
-
-  "undo-legacy": async (s) => {
-    const { CommandHistory } = await import("@/engine/history");
-    const hist = new CommandHistory();
-    hist.commit(s.engine.snapshot(), "perf-audit-undo");
-    const t0 = performance.now();
-    // `undo(snap, false)` / `redo(snap, false)`: this scratch history records
-    // nothing (it has no doc-id getter and is thrown away), so a cursor-stepping
-    // pop would consume whatever entry Rust does hold for the audited document -
-    // a brush stroke's Pixel entry.
-    const prev = hist.undo(s.engine.snapshot(), false);
-    const undoMs = performance.now() - t0;
-    let restoreMs = 0;
-    if (prev) {
-      const t = performance.now();
-      s.engine.restore(prev);
-      restoreMs = performance.now() - t;
-    }
-    const t2 = performance.now();
-    const next = hist.redo(s.engine.snapshot(), false);
-    const redoMs = performance.now() - t2;
-    if (next) s.engine.restore(next);
-    return {
-      totalMs: round1(undoMs + restoreMs + redoMs),
-      invokeMs: NOT_PART,
-      rasterMs: NOT_PART,
-      uploadMs: NOT_PART,
-      snapHistMs: round1(undoMs + restoreMs + redoMs),
-      notes: "legacy TS undo + restore + redo on the scratch doc",
-    };
-  },
-
-  "undo-facade": async (s) => {
-    const t0 = performance.now();
-    const snap = s.engine.snapshot();
-    const snapMs = performance.now() - t0;
-    const t1 = performance.now();
-    s.engine.restore(snap);
-    const restoreMs = performance.now() - t1;
-    const invokeMs = await probeInvokeMs();
-    return {
-      totalMs: round1(snapMs + restoreMs + Math.max(0, invokeMs)),
-      invokeMs: round1(invokeMs),
-      rasterMs: NOT_PART,
-      uploadMs: NOT_PART,
-      snapHistMs: round1(snapMs + restoreMs),
-      notes: cleanNote(`facade ${await facadeState()}; TS half + IPC floor, applied facade undo needs an open native doc`),
     };
   },
 

@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-// Each document owns its authoritative history stream (`ProtocolEngine`). Pixel
+// Each document owns its authoritative history stream (`DocumentCore`). Pixel
 // deltas live in the stream's `Pixel` entries; the `PixelLayer` keeps only the
 // canonical buffer + epoch.
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 // Bug 1 fix: commit composites the dab onto the EXISTING canonical pixels, so
 // `raster_shadow` needs the base buffer + its dab types.
 use crate::paint_parity::{raster_shadow, ParityDab, ParityTip};
@@ -81,7 +81,7 @@ pub struct TilePatch {
 }
 
 /// Authoritative pixel owner for one layer. Exactly one `pixels` buffer exists
-/// per layer. Pixel history lives in the document's `ProtocolEngine` (bounded to
+/// per layer. Pixel history lives in the document's `DocumentCore` (bounded to
 /// `max_depth`); this struct keeps only the canonical buffer + `epoch`. `epoch`
 /// is bumped on every canonical mutation so the derived TS cache can detect
 /// staleness.
@@ -170,7 +170,7 @@ pub struct DocumentPixelStore {
     pub layers: HashMap<String, PixelLayer>,
     /// Single authoritative history cursor for this document. Pixel deltas are
     /// stored as `EntryPayload::Pixel` entries here.
-    pub history: ProtocolEngine,
+    pub history: DocumentCore,
     /// Per-layer immutable `StateNode` canonical COW seam (arena + current
     /// state). Kept in sync with `PixelLayer`; produces the `Arc<StateNode>`
     /// before/after pairs the history stream stores, and is re-anchored on
@@ -182,7 +182,7 @@ impl DocumentPixelStore {
     pub fn new() -> Self {
         Self {
             layers: HashMap::new(),
-            history: ProtocolEngine::new(),
+            history: DocumentCore::new(),
             state_nodes: HashMap::new(),
         }
     }
@@ -314,7 +314,7 @@ impl DocumentPixelStore {
     /// Execute one protocol command for this document and COMPLETE any pixel
     /// step the engine started.
     ///
-    /// `ProtocolEngine::apply` owns the history cursor but not the pixel
+    /// `DocumentCore::apply` owns the history cursor but not the pixel
     /// buffer, so when the cursor tip is a `Pixel` entry the walker moves the
     /// cursor and parks `(layer, tiles, node)` in `pending_pixel`. This method
     /// is the other half: it replays the tiles into the canonical `PixelLayer`,
@@ -475,11 +475,11 @@ impl PixelStoreRegistry {
     }
 
     // ── Unified pixel history (authoritative) ──
-    // These route through the document's `ProtocolEngine` so the pixel history
+    // These route through the document's `DocumentCore` so the pixel history
     // cursor is the SAME cursor used by metadata history. They write the
     // canonical `PixelLayer.pixels` + bump `epoch` directly. The legacy
     // per-layer `undo_stack`/`redo_stack` history mechanism was removed; the only
-    // pixel history is now the document's `ProtocolEngine` (bounded to
+    // pixel history is now the document's `DocumentCore` (bounded to
     // `max_depth`). Locking is external (the process-lifetime `REGISTRY` Mutex);
     // here we operate directly on the `docs` HashMap.
 
@@ -816,7 +816,7 @@ impl PixelStoreRegistry {
     /// entry just below the cursor, so `None` at cursor 0); `redo_tip_kind` is
     /// the kind the next redo would consume (the entry just above the cursor, so
     /// `None` at the stream end). Both are the same rule
-    /// `ProtocolEngine::tip_payload_kind` applies to the undo direction.
+    /// `DocumentCore::tip_payload_kind` applies to the undo direction.
     ///
     /// `&self` only: no cursor pop, tile write, `version()` bump or
     /// `Arc<StateNode>` mutation, and no pixel bytes or payload data are
@@ -839,7 +839,7 @@ impl PixelStoreRegistry {
     }
 
     /// Route a TS (non-pixel) logical mutation into the SAME unified
-    /// `ProtocolEngine` cursor so mixed TS/Rust operations share one history
+    /// `DocumentCore` cursor so mixed TS/Rust operations share one history
     /// position. Creates an `External` entry (no pixel delta) that advances the
     /// cursor + bumps `DocumentVersion` exactly once. The actual metadata revert
     /// on undo/redo remains TS-side; this entry only keeps the ordering unified.
@@ -877,7 +877,7 @@ impl PixelStoreRegistry {
     }
 
     /// Record an atomic metadata+pixel `Snapshot` entry into the document's
-    /// unified `ProtocolEngine` cursor. Mirrors `record_external` (bumps
+    /// unified `DocumentCore` cursor. Mirrors `record_external` (bumps
     /// `DocumentVersion` exactly once, truncates the redo branch) but stores BOTH
     /// the `before` and `after` snapshot so undo restores the `before` and redo
     /// re-applies the `after` — restoring the metadata AND (via the per-layer

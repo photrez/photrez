@@ -8,7 +8,7 @@
  * pixel store for its composite destination, and the canonical write for that seed is
  * `rust_pixels_write_region`, which opens a `Pixel` entry on the SAME per-document
  * cursor the structural command records on (`crates/core/src/pixel_store.rs`: the
- * store's `history: ProtocolEngine` is the registry's per-doc engine, and
+ * store's `history: DocumentCore` is the registry's per-doc engine, and
  * `protocol_apply_command_native` drives that same registry - one cursor, shared).
  * One undo press steps exactly one entry, so an entry left ON TOP of the structural one
  * means the press steps the pixel entry instead: the handoff claims the undo, returns
@@ -25,7 +25,7 @@
  *
  * COVERAGE BOUNDARY, STATED HONESTLY. In production both surfaces share one Rust
  * cursor. In a vitest harness the pixel surface must be emulated (there is no wasm
- * pixel export) while the graph surface runs on the REAL wasm `ProtocolEngine`, so the
+ * pixel export) while the graph surface runs on the REAL wasm `DocumentCore`, so the
  * two cursors are necessarily distinct here. The witness below is therefore the
  * TS-side half of the defect, stated on the surface that owns it: the seed must leave
  * the destination with zero pixel history steps. The structural contract (one undo

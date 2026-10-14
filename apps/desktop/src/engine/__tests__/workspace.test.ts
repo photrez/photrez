@@ -127,7 +127,8 @@ describe('WorkspaceManager', () => {
       doc.dirty = false;
 
       // Commit clean initial state
-      doc.history.commit(engine.snapshot(), 'Initial');
+      const initial = engine.snapshot();
+      doc.history.commit(initial, 'Initial');
 
       expect(engine.isDirty()).toBe(false);
       expect(doc.dirty).toBe(false);
@@ -138,8 +139,7 @@ describe('WorkspaceManager', () => {
       expect(doc.dirty).toBe(true);
 
       // Undo back to initial clean state
-      const prev = doc.history.undo(engine.snapshot());
-      engine.restore(prev!);
+      engine.restore(initial);
 
       // After undo, engine should be clean
       expect(engine.isDirty()).toBe(false);
@@ -159,7 +159,8 @@ describe('WorkspaceManager', () => {
       doc.dirty = false;
 
       // Commit clean state
-      doc.history.commit(engine.snapshot(), 'Brush Initial');
+      const clean = engine.snapshot();
+      doc.history.commit(clean, 'Brush Initial');
       expect(engine.isDirty()).toBe(false);
       expect(doc.dirty).toBe(false);
 
@@ -170,8 +171,7 @@ describe('WorkspaceManager', () => {
       expect(doc.dirty).toBe(true);
 
       // Undo back to original bitmap
-      const prev = doc.history.undo(engine.snapshot());
-      engine.restore(prev!);
+      engine.restore(clean);
 
       expect(engine.getLayer(layer.id)!.imageBitmap).toBe(originalBitmap);
       expect(engine.isDirty()).toBe(false);

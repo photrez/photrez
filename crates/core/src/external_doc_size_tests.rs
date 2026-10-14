@@ -27,7 +27,7 @@
 
 use super::*;
 use crate::canonical_model::CanonicalDocument;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::state_node::{StateMeta, TileRef};
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ fn sn(v: u8) -> Arc<StateNode> {
     Arc::new(StateNode::new(0, vec![tile], StateMeta::new(w, h, 0, 0)))
 }
 
-fn add_layer(eng: &mut ProtocolEngine, id: &str) {
+fn add_layer(eng: &mut DocumentCore, id: &str) {
     eng.apply(env(Command::AddLayer {
         id: id.to_string(),
         name: id.into(),
@@ -64,7 +64,7 @@ fn add_layer(eng: &mut ProtocolEngine, id: &str) {
 /// Open a document the way the host does: the canonical seed is the baseline
 /// `doc_size` owner, plus one layer, giving the single open-baseline entry the
 /// host refusal's floor accounts for.
-fn seed_open_document(eng: &mut ProtocolEngine, w: f64, h: f64) {
+fn seed_open_document(eng: &mut DocumentCore, w: f64, h: f64) {
     eng.seed_canonical(CanonicalDocument {
         id: "doc-1".into(),
         name: "doc".into(),
@@ -81,7 +81,7 @@ fn seed_open_document(eng: &mut ProtocolEngine, w: f64, h: f64) {
 /// size-neutral transition (a layer delete, a move, a reorder), and the
 /// before/after halves for one that resizes the document.
 fn record_host_transition(
-    eng: &mut ProtocolEngine,
+    eng: &mut DocumentCore,
     label: &str,
     size: Option<((f64, f64), (f64, f64))>,
 ) {
@@ -106,7 +106,7 @@ fn record_host_transition(
 /// the delta the host projects. Mirrors the shipped handoff sequence
 /// (`facadeHistoryHandoff` -> `history_cursor_commit`), not a reimplementation of
 /// any production predicate.
-fn host_undo(eng: &mut ProtocolEngine) -> CommandResult {
+fn host_undo(eng: &mut DocumentCore) -> CommandResult {
     let r = eng.apply(env(Command::Undo)).unwrap();
     // Only an External step is a two-phase handoff; a Pixel step advances the
     // cursor in the walker itself and needs no confirmation. Asserting the
@@ -125,7 +125,7 @@ fn host_undo(eng: &mut ProtocolEngine) -> CommandResult {
     r
 }
 
-fn host_redo(eng: &mut ProtocolEngine) -> CommandResult {
+fn host_redo(eng: &mut DocumentCore) -> CommandResult {
     let r = eng.apply(env(Command::Redo)).unwrap();
     match r.external_seq {
         Some(seq) => {
@@ -164,7 +164,7 @@ fn adopted_size(r: &CommandResult) -> Option<(f64, f64)> {
 /// pass while the capture source is stale.
 #[test]
 fn two_consecutive_crops_undo_to_the_true_intermediate_size() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     seed_open_document(&mut eng, 128.0, 128.0);
     eng.register_adapter("ts");
 
@@ -235,7 +235,7 @@ fn two_consecutive_crops_undo_to_the_true_intermediate_size() {
 /// Both a fully absent pair and a before-only pair must emit no size at all.
 #[test]
 fn external_with_absent_after_half_emits_no_size() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     seed_open_document(&mut eng, 128.0, 128.0);
     eng.register_adapter("ts");
 
@@ -270,7 +270,7 @@ fn external_with_absent_after_half_emits_no_size() {
 /// host's `lastHistoryDeltaWasEmpty` true and its fall-through routing intact.
 #[test]
 fn metadata_external_emits_empty_delta_and_no_size() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     seed_open_document(&mut eng, 128.0, 128.0);
     eng.register_adapter("ts");
     record_host_transition(&mut eng, "Delete Layer", None);
@@ -284,7 +284,7 @@ fn metadata_external_emits_empty_delta_and_no_size() {
 /// also emits no size, so the host still reads it as an empty step.
 #[test]
 fn size_neutral_host_mutation_with_equal_halves_emits_no_size() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     seed_open_document(&mut eng, 128.0, 128.0);
     eng.register_adapter("ts");
     record_host_transition(
@@ -313,7 +313,7 @@ fn size_neutral_host_mutation_with_equal_halves_emits_no_size() {
 /// cursor. That is asserted here explicitly.
 #[test]
 fn every_entry_kind_still_advances_the_shared_cursor() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     seed_open_document(&mut eng, 128.0, 128.0);
     eng.register_adapter("ts");
 
@@ -363,7 +363,7 @@ fn every_entry_kind_still_advances_the_shared_cursor() {
 /// walker's Snapshot arm. Asserted so Phase 1 cannot have shifted it.
 #[test]
 fn snapshot_entry_cursor_contract_unchanged() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     seed_open_document(&mut eng, 128.0, 128.0);
 
     let snap = |v: u64, w: u32| {
@@ -392,7 +392,7 @@ fn snapshot_entry_cursor_contract_unchanged() {
 #[test]
 fn measured_stream_consumes_exactly_one_entry_per_press() {
     const FLOOR: u64 = 1; // the host proved one open-baseline entry exists
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     seed_open_document(&mut eng, 128.0, 128.0);
     eng.register_adapter("ts");
 

@@ -58,7 +58,29 @@ import {
 import { toIpcBytes } from "@/lib/paint/storeCurrency";
 import { installFacadeCommitShim } from "@/lib/protocol/facadeRegistry";
 import { answerInvoke, record, resetStreams, streamFor } from "@/engine/__tests__/rustStreamEmulator";
-import { settle as settleCursor, timesInvoked, waitForRust } from "@/engine/__tests__/historyCursorHarness";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
+
+async function settleCursor() {
+  await new Promise<void>((r) => setTimeout(r, 0));
+  await flushPixelInvokeCensus();
+}
+
+const waitFor = async (pred: () => boolean, ms = 3000) => {
+  const start = Date.now();
+  while (!pred()) {
+    if (Date.now() - start > ms) throw new Error("waitFor timeout");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
+
+const waitForRust = async (docId: string, count: number) => {
+  await waitFor(() => streamFor(docId).entries.length >= count);
+  await settleCursor();
+};
+
+/** Count the invokes the emulator saw for `command`. */
+const timesInvoked = (command: string): number =>
+  vi.mocked(invoke).mock.calls.filter((c) => c[0] === command).length;
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const invokeMock = invoke as unknown as Mock<(cmd: string, args: Record<string, unknown>) => Promise<unknown>>;
@@ -546,126 +568,12 @@ describe("MEASURED: stamp visible seeds its composite into the Rust pixel store"
   });
 });
 
-describe("a stamp between two paint strokes leaves both neighbours undoable", () => {
-  const DOC_CURSOR = "docStampCursor";
-  const LAYER = "layer-paint";
-  let store: RustStoreEmulator;
+// The "a stamp between two paint strokes leaves both neighbours undoable" describe
+// formerly pinned the deleted stepper's rustOwned arm (takeLastCursorStep + history.undo).
+// That arm and its defect are retired; the neighbour-stroke survival invariant it asserted
+// is covered by the mirror-ACTIVE describe below, which drives the shipped configuration
+// end to end through the production press.
 
-  const solid = (r: number, g: number, b: number): Uint8ClampedArray => {
-    const buf = new Uint8ClampedArray(SIZE * SIZE * 4);
-    for (let i = 0; i < buf.length; i += 4) {
-      buf[i] = r; buf[i + 1] = g; buf[i + 2] = b; buf[i + 3] = 255;
-    }
-    return buf;
-  };
-  const opaque = solid(0, 0, 0);
-
-  async function paintStroke(bytes: Uint8ClampedArray): Promise<void> {
-    await store.invoke(
-      "rust_pixels_write_region",
-      pixelRegionDispatch(DOC_CURSOR, LAYER, 0, 0, SIZE, SIZE, toIpcBytes(bytes)),
-    );
-  }
-
-  function snapshot() {
-    return { id: DOC_CURSOR, layers: [], activeLayerId: LAYER, width: SIZE, height: SIZE } as never;
-  }
-
-  function twin(before: Uint8ClampedArray, after: Uint8ClampedArray) {
-    const tile = (px: Uint8ClampedArray) => ({ x: 0, y: 0, width: SIZE, height: SIZE, data: px });
-    return { layerId: LAYER, surfaceWidth: SIZE, surfaceHeight: SIZE, before: [tile(before)], after: [tile(after)], rustOwned: true };
-  }
-
-  beforeEach(async () => {
-    localStorage.clear();
-    // the retired key is inert here — this
-    // block isolates the PIXEL owners (store emulator), not the commit mirror.
-    invokeMock.mockReset();
-    store = createRustStoreEmulator();
-    invokeMock.mockImplementation(((cmd: string, args: Record<string, unknown>, options?: any) =>
-      store.invoke(cmd, args, options)) as never);
-    (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = undefined;
-    await store.invoke("rust_pixels_init", pixelSeedDispatch(DOC_CURSOR, LAYER, SIZE, SIZE, toIpcBytes(opaque)));
-  });
-
-  afterEach(() => {
-    store.dispose();
-    localStorage.clear();
-    vi.restoreAllMocks();
-  });
-
-  // the pop-order row that lived here died
-  // with the flag. The commit-side mirror is STILL flag-gated in production
-  // (`facadeRegistry.ts:1283`), so under the shipped defaults this file installs
-  // no recorder, no mirror is recorded, and the pop-side arm (`history.ts:430`)
-  // — already ungated by the flag retirement — fires with nothing behind it. That exact
-  // half-migrated asymmetry is the commit-side gating (the commit-side gates), not a
-  // behavior this change may pin: asserting EITHER count here would pin the
-  // asymmetry as the design. The neighbour-survival invariant (pop 3 still
-  // reaches the first stroke) is covered by the mirror-ACTIVE describe below,
-  // which runs the shipped configuration end to end.
-  //
-  // REMOVED: "the stamp's pop steps its own mirror entry;
-  // both paint strokes still undo in order".
-
-  // THE DEFEAT. Same ordering, but the stamp's entry is committed the way an
-  // ARMED producer would commit it - `rustOwned: true`, so the pop takes
-  // `fireGatedOnPixelTip` and issues a step the gesture never earned. If this
-  // ever stops reproducing the loss, the guard above measures nothing.
-  //
-  // This is the hazard the arm has to respect. Seeding the composite through
-  // `seedCompositeCanonicalPixels` opens a `Pixel` entry on the SAME per-document
-  // cursor (it ends with `syncLayerStoreToLayerRaster` precisely to drop it), so
-  // a stamp arm that skipped that step - or that marked the HOST entry
-  // `rustOwned` - would spend the neighbouring stroke's step and cost the user a
-  // stroke's worth of undo.
-  it("DEFEAT: a rustOwned stamp twin DOES spend the neighbour stroke's cursor step", async () => {
-    const history = new CommandHistory();
-    history.attachDocIdGetter(() => DOC_CURSOR);
-
-    const first = solid(255, 0, 0);
-    const second = solid(0, 255, 0);
-
-    await paintStroke(first);
-    history.commit(snapshot(), "Brush Stroke", twin(opaque, first), true);
-    history.commit(
-      snapshot(),
-      "Stamp Visible",
-      { layerId: LAYER, surfaceWidth: SIZE, surfaceHeight: SIZE, before: [], after: [], rustOwned: true },
-      true,
-    );
-    await paintStroke(second);
-    history.commit(snapshot(), "Brush Stroke", twin(first, second), true);
-
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    invokeMock.mockClear();
-
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(
-      issued().filter((c) => c === "rust_pixels_undo"),
-      "the armed stamp twin consumed a cursor step",
-    ).toHaveLength(1);
-    expect(
-      store.pixelAt(LAYER, 0, 0),
-      "the armed stamp's pop reverted the stroke beneath it, not any stamped pixel",
-    ).toEqual([0, 0, 0, 255]);
-
-    // The stroke that lost its step: its pop still issues a step, but there is
-    // no entry left behind it. Two presses produced one stroke's worth of change.
-    history.undo(snapshot());
-    await history.takeLastCursorStep();
-    expect(
-      issued().filter((c) => c === "rust_pixels_undo"),
-      "the stroke beneath the armed stamp still issues a step",
-    ).toHaveLength(2);
-    expect(
-      store.pixelAt(LAYER, 0, 0),
-      "but that step had no entry left to undo, so the pixels are unchanged",
-    ).toEqual([0, 0, 0, 255]);
-  });
-});
 
 /**
  * THE SHIPPING DEFAULT: the facade commit mirror ACTIVE.
@@ -821,32 +729,14 @@ describe("with the facade mirror ACTIVE (the shipping default), one stamp is one
       .then(() => "HAS-ENTRY" as const, () => "NO-ENTRY" as const);
     expect(storeRead, "the composite was seeded regardless of the mirror").toBe("HAS-ENTRY");
 
-    // EXACTLY ONE cursor step, and it lands on the mirror's OWN `External` entry -
-    // not on a neighbour's, and not twice.
+    // EXACTLY ONE cursor step, and it lands on the mirror's OWN `External` entry.
     //
-    // One step is the correct count here, and the reason is the shim arm of
-    // the shim arm of `stepRustCursor` (engine/historyCursorStep.ts): when the
-    // shim is the recorder for an entry, the pop MUST step it, or the entry the
-    // mirror recorded would have no consumer and the two cursors would separate.
-    // The DEFEAT case in the previous describe block pins the OTHER failure - an
-    // entry marked `rustOwned` spends a step the gesture never earned - and that
-    // is unreachable here precisely because the host entry carries no
-    // `imperative`.
-    history.undo(engine.snapshot() as never);
-    await history.takeLastCursorStep();
-    await waitForRust(DOC_FACADE, 1);
-    await flushAsync(2);
-    expect(
-      timesInvoked("rust_pixels_undo") + timesInvoked("rust_pixels_redo"),
-      "one press, one cursor step - not zero (the mirror's entry needs a consumer) and not two",
-    ).toBe(1);
-
-    // The step consumed the mirror's own entry: the stream's cursor is back at the
-    // bottom, which is the observable proof that it did not eat a neighbour's.
-    expect(
-      { cursor: streamFor(DOC_FACADE).cursor, depth: streamFor(DOC_FACADE).entries.length },
-      "the pop moved the cursor over the mirror's External entry, leaving no entry stranded above it",
-    ).toEqual({ cursor: 0, depth: 1 });
+    // The legacy host pop (`history.undo` + `takeLastCursorStep`) that asserted
+    // this step is retired - the native walker is the sole executor now, and its
+    // one-step-per-press contract is pinned by `facadeHandoffDoubleStep.wiring`
+    // (and the depth>=2 cases above it). The commit/record half this describe
+    // isolates - one host commit, one mirrored External entry, composite seeded
+    // regardless of the mirror - is the surviving pin and stops here.
   });
 
   // the mirror always records, so a "mirror

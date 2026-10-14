@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// History stream types + the history-cursor methods of ProtocolEngine
+// History stream types + the history-cursor methods of DocumentCore
 // (record/undo/redo for pixel, snapshot, and external-handoff entries).
 
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::*;
 use crate::pixel_store::TilePatch;
 use crate::projection::*;
@@ -19,7 +19,7 @@ pub enum Origin {
 }
 // `EntryPayload`/`HistoryEntry` intentionally do NOT derive Clone.
 // `Pixel` payloads hold `Arc<StateNode>` (sharing is via `Arc`, never a value
-// clone). They DO derive Debug (ProtocolEngine derives Debug, which requires it).
+// clone). They DO derive Debug (DocumentCore derives Debug, which requires it).
 #[derive(Debug)]
 pub(crate) enum EntryPayload {
     // Built-in native adapter: before/after metadata snapshots. Stored as
@@ -93,7 +93,7 @@ pub(crate) enum EntryPayload {
     },
     /// Native pixel-history entry. Carries before/after pixel
     /// states as immutable, byte-free `Arc<StateNode>`s (COW tile blocks
-    /// shared across states). The metadata-level `ProtocolEngine` is reused as
+    /// shared across states). The metadata-level `DocumentCore` is reused as
     /// the SINGLE authoritative history cursor. Not serialized — the
     /// `HistoryEntryView` exposes only a `payload_ref` token. On undo/redo the
     /// stored after/before `Arc<StateNode>` is materialized back into the
@@ -163,7 +163,7 @@ type PixelTxn = (
     Option<Vec<TilePatch>>,
     Option<Arc<StateNode>>,
 );
-impl ProtocolEngine {
+impl DocumentCore {
     /// The pixel step for the `Pixel` entry at `idx`: undo replays `before`,
     /// redo replays `after`. Returns the affected layer, the dirty-region tiles
     /// to replay, and the canonical node to re-anchor.

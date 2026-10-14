@@ -6,7 +6,7 @@
 // only wrapped commit(). The internal rust_pixels_record_snapshot fire has no
 // production caller left, so a delete of a
 // non-facade-owned layer was mirrored into the TS stack ONLY: the WASM
-// ProtocolEngine never advanced. The WASM cursor and the TS undo stack drift by
+// DocumentCore never advanced. The WASM cursor and the TS undo stack drift by
 // one per such delete, and once a projection marks layers owned,
 // engine.restore() throws E_FACADE_OWNED for the stranded TS undo-point
 // (mixedHistory.test.ts:115-121).
@@ -29,6 +29,7 @@ import {
   installFacadeCommitShim,
   confirmExternalCursor,
   getFacade,
+  getExternalRecordSnapshot,
   __resetFacadeRegistryForTests,
 } from "@/lib/protocol/facadeRegistry";
 import { CommandHistory } from "@/engine/history";
@@ -38,6 +39,24 @@ vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
   return makeWasmArmedBridge(actual);
+});
+
+// `resyncDerivedView` imports `getHistoryQuery` from `bridge_emu` DIRECTLY
+// (not through `bridge`), so the wasm-armed `bridge` mock above never reaches
+// the native-authority resync inside CommandHistory. Route this arm's query to
+// the same armed wasm module so a standalone CommandHistory re-syncs the
+// mirror stream this suite records (the production path the workspace drives).
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/protocol/bridge_emu")>();
+  const { armWasmModule } = await import("@/lib/protocol/__tests__/wasmBridgeArm");
+  const wasm = await armWasmModule();
+  return {
+    ...actual,
+    getHistoryQuery: (async (docId?: string) =>
+      JSON.parse(
+        wasm.protocol_history_query_json(docId ?? "default"),
+      )) as unknown as typeof actual.getHistoryQuery,
+  };
 });
 
 const DOC_ID = "docSnapshotMirror";
@@ -80,6 +99,7 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     const applySpy = vi.spyOn(bridge, "applyCommand");
 
     const history = new CommandHistory();
+    history.attachDocIdGetter(() => DOC_ID);
     const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
     const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
 
@@ -98,11 +118,15 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     const externalEntries = proj.entries.filter((e) => e.origin.startsWith("external:"));
     expect(externalEntries.length).toBe(1);
     expect(proj.cursor).toBe(1);
-    expect(history.canUndo()).toBe(true); // TS authority still records the undo-point
+    // Authoritative read: re-sync from the mirrored stream, then the native
+    // count is live - the mirror advanced the cursor one past the open baseline.
+    await history.resyncFromNativeQuery();
+    expect(history.canUndo()).toBe(true);
   });
 
   it("alignment holds across multiple deletes (1 mirror per delete, no drift)", async () => {
     const history = new CommandHistory();
+    history.attachDocIdGetter(() => DOC_ID);
     for (let i = 0; i < 3; i++) {
       const before = { layers: [{ id: "bg" }, { id: `l${i}` }], width: 1, height: 1 } as never;
       const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
@@ -112,22 +136,35 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     const externalEntries = proj.entries.filter((e) => e.origin.startsWith("external:"));
     expect(externalEntries.length).toBe(3);
     expect(proj.cursor).toBe(3);
-    expect(history.canUndo()).toBe(true); // TS authority still records each undo-point
+    // Authoritative read: three mirrored deletes live in the native stream, so
+    // the cursor sits three past the open baseline - three undo points, not
+    // the pre-mirror native default.
+    await history.resyncFromNativeQuery();
+    expect(history.canUndo()).toBe(true);
   });
 
   it("mirror forwards the PRE-action `before` payload (undo point), not `after`", async () => {
+    const applySpy = vi.spyOn(bridge, "applyCommand");
     const history = new CommandHistory();
+    history.attachDocIdGetter(() => DOC_ID);
     const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
     const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
 
+    // The exact production call site from useLayerActions.handleDeleteActiveLayer.
     history.recordSnapshotHistory(before, after, "Delete Layer");
 
-    // Identity forwarding: the original TS recordSnapshotHistory stores the
-    // PRE-action state as the undo-point; undo() pops and returns exactly that
-    // object. This proves `before` reaches the legacy history intact (no copy,
-    // no swap to `after`) - the mirror must carry the same undo point.
-    const restored = history.undo({ layers: [], width: 1, height: 1 } as never);
-    expect(restored).toBe(before);
+    // Identity forwarding: the recordSnapshotHistory shim parks the PRE-action
+    // `before` model under the External entry's token (getExternalRecordSnapshot
+    // returns the stashed object identity - `asDocumentModel` keeps the same
+    // reference for a valid DocumentModel, no copy). This proves `before` reaches
+    // the mirror intact, not a copy and not the post-action `after` - and that
+    // `recordExternalTransitionFor` (not the host pop, now retired) forwards it.
+    const record = applySpy.mock.calls
+      .map((c) => c[0] as { command?: { type?: string; token?: string } })
+      .find((c) => c?.command?.type === "recordExternalTransition");
+    expect(record?.command?.token).toBeTruthy();
+    const stashed = getExternalRecordSnapshot(record!.command!.token, "undo");
+    expect(stashed).toBe(before);
 
     // The mirror already fired one External entry for this delete.
     const proj = await getHistoryProjection(DOC_ID);
@@ -136,8 +173,10 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     expect(proj.cursor).toBe(1);
   });
 
+
   it("mirror forwards the `Delete Layer` label into the External entry", async () => {
     const history = new CommandHistory();
+    history.attachDocIdGetter(() => DOC_ID);
     const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
     const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
 
@@ -151,6 +190,7 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
 
   it("round-trip: mirrored delete lands as External, then undo+confirmExternalCursor clears the barrier and both cursors step back by one", async () => {
     const history = new CommandHistory();
+    history.attachDocIdGetter(() => DOC_ID);
     const before = { layers: [{ id: "bg" }, { id: "del" }], width: 1, height: 1 } as never;
     const after = { layers: [{ id: "bg" }], width: 1, height: 1 } as never;
 
@@ -164,7 +204,9 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     const seq = externalEntries[0].seq;
     expect(proj.cursor).toBe(1);
 
-    // TS side: one undo point recorded (TS cursor = 1).
+    // Native side has one undo point (cursor sits at 1) - the authoritative
+    // read, not the pre-mirror native default.
+    await history.resyncFromNativeQuery();
     expect(history.canUndo()).toBe(true);
 
     // Real facade walk: undo lands on the mirrored external entry, so the facade
@@ -180,12 +222,13 @@ describe("snapshot-history mirror (delete funnel producer)", () => {
     const res = await confirmExternalCursor(DOC_ID, seq, "undo");
     expect(res.ok).toBe(true);
 
-    // WASM cursor stepped back by one.
+    // Native cursor stepped back by one.
     const proj2 = await getHistoryProjection(DOC_ID);
     expect(proj2.cursor).toBe(0);
 
-    // TS side steps back by one too (undo the recorded snapshot).
-    history.undo({ layers: [], width: 1, height: 1 } as never);
+    // The mirror entry has been consumed by the handoff; the native cursor sits
+    // back at the open baseline, so no undo point remains.
+    await history.resyncFromNativeQuery();
     expect(history.canUndo()).toBe(false);
   });
 });

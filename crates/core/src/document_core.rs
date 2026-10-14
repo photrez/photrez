@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Protocol engine composition root: ProtocolEngine type, the `apply()` dispatch
+// Protocol engine composition root: DocumentCore type, the `apply()` dispatch
 // entry, per-document engines, and the wasm-bindgen bridge. History/command/
 // model/projection types live in their own modules (history.rs / command.rs /
 // model.rs / projection.rs).
@@ -22,7 +22,7 @@ use wasm_bindgen::prelude::*;
 // patch/inverse, memoryCost, transaction} is the target; this Vec is transitional and will be
 // replaced before pixel ownership moves to Rust. Storing full pixel snapshots at 2048²/4K would be GBs.
 #[derive(Debug)]
-pub struct ProtocolEngine {
+pub struct DocumentCore {
     pub(crate) version: DocumentVersion,
     next_resource: ResourceId,
     // Structural-sharing layer metadata set (Arc<Vec<Arc<LayerMeta>>>). Only the
@@ -52,7 +52,7 @@ pub struct ProtocolEngine {
     // undoable transition in the command stream; it rides Model-A snapshots and is
     // reconciled onto the canonical shadow when one is seeded.
     pub(crate) selection: Option<SelectionState>,
-    // Engine document size (canvas width/height). The native ProtocolEngine keeps
+    // Engine document size (canvas width/height). The native DocumentCore keeps
     // its own document dims (the TS oracle reads model.width/height directly; the
     // structural arms instead read the seeded canonical shadow). `None` until a
     // canvas-size command (Crop Canvas / Apply Crop / Resize Canvas) sets it or a
@@ -73,7 +73,7 @@ pub struct ProtocolEngine {
     // it with `external_post_state_gaps`.
     pub(crate) external_post_state_gaps: u64,
 }
-impl Default for ProtocolEngine {
+impl Default for DocumentCore {
     fn default() -> Self {
         Self {
             version: 0,
@@ -93,7 +93,7 @@ impl Default for ProtocolEngine {
         }
     }
 }
-impl ProtocolEngine {
+impl DocumentCore {
     pub fn new() -> Self {
         Self::default()
     }
@@ -379,7 +379,7 @@ impl ProtocolEngine {
 
     // ── Native pixel history (unified cursor) ──────────────────────
     // These reuse the SAME `entries`/`cursor`/`next_seq`/`version` as the
-    // metadata path, so the `ProtocolEngine` is the single authoritative
+    // metadata path, so the `DocumentCore` is the single authoritative
     // history for a document. The change is stored as immutable
     // `Arc<StateNode>` (before/after) — NOT tile deltas — so undo/redo can
     // reconstruct the full state cheaply from the shared tile blocks. The
@@ -785,26 +785,26 @@ impl ProtocolEngine {
     }
 }
 // `apply()` command-arm dispatch lives in a submodule to keep this module under
-// the 1000-line guard; it is a sibling `impl ProtocolEngine` block.
+// the 1000-line guard; it is a sibling `impl DocumentCore` block.
 #[path = "document_core_apply.rs"]
 mod document_core_apply;
 // Structural-command-arm bodies (duplicate / merge / flatten / rasterize) live in
-// a sibling `impl ProtocolEngine` block to keep this module under the 1000-line guard.
+// a sibling `impl DocumentCore` block to keep this module under the 1000-line guard.
 #[path = "document_core_structural.rs"]
 mod document_core_structural;
 // Canvas-size command-arm bodies (Crop Canvas / Apply Crop / Resize Canvas) live in
-// a sibling `impl ProtocolEngine` block to keep this module under the 1000-line guard.
+// a sibling `impl DocumentCore` block to keep this module under the 1000-line guard.
 #[path = "document_core_canvas.rs"]
 mod document_core_canvas;
 
 // ── wasm bridge — per-document engines (module lifetime, survives location.reload() until WASM re-instantiated) ──
-// Each document id owns its own ProtocolEngine so multi-document sessions are
+// Each document id owns its own DocumentCore so multi-document sessions are
 // fully isolated: per-doc documentVersion, per-doc layer set, per-doc history.
 // A reserved "default" key routes every caller that does not supply a document
 // id (legacy / non-facade path) to a single shared engine — byte-identical to
 // the previous module-global engine for those callers.
 thread_local! {
-    static ENGINES: std::cell::RefCell<std::collections::HashMap<String, ProtocolEngine>> =
+    static ENGINES: std::cell::RefCell<std::collections::HashMap<String, DocumentCore>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 // Normalizes a document id: empty/absent maps to the reserved "default" key so
@@ -831,7 +831,7 @@ pub fn protocol_version(doc_id: &str) -> DocumentVersion {
 pub fn protocol_reset(doc_id: &str) {
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
-        m.borrow_mut().insert(key, ProtocolEngine::new());
+        m.borrow_mut().insert(key, DocumentCore::new());
     });
 }
 
@@ -867,7 +867,7 @@ pub fn protocol_snapshot_json(doc_id: &str) -> String {
     serde_json::to_string(&snap).unwrap()
 }
 
-// ADDITIVE: seed the canonical shadow into a per-document wasm ProtocolEngine so
+// ADDITIVE: seed the canonical shadow into a per-document wasm DocumentCore so
 // the selection arms (selectAll reads doc dims from the shadow) can be exercised
 // through the production bridge. Production defaults to `None` canonical, so this
 // is never called in the default path; it exists for the parity matrix harness.
@@ -943,7 +943,7 @@ mod version_tests {
     // facade syncFromEngine path.
     #[test]
     fn version_returns_seeded_engine_version() {
-        let mut engine = ProtocolEngine::new();
+        let mut engine = DocumentCore::new();
         let layer = RenderLayer {
             id: "L1".to_string(),
             name: "Base".to_string(),

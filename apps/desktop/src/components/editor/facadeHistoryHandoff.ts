@@ -1,18 +1,17 @@
 // Facade (Rust-owned) history handoff for a single undo/redo step.
 //
 // Extracted from useEditorCommands so the barrier-clear path is unit-testable
-// without mounting the whole hook. Returns true when this branch fully handled
-// the step (caller must return); false when the caller should fall through to
-// the legacy TS history store.
+// without mounting the whole hook. Every path reports the step handled
+// (`true`): the native walker is the sole executor for a facade-owned
+// document, and the legacy TS pop it used to fall through to is retired.
 //
-// "false" DOES NOT MEAN THE CURSOR IS STILL WHERE IT WAS. The external-handoff arm
-// commits the cursor through `confirmExternalCursor` and can then fall through at
-// the empty-delta check below - a legacy `External` entry with no captured
-// after-state restores no layer changes, so the delta is empty and the branch
-// reports unhandled while the cursor has already moved. The caller pops in that
-// case, so it must ask `handoffMovedCursor()` and tell the history, or the pop's
-// cursor step becomes a SECOND undo for one press. Every path that returns true
-// here has already consumed the press and never pops, so it needs no note.
+// "handled" DOES NOT MEAN THE CURSOR MOVED. The external-handoff arm
+// commits the cursor through `confirmExternalCursor` and can then report an
+// empty delta - a legacy `External` entry with no captured after-state
+// restores no layer changes. A caller-side cursor step in that case becomes
+// a SECOND undo for one press, so the caller must ask `handoffMovedCursor()`
+// and tell the history. Every path here has already consumed the press and
+// never pops, so it needs no note.
 //
 // See ADR 0008 H0. When the active document owns no facade layers this branch
 // is never entered - the dispatch gate is per-document - so production
@@ -22,18 +21,17 @@
 // (non-dense) streams where entries[i].seq != i+1.
 
 /**
- * Did the most recent `runFacadeExternalHandoff` move the Rust cursor, whatever it
- * returned? One-shot per call: the dispatch reads it immediately after the call and
- * passes it to `CommandHistory.noteFacadeCursorMoved`.
+ * Did the most recent `runFacadeExternalHandoff` move the Rust cursor?
+ * One-shot per call: the native jump loop reads it immediately after the call
+ * to decide whether the step made progress.
  *
- * Module state rather than a return value because the boolean return is load-bearing
- * for the caller's control flow (handled vs fall through) and widening it to a
- * tri-state would touch every call site and every test that stubs this module.
+ * Module state rather than a return value because the boolean return is
+ * constant (every press is handled) and cannot carry the moved/not-moved fact.
  *
  * NOT reading it is safe, and that is why this works: `runFacadeExternalHandoff`
- * clears the flag as its first statement, so a flag left set by a handled press is
- * erased before the next press can reach the walker. Only a press whose own walker
- * ran can read true.
+ * clears the flag as its first statement, so a flag left set by a handled
+ * press is erased before the next press can reach the walker. Only a press
+ * whose own walker ran can read true.
  */
 let cursorMovedByHandoff = false;
 
@@ -50,20 +48,15 @@ import { applyRustTilesToSurface } from "@/lib/rustShadow";
 import type { EditorContextValue } from "./shell/EditorContext";
 
 /**
- * Project the tiles Rust returned for a pixel undo/redo step, and drain the TS
- * twin of that step.
+ * Project the tiles Rust returned for a pixel undo/redo step onto
+ * the host caches.
  *
- * Rust is the executor: `Command::Undo`/`Command::Redo` already moved the
- * cursor and wrote the canonical buffer, so the host only mirrors the bytes
- * into its derived caches (paint surface + GPU textures). Returns true when
- * the step is fully handled - the caller must NOT fall through to the TS
- * history store, which would pop a second entry for a step already taken.
- *
- * THIS IS THE SINGLE SITE a `rustOwned` pixel step is consumed through when
- * the facade executor runs, for undo and for redo alike: it is the only
- * caller of the pixel-patches branch, and `direction` selects which stack the
- * twin moves off. The tile path in useEditorCommands reaches the same
- * conclusion by popping through `undo()`/`redo()` itself.
+ * Rust is the executor: `Command::Undo`/`Command::Redo` already
+ * moved the cursor and wrote the canonical buffer, so the host only
+ * mirrors the bytes into its derived caches (paint surface + GPU
+ * textures). Returns true when the step is fully handled - the
+ * caller must NOT pop the TS history store, which would spend a
+ * second entry for a step already taken.
  */
 async function projectRustPixelHandoff(
   editor: EditorContextValue,
@@ -104,21 +97,6 @@ async function projectRustPixelHandoff(
     // is intentionally skipped for a pixel step), so ask the engine to re-read
     // the canonical buffer. Same repair the flag-ON rust_pixels path uses.
     await engine.ensureBitmapCurrent(editor.workspace.getActiveDocumentId() ?? "", handoff.layerId);
-  }
-  // Drain the TS twin now that the canonical pixels are projected. Without it
-  // the TS depth freezes while the Rust cursor advances, so `canUndo()` keeps
-  // reporting work that no longer exists and a press past the end is dispatched
-  // (70ea270, real-app artifact case 2). Refused for a step Rust took that has
-  // no twin here: that is a Pixel entry from a producer that pushes none, and
-  // draining some other entry would silently drop real TS history.
-  const history = editor.workspace.getActiveHistory?.();
-  const drained = history?.discardRustOwnedPixelStep?.(direction) ?? false;
-  if (!drained) {
-    console.warn(
-      "[facade-history] Rust took a pixel step with no TS twin to drain",
-      direction,
-      handoff.layerId,
-    );
   }
   editor.scheduler.requestRender();
   editor.workspace.notifyVisualChange();
@@ -175,7 +153,7 @@ export async function rustStreamHoldsUserWork(
   let query: { cursor: number; entries: unknown[] };
   try {
     // getHistoryQuery is authority-aware: it answers for whichever store backs
-    // the facade cursor (native ProtocolEngine or wasm). The pixel-store depth
+    // the facade cursor (native DocumentCore or wasm). The pixel-store depth
     // probe would be the WRONG source - that is a different history under wasm
     // authority, and gating on it refuses legitimate facade-only undos there.
     const { getHistoryQuery } = await import("@/lib/protocol/bridge_emu");
@@ -222,7 +200,13 @@ export async function runFacadeExternalHandoff(
   // would then suppress that press's cursor step - one host entry permanently unstepped.
   cursorMovedByHandoff = false;
   const engine = editor.workspace.getActiveEngine();
-  if (!engine) return false;
+  if (!engine) {
+    // No engine: no executor exists for this press. The legacy TS pop this
+    // branch used to fall through to is retired, so the truthful answer is
+    // a handled no-op with a refreshed view.
+    await editor.workspace.getActiveHistory?.()?.resyncFromNativeQuery?.();
+    return true;
+  }
   // Refuse BEFORE driving the cursor. Once facade.undo() runs, Rust has moved
   // and there is no undoing that from the host side without a second step.
   //
@@ -267,12 +251,11 @@ export async function runFacadeExternalHandoff(
       if (before.get(layer.id) !== layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
     }
   };
-  // The Rust command is the only fall-through trigger, and ONLY when the cursor
-  // genuinely did not move - i.e. Rust had no entry for this step and the legacy TS
-  // store really does own it. Once it resolves, Rust HAS moved for this step: every
-  // branch below must report handled, so a projection failure can never send the
-  // caller on to pop a TS entry AND fire rust_pixels_undo - two extra undo steps for
-  // one press.
+  // The Rust command is the sole executor, and ONLY a rejection means the
+  // cursor genuinely did not move. Once it resolves, Rust HAS moved for this
+  // step: every branch below must report handled, so a projection failure can
+  // never send the caller on to pop a TS entry AND fire rust_pixels_undo - two
+  // extra undo steps for one press.
   let facade: ReturnType<typeof getFacade>;
   let snap: unknown;
   try {
@@ -297,9 +280,12 @@ export async function runFacadeExternalHandoff(
     if (/E_EXTERNAL_PENDING/.test(String((err as Error)?.message ?? err))) {
       return true;
     }
-    // Any other rejection: the cursor did not move and the legacy TS store still owns
-    // the step. Fall through to legacy TS history.
-    return false;
+    // Rejection: the cursor did not move. A legacy `External` entry can only
+    // surface through the facade walker when its cursor step belongs to the
+    // facade; the legacy TS store the press would fall through to is a dead
+    // executor here, so report handled and refresh the view instead.
+    await editor.workspace.getActiveHistory?.()?.resyncFromNativeQuery?.();
+    return true;
   }
   try {
     // Rust pixel handoff: the walker stepped a Rust PIXEL entry, so the cursor
@@ -379,7 +365,12 @@ export async function runFacadeExternalHandoff(
       editor.workspace.notifyVisualChange();
       return true;
     }
-    return false; // fall through to legacy TS history
+    // Empty delta: the walker moved the cursor and a legacy `External` entry
+    // restored no layer changes. The host pop the legacy path would have
+    // issued is retired, so the truthful answer is a handled no-op that leaves
+    // the cursor where the walker moved it.
+    await editor.workspace.getActiveHistory?.()?.resyncFromNativeQuery?.();
+    return true;
   } catch (err) {
     // Rust already moved its cursor for this step, so "handled" is the only
     // safe answer: returning false here would make the caller pop a TS entry

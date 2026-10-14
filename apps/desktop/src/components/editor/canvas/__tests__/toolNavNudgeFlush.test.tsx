@@ -4,6 +4,53 @@ import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { useCanvasKeyboard } from "../useCanvasKeyboard";
 import { clearRegistry } from "../../keyboardRegistry";
 import { WorkspaceManager } from "@/engine/workspace";
+import type { CommandHistory } from "@/engine/history";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
+
+// Undo counts read the native history stream (nativeHistoryView.ts). Stub
+// bridge_emu's getHistoryQuery to serve `nativeStream`, and append one entry
+// per real history.commit so the count tracks the actual flush commits instead
+// of the hardwired 0 an unauthoritative query yields.
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/protocol/bridge_emu")>()),
+  getHistoryQuery: vi.fn(),
+}));
+
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+
+function appendNativeEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label,
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+
+function nativeQuery(): HistoryQueryResult {
+  return {
+    cursor: nativeStream.length,
+    lastSeq: nativeStream.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: [...nativeStream],
+  };
+}
+
+// Append one native user entry per real commit and publish it synchronously so
+// a getUndoCount() read in the same tick (the flush asserts run synchronously)
+// sees the entry instead of a stale cache.
+function armHistory(history: CommandHistory) {
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    appendNativeEntry(label ?? "Commit");
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+    return realCommit(snapshot, label, ...rest);
+  }) as typeof history.commit;
+}
 
 function NudgeHarness(props: {
   capture: (editor: ReturnType<typeof useEditor>) => void;
@@ -53,6 +100,7 @@ function setupNudge() {
   ws.addDocument(session);
   const engine = session.engine;
   const history = ws.getActiveHistory()!;
+  armHistory(history);
   const layer = engine.addLayer("Nudge Me");
   engine.setActiveLayer(layer.id);
   captured!.setActiveTool("move");
@@ -95,6 +143,10 @@ describe("legacy arrow-nudge silent burst + flush", () => {
   beforeEach(() => {
     clearRegistry();
     vi.restoreAllMocks();
+    nativeStream.length = 0;
+    nextSeq = 1;
+    QUERY_MOCK.mockReset();
+    QUERY_MOCK.mockImplementation(async () => nativeQuery());
   });
 
   it("repeats move the model with zero syncs, keyup flushes exactly once", () => {

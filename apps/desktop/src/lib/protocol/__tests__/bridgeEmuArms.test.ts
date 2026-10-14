@@ -2,7 +2,7 @@
 //
 // Drives the TS emulator through its own instrumentation (production dispatch
 // is native-only) through each metadata arm and asserts the emulator mirrors
-// the Rust ProtocolEngine arm semantics: silent no-op on an unknown id
+// the Rust DocumentCore arm semantics: silent no-op on an unknown id
 // (mirroring DeleteLayer + the TS apply ops), and E_INVALID on an empty or
 // duplicate addLayer id. The emulator layer shape is the flat RenderLayer, so
 // metadata fields live top-level (flipH/flipV included).
@@ -601,7 +601,7 @@ describe("emulator structural arms mirror the Rust arms", () => {
 
 // --- Canvas-size arms (cropCanvas / applyCrop / resizeCanvas) ---
 // Drives the TS emulator through each canvas arm and asserts it mirrors the Rust
-// ProtocolEngine semantics end-to-end (the metadata/structural arms above are
+// DocumentCore semantics end-to-end (the metadata/structural arms above are
 // covered elsewhere; these paths had ZERO emulator coverage before this block).
 // The emulator is the unarmed fallback for the wasm runtime, so these run the
 // same emulateApply code the production fallback executes.

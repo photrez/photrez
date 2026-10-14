@@ -9,14 +9,14 @@
 //
 //   wasm bridge    crates/core/src/document_core.rs:702 `protocol_apply_command`
 //                  -> the module `ENGINES` thread_local
-//                  -> `ProtocolEngine::apply`
+//                  -> `DocumentCore::apply`
 //   native surface apps/desktop/src-tauri/src/protocol_native_cmds.rs:42
 //                  `protocol_apply_command_native`
 //                  -> the process pixel-store registry
-//                  -> `DocumentPixelStore::history` (a `ProtocolEngine`)
-//                  -> `ProtocolEngine::apply`
+//                  -> `DocumentPixelStore::history` (a `DocumentCore`)
+//                  -> `DocumentCore::apply`
 //
-// `ProtocolEngine::apply` is defined exactly once in the workspace
+// `DocumentCore::apply` is defined exactly once in the workspace
 // (crates/core/src/document_core_apply.rs:24), so a digest comparison between
 // the two transports cannot detect a divergence between two engine
 // implementations: there is only one. Such a test would be `f(x) == f(x)` and
@@ -26,7 +26,7 @@
 // two-authority state claim hold by reduction: the native transport adds NO
 // state of its own. Per step, over the routed command script with an undo/redo
 // walk-back interleaved after every command, the digest read back through the
-// native commands equals the digest of a bare `ProtocolEngine` fed the same
+// native commands equals the digest of a bare `DocumentCore` fed the same
 // envelopes. Combined with the wasm bridge calling the same `apply` on the same
 // type, that is the whole of the native-vs-wasm state claim - double-driving one
 // engine against itself would not add evidence.
@@ -43,15 +43,15 @@ use super::tests::{
 use crate::paint_parity_cmds::TEST_REGISTRY_LOCK;
 use photrez_core::canonical_model::CanonicalDocument;
 use photrez_core::pixel_store::DocumentPixelStore;
-use photrez_core::protocol::{CommandEnvelope, ProtocolEngine, RenderLayer};
+use photrez_core::protocol::{CommandEnvelope, DocumentCore, RenderLayer};
 
 // Compile-time pin: the native authority's per-document engine field is the
-// core `ProtocolEngine` - the same type the wasm bridge drives. A different
+// core `DocumentCore` - the same type the wasm bridge drives. A different
 // type here means the migration acquired a second engine and this file's
 // premise (and the parity criterion) must be re-derived. Anonymous so it costs
 // no runtime and cannot warn as dead code.
-const _: fn(&DocumentPixelStore) -> &ProtocolEngine =
-    |doc: &DocumentPixelStore| -> &ProtocolEngine { &doc.history };
+const _: fn(&DocumentPixelStore) -> &DocumentCore =
+    |doc: &DocumentPixelStore| -> &DocumentCore { &doc.history };
 
 /// The native surface seeds the engine at version 10 (`seed_routed_doc`).
 const SEED_VERSION: u64 = 10;
@@ -91,12 +91,12 @@ fn native_surface_digests(doc: &str) -> Vec<u64> {
     digests
 }
 
-/// Per-step canonical state digests of a bare `ProtocolEngine` seeded exactly
+/// Per-step canonical state digests of a bare `DocumentCore` seeded exactly
 /// as `seed_routed_doc` seeds the native one and fed the same envelopes. Any
 /// difference from `native_surface_digests` is state the native transport added
 /// or dropped.
 fn bare_engine_digests() -> Vec<u64> {
-    let mut engine = ProtocolEngine::new();
+    let mut engine = DocumentCore::new();
     let layers: Vec<RenderLayer> =
         serde_json::from_str(ROUTED_SEED_LAYERS).expect("seed layer fixture parses");
     engine.seed_layers(layers, SEED_VERSION);
@@ -163,7 +163,7 @@ fn native_transport_is_step_by_step_transparent_to_the_one_engine() {
         if native_digest != reference_digest {
             panic!(
                 "state diverged at step {i} of {} ({}) - native transport digest {native_digest}, \
-                 bare ProtocolEngine digest {reference_digest}",
+                 bare DocumentCore digest {reference_digest}",
                 labels.len(),
                 labels[i],
             );

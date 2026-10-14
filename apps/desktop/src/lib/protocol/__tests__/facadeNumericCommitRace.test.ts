@@ -27,7 +27,7 @@ import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 vi.mock("@/components/editor/Toast", () => ({ showToast: vi.fn() }));
 
 // The real-chain cases dispatch through bridge.applyCommand; the
-// shared factory routes that surface onto the real wasm ProtocolEngine
+// shared factory routes that surface onto the real wasm DocumentCore
 // module. The seed surface no-ops under it - faithful to the retired
 // wasm arm, which created the document state on the first command.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {

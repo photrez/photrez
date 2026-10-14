@@ -5,7 +5,7 @@
 // was documented in that suite's own header as non-final, so the
 // transitional block is retired and deleted here. The facade funnel
 // dispatches through bridge.applyCommand; the shared factory routes
-// that surface onto the real wasm ProtocolEngine module.
+// that surface onto the real wasm DocumentCore module.
 import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
 import { DocumentEngine } from "@/engine/document";
 import { CommandHistory } from "@/engine/history";
@@ -16,7 +16,7 @@ import { armWasmModule } from "@/lib/protocol/__tests__/wasmBridgeArm";
 let wasmModule: { protocol_reset: (docId: string) => void } | null = null;
 
 // The facade funnel dispatches through bridge.applyCommand; the shared
-// factory routes that surface onto the real wasm ProtocolEngine module.
+// factory routes that surface onto the real wasm DocumentCore module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");

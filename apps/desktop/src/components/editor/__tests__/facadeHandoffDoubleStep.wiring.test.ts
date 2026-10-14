@@ -47,9 +47,19 @@ import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import * as DialogProviderModule from "@/components/editor/dialogs/DialogProvider";
 import { invoke } from "@tauri-apps/api/core";
 import { answerInvoke, record, resetStreams, streamFor } from "@/engine/__tests__/rustStreamEmulator";
-import { cursorStepInvokes, settle } from "@/engine/__tests__/historyCursorHarness";
-import { commitRustOwnedPaint } from "@/engine/__tests__/historyCursorFixtures";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
 import { handoffMovedCursor } from "../facadeHistoryHandoff";
+
+async function settle() {
+  await new Promise<void>((r) => setTimeout(r, 0));
+  await flushPixelInvokeCensus();
+}
+
+/** Count the cursor-step invokes in EITHER direction. */
+const cursorStepInvokes = (): number =>
+  vi.mocked(invoke).mock.calls.filter(
+    (c) => c[0] === "rust_pixels_undo" || c[0] === "rust_pixels_redo",
+  ).length;
 
 const DOC = "doc-handoff-double-step";
 
@@ -127,15 +137,6 @@ function makeRejectingFacade() {
       throw new Error("E_STUB: the native command was rejected");
     }),
   };
-}
-
-/** Answer the refusal predicate with the stream the emulator actually holds. */
-async function useRealHistoryQuery(): Promise<void> {
-  const bridgeEmu = await import("@/lib/protocol/bridge_emu");
-  vi.mocked(bridgeEmu.getHistoryQuery).mockImplementation(async () => ({
-    entries: streamFor(DOC).entries,
-    cursor: streamFor(DOC).cursor,
-  }) as never);
 }
 
 function makeModel(name: string): DocumentModel {
@@ -290,19 +291,25 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     handoffMovedCursor(); // drain any flag a previous case left
   });
 
-  it("the handoff reports it moved the cursor even though it returns false", async () => {
+  it("the handoff reports it moved the cursor and is handled, so no host step follows", async () => {
     const { runFacadeExternalHandoff } = await import("../facadeHistoryHandoff");
     const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
     vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeFacade(true) as never);
     record(DOC, "external"); // the work the walker will consume
 
     const handled = await runFacadeExternalHandoff(editorDouble(), "undo");
+    await settle();
 
-    expect(handled, "the branch reports unhandled on an empty delta").toBe(false);
+    // The legacy TS pop is retired, so the empty-delta branch no longer
+    // falls through - it is a HANDLED no-op. The cursor move is still recorded on
+    // the one-shot flag, which is what keeps the native jump loop from double-stepping.
+    expect(handled, "the branch reports handled: no fall-through to a host pop").toBe(true);
     expect(
       handoffMovedCursor(),
       "but it DID move the cursor - the caller must not step again",
     ).toBe(true);
+    expect(streamFor(DOC).cursor, "the walker's single move: 1 -> 0").toBe(0);
+    expect(cursorStepInvokes(), "and no host rust_pixels_undo fired").toBe(0);
   });
 
   it("one press moves the cursor exactly once: the handoff's move, and no host step", async () => {
@@ -317,14 +324,14 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     expect(streamFor(DOC).cursor).toBe(1);
     expect(cursorStepInvokes(), "nothing has stepped yet").toBe(0);
 
-    // The production press: the handoff moves the cursor and falls through, then the
-    // host pops. The pop's shim arm is armed (facade ON, not degraded, metadata entry).
+    // The production press: the handoff walks the cursor (1 -> 0) and is handled -
+    // no host pop can step a second time on the same entry.
     commands.undo();
     await until(() => streamFor(DOC).cursor === 0);
     await settle();
     expect(
       history.getUndoCount(),
-      "the host popped its metadata entry, so the pop really happened",
+      "the handoff consumed the entry, so the cursor is at the floor",
     ).toBe(0);
 
     expect(
@@ -337,14 +344,13 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     ).toBe(0);
   });
 
-  it("a refused press is handled and spends nothing: no pop, no step, no flag", async () => {
-    // The refusal branch. `rustStreamHoldsUserWork` refuses before driving the
-    // walker, so the cursor is untouched - and that refusal is now the ANSWER:
-    // a document whose stream holds nothing above the document-open baseline has
-    // nothing to undo, exactly as the native executor reports at cursor 0. The
-    // host pop could only spend a legacy entry and fail to restore it.
+  it("a refused press is a handled no-op: no step, cursor untouched", async () => {
+    // A cursor-0 press is answered by the handoff as a handled no-op
+    // (nothing above the baseline), not a fall-through to a host pop. The legacy
+    // `rustPixels`/stepper machinery the earlier cases drove is retired, so the
+    // only invariant left is the handled-nothing contract.
     const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
-    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeFacade(false) as never);
+    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeRejectingFacade() as never);
     const bridgeEmu = await import("@/lib/protocol/bridge_emu");
     vi.mocked(bridgeEmu.getHistoryQuery).mockResolvedValue({
       entries: [],
@@ -352,196 +358,20 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     } as never);
 
     const { runFacadeExternalHandoff } = await import("../facadeHistoryHandoff");
-    const { history, engine } = mountCommands();
-    commitMetadataShimRecorded(history);
-    await settle();
-
     const handled = await runFacadeExternalHandoff(editorDouble(), "undo");
-    expect(handled, "nothing above the baseline: handled, not a fall-through").toBe(true);
-    expect(
-      handoffMovedCursor(),
-      "and the cursor was NOT moved, so nothing downstream may claim a step",
-    ).toBe(false);
-    expect(streamFor(DOC).cursor, "the cursor is where it was").toBe(1);
+    await settle();
+
+    expect(handled, "the refusal is handled, not a fall-through").toBe(true);
+    expect(handoffMovedCursor(), "the cursor was NOT moved").toBe(false);
+    expect(streamFor(DOC).cursor, "the cursor is where it was").toBe(0);
     expect(cursorStepInvokes(), "the refusal issued no step").toBe(0);
-
-    // ── The press that DOES pop ────────────────────────────────────────────
-    // The next decline the handoff can still report is a rejected native
-    // command. It leaves the same flag false, so this pop must still step: a
-    // handled press must arm nothing for the press after it.
-    await useRealHistoryQuery();
-    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeRejectingFacade() as never);
-
-    history.undo(engine.getModel());
-    await until(() => cursorStepInvokes() >= 1);
-    expect(cursorStepInvokes(), "the host pop issued the one step").toBe(1);
   });
 
-  it("a latched historyDegraded takes the shim arm OFF, so no ungated step is possible", async () => {
-    // `historyDegraded` is the shim's own `recordExternalTransitionFor` early-return,
-    // and it is a LATCH: `setHistoryDegraded` is only ever cleared by
-    // `__resetFacadeRegistryForTests`, so one failed external transition turns external
-    // recording off for the rest of the session. `stepRustCursor`'s shim arm reads the
-    // same latch, because the arm takes the UNGATED `fire()` path - ungated and
-    // unrecorded together would consume whatever entry sat below.
-    //
-    // This file mocks `facadeRegistry` (it must, to drive the walker), which is what
-    // makes the latch reachable at all: production exposes no setter for it.
-    const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
-    // `historyDegraded` is a Solid accessor, so its own signature takes an optional
-    // value; the mock replaces the READ, which is what the arm calls.
-    vi.mocked(facadeRegistry.historyDegraded).mockImplementation(
-      (() => true) as unknown as typeof facadeRegistry.historyDegraded,
-    );
-
-    const { history, engine } = mountCommands();
-    commitMetadataShimRecorded(history);
-    await settle();
-    expect(streamFor(DOC).entries, "the entry is on the stream").toEqual(["external"]);
-
-    history.undo(engine.getModel());
-    await settle();
-
-    expect(
-      cursorStepInvokes(),
-      "no step at all: with recording latched off, nothing stands behind an ungated one",
-    ).toBe(0);
-    expect(streamFor(DOC).cursor, "and the cursor is untouched").toBe(1);
-  });
-
-  it("the degraded clause gates the SHIM arm only: a rustOwned pop still steps", async () => {
-    // The cell the counter flagged as uncovered. `historyDegraded()` is one conjunct
-    // of the SHIM arm; `entryArm`'s first clause is `imperative.rustOwned === true`,
-    // which no flag can turn off. A Rust-OWNED stroke is its own recorder -
-    // `rust_pixels_write_region` appended the `Pixel` entry with nothing else involved -
-    // so refusing it would strand the undo of the user's own paint.
-    const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
-    vi.mocked(facadeRegistry.historyDegraded).mockImplementation(
-      (() => true) as unknown as typeof facadeRegistry.historyDegraded,
-    );
-    // The pop is driven directly: what this cell measures is `stepRustCursor`'s arms,
-    // and a press would now be answered by the refusal on this stream rather than
-    // reach them at all.
-    const { history, engine } = mountCommands();
-    await commitRustOwnedPaint(history, engine.getModel());
-    await settle();
-    expect(streamFor(DOC).entries, "the stroke's own Pixel entry").toEqual(["pixel"]);
-
-    history.undo(engine.getModel());
-    await until(() => cursorStepInvokes() >= 1);
-
-    expect(cursorStepInvokes(), "the pixel-writer arm is unaffected by the latch").toBe(1);
-    expect(streamFor(DOC).cursor, "the stroke's entry was consumed").toBe(0);
-  });
-
-  it("LEAK: a press that moves the cursor but cannot pop must not arm the NEXT pop", async () => {
-    // The instance-side leak, and it needs all three of: the handoff MOVED the cursor,
-    // it fell through, and the host then REFUSED to pop. `canRestore` is false whenever
-    // the TS stack is empty, which is exactly reachable here: the stream holds an entry
-    // (so the walker has work) with no host entry to pair it with.
-    //
-    // `noteFacadeCursorMoved` is one-shot and only a pop consumes it, so arming the
-    // history at the handoff call site leaves the flag set across a press that never
-    // reached `stepRustCursor` - and the next press that DOES pop reads it and skips its
-    // own step. One host entry permanently unstepped.
-    const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
-    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeFacade(true) as never);
-    // An entry in the stream with NOTHING in the host stack.
-    record(DOC, "external");
-    const { history, commands } = mountCommands();
-    const undoSpy = vi.spyOn(history, "undo");
-    expect(history.getUndoCount(), "the host stack starts empty").toBe(0);
-    await settle();
-
-    // ── Press 1: the handoff moves the cursor, falls through, and the host
-    //    cannot pop, so the armed flag is never consumed. ─────────────────────
-    commands.undo();
-    await until(() => streamFor(DOC).cursor === 0);
-    await settle();
-    expect(cursorStepInvokes(), "press 1 popped nothing, so it stepped nothing").toBe(0);
-    expect(history.getUndoCount(), "and the host stack is still empty").toBe(0);
-
-    // ── Press 2: a real host entry, which MUST be stepped ───────────────────
-    // The handoff declines WITHOUT moving the cursor (the native command is
-    // rejected), so the pop below owns the step and the flag stays false.
-    // Without this the mock would still claim cursor 1 from press 1 while the
-    // real stream sits at 0, the handoff would "move" a cursor that did not
-    // move, and the pop would be suppressed for a reason that has nothing to do
-    // with the leak under test.
-    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeRejectingFacade() as never);
-    await useRealHistoryQuery();
-    commitMetadataShimRecorded(history);
-    await settle();
-    expect(history.getUndoCount(), "there is now something to pop").toBe(1);
-
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 1);
-    expect(
-      cursorStepInvokes(),
-      "press 2 steps: the flag from press 1 must not outlive the press that set it",
-    ).toBe(1);
-    expect(undoSpy, "and it popped its host entry").toHaveBeenCalled();
-  });
-
-  it("STALE FLAG: a handled press leaves nothing for the next press's early return", async () => {
-    // The one-shot clear has to sit BEFORE every early return, and this is the only
-    // sequence that proves it.
-    //
-    // Press 1 is HANDLED: the walker runs (which sets the module flag) and a non-empty
-    // delta returns true. `useEditorCommands` returns immediately on true and never
-    // calls `handoffMovedCursor()` - so the flag is still set when press 1 ends.
-    //
-    // Press 2 then declines - the walker, and the cursor with it - before any
-    // interior clear. With the clear at its old position, press 2's caller read
-    // the stale true, told the history the handoff had moved the cursor, and
-    // press 2's pop skipped its own step - one host entry permanently unstepped.
-    const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
-    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeFacade(false) as never);
-    const bridgeEmu = await import("@/lib/protocol/bridge_emu");
-    vi.mocked(bridgeEmu.getHistoryQuery).mockResolvedValue({
-      entries: ["external"],
-      cursor: 1,
-    } as never);
-
-    const { history, engine, commands } = mountCommands();
-    const undoSpy = vi.spyOn(history, "undo");
-    commitMetadataShimRecorded(history);
-    await settle();
-
-    // ── Press 1: handled by the handoff (non-empty delta) ────────────────────
-    commands.undo();
-    await settle();
-    await settle();
-    expect(
-      cursorStepInvokes(),
-      "press 1 consumed the press - no host step at all",
-    ).toBe(0);
-    expect(
-      history.getUndoCount(),
-      "and the host stack is untouched, which is what 'handled' means: the caller " +
-        "returned before the pop",
-    ).toBe(1);
-    // The module flag is deliberately NOT read here: production never reads it on a
-    // handled press, which is precisely how it could go stale.
-
-    // ── Press 2: a decline that leaves the cursor alone ──────────────────────
-    // The stream needs work of its own: a press that finds nothing undoable
-    // natively never reaches the pop, and then there is no step to suppress.
-    vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeRejectingFacade() as never);
-    await useRealHistoryQuery();
-    record(DOC, "external");
-    await settle();
-    expect(history.canUndo(), "premise: there is something to pop").toBe(true);
-
-    commands.undo();
-    await until(() => cursorStepInvokes() >= 1);
-
-    expect(
-      cursorStepInvokes(),
-      "press 2 STILL steps: the stale flag from press 1 must not suppress it",
-    ).toBe(1);
-    expect(undoSpy, "and it popped its host entry").toHaveBeenCalled();
-  });
+  // NOTE: the "LEAK"/"STALE FLAG" cases here historically pinned
+  // `noteFacadeCursorMoved` being read by the now-deleted host pop in
+  // restoreHistorySnapshot. That read site is gone, so the leak class
+  // is structurally impossible; the one-shot clearing-at-entry invariant now lives
+  // with the native jump loop that still reads `handoffMovedCursor()`.
 
   it("depth >= 2 case (b): one undo press moves the cursor 3 -> 2, never 3 -> 1", async () => {
     // The permanent guard for the shallow-fixture blind spot. At depth 1 the second
@@ -559,7 +389,7 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     // `confirmExternalCursor` commits the move the way the real confirm does.
     const facadeRegistry = await import("@/lib/protocol/facadeRegistry");
     vi.mocked(facadeRegistry.getFacade).mockReturnValue(makeFacade(true) as never);
-    const { history, engine, commands } = mountCommands();
+    const { history, commands } = mountCommands();
     // Stream depth 3, each entry the shim-recorded External a metadata commit mints.
     for (let i = 0; i < 3; i++) {
       commitMetadataShimRecorded(history);
@@ -571,18 +401,17 @@ describe("facade handoff: moved the cursor, then fell through", () => {
       "external",
     ]);
     expect(streamFor(DOC).cursor, "stream depth 3").toBe(3);
-    expect(history.getUndoCount(), "the host stack mirrors them").toBe(3);
+    expect(history.getUndoCount(), "the native view reflects the depth").toBe(3);
     expect(cursorStepInvokes(), "nothing has stepped yet").toBe(0);
 
     // The production press: the handoff's walker moves the cursor (confirm commits
-    // it, 3 -> 2), the empty delta reports unhandled, and the host pops its own
-    // entry without adding a second cursor step.
+    // it, 3 -> 2) and is handled - no host pop steps a second time.
     commands.undo();
     await until(() => history.getUndoCount() === 2);
     await settle();
     await settle();
 
-    expect(history.getUndoCount(), "the host popped its metadata entry").toBe(2);
+    expect(history.getUndoCount(), "the handoff consumed one entry").toBe(2);
     expect(
       cursorStepInvokes(),
       "case (b) at depth 3: NO host `rust_pixels_undo` - the handoff already consumed the tip",
@@ -615,8 +444,8 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     commands.undo();
     await until(() => streamFor(DOC).cursor === 1);
     await settle();
-    expect(history.getUndoCount(), "one host entry left below").toBe(1);
-    expect(history.getRedoCount(), "two redo entries above").toBe(2);
+    expect(history.getUndoCount(), "one entry left below the cursor").toBe(1);
+    expect(history.getRedoCount(), "two entries above").toBe(2);
     expect(
       cursorStepInvokes(),
       "the prep presses are suppressed too: cursor 3 -> 2 -> 1, no host step",
@@ -643,7 +472,7 @@ describe("facade handoff: moved the cursor, then fell through", () => {
     await settle();
     await settle();
 
-    expect(history.getRedoCount(), "the host popped its redo entry").toBe(1);
+    expect(history.getRedoCount(), "the handoff consumed the redo entry").toBe(1);
     expect(
       cursorStepInvokes(),
       "case (b) REDO at depth 3: NO host `rust_pixels_redo` - the handoff already consumed the entry",

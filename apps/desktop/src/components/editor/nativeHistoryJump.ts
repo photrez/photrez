@@ -70,52 +70,25 @@ export async function navigateHistoryNative(
   const direction = diff < 0 ? "undo" : "redo";
   let completedSteps = 0;
   for (let step = 0; step < steps; step++) {
-    const handled = await runFacadeExternalHandoff(
+    // The handoff is the sole executor and reports handled for every path
+    // (including its empty-stream refusal), so progress is decided by the moved
+    // flag alone. Read it once per iteration: a flag left set by a previous
+    // iteration would otherwise count a step that moved nothing.
+    await runFacadeExternalHandoff(
       host as EditorContextValue,
       direction,
     );
-    // Read the moved flag on EVERY iteration: the boolean return alone cannot
-    // distinguish "the walker stepped, the delta was empty" (true after a
-    // moved cursor) from "the walker never moved" (false). Without reading it
-    // per iteration, a false-after-move iteration lands the jump short and
-    // leaks the moved flag into the next press.
     const moved = handoffMovedCursor();
-    if (handled) {
-      if (moved) {
-        completedSteps++;
-        continue;
-      }
-      // Handled but the cursor never moved: the external-entry barrier is
-      // wedged (E_EXTERNAL_PENDING). Stop the jump and say so; counting it as
-      // progress would report successes while nothing moves.
-      const reason = "external entry pending confirmation blocked the step";
-      console.warn(`[native-history-jump] blocked at step ${step}: ${reason}`);
-      await history.resyncFromNativeQuery();
-      host.scheduler.requestRender();
-      host.workspace.notifyVisualChange();
-      return { completedSteps, blocked: true, reason };
-    }
     if (moved) {
-      // The walker moved the cursor but reported unhandled (a legacy External
-      // entry with an empty delta). Drain the TS twin of that step so the
-      // derived stack does not leak it, then carry on.
-      history.discardRustOwnedPixelStep?.(direction);
       completedSteps++;
       continue;
     }
-    // Neither handled nor moved: the step belongs to the legacy TS store.
-    // Pop it through the same model restore the single-press path uses.
-    const snapshot =
-      direction === "undo"
-        ? history.undo(engine.snapshot())
-        : history.redo(engine.snapshot());
-    if (snapshot) {
-      engine.restore(snapshot);
-      completedSteps++;
-      continue;
-    }
-    const reason = `no native entry and no TS twin for step ${step}`;
-    console.warn(`[native-history-jump] stopped: ${reason}`);
+    // The walker did not move: the external-entry barrier is wedged
+    // (E_EXTERNAL_PENDING) or the step was a handled no-op. Stop the jump and
+    // say so; counting a step that moved nothing as progress would report
+    // successes while nothing moves.
+    const reason = `the native cursor did not move for step ${step}`;
+    console.warn(`[native-history-jump] blocked: ${reason}`);
     await history.resyncFromNativeQuery();
     host.scheduler.requestRender();
     host.workspace.notifyVisualChange();

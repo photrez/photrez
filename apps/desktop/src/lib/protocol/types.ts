@@ -205,7 +205,7 @@ export type Command =
   | { type: "undo" }
   | { type: "redo" }
   // Metadata command arms (mirror the TS layer mutation ops so the native
-  // ProtocolEngine owns them). Unknown id is a silent no-op on every arm,
+  // DocumentCore owns them). Unknown id is a silent no-op on every arm,
   // matching the DeleteLayer arm and the TS apply ops (which guard on a missing
   // id) for bug-compatibility with the legacy engine.
   | { type: "setVisible"; id: string; visible: boolean }
@@ -263,7 +263,7 @@ export type Command =
       mintedLayerIds?: string[];
     }
   // Structural command arms (mirror the TS graph-mirror layer ops so the native
-  // ProtocolEngine owns duplicate/merge/flatten/rasterize). Host owns identity:
+  // DocumentCore owns duplicate/merge/flatten/rasterize). Host owns identity:
   // the new/merged ids travel with the command (TS-minted), matching the
   // host-owned-id convention of addLayer. Unknown id is a silent no-op on every
   // arm, mirroring DeleteLayer + the TS apply ops, for bug-compatibility with the
@@ -275,7 +275,7 @@ export type Command =
   | { type: "flatten"; mergedId: string }
   | { type: "rasterizeLayer"; id: string }
   // Canvas-size command arms (mirror the TS DocumentEngine.cropCanvas /
-  // applyCrop / resizeCanvas ops so the native ProtocolEngine owns them). Crops
+  // applyCrop / resizeCanvas ops so the native DocumentCore owns them). Crops
   // offset every unlocked layer by (-x, -y) and resize the document; applyCrop
   // recenters + optionally rotates/scales each unlocked layer (non-destructive
   // branch only - the pixel-baking variants stay host-side); resizeCanvas only

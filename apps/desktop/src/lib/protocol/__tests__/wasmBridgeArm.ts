@@ -1,6 +1,6 @@
 /**
  * Test-only shared factory: arms the bridge surface on the REAL wasm
- * ProtocolEngine module - the engine the retired `photrez.facadeAuthority=wasm`
+ * DocumentCore module - the engine the retired `photrez.facadeAuthority=wasm`
  * diversion used to select. Suites that pinned that key install this in their
  * `vi.mock("@/lib/protocol/bridge", ...)` factory instead of the retired flag.
  *

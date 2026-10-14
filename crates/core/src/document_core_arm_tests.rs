@@ -10,7 +10,7 @@ use crate::canonical_model::{
     TextBoxMode, TextData, TextFontStyle, TextStroke, Transform2D,
 };
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::{RenderLayer, RenderLayerChange};
 
 pub(crate) fn env(cmd: Command) -> CommandEnvelope {
@@ -38,13 +38,13 @@ pub(crate) fn layer() -> RenderLayer {
     }
 }
 
-fn engine() -> ProtocolEngine {
-    let mut e = ProtocolEngine::new();
+fn engine() -> DocumentCore {
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![layer()], 0);
     e
 }
 
-fn find(e: &ProtocolEngine, id: &str) -> RenderLayer {
+fn find(e: &DocumentCore, id: &str) -> RenderLayer {
     e.snapshot()
         .layers
         .into_iter()
@@ -114,7 +114,7 @@ fn rename_changes_only_name() {
 
 #[test]
 fn reorder_moves_layer_to_clamped_target_index() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![
             RenderLayer {
@@ -178,7 +178,7 @@ fn reorder_moves_layer_to_clamped_target_index() {
 
 #[test]
 fn reorder_rejects_out_of_range_target_index_with_e_invalid() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![
             RenderLayer {
@@ -316,7 +316,7 @@ fn unknown_id_is_noop_for_metadata_arms() {
 
 #[test]
 fn add_layer_rejects_empty_id_with_e_invalid() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     let res = e.apply(env(Command::AddLayer {
         id: "".into(),
         name: "x".into(),
@@ -392,7 +392,7 @@ fn canonical_doc() -> CanonicalDocument {
 
 #[test]
 fn shadow_reconcile_picks_up_extended_field_from_arm() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_doc());
     e.seed_layers(vec![layer()], 0);
     e.apply(env(Command::SetBlendMode {
@@ -430,7 +430,7 @@ fn canonical_doc_two() -> CanonicalDocument {
 
 #[test]
 fn shadow_reconcile_follows_engine_order_after_reorder() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_doc_two());
     e.seed_layers(vec![layer(), layer_two()], 0);
     // Move L1 (index 0) after L2 (index 1): engine order becomes [L2, L1].
@@ -496,7 +496,7 @@ pub(crate) fn text_data() -> TextData {
 
 #[test]
 fn add_layer_typed_shape_projects_type_and_params() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.apply(env(Command::AddLayer {
         id: "S".into(),
         name: "Star".into(),
@@ -520,7 +520,7 @@ fn add_layer_typed_shape_projects_type_and_params() {
 
 #[test]
 fn add_layer_typed_text_projects_type_and_text_data() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.apply(env(Command::AddLayer {
         id: "T".into(),
         name: "Text".into(),
@@ -542,7 +542,7 @@ fn add_layer_typed_text_projects_type_and_text_data() {
 fn add_layer_without_type_stays_raster_backward_compatible() {
     // A v2 envelope missing the optional typed fields must still produce a raster
     // layer (the previous behavior) so existing envelopes keep working.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.apply(env(Command::AddLayer {
         id: "R".into(),
         name: "R".into(),
@@ -737,7 +737,7 @@ fn set_adjustment_unknown_id_is_noop() {
 fn shadow_reconcile_picks_up_typed_params_from_set_layer_params() {
     // D6 dependency: a SetLayerParams Some on the render layer must merge onto the
     // canonical shadow (Some takes), so a future native-read path sees the params.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_doc());
     e.seed_layers(vec![layer()], 0);
     e.apply(env(Command::SetLayerParams {
@@ -772,7 +772,7 @@ fn sel_doc() -> CanonicalDocument {
 
 #[test]
 fn selection_arms_bump_version_without_history_entries_and_track_shadow() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(sel_doc());
     e.seed_layers(vec![layer()], 0);
 
@@ -849,7 +849,7 @@ fn invert_without_selection_falls_back_to_full_canvas() {
     // No selection + seeded canonical -> InvertSelection falls back to the SAME
     // full-canvas rect the SelectAll arm builds, exactly (no-op fallback removed
     // to mirror the host op). Still no history entry, still version +1.
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_canonical(sel_doc());
     e.seed_layers(vec![layer()], 0);
     let entries0 = e.entries.len();
@@ -867,7 +867,7 @@ fn invert_without_selection_falls_back_to_full_canvas() {
     assert_eq!(e.version(), v0 + 1, "invert fallback bumps version");
 
     // Reference: SelectAll on the same seeded dims.
-    let mut ref_e = ProtocolEngine::new();
+    let mut ref_e = DocumentCore::new();
     ref_e.seed_canonical(sel_doc());
     ref_e.seed_layers(vec![layer()], 0);
     ref_e.apply(env(Command::SelectAll)).unwrap();
@@ -889,7 +889,7 @@ fn invert_without_selection_falls_back_to_full_canvas() {
     );
 
     // Existing selection -> toggles inverted (unchanged behavior).
-    let mut t = ProtocolEngine::new();
+    let mut t = DocumentCore::new();
     t.seed_canonical(sel_doc());
     t.seed_layers(vec![layer()], 0);
     t.apply(env(Command::SetSelection {
@@ -913,7 +913,7 @@ fn invert_without_selection_falls_back_to_full_canvas() {
 
     // No canonical shadow -> falls back to select-all which requires seeded
     // canonical, so it rejects with the same E_INVALID-shaped error as SelectAll.
-    let mut n = ProtocolEngine::new();
+    let mut n = DocumentCore::new();
     n.seed_layers(vec![layer()], 0);
     let r = n.apply(env(Command::InvertSelection));
     assert!(r.is_err());
@@ -923,7 +923,7 @@ fn invert_without_selection_falls_back_to_full_canvas() {
 
 #[test]
 fn select_all_without_seeded_canonical_rejects_e_invalid() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![layer()], 0);
     // No canonical shadow seeded -> host must seed before select-all.
     let res = e.apply(env(Command::SelectAll));
@@ -934,10 +934,10 @@ fn select_all_without_seeded_canonical_rejects_e_invalid() {
 
 #[test]
 fn set_selection_rejects_nonfinite_or_negative_dims_with_e_invalid() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![layer()], 0);
     let bad = |sel: SelectionState| {
-        let mut e2 = ProtocolEngine::new();
+        let mut e2 = DocumentCore::new();
         e2.seed_layers(vec![layer()], 0);
         let r = e2.apply(env(Command::SetSelection { selection: sel }));
         assert!(r.is_err(), "non-finite/negative geometry must be rejected");

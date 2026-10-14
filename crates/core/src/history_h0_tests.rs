@@ -1,5 +1,5 @@
 use super::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::state_node::{StateMeta, TileRef};
 use std::sync::Arc;
 
@@ -30,7 +30,7 @@ fn sn(v: u8) -> Arc<StateNode> {
 
 #[test]
 fn native_append_records_seq_and_cursor_advances() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(env(Command::AddLayer {
         id: "A-id".to_string(),
         name: "A".into(),
@@ -64,7 +64,7 @@ fn native_append_records_seq_and_cursor_advances() {
 
 #[test]
 fn cursor_walks_back_and_forward_with_native_payload() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(env(Command::AddLayer {
         id: "A-id".to_string(),
         name: "A".into(),
@@ -93,7 +93,7 @@ fn cursor_walks_back_and_forward_with_native_payload() {
 
 #[test]
 fn document_version_independent_from_cursor_on_noop_undo() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let v0 = eng.version(); // cursor already 0
     let r = eng.apply(env(Command::Undo)).unwrap();
     assert_eq!(eng.history_query().cursor, 0); // cursor unchanged
@@ -103,7 +103,7 @@ fn document_version_independent_from_cursor_on_noop_undo() {
 
 #[test]
 fn redo_region_truncated_by_new_forward_command() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(env(Command::AddLayer {
         id: "A-id".to_string(),
         name: "A".into(),
@@ -138,7 +138,7 @@ fn redo_region_truncated_by_new_forward_command() {
 
 #[test]
 fn external_record_requires_registered_adapter_and_advances_dv_once() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let err = eng
         .apply(env(Command::RecordExternalTransition {
             label: "L".into(),
@@ -181,7 +181,7 @@ fn external_record_requires_registered_adapter_and_advances_dv_once() {
 
 #[test]
 fn external_handoff_status_then_cursor_commit_bumps_dv_once() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.register_adapter("ts-external");
     eng.apply(env(Command::RecordExternalTransition {
         label: "legacy op".into(),
@@ -220,7 +220,7 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
     // and retained the pending barrier forever (sticky historyDegraded). The fix
     // validates only the walker-recorded barrier, so the commit succeeds and the
     // wedge is cleared. This is the test that would have caught the bug.
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.register_adapter("ts-external");
     // Dense region.
     eng.apply(env(Command::AddLayer {
@@ -293,7 +293,7 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
 #[test]
 fn history_cursor_commit_rejects_wrong_seq_on_non_dense_stream() {
     // Same gapped stream: a wrong seq (or direction) must still be rejected.
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.register_adapter("ts-external");
     eng.apply(env(Command::AddLayer {
         id: "A-id".to_string(),
@@ -347,7 +347,7 @@ fn history_cursor_commit_rejects_wrong_seq_on_non_dense_stream() {
 
 #[test]
 fn external_pending_barrier_blocks_forward_and_history_commands() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.register_adapter("ts-external");
     eng.apply(env(Command::RecordExternalTransition {
         label: "legacy op".into(),
@@ -408,7 +408,7 @@ fn external_pending_barrier_blocks_forward_and_history_commands() {
 
 #[test]
 fn query_exposes_pending_external_state() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.register_adapter("ts-external");
     // no pending initially
     assert!(eng.history_query().pending_external.is_none());
@@ -438,13 +438,13 @@ fn query_exposes_pending_external_state() {
 
 #[test]
 fn cursor_commit_without_pending_rejected() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let err = eng.history_cursor_commit(1, "undo").unwrap_err();
     assert_eq!(err.code, "E_CURSOR_MISMATCH");
 }
 #[test]
 fn stale_expected_version_still_rejected_on_stream_path() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.apply(env(Command::AddLayer {
         id: "A-id".to_string(),
         name: "A".into(),
@@ -478,7 +478,7 @@ fn stale_expected_version_still_rejected_on_stream_path() {
 
 #[test]
 fn pixel_undo_redo_rejected_while_external_pending() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.register_adapter("ts-external");
     eng.apply(env(Command::RecordExternalTransition {
         label: "legacy op".into(),
@@ -510,7 +510,7 @@ fn pixel_undo_redo_rejected_while_external_pending() {
 // pixel path, so a snapshot entry cannot be consumed mid-host-handoff.
 #[test]
 fn snapshot_undo_redo_rejected_while_external_pending() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     eng.register_adapter("ts-external");
     eng.apply(env(Command::RecordExternalTransition {
         label: "legacy op".into(),
@@ -551,7 +551,7 @@ fn snapshot_undo_redo_rejected_while_external_pending() {
 // `tip_payload_kind()` exposes the routing discriminant.
 #[test]
 fn walker_undo_on_snapshot_tip_no_cursor_move_empty_changes() {
-    let mut eng = ProtocolEngine::new();
+    let mut eng = DocumentCore::new();
     let before = crate::snapshot::DocumentSnapshot::new("d", 0);
     let after = crate::snapshot::DocumentSnapshot::new("d", 1)
         .with_layer(crate::snapshot::LayerSnapshot::new("L", 8, 8));
@@ -576,7 +576,7 @@ fn walker_undo_on_snapshot_tip_no_cursor_move_empty_changes() {
 // stream; seq/version stay monotonic; canonical pixels are never touched.
 #[test]
 fn pixel_history_eviction_bounds_at_50() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
 
     // case 1: single entry
     e.apply_pixel_patch("L", sn(0), sn(1));
@@ -642,7 +642,7 @@ fn pixel_history_eviction_bounds_at_50() {
 // undo/redo replay a state that was never committed.
 #[test]
 fn invalidate_layer_mid_cursor_decrements_no_stale_resurrect() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
 
     // paint entry at index 0 (cursor 1) -> native metadata op at index 1
     // (cursor 2). A NATIVE non-pixel op is used (not external) so Undo moves

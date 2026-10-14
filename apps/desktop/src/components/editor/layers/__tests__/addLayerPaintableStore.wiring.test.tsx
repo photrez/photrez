@@ -27,7 +27,7 @@
 //     active layer was still `Background` - so the user painted on the wrong layer.
 //
 // THE ARM. The REAL `handleAddLayer` from the REAL hook, with the real wasm
-// ProtocolEngine behind the transport and the transport-faithful pixel emulator
+// DocumentCore behind the transport and the transport-faithful pixel emulator
 // that REJECTS where Rust rejects.
 //
 // NOT ASSERTED HERE, AND DELIBERATELY SO: the stroke's own pixel bytes. Driving

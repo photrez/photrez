@@ -163,7 +163,7 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     expect(rec.length).toBe(0);
   });
 
-  it("undo restores the deleted layer with the SAME ImageBitmap (no detach, no close)", async () => {
+  it("deleting a layer does not close its committed ImageBitmap (no detach)", async () => {
     tauriRuntime(true);
     vi.mocked(invoke).mockResolvedValue({ version: 1, epoch: 0 });
 
@@ -177,14 +177,9 @@ describe("Delete Layer snapshot-bridge producer (legacy path)", () => {
     await result.handleDeleteActiveLayer();
     expect(engine.getLayer(layer.id)).toBeUndefined();
 
-    // Model-A undo restore: regardless of the (flag-gated) token re-attach, TS
-    // undo must return the pre-action state and re-attach the SAME bitmap object.
-    const undone = history.undo(engine.snapshot());
-    expect(undone).toBeTruthy();
-    engine.restore(undone!);
-    const restored = engine.getLayer(layer.id);
-    expect(restored).toBeTruthy();
-    expect(restored!.imageBitmap).toBe(bm); // SAME object, never detached
+    // The deleted layer's bitmap is still referenced by the committed history
+    // entry (inert store); the delete path must NOT close it. The native walker
+    // restores the layer+bitmap on undo (no TS-stack pop).
     expect(bm.close).not.toHaveBeenCalled();
   });
 });

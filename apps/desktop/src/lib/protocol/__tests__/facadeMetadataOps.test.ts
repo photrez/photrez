@@ -34,16 +34,16 @@ import { invoke } from "@tauri-apps/api/core";
 
 // Transport harness: the real Tauri `invoke` is mocked (vi.mock below).
 // The DEFAULT dispatch routes the native protocol commands to the REAL
-// wasm ProtocolEngine module (the arm the retired `photrez.facadeAuthority`
+// wasm DocumentCore module (the arm the retired `photrez.facadeAuthority`
 // diversion used to select - the same Rust engine the parity matrix
 // measured); the native-authority describes override the mock with
-// routeNative, an emulated per-document ProtocolEngine that returns a
+// routeNative, an emulated per-document DocumentCore that returns a
 // FULLY-ORDERED snapshot after every command. This mirrors the proven
 // pattern in canonicalSeedBarrier.wiring.test.ts / nativeAuthorityReroute.test.ts.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const invokeMock = invoke as unknown as Mock<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>;
 
-// The real wasm ProtocolEngine module, armed once for this file. The
+// The real wasm DocumentCore module, armed once for this file. The
 // metadata ops run against the REAL Rust arms (the NaN-channel rejection
 // below is a real-arm behavior the emulator does not share).
 let wasmModule: Awaited<ReturnType<typeof armWasmModule>> | null = null;
@@ -80,7 +80,7 @@ function lastOwnedId(facade: ReturnType<typeof getFacade>): string {
 }
 
 // Default invoke dispatch: route the native protocol commands to the REAL
-// wasm ProtocolEngine module. The native seed surface no-ops here -
+// wasm DocumentCore module. The native seed surface no-ops here -
 // faithful to the retired wasm arm, which gated every seed helper off
 // (the wasm module creates its document state on the first command).
 // The native-authority describes override this with routeNative in their
@@ -114,7 +114,7 @@ function wasmDispatch(cmd: string, args: Record<string, unknown> = {}): Promise<
   }
 }
 
-// Emulated native ProtocolEngine for the native-authority reorder tests. Mirrors the
+// Emulated native DocumentCore for the native-authority reorder tests. Mirrors the
 // proven harness in canonicalSeedBarrier.wiring.test.ts / nativeAuthorityReroute.test.ts:
 // nativeClient delegates to raw `invoke`, which is mocked above, and this local router
 // plays the role of the per-document native engine. It keeps a FULLY-ORDERED layer set
@@ -129,7 +129,7 @@ const cmdResultJson = (dv: number, changes: unknown[] = []) =>
   });
 
 // Minimal faithful inverse between two layer vectors, mirroring the fixed
-// ProtocolEngine::diff contract (document_core.rs, pinned by
+// DocumentCore::diff contract (document_core.rs, pinned by
 // document_core::reorder_tests): identical id-sets -> ordered full restatement
 // ONLY when the order differs (true no-op stays empty); otherwise Removes for
 // vanished ids + single Upserts for re-appearing ids.

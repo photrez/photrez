@@ -1,5 +1,5 @@
 // Shared Tauri-invoke emulator for the canvas-route tests. It mirrors the native
-// ProtocolEngine's document-size ownership: resizeCanvas and applyCrop move the
+// DocumentCore's document-size ownership: resizeCanvas and applyCrop move the
 // stored document size and push a history entry; undo/redo restore the size and
 // report it on the delta width/height, exactly like the walker in
 // crates/core/src/document_core_apply.rs. Layer geometry is deliberately NOT

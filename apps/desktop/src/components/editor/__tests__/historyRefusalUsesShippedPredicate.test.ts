@@ -412,7 +412,6 @@ describe("the refusal is HANDLED: the press never reaches a host executor", () =
     ).toBeGreaterThan(0);
 
     const vectorBefore = layerVector(engine);
-    const undoSpy = vi.spyOn(history, "undo");
     mockUseEditor(dispatcherFor(docId, engine, history));
     const commands = useEditorCommands(() => {});
     const queriesBefore = historyQueries();
@@ -425,15 +424,13 @@ describe("the refusal is HANDLED: the press never reaches a host executor", () =
     // or once it reported a failure, whichever comes first.
     await untilSettled(
       () =>
-        undoSpy.mock.calls.length > 0 ||
         toastCalls() > 0 ||
         historyQueries() >= queriesBefore + 2,
     );
-    // The pop runs before the restore it feeds, so a press that reached the host
-    // executor needs a few more turns before its failure can surface.
+    // The press's failure surfaces asynchronously off the native command
+    // boundary, so allow a few extra ticks before asserting.
     for (let i = 0; i < 10; i++) await flush();
 
-    expect(undoSpy, "the host pop never ran: no legacy entry was spent").not.toHaveBeenCalled();
     expect(
       showToast,
       "nothing is reported: the shipped 'Undo failed: E_FACADE_OWNED' must not fire",
@@ -445,6 +442,12 @@ describe("the refusal is HANDLED: the press never reaches a host executor", () =
       "the press was answered before the walker: no undo/redo reached the engine",
     ).not.toContain("undo");
     expect(appliedCommandTypes()).not.toContain("redo");
+    // GAP enable-state pin: after the refusal settled the derived view reads the
+    // native query at the floor (nothing above the baseline), so the undo
+    // affordance must be off - the button's enable-state tracks the query, not a
+    // legacy TS stack that no longer exists.
+    expect(history.getUndoCount(), "the undo affordance is off at the native floor").toBe(0);
+    expect(history.getRedoCount(), "nothing was undone, so redo is off too").toBe(0);
   }
 
   it("an owned document whose stream holds only the document-open baseline", async () => {
@@ -475,6 +478,30 @@ describe("the refusal is HANDLED: the press never reaches a host executor", () =
     expect(rec.ok, "premise: the external record was refused").toBe(false);
     expect(cursors, "premise: the stream never learned about the session's work").toEqual([1]);
 
+    await expectPressAnswered(docId, cursors);
+  });
+
+  it("a 0/0 native stream keeps both affordances off before the press, and the press is answered", async () => {
+    // Enable-state pin: the undo/redo affordance is derived from the NATIVE
+    // counts (cursor vs the document-open floor), never from the host's TS
+    // stack. A host commit that no facade shim mirrors cannot arm undo, so a
+    // facade-owned document whose stream still reads 0/0 must show both
+    // affordances OFF and answer the immediate press where it is decided.
+    const docId = "docEnableOff";
+    const { cursors } = routeStream([1]); // baseline only: native counts 0 / 0
+    await createNativeSeed(docId, 0, []);
+    recordOpenBaselineEntry(docId);
+
+    const probe = new CommandHistory();
+    probe.attachDocIdGetter(() => docId);
+    await probe.resyncFromNativeQuery();
+    expect(probe.getUndoCount(), "native undo count is 0").toBe(0);
+    expect(probe.getRedoCount(), "native redo count is 0").toBe(0);
+    expect(probe.canUndo(), "undo affordance is off at 0/0").toBe(false);
+    expect(probe.canRedo(), "redo affordance is off at 0/0").toBe(false);
+
+    // expectPressAnswered pins all four answered properties (no throw, no toast,
+    // no state change, no native step) plus the counts staying 0/0 afterwards.
     await expectPressAnswered(docId, cursors);
   });
 });

@@ -10,6 +10,8 @@ import { navigateHistoryNative } from "../nativeHistoryJump";
 import * as bridge from "@/lib/protocol/bridge";
 import * as facadeRegistry from "@/lib/protocol/facadeRegistry";
 import { installEmuBridgeSpies } from "@/lib/protocol/__tests__/emulatorBridgeRoute";
+import * as bridgeEmu from "@/lib/protocol/bridge_emu";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -24,6 +26,52 @@ vi.mock("../nativeHistoryJump", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../nativeHistoryJump")>();
   return { ...actual, navigateHistoryNative: vi.fn(actual.navigateHistoryNative) };
 });
+
+// Seed the native history query the resync derives the panel rows from: a
+// document-open baseline entry plus one native entry per user row, at the
+// given cursor. The production getHistoryQuery is replaced with a
+// hand-built result, then a resync + visual-change notify publishes it so
+// the panel repaints rows, counts, and the active row.
+function seedNativeRows(
+  workspace: WorkspaceManager,
+  session: DocumentSession,
+  cursor: number,
+  labels: string[],
+): Promise<void> {
+  const entries: HistoryEntryView[] = [
+    {
+      seq: 1,
+      groupId: 1,
+      origin: "native",
+      label: "Set Background Flag",
+      affectedLayerIds: [],
+      versionBefore: 0,
+      versionAfter: 1,
+      memoryCostBytes: 0,
+    },
+    ...labels.map((label, index) => ({
+      seq: index + 2,
+      groupId: index + 2,
+      origin: "native",
+      label,
+      affectedLayerIds: [],
+      versionBefore: index + 1,
+      versionAfter: index + 2,
+      memoryCostBytes: 0,
+    })),
+  ];
+  const query: HistoryQueryResult = {
+    cursor,
+    lastSeq: entries.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries,
+  };
+  vi.spyOn(bridgeEmu, "getHistoryQuery").mockResolvedValue(query);
+  return session.history.resyncFromNativeQuery().then(() => {
+    workspace.notifyVisualChange();
+  });
+}
 
 function renderHistoryPanel(session?: DocumentSession) {
   const workspace = new WorkspaceManager();
@@ -70,8 +118,9 @@ describe("HistoryPanel", () => {
 
   it("uses an edge-to-edge list and explains the baseline-only state", async () => {
     const session = WorkspaceManager.createBlankDocument("test-hist-baseline", "History Baseline", 800, 600);
-    const { container, dispose } = renderHistoryPanel(session);
+    const { container, workspace, dispose } = renderHistoryPanel(session);
 
+    await seedNativeRows(workspace, session, 1, []);
     await Promise.resolve();
 
     const list = container.querySelector<HTMLElement>("[data-history-list]");
@@ -85,10 +134,9 @@ describe("HistoryPanel", () => {
 
   it("renders chronological operations and exposes the active state accessibly", async () => {
     const session = WorkspaceManager.createBlankDocument("test-hist", "History Test", 800, 600);
-    session.history.commit(session.engine.snapshot(), "Brush Stroke");
-    session.history.commit(session.engine.snapshot(), "New Layer");
-    const { container, dispose } = renderHistoryPanel(session);
+    const { container, workspace, dispose } = renderHistoryPanel(session);
 
+    await seedNativeRows(workspace, session, 3, ["Brush Stroke", "New Layer"]);
     await Promise.resolve();
 
     const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
@@ -105,13 +153,18 @@ describe("HistoryPanel", () => {
 
   it("marks future states and navigates one step backward", async () => {
     const session = WorkspaceManager.createBlankDocument("test-hist-click", "History Click Test", 800, 600);
-    const { history, engine } = session;
-    history.commit(engine.snapshot(), "Brush Stroke");
-    history.commit(engine.snapshot(), "New Layer");
-    history.commit(engine.snapshot(), "Resize Canvas");
-    const previous = history.undo(engine.snapshot());
-    if (previous) engine.restore(previous);
-    const { container, dispose } = renderHistoryPanel(session);
+    const { container, workspace, dispose } = renderHistoryPanel(session);
+
+    await seedNativeRows(workspace, session, 3, ["Brush Stroke", "New Layer", "Resize Canvas"]);
+    // The click must reach the native stepper; the seeded view carries no
+    // snapshot payload to hand off, so this records the call instead. The
+    // real handoff contract is pinned in navigateHistoryCursorStep.test.tsx.
+    // `*Once` (not `mockImplementation`) so the call-through default does
+    // not leak into later tests.
+    vi.mocked(navigateHistoryNative).mockResolvedValueOnce({
+      completedSteps: 1,
+      blocked: false,
+    });
 
     await Promise.resolve();
 
@@ -142,16 +195,15 @@ describe("HistoryPanel", () => {
 
   it("preserves intermediate snapshots during multi-step time travel", async () => {
     const session = WorkspaceManager.createBlankDocument("test-hist-multi", "History Multi", 800, 600);
-    const { history, engine } = session;
+    const { container, workspace, dispose } = renderHistoryPanel(session);
 
-    history.commit(engine.snapshot(), "New Layer");
-    engine.addLayer("Layer 2");
-    history.commit(engine.snapshot(), "New Layer");
-    engine.addLayer("Layer 3");
-    history.commit(engine.snapshot(), "New Layer");
-    engine.addLayer("Layer 4");
-
-    const { container, dispose } = renderHistoryPanel(session);
+    await seedNativeRows(workspace, session, 4, ["New Layer", "New Layer", "New Layer"]);
+    // No snapshot payloads are seeded, so stub the native handoff; the contract
+    // under test is the click -> navigateHistoryNative(index) wiring. Two
+    // clicks reach the stepper; `*Once` so the call-through default does not
+    // leak into later tests.
+    vi.mocked(navigateHistoryNative).mockResolvedValueOnce({ completedSteps: 1, blocked: false });
+    vi.mocked(navigateHistoryNative).mockResolvedValueOnce({ completedSteps: 1, blocked: false });
     await Promise.resolve();
 
     let buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
@@ -287,10 +339,8 @@ describe("HistoryPanel", () => {
 
   it("a blocked jump surfaces a toast and a throwing restore cannot escape the chain", async () => {
     const session = WorkspaceManager.createBlankDocument("test-hist-blocked", "Blocked Jump", 800, 600);
-    const { history, engine } = session;
-    history.commit(engine.snapshot(), "Brush Stroke");
-    history.commit(engine.snapshot(), "New Layer");
-    const { container, dispose } = renderHistoryPanel(session);
+    const { container, workspace, dispose } = renderHistoryPanel(session);
+    await seedNativeRows(workspace, session, 3, ["Brush Stroke", "New Layer"]);
     await Promise.resolve();
 
     vi.mocked(navigateHistoryNative).mockResolvedValueOnce({
@@ -322,11 +372,8 @@ describe("HistoryPanel", () => {
 
   it("two rapid row clicks cannot run concurrent native jumps", async () => {
     const session = WorkspaceManager.createBlankDocument("test-hist-inflight", "In Flight", 800, 600);
-    const { history, engine } = session;
-    history.commit(engine.snapshot(), "Brush Stroke");
-    history.commit(engine.snapshot(), "New Layer");
-    history.commit(engine.snapshot(), "Resize Canvas");
-    const { container, dispose } = renderHistoryPanel(session);
+    const { container, workspace, dispose } = renderHistoryPanel(session);
+    await seedNativeRows(workspace, session, 4, ["Brush Stroke", "New Layer", "Resize Canvas"]);
     await Promise.resolve();
 
     let release: (v: { completedSteps: number; blocked: boolean }) => void = () => {};

@@ -174,20 +174,17 @@ function makeEditor(engine: Engine, history: CommandHistory): EditorContextValue
  * fall-through. The hook closure itself is not exported, so the branch is copied -
  * the same approach `mixedHistory.test.ts` documents.
  */
-async function pressUndo(engine: Engine, history: CommandHistory): Promise<"facade" | "ts" | "none"> {
+async function pressUndo(engine: Engine, history: CommandHistory): Promise<"facade" | "none"> {
   const editor = makeEditor(engine, history);
   if (hasFacadeOwnedLayers()) {
-    if (await runFacadeExternalHandoff(editor, "undo")) return "facade";
+    if (await runFacadeExternalHandoff(editor, "undo")) {
+      await history.resyncFromNativeQuery();
+      return "facade";
+    }
   }
-  const popped = history.undo(engine.snapshot());
-  if (!popped) return "none";
-  try {
-    engine.restore(popped as never);
-    return "ts";
-  } catch {
-    // E_FACADE_OWNED while owned ids exist: the documented blocked fall-through.
-    return "none";
-  }
+  // No TS-history fall-through: the native walker is the only
+  // executor. A refusal lands here as a handled no-op.
+  return "none";
 }
 
 /** The facade's cursor as the real engine reports it: undo depth, entry count. */

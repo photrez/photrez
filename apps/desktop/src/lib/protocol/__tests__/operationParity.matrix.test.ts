@@ -11,11 +11,11 @@
 //  USE_RUST_SSOT and are projected back via syncLayersFromRust. Side B is a
 //  *separate* real wasm `DocumentEngine` driven directly. This is a
 //  MIRROR-PARITY check (TS projection vs the raw mirror) - NOT a comparison of
-//  two independent engines. The true native authority is the ProtocolEngine
+//  two independent engines. The true native authority is the DocumentCore
 //  (document_core.rs), measured in Section 2.
 //
-//  SECTION 2 - ARM PATH (ProtocolEngine command arms)
-//  Drives the REAL native authority (the per-document ProtocolEngine behind
+//  SECTION 2 - ARM PATH (DocumentCore command arms)
+//  Drives the REAL native authority (the per-document DocumentCore behind
 //  `protocol_apply_command(env, docId)`, document_core.rs) through the real
 //  wasm module DIRECTLY (no bridge arm: production dispatch is native-only,
 //  so the bridge no longer carries a wasm arm). Side A is the TS
@@ -65,7 +65,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   // No flag pins: these tests measure the always-on wasm graph mirror
-  // (Section 1) and the ProtocolEngine arms (Section 2) directly, not a
+  // (Section 1) and the DocumentCore arms (Section 2) directly, not a
   // retired authority selection.
 });
 
@@ -74,7 +74,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// Direct ProtocolEngine drive (no bridge arm): the exact envelope the retired
+// Direct DocumentCore drive (no bridge arm): the exact envelope the retired
 // bridge wasm arm sent - toRustEnvelope serialization, protocol_apply_command
 // JSON in/out, envelope-error normalization. The bridge's native path sends
 // the same bytes over Tauri IPC; driving the module directly keeps this
@@ -352,14 +352,19 @@ describe("operation parity matrix - MIRROR PATH (document.rs graph mirror; same 
     wasm.add_layer(l1.id, "Layer 1", 200, 200);
 
     // Commit the PRE-op snapshot (before adding Layer 2) on both paths.
-    hist.commit(ts.snapshot());
+    const preAddL2Ts = ts.snapshot();
+    hist.commit(preAddL2Ts);
     const preAddL2Wasm = wasm.snapshot_json();
 
     ts.addLayer("Layer 2");
     wasm.add_layer("Layer 2", "Layer 2", 200, 200);
 
-    const prev = hist.undo(ts.snapshot());
-    if (prev) ts.restore(prev);
+    // Native undo/redo is editor-level (facadeHandoffDoubleStep.wiring +
+    // mixedHistory.wiring). This suite pins GRAPH PARITY, so the TS side
+    // restores the committed pre-op snapshot directly — the exact object the
+    // retired `history.undo()` pop returned, matching wasm.restore_snapshot
+    // below. Assertion meaning is preserved: ts layer graph === wasm after undo.
+    ts.restore(preAddL2Ts);
     wasm.restore_snapshot(preAddL2Wasm);
 
     expect(delegatedTo(spy, l1.id)).toBe(true);
@@ -378,14 +383,16 @@ describe("operation parity matrix - MIRROR PATH (document.rs graph mirror; same 
     wasm.add_layer(l1.id, "Layer 1", 200, 200);
     wasm.add_layer("Layer 2", "Layer 2", 200, 200);
 
-    hist.commit(ts.snapshot());
+    const preDeleteTs = ts.snapshot();
+    hist.commit(preDeleteTs);
     const preDeleteWasm = wasm.snapshot_json();
 
     ts.deleteLayer(l1.id);
     wasm.delete_layer(l1.id);
 
-    const prev = hist.undo(ts.snapshot());
-    if (prev) ts.restore(prev);
+    // See "undo after-add": direct restore of the retained pre-op snapshot
+    // (the value history.undo() returned), symmetric to wasm.restore_snapshot.
+    ts.restore(preDeleteTs);
     wasm.restore_snapshot(preDeleteWasm);
 
     expect(delegatedTo(spy, l1.id)).toBe(true);
@@ -404,7 +411,8 @@ describe("operation parity matrix - MIRROR PATH (document.rs graph mirror; same 
     wasm.add_layer(l1.id, "Layer 1", 200, 200);
     wasm.add_layer("Layer 2", "Layer 2", 200, 200);
 
-    hist.commit(ts.snapshot());
+    const preMoveTs = ts.snapshot();
+    hist.commit(preMoveTs);
     const preMoveWasm = wasm.snapshot_json();
 
     ts.moveLayer(l1.id, 10, 20);
@@ -413,16 +421,18 @@ describe("operation parity matrix - MIRROR PATH (document.rs graph mirror; same 
     expect(delegatedTo(spy, l1.id)).toBe(true);
     expect(tsLayers(ts)).toEqual(mirrorLayers(wasm).map(overlap));
 
-    const prev = hist.undo(ts.snapshot());
-    if (prev) ts.restore(prev);
+    // Undo/redo retired to the native walker (facadeHandoffDoubleStep.wiring +
+    // mixedHistory.wiring gate files). This suite restores the committed
+    // pre-op snapshot directly, symmetric to wasm.restore_snapshot below.
+    ts.restore(preMoveTs);
     wasm.restore_snapshot(preMoveWasm);
 
     expect(tsLayers(ts)).toEqual(mirrorLayers(wasm).map(overlap));
   });
 });
 
-// -- Section 2: drive the REAL ProtocolEngine (document_core.rs) via the bridge --
-describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real wasm)", () => {
+// -- Section 2: drive the REAL DocumentCore (document_core.rs) via the bridge --
+describe("operation parity matrix - ARM PATH (DocumentCore command arms, real wasm)", () => {
   const ARM_DOC = "parity-arm";
   // Records each arm-scenario outcome so afterAll can print the matrix table
   // that feeds the user cutover decision.
@@ -432,7 +442,7 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     wasmMod.protocol_reset(ARM_DOC);
   });
 
-  // Drive one command through the real ProtocolEngine directly (see armApplyOn).
+  // Drive one command through the real DocumentCore directly (see armApplyOn).
   function armApply(command: any): Promise<any> {
     return armApplyOn(ARM_DOC, command);
   }
@@ -637,13 +647,16 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     const ts = new DocumentEngine("arm-ts-d1", "D", 200, 200);
     const la = ts.addLayer("A"); // [A]
     const hist = new CommandHistory();
-    hist.commit(ts.snapshot()); // pre-add-B = [A]
+    const snapA = ts.snapshot(); // [A] pre-add-B
+    hist.commit(snapA);
     ts.addLayer("B"); // [B, A]
-    const prev = hist.undo(ts.snapshot());
-    if (prev) ts.restore(prev); // [A]
+    const snapAB = ts.snapshot(); // [B, A]
+    // Undo/redo retired to the native walker (editor-level gate files). This
+    // suite pins graph parity: the TS side restores the snapshots the TS
+    // pop used to return, symmetric to wasm.restore_snapshot on the arm.
+    ts.restore(snapA); // [A]
     const tsUndo = ts.getLayers() as unknown as any[];
-    const next = hist.redo(ts.snapshot());
-    if (next) ts.restore(next); // [B, A]
+    ts.restore(snapAB); // [B, A]
     const tsRedo = ts.getLayers() as unknown as any[];
 
     // HARD: layer counts after undo/redo.
@@ -681,13 +694,15 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
     const la = ts.addLayer("A"); // [A]
     ts.addLayer("B"); // [B, A]
     const hist = new CommandHistory();
-    hist.commit(ts.snapshot()); // pre-delete = [B, A]
+    const snapBefore = ts.snapshot(); // pre-delete = [B, A]
+    hist.commit(snapBefore);
     ts.deleteLayer(la.id); // [B]
-    const prev = hist.undo(ts.snapshot());
-    if (prev) ts.restore(prev); // [B, A]
+    const snapAfter = ts.snapshot(); // [B]
+    // Undo/redo retired to the native walker; restore the snapshots the TS pop
+    // used to return (see d1) to keep this graph-parity suite's meaning.
+    ts.restore(snapBefore); // [B, A]
     const tsUndo = ts.getLayers() as unknown as any[];
-    const next = hist.redo(ts.snapshot());
-    if (next) ts.restore(next); // [B]
+    ts.restore(snapAfter); // [B]
     const tsRedo = ts.getLayers() as unknown as any[];
 
     expect(armUndo.layers.length).toBe(2);
@@ -711,15 +726,15 @@ describe("operation parity matrix - ARM PATH (ProtocolEngine command arms, real 
 
   afterAll(() => {
     // eslint-disable-next-line no-console
-    console.log("\n=== OPERATION PARITY MATRIX - ARM PATH (ProtocolEngine) ===");
+    console.log("\n=== OPERATION PARITY MATRIX - ARM PATH (DocumentCore) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(armMatrix, null, 2));
   });
 });
 
 // -- Section 3: metadata command arms (setVisible/setLocked/rename/reorder/
-//    setBackgroundFlag/setBlendMode/transform-flip via the real wasm ProtocolEngine) --
-describe("operation parity matrix - METADATA ARM PATH (ProtocolEngine command arms, real wasm)", () => {
+//    setBackgroundFlag/setBlendMode/transform-flip via the real wasm DocumentCore) --
+describe("operation parity matrix - METADATA ARM PATH (DocumentCore command arms, real wasm)", () => {
   const META_DOC = "parity-meta-arm";
   const metaMatrix: Array<Record<string, unknown>> = [];
 
@@ -948,21 +963,21 @@ describe("operation parity matrix - METADATA ARM PATH (ProtocolEngine command ar
 
   afterAll(() => {
     // eslint-disable-next-line no-console
-    console.log("\n=== OPERATION PARITY MATRIX - METADATA ARM PATH (ProtocolEngine) ===");
+    console.log("\n=== OPERATION PARITY MATRIX - METADATA ARM PATH (DocumentCore) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(metaMatrix, null, 2));
   });
 });
 
 // -- Section 4: typed-add / setLayerParams / setAdjustment command arms --
-// Drives the REAL ProtocolEngine (document_core.rs) AddLayer-with-type,
+// Drives the REAL DocumentCore (document_core.rs) AddLayer-with-type,
 // SetLayerParams, and SetAdjustment arms via the production bridge, and compares
 // the produced metadata against the TS engine's equivalent op (DocumentEngine
 // addShapeLayer/addTextLayer/updateShapeParams/updateTextData/applyBasicAdjustment/
 // clearBasicAdjustments). Bitmap RASTERIZATION stays host-side — width/height of a
 // shape/text layer are derived from the host rasterizer, not the metadata arm, so
 // those are recorded as divergences (the arm seeds width/height from the command).
-describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (ProtocolEngine arms, real wasm)", () => {
+describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (DocumentCore arms, real wasm)", () => {
   const TYPED_DOC = "parity-typed-arm";
   const typedMatrix: Array<Record<string, unknown>> = [];
 
@@ -1216,16 +1231,16 @@ describe("operation parity matrix - typed-add / setLayerParams / setAdjustment (
 
   afterAll(() => {
     // eslint-disable-next-line no-console
-    console.log("\n=== OPERATION PARITY MATRIX - typed-add / setLayerParams / setAdjustment (ProtocolEngine) ===");
+    console.log("\n=== OPERATION PARITY MATRIX - typed-add / setLayerParams / setAdjustment (DocumentCore) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(typedMatrix, null, 2));
   });
 });
 
 // -- Section 5: selection command arms (SetSelection/ClearSelection/SelectAll/
-//    InvertSelection) against the REAL wasm ProtocolEngine. Selection projection
+//    InvertSelection) against the REAL wasm DocumentCore. Selection projection
 //    rides the snapshot selection field; the delta is empty on every arm. --
-describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command arms, real wasm)", () => {
+describe("operation parity matrix - SELECTION ARM PATH (DocumentCore command arms, real wasm)", () => {
   const SEL_DOC = "parity-sel-arm";
   const selMatrix: Array<Record<string, unknown>> = [];
 
@@ -1385,13 +1400,13 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
 
   afterAll(() => {
     // eslint-disable-next-line no-console
-    console.log("\n=== OPERATION PARITY MATRIX - SELECTION ARM PATH (ProtocolEngine) ===");
+    console.log("\n=== OPERATION PARITY MATRIX - SELECTION ARM PATH (DocumentCore) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(selMatrix, null, 2));
   });
 });
 
-// SECTION 3 - STRUCTURAL ARM PATH (ProtocolEngine structural arms, real wasm)
+// SECTION 3 - STRUCTURAL ARM PATH (DocumentCore structural arms, real wasm)
 // Drives the same native authority as the ARM PATH section but through the five
 // structural command arms (Duplicate / MergeDown / MergeSelected / Flatten /
 // Rasterize). Merge/flatten/mergeSelected read document dims from the seeded
@@ -1400,12 +1415,12 @@ describe("operation parity matrix - SELECTION ARM PATH (ProtocolEngine command a
 // Side A (the oracle) is the PURE-TS `layerOps` module (duplicateLayer /
 // mergeDown / mergeSelectedLayers / flattenLayers / shapeLayerToRaster /
 // textLayerToRaster) run DIRECTLY against a plain DocumentModel object - no
-// DocumentEngine, no wasm graph mirror. Side B is the REAL wasm ProtocolEngine
+// DocumentEngine, no wasm graph mirror. Side B is the REAL wasm DocumentCore
 // arm driven directly. The two are genuinely independent
 // implementations; this is NOT a two-Rust-engine cross-check.
 // Layers are compared by NAME; ids are host-supplied on the arm and oracle-assigned
 // on Side A, so they are not compared across engines.
-describe("operation parity matrix - STRUCTURAL ARM PATH (ProtocolEngine structural arms, real wasm)", () => {
+describe("operation parity matrix - STRUCTURAL ARM PATH (DocumentCore structural arms, real wasm)", () => {
   const STRUCT_DOC = "parity-struct";
   const structMatrix: Array<Record<string, unknown>> = [];
 
@@ -1652,14 +1667,14 @@ describe("operation parity matrix - STRUCTURAL ARM PATH (ProtocolEngine structur
 
   afterAll(() => {
     // eslint-disable-next-line no-console
-    console.log("\n=== OPERATION PARITY MATRIX - STRUCTURAL ARM PATH (ProtocolEngine) ===");
+    console.log("\n=== OPERATION PARITY MATRIX - STRUCTURAL ARM PATH (DocumentCore) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(structMatrix, null, 2));
   });
 });
 
 // -- Section 6: canvas-size command arms (CropCanvas / ApplyCrop / ResizeCanvas)
-//    against the REAL wasm ProtocolEngine. Side A is the TS DocumentEngine crop/
+//    against the REAL wasm DocumentCore. Side A is the TS DocumentEngine crop/
 //    resize ops as the independent oracle; Side B drives the real wasm arm via the
 //    production bridge. Layer geometry is compared by NAME (the arm uses the
 //    TS-minted id we supply; the TS engine mints its own, so ids differ). Document
@@ -1668,7 +1683,7 @@ describe("operation parity matrix - STRUCTURAL ARM PATH (ProtocolEngine structur
 //    Design boundary: the pixel-baking crop variants (delete-cropped-pixels bake
 //    and fill-background bake) are deliberately NOT represented by this command set
 //    and remain host-side.
-describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/applyCrop/resize, real wasm)", () => {
+describe("operation parity matrix - CANVAS SIZE ARM PATH (DocumentCore crop/applyCrop/resize, real wasm)", () => {
   const CANVAS_DOC = "parity-canvas-arm";
   const canvasMatrix: Array<Record<string, unknown>> = [];
 
@@ -1916,7 +1931,7 @@ describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/ap
 
   afterAll(() => {
     // eslint-disable-next-line no-console
-    console.log("\n=== OPERATION PARITY MATRIX - CANVAS SIZE ARM PATH (ProtocolEngine crop/applyCrop/resize) ===");
+    console.log("\n=== OPERATION PARITY MATRIX - CANVAS SIZE ARM PATH (DocumentCore crop/applyCrop/resize) ===");
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(canvasMatrix, null, 2));
   });
@@ -1925,7 +1940,7 @@ describe("operation parity matrix - CANVAS SIZE ARM PATH (ProtocolEngine crop/ap
 // -- Section 6: pixel-path operations routed as COMPOSITIONS through the pixel
 //    store path, NOT as new command arms --
 // Under native authority the command engine IS DocumentPixelStore.history (the
-// shared ProtocolEngine). A bake converges as a COMPOSITION on that engine: the
+// shared DocumentCore). A bake converges as a COMPOSITION on that engine: the
 // host bakes pixels via rust_pixels_write_region (one Pixel history entry, unified
 // cursor) and then clears the layer metadata with the EXISTING SetAdjustment
 // {adjustment: None} arm (one Native entry). invertLayerPixels / fill are the same

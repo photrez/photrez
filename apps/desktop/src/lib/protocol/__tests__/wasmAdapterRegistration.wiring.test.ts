@@ -2,7 +2,7 @@
 // DOCUMENT-SCOPED engine before a legacy TS transition is recorded into the
 // canonical Rust stream.
 //
-// PROBLEM: the Rust ProtocolEngine::record_external rejects an UNREGISTERED
+// PROBLEM: the Rust DocumentCore::record_external rejects an UNREGISTERED
 // adapter with E_UNKNOWN_ADAPTER (crates/core/src/protocol.rs). With a
 // document-scoped engine each document owns its adapters, so the adapter must be
 // registered on the TARGET document's engine -- registering once on the shared
@@ -30,7 +30,7 @@ import { recordExternalTransitionFor } from "@/lib/protocol/facadeRegistry";
 
 // recordExternalTransitionFor dispatches through bridge.applyCommand
 // and bridge.registerPayloadAdapter; the shared factory routes both
-// surfaces onto the real wasm ProtocolEngine module.
+// surfaces onto the real wasm DocumentCore module.
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();
   const { makeWasmArmedBridge } = await import("@/lib/protocol/__tests__/wasmBridgeArm");

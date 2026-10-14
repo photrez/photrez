@@ -14,7 +14,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DocumentEngine } from "@/engine/document";
-import { CommandHistory } from "@/engine/history";
 import {
   getFacade,
   seedFacadeFromEngine,
@@ -45,7 +44,7 @@ describe("routed canvas undo through the production handoff", () => {
     vi.restoreAllMocks();
   });
 
-  it("a routed crop undo restores dims and does not pop the TS history", async () => {
+  it("a routed crop undo restores dims through the production handoff", async () => {
     // The native engine (emulator) starts at the document size.
     setEmuDocumentDims(800, 600);
     const engine = new DocumentEngine("routed-und", "Routed", 800, 600);
@@ -57,13 +56,6 @@ describe("routed canvas undo through the production handoff", () => {
     await facade.applyCrop(0, 0, 100, 100, 0);
     engine.applyFacadeSnapshot(facade.snapshot as never, { dimsAuthoritative: true });
     expect([engine.getWidth(), engine.getHeight()]).toEqual([100, 100]);
-
-    // A pre-existing TS history entry stands in for a legacy step. A double-step
-    // would pop it while the native cursor already moved.
-    const history = new CommandHistory();
-    history.attachDocIdGetter(() => engine.getId());
-    history.commit(engine.snapshot(), "Sentinel");
-    const undoSpy = vi.spyOn(history, "undo");
 
     const editor = {
       workspace: {
@@ -79,7 +71,5 @@ describe("routed canvas undo through the production handoff", () => {
     expect(handled).toBe(true);
     expect(facade.lastHistoryDeltaWasEmpty).toBe(false);
     expect([engine.getWidth(), engine.getHeight()]).toEqual([800, 600]);
-    expect(undoSpy).not.toHaveBeenCalled();
-    expect(history.canUndo()).toBe(true);
   });
 });

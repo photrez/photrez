@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { mockUseEditor } from "@/__tests__/mockUseEditor";
 import { useCanvasPointerTools } from "../canvas/useCanvasPointerTools";
 import { createRoot, createSignal } from "solid-js";
-import { CommandHistory } from "../../../engine/history";
 
 vi.mock("../dialogs/DialogProvider", () => ({
   useDialog: () => ({ confirm: vi.fn().mockResolvedValue(false) }),
@@ -484,74 +483,6 @@ describe("Brush & Eraser UX modifiers (Alt / Shift)", () => {
     // Simulating redo setting coords back to (10, 10)
     mockHistory.setLastPaintCoords({ x: 10, y: 10 });
     expect(mockHistory.getLastPaintCoords()).toEqual({ x: 10, y: 10 });
-
-    disposeTools();
-    dispose();
-    vi.restoreAllMocks();
-  });
-
-  it("keeps the pre-stroke anchor across undo so a later shift stroke reconnects from the prior stroke (A→B→undo→C = A→C)", () => {
-    // Real history so undo/redo actually restore lastPaintCoords.
-    const realHistory = new CommandHistory();
-    const { signals, mockEngine, dispose } = createMockEditor({
-      activeTool: "brush",
-      workspace: {
-        getActiveEngine: () => mockEngine,
-        getActiveHistory: () => realHistory,
-      },
-    });
-    mockUseEditor(signals);
-
-    const canvas = document.createElement("canvas");
-    canvas.setPointerCapture = vi.fn();
-    canvas.releasePointerCapture = vi.fn();
-    const container = document.createElement("div");
-
-    let pts: { x: number; y: number }[] = [];
-    // Replicates the production commitBrushStroke contract with a real history:
-    // the snapshot records the pre-stroke anchor, then live advances to the stroke end.
-    const commitBrushStroke = vi.fn((_e: unknown, _h: unknown, _id: unknown, _er: unknown, anchor?: { x: number; y: number } | null) => {
-      realHistory.setLastPaintCoords(anchor ?? realHistory.getLastPaintCoords());
-      realHistory.commit({} as any, "Brush Stroke");
-      const end = pts[pts.length - 1];
-      if (end) realHistory.setLastPaintCoords(end);
-    });
-    const params = {
-      getCanvasContainerRef: () => container,
-      getCanvasRef: () => canvas,
-      isSpacePressed: () => false,
-      isPanning: () => false,
-      isAltPressed: () => false,
-      stopMomentum: vi.fn(),
-      fitToScreenAndRender: vi.fn(),
-      commitBrushStroke,
-      onPaintStroke: vi.fn((p: { x: number; y: number }[]) => {
-        pts = p;
-      }),
-    };
-
-    const { tools, dispose: disposeTools } = createPointerTools(params);
-
-    // Stroke A (no shift) at (10,10)
-    tools.onCanvasPointerDown({ button: 0, clientX: 10, clientY: 10, pointerId: 1 } as any);
-    tools.onCanvasPointerUp({ clientX: 10, clientY: 10, pointerId: 1 } as any);
-    expect(realHistory.getLastPaintCoords()).toEqual({ x: 10, y: 10 });
-
-    // Stroke B (shift) at (40,40) — connects A_end(10,10) -> (40,40)
-    tools.onCanvasPointerDown({ button: 0, clientX: 40, clientY: 40, pointerId: 1, shiftKey: true } as any);
-    tools.onCanvasPointerUp({ clientX: 40, clientY: 40, pointerId: 1 } as any);
-    expect(realHistory.getLastPaintCoords()).toEqual({ x: 40, y: 40 });
-
-    // Undo B — must restore the pre-stroke anchor A_end, NOT B's own end.
-    realHistory.undo({} as any);
-    expect(realHistory.getLastPaintCoords()).toEqual({ x: 10, y: 10 });
-
-    // Stroke C (shift) at (80,80) — reconnects from A_end(10,10).
-    // Before the fix, undo restored B(40,40), so C would connect B→C.
-    tools.onCanvasPointerDown({ button: 0, clientX: 80, clientY: 80, pointerId: 1, shiftKey: true } as any);
-    tools.onCanvasPointerUp({ clientX: 80, clientY: 80, pointerId: 1 } as any);
-    const cAnchor = commitBrushStroke.mock.calls.at(-1)![4];
-    expect(cAnchor).toEqual({ x: 10, y: 10 });
 
     disposeTools();
     dispose();

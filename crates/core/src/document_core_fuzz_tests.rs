@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Engine-level fuzz for ProtocolEngine: random commands drawn from the full
+// Engine-level fuzz for DocumentCore: random commands drawn from the full
 // routed set plus undo/redo interleaves. This drives the REAL Rust engine (the
 // exact code the desktop app runs), not a TypeScript emulator, so a green run is
 // evidence about the engine's own trust-boundary and history invariants.
@@ -29,7 +29,7 @@ use crate::canonical_model::{
     BasicAdjustment, BlendMode, CanonicalDocument, LayerType, SelectionShape, SelectionState,
 };
 use crate::command::{Command, LockKind, TransformPatch};
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::RenderLayer;
 
 const DEFAULT_OPS: usize = 1000;
@@ -71,8 +71,8 @@ fn seed_layer(id: &str, resource_id: u32) -> RenderLayer {
 /// matters: seed_canonical replaces the engine layer set from its push, so the
 /// dims push comes first and the layer load second, exactly as the structural
 /// and canvas arm tests do it.
-fn seeded_engine() -> ProtocolEngine {
-    let mut e = ProtocolEngine::new();
+fn seeded_engine() -> DocumentCore {
+    let mut e = DocumentCore::new();
     e.seed_canonical(canonical_dim_doc());
     e.seed_layers(vec![seed_layer("L1", 1), seed_layer("L2", 2)], 0);
     e
@@ -145,7 +145,7 @@ fn fresh_id(next_id: &mut u32) -> String {
     format!("N{id}")
 }
 
-fn live_ids(e: &ProtocolEngine) -> Vec<String> {
+fn live_ids(e: &DocumentCore) -> Vec<String> {
     e.snapshot().layers.iter().map(|l| l.id.clone()).collect()
 }
 
@@ -178,7 +178,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 /// transition counter, not state. Comparing it across an undo/redo round-trip
 /// would be a false invariant; the meaningful round-trip check is that the
 /// STATE and the cursor are restored.
-fn state_digest(e: &ProtocolEngine) -> u64 {
+fn state_digest(e: &DocumentCore) -> u64 {
     let s = e.snapshot();
     let json = serde_json::to_string(&(s.layers, s.selection, s.width, s.height))
         .expect("snapshot state serializes to JSON");
@@ -187,7 +187,7 @@ fn state_digest(e: &ProtocolEngine) -> u64 {
 
 /// (entry count, summed retained byte estimate) from the same history query the
 /// TypeScript facade reads.
-fn history_stats(e: &ProtocolEngine) -> (usize, u64) {
+fn history_stats(e: &DocumentCore) -> (usize, u64) {
     let q = e.history_query();
     let bytes: u64 = q.entries.iter().map(|x| x.memory_cost_bytes).sum();
     (q.entries.len(), bytes)
@@ -390,7 +390,7 @@ fn random_command(rng: &mut u32, ids: &[String], next_id: &mut u32) -> (Command,
 
 // -- undo / redo helpers ----------------------------------------------------
 
-fn apply_undo(e: &mut ProtocolEngine, version_before: u64, stats_before: (usize, u64)) {
+fn apply_undo(e: &mut DocumentCore, version_before: u64, stats_before: (usize, u64)) {
     let cursor_before = e.cursor();
     let result = e.apply(env(Command::Undo)).expect("undo returns Ok");
     assert_eq!(
@@ -412,7 +412,7 @@ fn apply_undo(e: &mut ProtocolEngine, version_before: u64, stats_before: (usize,
     );
 }
 
-fn apply_redo(e: &mut ProtocolEngine, version_before: u64, stats_before: (usize, u64)) {
+fn apply_redo(e: &mut DocumentCore, version_before: u64, stats_before: (usize, u64)) {
     let cursor_before = e.cursor();
     let entries_before = e.history_query().entries.len();
     let result = e.apply(env(Command::Redo)).expect("redo returns Ok");
@@ -442,7 +442,7 @@ fn apply_redo(e: &mut ProtocolEngine, version_before: u64, stats_before: (usize,
 /// Undo then immediately redo: the state digest and cursor must be restored.
 /// Only the monotonic DV advances (by two), which is the documented transition
 /// contract, not state.
-fn undo_redo_round_trip(e: &mut ProtocolEngine, version_before: u64, stats_before: (usize, u64)) {
+fn undo_redo_round_trip(e: &mut DocumentCore, version_before: u64, stats_before: (usize, u64)) {
     if !e.can_undo() {
         // Nothing below the cursor: a clean no-op undo is still a DV transition.
         apply_undo(e, version_before, stats_before);

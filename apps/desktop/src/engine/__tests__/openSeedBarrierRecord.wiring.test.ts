@@ -36,7 +36,12 @@ import { __resetFacadeRegistryForTests } from "@/lib/protocol/facadeRegistry";
 import { getFacade } from "@/lib/protocol/selectionMirror";
 import { invoke } from "@tauri-apps/api/core";
 import { answerInvoke, resetStreams } from "@/engine/__tests__/rustStreamEmulator";
-import { settle } from "@/engine/__tests__/historyCursorHarness";
+import { flushPixelInvokeCensus } from "@/lib/protocol/pixelInvokeCensus";
+
+async function settle() {
+  await new Promise<void>((r) => setTimeout(r, 0));
+  await flushPixelInvokeCensus();
+}
 
 const DOC = "open-seed-barrier-doc";
 

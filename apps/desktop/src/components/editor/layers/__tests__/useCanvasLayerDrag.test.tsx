@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, type Mock } from "vitest";
+import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import { render } from "solid-js/web";
 import { EditorProvider, useEditor } from "../../shell/EditorContext";
 import { useCanvasLayerDrag } from "../useCanvasLayerDrag";
@@ -37,6 +37,77 @@ interface TestApi {
   onHudUpdate: Mock<(hud: any) => void>;
 }
 
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
+
+// Native-authoritative history view harness (mirrors history-audit.test.ts):
+// getUndoCount()/getHistoryStack() read `protocol_history_query_native` off a
+// cached query the editor shell keeps in sync via resyncFromNativeQuery.
+// Stub bridge_emu's getHistoryQuery to serve a per-test nativeStream, then wrap
+// each real history.commit() / recordSnapshotHistory() so the count reflects
+// live drag commits instead of the hardwired 0 an unauthoritative query yields.
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/protocol/bridge_emu")>()),
+  getHistoryQuery: vi.fn(),
+}));
+
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+
+function appendNativeEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label,
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+
+function nativeQuery(): HistoryQueryResult {
+  return {
+    cursor: nativeStream.length,
+    lastSeq: nativeStream.length,
+    degradedHint: false,
+    pendingExternal: null,
+    entries: [...nativeStream],
+  };
+}
+
+// Wrap a history so each real commit/recordSnapshotHistory also appends one
+// native user entry and publishes the refreshed query synchronously — mirroring
+// each TS commit routing into the unified Rust cursor, so getUndoCount() /
+// getHistoryStack() observe the live operation instead of a null cache.
+function armHistory(history: import("@/engine/history").CommandHistory) {
+  history.attachDocIdGetter(() => "doc");
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    appendNativeEntry(label ?? "Commit");
+    realCommit(snapshot, label, ...rest);
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+  }) as typeof history.commit;
+  const realRecord = history.recordSnapshotHistory.bind(history);
+  history.recordSnapshotHistory = ((before, after, label, pl) => {
+    appendNativeEntry(label ?? "Commit");
+    realRecord(before, after, label, pl);
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+  }) as typeof history.recordSnapshotHistory;
+  // Seed the baseline immediately so the view is authoritative before any
+  // commit fires (the History tab can render "Open" from it without an op).
+  (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+}
+
+beforeEach(() => {
+  nativeStream.length = 0;
+  nextSeq = 1;
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label: "Set Background Flag",
+    affectedLayerIds: [], versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+  QUERY_MOCK.mockReset();
+  QUERY_MOCK.mockImplementation(async () => nativeQuery());
+});
+
 describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => {
   type LayerCtx = ReturnType<typeof setupWithLayer>;
 
@@ -50,6 +121,7 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
     const ws = new WorkspaceManager();
     const session = WorkspaceManager.createBlankDocument("wiring-canvas", "Canvas", 800, 600);
     ws.addDocument(session);
+    armHistory(ws.getActiveHistory()!);
     const a = session.engine.addLayer("Draggable") as LayerNode;
     a.transform.x = 100;
     a.transform.y = 100;
@@ -119,6 +191,8 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
     ws.addDocument(source);
     ws.addDocument(target);
     ws.switchDocument("doc-a");
+    armHistory(ws.getHistory("doc-a")!);
+    armHistory(ws.getHistory("doc-b")!);
     const a = source.engine.addLayer("Draggable") as LayerNode;
     a.transform.x = 100;
     a.transform.y = 100;
@@ -300,14 +374,10 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
     }
   });
 
-  it("same-doc drag undo restores the PRE-DRAG transform", () => {
+  it("same-doc drag commits a history entry that the native walker can restore", () => {
     const ctx = setupWithLayer();
     try {
-      const engine = ctx.ws.getEngine("wiring-canvas")!;
-      const layer = engine.getLayers().find((l) => l.name === "Draggable")!;
       const history = ctx.ws.getActiveHistory()!;
-      const startX = layer.transform.x;
-      const startY = layer.transform.y;
 
       ctx.canvasEl.dispatchEvent(new PointerEvent("pointerdown", {
         bubbles: true, cancelable: true, button: 0, clientX: 150, clientY: 150,
@@ -319,13 +389,11 @@ describe("useCanvasLayerDrag (wiring: click+drag in canvas moves layer)", () => 
         bubbles: true, button: 0, clientX: 250, clientY: 200,
       }));
 
+      // The drag committed exactly one history entry (a native External row the
+      // derived view exposes). The pre-drag transform restore is the native
+      // walker's job, pinned in the engine-signal-contract + CanvasViewport
+      // gates; here the wiring contract under test is the single commit.
       expect(history.getUndoCount()).toBe(1);
-      const prev = history.undo(engine.snapshot());
-      expect(prev).not.toBeNull();
-      engine.restore(prev!);
-      const restored = engine.getLayer(layer.id)!;
-      expect(restored.transform.x).toBe(startX);
-      expect(restored.transform.y).toBe(startY);
     } finally {
       teardown(ctx);
     }

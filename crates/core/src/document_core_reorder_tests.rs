@@ -3,14 +3,14 @@
 // order as an ordered Upsert delta (never an empty delta) so TS hosts restore
 // stacking from the delta. The two extracted snapshot-order tests come from
 // document_core_arm_tests.rs; the shape-pin tests assert the delta returned by
-// undo/redo matches the fixed `ProtocolEngine::diff` contract in
+// undo/redo matches the fixed `DocumentCore::diff` contract in
 // document_core.rs.
 use super::arm_tests::env;
 use crate::canonical_model::{
     BlendMode, CanonicalDocument, CanonicalLayer, LayerType, Transform2D,
 };
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::{LayerSet, RenderLayer, RenderLayerChange};
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 #[test]
 fn reorder_undo_restores_layer_order() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![
             RenderLayer {
@@ -70,7 +70,7 @@ fn reorder_undo_restores_layer_order() {
 
 #[test]
 fn reorder_undo_after_addlayer_restores_order() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.apply(env(Command::AddLayer {
         id: "L1".into(),
         name: "A".into(),
@@ -115,8 +115,8 @@ fn reorder_undo_after_addlayer_restores_order() {
 
 // ── shape pins: the undo/redo delta must carry the ordered restatement ──
 
-fn two_layer_engine() -> ProtocolEngine {
-    let mut e = ProtocolEngine::new();
+fn two_layer_engine() -> DocumentCore {
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![
             RenderLayer {
@@ -232,7 +232,7 @@ fn diff_order_identical_is_empty() {
     // Rebuild an identical set reusing the SAME Arc<LayerMeta> pointers.
     let same: Vec<Arc<_>> = a.0.as_ref().to_vec();
     let b = LayerSet(Arc::new(same));
-    let changes = ProtocolEngine::diff(&a, &b);
+    let changes = DocumentCore::diff(&a, &b);
     assert!(
         changes.is_empty(),
         "identical-order diff must stay empty (guard must not fire)"
@@ -357,11 +357,11 @@ fn canon_doc(id: &str, w: f64, h: f64, layers: &[&str]) -> CanonicalDocument {
     }
 }
 
-fn layer_ids(e: &ProtocolEngine) -> Vec<String> {
+fn layer_ids(e: &DocumentCore) -> Vec<String> {
     e.snapshot().layers.iter().map(|l| l.id.clone()).collect()
 }
 
-fn rid_of(e: &ProtocolEngine, id: &str) -> u32 {
+fn rid_of(e: &DocumentCore, id: &str) -> u32 {
     e.snapshot()
         .layers
         .into_iter()
@@ -396,7 +396,7 @@ fn apply_delta_to_ids(ids: &[String], changes: &[RenderLayerChange]) -> Vec<Stri
 /// document-version bump, and no history entry.
 #[test]
 fn open_seed_parity_is_idempotent() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![mk_layer("bg", "Background", 1), mk_layer("A", "A", 2)],
         0,
@@ -436,7 +436,7 @@ fn open_seed_parity_is_idempotent() {
 /// the known layer's resource id, record no history entry, and not bump the DV.
 #[test]
 fn canonical_push_mints_unknown_and_preserves_known_rid() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("bg", "Background", 1)], 0);
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &["bg"])); // shadow baseline
     let before_version = e.version;
@@ -473,7 +473,7 @@ fn canonical_push_mints_unknown_and_preserves_known_rid() {
 /// consistent with how the DeleteLayer arm already behaves.
 #[test]
 fn canonical_push_drops_engine_id_absent_from_push() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("bg", "Background", 1)], 0);
     // Re-push that OMITS bg (a TS-originated delete mirrored through the channel).
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &[]));
@@ -492,7 +492,7 @@ fn canonical_push_drops_engine_id_absent_from_push() {
 /// it - this is the disclosed (documented) limitation, healed at the next forward commit.
 #[test]
 fn undo_of_native_add_keeps_foreign_layer() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("bg", "Background", 1)], 0);
     // Route AddLayer X (native): before=[bg], after=[X, bg].
     e.apply(env(Command::AddLayer {
@@ -579,7 +579,7 @@ fn undo_of_native_add_keeps_foreign_layer() {
 /// below.
 #[test]
 fn reorder_undo_across_membership_change_restores_order_with_foreign_survivor() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("A", "A", 1), mk_layer("B", "B", 2)], 0);
     // Forward reorder: A <-> B (pure order change, no value change).
     e.apply(env(Command::Reorder {
@@ -666,12 +666,12 @@ fn apply_ordered_delta_to_ids(ids: &[String], changes: &[RenderLayerChange]) -> 
     }
 }
 
-fn record_external(engine: &mut ProtocolEngine, label: &str, affected: &[&str], token: &str) {
+fn record_external(engine: &mut DocumentCore, label: &str, affected: &[&str], token: &str) {
     record_external_with_mints(engine, label, affected, token, &[]);
 }
 
 fn record_external_with_mints(
-    engine: &mut ProtocolEngine,
+    engine: &mut DocumentCore,
     label: &str,
     affected: &[&str],
     token: &str,
@@ -709,7 +709,7 @@ fn record_external_with_mints(
 /// undo drops exactly those and keeps every id nothing claimed.
 #[test]
 fn external_undo_drops_a_minted_destination_and_keeps_the_captured_set() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![
             mk_layer("Paint", "Paint", 1),
@@ -760,7 +760,7 @@ fn external_undo_drops_a_minted_destination_and_keeps_the_captured_set() {
 /// declares no mints keeps the survivor rule, so a host-pushed layer survives.
 #[test]
 fn external_undo_without_a_declared_mint_still_retains_the_after_only_layer() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("A", "A", 1), mk_layer("B", "B", 2)], 0);
     record_external(&mut e, "Gradient Fill", &["B"], "tok-nomint");
     e.seed_canonical(canon_doc("doc", 100.0, 100.0, &["A", "B", "host1"]));
@@ -775,7 +775,7 @@ fn external_undo_without_a_declared_mint_still_retains_the_after_only_layer() {
 
 #[test]
 fn external_delete_undo_restores_mid_stack_order() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![
             mk_layer("A", "A", 1),
@@ -842,7 +842,7 @@ fn external_delete_undo_restores_mid_stack_order() {
 /// restores the correct ORDER natively (the move's order is not left stale).
 #[test]
 fn external_move_then_edit_undo_redo_restate_order() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("A", "A", 1), mk_layer("B", "B", 2)], 0);
     // Legacy reorder A to the bottom: record (captures [A, B]) then sync [B, A].
     record_external(&mut e, "Move Layer", &["A"], "tok-move");
@@ -902,7 +902,7 @@ fn external_move_then_edit_undo_redo_restate_order() {
 /// stack must consume the right entry each step (routed entry, then external).
 #[test]
 fn external_dnd_reorder_then_routed_reorder_undo_consumes_right_entry() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(
         vec![
             mk_layer("A", "A", 1),
@@ -967,7 +967,7 @@ fn external_dnd_reorder_then_routed_reorder_undo_consumes_right_entry() {
 /// is retained, never dropped.
 #[test]
 fn external_undo_retains_foreign_survivor_and_restores_captured_order() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("A", "A", 1), mk_layer("B", "B", 2)], 0);
     // Legacy reorder A to the bottom: record (captures [A, B]) then sync [B, A].
     record_external(&mut e, "Move Layer", &["A"], "tok-move2");
@@ -1011,7 +1011,7 @@ fn external_undo_retains_foreign_survivor_and_restores_captured_order() {
 /// restored.
 #[test]
 fn external_undo_keeps_host_layer_absent_from_the_captured_pre_sync_vector() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("A", "A", 1), mk_layer("B", "B", 2)], 0);
     // Host op with no per-entry layer delta: record (captures [A, B]) ...
     record_external(&mut e, "Gradient Fill", &["B"], "tok-grad");

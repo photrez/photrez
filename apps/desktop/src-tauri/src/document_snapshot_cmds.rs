@@ -195,7 +195,7 @@ fn max_layer_epoch(reg: &photrez_core::pixel_store::PixelStoreRegistry, doc_id: 
 }
 
 /// Record an atomic metadata+bitmap-token snapshot entry (before/after)
-/// into the document's unified `ProtocolEngine` cursor. Bumps `DocumentVersion`
+/// into the document's unified `DocumentCore` cursor. Bumps `DocumentVersion`
 /// exactly once and truncates the redo branch, like `record_external` — but stores
 /// BOTH directions so a later undo returns the `before` snapshot and redo re-applies
 /// the `after`, letting the TS side restore pixels by bitmap token. Returns the new

@@ -2,7 +2,7 @@
 //! Proof-of-convergence for the pixel-path adjustment-bake family.
 //!
 //! Under native authority the command engine IS `DocumentPixelStore.history`
-//! (the shared `ProtocolEngine`). An adjustment bake converges as a COMPOSITION
+//! (the shared `DocumentCore`). An adjustment bake converges as a COMPOSITION
 //! on that engine, not as a new command variant:
 //!   1. the host bakes pixels -> `write_region` replaces the whole layer (one
 //!      `Pixel` entry, unified cursor),

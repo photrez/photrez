@@ -14,6 +14,66 @@ import { getWasmExportModule } from "@/components/editor/wasmExport";
 import { seedNativeCanonical } from "@/lib/protocol/bridge";
 import { buildCanonicalDocumentPayload } from "@/lib/protocol/canonicalSeed";
 import type { CommandHistory } from "@/engine/history";
+import type { HistoryEntryView, HistoryQueryResult } from "@/lib/protocol/types";
+
+// Undo/redo counts read the native history stream (see nativeHistoryView.ts).
+// Two undo sources coexist in this harness:
+//  - TS `history.commit` ops (move/flip/opacity via the legacy arm) push a TS
+//    entry but, with the facade commit shim absent, never reach the native
+//    stream. `armHistory` mirrors each into a mock-native stream so count
+//    asserts read a live, controlled view.
+//  - Facade-routed ops (merge/flatten/delete via commitFacadeX) record natively
+//    in the wasm engine directly, bypassing `history.commit`. For those,
+//    nativeStream stays empty, so getHistoryQuery falls through to the REAL
+//    wasm-backed query (which holds the facade's record) instead of serving an
+//    empty stub.
+const { realHistoryQueryRef } = vi.hoisted(() => ({ realHistoryQueryRef: { fn: null as ((docId?: string) => Promise<HistoryQueryResult>) | null } }));
+vi.mock("@/lib/protocol/bridge_emu", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@/lib/protocol/bridge_emu")>();
+  realHistoryQueryRef.fn = orig.getHistoryQuery;
+  return { ...orig, getHistoryQuery: vi.fn() };
+});
+import { getHistoryQuery } from "@/lib/protocol/bridge_emu";
+const QUERY_MOCK = getHistoryQuery as unknown as ReturnType<typeof vi.fn>;
+const nativeStream: HistoryEntryView[] = [];
+let nextSeq = 1;
+function appendNativeUserEntry(label: string) {
+  const seq = nextSeq++;
+  nativeStream.push({
+    seq, groupId: seq, origin: "native", label, affectedLayerIds: [],
+    versionBefore: seq - 1, versionAfter: seq, memoryCostBytes: 0,
+  });
+}
+function nativeQuery(): HistoryQueryResult {
+  return { cursor: nativeStream.length, lastSeq: nativeStream.length, degradedHint: false, pendingExternal: null, entries: [...nativeStream] };
+}
+// No document-open baseline entry is seeded: the factory's Set Background Flag
+// commit is opted out here (photrez.bgFlagRoute="0"), so the first user commit
+// is stream position 0 and openBaselineFloor leaves it fully undoable.
+function armHistory(history: CommandHistory) {
+  // NOTE: do NOT overwrite attachDocIdGetter here. Facade-routed ops (merge/
+  // flatten/delete) record natively under the workspace's real document id, so
+  // the fall-through query must keep that id to find their record. Only the
+  // commit wrapper is needed; the mock stream ignores docId for TS commits.
+  const realCommit = history.commit.bind(history);
+  history.commit = ((snapshot, label, ...rest) => {
+    appendNativeUserEntry(label ?? "Commit");
+    // Publish the post-commit stream synchronously onto the history's cached
+    // view so a getUndoCount()/canUndo() read in the SAME tick (the transform
+    // session commit has no await) sees the entry instead of the stale cache.
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+    return realCommit(snapshot, label, ...rest);
+  }) as typeof history.commit;
+  // Delete Layer routes through recordSnapshotHistory (the before/after
+  // branch in useLayerActions), not commit, so it must also append a native
+  // user entry or canUndo() reads an empty stream and reports false.
+  const realRecord = history.recordSnapshotHistory.bind(history);
+  history.recordSnapshotHistory = ((before, after, label, ...rest) => {
+    appendNativeUserEntry(label ?? "Record");
+    (history as unknown as { nativeQuery: HistoryQueryResult | null }).nativeQuery = nativeQuery();
+    return realRecord(before, after, label, ...rest);
+  }) as typeof history.recordSnapshotHistory;
+}
 
 // Fill Layer records its pixels in the canonical Rust store over IPC. This file
 // asserts the keyboard SHORTCUT reaches that fill, so it needs the store to
@@ -160,6 +220,21 @@ beforeAll(async () => {
 // "0" is the documented test opt-out (see setBackgroundFlag.wiring.test.ts).
 beforeEach(() => localStorage.setItem("photrez.bgFlagRoute", "0"));
 afterEach(() => localStorage.removeItem("photrez.bgFlagRoute"));
+// Reset the mocked native history stream per test so a prior arm's entries do not
+// leak into a later test's count assertions. When the stream is empty the op
+// under test recorded natively (facade arm), so defer to the real wasm query
+// instead of an empty stub.
+beforeEach(() => {
+  nativeStream.length = 0;
+  nextSeq = 1;
+  QUERY_MOCK.mockReset();
+  QUERY_MOCK.mockImplementation(async (...args: unknown[]) => {
+    if (nativeStream.length > 0) return nativeQuery();
+    return realHistoryQueryRef.fn!(args[0] as string | undefined);
+  });
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
 
 function installOffscreenCanvasMock(bitmap: ImageBitmap) {
   vi.stubGlobal("OffscreenCanvas", class {
@@ -249,6 +324,10 @@ async function renderKeyboardHarness(session: ReturnType<typeof WorkspaceManager
   );
 
   ws.addDocument(session);
+  // Arm the history so each TS commit mirrors into the mocked native stream the
+  // count assertions read (see `armHistory` above).
+  const activeHistory = ws.getActiveHistory();
+  if (activeHistory) armHistory(activeHistory);
   // The factory's canonical shadow-seed (workspace.addDocument) is gated behind
   // the in-flight background-flag commit, which the jsdom transport cannot
   // satisfy: that commit awaits the seed barrier, which in turn awaits this same
@@ -1431,6 +1510,10 @@ async function setupFill(renderer: { uploadImage: ReturnType<typeof vi.fn>; uplo
 }
 
 describe("fill layer keyboard shortcuts (Alt+Del / Ctrl+Del)", () => {
+  beforeEach(() => {
+    nativeStream.length = 0;
+    nextSeq = 1;
+  });
   beforeEach(resetCanonicalPixels);
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -1550,6 +1633,7 @@ function setupTransformSession() {
   const ws = new WorkspaceManager();
   const session = WorkspaceManager.createBlankDocument("transform-guards", "Transform", 800, 600);
   ws.addDocument(session);
+  armHistory(ws.getActiveHistory()!);
   const engine = session.engine;
   const extra = engine.addLayer("Top");
   engine.setActiveLayer(extra.id);
@@ -1701,6 +1785,7 @@ function setupCropMode() {
   const ws = new WorkspaceManager();
   const session = WorkspaceManager.createBlankDocument("crop-guards", "Crop", 800, 600);
   ws.addDocument(session);
+  armHistory(ws.getActiveHistory()!);
   const engine = session.engine;
   const extra = engine.addLayer("Top");
   engine.setActiveLayer(extra.id);

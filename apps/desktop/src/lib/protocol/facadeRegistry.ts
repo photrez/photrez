@@ -46,7 +46,6 @@ export {
   commitFacadeSelectAll,
   commitFacadeSetSelection,
   getFacade,
-  mirrorRestoredSelection,
   mirrorSelectionCommand,
   peekFacade,
   removeFacade,
@@ -958,7 +957,7 @@ function syncAuthoritativeVersion(docId: string, dv: number): void {
 }
 
 // Native version sync (ADR 0014): pixel commits and facade commands share ONE
-// ProtocolEngine instance, so a pixel commit between two facade commands advances
+// DocumentCore instance, so a pixel commit between two facade commands advances
 // the same documentVersion the facade reads. Push the pixel commit's returned
 // version into the facade so the next facade command is not rejected with
 // E_VERSION_MISMATCH. The native engine is the single owner of document
@@ -1284,10 +1283,9 @@ export function installFacadeCommitShim(providers: {
   // commit wrapper does the same — it records the commit's pre-action argument,
   // not any derived post-state. Both mirrored payloads are the same undo point.
   //
-  // WHO CONSUMES IT: NOT a host pop - `stepRustCursor` returns for a snapshot-typed
-  // entry before every arm, so no arm steps this. The consumer is the FACADE WALKER
-  // (`facade.undo()` + `confirmExternalCursor`). Without the mirror the native
-  // cursor never advanced for such a delete and the stranded TS undo-point made
+  // WHO CONSUMES IT: the FACADE WALKER (`facade.undo()` + `confirmExternalCursor`),
+  // not a host pop (the host pop is retired). Without the mirror the native cursor
+  // never advanced for such a delete and the stranded TS undo-point made
   // `engine.restore()` throw `E_FACADE_OWNED`; see snapshotHistoryMirror.wiring.test.ts.
   //
   proto.recordSnapshotHistory = function (this: unknown, ...args: unknown[]) {

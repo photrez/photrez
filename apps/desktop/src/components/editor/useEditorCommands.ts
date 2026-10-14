@@ -10,7 +10,6 @@ import { SelectionOperations } from "@/features/selection/SelectionOperations";
 import { useEditor } from "./shell/EditorContext";
 import { useLayerActions } from "./layers/useLayerActions";
 import { cancelLayerTransformSession } from "./transformSession";
-import { syncTextSessionBase } from "./canvas/pointerTools/textTool";
 import { useDialog } from "./dialogs/DialogProvider";
 import { showToast } from "./Toast";
 import { showSaveDialog, writeFileBytes, showSaveDialogAllFormats, setTrustedPaths, ipcErrorMessage } from "@/tauri/native";
@@ -25,16 +24,12 @@ import {
   commitFacadeClearSelection,
   commitFacadeInvertSelection,
   commitFacadeSelectAll,
-  mirrorRestoredSelection,
   mirrorSelectionCommand,
   syncFacadeVersionFromPixel,
 } from "@/lib/protocol/facadeRegistry";
 
-import { repushCanonicalDocument } from "@/lib/protocol/canonicalSeed";
-import { runFacadeExternalHandoff, handoffMovedCursor } from "./facadeHistoryHandoff";
+import { runFacadeExternalHandoff } from "./facadeHistoryHandoff";
 import { selectionUploadRect } from "./canvas/keyboardShortcuts/selectionTool";
-import { projectRustTiles } from "./rustTileProjection";
-
 
 export const NATIVE_MENU_EVENT = "photrez://native-menu";
 export const EDITOR_COMMAND_EVENT = "photrez://editor-command";
@@ -171,14 +166,11 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       // When a transform session exists, undo is always available:
       // mini undo first (revert individual gesture), then cancel-session fallback.
       if (editor.layerTransformSession()) return true;
-      // Facade-owned content keeps its history in Rust.
-      if (activeDocumentOwnsFacadeLayers()) return true;
       return (editor.activeTool() === "crop" && (editor.canCropUndo() || editor.canModernCropUndo()))
         || editor.workspace.getActiveHistory()?.canUndo() === true;
     }
     if (command === "edit.redo") {
       if (editor.layerTransformSession()) return true;
-      if (activeDocumentOwnsFacadeLayers()) return true;
       return (editor.activeTool() === "crop" && (editor.canCropRedo() || editor.canModernCropRedo()))
         || editor.workspace.getActiveHistory()?.canRedo() === true;
     }
@@ -282,320 +274,18 @@ export function useEditorCommands(onToggleSidePanels: () => void) {
       }
     }
 
-    // ── Facade (Rust-owned) history first ────────────────────
-    // Transforms/addLayers created under photrez.facade=1 have NO TS history
-    // entries (the facade gate blocks legacy mutation), so their undo/redo can
-    // only come from Rust. Rust Undo on an EMPTY stack is a no-op success, so
-    // we detect that via lastHistoryDeltaWasEmpty and fall through to the
-    // legacy TS history for pre-facade entries. TRANSITIONAL behavior: while
-    // any facade-owned layer exists, the gate blocks engine.restore() of TS
-    // entries whose snapshots contain facade layers — such entries stay pinned
-    // until facade layers are removed. This is not a final history
-    // architecture.
-    let handoffFellThrough = false;
-    // Did THIS press's facade handoff already move the Rust cursor? Held as a local
-    // and handed to the history one line above the pop - see the comment at the
-    // `handoffMovedCursor()` call below.
-    let handoffMovedCursorForPress = false;
+    // Facade-owned documents route undo/redo through the native walker. The
+    // legacy TS pop/restore path was retired, so the only executor is
+    // runFacadeExternalHandoff, which is self-sufficient on its empty-stream
+    // refusal (handled no-op) and re-syncs the derived view internally. The
+    // host stack is a read-only view here — never an alternate executor.
     if (activeDocumentOwnsFacadeLayers()) {
-      // Facade (Rust-owned) history handoff. Returns true when this branch fully
-      // handled the step (caller must return) - including the refusal on a
-      // document whose native stream holds no user work, which is a handled
-      // no-op rather than a fall-through - and false to fall through to the
-      // legacy TS history store. The branch clears the pending-external barrier
-      // (the wedge) and, for facade-owned layers, does NOT complete the external
-      // step's model restore (engine.restore() throws E_FACADE_OWNED - mixed
-      // history constraint, tracked separately). It must not claim the restore
-      // finished.
-      // No selection mirror needed here: the facade-owned handoff returns before engine.restore and selection is unchanged on both sides (host applyFacadeSnapshot writes layers+dims only; the native walker restores layers+doc_size and selection arms commit no history entry), so host and shadow stay consistent by construction.
-      if (await runFacadeExternalHandoff(editor, direction)) {
-        // The native walker (runFacadeExternalHandoff) is the executor; the
-        // host stack is a derived view refreshed from the query, never the
-        // authority on what moved.
-        await editor.workspace.getActiveHistory?.()?.resyncFromNativeQuery?.();
-        return;
-      }
-      // Fell through - but "fell through" does NOT mean the cursor is unmoved. The
-      // handoff commits the cursor via `confirmExternalCursor` and can then report
-      // unhandled because the delta it got back was empty (a legacy `External`
-      // entry with no captured after-state restores no layers). The pop below would
-      // then issue a SECOND cursor step for one press, so the pop has to know.
-      //
-      // Drained HERE and armed LATER, deliberately. Two guards below
-      // (`!engine || !history` and `!canRestore`) return without popping, so arming
-      // the history at this point would leave the flag set for a press that never
-      // reached `stepRustCursor` - and the NEXT press that does pop would read it and
-      // silently skip its own step. Holding it in a local until the pop is one line
-      // away keeps set and consume adjacent, so the flag cannot outlive its press.
-      handoffMovedCursorForPress = handoffMovedCursor();
-      // Handoff attempted but fell through (Rust had no entry; TS does the restore).
-      // The native heal re-push below fires only in this case, AFTER engine.restore,
-      // so the re-pushed canonical shadow reflects the post-restore state.
-      handoffFellThrough = true;
-    }
-
-    try {
-      const engine = editor.workspace.getActiveEngine();
-      const history = editor.workspace.getActiveHistory();
-      if (!engine || !history) {
-        return;
-      }
-
-      const canRestore = direction === "undo" ? history.canUndo() : history.canRedo();
-      if (!canRestore) {
-        return;
-      }
-      // ── AUTHORITY CONVERGENCE ──
-      // Rust ProtocolEngine is the single logical undo/redo executor.
-      // TS history.canUndo()/canRedo() is used as pre-check (TS cursor ==
-      // Rust cursor by the cursor invariant). The actual Rust undo/redo is
-      // fired by the pop below, once per popped entry, before either restore
-      // path runs - not by the tile/metadata split that follows.
-      // [perf] Issue C instrumentation: quantify snapshot vs restore cost on
-      // large canvases before optimizing.
-      const perfT0 = performance.now();
-      // Armed HERE, immediately before the pop, and not at the handoff call site: the
-      // two guards above return without popping, and a flag armed before them would
-      // outlive its press and suppress the NEXT press's step instead.
-      // Non-optional on purpose - an optional chain here would let the double-step
-      // suppression disable itself silently if the method ever went missing.
-      if (handoffMovedCursorForPress) history.noteFacadeCursorMoved();
-      const snapshot = direction === "undo"
-        ? history.undo(engine.snapshot())
-        : history.redo(engine.snapshot());
-      const perfTHist = performance.now();
-      if (!snapshot) {
-        return;
-      }
-      // Hazard #1: whether the popped TS entry is a Snapshot-typed entry. The
-      // Rust snapshot cursor only ever steps for Snapshot entries, so a MIXED
-      // [External, Snapshot] stream can leave the cursor pointing at a Snapshot
-      // while TS restores an External state. Gating the re-attach on this never
-      // lets an External step read the wrong-step Snapshot from Rust.
-      const isSnapshotEntry =
-        typeof history.isLastPoppedSnapshotEntry === "function" &&
-        history.isLastPoppedSnapshotEntry();
-
-      // ── Tile path: paint entries carry tile patches ──
-      // Pixels are restored via surface patches + per-tile uploads; the model
-      // is identical for pure-paint entries, so engine.restore (and its
-      // full-texture re-upload) is intentionally skipped.
-      // This fast-path early-returns WITHOUT touching model.selection: a paint
-      // entry's snapshot carries the same selection the live model already has
-      // (a paint op never mutates selection), so there is nothing to mirror to
-      // the native shadow here. Selection-changing entries go through the
-      // engine.restore path below, which does mirror (mirrorRestoredSelection).
-      const patches = direction === "undo"
-        ? history.consumeLastUndoPatches()
-        : history.consumeLastRedoPatches();
-      if (patches) {
-        let tiles = direction === "undo" ? patches.before : patches.after;
-        // ── Rust is authoritative for every entry it owns ──
-        // A Rust-owned entry (rust_pixels_write_region recorded it) is a cursor
-        // token, not a second copy of the pixels: this branch always takes the
-        // Rust tiles, which drains the twin in lockstep. For an entry Rust does
-        // NOT own, the local memento is the fallback.
-        //
-        // The cursor STEP is a separate concern and belongs to the pop above
-        // (history.undo()/redo()): it fires exactly once per popped entry, for
-        // tile and metadata entries alike, chained behind any earlier step so two
-        // rapid presses cannot interleave their round-trips. This gate is the
-        // FETCH and stays exactly as it was - it decides whether Rust's pixels
-        // are this entry's source of truth, which is a different question from
-        // whether Rust recorded a step to consume.
-        const activeDocId = editor.workspace.getActiveDocumentId() ?? "";
-        const rustOwned = patches.rustOwned === true;
-        const projected = await projectRustTiles({
-          takeCursorStep: () => history.takeLastCursorStep(),
-          getEngine: () => editor.workspace.getActiveEngine(),
-          layerId: patches.layerId,
-          rustOwned,
-          fallbackTiles: tiles,
-        });
-        const rustRes = projected.step;
-        tiles = projected.tiles;
-        if (rustOwned && (!rustRes || rustRes.tiles.length === 0)) {
-          console.warn("[paint] Rust-owned step returned no tiles — refusing the stale memento", patches.layerId);
-        }
-        editor.renderer.uploadSurfaceTiles?.(patches.layerId, patches.surfaceWidth, patches.surfaceHeight, tiles);
-        // Imperative paint entries replay pixels via tiles above, but the model
-        // snapshot (captured pre/post action) also carries non-pixel state a paint
-        // op mutates — Fill Layer clears `basicAdjustment` so the adjustment bakes
-        // into the fill colour. The full engine.restore(snapshot) is skipped for
-        // perf (pure-paint model is otherwise identical), so sync only the
-        // specific non-pixel field here. `snapshot` carries the correct model for
-        // both directions: undo restores the pre-action value, redo the post-action
-        // (cleared) value.
-        const snapLayer = snapshot.layers.find((l) => l.id === patches.layerId);
-        const liveLayer = snapLayer ? engine.getLayer(patches.layerId) : null;
-        if (snapLayer && liveLayer) {
-          const a = snapLayer.basicAdjustment;
-          const b = liveLayer.basicAdjustment;
-          const same = (a === undefined && b === undefined) ||
-            (a !== undefined && b !== undefined && a.brightness === b.brightness && a.contrast === b.contrast && a.saturation === b.saturation);
-          if (!same) {
-            liveLayer.basicAdjustment = a ? { ...a } : undefined;
-            engine.notifyVisualChange();
-          }
-        }
-        // Bitmap sync for imperative undo/redo.  The paint-tile
-        // fast-path skips engine.restore() for performance, but operations like
-        // Fill Layer and Adjustment Bake replace layer.imageBitmap.  On undo,
-        // the snapshot carries the pre-operation bitmap reference; on redo, the
-        // post-operation bitmap.  Sync it so export/save/eyedropper read the
-        // correct pixels.  The bitmap is an immutable ImageBitmap reference —
-        // no copy needed.
-        if (snapLayer && liveLayer) {
-          const snapBitmap = snapLayer.imageBitmap;
-          const liveBitmap = liveLayer.imageBitmap;
-          if (snapBitmap && snapBitmap !== liveBitmap) {
-            liveLayer.imageBitmap = snapBitmap;
-          }
-          // Bitmap repair: the authoritative tiles just uploaded changed pixels,
-          // so `layer.imageBitmap` is now stale - it still holds the pixels from
-          // before this step. It must NOT be stamped with the post-step Rust
-          // epoch: `ensureBitmapCurrent` (engine/document.ts) short-circuits on
-          // a matching epoch, so the stamp would permanently disable the repair
-          // and export/save would ship the reverted pixels. The snapshot cannot
-          // supply them either - a paint commit writes the post-stroke surface
-          // into the model bitmap BEFORE history.commit, so the popped entry
-          // holds that same object and the snap/live comparison above is a
-          // no-op. Re-derive through the designated repair instead: the surface
-          // was just synced to the authoritative tiles above, and the repair
-          // falls back to a full Rust canonical read when no surface cache is
-          // present. It stamps only an epoch it actually rebuilt for.
-          if (rustRes && rustRes.tiles.length > 0) {
-            await engine.ensureBitmapCurrent(activeDocId, patches.layerId);
-          } else if (tiles.length > 0 && liveLayer.imageBitmap) {
-            // No authoritative Rust pixels were applied, so the same staleness
-            // applies with no Rust repair available: the epoch probe rejects
-            // ("layer not initialized") and ensureBitmapCurrent returns early.
-            // The model bitmap is then the only pixel source of truth and the
-            // entry's memento tiles are the only record of what this step
-            // changed. A paint op writes just those tiles, so restoring their
-            // bytes over the current bitmap yields the exact pre-step (undo) /
-            // post-step (redo) pixels. No epoch is stamped: with no Rust store
-            // there is none to report, and inventing one would make a later
-            // ensureBitmapCurrent skip a real repair.
-            const canvas = new OffscreenCanvas(liveLayer.width, liveLayer.height);
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-              ctx.drawImage(liveLayer.imageBitmap as CanvasImageSource, 0, 0);
-              for (const t of tiles) {
-                ctx.putImageData(new ImageData(new Uint8ClampedArray(t.data), t.width, t.height), t.x, t.y);
-              }
-              liveLayer.imageBitmap = canvas.transferToImageBitmap();
-              // The cached paint surface is derived from the bitmap we just
-              // replaced, so it is now drifted; drop it rather than let a later
-              // paint op composite onto the stale copy.
-              engine.invalidatePaintSurface(patches.layerId);
-            }
-          }
-        }
-        const perfDone = performance.now();
-        console.info(
-          `[perf] ${direction}(tiles): upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms tiles=${tiles.length}`,
-        );
-        // CURSOR INVARIANT: the pop above already stepped the Rust cursor for
-        // this entry when Rust recorded one (see CommandHistory.stepRustCursor),
-        // for tile and metadata entries alike. Nothing to sync here.
-        //
-        // The probe reads `rust_pixels_history_tip` over the SAME registry mutex the
-        // step holds, so it must not be issued before the step's move lands or it
-        // reads the PRE-step cursor and reports a divergence for a step that moved
-        // exactly once. The metadata branch below already sequences this way
-        // (`await takeLastCursorStep()`); the tile branch has to do it by hand,
-        // because `projectRustTiles` only CLAIMS the step when its fetch gate
-        // (`rustOwned`) is open - and a TS-owned
-        // tile pop leaves that gate closed while still firing a step. Hence
-        // `lastCursorStepSettled()`: it sequences without claiming, so the next
-        // pop's leading `take()` still drops the unconsumed step. A step that
-        // rejects still settles, so this await cannot fail the undo path.
-        await history.lastCursorStepSettled()?.catch(() => {});
-        // Re-sync the derived stack from the query FIRST: the derived view
-        // must serve the settled cursor afterwards.
-        await history.resyncFromNativeQuery();
-        editor.scheduler.requestRender();
-        return;
-      }
-
-      // Upload narrow: remember which bitmap object each layer held before the
-      // restore. Snapshots reuse the immutable bitmap reference, so a layer
-      // whose object is identical afterwards has identical pixels and its
-      // texture already matches. Only added or swapped layers re-upload.
-      const beforeBitmaps = new Map(engine.getLayers().map((l) => [l.id, l.imageBitmap ?? null]));
-      engine.restore(snapshot);
-      // Native-authority heal re-push: the handoff fell through to the legacy TS
-      // restore, so the native engine was NOT updated by a Rust undo/redo this step.
-      // Re-push the FULL canonical document now (AFTER restore) so the native shadow
-      // reflects the post-restore state - that timing is the point: firing it inside
-      // confirmExternalCursor would carry the PRE-restore snapshot. Barrier-registered
-      // (repushCanonicalDocument) so the next facade command's syncFromEngine flushes
-      // it before dispatch.
-      if (handoffFellThrough) {
-        const docId = editor.workspace.getActiveDocumentId() ?? "";
-        void repushCanonicalDocument(docId, engine).catch((e) =>
-          console.warn("[canonical-repush] restore-history heal re-push failed", e),
-        );
-      }
-
-      // Undo/redo mirror: engine.restore replaced model.selection from the popped
-      // snapshot, but the native shadow's selection is only touched by a native
-      // selection command, so without this the shadow keeps the pre-undo rect and
-      // the next native selectAll/invert reads a stale selection. Covers BOTH
-      // directions (this function serves undo and redo). The funnel no-ops when
-      // the facade flag is off, so the default path stays byte-identical. Placed
-      // here so model.selection is final for this step; the heal re-push above
-      // refreshes only the canonical shadow document, not the engine's own active
-      // selection.
-      try {
-        mirrorRestoredSelection(engine);
-      } catch (e) {
-        // The mirror is a shadow-consistency aid; a transient failure must not
-        // abort the restore path (texture upload, UI sync, history re-sync).
-        console.warn("[history] selection mirror failed", e);
-      }
-
-      // An open text session must re-anchor its preSnapshot: the user now
-      // sees an OLDER state, so the session's next commit diffs against it.
-      syncTextSessionBase({
-        workspace: editor.workspace,
-        textEditSession: editor.textEditSession,
-        setTextEditSession: editor.setTextEditSession,
-        scheduler: editor.scheduler,
-      });
-
-      const restoredLayer = engine.getLayers()[0];
-
-      // Pixel-layer allowlist: null = unknown, keep the identity-map narrow
-      // below; [] = provably metadata-only, skip every upload even when the
-      // restored bitmap object differs; [ids] = only those layers are upload
-      // candidates (the identity check still applies to each).
-      const pixelLayerIds =
-        typeof history.getLastPoppedPixelLayerIds === "function"
-          ? history.getLastPoppedPixelLayerIds()
-          : null;
-      for (const layer of engine.getLayers()) {
-        if (!layer.imageBitmap) continue;
-        if (pixelLayerIds !== null && !pixelLayerIds.includes(layer.id)) continue;
-        // Identity-map narrow: an unchanged layer keeps the same bitmap object
-        // through the restore, so its texture already matches. A layer with no
-        // before entry was re-added and always re-uploads.
-        if (beforeBitmaps.get(layer.id) !== layer.imageBitmap) editor.renderer.uploadImage(layer.id, layer.imageBitmap);
-      }
-      // Notify workspace to trigger UI sync (layers, history panel, adjustments, etc.)
-      // Re-sync the stack from the query after the restore.
-      await history.resyncFromNativeQuery();
-      editor.workspace.notifyVisualChange();
-      editor.scheduler.requestRender();
-      const perfDone = performance.now();
-      console.info(
-        `[perf] ${direction}(snapshot): hist=${(perfTHist - perfT0).toFixed(1)}ms restore+upload=${(perfDone - perfTHist).toFixed(1)}ms total=${(perfDone - perfT0).toFixed(1)}ms`,
-      );
-    } catch (error) {
-      showToast(`${direction === "undo" ? "Undo" : "Redo"} failed: ${error instanceof Error ? error.message : "unknown error"}`, "error");
+      await runFacadeExternalHandoff(editor, direction);
+      await editor.workspace.getActiveHistory?.()?.resyncFromNativeQuery?.();
+      return;
     }
   };
+
 
   const execute = (command: EditorCommand) => {
     if (!isEnabled(command)) return;

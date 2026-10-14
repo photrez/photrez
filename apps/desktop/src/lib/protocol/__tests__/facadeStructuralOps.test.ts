@@ -129,7 +129,7 @@ function nextDuplicateName(names: string[], layerName: string): string {
   return `${base} ${maxNum + 1}`;
 }
 
-// Faithful per-document native ProtocolEngine emulator extended for the five
+// Faithful per-document native DocumentCore emulator extended for the five
 // structural arms. Returns fully-ordered snapshots; on undo/redo emits the
 // minimal inverse (Removes + ordered restatement) so the two-pass delta consumer
 // reconstructs order without any snapshot re-read.

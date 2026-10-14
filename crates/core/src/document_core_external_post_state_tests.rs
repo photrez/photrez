@@ -30,7 +30,7 @@ use crate::canonical_model::{
     BlendMode, CanonicalDocument, CanonicalLayer, LayerType, Transform2D,
 };
 use crate::command::*;
-use crate::document_core::ProtocolEngine;
+use crate::document_core::DocumentCore;
 use crate::model::{LayerSet, RenderLayer, RenderLayerChange};
 
 fn canon_layer(id: &str) -> CanonicalLayer {
@@ -76,7 +76,7 @@ fn canon_doc(layers: &[&str]) -> CanonicalDocument {
     }
 }
 
-fn seed_layers(engine: &mut ProtocolEngine, ids: &[&str]) {
+fn seed_layers(engine: &mut DocumentCore, ids: &[&str]) {
     engine.seed_layers(
         ids.iter()
             .enumerate()
@@ -92,7 +92,7 @@ fn seed_layers(engine: &mut ProtocolEngine, ids: &[&str]) {
 }
 
 fn record(
-    engine: &mut ProtocolEngine,
+    engine: &mut DocumentCore,
     label: &str,
     affected: &[&str],
     token: &str,
@@ -119,7 +119,7 @@ fn record(
         .seq
 }
 
-fn layer_ids(engine: &ProtocolEngine) -> Vec<String> {
+fn layer_ids(engine: &DocumentCore) -> Vec<String> {
     engine
         .snapshot()
         .layers
@@ -141,7 +141,7 @@ fn delta_ids(changes: &[RenderLayerChange]) -> Vec<String> {
 /// What the UNGATED restore would produce for the External entry at `idx`: the
 /// `before`-only merge, which is what `restore_external_layers` computes when
 /// `after` is present (and provably ignores it - see `undo_path_ignores_the_post_sync_side`).
-fn ungated_undo(engine: &ProtocolEngine, idx: usize) -> (Vec<String>, Vec<String>) {
+fn ungated_undo(engine: &DocumentCore, idx: usize) -> (Vec<String>, Vec<String>) {
     let (before, minted) = match &engine.entries[idx].payload {
         crate::history::EntryPayload::External {
             before,
@@ -151,7 +151,7 @@ fn ungated_undo(engine: &ProtocolEngine, idx: usize) -> (Vec<String>, Vec<String
         _ => panic!("not an external entry"),
     };
     let other = before.clone();
-    let new_layers: LayerSet = ProtocolEngine::restore_with_foreign_excluding_minted(
+    let new_layers: LayerSet = DocumentCore::restore_with_foreign_excluding_minted(
         &engine.layers,
         &before,
         &other,
@@ -159,7 +159,7 @@ fn ungated_undo(engine: &ProtocolEngine, idx: usize) -> (Vec<String>, Vec<String
         &minted,
     );
     (
-        delta_ids(&ProtocolEngine::diff_walker(&engine.layers, &new_layers)),
+        delta_ids(&DocumentCore::diff_walker(&engine.layers, &new_layers)),
         new_layers.iter().map(|l| l.id.clone()).collect(),
     )
 }
@@ -193,7 +193,7 @@ fn undo_path_ignores_the_post_sync_side() {
         ])),
         LayerSet::empty(),
     ] {
-        let merged = ProtocolEngine::restore_with_foreign_excluding_minted(
+        let merged = DocumentCore::restore_with_foreign_excluding_minted(
             &current,
             &captured,
             &other_side,
@@ -214,7 +214,7 @@ fn undo_path_ignores_the_post_sync_side() {
     // argument were simply ignored everywhere.
     let post_undo = LayerSet(Arc::new(vec![Arc::new(mk("A")), Arc::new(mk("B"))]));
     let redo_target = LayerSet(Arc::new(vec![Arc::new(mk("A"))]));
-    let redo_merged = ProtocolEngine::restore_with_foreign_excluding_minted(
+    let redo_merged = DocumentCore::restore_with_foreign_excluding_minted(
         &post_undo,
         &redo_target,
         &post_undo,
@@ -226,7 +226,7 @@ fn undo_path_ignores_the_post_sync_side() {
         vec!["A"],
         "the redo direction must still use the pre-sync side to re-remove ids"
     );
-    let undo_merged = ProtocolEngine::restore_with_foreign_excluding_minted(
+    let undo_merged = DocumentCore::restore_with_foreign_excluding_minted(
         &post_undo,
         &redo_target,
         &post_undo,
@@ -253,8 +253,8 @@ fn mk(id: &str) -> crate::model::LayerMeta {
 /// `after_present` records whether the shipping post-op push actually filled
 /// the slot, so a shape that silently starts arriving with `after` shows up
 /// here instead of quietly proving nothing.
-fn differential(name: &str, build: impl Fn(&mut ProtocolEngine)) {
-    let mut e = ProtocolEngine::new();
+fn differential(name: &str, build: impl Fn(&mut DocumentCore)) {
+    let mut e = DocumentCore::new();
     build(&mut e);
     let idx = e.cursor() - 1;
     let after_present = match &e.entries[idx].payload {
@@ -268,7 +268,7 @@ fn differential(name: &str, build: impl Fn(&mut ProtocolEngine)) {
     };
     let _ = gated_layers;
     // Rebuild to read the ungated answer without the gate having consumed state.
-    let mut e2 = ProtocolEngine::new();
+    let mut e2 = DocumentCore::new();
     build(&mut e2);
     let (ungated_delta, ungated_layers) = ungated_undo(&e2, e2.cursor() - 1);
 
@@ -354,7 +354,7 @@ fn differential_minted_destination_without_post_op_push() {
 /// half is visible.
 #[test]
 fn shipping_sequence_undo_and_redo_are_symmetric_and_non_empty() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     seed_layers(&mut e, &["A", "B"]);
     // 1. pre-op push, 2. record, 3. post-op push (the host already deleted B).
     e.seed_canonical(canon_doc(&["A", "B"]));
@@ -394,15 +394,15 @@ fn shipping_sequence_undo_and_redo_are_symmetric_and_non_empty() {
 /// and this test says so.
 #[test]
 fn the_record_time_backfill_is_a_no_op() {
-    let mut e = ProtocolEngine::new();
+    let mut e = DocumentCore::new();
     seed_layers(&mut e, &["A", "B"]);
     // Two host commits with no canonical push between them: the vector at the
     // second record is identical to the one at the first.
     record(&mut e, "Delete Layer", &["B"], "tok-1", &[]);
-    let before_second = ProtocolEngine::layers(&e).clone();
+    let before_second = DocumentCore::layers(&e).clone();
     let seq_second = record(&mut e, "Delete Layer", &["B"], "tok-2", &[]);
     assert!(
-        ProtocolEngine::layers(&e)
+        DocumentCore::layers(&e)
             .iter()
             .zip(before_second.iter())
             .all(|(a, b)| std::sync::Arc::ptr_eq(a, b)),

@@ -259,7 +259,7 @@ pub fn rust_pixels_resize_layer(
 /// Apply a brush commit: commit a `Pixel` entry on the document's authoritative
 /// history stream, write `after` into the canonical buffer, bump epoch, and
 /// return the `after` tiles + new epoch + new `DocumentVersion` for TS cache sync.
-/// C5.3-A: the history cursor is the SAME `ProtocolEngine` cursor used by metadata
+/// C5.3-A: the history cursor is the SAME `DocumentCore` cursor used by metadata
 /// history; `PixelLayer.undo_stack`/`redo_stack` are NOT consulted.
 #[tauri::command]
 pub fn apply_tile_patch(
@@ -290,7 +290,7 @@ pub fn apply_tile_patch(
 
 /// Undo: pop the authoritative history stream, restore pre-stroke state for the
 /// affected layer, return `before` tiles + new epoch + new `DocumentVersion`.
-/// C5.3-A: routes through `ProtocolEngine.undo_pixel`.
+/// C5.3-A: routes through `DocumentCore.undo_pixel`.
 #[tauri::command]
 pub fn rust_pixels_undo(
     doc_id: String,
@@ -352,7 +352,7 @@ pub fn rust_pixels_redo(
 }
 
 /// Phase 1: route a TS (non-pixel) logical mutation into the SAME unified
-/// `ProtocolEngine` cursor so mixed TS/Rust operations share one history position.
+/// `DocumentCore` cursor so mixed TS/Rust operations share one history position.
 /// Records an `External` entry (no pixel delta); advances the cursor + bumps
 /// `DocumentVersion` exactly once. Returns the new epoch/version for TS cache sync.
 /// Undo/redo runs through Rust's walker, which restores the captured order itself;

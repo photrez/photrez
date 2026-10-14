@@ -30,7 +30,7 @@ import {
 
 // The facade funnel dispatches through bridge.applyCommand and
 // bridge.registerPayloadAdapter; the shared factory routes both
-// surfaces onto the real wasm ProtocolEngine module (the arm the
+// surfaces onto the real wasm DocumentCore module (the arm the
 // retired `photrez.facadeAuthority=wasm` diversion used to select).
 vi.mock("@/lib/protocol/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/protocol/bridge")>();

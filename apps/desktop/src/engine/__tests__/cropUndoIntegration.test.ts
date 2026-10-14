@@ -30,14 +30,16 @@ describe("crop + undo integration", () => {
     engine.addLayer("Layer 1");
     const history = new CommandHistory();
 
-    history.commit(engine.snapshot());
+    const preCrop = engine.snapshot();
+    history.commit(preCrop);
     engine.applyCrop(50, 30, 400, 300);
     expect(engine.getWidth()).toBe(400);
     expect(engine.getHeight()).toBe(300);
 
-    const prev = history.undo(engine.snapshot());
-    expect(prev).not.toBeNull();
-    engine.restore(prev!);
+    // The native walker is the restore executor; these geometry
+    // tests assert the SAME engine state via the surviving restore surface,
+    // using the pre-crop snapshot captured before the mutation.
+    engine.restore(preCrop);
 
     expect(engine.getWidth()).toBe(800);
     expect(engine.getHeight()).toBe(600);
@@ -48,20 +50,18 @@ describe("crop + undo integration", () => {
     engine.addLayer("Layer 1");
     const history = new CommandHistory();
 
-    history.commit(engine.snapshot());
+    const preCrop = engine.snapshot();
+    history.commit(preCrop);
 
-    const preCropSnap = engine.snapshot();
     engine.applyCrop(50, 30, 400, 300);
-    const postCropSnap = engine.snapshot();
+    const postCrop = engine.snapshot();
 
     // Undo back to pre-crop
-    const restored = history.undo(postCropSnap);
-    engine.restore(restored!);
+    engine.restore(preCrop);
     expect(engine.getWidth()).toBe(800);
 
     // Redo back to cropped
-    const redone = history.redo(preCropSnap);
-    engine.restore(redone!);
+    engine.restore(postCrop);
     expect(engine.getWidth()).toBe(400);
     expect(engine.getHeight()).toBe(300);
   });
@@ -72,13 +72,13 @@ describe("crop + undo integration", () => {
     const history = new CommandHistory();
 
     for (let i = 0; i < 3; i++) {
-      history.commit(engine.snapshot());
+      const preCrop = engine.snapshot();
+      history.commit(preCrop);
       engine.applyCrop(0, 0, 400, 300);
       expect(engine.getWidth()).toBe(400);
       expect(engine.getHeight()).toBe(300);
 
-      const prev = history.undo(engine.snapshot());
-      engine.restore(prev!);
+      engine.restore(preCrop);
       expect(engine.getWidth()).toBe(800);
       expect(engine.getHeight()).toBe(600);
     }
@@ -91,15 +91,15 @@ describe("crop + undo integration", () => {
     layer.transform.y = 50;
     const history = new CommandHistory();
 
-    history.commit(engine.snapshot());
+    const preCrop = engine.snapshot();
+    history.commit(preCrop);
     engine.applyCrop(50, 30, 400, 300);
 
     const restoredLayer = engine.getLayer(layer.id)!;
     expect(restoredLayer.transform.x).toBe(50);
     expect(restoredLayer.transform.y).toBe(20);
 
-    const prev = history.undo(engine.snapshot());
-    engine.restore(prev!);
+    engine.restore(preCrop);
 
     const postUndoLayer = engine.getLayer(layer.id)!;
     expect(postUndoLayer.transform.x).toBe(100);
@@ -134,7 +134,8 @@ describe("crop + undo integration", () => {
     layer.transform.y = 50;
     const history = new CommandHistory();
 
-    history.commit(engine.snapshot());
+    const preCrop = engine.snapshot();
+    history.commit(preCrop);
 
     // delete mode needs OffscreenCanvas which is not available in jsdom
     // so this will fail with a console.error but not throw
@@ -144,8 +145,7 @@ describe("crop + undo integration", () => {
       // OffscreenCanvas not available in test environment — skip pixel-level verification
     }
 
-    const prev = history.undo(engine.snapshot());
-    engine.restore(prev!);
+    engine.restore(preCrop);
 
     expect(engine.getWidth()).toBe(200);
     expect(engine.getHeight()).toBe(200);
@@ -157,7 +157,8 @@ describe("crop + undo integration", () => {
     const history = new CommandHistory();
     const resizeMock = vi.fn();
 
-    history.commit(engine.snapshot());
+    const preCrop = engine.snapshot();
+    history.commit(preCrop);
 
     const preCropWidth = engine.getWidth();
     const preCropHeight = engine.getHeight();
@@ -165,11 +166,8 @@ describe("crop + undo integration", () => {
     engine.applyCrop(50, 50, 400, 300);
 
     // Simulate what AppTitleBar.handleUndo does
-    const prev = history.undo(engine.snapshot());
-    if (prev) {
-      engine.restore(prev);
-      resizeMock(engine.getWidth(), engine.getHeight());
-    }
+    engine.restore(preCrop);
+    resizeMock(engine.getWidth(), engine.getHeight());
 
     expect(resizeMock).toHaveBeenCalledWith(preCropWidth, preCropHeight);
   });
@@ -184,10 +182,10 @@ describe("crop + undo integration", () => {
     engine.addLayer("Photo", 100, 100);
 
     const history = new CommandHistory();
-    history.commit(engine.snapshot());
-    const preCropSnap = engine.snapshot();
+    const preCrop = engine.snapshot();
+    history.commit(preCrop);
     engine.applyCrop(-10, -10, 120, 120, { fillBackgroundColor: "#123456" });
-    const postCropSnap = engine.snapshot();
+    const postCrop = engine.snapshot();
 
     // School A1: fill is baked into the Background layer; no separate fill layer.
     expect(engine.getLayers().find((l) => l.name === "Crop Fill Background")).toBeUndefined();
@@ -195,15 +193,13 @@ describe("crop + undo integration", () => {
     expect(bgAfter.imageBitmap?.width).toBe(120);
     expect(bgAfter.imageBitmap?.height).toBe(120);
 
-    const restored = history.undo(postCropSnap);
-    engine.restore(restored!);
+    engine.restore(preCrop);
     expect(engine.getWidth()).toBe(100);
     expect(engine.getHeight()).toBe(100);
     // Undo returns to pre-crop: the Background no longer has a baked fill bitmap.
     expect(engine.getLayers().find((l) => l.isBackground)!.imageBitmap).toBeNull();
 
-    const redone = history.redo(preCropSnap);
-    engine.restore(redone!);
+    engine.restore(postCrop);
     expect(engine.getWidth()).toBe(120);
     expect(engine.getHeight()).toBe(120);
     expect(engine.getLayers().find((l) => l.isBackground)!.imageBitmap?.width).toBe(120);
@@ -270,9 +266,7 @@ describe("crop + undo integration", () => {
     expect(snap.layers[0].imageBitmap).toBe(fakeBitmap);
 
     // Undo must restore a layer with the same usable bitmap
-    const restored = history.undo(engine.snapshot());
-    expect(restored).not.toBeNull();
-    engine.restore(restored!);
+    engine.restore(snap);
 
     const restoredLayer = engine.getLayer(layer.id)!;
     expect(restoredLayer.imageBitmap).toBe(fakeBitmap);

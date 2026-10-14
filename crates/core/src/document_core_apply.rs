@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// apply() command-arm dispatch for ProtocolEngine. Extracted from
+// apply() command-arm dispatch for DocumentCore. Extracted from
 // document_core.rs so that module stays under the 1000-line guard; this is a
-// sibling impl ProtocolEngine block (method visibility is per-impl, not per module).
+// sibling impl DocumentCore block (method visibility is per-impl, not per module).
 use super::*;
 use crate::canonical_model::{BasicAdjustment, BlendMode, LayerType, SelectionState};
 
-impl ProtocolEngine {
+impl DocumentCore {
     // Selection is engine-local UI state, not an undoable transition. Set the
     // engine field AND mirror it onto the canonical shadow (when seeded) so the
     // protocol_canonical_native read-back stays truthful. No history entry, empty

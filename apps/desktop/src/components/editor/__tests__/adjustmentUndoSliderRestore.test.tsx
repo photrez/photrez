@@ -8,11 +8,9 @@
  * not restore them. The sweep killed the file with its flag pins, so these two
  * LIVE cases were re-homed here rather than lost with it.
  *
- * The press path is the host executor the document actually gets: a blank
- * factory document with no facade claims (the factory's background-flag commit
- * never runs in this harness), so an undo/redo press takes the TS pop - the
- * simulation below drives exactly that, plus the workspace notify the real
- * restoreHistorySnapshot performs, which is what runs the panel's sync effect.
+ * The simulation below drives the surviving restore path: restore a captured
+ * memento snapshot, plus the workspace notify the real restoreHistorySnapshot
+ * performs, which is what runs the panel's sync effect.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "solid-js/web";
@@ -20,6 +18,7 @@ import { EditorProvider } from "../shell/EditorContext";
 import { AdjustmentsPanel } from "../AdjustmentsPanel";
 import { clearRegistry } from "../keyboardRegistry";
 import { WorkspaceManager } from "@/engine/workspace";
+import type { DocumentModel } from "@/engine/types";
 
 function tick(ms: number = 0): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,21 +49,14 @@ function renderAdjustmentsPanel(workspace: WorkspaceManager) {
 
 type BlankSession = ReturnType<typeof WorkspaceManager.createBlankDocument>;
 
-function simulateUndo(ws: WorkspaceManager, session: BlankSession) {
-  const engine = session.engine;
-  const history = session.history;
-  const snapshot = history.undo(engine.snapshot());
-  if (snapshot) engine.restore(snapshot);
-  // The real restoreHistorySnapshot also notifies workspace visual change,
-  // which triggers the sync effect that updates the layers() signal.
-  ws.notifyVisualChange();
-}
-
-function simulateRedo(ws: WorkspaceManager, session: BlankSession) {
-  const engine = session.engine;
-  const history = session.history;
-  const snapshot = history.redo(engine.snapshot());
-  if (snapshot) engine.restore(snapshot);
+// Undo/redo press for an un-owned document: restore the memento snapshot the
+// native history hands back, then notify so the panel sync effect runs.
+function simulateRestore(
+  ws: WorkspaceManager,
+  session: BlankSession,
+  memento: DocumentModel,
+) {
+  session.engine.restore(memento);
   ws.notifyVisualChange();
 }
 
@@ -89,6 +81,10 @@ describe("adjustment slider values across undo/redo", () => {
     const history = workspace.getActiveHistory()!;
     const commitSpy = vi.spyOn(history, "commit");
 
+    // Memento of the pre-adjustment state, exactly as the native
+    // history would hand it back on undo.
+    const preAdjustment = session.engine.snapshot();
+
     const { container, dispose } = renderAdjustmentsPanel(workspace);
     await tick();
 
@@ -107,8 +103,8 @@ describe("adjustment slider values across undo/redo", () => {
     // Confirm engine applied the adjustment
     expect(session.engine.getLayer(layer.id)!.basicAdjustment?.brightness).toBe(50);
 
-    // Undo (same path as the Ctrl+Z handler for an un-owned document)
-    simulateUndo(workspace, session);
+    // Undo: restore the pre-adjustment memento
+    simulateRestore(workspace, session, preAdjustment);
     await tick();
 
     // Sliders must reset to zero
@@ -135,6 +131,9 @@ describe("adjustment slider values across undo/redo", () => {
       close: vi.fn(),
     } as unknown as ImageBitmap);
 
+    // Mementos of the pre- and post-adjustment states.
+    const preAdjustment = session.engine.snapshot();
+
     const { container, dispose } = renderAdjustmentsPanel(workspace);
     await tick();
 
@@ -147,14 +146,15 @@ describe("adjustment slider values across undo/redo", () => {
     await tick(100);
     brightness.dispatchEvent(new Event("change", { bubbles: true }));
     await tick(100);
+    const postAdjustment = session.engine.snapshot();
 
     // Undo
-    simulateUndo(workspace, session);
+    simulateRestore(workspace, session, preAdjustment);
     await tick();
     expect(brightness.value).toBe("0");
 
     // Redo
-    simulateRedo(workspace, session);
+    simulateRestore(workspace, session, postAdjustment);
     await tick();
 
     // Sliders must show the redone value
