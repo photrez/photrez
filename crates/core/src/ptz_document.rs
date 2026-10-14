@@ -519,7 +519,14 @@ mod tests {
         // All four fixture layers carry these. Asserting them only on the
         // raster layer (as an earlier version of this test did) let a writer
         // that emitted `false -> null` on the other three pass everything.
-        let expected_flags: [(&str, Option<bool>, Option<bool>, Option<bool>, Option<bool>); 4] = [
+        type LayerFlags = (
+            &'static str,
+            Option<bool>,
+            Option<bool>,
+            Option<bool>,
+            Option<bool>,
+        );
+        let expected_flags: [LayerFlags; 4] = [
             ("Adjusted", Some(true), Some(true), Some(true), Some(true)),
             ("Star", Some(false), Some(false), Some(false), Some(false)),
             ("Title", Some(false), Some(false), Some(false), Some(false)),
@@ -934,7 +941,7 @@ mod tests {
 
     #[test]
     fn to_canonical_drops_session_fields() {
-        let v = serde_json::to_value(&parse_fixture().to_canonical()).unwrap();
+        let v = serde_json::to_value(parse_fixture().to_canonical()).unwrap();
         assert!(v.get("activeLayerId").is_none());
         assert!(v.get("viewport").is_none());
         assert!(v.get("dirty").is_none());

@@ -843,6 +843,9 @@ impl PixelStoreRegistry {
     /// position. Creates an `External` entry (no pixel delta) that advances the
     /// cursor + bumps `DocumentVersion` exactly once. The actual metadata revert
     /// on undo/redo remains TS-side; this entry only keeps the ordering unified.
+    // External-entry contract: the host size halves ship together (see the doc
+    // above); allow the 10-arg bag rather than a struct every caller must build.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_external(
         &mut self,
         doc_id: &str,

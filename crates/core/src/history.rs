@@ -274,6 +274,9 @@ impl DocumentCore {
     /// the HOST's document-size halves, supplied together (see the `External`
     /// payload's contract); pass `None` for both on a transition that changes no
     /// size.
+    // External-entry contract: the host size halves ship together (see the doc
+    // above); allow the 9-arg bag rather than a struct every caller must build.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_external(
         &mut self,
         label: &str,

@@ -1450,7 +1450,7 @@ mod protocol_native_authority_tests {
         assert!(p["tiles"][0]["data"].is_array());
         assert!(p["epoch"].is_u64());
         assert!(p["version"].is_u64());
-        assert_eq!(v["documentVersion"].is_u64(), true, "camelCase on result");
+        assert!(v["documentVersion"].is_u64(), "camelCase on result");
 
         // A metadata step must OMIT the key entirely (skip_serializing_if), so
         // the host can tell "no pixel step" from "a pixel step with no tiles".
