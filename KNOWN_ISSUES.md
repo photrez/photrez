@@ -1,6 +1,7 @@
 # Known Issues & Limitations — Photrez v0.1.0
 
-This document tracks known limitations, performance notes, and planned features for the current release.
+This document tracks known limitations, performance notes, and planned features **for the v0.1.0 release**.
+Work landed after `v0.1.0` (text layers, shape layers, all 12 blend modes, native Rust core ownership) is listed in `CHANGELOG.md` under `[Unreleased]` and is planned for `0.2.0`.
 To report a bug, please open an issue at https://github.com/photrez/photrez/issues.
 
 ## 🖥️ Platform & Performance Notes
@@ -18,9 +19,9 @@ To report a bug, please open an issue at https://github.com/photrez/photrez/issu
 ## 🎨 Editor Limitations
 
 ### 3. Blend Modes
-- **Symptom:** Only Normal, Multiply, Screen, Overlay are available in UI.
-- **Reason:** Other modes exist in shader but are blocked pending WebGL preview / Canvas2D export parity tests.
-- **Fix planned:** 0.2.0 (post-MVP; roadmap moved full blend modes out of the pre-1.0 MVP pipeline).
+
+- **Shipped note:** the `v0.1.0` build exposes Normal, Multiply, Screen, and Overlay in the UI. All 12 W3C blend modes are complete in `main` with preview/export parity verified; they are planned for `0.2.0` (see `CHANGELOG.md`).
+- **Limitation in v0.1.0:** the remaining modes were not exposed in that release because preview/export parity had not yet been verified.
 
 ### 4. Selection Tools
 - **Symptom:** Rectangular + elliptical marquee only.
@@ -28,6 +29,7 @@ To report a bug, please open an issue at https://github.com/photrez/photrez/issu
 - **Not available:** Lasso, magic wand.
 - **MVP scope:** Rectangular + elliptical. Advanced selection is post-v1.0.
 
+- **2026-10-14 validation:** frontend 393 files / 4,465 passed, 2 expected failures, 1 skipped; build and type-check passed. Rust core/desktop test counts are recorded with their run date below.
 ### 5. Brush Engine
 - **Symptom:** Only round brush tip with hardness/flow/smoothing.
 - **Not available:** Custom brush shapes, texture brushes, dynamics (pressure/tilt/velocity).
@@ -87,7 +89,9 @@ To report a bug, please open an issue at https://github.com/photrez/photrez/issu
 
 ### 16. Idle RAM: ~34 MB — well below 250 MB target.
 ### 17. Installer Size: 4-6 MB — well below 80 MB target.
-### 18. Test Coverage: 2687 frontend (jsdom) + 84 Rust core cases.
+### 18. Automated test suites
+
+See the current CI workflow for the test commands and gates; test counts vary as the suite changes.
 
 ## 🔄 Migration Path
 

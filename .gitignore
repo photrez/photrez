@@ -48,7 +48,6 @@ desktop.ini
 # Logs
 logs/
 *.log
-responses.txt
 
 # Test artifacts
 test-results/
@@ -62,67 +61,23 @@ test-results/
 !apps/desktop/src/assets/**/*
 *.py
 *.zip
-rtk.exe
+*.tgz
 
-# Binary / archive reference files
-Detail-Design-Spec.zip
-RapidRAW-main/
-photrez-solid-tailwind/
-
-# Local dev scripts
-scripts/fix-mojibake.ts
-scripts/dev.ps1
-
-# Dotfile tool configs (language servers, local tools)
-.codegraph/
-.codex/
-.cursor/
-.gemini*/
-.gsd/
-.mcp.json
-.omo/
-.opencode/
-.opencode.json
-.playwright-mcp/
-.windsurf/
-.worktrees/
-model_capabilities.yaml
-skills-lock.json
-opencode.json
-
-# AI agent artifacts
-.codebase-memory/
-
-# AI agent workflow files (local, not distributed)
-.agent/
-.agents/
-.antigravitycli/
-.impeccable/
-.superpowers/
-.tools/
-AGENTS.md
-CLAUDE.md
-GEMINI.md
-.cursorrules
-.github/instructions/
-.github/prompts/
-.github/copilot-instructions.md
+# Editor backups
+*.bak
 
 # Local blocklist for pre-commit hook (brand references, internal only)
 .husky/internal-blocklist
 
 # Internal docs (not for distribution)
-docs/AI_*.md
 docs/archive/
 docs/decisions/
 docs/icon-history/
 docs/plans/
 docs/risk-registers/
-docs/superpowers/
 docs/*AUDIT_REPORT.md
 docs/DEEP_PROJECT_REVIEW.md
 docs/photrez-brush-*.md
-*.tgz
 
 # Git worktrees
 worktrees/
@@ -132,9 +87,3 @@ nul
 
 # Tauri/NSIS build output
 $out/
-
-# C4/C5 generated artifacts
-*.err
-tip-snap.json
-wdio.tauri.conf.js
-scripts/sync-response.ps1

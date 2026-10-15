@@ -18,8 +18,8 @@ Closes #(issue)
 <!-- Run the verification pipeline before marking ready. -->
 
 - [ ] `bun run build` passes
-- [ ] `bun run --filter photrez-desktop test --run` passes (all 1561+ tests)
-- [ ] `cargo test -p photrez-core` passes (85+ tests)
+- [ ] `bun run --filter photrez-desktop test --run` passes (full suite)
+- [ ] `cargo test -p photrez-core` passes
 - [ ] New behavior has **wiring tests** (user-event simulation) where applicable
 - [ ] New behavior has **state contract tests** where applicable
 - [ ] UI changes preserve existing layout (tabs, dock hierarchy, panel ownership)

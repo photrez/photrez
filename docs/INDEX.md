@@ -1,65 +1,53 @@
 # docs/INDEX.md — Photrez Documentation Guide
 
-> AI agents: use this index to know **when** to read each file. Do NOT load all files at once.
+> Use this index to find the relevant project documentation. Load focused references rather than every file.
 
 ---
 
-## 🔴 Always Read (Core AI Docs)
-
-These are loaded via `AGENTS.md` read order on every task:
+## Core project documents
 
 | File | Purpose |
 |---|---|
 | `FEATURES.md` | Feature implementation status |
-| `ARCHITECTURE.md` | Runtime architecture reference |
-| `CONVENTIONS.md` | Code patterns, SolidJS, Tauri IPC, Move Tool |
+| `ARCHITECTURE.md` | Current runtime architecture |
+| `CONVENTIONS.md` | Code patterns and domain behavior |
+| `PRODUCT.md` | Product goals, audience, and design principles |
+| `UI_GUIDE.md` | Current visual and interaction guidance |
+| `spec/roadmap.md` | Release plan and current development status |
+| `spec/product-scope.md` | MVP scope boundaries |
 
----
-
-## 🟡 Read When Relevant (Subfolder References)
-
-Load these only when working on the related subsystem:
-
-### Specifications (`spec/`)
+## Specifications (`spec/`)
 
 | File | Read when... |
 |---|---|
-| `spec/product-scope.md` | Checking MVP scope boundaries |
-| `spec/prd.md` | Need product requirements or acceptance criteria |
-| `spec/trd.md` | Need technical requirement details or contract specs |
-| `spec/data-model.md` | Working on document model or data structures |
-| `spec/build-plan.md` | Reviewing milestone timeline and dependencies |
+| `spec/prd.md` | Reviewing product requirements or acceptance criteria |
+| `spec/trd.md` | Reviewing technical requirements |
+| `spec/data-model.md` | Working on document models and data structures |
+| `spec/build-plan.md` | Reviewing build and delivery requirements |
+| `spec/save-export-flow-design.md` | Working on save, load, or export flows |
 
-### Decisions & Risks (`decisions/`)
-
-| File | Read when... |
-|---|---|
-| `decisions/decision-log.md` | Making or reviewing architectural decisions |
-| `decisions/risk-register.md` | Milestone gate review or assessing active project risks |
-| `decisions/adr/` | Architectural Decision Records (deep-dive design decisions) |
-
-### Technical Reference (`reference/`)
+## Technical references (`reference/`)
 
 | File | Read when... |
 |---|---|
-| `reference/command-contract-spec.md` | Modifying or adding Tauri IPC commands |
-| `reference/design-tokens.md` | Working on UI styling (token values) |
+| `reference/design-tokens.md` | Working on UI styling and token values |
 | `reference/dependency-inventory.md` | Adding or auditing dependencies |
-| `reference/keyboard-shortcut-map.md` | Adding or modifying keyboard shortcuts |
-| `reference/file-format-support.md` | Working on import/export logic |
+| `reference/keyboard-shortcut-map.md` | Adding or modifying shortcuts |
+| `reference/file-format-support.md` | Working on import/export formats |
 | `reference/save-and-document-lifecycle.md` | Working on save/open/new/close flows |
-| `reference/error-code-registry.md` | Adding error handling or new error codes |
-| `reference/glossary.md` | Need consistent terminology |
-| ~~`reference/ui-style-guide-preview.html`~~ | ~~Stale — deleted 2026-07-02~~ |
-| ~~`reference/ui-full-editor-mockup.html`~~ | ~~Stale — deleted 2026-07-02~~ |
+| `reference/error-code-registry.md` | Adding error handling or error codes |
+| `reference/glossary.md` | Checking product and technical terminology |
+| `reference/performance-measurement-protocol.md` | Measuring performance |
+| `reference/render-export-parity-matrix.md` | Checking render/export behavior parity |
 
----
+## Supporting documentation
 
-## 🔵 Milestone & Archive Reference
-
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `archive/usable-mvp-recovery-plan.md` | Recovery planning reference |
-| `archive/planning/` | Planning-phase documents and templates (26 files) |
-| `plans/` | Active execution plans and task details |
-| `superpowers/` | Core AI tool/skill profiles and workflows |
+| `guide/ptz-migration.md` | `.ptz` format versions and compatibility contract |
+| `performance/rust-pixel-pipeline.md` | Rust pixel-pipeline findings |
+| `screenshots/` | Tracked UI reference images |
+| `frame-pacing-baseline.md` | Dated measurements of the shipped web-view runtime |
+| `research/` | Historical research; verify applicability before relying on it |
+
+Historical specs and architecture research document earlier product/runtime states. Check their date and status before using them as current implementation guidance.

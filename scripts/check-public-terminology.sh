@@ -4,6 +4,16 @@
 # (docs/plans/, docs/AI_*.md, RESPONSE.md) — e.g. "Phase A–H", "Phase E pilot",
 # "Option A/B", "flip-on". Use a product/technical description instead.
 #
+# SCOPE — what this guard is and is NOT:
+#   IN scope: internal planning/milestone codenames and references to
+#   untracked internal files. A public commit message or source comment must
+#   not point a reader at a file that does not exist in a fresh clone, nor
+#   name an unreleased internal milestone as if it were public vocabulary.
+#   OUT of scope: authorship, tooling attribution, and provenance. This guard
+#   does not police how code was produced; do not extend these patterns to
+#   block tool or author names. Its job is keeping internal bookkeeping out of
+#   public artifacts, nothing more.
+#
 # This is the SINGLE source of truth, called by BOTH the pre-commit hook and CI
 # (GitHub Actions) so the rule cannot diverge. OSS convention: machine-enforced,
 # not memory.

@@ -34,7 +34,7 @@ cargo fmt --check || {
 # 4. Dependency audit — mirrors the CI Security audit job (bun side). Advisory
 #    must be patched via root "overrides" + `bun install` before pushing.
 #    Ignored advisories match the CI job's list exactly (see .github/workflows/ci.yml):
-#    transitive-only, no patched version published yet, revisit 2026-10-01.
+#    transitive-only, no patched version published yet, last reviewed 2026-10-15.
 echo ""
 echo "[4/4] Running bun audit (high/critical)..."
 bun audit --prod --audit-level=high \

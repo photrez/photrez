@@ -338,6 +338,19 @@ photrez/
 │   │       ├── brush.rs            # Brush stroke operations
 │   │       └── export.rs           # Export encode (JPG/PNG/WebP)
 ├── docs/                           # Project documentation (see INDEX.md)
+│   ├── INDEX.md                    # Documentation map
+│   ├── FEATURES.md                 # Feature implementation status
+│   ├── ARCHITECTURE.md             # Current runtime reference
+│   ├── CONVENTIONS.md              # Code patterns and domain behavior
+│   ├── PRODUCT.md                  # Product direction and principles
+│   ├── UI_GUIDE.md                 # Visual and interaction guidance
+│   ├── spec/                       # Product, technical, and release specifications
+│   ├── reference/                  # Format, input, dependency, and design references
+│   └── guide/                      # User/developer guides
+├── scripts/                        # Build, validation, and maintenance scripts
+├── .github/                        # CI, release, and contribution templates
+└── Cargo.toml                      # Rust workspace root
+├── docs/                           # Project documentation (see INDEX.md)
 │   ├── INDEX.md                    # ★ Documentation routing guide
 │   ├── FEATURES.md                 # ★ Feature status tracker
 │   ├── ARCHITECTURE.md             # ★ This file

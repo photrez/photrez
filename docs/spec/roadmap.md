@@ -12,45 +12,55 @@ A lightweight, fast desktop image editor that content creators and small busines
 
 ## Current Status
 
-- **Version:** `v0.1.0` (2026-08-06) — first stable release
+- **Version:** `v0.1.0` (2026-08-06) — first stable release; `0.2.0` is in development.
 - **MVP v1:** Complete — layer system, selection/transform, crop/resize, brush/eraser, gradient/fill, elliptical selection, export. See `FEATURES.md`.
+- **In `main` for the planned 0.2.0 release:** text layers, parametric shape layers, and all 12 W3C blend modes.
 - **Platform:** Windows primary (macOS/Linux pre-release builds available, not yet fully QA'd).
-- **Engine:** TypeScript `DocumentEngine`. Rust `photrez-core` is the domain-model reference + test coverage; WASM export encode pilot wired (`photrez_core_bg.wasm` with Canvas fallback).
+- **Engine:** Rust `photrez-core` is the canonical document/pixel/history authority; the TypeScript UI keeps a read-only projected view.
+- **Current shell:** Tauri 2 + SolidJS/TypeScript + WebGL2. The proposed 0.2.0 native Rust UI is not yet implemented or shipped.
 - **Windowing:** Single main window, in-app document tabs. No detached panels, no multi-document windows.
-- **Tests:** 2687 frontend (jsdom) + 84 Rust core cases.
-- **Installer:** ~4-6 MB (well below 80 MB target).
+- **Tests:** Latest recorded frontend run (2026-10-14): 393 files / 4,465 passed, 2 expected failures, 1 skipped. Rust core and desktop: 354 / 114 passing tests (2026-09-18).
+- **Installer:** Current v0.1.0 installer ~4-6 MB. Native-build size will be measured before release; no native size claim yet.
 
+## Current Status
+
+- **Version:** `v0.1.0` (2026-08-06) — first stable release; `0.2.0` is in development.
+- **MVP v1:** Complete — layer system, selection/transform, crop/resize, brush/eraser, gradient/fill, elliptical selection, export. See `FEATURES.md`.
+- **In `main` for the planned 0.2.0 release:** text layers, parametric shape layers, and all 12 W3C blend modes.
+- **Current shell:** Tauri 2 + SolidJS/TypeScript + WebGL2. The planned native Rust UI shell is not yet implemented or shipped.
+- **Engine:** Rust `photrez-core` owns canonical document, pixel, and history state; the TypeScript UI keeps a derived view.
+- **Platform:** Windows primary (macOS/Linux pre-release builds available, not yet fully QA'd).
+- **Windowing:** Single main window with in-app document tabs; detached panels and multi-document windows are planned.
+- **Tests:** Latest recorded frontend run (2026-10-14): 393 files / 4,465 passed, 2 expected failures, 1 skipped. Rust core and desktop runs: 354 / 114 passed (2026-09-18).
+- **Installer:** Current v0.1.0 installer is ~4–6 MB. Native runtime figures are not available yet.
 ---
 
 ## Release Pipeline
 
-Stable releases ship **per feature batch** (SemVer MINOR). Each batch runs a lean solo-dev pre-release cycle: `alpha` is internal-only (no public release), one `beta.N` pre-release is published for user feedback, then the stable MINOR; `rc` is used only if the beta surfaces blockers. Every stable release is user-installable behind a quality gate. Post-MVP batches are ordered by user value: text & shapes (daily-driver tools) ship first, windowing work ships last.
+Stable releases ship per feature batch using SemVer MINOR releases. Alpha builds are internal; one public beta is published for feedback, followed by the stable release once its quality gates pass. A release candidate is used when beta testing identifies blockers. For `0.2.0`, text, shape, and blend-mode features are complete in `main`; the native Rust UI shell remains in development and is a release gate. It is not described as shipped until released.
 
 ```
 alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE, 2026-08-03)
   → 0.1.0 (STABLE MVP, DONE 2026-08-06)
-  → 0.2.0 (text & shapes + full blend modes, ~Q1 2027)
-  → 0.3.0 (floating panels, ~Q2 2027)
-  → 0.4.0 (multi-image windows + WASM extension, ~Q3 2027)
-  → 1.0.0-rc → 1.0.0 (cross-platform + perf gate, format final, ~Q4 2027)
+  → 0.2.0 (The Native Update: text, shapes, all blend modes, native UI shell)
+  → 0.3.0 (floating panels, planned)
+  → 0.4.0 (multi-image windows, planned)
+  → 1.0.0-rc → 1.0.0 (cross-platform + performance gate, planned)
 ```
 
-| Version | Theme | User Outcome | Target |
+| Version | Theme | User outcome | Target |
 | --- | --- | --- | --- |
-| `0.1.0-beta.1` | Final MVP polish | ✅ Released 2026-08-03 — MVP feature-freeze; `.ptz` v1 locked; cross-platform pre-release builds | DONE |
-| `0.1.0` | **Stable MVP** | ✅ Released 2026-08-06 — first stable release; `.ptz` backward-compat guaranteed from here | DONE |
-| `0.2.0` | Text & shapes + full blend modes | Text layers, shape drawing, all blend modes — daily-driver tools | ~Q1 2027 |
-| `0.3.0` | Floating panels | Tear-off/re-dock Layers & Inspector panels | ~Q2 2027 |
-| `0.4.0` | Multi-image windows + WASM extension | Each image in its own window; brush/transform faster via WASM | ~Q3 2027 |
-| `1.0.0-rc` | Cross-platform + perf gate | Works on Linux, macOS, Windows; all budgets met | ~Q3 2027 |
-| `v1.0.0` | Stable daily-driver | Backward-compatible, production-ready on 3 OS; `.ptz` format final | ~Q4 2027 |
+| `0.1.0-beta.1` | Final MVP polish | ✅ Released 2026-08-03 — MVP feature freeze; `.ptz` v1 began its compatibility line | Done |
+| `0.1.0` | Stable MVP | ✅ Released 2026-08-06 — first stable release; `.ptz` backward compatibility begins | Done |
+| `0.2.0` | **The Native Update** | Text layers, shape layers, all 12 blend modes, and planned native Rust UI shell | In development |
+| `0.3.0` | Floating panels | Detachable Layers and Inspector panels | Planned |
+| `0.4.0` | Multi-image windows | Multiple documents in separate native windows | Planned |
+| `1.0.0-rc` | Cross-platform + performance gate | Windows, macOS, Linux; release budgets measured | Planned |
+| `1.0.0` | Stable daily-driver | Backward-compatible projects; final `.ptz` format lock | Planned |
 
-### Versioning Policy
-
-- SemVer with pre-release suffix (`-alpha.N`, `-beta.N`, `-rc.N`). During `0.x`, MINOR may contain breaking changes; PATCH is bug-fix only. Bump rules: see `CHANGELOG.md` history and `docs/plans/reports/photrez-versioning-discussion.md` (internal). Per-batch cycle since `0.2.0`: alpha is **internal-only** (never published), one public `beta.N` pre-release per batch, optional `rc` after beta blockers; PATCH ships directly as stable without a pre-release cycle (bug-fix only).
-- **`.ptz` backward-compat starts at `0.1.0`**: all later format changes must be additive and ship a migrator (`docs/guide/ptz-migration.md`). `v1.0.0` marks the final format lock.
-- **Command contract version is independent** of the app version (`docs/reference/command-contract-spec.md`) and is frozen during each beta cycle.
-- Post-1.0, breaking changes require a MAJOR bump. `1.0.0` itself follows the measurable DoD checklist in its section below.
+- **SemVer:** During `0.x`, minor releases may contain breaking changes; patch releases are for fixes. The release cycle and targets are listed here and in `CHANGELOG.md`.
+- **Project files:** `.ptz` backward compatibility starts at `0.1.0`; format changes must be additive and include a migrator (`docs/guide/ptz-migration.md`). The final format lock is planned for `1.0.0`.
+- **Command contract:** The current shell command contract is documented in `docs/reference/command-contract-spec.md`; its version is separate from the app version.
 
 ---
 
@@ -96,67 +106,55 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE
 
 ## 0.3.0 — Floating Panels
 
-> **Target:** ~Q2 2027 &nbsp;|&nbsp; **Confidence:** Medium
+> **Target:** TBD &nbsp;|&nbsp; **Confidence:** Medium
 
 **User sees:** Tear off panels (Layers, Inspector) into separate floating windows and re-dock them.
 
 ### Architecture (required before any UI)
 
-- Tauri multi-`WebviewWindow` spawn + close lifecycle.
-- Lightweight state-sync bridge between webviews using Tauri events with a **revision gate** (single source of truth, no per-property `invoke` chatter).
-- Keep document state in the TypeScript `DocumentEngine` (per webview owner model). Do NOT move document state into Rust `tauri::State`.
-- WASM compute stays in its webview of origin; the bridge carries only lightweight state (selection, active doc, undo index, preferences), never pixel buffers.
+- Built on the native UI shell planned for `0.2.0`; do not base this milestone on additional web-view windows.
+- Panels are views onto the shared document state in the Rust core; no per-window document copy or cross-window state bridge.
 
 ### Features
 
-- **Detachable panels:** Layers panel can tear off into a native floating window and re-dock. Panel window shares the Solid store via the event bridge (view + input only; main webview remains owner).
+- **Detachable panels:** Layers and Inspector can tear off into native floating windows and re-dock.
+
 ### Definition of Done
 
 - Window spawn/close lifecycle verified.
-- Layers panel detaches/re-docks without state loss.
-- Bridge sync test proves isolation + revision-gate correctness.
+- Panels detach and re-dock without state loss.
+- Two views of the same document remain consistent after edits.
 
 ### Known Risks
 
-- Tauri multi-window is relatively young — state sync edge cases may require workarounds.
-- Event bridge latency could cause visible lag on slow machines.
+- Floating-window behavior varies by platform; validate during the native release cycle.
 
 ---
 
-## 0.4.0 — Multi-Image Windows + WASM Extension
+## 0.4.0 — Multi-Image Windows
 
-> **Target:** ~Q3 2027 &nbsp;|&nbsp; **Confidence:** Medium-Low
+> **Target:** TBD &nbsp;|&nbsp; **Confidence:** Medium
 
-**User sees:** Open each image in its own native window. Drag layers/tabs between windows. Brush strokes and transforms run noticeably faster.
+**User sees:** Open each image in its own native window. Drag layers/tabs between windows.
 
 ### Architecture
 
-- Each document opens in its own webview that owns its `DocumentEngine` + WASM compute (no single-webview bottleneck).
-- Thin bridge between document webviews for cross-document actions (drag layer between docs, shared undo list).
-
-### WASM Extension (build pipeline proven in alpha.2)
-
-- Port editing hot-paths from TypeScript to `photrez-core` WASM:
-  - **Brush mask generation** — CPU-bound dab computation.
-  - **Transform matrix math** — scale/rotate/flip pixel operations.
-  - **Tile split/compose** — large canvas tiling operations.
-- Each port: zero-copy call from TS (`Uint8Array`), parity tests vs TS implementation.
+- Each document window is a view over the shared Rust core; it does not own a duplicate engine.
+- Cross-document actions operate on the same in-process document authority.
 
 ### Features
 
 - **Multi-document windows:** Open several images in separate native windows; drag layers/tabs between them.
-- **History panel** *(scope-approval needed)*: Visual undo/redo list panel (engine already exists, UI only).
+- **History panel** *(scope approval required)*: Visual undo/redo list panel.
 
 ### Definition of Done
 
-- Two documents open in separate windows; editing in each is independent and fast.
-- At least two additional hot-paths run via WASM with parity tests vs TS implementation.
-- History panel (if approved): clickable list, thumbnails, matches engine undo stack.
+- Two documents open in separate windows; editing in each is independent and reliable.
+- History panel, if approved, is clickable, shows thumbnails, and reflects the canonical history stream.
 
 ### Known Risks
 
 - Cross-document drag requires careful ownership transfer and undo semantics.
-- WASM brush mask may need different memory management patterns than export encode.
 
 ---
 
@@ -183,36 +181,35 @@ alpha.1 (DONE, 2026-07-19) → alpha.2 (DONE, 2026-08-01) → 0.1.0-beta.1 (DONE
 
 ---
 
-## 0.2.0 — Text & Shapes + Full Blend Modes
+## 0.2.0 — The Native Update (Text & Shapes + Blend Modes + Native UI Shell)
 
-> **Target:** ~Q1 2027 &nbsp;|&nbsp; **Confidence:** Medium-Low
+> **Status:** In development. Text, shape, and blend-mode features are complete in `main`; the native UI shell remains planned work and has not shipped.
 
-**User sees:** Add text to images — titles, captions, watermarks. Draw shapes for annotations and design elements. All blend modes unlocked. These are the tools that make Photrez a real daily-driver for content creators.
+**User sees:** Text layers for titles, captions, and watermarks; editable shapes for annotations and design elements; all 12 blend modes. The planned native shell replaces the shipped Tauri web-view UI with a native Rust interface. Do not claim native runtime performance or package size until measured on a release candidate.
 
 ### Features
 
-- **Text tool:** Click to place text, type to edit. Font family, size, color, alignment, bold/italic. Text lives on its own layer (non-destructive — editable until rasterized). Rasterize command bakes text to pixels.
-- **Shape tool:** Rectangle, ellipse, line, arrow. Fill and/or stroke with foreground/background color. Shape lives on its own layer (vector until rasterized). Option bar: shape type, fill/stroke toggle, stroke width.
-- **Full blend modes:** Unlock remaining blend modes already in shader (Multiply, Screen, Overlay are in alpha; add Darken, Lighten, Color Dodge, Color Burn, Soft Light, Hard Light, Difference, Exclusion) once WebGL preview / Canvas2D export parity tests pass.
+- **Text tool:** Click to place text, type to edit; font family, size, color, alignment, bold/italic. Non-destructive text layers are editable until rasterized. **(complete in `main`; planned for 0.2.0)**
+- **Shape tool:** Rectangle, ellipse, line, arrow, star; fill/stroke controls. Parametric shape layers are editable until rasterized. **(complete in `main`; planned for 0.2.0)**
+- **Blend modes:** All 12 W3C modes, with preview/export parity verified. **(complete in `main`; planned for 0.2.0)**
+- **Native UI shell:** Native Rust interface replaces the current Tauri web-view shell. **(planned; implementation and parity gates pending)**
 
 ### Architecture Notes
 
-- Text and shape layers extend the `LayerType` union in `DocumentEngine` — they carry metadata (font, shape params) alongside or instead of a pixel buffer.
-- Rendering: WebGL2 rasterizes text/shape to a temporary texture for compositing (same pipeline as pixel layers). No new renderer required.
-- `.ptz` format extension (additive v2, backward-compat from `0.1.0`): text/shape layer metadata stored in `document.json`; rasterized fallback bitmap stored alongside. Ships a migrator per `docs/guide/ptz-migration.md`.
+- Text and shape metadata are persisted in additive `.ptz` versions v2/v3; v3 is the current writer version and backward compatibility starts with v0.1.0 (`docs/guide/ptz-migration.md`).
+- The Rust core is already the canonical document, pixel, and history authority in `main`; the UI holds a derived view. The native shell is a separate, not-yet-shipped runtime migration.
 
 ### Definition of Done
 
-- Text tool: place, edit, style (font/size/color/alignment/bold/italic), move, transform, rasterize, undo/redo. Option bar complete.
-- Shape tool: rectangle, ellipse, line, arrow. Fill + stroke. Move, transform, rasterize, undo/redo. Option bar complete.
-- Both tool types: export correctly (rasterized to output), saved/loaded in `.ptz`.
-- All unlocked blend modes render correctly in both preview AND export.
-- Keyboard shortcut: T (text), U (shape).
+- Text/shape tools and all 12 blend modes are complete in `main`; release packaging and user validation remain part of the 0.2.0 release gate.
+- The native shell reaches full feature parity with the shipped build, proven by the replacement harness and release-candidate testing.
+- Native startup, frame pacing, memory, and installer size are measured on the release candidate and documented with the exact measurement commands.
 
 ### Known Risks
 
-- Text rendering cross-platform consistency (font availability, rendering differences between Windows/Linux/macOS) — mitigated by deferring cross-platform to rc.
-- `.ptz` format extension must be backward-compatible (older Photrez reads the fallback bitmap, ignores text/shape metadata it doesn't understand).
+- Text rendering consistency depends on platform font availability and rasterization.
+- `.ptz` remains backward-compatible from v0.1.0; new format changes must stay additive and ship a migrator.
+- The native shell is a major runtime change. It remains a planned feature until implementation, parity, and release gates pass.
 
 ---
 
@@ -305,18 +302,18 @@ Reference: `product-scope.md`
 | Extensibility | Plugin SDK / scripting API |
 | Formats | PSD import/export |
 | Platform | Command palette, touch/tablet pressure dynamics |
-| Performance | GPU compute via WebGPU (when stable in Tauri) |
+| Performance | Native rendering and compute improvements, evaluated against measured release baselines |
 
 ---
 
 ## Architecture Invariants
 
-These hold across the entire v1 roadmap and are consistent with `ARCHITECTURE.md`:
+These invariants describe the current app and the planned native shell without implying the migration is already complete:
 
-1. **Document state stays in TypeScript.** The `DocumentEngine` owns document truth. Rust WASM modules are called for compute, not ownership — no dual-state sync.
-2. **WebGL2 stays as the renderer.** Compositing is already ~2ms at 4K. wgpu is deferred until compute shaders or advanced blend modes exceed WebGL2 capabilities.
-3. **Tauri IPC is cold-path only.** File I/O and system dialogs. Hot-path operations (brush, transform, export) stay in the webview (TS today, WASM tomorrow).
-4. **Multi-window is Tauri windows + event bridge.** WASM accelerates editing inside each webview; it does not create or manage windows.
+1. **Rust owns persistent document truth.** The core is canonical for document state, pixels, and history; the current TypeScript UI retains only a derived view and transient interaction state.
+2. **The current release renderer is WebGL2.** The planned native shell uses the toolkit-owned renderer; no performance claim is made until it is measured.
+3. **Current shell operations use the Tauri command boundary where required.** The planned native shell will call the Rust core in-process; document edits must not reintroduce duplicate canonical state.
+4. **Windowing is presentation-layer work.** Document logic remains independent of the number of windows or panels.
 
 ---
 

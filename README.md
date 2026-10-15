@@ -69,7 +69,7 @@
 
 | Format | Extension | Type | Import | Export | Notes |
 | --- | --- | --- | :---: | :---: | --- |
-| **Photrez Project** | `.ptz` | Native Project | ✅ | ✅ | Locked v1 format, preserves full layer state & vector text |
+| **Photrez Project** | `.ptz` | Native Project | ✅ | ✅ | Backward-compatible from v0.1.0; current format v3, preserves full layer state & vector text |
 | **PNG Image** | `.png` | Raster Bitmap | ✅ | ✅ | Full RGBA alpha channel transparency support |
 | **JPEG Image** | `.jpg`, `.jpeg` | Raster Bitmap | ✅ | ✅ | Standard compressed photo format with quality controls |
 | **WebP Image** | `.webp` | Raster Bitmap | ✅ | ✅ | Modern web image format (lossless & lossy) |
@@ -91,32 +91,36 @@
 
 ## 🗺️ Release Roadmap
 
-- [x] **`v0.1.0` (Stable MVP - Released 2026-08-06)** — Complete editing toolkit, multi-document tabs, layer hierarchy, brush/eraser, fill bucket, Pro print inspector, and locked `.ptz` format.
-- [ ] **`v0.2.0` (Next Target - Q1 2027)** — Vector text & shape tools plus extended blend modes.
-- [ ] **`v0.3.0` (Planned - Q2 2027)** — Floating and detachable inspector panels.
-- [ ] **`v0.4.0` (Planned - Q3 2027)** — Multi-image windows & WASM hot-path compute acceleration.
-- [ ] **`v1.0.0` (Planned - Q4 2027)** — Full cross-platform release (Windows, macOS, Linux).
+- [x] **`v0.1.0` — Stable MVP** *(released 2026-08-06)* — Complete editing toolkit; `.ptz` is backward-compatible from this release (current format v3).
+- [ ] **`v0.2.0` — The Native Update** *(in development)*
+  - ✅ **Text layers** — live, re-editable text on the canvas (`T`)
+  - ✅ **Shape layers** — rectangle, ellipse, line, arrow, star; editable until rasterized (`U`)
+  - ✅ **All 12 blend modes** — preview/export parity verified
+  - 🚧 **Native Rust UI** — planned replacement for the Tauri web-view shell. Not yet implemented or shipped; installer/performance claims await measurement.
+- [ ] **`v0.3.0` (planned)** — Floating and detachable inspector panels.
+- [ ] **`v0.4.0` (planned)** — Multi-image windows.
+- [ ] **`v1.0.0` (planned)** — Full cross-platform release (Windows, macOS, Linux).
 
 ---
 
 ## 💡 Why Photrez?
 
-Photrez bridges the gap between heavy design applications and simple browser tools:
+Photrez is a lightweight desktop image editor for practical digital and print workflows:
 
-- **Desktop Native Power:** Built on Tauri 2 and WebGL2 for smooth GPU canvas performance.
-- **Privacy & Local Files:** Your work stays 100% on your machine in the locked `.ptz` format with backward-compatibility guarantees.
-- **Open-Source Quality:** 100% AGPL-3.0 licensed code built with SolidJS, TypeScript, and Rust.
+- **Local-first editing:** Your work stays on your machine; no cloud account is required.
+- **A complete editing toolkit:** Layers, text, shapes, selection, brush tools, transforms, print settings, and export.
+- **The Native Update:** v0.1.0 ships on Tauri 2 with the operating system's web-view runtime. The planned 0.2.0 release moves the interface to a native Rust UI; performance and installer claims will follow measurement.
+- **Open source:** Licensed under AGPL-3.0-or-later.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Tauri-v2-FFC107?style=flat-square&logo=tauri&logoColor=black" alt="Tauri 2">
-  <img src="https://img.shields.io/badge/SolidJS-v1.9-2C4F7C?style=flat-square&logo=solid&logoColor=white" alt="SolidJS">
+  <img src="https://img.shields.io/badge/Tauri-v2-FFC107?style=flat-square&logo=tauri&logoColor=black" alt="Tauri 2 — v0.1.0 runtime">
+  <img src="https://img.shields.io/badge/SolidJS-v1.9-2C4F7C?style=flat-square&logo=solid&logoColor=white" alt="SolidJS — v0.1.0 UI">
   <img src="https://img.shields.io/badge/TypeScript-Strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
-  <img src="https://img.shields.io/badge/WebGL-2.0-990000?style=flat-square&logo=webgl&logoColor=white" alt="WebGL2">
-  <img src="https://img.shields.io/badge/Rust-Core-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust">
-  <img src="https://img.shields.io/badge/Tailwind-v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind v4">
-  <img src="https://img.shields.io/badge/Bun-v1.3-FBF0DF?style=flat-square&logo=bun&logoColor=black" alt="Bun">
+  <img src="https://img.shields.io/badge/WebGL-2.0-990000?style=flat-square&logo=webgl&logoColor=white" alt="WebGL2 — v0.1.0 renderer">
+  <img src="https://img.shields.io/badge/Rust-Core-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust core">
+  <img src="https://img.shields.io/badge/Tailwind-v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind v4 — v0.1.0 UI">
+  <img src="https://img.shields.io/badge/Bun-v1.4-FBF0DF?style=flat-square&logo=bun&logoColor=black" alt="Bun v1.4">
 </p>
-
 ---
 
 ## 🛠️ Developer Quick Start
@@ -137,18 +141,18 @@ bun run verify
 ## ❓ Frequently Asked Questions (FAQ)
 
 <details>
+<summary><b>Why is the v0.1.0 installer small (~5MB)?</b></summary>
+<p>The v0.1.0 release uses Tauri 2 with the operating system's WebView2 runtime. The planned 0.2.0 native Rust UI uses a different runtime; its installer size will be measured before release.</p>
+</details>
+
+<details>
 <summary><b>Does Photrez require an internet connection or account?</b></summary>
 <p>No. Photrez is 100% local-first software. It runs entirely offline on your computer without cloud accounts, telemetry, or subscriptions.</p>
 </details>
 
 <details>
-<summary><b>Does Photrez support Adobe Photoshop (.psd) files?</b></summary>
-<p>Not currently. Photrez uses its own locked project format (<code>.ptz</code>) for layered documents and exports to PNG, JPEG, and WebP. PSD import support is on the long-term roadmap.</p>
-</details>
-
-<details>
-<summary><b>Why is the Photrez installer so small (~5MB) compared to other editors?</b></summary>
-<p>Photrez is built on Tauri 2, which leverages the operating system's native WebView2 engine instead of bundling a heavy web browser runtime (like Electron). Combined with SolidJS and WebGL2, it delivers desktop performance with minimal footprint.</p>
+<summary><b>Does Photrez support PSD files?</b></summary>
+<p>Not currently. Photrez uses its versioned <code>.ptz</code> project format for layered documents and exports to PNG, JPEG, and WebP. PSD import support is on the long-term roadmap.</p>
 </details>
 
 ---

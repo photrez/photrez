@@ -6,7 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-(no unreleased changes yet)
+Post-`0.1.0` work toward **0.2.0 — The Native Update**.
+
+### Added (complete in `main`; planned for 0.2.0)
+
+- **Text layers** — live, re-editable text with styles and alignment, persisted as non-destructive metadata.
+- **Shape layers** — parametric rectangle, ellipse, line, arrow, and star with fill/stroke controls.
+- **All 12 blend modes** — preview and export parity verified.
+
+### Changed (complete in `main`)
+
+- Rust `photrez-core` is the canonical document, pixel, and history authority; the TypeScript UI keeps a derived view.
+- `.ptz` files are written by the Rust core; current format version is v3 and remains backward-compatible from v0.1.0.
+
+### Performance and quality
+
+- Paint pipeline improvements include raw-byte region transport and frame-level commit slicing.
+- Latest recorded frontend validation (2026-10-14): 393 files, 4,465 passed, 2 expected failures, 1 skipped; type-check and build passed.
+
+### Planned for 0.2.0
+
+- **The Native Update:** replace the shipped Tauri web-view shell with a native Rust UI. This is planned, not yet implemented or released. Installer-size and performance claims will be updated after native-build measurements.
 
 ---
 

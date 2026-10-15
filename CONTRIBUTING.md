@@ -12,7 +12,7 @@ Thanks for helping improve Photrez! We welcome contributions that help make Phot
 
 ## Development Setup
 
-This project uses **Bun** (`v1.3.14`) as its primary package manager and runtime.
+This project uses **Bun** (`v1.4.0`) as its primary package manager and runtime.
 
 ```bash
 bun install          # Install dependencies
