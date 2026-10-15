@@ -2,6 +2,18 @@
 # Enforce Conventional Commits on every commit message. The message file path is
 # passed as $1 by husky. See commitlint.config.cjs.
 
+# Strip automated provenance trailers before the guards read the message: a
+# tool that signs its own commits must not become a repository contributor.
+# The pattern list stays local (gitignored, same convention as
+# .husky/internal-blocklist); a fresh clone without the file is a no-op.
+if [ -f .husky/internal-authors-blocklist ]; then
+  patterns=$(grep -v -e '^#' -e '^$' .husky/internal-authors-blocklist)
+  if [ -n "$patterns" ]; then
+    grep -v -i -E "$patterns" "$1" > "$1.stripped" || true
+    mv "$1.stripped" "$1"
+  fi
+fi
+
 # Public-artifact terminology guard: runs here because this hook receives the
 # NEW message file as $1. pre-commit cannot do it — git runs pre-commit before
 # it writes .git/COMMIT_EDITMSG, so that file still holds the previous commit's

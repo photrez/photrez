@@ -68,6 +68,7 @@ test-results/
 
 # Local blocklist for pre-commit hook (brand references, internal only)
 .husky/internal-blocklist
+.husky/internal-authors-blocklist
 
 # Internal docs (not for distribution)
 docs/archive/
