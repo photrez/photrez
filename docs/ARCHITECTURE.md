@@ -339,14 +339,16 @@ photrez/
 │   │       └── export.rs           # Export encode (JPG/PNG/WebP)
 ├── docs/                           # Project documentation (see INDEX.md)
 │   ├── INDEX.md                    # Documentation map
-│   ├── FEATURES.md                 # Feature implementation status
+│   ├── DESIGN.md                   # Design system and product intent
+│   ├── UI_GUIDE.md                 # Visual and interaction guidance
 │   ├── ARCHITECTURE.md             # Current runtime reference
 │   ├── CONVENTIONS.md              # Code patterns and domain behavior
-│   ├── PRODUCT.md                  # Product direction and principles
-│   ├── UI_GUIDE.md                 # Visual and interaction guidance
-│   ├── spec/                       # Product, technical, and release specifications
-│   ├── reference/                  # Format, input, dependency, and design references
-│   └── guide/                      # User/developer guides
+│   ├── FEATURES.md                 # Feature implementation status
+│   ├── TRANSLATION.md              # en/id translation guide
+│   ├── ptz-migration.md            # .ptz format versions and compatibility contract
+│   ├── frame-pacing-baseline.md    # Dated runtime measurements (append-only)
+│   └── reference/                  # Tauri/WebGL-era references (until the native UI lands)
+├── media/                          # README images
 ├── scripts/                        # Build, validation, and maintenance scripts
 ├── .github/                        # CI, release, and contribution templates
 └── Cargo.toml                      # Rust workspace root
@@ -356,15 +358,7 @@ photrez/
 │   ├── ARCHITECTURE.md             # ★ This file
 │   ├── CONVENTIONS.md              # ★ Code patterns & domain knowledge
 │   ├── UI_GUIDE.md                 # ★ Consolidated UI design reference
-│   ├── spec/product-scope.md       # MVP scope lock
-│   ├── spec/prd.md                 # Product requirements
-│   ├── reference/design-tokens.md  # Design token values
-│   ├── reference/command-contract-spec.md # IPC contract spec
-│   ├── ...                         # Reference docs (see INDEX.md)
-│   └── archive/                    # Archived planning & history docs
-├── AGENTS.md                       # Agent orchestration rules
-├── GEMINI.md                       # Visual aesthetic rules
-├── CLAUDE.md                       # Claude-specific rules
+│   └── ...                         # Remaining public docs (see INDEX.md)
 └── Cargo.toml                      # Rust workspace root
 ```
 
@@ -399,7 +393,7 @@ photrez/
 | Idle RAM       | `< 250 MB`  |
 | Startup time   | `< 2s`      |
 
-Measurement protocol: `docs/reference/performance-measurement-protocol.md`
+Measurements are recorded per run in `docs/frame-pacing-baseline.md` (binary, machine, RAM, and viewport per entry).
 
 ---
 

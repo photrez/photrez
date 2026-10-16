@@ -50,7 +50,7 @@ for (const f of files) {
 console.log(`\n✓ All version files bumped to ${newVersion}`);
 console.log(`Next steps:`);
 console.log(`  1. Update CHANGELOG.md with new section`);
-console.log(`  2. Update KNOWN_ISSUES.md if needed`);
+console.log(`  2. Update the README FAQ if a known limitation changed`);
 console.log(`  3. git add -A && git commit -m "chore(release): v${newVersion}"`);
 console.log(`  4. git tag v${newVersion}`);
 console.log(`  5. git push origin main --tags`);

@@ -34,7 +34,7 @@ Post-`0.1.0` work toward **0.2.0 — The Native Update**.
 
 ### 🎉 First Stable Release
 
-`v0.1.0` is the first stable release of the MVP. The `.ptz` document format is backward-compatible from this version onward; any later format change must be additive and ship a migrator (`docs/guide/ptz-migration.md`).
+`v0.1.0` is the first stable release of the MVP. The `.ptz` document format is backward-compatible from this version onward; any later format change must be additive and ship a migrator (`docs/ptz-migration.md`).
 
 ### ✨ Complete Editing Toolkit (MVP)
 - **Tools:** move, selection, crop, eyedropper, brush, eraser, paint bucket, gradient.
@@ -46,6 +46,13 @@ Post-`0.1.0` work toward **0.2.0 — The Native Update**.
 - Paper-size fetch failures now degrade gracefully (empty preset list) instead of breaking the print inspector — fixed unhandled rejection that failed the full component-test suite.
 - Full 1517 component-test suite green; `cargo fmt --check` clean; `bun audit --prod --audit-level=high` clean.
 - Component tests no longer flake on slow CI runners (5000ms → 30000ms jsdom timeout).
+
+### ⚡ Performance & Hardening
+
+- Print is roughly 4x faster — A4 composite output drops from 139 MB to 35 MB by capping print DPI at 300, the photo-print standard, with no visible quality loss at normal viewing distance (print-to-PDF is unaffected).
+- Installers upgrade in place — running setup over an existing installation no longer asks to uninstall first.
+- `print_image_raw` validates the raw pixel buffer against its declared dimensions before handing it to the printer — prevents an out-of-bounds read if the two ever disagree.
+- Print size constants now have a single source of truth — no more drift between worker, main thread, and preview.
 
 ### 📦 Delivery
 - Windows x64 NSIS installer + `SHA256SUMS`, tagged `v0.1.0` as a GitHub release (not a pre-release).
@@ -66,8 +73,8 @@ This is the first beta release. It marks the **feature freeze** for the 0.1.0 MV
 
 ### 🎨 Changed
 
-- MVP scope frozen in `docs/spec/product-scope.md` (effective `0.1.0-beta.1`).
-- `.ptz` v1 format locked; migration contract documented in `docs/guide/ptz-migration.md`.
+- MVP scope frozen (effective `0.1.0-beta.1`).
+- `.ptz` v1 format locked; migration contract documented in `docs/ptz-migration.md`.
 - Command contract spec synced: `supported_commands` now reflects the public frontend subset.
 - Frontend bundle split into vendor chunks (Solid, engine, renderer) to improve load.
 
@@ -165,7 +172,7 @@ breaking changes, and incomplete features. Not recommended for production use.
 
 ### 🐛 Known Issues
 
-See `KNOWN_ISSUES.md` for the full list. Highlights:
+Highlights:
 
 - Startup time on cold launch is ~3.7s (target: <2s). Optimization planned for beta.
 - High-zoom canvas preview may appear pixelated due to 4096px backing-buffer clamp.

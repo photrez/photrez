@@ -22,7 +22,7 @@
 
 ---
 
-![Photrez Editor Preview](docs/screenshots/layers.png)
+![Photrez Editor Preview](media/layers.png)
 
 <div align="center">
 
@@ -155,11 +155,46 @@ bun run verify
 <p>Not currently. Photrez uses its versioned <code>.ptz</code> project format for layered documents and exports to PNG, JPEG, and WebP. PSD import support is on the long-term roadmap.</p>
 </details>
 
+<details>
+<summary><b>What do Save, Save As, and Export do?</b></summary>
+<p><b>Save</b> (<code>Ctrl+S</code>) overwrites your <code>.ptz</code> project — every layer, fully re-editable later. For a new or unsaved document it opens Save As, which defaults to <code>.ptz</code>. A flat single-layer source (JPG/PNG/WebP) is overwritten in place by Save. <b>Export</b> (<code>Ctrl+Alt+E</code>) writes a separate flat PNG/JPEG/WebP copy.</p>
+</details>
+
+<details>
+<summary><b>Is there autosave, and what happens after a crash?</b></summary>
+<p>Yes. While you edit, Photrez writes a hidden autosave — document metadata plus pixels — at most once per minute to a local temp directory, and checks for it on the next launch. Recovery is silent in the current MVP (there is no "recover from autosave" dialog), and the autosave is cleaned up on a normal close. It is local-only — no cloud backup.</p>
+</details>
+
+<details>
+<summary><b>What happens when I close a document with unsaved changes?</b></summary>
+<p>Photrez asks <b>Discard changes?</b> — choose <b>Discard</b> to close without saving, or <b>Cancel</b> to go back. With nothing unsaved, the document closes immediately and the nearest remaining tab activates.</p>
+</details>
+
+<details>
+<summary><b>What are the New Document defaults?</b></summary>
+<p>New documents start at 1920×1080 on a white background (white, black, and transparent are offered), with presets for HD (1920×1080), Social Square (1080×1080), and A4 at 300 DPI (2480×3508) — or set a custom size.</p>
+</details>
+
+<details>
+<summary><b>Why does the canvas look pixelated at very high zoom?</b></summary>
+<p>The preview buffer is clamped at 4096px to prevent WebGL context loss on low-VRAM GPUs, so beyond that zoom level the preview pixelates. Pan to inspect other regions instead of zooming further.</p>
+</details>
+
+<details>
+<summary><b>Why is the first "Apply &amp; Paint" on a large adjusted layer briefly slow?</b></summary>
+<p>Baking an adjustment layer reads pixels back from the GPU synchronously — a 50–200ms hitch on 4K+ layers. An asynchronous (PBO) readback is planned for v1.0.</p>
+</details>
+
+<details>
+<summary><b>Any other known limitations?</b></summary>
+<p>The app CSP allows inline styles (required by the current Tailwind CSS v4 pipeline; scripts are unaffected — a hash-based CSP is planned for v1.0). A minor resize flash can still occur when restoring the window on a multi-monitor setup. For anything else, GitHub Issues is the live channel for bugs.</p>
+</details>
+
 ---
 
 ## 📚 Documentation
 
-- 🐛 **[Known Issues](KNOWN_ISSUES.md)** — Current limitations & bugs
+- 🧭 **[Documentation Index](docs/INDEX.md)** — full documentation map
 - 🏗️ **[Architecture](docs/ARCHITECTURE.md)** — WebGL2 & SolidJS design
 - 📋 **[Feature Checklist](docs/FEATURES.md)** — Full technical inventory
 - 🤝 **[Contributing](CONTRIBUTING.md)** — PR & code guidelines

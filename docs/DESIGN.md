@@ -123,6 +123,8 @@ components:
 
 Photrez should feel like a finely made instrument sitting on a Windows desktop: compact, immediate, and mechanically predictable. The interface is dark because image work benefits from a quiet surround, but it is not theatrical. Neutral surfaces recede so the canvas, pixels, guides, and active controls remain visually authoritative.
 
+**Who it is for.** Practical designers and creators on Windows — including those on low-end hardware — who need a fast, reliable, lightweight tool for quick image editing. The product voice is direct and confident; the tone is technical but modern and approachable.
+
 Every part earns its footprint. Panels align to hard structural edges, controls use modest curvature, and elevated surfaces lift only when the interaction requires them. Familiar desktop conventions are mandatory. Menus should read like menus, dialogs like desktop dialogs, and numeric fields like tools rather than web forms.
 
 The system explicitly rejects generic glassmorphism, overused blur, deep floating SaaS shadows, bloated all-in-one-suite chrome, and web-centric patterns that feel misplaced in a native desktop application.
@@ -276,6 +278,7 @@ Components are compact, familiar, and complete across default, hover, focus, act
 - **Do** keep common controls between 24 and 30px high and maintain a minimum 24 by 24px desktop pointer target.
 - **Do** use one-pixel dividers and alignment before creating another container.
 - **Do** make standard keyboard behavior complete: visible focus, Enter, Escape, arrows, Tab order, and focus restoration.
+- **Do** meet WCAG 2.1/2.2 Level AA — contrast (1.4.3), visible focus (2.4.7), and a minimum 24×24px desktop pointer target (WCAG2ICT guidance).
 - **Do** keep dialogs concise and desktop-like, with safe destructive defaults.
 - **Do** reuse the same icon, button, input, menu, and focus vocabulary throughout the application.
 - **Do** use 75 to 150ms state transitions only when they clarify feedback.

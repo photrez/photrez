@@ -1,4 +1,4 @@
-# 15 - Command Contract Specification (Tauri Shell Runtime)
+# Command Contract Specification (Tauri Shell Runtime)
 
 This file defines the authoritative IPC contract currently exposed by the Tauri shell runtime.
 

@@ -312,11 +312,10 @@ These directories and file patterns are in `.gitignore` and cover internal/dev-o
 | Audit reports | `docs/*AUDIT_REPORT.md`, `docs/DEEP_PROJECT_REVIEW.md` |
 | Analysis docs | `docs/photrez-brush-*.md` |
 | Icon history | `docs/icon-history/` |
-| Superpowers | `docs/superpowers/` |
 
 If a new internal-only path is added, update `.gitignore` before committing. If accidentally committed, `git rm --cached <path>` then add to `.gitignore`.
 
-Screenshots in `docs/screenshots/*.png` are explicitly un-ignored (`!docs/screenshots/*.png`) for documentation use; internal dev screenshots go under `docs/archive/` (gitignored).
+README images live in `media/` and are explicitly un-ignored (`!media/*.png`); internal dev screenshots go under `docs/archive/` (gitignored).
 
 ---
 

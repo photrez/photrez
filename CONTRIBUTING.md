@@ -4,7 +4,7 @@ Thanks for helping improve Photrez! We welcome contributions that help make Phot
 
 ## Ground Rules
 
-- **Scope:** Keep changes aligned with product goals in `docs/spec/product-scope.md`.
+- **Scope:** The MVP feature set is frozen; new features ship as post-MVP minor releases. Align proposals with the release roadmap in `README.md`.
 - **Layout Stability:** Preserve existing desktop UI structures unless a change explicitly requires UI redesign.
 - **Architecture:** Respect runtime ownership boundaries described in `docs/ARCHITECTURE.md`.
 - **Focused Changes:** Prefer small, well-tested pull requests over large, unannounced refactors.

@@ -6,7 +6,8 @@
 // textures stay display-only state owned by the WebGL2 backend; the print and
 // save workers return files, never history payloads.
 //
-// Reference invariants (docs/architecture/CHECKPOINT-2026-08-24-hybrid-migration.md):
+// Reference invariants (also stated in docs/ARCHITECTURE.md, "GPU Compute Layer";
+// the hybrid-migration checkpoint they were frozen in now lives in the archive):
 //   - "GPU resources = renderer-owned derived state ... RenderSnapshot/RenderDelta
 //     carry resourceId + dirtyRect (logical), never GPU handles."
 //   - "WebGPU compute (gpuCompute.ts WGSL invert/adjust) is an interactive

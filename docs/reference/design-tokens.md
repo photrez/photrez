@@ -1,4 +1,4 @@
-# 23 - Design Tokens (MVP Baseline)
+# Design Tokens (MVP Baseline)
 
 Token ini menjadi sumber tunggal styling UI Photrez di MVP yang menggunakan Tailwind v4 dan sistem warna OKLCH.
 

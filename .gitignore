@@ -52,9 +52,9 @@ logs/
 # Test artifacts
 test-results/
 
-# Images / binaries (screenshots excluded)
+# Images / binaries (README media excluded)
 *.png
-!docs/screenshots/*.png
+!media/*.png
 !apps/landing/public/screenshots/*.png
 *.jpg
 *.jpeg
@@ -75,7 +75,10 @@ docs/archive/
 docs/decisions/
 docs/icon-history/
 docs/plans/
+docs/research/
 docs/risk-registers/
+docs/spec/
+docs/performance/
 docs/*AUDIT_REPORT.md
 docs/DEEP_PROJECT_REVIEW.md
 docs/photrez-brush-*.md
