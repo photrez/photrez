@@ -443,7 +443,18 @@ pub(crate) fn load_project(
             )
         })?;
 
-        let name = file.name().to_string();
+        let name = file
+            .name()
+            .map_err(|e| {
+                error_value(
+                    "E_IO",
+                    &format!(
+                        "Failed to read entry name at index {} inside project archive: {}",
+                        i, e
+                    ),
+                )
+            })?
+            .to_string();
         if name == "document.json" {
             use std::io::Read;
             let mut json_limit = file.take(1024 * 1024); // 1MB cukup untuk JSON
