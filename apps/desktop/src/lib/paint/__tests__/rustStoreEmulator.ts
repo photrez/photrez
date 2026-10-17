@@ -4,7 +4,7 @@
  * A faithful in-process emulator of the Rust pixel store, for tests that must
  * observe the CANONICAL store rather than a mock that cannot see it.
  *
- * MOCK FIDELITY (see AGENTS.md "Mock fidelity rule"). A mock that reads an IPC
+ * MOCK FIDELITY. A mock that reads an IPC
  * argument IN-PROCESS cannot reproduce a transport rejection, so every pixel
  * payload here is decoded through the same base64 contract the Rust boundary
  * uses, and anything that is not a base64 string is rejected with the message

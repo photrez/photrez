@@ -305,7 +305,6 @@ These directories and file patterns are in `.gitignore` and cover internal/dev-o
 
 | Category | Ignored paths |
 |---|---|
-| AI agent session docs | `docs/AI_*.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` |
 | Plans & archive | `docs/plans/`, `docs/archive/` |
 | Decision logs | `docs/decisions/` |
 | Risk registers | `docs/risk-registers/` |

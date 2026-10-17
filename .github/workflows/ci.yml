@@ -105,7 +105,7 @@ jobs:
   # ─── RUST: core crate tests (representative + reliable on CI) ───
   # NOTE: `photrez-desktop` (Tauri binary) intentionally NOT tested here — its
   # full build needs a WebView2/windres toolchain that fails on GitHub runners
-  # (pre-existing, see AGENTS.md). Binary compilation is covered by the
+  # (pre-existing). Binary compilation is covered by the
   # release.yml workflow (tauri-action builds all three OS targets).
   # photrez-core is pure Rust (no WebView2), so the same tests run on all OSes
   # to catch platform-specific path/behavior drift.
