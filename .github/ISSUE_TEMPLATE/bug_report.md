@@ -30,8 +30,8 @@ If applicable, add screenshots or screen recordings to help explain the problem.
 **Test scope**
 Does the bug reproduce:
 - [ ] In automated tests (if you ran them)
-- [ ] Only in the desktop app (Tauri runtime)
+- [ ] Only in the desktop app
 - [ ] Only in certain file formats (PNG / JPEG / WebP)
 
 **Additional context**
-Add any other context about the problem here. Include error logs from the developer console (Ctrl+Shift+I) if available.
+Add any other context about the problem here. Include any error message or dialog text you saw, if available.

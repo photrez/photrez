@@ -38,7 +38,7 @@ cargo test --workspace                       # All Rust crate tests
 
 ## Commit Messages
 
-Photrez follows the [Conventional Commits](https://www.conventionalcommits.org) spec, the same convention used by **Electron**, **Vite**, and **Angular**. The subject line must be a single line in the form:
+Photrez follows the [Conventional Commits](https://www.conventionalcommits.org) spec. The subject line must be a single line in the form:
 
 ```
 <type>(<scope>): <subject>

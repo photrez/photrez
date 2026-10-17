@@ -1,5 +1,7 @@
 # ARCHITECTURE.md — Photrez (Runtime Reference)
 
+> **Runtime status (2026-10-17):** The current release (v0.1.0) ships on the runtime described in this document - a Tauri 2 shell, a SolidJS/TypeScript frontend, and a WebGL2 renderer. A migration to a native Rust UI (the v0.2.0 "Native Update") is in development; it will replace this runtime, and nothing here describes that unreleased shell. The frozen Tauri-era source and history are preserved at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
+
 ---
 
 ## Overview
@@ -10,7 +12,7 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 **Future target:** Rust Core via WASM (photrez-core → wasm-pack) for hot-path compute (brush, transform, tile, encode) + WebGL2 remains the renderer. wgpu deferred until compute-shader features are required.
 **Revised 2026-08-18:** Interactive pixel compute now targets **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; **native Rust** retained for export encode (entropy coding is serial → CPU). WASM hot-path compute deferred. See GPU Compute Layer below.
 
-**Rust Engine SSOT (Technique C) — 2026-08-18:** A `photrez-core` `Engine` (wasm-bindgen) now owns a single layer's pixels + non-destructive adjustment state, renders in place, and uploads zero-copy (`rgba_buffer_view`) to WebGL2. It is wired as the CPU-tier bake backend in `bakeAdjustmentToBitmapGpu` when WebGPU is absent (behavior-preserving; falls back to TS on error). Live preview stays the GPU shader uniform. Primary **Technique A** (Rust/WASM owns a WebGPU canvas in-webview) is the still-gated next step. Benchmarks + decision: `docs/plans/2026-08-18-gpu-rust-further-research.md`.
+**Rust Engine SSOT — 2026-08-18:** A `photrez-core` `Engine` (wasm-bindgen) now owns a single layer's pixels + non-destructive adjustment state, renders in place, and uploads zero-copy (`rgba_buffer_view`) to WebGL2. It is wired as the CPU-tier bake backend in `bakeAdjustmentToBitmapGpu` when WebGPU is absent (behavior-preserving; falls back to TS on error). Live preview stays the GPU shader uniform. The still-gated next step is a Rust/WASM-owned WebGPU canvas inside the web view. Benchmarks and the decision record are internal project material.
 
 ---
 
@@ -22,7 +24,7 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 - **WASM Strategy (2026-06-30)**: `photrez-core` is the source for WASM compilation (`wasm-pack` target). Hot-path operations (brush mask, tile ops, transform math, color space, export encode) will be ported from TypeScript to Rust and exposed as zero-copy WASM modules — no Tauri IPC overhead.
 - **Frontend**: Full UI shell with multi-document workspace, document tabs, empty state, drag/drop, and all core editing interactions. Artboard renders via WebGL2 projection-matrix-driven camera viewport.
 - **Testing**: Verified gates are enforced via CI (frontend type-check + unit/component tests, Rust `cargo test`, and Playwright E2E). See `README.md` and `.github/workflows/ci.yml` for the current pipeline.
-- **Recovery Reference** (historical): see the project archive maintained outside this repository.
+- **Recovery Reference** (historical): the pre-migration archive lives at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
 
 ---
 

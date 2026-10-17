@@ -36,7 +36,7 @@
 
 > ℹ️ **SmartScreen Notice:** The installer is currently not code-signed with a commercial certificate. If Windows SmartScreen displays a warning upon launch, click **"More info"** and then **"Run anyway"**.
 
-> You can still find the previous Tauri-based version at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy) - a frozen archive of the Tauri/SolidJS era.
+> The Tauri/SolidJS-era source and its full history are preserved at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy) - a frozen, read-only archive. The current release (v0.1.0) is built on that same stack; the planned v0.2.0 "Native Update" replaces the web-view shell (see the roadmap below).
 
 ---
 
@@ -131,7 +131,7 @@ Photrez is a lightweight desktop image editor for practical digital and print wo
 # 1. Clone repository & install dependencies
 bun install
 
-# 2. Launch application in desktop dev mode
+# 2. Launch application in desktop dev mode (v0.1.0 shell)
 bun run tauri dev
 
 # 3. Run complete verification gate (tests + build + audit)
@@ -197,7 +197,7 @@ bun run verify
 ## 📚 Documentation
 
 - 🧭 **[Documentation Index](docs/INDEX.md)** — full documentation map
-- 🏗️ **[Architecture](docs/ARCHITECTURE.md)** — WebGL2 & SolidJS design
+- 🏗️ **[Architecture](docs/ARCHITECTURE.md)** — runtime architecture & migration status
 - 📋 **[Feature Checklist](docs/FEATURES.md)** — Full technical inventory
 - 🤝 **[Contributing](CONTRIBUTING.md)** — PR & code guidelines
 - 🔒 **[Security Policy](SECURITY.md)** — Vulnerability reporting

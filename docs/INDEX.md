@@ -8,6 +8,7 @@
 
 | File | Purpose |
 |---|---|
+| `INDEX.md` | This file - the documentation map |
 | `DESIGN.md` | Design system — how the product should look and behave |
 | `UI_GUIDE.md` | How to use the UI — interaction and visual guidance |
 | `ARCHITECTURE.md` | How it is built — runtime architecture |
@@ -30,3 +31,5 @@ These describe the **shipped** Tauri + WebGL2 runtime and the Tailwind-era UI. T
 ---
 
 > Internal material — plans, decisions, specifications, research, and archive — is intentionally **not** published here. It is gitignored by design; `CONTRIBUTING.md` describes the public rules.
+
+Historical Tauri-era documents and the pre-migration source are preserved in the frozen archive at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
