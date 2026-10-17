@@ -1,0 +1,2115 @@
+{
+  "capturedAt": "2026-10-17T12:42:13.736Z",
+  "url": "http://127.0.0.1:1420",
+  "viewport": {
+    "width": 1366,
+    "height": 820
+  },
+  "deviceScaleFactor": 1,
+  "sourceCommit": "0c6e926dea8e37768dc7edd0e0f0924cc0e80b90",
+  "sourceDirty": false,
+  "locale": "en",
+  "pins": {
+    "photrez.locale": "en",
+    "photrez.bgFlagRoute": "0"
+  },
+  "host": {
+    "os": "Windows_NT 10.0.26300",
+    "platform": "win32",
+    "arch": "x64",
+    "browser": "Chromium 149.0.7827.55",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+  },
+  "toolVersions": {
+    "bun": "1.4.3",
+    "playwright": "1.61.1",
+    "wasm": {
+      "path": "apps/desktop/src/wasm/pkg/photrez_core_bg.wasm",
+      "sha256": "2eccb004a52bbc444f11488353c4bf0590d7c7667f13b39f74023aca87623213"
+    }
+  },
+  "scripts": {
+    "path": "apps/desktop/scripts/capture-baseline.ts",
+    "sha256": "7b2f293de03cb87745a0ed1cfcd52282a5ee36af40e5099e8fde4dd55dddb818",
+    "gitBlob": "9c26b1ec831f03b80c536122b68e414d57b59313",
+    "shotsTable": {
+      "path": "apps/desktop/scripts/baseline-shots.json",
+      "sha256": "0a7c3426cc085d71a225d3a0c772556e55f0a1ad07321db154e6aa4e53a0c63b",
+      "gitBlob": "6c47eb4a6d507be3118558aec8c3de2de3f522f6"
+    }
+  },
+  "note": "Golden-master baselines for the native UI port's parity checks. Captured from the web-rendered app via its Vite dev server (headless Chromium, ANGLE/SwiftShader, deviceScaleFactor 1). Pins: photrez.locale=en (stable strings) and photrez.bgFlagRoute=0 - the app's own documented rollback switch; without it the document-open path waits for a native seed that a browser cannot provide and refuses the open. Document recipe: blank canvas named \"Baseline\", 800x600. Capture conventions and the tolerance policy for comparisons: see README.md beside this manifest.",
+  "total": 74,
+  "ok": 74,
+  "failed": 0,
+  "shots": [
+    {
+      "id": "shell-full-page",
+      "category": "shell",
+      "file": "shell-full-page.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": null,
+      "note": "whole app, document open — top-level reference",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 820
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-titlebar",
+      "category": "shell",
+      "file": "shell-titlebar.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "header",
+      "note": "46px title bar: menus, doc title, undo/redo, window controls",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 46
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-menubar",
+      "category": "shell",
+      "file": "shell-menubar.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "nav[aria-label='Application menu']",
+      "note": "8 top-level menu triggers, closed",
+      "box": {
+        "x": 58,
+        "y": 0,
+        "width": 429.734375,
+        "height": 45
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-left-tool-rail",
+      "category": "shell",
+      "file": "shell-left-tool-rail.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside",
+      "note": "the 52px tool rail",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-option-bar",
+      "category": "shell",
+      "file": "shell-option-bar.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "44px option bar, move tool",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-status-bar",
+      "category": "shell",
+      "file": "shell-status-bar.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "footer",
+      "note": "24px status bar",
+      "box": {
+        "x": 0,
+        "y": 796,
+        "width": 1366,
+        "height": 24
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-right-dock",
+      "category": "shell",
+      "file": "shell-right-dock.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside[class*='border-l']",
+      "note": "inspector + layers, side-by-side",
+      "box": {
+        "x": 833,
+        "y": 46,
+        "width": 533,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-doc-tab",
+      "category": "shell",
+      "file": "shell-doc-tab.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[data-document-tab]",
+      "note": "active document tab",
+      "box": {
+        "x": 52,
+        "y": 46,
+        "width": 89.859375,
+        "height": 37
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-navigator",
+      "category": "shell",
+      "file": "shell-navigator.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-navigator-panel]",
+      "note": "navigator with zoom slider",
+      "box": {
+        "x": 1106,
+        "y": 611,
+        "width": 260,
+        "height": 185
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-canvas",
+      "category": "shell",
+      "file": "shell-canvas.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#canvas-container",
+      "note": "canvas viewport incl. checkerboard",
+      "box": {
+        "x": 52,
+        "y": 128,
+        "width": 781,
+        "height": 668
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell-swatches",
+      "category": "shell",
+      "file": "shell-swatches.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='size-[38px]']",
+      "note": "38px overlapping FG/BG swatch group",
+      "box": {
+        "x": 7,
+        "y": 742,
+        "width": 38,
+        "height": 38
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-disabled-no-doc",
+      "category": "shell",
+      "file": "rail-disabled-no-doc.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": false,
+      "selector": "aside",
+      "note": "opacity-50 grayscale — the state the port does NOT render; kept to prove it is unrecoverable",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 1,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chrome-hidden",
+      "category": "shell",
+      "file": "chrome-hidden.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": null,
+      "note": "chromeVisible(false) — rail/optionbar/dock/statusbar all hidden",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 820
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-file",
+      "category": "menu",
+      "file": "menu-file.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-file",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 58,
+        "y": 35.5,
+        "width": 224,
+        "height": 242
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-edit",
+      "category": "menu",
+      "file": "menu-edit.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-edit",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 99.875,
+        "y": 35.5,
+        "width": 224,
+        "height": 252
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-image",
+      "category": "menu",
+      "file": "menu-image.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-image",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 144,
+        "y": 35.5,
+        "width": 224,
+        "height": 38
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-layer",
+      "category": "menu",
+      "file": "menu-layer.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-layer",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 201.46875,
+        "y": 35.5,
+        "width": 224,
+        "height": 224
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-view",
+      "category": "menu",
+      "file": "menu-view.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-view",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 253.9375,
+        "y": 35.5,
+        "width": 224,
+        "height": 308
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-window",
+      "category": "menu",
+      "file": "menu-window.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-window",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 303.4375,
+        "y": 35.5,
+        "width": 224,
+        "height": 103
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-help",
+      "category": "menu",
+      "file": "menu-help.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-help",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 372.4375,
+        "y": 35.5,
+        "width": 224,
+        "height": 38
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-settings",
+      "category": "menu",
+      "file": "menu-settings.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-settings",
+      "note": "top-level menu open (portal to body)",
+      "box": {
+        "x": 421.203125,
+        "y": 35.5,
+        "width": 224,
+        "height": 38
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-file-hover-item",
+      "category": "menu",
+      "file": "menu-file-hover-item.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-file",
+      "note": "menu item hover + accelerator column",
+      "box": {
+        "x": 58,
+        "y": 35.5,
+        "width": 224,
+        "height": 242
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "menu-settings-hover-item",
+      "category": "menu",
+      "file": "menu-settings-hover-item.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "#app-menu-settings",
+      "note": "settings menu open, first item hovered",
+      "box": {
+        "x": 421.203125,
+        "y": 35.5,
+        "width": 224,
+        "height": 38
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-move",
+      "category": "optionbar",
+      "file": "option-move.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"move\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-selection",
+      "category": "optionbar",
+      "file": "option-selection.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"selection\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-crop",
+      "category": "optionbar",
+      "file": "option-crop.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"crop\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-eyedropper",
+      "category": "optionbar",
+      "file": "option-eyedropper.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"eyedropper\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-brush",
+      "category": "optionbar",
+      "file": "option-brush.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"brush\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-eraser",
+      "category": "optionbar",
+      "file": "option-eraser.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"eraser\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-paintBucket",
+      "category": "optionbar",
+      "file": "option-paintBucket.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"paintBucket\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-gradient",
+      "category": "optionbar",
+      "file": "option-gradient.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"gradient\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-shape",
+      "category": "optionbar",
+      "file": "option-shape.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"shape\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "option-text",
+      "category": "optionbar",
+      "file": "option-text.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "OptionBar for tool \"text\"",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dock-properties",
+      "category": "dock",
+      "file": "dock-properties.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside[class*='border-l']",
+      "note": "inspector → Properties (default)",
+      "box": {
+        "x": 833,
+        "y": 46,
+        "width": 533,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dock-adjustments",
+      "category": "dock",
+      "file": "dock-adjustments.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside[class*='border-l']",
+      "note": "inspector → Adjustments",
+      "box": {
+        "x": 833,
+        "y": 46,
+        "width": 533,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dock-presets",
+      "category": "dock",
+      "file": "dock-presets.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside[class*='border-l']",
+      "note": "inspector → Presets",
+      "box": {
+        "x": 833,
+        "y": 46,
+        "width": 533,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dock-history",
+      "category": "dock",
+      "file": "dock-history.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside[class*='border-l']",
+      "note": "layer dock → History",
+      "box": {
+        "x": 833,
+        "y": 46,
+        "width": 533,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dock-closed",
+      "category": "dock",
+      "file": "dock-closed.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": null,
+      "note": "dock closed — canvas and option bar reclaim the width",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 820
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-resize",
+      "category": "dialog",
+      "file": "dialog-resize.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-dialog-kind='resize-canvas']",
+      "note": "resize-canvas dialog",
+      "box": {
+        "x": 503,
+        "y": 277.5,
+        "width": 360,
+        "height": 265
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-export",
+      "category": "dialog",
+      "file": "dialog-export.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-dialog-kind='export']",
+      "note": "lazy() chunk — waits for the selector rather than a fixed sleep",
+      "box": {
+        "x": 503,
+        "y": 266.625,
+        "width": 360,
+        "height": 286.75
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-print",
+      "category": "dialog",
+      "file": "dialog-print.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-dialog-kind='print']",
+      "note": "lazy() chunk",
+      "box": {
+        "x": 163,
+        "y": 80,
+        "width": 1040,
+        "height": 660
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-new-document",
+      "category": "dialog",
+      "file": "dialog-new-document.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-dialog-kind='new-document']",
+      "note": "not on __photrezEditor — reached via the command bus",
+      "box": {
+        "x": 293,
+        "y": 161,
+        "width": 780,
+        "height": 498
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-settings",
+      "category": "dialog",
+      "file": "dialog-settings.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-dialog-kind='settings']",
+      "note": "settings dialog",
+      "box": {
+        "x": 473,
+        "y": 324.5,
+        "width": 420,
+        "height": 171
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-about",
+      "category": "dialog",
+      "file": "dialog-about.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-dialog-kind='about']",
+      "note": "about dialog",
+      "box": {
+        "x": 483,
+        "y": 262.5,
+        "width": 400,
+        "height": 295
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-color-picker",
+      "category": "dialog",
+      "file": "dialog-color-picker.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "[data-dialog-kind='color-picker']",
+      "note": "opens from the FG swatch, NOT from setColorPickerOpen (that only arms canvas-pick)",
+      "box": {
+        "x": 447,
+        "y": 261,
+        "width": 472,
+        "height": 298
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog-resize-full",
+      "category": "dialog",
+      "file": "dialog-resize-full.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": null,
+      "note": "viewport with modal — captures backdrop and dimming, which the element crop cannot",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 820
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toast-info",
+      "category": "toast",
+      "file": "toast-info.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[aria-live='polite']",
+      "note": "dismisses at 3500ms",
+      "box": {
+        "x": 1159.234375,
+        "y": 759.25,
+        "width": 182.765625,
+        "height": 36.75
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toast-warn",
+      "category": "toast",
+      "file": "toast-warn.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[aria-live='polite']",
+      "note": "warning toast (self-describing capture message)",
+      "box": {
+        "x": 1136.296875,
+        "y": 759.25,
+        "width": 205.703125,
+        "height": 36.75
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toast-error",
+      "category": "toast",
+      "file": "toast-error.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[aria-live='polite']",
+      "note": "role=alert; dismisses at 5000ms",
+      "box": {
+        "x": 1153.671875,
+        "y": 759.25,
+        "width": 188.328125,
+        "height": 36.75
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "toast-stacked",
+      "category": "toast",
+      "file": "toast-stacked.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[aria-live='polite']",
+      "note": "max 3 stacked — the cap the port must reproduce",
+      "box": {
+        "x": 1136.296875,
+        "y": 669.75,
+        "width": 205.703125,
+        "height": 126.25
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loading-overlay",
+      "category": "loading",
+      "file": "loading-overlay.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div.fixed[class*='top-[46px]']",
+      "note": "full overlay, z-50, bg-black/40",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 1366,
+        "height": 774
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loading-status",
+      "category": "loading",
+      "file": "loading-status.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "footer",
+      "note": "status-bar variant; progress bar appears when message matches N/N",
+      "box": {
+        "x": 0,
+        "y": 796,
+        "width": 1366,
+        "height": 24
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "empty-card",
+      "category": "empty",
+      "file": "empty-card.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": false,
+      "selector": "section[aria-label='Start workspace']",
+      "note": "welcome card, no document open",
+      "box": {
+        "x": 182.5,
+        "y": 245.25,
+        "width": 520,
+        "height": 351.5
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 1,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "empty-full",
+      "category": "empty",
+      "file": "empty-full.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": false,
+      "selector": null,
+      "note": "no document: rail disabled, no tabs, no option bar",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 820
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 1,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "empty-new-document",
+      "category": "empty",
+      "file": "empty-new-document.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": false,
+      "selector": "[data-dialog-kind='new-document']",
+      "note": "New Document button (nth=0 is Open Image — it opens the native file picker, avoid)",
+      "box": {
+        "x": 293,
+        "y": 161,
+        "width": 780,
+        "height": 498
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 1,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ctx-canvas",
+      "category": "context",
+      "file": "ctx-canvas.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[data-testid='canvas-context-menu']",
+      "note": "gated on a document and tool not in {brush,eraser}",
+      "box": {
+        "x": 442,
+        "y": 462,
+        "width": 210,
+        "height": 280
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ctx-brush",
+      "category": "context",
+      "file": "ctx-brush.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": null,
+      "note": "brush presets panel — no role/testid, so captured as a viewport shot",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 820
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ctx-layer",
+      "category": "context",
+      "file": "ctx-layer.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[data-testid='layer-context-menu']",
+      "note": "layer context menu (right-click on a layer row)",
+      "box": {
+        "x": 1152,
+        "y": 190,
+        "width": 210,
+        "height": 345
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ctx-export",
+      "category": "context",
+      "file": "ctx-export.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[role='menu']:not([id^='app-menu-'])",
+      "note": "Export ▾ dropdown in the tab bar",
+      "box": {
+        "x": 607,
+        "y": 82.5,
+        "width": 210,
+        "height": 131
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tooltip-rail-tool",
+      "category": "tooltip",
+      "file": "tooltip-rail-tool.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[role='tooltip']",
+      "note": "400ms delay + 100ms opacity transition",
+      "box": {
+        "x": 50,
+        "y": 58.75,
+        "width": 94.46875,
+        "height": 26.5
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tooltip-rail-variant-tool",
+      "category": "tooltip",
+      "file": "tooltip-rail-variant-tool.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[role='tooltip']",
+      "note": "includes the '(Right-click for options)' suffix",
+      "box": {
+        "x": 50,
+        "y": 96.75,
+        "width": 243.09375,
+        "height": 26.5
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tooltip-rail-swatch",
+      "category": "tooltip",
+      "file": "tooltip-rail-swatch.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[role='tooltip']",
+      "note": "placement=right",
+      "box": {
+        "x": 41.6875,
+        "y": 742.75,
+        "width": 104.359375,
+        "height": 26.5
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-hover-inactive",
+      "category": "rail",
+      "file": "rail-hover-inactive.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside",
+      "note": "hover an inactive tool: hover:bg-white/5",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-hover-active",
+      "category": "rail",
+      "file": "rail-hover-active.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside",
+      "note": "hover the already-active tool",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-press-tool",
+      "category": "rail",
+      "file": "rail-press-tool.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside",
+      "note": "pointer held down: active: variant",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-active-brush",
+      "category": "rail",
+      "file": "rail-active-brush.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside",
+      "note": "active-tool indicator on a different tool",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-hover-swatch",
+      "category": "rail",
+      "file": "rail-hover-swatch.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside",
+      "note": "group-hover reveals the swap button (scale-0→scale-100) and scales the swatch to 105%",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-press-swatch",
+      "category": "rail",
+      "file": "rail-press-swatch.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "aside",
+      "note": "colour swatch pressed state",
+      "box": {
+        "x": 0,
+        "y": 46,
+        "width": 52,
+        "height": 750
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rail-flyout",
+      "category": "rail",
+      "file": "rail-flyout.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='left-full']",
+      "note": "variant fly-out (right-click on selection) — sits outside the 52px rail box, so it is screenshotted directly. The OptionBar (`relative z-[100]`) paints OVER this fly-out (`z-50`): the overlap visible here is the app's real z-order, not a capture artefact — suppressed tooltips measure display:none/0x0, so nothing else is in that region. Stacking to preserve: fly-out z-50 under option bar z-100.",
+      "box": {
+        "x": 50,
+        "y": 92,
+        "width": 140,
+        "height": 67
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hover-doc-tab",
+      "category": "hover",
+      "file": "hover-doc-tab.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[data-document-tab]",
+      "note": "transition-all duration-75",
+      "box": {
+        "x": 52,
+        "y": 46,
+        "width": 89.859375,
+        "height": 37
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hover-layer-item",
+      "category": "hover",
+      "file": "hover-layer-item.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[data-layer-idx]",
+      "note": "action icons go opacity-0 → opacity-100 over 100ms",
+      "box": {
+        "x": 1106,
+        "y": 165,
+        "width": 254,
+        "height": 50
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hover-dock-tab",
+      "category": "hover",
+      "file": "hover-dock-tab.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "nav[aria-label='Layer dock tabs']",
+      "note": "dock tab row, first tab hovered",
+      "box": {
+        "x": 1106,
+        "y": 46,
+        "width": 118.734375,
+        "height": 37
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hover-option-button",
+      "category": "hover",
+      "file": "hover-option-button.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "More Options button hovered in the option bar",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "press-option-button",
+      "category": "hover",
+      "file": "press-option-button.png",
+      "ok": true,
+      "problems": [],
+      "needsDoc": true,
+      "selector": "div[class*='@container']",
+      "note": "More Options button pressed state",
+      "box": {
+        "x": 52,
+        "y": 84,
+        "width": 781,
+        "height": 44
+      },
+      "boxDrift": null,
+      "reason": null,
+      "expectedNoise": [
+        {
+          "category": "tauri-invoke-unavailable",
+          "count": 2,
+          "samples": [
+            "error: [PRINT:dialog] Fetch failed: TypeError: Cannot read properties of undefined (reading 'invoke')",
+            "warning: [canonical-seed] shadow seed failed TypeError: Cannot read properties of undefined (reading 'invoke')"
+          ]
+        }
+      ]
+    }
+  ]
+}

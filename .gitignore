@@ -55,6 +55,7 @@ test-results/
 # Images / binaries (README media excluded)
 *.png
 !media/*.png
+!crates/photrez/tests/baseline/**/*.png
 *.jpg
 *.jpeg
 !apps/desktop/src/assets/**/*
