@@ -36,6 +36,8 @@
 
 > ℹ️ **SmartScreen Notice:** The installer is currently not code-signed with a commercial certificate. If Windows SmartScreen displays a warning upon launch, click **"More info"** and then **"Run anyway"**.
 
+> You can still find the previous Tauri-based version at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy) - a frozen archive of the Tauri/SolidJS era.
+
 ---
 
 ## ✨ Key Features
