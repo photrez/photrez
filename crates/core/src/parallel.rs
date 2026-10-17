@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Parallel — SharedRing + rayon — 6 aspek, dipaksa semua biar 30 sel real
 use rayon::prelude::*;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
 
 pub fn batch_hit_test_parallel(points: &[[f64; 2]], rects: &[[f64; 4]]) -> Vec<u8> {
     points
@@ -76,56 +74,6 @@ pub fn composite_parallel(tiles: &[Vec<u8>]) -> Vec<u8> {
         offset += len;
     }
     out
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn bench_parallel_hit(n: usize, iters: usize) -> f64 {
-    let points: Vec<[f64; 2]> = (0..n)
-        .map(|i| [i as f64 % 2000.0, (i as f64 * 1.3) % 2000.0])
-        .collect();
-    let rects: Vec<[f64; 4]> = (0..500)
-        .map(|i| [i as f64 % 1000.0, 0.0, 10.0, 10.0])
-        .collect();
-    let t0 = js_sys::Date::now();
-    for _ in 0..iters {
-        let _ = batch_hit_test_parallel(&points, &rects);
-    }
-    js_sys::Date::now() - t0
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn bench_parallel_transform(n: usize, iters: usize) -> f64 {
-    let points: Vec<[f64; 2]> = (0..n)
-        .map(|i| [i as f64 % 2000.0, (i as f64 * 1.3) % 2000.0])
-        .collect();
-    let t0 = js_sys::Date::now();
-    for _ in 0..iters {
-        let _ = batch_transform_parallel(&points);
-    }
-    js_sys::Date::now() - t0
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn bench_parallel_snap(n: usize, iters: usize) -> f64 {
-    let points: Vec<[f64; 2]> = (0..n)
-        .map(|i| [i as f64 % 2000.0, (i as f64 * 1.3) % 2000.0])
-        .collect();
-    let targets: Vec<[f64; 2]> = (0..200).map(|i| [i as f64 % 1000.0, 0.0]).collect();
-    let t0 = js_sys::Date::now();
-    for _ in 0..iters {
-        let _ = batch_snap_parallel(&points, &targets);
-    }
-    js_sys::Date::now() - t0
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn bench_parallel_invert(len: usize, iters: usize) -> f64 {
-    let mut data = vec![0u8; len.min(1024 * 1024)]; // cap 1MB for bench speed
-    let t0 = js_sys::Date::now();
-    for _ in 0..iters {
-        invert_parallel(&mut data);
-    }
-    js_sys::Date::now() - t0
 }
 #[cfg(test)]
 mod tests {

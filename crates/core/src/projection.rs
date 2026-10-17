@@ -25,7 +25,7 @@ pub struct RenderSnapshot {
     // Additive: document size rides the snapshot so document-dimension commands
     // (Crop Canvas / Apply Crop / Resize Canvas) can surface the new canvas size
     // without a dedicated delta channel. Optional so pre-dims envelopes still
-    // parse; skip when the engine has no document size (e.g. an unseeded wasm
+    // parse; skip when the engine has no document size (e.g. an unseeded
     // engine running only layer arms).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<f64>,

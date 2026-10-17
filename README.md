@@ -127,15 +127,17 @@ Photrez is a lightweight desktop image editor for practical digital and print wo
 
 ## 🛠️ Developer Quick Start
 
+> **2026-10-17:** this source tree no longer builds the v0.1.0 desktop app — the
+> browser-side runtime was removed ahead of the native rewrite (see the roadmap
+> above). The v0.1.0 sources and build instructions live in the frozen archive
+> at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
+
 ```bash
 # 1. Clone repository & install dependencies
 bun install
 
-# 2. Launch application in desktop dev mode (v0.1.0 shell)
-bun run tauri dev
-
-# 3. Run complete verification gate (tests + build + audit)
-bun run verify
+# 2. Run the frontend unit suite (the JS suite this tree still runs)
+bun run --filter photrez-desktop test:unit
 ```
 
 ---

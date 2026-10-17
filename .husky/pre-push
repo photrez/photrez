@@ -3,28 +3,14 @@ echo "============================================="
 echo "   Running Pre-Push Verification Pipeline   "
 echo "============================================="
 
-# 1. Full build (catches vite / TS / bundler errors)
-echo ""
-echo "[1/3] Running Build..."
-bun run build || {
-  echo ""
-  echo "ERROR: Build failed!"
-  exit 1
-}
+# NOTE 2026-10-17: the build and component-test steps were removed with the
+# browser build pipeline — the component suite loads that build, and it can no
+# longer be produced in this tree. Both return with the native build.
 
-# 2. Component tests (jsdom) — mirrors the CI component-tests job
-echo ""
-echo "[2/4] Running Component Tests..."
-bun run --filter photrez-desktop test:component || {
-  echo ""
-  echo "ERROR: Component tests failed!"
-  exit 1
-}
-
-# 3. Rust format check — mirrors the CI Format check hard gate (this one is
+# 1. Rust format check — mirrors the CI Format check hard gate (this one is
 #    NOT covered by cargo check/build/test: rustfmt diff only shows on push).
 echo ""
-echo "[3/4] Running cargo fmt --check..."
+echo "[1/3] Running cargo fmt --check..."
 cargo fmt --check || {
   echo ""
   echo "ERROR: rustfmt diff detected. Run 'cargo fmt' and re-stage."
@@ -36,7 +22,7 @@ cargo fmt --check || {
 #    Ignored advisories match the CI job's list exactly (see .github/workflows/ci.yml):
 #    transitive-only, no patched version published yet, last reviewed 2026-10-15.
 echo ""
-echo "[4/4] Running bun audit (high/critical)..."
+echo "[2/3] Running bun audit (high/critical)..."
 bun audit --prod --audit-level=high \
   --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp \
   --ignore GHSA-vfj7-8cjw-p6xm --ignore GHSA-ch52-4w7c-c8xp || {
@@ -53,7 +39,7 @@ bun audit --prod --audit-level=high \
 #    CI `bun install --frozen-lockfile` step does not fail after a dependency
 #    change. If this fails, run `bun install` and re-stage bun.lock.
 echo ""
-echo "[5/5] Verifying bun.lock is in sync..."
+echo "[3/3] Verifying bun.lock is in sync..."
 bun install --frozen-lockfile || {
   echo ""
   echo "ERROR: bun.lock is out of sync with package.json."

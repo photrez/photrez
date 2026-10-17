@@ -17,23 +17,14 @@ permissions:
   contents: read
 
 jobs:
-  # ─── FRONTEND: TypeScript type-check + unit tests + build ───
-  # Multi-OS matrix per Tauri official CI template: the e2e suite runs a real
-  # Chromium (WebGL via SwiftShader on Linux, ANGLE on Windows, Metal on
-  # macOS) so platform-specific WebGL behavior is caught before release.
+  # ─── FRONTEND: unit tests (node) ───
+  # Narrowed 2026-10-17 alongside the browser build pipeline: type-check, lint,
+  # build and e2e all exercised the bundled browser engine this tree no longer
+  # builds; the multi-OS matrix existed for e2e's per-platform rendering. What
+  # remains is the OS-independent unit suite.
   frontend:
-    name: Frontend (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            playwright_cache: '~\AppData\Local\ms-playwright'
-          - os: ubuntu-latest
-            playwright_cache: '~/.cache/ms-playwright'
-          - os: macos-latest
-            playwright_cache: '~/Library/Caches/ms-playwright'
-    runs-on: ${{ matrix.os }}
+    name: Frontend
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -45,68 +36,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Rust toolchain (WASM target)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install wasm-pack
-        shell: bash
-        run: VERSION=0.15.0 curl -sSf https://wasm-bindgen.github.io/wasm-pack/installer/init.sh | sh
-
-      - name: Build WASM package
-        working-directory: apps/desktop
-        run: bun run build:wasm
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        with:
-          path: ${{ matrix.playwright_cache }}
-          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-
-      - name: Install Playwright browsers (Linux)
-        if: runner.os == 'Linux'
-        working-directory: apps/desktop
-        run: bunx playwright install chromium --with-deps
-
-      - name: Install Playwright browsers (macOS — adds WebKit for e2e)
-        if: runner.os == 'macOS'
-        working-directory: apps/desktop
-        run: bunx playwright install chromium webkit
-
-      - name: Install Playwright browsers
-        if: runner.os != 'Linux' && runner.os != 'macOS'
-        working-directory: apps/desktop
-        run: bunx playwright install chromium
-
-      - name: Type check
-        run: bun run type-check
-
-      - name: Lint
-        run: bun run lint
-
       - name: Unit tests (node — fast)
         run: bun run --filter photrez-desktop test:unit
-
-      - name: Build
-        run: bun run build
-
-      - name: E2E (Playwright)
-        run: bun run test:e2e
 
   # ─── RUST: core crate tests (representative + reliable on CI) ───
   # NOTE: `photrez-desktop` (Tauri binary) intentionally NOT tested here — its
   # full build needs a WebView2/windres toolchain that fails on GitHub runners
-  # (pre-existing). Binary compilation is covered by the
-  # release.yml workflow (tauri-action builds all three OS targets).
+  # (pre-existing). The release.yml workflow covered binary compilation before
+  # the browser build pipeline was removed; it resumes with the native build.
   # photrez-core is pure Rust (no WebView2), so the same tests run on all OSes
   # to catch platform-specific path/behavior drift.
   rust:
@@ -181,45 +118,9 @@ jobs:
         # the one in .husky/pre-push identical.
         run: bun audit --prod --audit-level=high --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp --ignore GHSA-vfj7-8cjw-p6xm --ignore GHSA-ch52-4w7c-c8xp
 
-  # ─── COMPONENT TESTS: jsdom-based (now passing — blocks PR) ───
-  component-tests:
-    name: Component tests (jsdom)
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.0"
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install Rust toolchain (WASM target)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install wasm-pack
-        shell: bash
-        run: VERSION=0.15.0 curl -sSf https://wasm-bindgen.github.io/wasm-pack/installer/init.sh | sh
-
-      - name: Build WASM package
-        working-directory: apps/desktop
-        run: bun run build:wasm
-
-      - name: Run component tests
-        working-directory: apps/desktop
-        run: bun run test:component
+  # ─── COMPONENT TESTS: cannot run in this tree (removed 2026-10-17) ───
+  # The jsdom component suite boots the bundled browser engine, which this
+  # tree no longer builds; it returns when a native component harness exists.
 
   # ─── CONTRIBUTIONS: public-artifact terminology guard ───
   # Machine-enforced rule: public artifacts (commit/PR messages and source) must

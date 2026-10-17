@@ -33,10 +33,6 @@ pub mod parallel;
 pub mod pixel_store;
 pub(crate) mod projection;
 pub mod protocol;
-// Bench-only exports (js_sys timers, no consumers since the zero-copy bench
-// harness was deleted). No native caller — wasm build keeps them.
-#[cfg(target_arch = "wasm32")]
-pub mod rkyv_bench;
 pub mod selection;
 pub mod snapshot;
 

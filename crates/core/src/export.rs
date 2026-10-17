@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
 
 // ── PNG decode offload (Rust-migration package: measured 1.8x vs browser) ────
 // R5 bench (2026-08-21): image-crate png path 145ms @4K vs Chrome
 // createImageBitmap 262ms. Decode-into-pinned-buffer shape: the file bytes
-// cross the boundary once; decoded RGBA stays in wasm memory for zero-copy
-// JS readout via rgba_buffer_view. Two-step (dimensions first) lets TS apply
+// cross the boundary once; decoded RGBA stays in memory for zero-copy
+// readout. Two-step (dimensions first) lets TS apply
 // its MAX_CANVAS_DIM guard BEFORE allocating pixel memory.
 
 /// Header-only dimension probe. Errors on invalid/truncated PNG.
-/// Errors are `String` (wasm-bindgen converts to JS Error; works in native
-/// tests where JsValue cannot be constructed).
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn png_dimensions_wasm(png_bytes: &[u8]) -> Result<DecodedImageMeta, String> {
+/// Errors are `String`.
+pub fn png_dimensions(png_bytes: &[u8]) -> Result<DecodedImageMeta, String> {
     let reader = image::ImageReader::new(Cursor::new(png_bytes))
         .with_guessed_format()
         .map_err(|e| format!("PNG read failed: {}", e))?;
@@ -28,19 +24,15 @@ pub fn png_dimensions_wasm(png_bytes: &[u8]) -> Result<DecodedImageMeta, String>
     })
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct DecodedImageMeta {
     width: u32,
     height: u32,
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl DecodedImageMeta {
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
     pub fn width(&self) -> u32 {
         self.width
     }
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
     pub fn height(&self) -> u32 {
         self.height
     }
@@ -48,7 +40,7 @@ impl DecodedImageMeta {
 
 /// Full decode of `png_bytes` into `dst` (must be >= width*height*4). Returns
 /// the decoded dimensions. Out-parameter shape keeps buffer ownership with the
-/// caller; the wasm bridge variant takes a registry buffer id instead.
+/// caller.
 pub fn decode_png_into(png_bytes: &[u8], dst: &mut [u8]) -> Result<DecodedImageMeta, String> {
     let img = image::load_from_memory_with_format(png_bytes, image::ImageFormat::Png)
         .map_err(|e| format!("PNG decode failed: {}", e))?;
@@ -62,15 +54,6 @@ pub fn decode_png_into(png_bytes: &[u8], dst: &mut [u8]) -> Result<DecodedImageM
     Ok(DecodedImageMeta { width, height })
 }
 
-/// Wasm bridge: decode `png_bytes` into the pinned RGBA buffer `buf_id`
-/// (must be >= width*height*4; allocate via alloc_rgba_buffer after probing
-/// dimensions). Returns the decoded dimensions.
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn decode_png_into_wasm(png_bytes: &[u8], buf_id: u32) -> Result<DecodedImageMeta, String> {
-    crate::kernel::with_buffer_mut(buf_id, |dst| decode_png_into(png_bytes, dst))
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ExportFormat {
     PNG,
@@ -79,27 +62,10 @@ pub enum ExportFormat {
     TIFF,
 }
 
-/// Encode a pre-composited RGBA buffer to a file format. Wasm bridge for the
-/// frontend (`wasmExport.ts` -> `exportDocument.ts`); the app composites
-/// layers on the GPU/CPU side and passes the final RGBA bytes here. Kept free
+/// Encode a pre-composited RGBA buffer to a file format. The caller composites
+/// layers and passes the final RGBA bytes here. Kept free
 /// of any `Document`/layer model so the core crate carries no inert state code.
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn encode_image_wasm(
-    width: u32,
-    height: u32,
-    rgba_bytes: &[u8],
-    format_str: &str,
-    quality: u8,
-) -> Result<Vec<u8>, JsValue> {
-    encode_image_inner(width, height, rgba_bytes, format_str, quality)
-        .map_err(|e| JsValue::from_str(&e))
-}
-
-/// Native counterpart of the wasm export: same encode path, `String` errors
-/// (no `JsValue` off-wasm).
-#[cfg(not(target_arch = "wasm32"))]
-pub fn encode_image_wasm(
+pub fn encode_image(
     width: u32,
     height: u32,
     rgba_bytes: &[u8],
@@ -189,7 +155,7 @@ fn encode_image_inner(
             // but produces large files and does not honor the quality slider.
             // The frontend therefore routes WebP to the browser Canvas
             // convertToBlob (lossy, quality-aware) via an early-return in
-            // wasmExport.ts; this Rust path is the lossless fallback and is kept
+            // the frontend export module; this Rust path is the lossless fallback and is kept
             // correct. See FEATURES.md WebP note (the earlier "~5 KB defect" was a
             // compressible test-fixture artifact, not data loss).
             img_buffer
@@ -242,7 +208,7 @@ mod benchmarks {
         // Existing supported formats via the production export entry point.
         for fmt in ["png", "jpeg", "webp"] {
             let t0 = std::time::Instant::now();
-            let out = encode_image_wasm(w, h, &px, fmt, 95).expect("encode");
+            let out = encode_image(w, h, &px, fmt, 95).expect("encode");
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
             println!(
                 "  {:<5}: {:7.2} ms  -> {} KB",
@@ -287,7 +253,7 @@ mod benchmarks {
         let w = 4000u32;
         let h = 3000u32;
         let px = pseudo_noise(w, h);
-        let out = encode_image_wasm(w, h, &px, "webp", 95).expect("webp encode");
+        let out = encode_image(w, h, &px, "webp", 95).expect("webp encode");
         // Lossless output of incompressible 4K must be large (MBs), not ~5 KB.
         assert!(
             out.len() > 5_000_000,
@@ -314,7 +280,7 @@ mod benchmarks {
         let h = 3000u32;
         let noise = pseudo_noise(w, h);
         let t0 = std::time::Instant::now();
-        let out = encode_image_wasm(w, h, &noise, "webp", 95).expect("webp encode");
+        let out = encode_image(w, h, &noise, "webp", 95).expect("webp encode");
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
         println!(
             "  WEBP[lossless, pseudo-noise 4K]: {:7.2} ms -> {} KB  (large = correct)",
@@ -324,7 +290,7 @@ mod benchmarks {
         // The original B1 fixture was a smooth ramp (i*7) — highly compressible,
         // hence the misleading 5 KB. Decode still round-trips exactly.
         let ramp: Vec<u8> = (0..noise.len()).map(|i| (i * 7) as u8).collect();
-        let ramp_out = encode_image_wasm(w, h, &ramp, "webp", 95).expect("webp encode");
+        let ramp_out = encode_image(w, h, &ramp, "webp", 95).expect("webp encode");
         println!(
             "  WEBP[lossless, ramp 4K]       : {} KB  (small because ramp compresses; NOT data loss)",
             ramp_out.len() / 1024
@@ -353,7 +319,7 @@ mod png_decode_tests {
 
     #[test]
     fn dimensions_probe_matches() {
-        let meta = png_dimensions_wasm(&tiny_png()).expect("dims");
+        let meta = png_dimensions(&tiny_png()).expect("dims");
         assert_eq!(meta.width(), 2);
         assert_eq!(meta.height(), 2);
     }
@@ -371,7 +337,7 @@ mod png_decode_tests {
 
     #[test]
     fn rejects_truncated_and_undersized_buffer() {
-        assert!(png_dimensions_wasm(b"not a png").is_err());
+        assert!(png_dimensions(b"not a png").is_err());
         let mut small = vec![0u8; 4]; // too small on purpose
         assert!(decode_png_into(&tiny_png(), &mut small).is_err());
     }

@@ -8,7 +8,7 @@ repository = "https://github.com/photrez/photrez"
 
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [features]
 # Test-only fixtures for the `.ptz` writer round-trip. Off by default so the
@@ -25,18 +25,4 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 uuid = { version = "1.7", features = ["v4", "js"] }
 rkyv = "0.8.18"
 rayon = "1.12.0"
-
-# Browser-only deps: consumed solely by the wasm build (`bun run build:wasm`,
-# wasm-pack target `web`) that the shipped webview app loads. A native build
-# must not pull them (sub-plan 28: de-wasm the canonical core).
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# JS boundary + typed-array views. Every call site is target-gated: exports use
-# `cfg_attr(target_arch = "wasm32", wasm_bindgen)` (keeping the plain fn alive
-# off-wasm) or a whole-item `#[cfg(target_arch = "wasm32")]` for wasm-only
-# surfaces (registry buffers, `Uint8Array`/`Float64Array` views).
-wasm-bindgen = "0.2"
-js-sys = "0.3"
-# Dev-only panic hook so wasm panics surface in the console (used by
-# `set_panic_hook`, compiled only in debug builds).
-console_error_panic_hook = "0.1"
 

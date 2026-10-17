@@ -173,7 +173,7 @@ impl DocumentCore {
             if layer.locked != Some(true) {
                 // NOTE: layer dims are Option<f64> on the render layer (absent
                 // for engine-minted layers); None is an unreachable-in-parity case
-                // (the wasm mirror always seeds width/height), so 0.0 keeps the
+                // (the native shadow always seeds width/height), so 0.0 keeps the
                 // center math finite rather than panicking on an unwrap.
                 let lw = layer.width.unwrap_or(0.0);
                 let lh = layer.height.unwrap_or(0.0);

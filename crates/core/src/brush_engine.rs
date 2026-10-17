@@ -3,21 +3,15 @@
 // machine ported 1:1 from apps/desktop/src/components/editor/brushTipMask.ts
 // (interpolateDabs + getBrushDabSpacing). f64 internals match JS Number
 // semantics so TS and Rust producers produce identical dab sequences.
-// Readout discipline: dab_view() returns a Float64Array view into wasm memory
-// that is only valid until the next begin()/update() call on this engine
-// (heap may grow on reallocation) - consume it immediately, never retain.
-#[cfg(target_arch = "wasm32")]
-use js_sys::Float64Array;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
+// Dabs are accumulated into an internal Vec<f64> (x0,y0,x1,y1,...) and cleared
+// on each update() call. update()/update_batch() return the count of x,y
+// pairs produced; the raw buffer is readable in-crate via `dab_slice`.
 
 /// spacing = max(1, round(size * 0.10)) - identical to getBrushDabSpacing.
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn brush_dab_spacing(size: f64) -> f64 {
     (size * 0.10).round().max(1.0)
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct BrushStrokeEngine {
     last_x: f64,
     last_y: f64,
@@ -27,9 +21,7 @@ pub struct BrushStrokeEngine {
     dabs: Vec<f64>, // x0,y0,x1,y1,... cleared per update
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl BrushStrokeEngine {
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
     pub fn new(size: f64) -> BrushStrokeEngine {
         BrushStrokeEngine {
             last_x: 0.0,
@@ -57,7 +49,7 @@ impl BrushStrokeEngine {
     }
 
     /// Feed one pointer move. Returns the number of dabs produced; read them
-    /// via dab_view() (2 * count f64s: x,y pairs). View dies on next call.
+    /// via dab_slice() (2 * count f64s: x,y pairs).
     pub fn update(&mut self, x: f64, y: f64) -> usize {
         self.dabs.clear();
         self.append_move(x, y)
@@ -65,8 +57,7 @@ impl BrushStrokeEngine {
 
     /// Batch feed (per-frame shape): moves is flat [x0,y0,x1,y1,...]. Clears
     /// the dab buffer once, appends across all moves; returns total dabs.
-    /// Read via dab_view() after the call. Amortizes the JS<->wasm boundary
-    /// to one crossing per frame instead of per pointer event.
+    /// Consumes one buffer per frame.
     pub fn update_batch(&mut self, moves: &[f64]) -> usize {
         self.dabs.clear();
         let mut total = 0;
@@ -105,14 +96,6 @@ impl BrushStrokeEngine {
         (self.dabs.len() - before) / 2
     }
 
-    /// Zero-copy view of the dabs from the most recent update(). Valid until
-    /// the next begin()/update() on this engine. Wasm-only: `Float64Array`
-    /// does not exist off-wasm32 (tests read `dab_slice` instead).
-    #[cfg(target_arch = "wasm32")]
-    pub fn dab_view(&self) -> Float64Array {
-        unsafe { Float64Array::view(&self.dabs) }
-    }
-
     pub fn carry(&self) -> f64 {
         self.carry
     }
@@ -121,7 +104,7 @@ impl BrushStrokeEngine {
         self.spacing
     }
 
-    /// Test-only direct access (js_sys views cannot be indexed off-wasm32).
+    /// Test-only direct access to the raw dab buffer.
     #[cfg(test)]
     pub(crate) fn dab_slice(&self) -> &[f64] {
         &self.dabs

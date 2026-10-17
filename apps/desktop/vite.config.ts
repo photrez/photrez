@@ -3,11 +3,10 @@ import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import solidPlugin from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
-import wasm from "vite-plugin-wasm";
 
 // Test-only: load the REAL Rust wasm via fs+initSync (vitest fetch cannot read
-// file: URLs). Alias applies inside vitest projects only; production keeps
-// the real pkg. See src/test/wasmTestShim.ts.
+// file: URLs). Alias applies inside vitest projects only.
+// See src/test/wasmTestShim.ts.
 const wasmTestShim = fileURLToPath(
   new URL("./src/test/wasmTestShim.ts", import.meta.url),
 );
@@ -75,7 +74,6 @@ export default defineConfig({
   plugins: [
     solidPlugin(process.env.VITEST ? { hot: false } : undefined),
     tailwindcss(),
-    wasm(),
   ],
 
   test: {

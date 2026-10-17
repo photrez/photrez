@@ -14,17 +14,19 @@ Thanks for helping improve Photrez! We welcome contributions that help make Phot
 
 This project uses **Bun** (`v1.4.0`) as its primary package manager and runtime.
 
+> **2026-10-17:** this source tree no longer builds the v0.1.0 desktop app — the
+> browser-side runtime was removed ahead of the native rewrite. The v0.1.0
+> sources and dev instructions live in the frozen archive at
+> [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
+
 ```bash
 bun install          # Install dependencies
-bun run tauri dev    # Launch desktop app in dev mode
-bun run verify       # Run full verification gate (tests + build)
 ```
 
 ### Focused Test Commands
 
 ```bash
-bun run --filter photrez-desktop test --run   # Frontend unit/component tests
-bun run build                                 # Frontend build verification
+bun run --filter photrez-desktop test:unit    # Frontend unit tests (node project)
 cargo test -p photrez-core                    # Rust core unit tests
 cargo test --workspace                       # All Rust crate tests
 ```

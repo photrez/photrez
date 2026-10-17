@@ -73,7 +73,7 @@ pub struct RenderLayer {
 /// The immutable per-layer metadata value held by the COW layer set. It is the
 /// same data as `RenderLayer` (kept under a distinct name so the structural-
 /// sharing set can carry `Arc<LayerMeta>` without conflating with the serde DTO
-/// that crosses the wasm front). Values are treated as immutable: editing a
+/// that crosses the engine/host boundary). Values are treated as immutable: editing a
 /// layer produces a NEW `LayerMeta` via COW, never an in-place mutation of a
 /// shared one (this mirrors the `StateNode`/`TileBlock` COW convention).
 pub type LayerMeta = RenderLayer;

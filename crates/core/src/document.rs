@@ -3,8 +3,6 @@
 
 use crate::selection::SelectionState;
 use serde::{Deserialize, Serialize};
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
 
 // Resource guards — parity with TS types.ts / layerOps applyAddLayer.
 const MAX_LAYERS: usize = 200;
@@ -103,14 +101,11 @@ pub struct DocumentModel {
     pub dirty: bool,
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct DocumentEngine {
     model: DocumentModel,
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl DocumentEngine {
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
     pub fn new(id: String, name: String, width: u32, height: u32) -> Self {
         let model = DocumentModel {
             id,

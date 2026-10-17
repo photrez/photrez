@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Protocol engine composition root: DocumentCore type, the `apply()` dispatch
-// entry, per-document engines, and the wasm-bindgen bridge. History/command/
+// entry, per-document engines, and the native bridge. History/command/
 // model/projection types live in their own modules (history.rs / command.rs /
 // model.rs / projection.rs).
 
@@ -14,8 +14,6 @@ use crate::projection::*;
 use crate::state_node::StateNode;
 use std::collections::HashSet;
 use std::sync::Arc;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
 // ── Engine ───────────────────────────────────────────────────────────────
 // HISTORY BOUNDARY: history/future store Vec<RenderLayer> METADATA snapshots only
 // (id/name/resourceId/transform/opacity). They do NOT store pixel buffers and must NOT be
@@ -61,8 +59,8 @@ pub struct DocumentCore {
     // the canvas arms, so each such entry snapshots it (see history.rs).
     pub(crate) doc_size: Option<(f64, f64)>,
     // Per-document canonical shadow, kept in sync with layer edits via
-    // reconciliation (see `CanonicalShadow`). `None` until seeded; wasm engines
-    // are never seeded and the native-authority path is OFF by default, so
+    // reconciliation (see `CanonicalShadow`). `None` until seeded; unseeded engines
+    // leave the native-authority path OFF by default, so
     // production stays byte-identical. `incomplete` flags engine-minted layers
     // whose canonical-only fields cannot be reconstructed until the next push.
     pub(crate) canonical: Option<CanonicalShadow>,
@@ -798,7 +796,7 @@ mod document_core_structural;
 #[path = "document_core_canvas.rs"]
 mod document_core_canvas;
 
-// ── wasm bridge — per-document engines (module lifetime, survives location.reload() until WASM re-instantiated) ──
+// ── bridge — per-document engines (module lifetime) ──
 // Each document id owns its own DocumentCore so multi-document sessions are
 // fully isolated: per-doc documentVersion, per-doc layer set, per-doc history.
 // A reserved "default" key routes every caller that does not supply a document
@@ -810,7 +808,7 @@ thread_local! {
 }
 // Normalizes a document id: empty/absent maps to the reserved "default" key so
 // callers that do not thread a document id keep the shared-engine behavior.
-#[allow(dead_code)] // native consumers arrive with the native app seam (sub-plan 50); wasm consumes via the JS exports
+#[allow(dead_code)] // native consumers arrive with the native app seam (sub-plan 50)
 fn resolve_doc_key(doc_id: &str) -> &str {
     if doc_id.is_empty() {
         "default"
@@ -819,20 +817,17 @@ fn resolve_doc_key(doc_id: &str) -> &str {
     }
 }
 #[allow(dead_code)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_contract_version() -> u32 {
     CONTRACT_VERSION
 }
 
 #[allow(dead_code)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_version(doc_id: &str) -> DocumentVersion {
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| m.borrow().get(&key).map(|e| e.version()).unwrap_or(0))
 }
 
 #[allow(dead_code)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_reset(doc_id: &str) {
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
@@ -840,16 +835,8 @@ pub fn protocol_reset(doc_id: &str) {
     });
 }
 
+/// Native counterpart: `String` errors.
 #[allow(dead_code)]
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn protocol_apply_command(envelope_json: &str, doc_id: &str) -> Result<String, JsValue> {
-    protocol_apply_command_inner(envelope_json, doc_id).map_err(|e| JsValue::from_str(&e))
-}
-
-/// Native counterpart of the wasm export: `String` errors (no `JsValue` off-wasm).
-#[allow(dead_code)]
-#[cfg(not(target_arch = "wasm32"))]
 pub fn protocol_apply_command(envelope_json: &str, doc_id: &str) -> Result<String, String> {
     protocol_apply_command_inner(envelope_json, doc_id)
 }
@@ -869,7 +856,6 @@ fn protocol_apply_command_inner(envelope_json: &str, doc_id: &str) -> Result<Str
 }
 
 #[allow(dead_code)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_snapshot_json(doc_id: &str) -> String {
     let key = resolve_doc_key(doc_id).to_string();
     let snap = ENGINES.with(|m| {
@@ -887,20 +873,12 @@ pub fn protocol_snapshot_json(doc_id: &str) -> String {
     serde_json::to_string(&snap).unwrap()
 }
 
-// ADDITIVE: seed the canonical shadow into a per-document wasm DocumentCore so
-// the selection arms (selectAll reads doc dims from the shadow) can be exercised
-// through the production bridge. Production defaults to `None` canonical, so this
-// is never called in the default path; it exists for the parity matrix harness.
+/// Seed the canonical shadow into a per-document DocumentCore so the
+/// selection arms (selectAll reads doc dims from the shadow) can be exercised
+/// through the production bridge. Production defaults to `None` canonical, so
+/// this is never called in the default path; it exists for the parity matrix
+/// harness. Native counterpart: `String` errors.
 #[allow(dead_code)]
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn protocol_seed_canonical(canonical_json: &str, doc_id: &str) -> Result<String, JsValue> {
-    protocol_seed_canonical_inner(canonical_json, doc_id).map_err(|e| JsValue::from_str(&e))
-}
-
-/// Native counterpart of the wasm export: `String` errors (no `JsValue` off-wasm).
-#[allow(dead_code)]
-#[cfg(not(target_arch = "wasm32"))]
 pub fn protocol_seed_canonical(canonical_json: &str, doc_id: &str) -> Result<String, String> {
     protocol_seed_canonical_inner(canonical_json, doc_id)
 }
@@ -920,7 +898,6 @@ fn protocol_seed_canonical_inner(canonical_json: &str, doc_id: &str) -> Result<S
 
 // ── H0: history stream exports ─────────────────────────────────
 #[allow(dead_code)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_register_payload_adapter(adapter_id: &str, doc_id: &str) {
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
@@ -932,7 +909,6 @@ pub fn protocol_register_payload_adapter(adapter_id: &str, doc_id: &str) {
 }
 
 #[allow(dead_code)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_history_query_json(doc_id: &str) -> String {
     let key = resolve_doc_key(doc_id).to_string();
     let q = ENGINES.with(|m| {
@@ -951,15 +927,6 @@ pub fn protocol_history_query_json(doc_id: &str) -> String {
 }
 
 #[allow(dead_code)]
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn protocol_history_cursor_commit(json: &str, doc_id: &str) -> Result<String, JsValue> {
-    protocol_history_cursor_commit_inner(json, doc_id).map_err(|e| JsValue::from_str(&e))
-}
-
-/// Native counterpart of the wasm export: `String` errors (no `JsValue` off-wasm).
-#[allow(dead_code)]
-#[cfg(not(target_arch = "wasm32"))]
 pub fn protocol_history_cursor_commit(json: &str, doc_id: &str) -> Result<String, String> {
     protocol_history_cursor_commit_inner(json, doc_id)
 }

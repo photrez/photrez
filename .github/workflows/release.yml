@@ -53,24 +53,15 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Rust toolchain (WASM target)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri -> target
 
-      - name: Install wasm-pack
-        shell: bash
-        run: VERSION=0.15.0 curl -sSf https://wasm-bindgen.github.io/wasm-pack/installer/init.sh | sh
-
-      - name: Build WASM package
-        working-directory: apps/desktop
-        run: bun run build:wasm
-
+      # NOTE 2026-10-17: this job packaged the v0.1.0 desktop app, whose
+      # bundled browser engine this tree no longer builds. Tag-triggered
+      # releases resume once the native build pipeline lands; until then this
+      # job cannot produce installers.
       - name: Build & publish with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:

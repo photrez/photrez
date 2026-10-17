@@ -9,10 +9,10 @@
 Photrez is a lightweight desktop image editor built for practical digital and print workflows.
 
 **MVP Runtime:** Tauri 2 (shell) + SolidJS/TypeScript (frontend) + TypeScript DocumentEngine (MVP document model; projected view when native routing is on, see Source of Truth) + **WebGL2** (renderer).
-**Future target:** Rust Core via WASM (photrez-core → wasm-pack) for hot-path compute (brush, transform, tile, encode) + WebGL2 remains the renderer. wgpu deferred until compute-shader features are required.
-**Revised 2026-08-18:** Interactive pixel compute now targets **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; **native Rust** retained for export encode (entropy coding is serial → CPU). WASM hot-path compute deferred. See GPU Compute Layer below.
+**Current direction (2026-10-17):** the Rust core (`photrez-core`) ships **native** — the browser-target build and the WebView runtime were removed, and the core crate compiles into the native app directly. Passages below that describe the WebView-era renderer are the frozen v0.1.0 reference, preserved until teardown.
+**Superseded 2026-10-17:** interactive pixel compute once targeted **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; that runtime was removed and the native CPU path now covers adjustments / fill / gradient (parity-proven). **Native Rust** handles export encode (entropy coding is serial → CPU). See GPU Compute Layer below.
 
-**Rust Engine SSOT — 2026-08-18:** A `photrez-core` `Engine` (wasm-bindgen) now owns a single layer's pixels + non-destructive adjustment state, renders in place, and uploads zero-copy (`rgba_buffer_view`) to WebGL2. It is wired as the CPU-tier bake backend in `bakeAdjustmentToBitmapGpu` when WebGPU is absent (behavior-preserving; falls back to TS on error). Live preview stays the GPU shader uniform. The still-gated next step is a Rust/WASM-owned WebGPU canvas inside the web view. Benchmarks and the decision record are internal project material.
+**Rust Engine SSOT — updated 2026-10-17 (originally 2026-08-18):** a `photrez-core` `Engine` owns a single layer's pixels + non-destructive adjustment state and renders in place — natively, with no binding layer. In the frozen v0.1.0 shell it was wired as the CPU-tier bake backend (`bakeAdjustmentToBitmapGpu`, behavior-preserving; falls back to TS on error). Live preview stayed the GPU shader uniform. The WebView-era wiring is reference material until teardown. Benchmarks and the decision record are internal project material.
 
 ---
 
@@ -21,9 +21,9 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 - **Phase**: Deep-sync & documentation hardening (2026-07-02). Bun migration, mojibake cleanup, print feature, keyboard shortcut expansion, window-state persistence, E2E grand-tour, and multi-cycle bug-fix passes completed.
  - **Core Crate**: `photrez-core` holds the document command engine (layer, transform, selection, adjustment, and history operations) plus the export encoder (PNG/JPEG/WebP via the `image` crate). Last measured run 2026-09-18: `cargo test -p photrez-core` 354 passed / 0 failed (5 ignored); `cargo test -p photrez-desktop` 114 passed / 0 failed. Native command routing is the unconditional production path; for routed operations the Rust engine holds the authoritative copy and the TypeScript `DocumentEngine` keeps a projected view of it.
 - **Renderer**: MVP rendering is **WebGL2** (`apps/desktop/src/renderer/webgl2.ts`). A standalone GPU crate was evaluated but removed from the workspace (a pre-existing Windows entry-point issue); the future rendering direction keeps WebGL2 and only reintroduces a GPU crate when compute shaders or advanced blend modes exceed WebGL2 capabilities.
-- **WASM Strategy (2026-06-30)**: `photrez-core` is the source for WASM compilation (`wasm-pack` target). Hot-path operations (brush mask, tile ops, transform math, color space, export encode) will be ported from TypeScript to Rust and exposed as zero-copy WASM modules — no Tauri IPC overhead.
+- **Core Strategy (2026-06-30; updated 2026-10-17)**: `photrez-core` is the home of hot-path operations (brush mask, tile ops, transform math, color space, export encode), ported from TypeScript to Rust. It compiles natively into the app; the browser-target build was removed 2026-10-17 (no IPC boundary either way).
 - **Frontend**: Full UI shell with multi-document workspace, document tabs, empty state, drag/drop, and all core editing interactions. Artboard renders via WebGL2 projection-matrix-driven camera viewport.
-- **Testing**: Verified gates are enforced via CI (frontend type-check + unit/component tests, Rust `cargo test`, and Playwright E2E). See `README.md` and `.github/workflows/ci.yml` for the current pipeline.
+- **Testing**: Verified gates are enforced via CI (frontend unit tests, Rust `cargo test` on three OSes, and the public-artifact terminology guard). The browser-side type-check, component, and E2E gates were removed together with the browser build pipeline; those suites stay archived with the frozen v0.1.0 source. See `.github/workflows/ci.yml` for the current pipeline.
 - **Recovery Reference** (historical): the pre-migration archive lives at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
 
 ---
@@ -37,10 +37,10 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 | Build Tool       | Vite 8                                                 |
 | Styling          | Tailwind CSS v4 (`@theme` based tokens)                |
 | Core Engine (MVP) | TypeScript `DocumentEngine` (`apps/desktop/src/engine/document.ts`) |
-| Core Engine (future) | Rust `photrez-core` compiled via WASM (wasm-pack) — zero-copy from TS, no IPC |
+| Core Engine | Rust `photrez-core`, compiled natively into the app — no IPC boundary |
 | GPU Renderer (MVP) | WebGL2 (`apps/desktop/src/renderer/webgl2.ts`)          |
 | GPU Renderer (future) | WebGL2 remains; wgpu deferred until compute-shader features required |
-| Compute (future hot-path) | **Browser WebGPU/WGSL** compute shaders for interactive pixel ops (invert/adjust/filter); **native Rust** for export encode; CPU fallback when WebGPU absent |
+| Compute (hot path) | **Native Rust CPU** — interactive pixel ops (invert/adjust/filter) and export encode; the browser WGSL arm was removed 2026-10-17 |
 | State (Backend)  | `tauri::State<'_, T>` + `Mutex` (Rust managed state)  |
 | State (Frontend) | SolidJS `createSignal` / `createStore`                 |
 | Package Manager  | Bun (monorepo workspace)                               |
@@ -68,10 +68,8 @@ SolidJS editor shell
         |      - compositing / preview
         |      - viewport readback where required
         |
-        +--> Browser WebGPU compute (future hot-path, WGSL)
-        |      - interactive pixel ops: invert, adjust, filter, flatten
-        |      - CPU fallback when navigator.gpu absent
-        |      - shaders in apps/desktop/src/lib/gpu/shaders/*.wgsl
+        +--> Native Rust (hot-path pixel ops: invert, adjust, filter, flatten)
+        |      - parity-tested in `photrez-core` (fill / gradient / adjustments)
         |
         +--> Native Rust (export encode, serial codec)
         |              - PNG/JPEG/WebP/TIFF via `image` crate
@@ -175,7 +173,7 @@ Note 2026-06-19: the diagram below is historical and retained only for ownership
 
 ## Data Flow
 
-### Hot Path (WASM / TypeScript — no IPC)
+### Hot Path (frozen v0.1.0 shell; the native core lives in `crates/core`)
 
 ```text
 1. User action (click/drag/shortcut) in SolidJS frontend
@@ -189,7 +187,7 @@ Note 2026-06-19: the diagram below is historical and retained only for ownership
    only as the replay payloads (history-panel rows, undo/redo counts, and the
    current-position highlight are read from protocol_history_query_native).
         ↓
-3. Future: WASM module called for compute-heavy ops:
+3. Compute-heavy ops — native in `crates/core` (the frozen shell called into TS here):
    - brushMask(radius, hardness, size)   → Uint8Array
    - splitIntoTiles(bitmap, tileSize)    → Tile[]
    - composeFromTiles(tiles, w, h)        → ImageBitmap
@@ -228,7 +226,7 @@ Note 2026-06-19: the diagram below is historical and retained only for ownership
 { "ok": false, "contract_version": "2.0.0", "error": { "code": "...", "message": "...", "details": null } }
 ```
 
-Detail lengkap: `docs/reference/command-contract-spec.md`. The current Tauri shell runtime exposes a small file-IO contract; most editor operations remain in the TypeScript MVP hot path (and future WASM compute hot path) and are not registered as Tauri commands.
+Detail lengkap: `docs/reference/command-contract-spec.md`. The frozen Tauri shell runtime exposes a small file-IO contract; most editor operations remain in the TypeScript hot path (the native core now owns compute) and are not registered as Tauri commands.
 
 ---
 
@@ -277,7 +275,7 @@ The file, print, font, cursor, and paint-helper commands registered alongside th
 
 ### Native dispatch surface
 
-Every document edit routes through `nativeProtocol.protocol_apply_command_native` (`bridge.ts` `applyCommand`, line 229). The bridge is native-dispatch only: the wasm-dispatch arms (`setProtocolWasm`, `isFacadeArmed`, `ensureFacadeReady`, `getContractVersion`, `resetWasmDoc`) are gone, and the retired `photrez.facade` / `photrez.facadeAuthority` opt-out pair has zero production reads — enforced by the census guard in `apps/desktop/src/lib/protocol/__tests__/flagRetirementCensus.test.ts`.
+Every document edit routes through `nativeProtocol.protocol_apply_command_native` (`bridge.ts` `applyCommand`, line 229). The bridge is native-dispatch only: the browser-dispatch arms (`setProtocolWasm`, `isFacadeArmed`, `ensureFacadeReady`, `getContractVersion`, `resetWasmDoc`) are gone, and the retired `photrez.facade` / `photrez.facadeAuthority` opt-out pair has zero production reads — enforced by the census guard in `apps/desktop/src/lib/protocol/__tests__/flagRetirementCensus.test.ts`.
 
 The TypeScript `DocumentEngine` keeps a projected view of the canonical Rust engine rather than a separate history. `bridge_emu.ts` carries only test-only instrumentation: `emulateGetHistoryQuery` (line 194) and `emulateHistoryCursorCommit` (line 227) are emulator seams whose headers state production dispatch is native-only, kept so parity suites can drive the emulator directly; `emulateApply` (line 312) stays reachable through `bridge.ts`'s `export * from "./bridge_emu"` (line 477, comment "It is test-only instrumentation now: production dispatches to the native engine above").
 
@@ -399,16 +397,16 @@ Measurements are recorded per run in `docs/frame-pacing-baseline.md` (binary, ma
 
 ---
 
-## GPU Compute Layer (2026-08-18)
+## GPU Compute Layer (2026-08-18 — frozen v0.1.0 era; superseded 2026-10-17)
 
 Interactive per-pixel compute (invert, adjustments, filters) runs on the **GPU via WebGPU compute shaders written in WGSL**. Layer flatten/transform are compositing (Canvas2D export + WebGL2 live preview) and are already GPU-backed — they are not WGSL compute ops. Brush stroke commit (`useBrushOverlay.commitBrushStroke`) composites dabs via Canvas2D `drawImage` (platform-GPU) + `createImageBitmap` — also already GPU-backed, not a WGSL candidate. **Scope delivered:** invert (G1) + adjustments B/C/S (G2) as WGSL; flatten/transform (G3) and brush (G4) evaluated N/A; **GPU/Rust optimization track closed** (no further WGSL/Rust win without benchmark proof). Evidence-backed rationale:
 
 - Browser WebGPU accepts **WGSL only** (Chrome 117 dropped SPIR-V ingestion); `rust-gpu` (SPIR-V) does not run directly in the Tauri WebView2. Hand-written WGSL is the correct "build-it-ourselves" form.
 - Benchmark on real AMD Radeon (Deno native WebGPU / wgpu→D3D12): invert 4K (12M px) = **GPU 3.73ms vs TS 21.49ms ≈ 5.9×, correct=true**; 3.73ms << 16.6ms frame budget → realtime/no-delay proven.
-- Image pixel ops are embarrassingly parallel → GPU territory. A naive `&[u8]→Vec<u8>` WASM port regressed to **0.56×** (copy-bound); zero-copy wasm reached only **0.98×** parity. GPU wins for interactive.
+- Image pixel ops are embarrassingly parallel → GPU territory. A naive `&[u8]→Vec<u8>` browser-module port regressed to **0.56×** (copy-bound); the zero-copy variant reached only **0.98×** parity. GPU wins for interactive.
 
 **Split:**
-- Interactive compute → WGSL GPU compute (realtime). CPU fallback retained when `navigator.gpu` is absent.
+- Interactive compute → WGSL GPU compute (realtime, CPU fallback included) in the frozen v0.1.0 browser runtime — removed 2026-10-17; the native CPU path now covers adjustments / fill / gradient (parity-proven).
 - Export → native Rust (`photrez-core` + `image` crate). The pixel-flatten/transform step may run on GPU; the **codec encode** (PNG/JPEG/WebP entropy coding) is serial and stays on CPU/native Rust for correctness + maturity.
 
 **Module:** `apps/desktop/src/lib/gpu/` — `GpuCompute` wrapper (WebGPU pipeline + CPU fallback), shaders in `shaders/*.wgsl` imported via Vite `?raw`.

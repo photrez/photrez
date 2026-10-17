@@ -246,18 +246,12 @@ impl CanonicalShadow {
 /// parses into a `CanonicalDocument` (the exact shape the TS builder
 /// `buildCanonicalDocumentPayload` emits). Returns an empty string on success or
 /// the serde error message on failure. Pure parse-check only - it performs no
-/// persistence and stores nothing. Shared by the wasm export and the native test.
+/// persistence and stores nothing. Shared by native callers and the native test.
 pub fn canonical_validate_payload(json: &str) -> String {
     match serde_json::from_str::<CanonicalDocument>(json) {
         Ok(_) => String::new(),
         Err(e) => e.to_string(),
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn canonical_validate_json(json: &str) -> String {
-    canonical_validate_payload(json)
 }
 
 #[cfg(test)]

@@ -43,27 +43,21 @@ fi
 # (scripts/public-stack-tokens.txt) is the single source of truth.
 sh scripts/check-public-terminology.sh --staleness || exit 1
 
-# 1. TypeScript type-check only (faster than full build)
-echo ""
-echo "[1/3] Running TypeScript Type Check..."
-bun run type-check || {
-  echo ""
-  echo "ERROR: TypeScript type check failed!"
-  exit 1
-}
+# (Type-check was removed with the browser build pipeline: tsc can no longer
+# resolve the removed browser module. It returns with the native build.)
 
-# 2. Frontend unit tests (node-only — fast, ~10s)
+# 1. Frontend unit tests (node-only — fast, ~10s)
 echo ""
-echo "[2/3] Running Frontend Unit Tests..."
+echo "[1/2] Running Frontend Unit Tests..."
 bun run --filter photrez-desktop test:unit || {
   echo ""
   echo "ERROR: Frontend unit tests failed!"
   exit 1
 }
 
-# 3. Rust core unit tests
+# 2. Rust core unit tests
 echo ""
-echo "[3/3] Running Rust Core Tests..."
+echo "[2/2] Running Rust Core Tests..."
 cargo test -p photrez-core || {
   echo ""
   echo "ERROR: Rust core tests failed!"
@@ -71,4 +65,4 @@ cargo test -p photrez-core || {
 }
 
 echo ""
-echo "Pre-commit checks passed. (Build + component tests run on pre-push.)"
+echo "Pre-commit checks passed. (Rust gates + audit run on pre-push.)"

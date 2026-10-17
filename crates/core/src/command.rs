@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Command wire types (ADR 0008 C1: version-stable envelope). These cross the
-// wasm boundary and must not change their serialized shape.
+// host/engine boundary and must not change their serialized shape.
 
 use crate::canonical_model::{
     BasicAdjustment, BlendMode, LayerType, SelectionState, ShapeParams, TextData,
