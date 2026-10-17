@@ -1,0 +1,5 @@
+# Golden fixtures are compared byte-for-byte by tests. Without a rule here, a
+# checkout with core.autocrlf=true (the Windows CI runner uses that default)
+# rewrites their line endings to CRLF and every such comparison fails there
+# while passing on machines that check out LF. Pin them to LF everywhere.
+apps/desktop/src/components/editor/__tests__/ptzWriterGolden.json text eol=lf
