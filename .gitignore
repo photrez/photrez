@@ -55,7 +55,6 @@ test-results/
 # Images / binaries (README media excluded)
 *.png
 !media/*.png
-!apps/landing/public/screenshots/*.png
 *.jpg
 *.jpeg
 !apps/desktop/src/assets/**/*
