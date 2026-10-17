@@ -1,0 +1,19 @@
+# Pinned to the gnu toolchain, and only for this crate.
+#
+# The repo root's rust-toolchain.toml says channel = "1.95.0", which on this
+# machine resolves to the msvc toolchain -- and msvc has no linker here. The
+# long-standing comment in the root Cargo.toml already records why:
+# "It also removes the only crate that needs the MSVC linker, which is absent
+# on this machine." That was true of the Tauri crate, and it is true of every
+# target here, because a plain "cargo run" from apps/gpui-spike used to die
+# with "linker link.exe not found" while the very same code built fine under
+# cargo +1.95.0-x86_64-pc-windows-gnu.
+#
+# rustup reads the nearest rust-toolchain.toml walking up from the working
+# directory, so this file wins for anything run inside apps/gpui-spike and
+# leaves the root's pinning for crates/core untouched.
+#
+# "targets" is deliberately absent: naming the target again would ask rustup
+# to make sure it is installed, and the toolchain name already implies it.
+[toolchain]
+channel = "1.95.0-x86_64-pc-windows-gnu"

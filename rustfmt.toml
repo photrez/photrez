@@ -1,0 +1,7 @@
+# Pinned so rustfmt's defaults cannot drift under the tree: without this file
+# a newer rustfmt release can reformat everything with no commit that asked
+# for it. `use_small_heuristics = "Default"` is the style the tree is already
+# formatted in (fn-call/chain width 60); flipping it to "Max" reformats ~11k
+# lines across `crates/core` alone, and flipping it to "Off" churns the rest.
+edition = "2021"
+use_small_heuristics = "Default"

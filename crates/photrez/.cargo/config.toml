@@ -1,0 +1,20 @@
+# The gnu toolchain is the one that links this target, but msys64's bin is not
+# on the machine PATH -- so a fresh target tree fails at "error calling
+# dlltool": the build script for windows-sys shells out to dlltool.exe and
+# finds nothing. Naming the linker by absolute path lets gcc locate its own
+# binutils instead.
+[target.x86_64-pc-windows-gnu]
+linker = "C:\\msys64\\mingw64\\bin\\gcc.exe"
+
+[build]
+# This crate is its own workspace root: keep its gnu gpui artefacts out of the
+# root `target/` that `crates/core` and the Tauri app share. The repo path is
+# space-free, so a local relative target dir is safe for dlltool.
+target-dir = "target"
+
+# --- the scripts section, the way package.json has one ------------------------
+[alias]
+# cargo dev -- build and run; dev.ps1 is the fuller loop (PATH + launch).
+dev = ["run"]
+# The gate before a capture -- what CI would run.
+verify = ["check", "--all-targets"]
