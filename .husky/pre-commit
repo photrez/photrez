@@ -32,11 +32,16 @@ fi
 # whenever the last message contained a banned term). The commit-msg hook gets
 # the new message file as $1 and runs the same shared check on it.
 
-# 0e. Public-artifact terminology guard — staged source
-if git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(ts|tsx|rs)$'; then
-  FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs)$' | tr '\n' ' ')
+# 0e. Public-artifact terminology guard — staged source + public markdown
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(ts|tsx|rs|md)$'; then
+  FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs|md)$' | tr '\n' ' ')
   sh scripts/check-public-terminology.sh --files "$FILES" || exit 1
 fi
+
+# 0f. Public stack-surface staleness — no tracked public surface may still
+# assert a runtime stack the tree no longer contains. The token list
+# (scripts/public-stack-tokens.txt) is the single source of truth.
+sh scripts/check-public-terminology.sh --staleness || exit 1
 
 # 1. TypeScript type-check only (faster than full build)
 echo ""

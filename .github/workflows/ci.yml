@@ -237,20 +237,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Scan changed source for internal terminology
+      - name: Scan changed source and public markdown for internal terminology
         shell: bash
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
           HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
-          # `|| true`: with no changed source files the filter exits 1, which
+          # `|| true`: with no changed files the filter exits 1, which
           # bash -o pipefail turns into a failed step before the skip branch
           # below can run. Docs-only and config-only commits must pass.
-          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(ts|tsx|rs)$' | tr '\n' ' ' || true)
+          # The script itself decides which `.md` paths are public set vs internal.
+          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(ts|tsx|rs|md)$' | tr '\n' ' ' || true)
           if [ -n "$FILES" ]; then
             sh scripts/check-public-terminology.sh --files "$FILES"
           else
             echo "No changed source files matched; terminology scan skipped."
           fi
+
+      - name: Scan public stack surfaces for staleness
+        shell: bash
+        run: sh scripts/check-public-terminology.sh --staleness
 
       - name: Check PR title for internal terminology
         if: github.event_name == 'pull_request'

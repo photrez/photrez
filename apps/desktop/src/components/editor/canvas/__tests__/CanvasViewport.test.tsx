@@ -1371,7 +1371,7 @@ describe("Crop re-entry syncs preview with option bar values", () => {
   });
 });
 
-describe("Phase 3 Tool Switch Contracts (Move, Selection, Brush, Transform)", () => {
+describe("Tool Switch Contracts (Move, Selection, Brush, Transform)", () => {
   let ws: WorkspaceManager;
   let renderer: any;
   let scheduler: any;

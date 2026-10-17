@@ -119,7 +119,7 @@ components:
 
 ## 1. Overview
 
-**Creative North Star: "Precision Workbench"**
+**Creative Direction: "Precision Workbench"**
 
 Photrez should feel like a finely made instrument sitting on a Windows desktop: compact, immediate, and mechanically predictable. The interface is dark because image work benefits from a quiet surround, but it is not theatrical. Neutral surfaces recede so the canvas, pixels, guides, and active controls remain visually authoritative.
 

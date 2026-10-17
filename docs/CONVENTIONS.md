@@ -135,12 +135,12 @@ const result = await invoke("my_command", { param: "value" });
 // ❌ FORBIDDEN — no Node.js APIs in Tauri
 import fs from "fs";         // DOES NOT EXIST
 import path from "path";     // DOES NOT EXIST
-require("electron");         // DOES NOT EXIST
+require("fs");                // DOES NOT EXIST
 ```
 
-### Tauri vs Electron Key Differences
+### Desktop Shell API Differences
 
-| Aspect           | Tauri 2                              | Electron (DO NOT USE)                  |
+| Aspect           | Tauri 2 (this app)                   | Patterns to avoid                      |
 |------------------|--------------------------------------|----------------------------------------|
 | Backend          | Rust native                          | Node.js                               |
 | IPC              | `invoke()` → `#[tauri::command]`     | `ipcRenderer` → `ipcMain`             |
@@ -295,7 +295,7 @@ When user switches from tool A to tool B, tool A **must**:
 - Clear session-specific state (e.g., `layerTransformSession`, `modernCropFrame`)
 - Restore default cursor
 
-Test pattern: see `CanvasViewport.test.tsx` §"Phase 3 Tool Switch Contracts" for 4 round-trip test examples.
+Test pattern: see `CanvasViewport.test.tsx` §"Tool Switch Contracts" for 4 round-trip test examples.
 
 ---
 
@@ -305,7 +305,7 @@ These directories and file patterns are in `.gitignore` and cover internal/dev-o
 
 | Category | Ignored paths |
 |---|---|
-| Plans & archive | `docs/plans/`, `docs/archive/` |
+| Plans & archive | internal planning + `docs/archive/` |
 | Decision logs | `docs/decisions/` |
 | Risk registers | `docs/risk-registers/` |
 | Audit reports | `docs/*AUDIT_REPORT.md`, `docs/DEEP_PROJECT_REVIEW.md` |

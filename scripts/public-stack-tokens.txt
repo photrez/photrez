@@ -1,0 +1,60 @@
+# Public stack-surface token list for scripts/check-public-terminology.sh --staleness.
+# Single source of truth: referenced by path from .husky/pre-commit and the
+# "contributions" CI job. If a workflow disagrees with this file, this file wins.
+#
+# Format (TAB-separated records; '#' lines are comments):
+#   !present <stack> <command>   exit 0 => the stack is still in the tree
+#   <token> <globs> <mode>       globs = space-separated git pathspecs
+# mode:
+#   forbidden-when-absent:<stack>  a hit reds once <stack> has left the tree
+#   allowlist                      dated/historical file; exempt + reason above it
+#   url-only                       allowed inside a URL (a citation needs its
+#                                  address); red in prose or in a link label
+#
+# Tokens are grep -E patterns, matched case-insensitively, word-start anchored.
+# Badge tokens: README keeps the Tauri-v2 / SolidJS / WebGL-2.0 stack badges while
+# v0.1.0 is the shipped release and the badge annotations scope them; they flip in
+# the same commit that ships a native release. The forbidden-when-absent rules
+# below enforce exactly that - while the stack is present the badges pass, and the
+# moment the runtime is gone every remaining stack claim reds.
+# Brand tokens (product names of other editors) deliberately do NOT live here:
+# that list is untracked (.husky/internal-blocklist), so a public file cannot be
+# scanned for it. A tracked file that ever needs to cite a brand may use the
+# url-only mode declared above - citations need their addresses.
+
+!present	tauri	git grep -q -F 'tauri' -- apps/desktop/src-tauri/Cargo.toml
+!present	solid	git grep -q -F 'solid-js' -- apps/desktop/package.json
+!present	vite	git grep -q -E '\bvite\b' -- apps/desktop/package.json
+!present	wasm	git grep -q -F 'wasm' -- apps/desktop/package.json
+!present	webgl	git grep -q -F 'WebGL2' -- apps/desktop/src/renderer/
+
+# --- Tauri-era runtime tokens (present while the v0.1.0 shell ships) -----------
+
+# allowlist: released-release history is dated and never rewritten.
+tauri	CHANGELOG.md	allowlist
+# allowlist: dated performance measurement record (append-only).
+tauri	docs/frame-pacing-baseline.md	allowlist
+tauri	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ apps/desktop/src/components/editor/dialogs/AboutDialog.tsx	forbidden-when-absent:tauri
+
+# allowlist: released-release history is dated and never rewritten.
+solid	CHANGELOG.md	allowlist
+solid	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ apps/desktop/src/components/editor/dialogs/AboutDialog.tsx	forbidden-when-absent:solid
+
+# allowlist: released-release history is dated and never rewritten.
+vite	CHANGELOG.md	allowlist
+vite	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ apps/desktop/src/components/editor/dialogs/AboutDialog.tsx	forbidden-when-absent:vite
+
+# allowlist: released-release history is dated and never rewritten.
+wasm	CHANGELOG.md	allowlist
+wasm	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ apps/desktop/src/components/editor/dialogs/AboutDialog.tsx	forbidden-when-absent:wasm
+
+# allowlist: released-release history is dated and never rewritten.
+webview	CHANGELOG.md	allowlist
+# allowlist: dated performance measurement record (append-only).
+webview	docs/frame-pacing-baseline.md	allowlist
+# WebView2 is the Tauri shell's runtime: the surface claim outlives tauri only by mistake.
+webview	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ apps/desktop/src/components/editor/dialogs/AboutDialog.tsx	forbidden-when-absent:tauri
+
+# allowlist: released-release history is dated and never rewritten.
+webgl	CHANGELOG.md	allowlist
+webgl	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ apps/desktop/src/components/editor/dialogs/AboutDialog.tsx	forbidden-when-absent:webgl
