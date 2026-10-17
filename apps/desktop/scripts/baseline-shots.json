@@ -1,0 +1,520 @@
+[
+  {
+    "id": "shell-full-page",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": null,
+    "note": "whole app, document open — top-level reference"
+  },
+  {
+    "id": "shell-titlebar",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "header",
+    "note": "46px title bar: menus, doc title, undo/redo, window controls"
+  },
+  {
+    "id": "shell-menubar",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "nav[aria-label='Application menu']",
+    "note": "8 top-level menu triggers, closed"
+  },
+  {
+    "id": "shell-left-tool-rail",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "aside",
+    "note": "the 52px tool rail"
+  },
+  {
+    "id": "shell-option-bar",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "44px option bar, move tool"
+  },
+  {
+    "id": "shell-status-bar",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "footer",
+    "note": "24px status bar"
+  },
+  {
+    "id": "shell-right-dock",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "aside[class*='border-l']",
+    "note": "inspector + layers, side-by-side"
+  },
+  {
+    "id": "shell-doc-tab",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "div[data-document-tab]",
+    "note": "active document tab"
+  },
+  {
+    "id": "shell-navigator",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "[data-navigator-panel]",
+    "note": "navigator with zoom slider"
+  },
+  {
+    "id": "shell-canvas",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "#canvas-container",
+    "note": "canvas viewport incl. checkerboard"
+  },
+  {
+    "id": "shell-swatches",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": "div[class*='size-[38px]']",
+    "note": "38px overlapping FG/BG swatch group"
+  },
+  {
+    "id": "rail-disabled-no-doc",
+    "category": "shell",
+    "needsDoc": false,
+    "selector": "aside",
+    "note": "opacity-50 grayscale — the state the port does NOT render; kept to prove it is unrecoverable"
+  },
+  {
+    "id": "chrome-hidden",
+    "category": "shell",
+    "needsDoc": true,
+    "selector": null,
+    "note": "chromeVisible(false) — rail/optionbar/dock/statusbar all hidden"
+  },
+  {
+    "id": "menu-file",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-file",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-edit",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-edit",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-image",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-image",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-layer",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-layer",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-view",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-view",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-window",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-window",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-help",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-help",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-settings",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-settings",
+    "note": "top-level menu open (portal to body)"
+  },
+  {
+    "id": "menu-file-hover-item",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-file",
+    "note": "menu item hover + accelerator column"
+  },
+  {
+    "id": "menu-settings-hover-item",
+    "category": "menu",
+    "needsDoc": true,
+    "selector": "#app-menu-settings",
+    "note": "settings menu open, first item hovered"
+  },
+  {
+    "id": "option-move",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"move\""
+  },
+  {
+    "id": "option-selection",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"selection\""
+  },
+  {
+    "id": "option-crop",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"crop\""
+  },
+  {
+    "id": "option-eyedropper",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"eyedropper\""
+  },
+  {
+    "id": "option-brush",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"brush\""
+  },
+  {
+    "id": "option-eraser",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"eraser\""
+  },
+  {
+    "id": "option-paintBucket",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"paintBucket\""
+  },
+  {
+    "id": "option-gradient",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"gradient\""
+  },
+  {
+    "id": "option-shape",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"shape\""
+  },
+  {
+    "id": "option-text",
+    "category": "optionbar",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "OptionBar for tool \"text\""
+  },
+  {
+    "id": "dock-properties",
+    "category": "dock",
+    "needsDoc": true,
+    "selector": "aside[class*='border-l']",
+    "note": "inspector → Properties (default)"
+  },
+  {
+    "id": "dock-adjustments",
+    "category": "dock",
+    "needsDoc": true,
+    "selector": "aside[class*='border-l']",
+    "note": "inspector → Adjustments"
+  },
+  {
+    "id": "dock-presets",
+    "category": "dock",
+    "needsDoc": true,
+    "selector": "aside[class*='border-l']",
+    "note": "inspector → Presets"
+  },
+  {
+    "id": "dock-history",
+    "category": "dock",
+    "needsDoc": true,
+    "selector": "aside[class*='border-l']",
+    "note": "layer dock → History"
+  },
+  {
+    "id": "dock-closed",
+    "category": "dock",
+    "needsDoc": true,
+    "selector": null,
+    "note": "dock closed — canvas and option bar reclaim the width"
+  },
+  {
+    "id": "dialog-resize",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": "[data-dialog-kind='resize-canvas']",
+    "note": "resize-canvas dialog"
+  },
+  {
+    "id": "dialog-export",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": "[data-dialog-kind='export']",
+    "note": "lazy() chunk — waits for the selector rather than a fixed sleep"
+  },
+  {
+    "id": "dialog-print",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": "[data-dialog-kind='print']",
+    "note": "lazy() chunk"
+  },
+  {
+    "id": "dialog-new-document",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": "[data-dialog-kind='new-document']",
+    "note": "not on __photrezEditor — reached via the command bus"
+  },
+  {
+    "id": "dialog-settings",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": "[data-dialog-kind='settings']",
+    "note": "settings dialog"
+  },
+  {
+    "id": "dialog-about",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": "[data-dialog-kind='about']",
+    "note": "about dialog"
+  },
+  {
+    "id": "dialog-color-picker",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": "[data-dialog-kind='color-picker']",
+    "note": "opens from the FG swatch, NOT from setColorPickerOpen (that only arms canvas-pick)"
+  },
+  {
+    "id": "dialog-resize-full",
+    "category": "dialog",
+    "needsDoc": true,
+    "selector": null,
+    "note": "viewport with modal — captures backdrop and dimming, which the element crop cannot"
+  },
+  {
+    "id": "toast-info",
+    "category": "toast",
+    "needsDoc": true,
+    "selector": "div[aria-live='polite']",
+    "note": "dismisses at 3500ms"
+  },
+  {
+    "id": "toast-warn",
+    "category": "toast",
+    "needsDoc": true,
+    "selector": "div[aria-live='polite']",
+    "note": "warning toast (self-describing capture message)"
+  },
+  {
+    "id": "toast-error",
+    "category": "toast",
+    "needsDoc": true,
+    "selector": "div[aria-live='polite']",
+    "note": "role=alert; dismisses at 5000ms"
+  },
+  {
+    "id": "toast-stacked",
+    "category": "toast",
+    "needsDoc": true,
+    "selector": "div[aria-live='polite']",
+    "note": "max 3 stacked — the cap the port must reproduce"
+  },
+  {
+    "id": "loading-overlay",
+    "category": "loading",
+    "needsDoc": true,
+    "selector": "div.fixed[class*='top-[46px]']",
+    "note": "full overlay, z-50, bg-black/40"
+  },
+  {
+    "id": "loading-status",
+    "category": "loading",
+    "needsDoc": true,
+    "selector": "footer",
+    "note": "status-bar variant; progress bar appears when message matches N/N"
+  },
+  {
+    "id": "empty-card",
+    "category": "empty",
+    "needsDoc": false,
+    "selector": "section[aria-label='Start workspace']",
+    "note": "welcome card, no document open"
+  },
+  {
+    "id": "empty-full",
+    "category": "empty",
+    "needsDoc": false,
+    "selector": null,
+    "note": "no document: rail disabled, no tabs, no option bar"
+  },
+  {
+    "id": "empty-new-document",
+    "category": "empty",
+    "needsDoc": false,
+    "selector": "[data-dialog-kind='new-document']",
+    "note": "New Document button (nth=0 is Open Image — it opens the native file picker, avoid)"
+  },
+  {
+    "id": "ctx-canvas",
+    "category": "context",
+    "needsDoc": true,
+    "selector": "div[data-testid='canvas-context-menu']",
+    "note": "gated on a document and tool not in {brush,eraser}"
+  },
+  {
+    "id": "ctx-brush",
+    "category": "context",
+    "needsDoc": true,
+    "selector": null,
+    "note": "brush presets panel — no role/testid, so captured as a viewport shot"
+  },
+  {
+    "id": "ctx-layer",
+    "category": "context",
+    "needsDoc": true,
+    "selector": "div[data-testid='layer-context-menu']",
+    "note": "layer context menu (right-click on a layer row)"
+  },
+  {
+    "id": "ctx-export",
+    "category": "context",
+    "needsDoc": true,
+    "selector": "div[role='menu']:not([id^='app-menu-'])",
+    "note": "Export ▾ dropdown in the tab bar"
+  },
+  {
+    "id": "tooltip-rail-tool",
+    "category": "tooltip",
+    "needsDoc": true,
+    "selector": "div[role='tooltip']",
+    "note": "400ms delay + 100ms opacity transition"
+  },
+  {
+    "id": "tooltip-rail-variant-tool",
+    "category": "tooltip",
+    "needsDoc": true,
+    "selector": "div[role='tooltip']",
+    "note": "includes the '(Right-click for options)' suffix"
+  },
+  {
+    "id": "tooltip-rail-swatch",
+    "category": "tooltip",
+    "needsDoc": true,
+    "selector": "div[role='tooltip']",
+    "note": "placement=right"
+  },
+  {
+    "id": "rail-hover-inactive",
+    "category": "rail",
+    "needsDoc": true,
+    "selector": "aside",
+    "note": "hover an inactive tool: hover:bg-white/5"
+  },
+  {
+    "id": "rail-hover-active",
+    "category": "rail",
+    "needsDoc": true,
+    "selector": "aside",
+    "note": "hover the already-active tool"
+  },
+  {
+    "id": "rail-press-tool",
+    "category": "rail",
+    "needsDoc": true,
+    "selector": "aside",
+    "note": "pointer held down: active: variant"
+  },
+  {
+    "id": "rail-active-brush",
+    "category": "rail",
+    "needsDoc": true,
+    "selector": "aside",
+    "note": "active-tool indicator on a different tool"
+  },
+  {
+    "id": "rail-hover-swatch",
+    "category": "rail",
+    "needsDoc": true,
+    "selector": "aside",
+    "note": "group-hover reveals the swap button (scale-0→scale-100) and scales the swatch to 105%"
+  },
+  {
+    "id": "rail-press-swatch",
+    "category": "rail",
+    "needsDoc": true,
+    "selector": "aside",
+    "note": "colour swatch pressed state"
+  },
+  {
+    "id": "rail-flyout",
+    "category": "rail",
+    "needsDoc": true,
+    "selector": "div[class*='left-full']",
+    "note": "variant fly-out (right-click on selection) — sits outside the 52px rail box, so it is screenshotted directly. The OptionBar (`relative z-[100]`) paints OVER this fly-out (`z-50`): the overlap visible here is the app's real z-order, not a capture artefact — suppressed tooltips measure display:none/0x0, so nothing else is in that region. Stacking to preserve: fly-out z-50 under option bar z-100."
+  },
+  {
+    "id": "hover-doc-tab",
+    "category": "hover",
+    "needsDoc": true,
+    "selector": "div[data-document-tab]",
+    "note": "transition-all duration-75"
+  },
+  {
+    "id": "hover-layer-item",
+    "category": "hover",
+    "needsDoc": true,
+    "selector": "div[data-layer-idx]",
+    "note": "action icons go opacity-0 → opacity-100 over 100ms"
+  },
+  {
+    "id": "hover-dock-tab",
+    "category": "hover",
+    "needsDoc": true,
+    "selector": "nav[aria-label='Layer dock tabs']",
+    "note": "dock tab row, first tab hovered"
+  },
+  {
+    "id": "hover-option-button",
+    "category": "hover",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "More Options button hovered in the option bar"
+  },
+  {
+    "id": "press-option-button",
+    "category": "hover",
+    "needsDoc": true,
+    "selector": "div[class*='@container']",
+    "note": "More Options button pressed state"
+  }
+]
