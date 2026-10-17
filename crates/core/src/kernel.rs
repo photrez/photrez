@@ -5,10 +5,15 @@
 // scalar kernel. Phase 3 (floodFill) and Phase 4 (gradientFill,
 // adjustments-bake) follow the same pattern; `+simd128` is enabled via
 // `.cargo/config.toml` for later SIMD variants.
+#[cfg(target_arch = "wasm32")]
 use js_sys::Uint8Array;
+#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
+#[cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
+#[cfg(target_arch = "wasm32")]
 use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 // Dev-only panic hook so wasm panics surface in the browser console. Release
@@ -171,7 +176,7 @@ fn flood_fill_impl(
 /// kernel, returns the filled copy (same buffer-out contract as the other pointwise kernels).
 /// scalar queue BFS; SIMD not applicable to 4-connected flood.
 #[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn flood_fill_wasm(
     buffer: &[u8],
     width: u32,
@@ -335,7 +340,7 @@ fn gradient_fill_impl(
 }
 
 #[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn gradient_fill_wasm(
     buffer: &[u8],
     width: u32,
@@ -429,7 +434,12 @@ fn to_u8_clamp(v: f64) -> u8 {
 /// Pure per-pixel basic adjustment. `brightness/contrast/saturation` are in
 /// [-100, 100]; out-of-range values are clamped like the TS `normalizeBasicAdjustment`.
 /// private — tests live in-module.
-fn apply_basic_adjustment_impl(data: &mut [u8], brightness: f64, contrast: f64, saturation: f64) {
+pub(crate) fn apply_basic_adjustment_impl(
+    data: &mut [u8],
+    brightness: f64,
+    contrast: f64,
+    saturation: f64,
+) {
     let b = brightness.clamp(-100.0, 100.0);
     let c = contrast.clamp(-100.0, 100.0);
     let s = saturation.clamp(-100.0, 100.0);
@@ -466,7 +476,7 @@ fn apply_basic_adjustment_impl(data: &mut [u8], brightness: f64, contrast: f64, 
     }
 }
 
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn apply_basic_adjustment_wasm(
     buffer: &[u8],
     brightness: f64,
@@ -485,7 +495,7 @@ pub fn apply_basic_adjustment_wasm(
 /// R2: bounding box of non-transparent pixels (alpha > 0).
 /// Returns [min_x, min_y, max_x, max_y] (inclusive), or empty when the image is
 /// fully transparent. Mirrors SelectionOperations.trimTransparent's scan.
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn trim_bbox_wasm(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
     let w = width as usize;
     let total = w.saturating_mul(height as usize);
@@ -522,7 +532,7 @@ pub fn trim_bbox_wasm(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
 /// mask with saturating accumulation `cur + (255-cur)*a`. Mirrors
 /// brushTipMask.stampBrushTip exactly (same bounds/clamp semantics).
 #[allow(clippy::too_many_arguments)] // wasm export boundary keeps flat args for the JS call site
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn brush_stamp_wasm(
     mask: &mut [u8],
     mask_width: u32,
@@ -647,7 +657,7 @@ fn stamp_into(
 
 /// R3: straight-alpha-over composite of a paint mask into an RGBA buffer,
 /// restricted to a dirty rect. Mirrors brushTipMask.compositeMaskToImageDataDirty.
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[allow(clippy::too_many_arguments)]
 pub fn composite_mask_wasm(
     dst: &mut [u8],
@@ -738,6 +748,7 @@ fn compose_over(
 // repeated calls touch data in place — the fair comparison shape.
 
 /// R2 zero-copy: bbox of alpha>0 pixels for buffer `id`.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn trim_bbox_buffer(id: u32, width: u32, height: u32) -> Vec<u32> {
     let px = BUFFERS.with(|b| b.borrow().get(&id).cloned().expect("invalid buffer id"));
@@ -745,6 +756,7 @@ pub fn trim_bbox_buffer(id: u32, width: u32, height: u32) -> Vec<u32> {
 }
 
 /// R3 zero-copy: stamp into owned mask buffer `id`.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn brush_stamp_buffer(
@@ -776,6 +788,7 @@ pub fn brush_stamp_buffer(
 }
 
 /// R3 zero-copy: composite into owned RGBA buffer `id`.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn composite_mask_buffer(
@@ -814,6 +827,7 @@ pub fn composite_mask_buffer(
     });
 }
 
+#[cfg(target_arch = "wasm32")]
 fn trim_bbox_impl(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
     let w = width as usize;
     let total = w.saturating_mul(height as usize);
@@ -848,6 +862,7 @@ fn trim_bbox_impl(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
 
 // ── C-slice helpers: let `Engine` own pixel buffers + adjustment state ─────────
 // (Technique C: Rust SSOT for state + pixels; TS uploads the zero-copy view.)
+#[cfg(target_arch = "wasm32")]
 pub fn write_buffer(id: u32, src: &[u8]) {
     BUFFERS.with(|b| {
         let mut m = b.borrow_mut();
@@ -856,6 +871,7 @@ pub fn write_buffer(id: u32, src: &[u8]) {
     });
 }
 
+#[cfg(target_arch = "wasm32")]
 pub fn apply_adjustment_inplace(id: u32, brightness: f64, contrast: f64, saturation: f64) {
     BUFFERS.with(|b| {
         let mut m = b.borrow_mut();
@@ -864,7 +880,7 @@ pub fn apply_adjustment_inplace(id: u32, brightness: f64, contrast: f64, saturat
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 pub(crate) fn buffer_clone(id: u32) -> Vec<u8> {
     BUFFERS.with(|b| {
         let m = b.borrow();
@@ -875,13 +891,16 @@ pub(crate) fn buffer_clone(id: u32) -> Vec<u8> {
 // ── Zero-copy accelerator prototype (Phase 5 follow-up) ───────────────────────
 // Pixels are owned by wasm (allocated here) so kernels mutate in place and avoid
 // the 2x memcpy of the `&[u8] -> Vec<u8>` shape. Validated by bench-zero-copy.ts.
+#[cfg(target_arch = "wasm32")]
 thread_local! {
     static BUFFERS: RefCell<HashMap<u32, Vec<u8>>> = RefCell::new(HashMap::new());
 }
+#[cfg(target_arch = "wasm32")]
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Read-only access to a pinned buffer without copying (bench + future tile
 /// store seeding). Closure sees the live bytes inside wasm linear memory.
+#[cfg(target_arch = "wasm32")]
 pub(crate) fn with_buffer<R>(id: u32, f: impl FnOnce(&[u8]) -> R) -> R {
     BUFFERS.with(|b| {
         let m = b.borrow();
@@ -891,6 +910,7 @@ pub(crate) fn with_buffer<R>(id: u32, f: impl FnOnce(&[u8]) -> R) -> R {
 
 /// Mutable access to a pinned buffer (decode-into shape: kernels write
 /// results straight into wasm-owned memory, JS reads via rgba_buffer_view).
+#[cfg(target_arch = "wasm32")]
 pub(crate) fn with_buffer_mut<R>(id: u32, f: impl FnOnce(&mut [u8]) -> R) -> R {
     BUFFERS.with(|b| {
         let mut m = b.borrow_mut();
@@ -898,6 +918,7 @@ pub(crate) fn with_buffer_mut<R>(id: u32, f: impl FnOnce(&mut [u8]) -> R) -> R {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn alloc_rgba_buffer(len: usize) -> u32 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -907,6 +928,7 @@ pub fn alloc_rgba_buffer(len: usize) -> u32 {
     id
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn free_rgba_buffer(id: u32) {
     BUFFERS.with(|b| {
@@ -915,6 +937,7 @@ pub fn free_rgba_buffer(id: u32) {
 }
 
 // Zero-copy view into wasm-owned memory (no copy to JS).
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn rgba_buffer_view(id: u32) -> Uint8Array {
     BUFFERS.with(|b| {
@@ -927,6 +950,7 @@ pub fn rgba_buffer_view(id: u32) -> Uint8Array {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn invert_rgba_inplace(id: u32) {
     BUFFERS.with(|b| {
@@ -936,6 +960,7 @@ pub fn invert_rgba_inplace(id: u32) {
     });
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
 fn invert_inplace_impl(data: &mut [u8]) {
     let len = data.len() - data.len() % 4;
     let mut i = 0;

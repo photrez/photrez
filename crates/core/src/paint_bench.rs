@@ -3,12 +3,17 @@
 // Bench-only module - no product logic lives here. Mirrors the methodology of
 // scripts/bench-zero-copy.ts (pinned wasm-owned buffers, ms per op).
 // Rationale + results are tracked in the project decision log.
+#[cfg(any(test, target_arch = "wasm32"))]
 use std::collections::HashMap;
+#[cfg(any(test, target_arch = "wasm32"))]
 use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+#[cfg(any(test, target_arch = "wasm32"))]
 const TILE_BYTES: usize = 256 * 256 * 4; // 256x256 RGBA8 = 256 KiB
 
+#[cfg(any(test, target_arch = "wasm32"))]
 fn build_tile_map(n_tiles: usize) -> HashMap<(u32, u32), Arc<Vec<u8>>> {
     let mut m = HashMap::with_capacity(n_tiles);
     for i in 0..n_tiles {
@@ -21,6 +26,7 @@ fn build_tile_map(n_tiles: usize) -> HashMap<(u32, u32), Arc<Vec<u8>>> {
 /// Simulates seeding a full layer: split a wasm-owned pinned buffer into
 /// per-tile Vec copies inside a HashMap (no extra input copy - reads the
 /// pinned buffer in place). Returns milliseconds.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_seed_split(buf_id: u32, tile_px: u32, tiles_x: u32) -> f64 {
     let tile_len = (tile_px * tile_px * 4) as usize;
@@ -46,6 +52,7 @@ pub fn bench_seed_split(buf_id: u32, tile_px: u32, tiles_x: u32) -> f64 {
 }
 
 /// Shallow snapshot cost: clone an n-tile Arc map. Returns ms/iter.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_snapshot_clone(n_tiles: u32, iters: u32) -> f64 {
     let map = build_tile_map(n_tiles as usize);
@@ -61,6 +68,7 @@ pub fn bench_snapshot_clone(n_tiles: u32, iters: u32) -> f64 {
 }
 
 /// CoW write cost: clone one tile's bytes, mutate, reinsert. Returns ms/iter.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_cow_write(n_tiles: u32, iters: u32) -> f64 {
     let mut map = build_tile_map(n_tiles as usize);
@@ -76,6 +84,7 @@ pub fn bench_cow_write(n_tiles: u32, iters: u32) -> f64 {
 }
 
 /// Undo-diff out-buffer assembly: copy n tiles contiguously. Returns ms/iter.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_diff_assemble(n_tiles: u32, iters: u32) -> f64 {
     let map = build_tile_map(n_tiles as usize);
@@ -93,6 +102,7 @@ pub fn bench_diff_assemble(n_tiles: u32, iters: u32) -> f64 {
 }
 
 /// WASM linear-memory growth cost: allocate + page-touch mb MiB. Returns ms.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_mem_grow(mb: u32) -> f64 {
     let len = mb as usize * 1024 * 1024;
@@ -114,6 +124,7 @@ pub fn wasm_memory_pages() -> u32 {
     core::arch::wasm32::memory_size::<0>() as u32
 }
 
+#[cfg(target_arch = "wasm32")]
 fn now_ms() -> f64 {
     js_sys::Date::now()
 }

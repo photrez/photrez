@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Parallel — SharedRing + rayon — 6 aspek, dipaksa semua biar 30 sel real
 use rayon::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 pub fn batch_hit_test_parallel(points: &[[f64; 2]], rects: &[[f64; 4]]) -> Vec<u8> {
@@ -76,6 +77,7 @@ pub fn composite_parallel(tiles: &[Vec<u8>]) -> Vec<u8> {
     }
     out
 }
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_parallel_hit(n: usize, iters: usize) -> f64 {
     let points: Vec<[f64; 2]> = (0..n)
@@ -90,6 +92,7 @@ pub fn bench_parallel_hit(n: usize, iters: usize) -> f64 {
     }
     js_sys::Date::now() - t0
 }
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_parallel_transform(n: usize, iters: usize) -> f64 {
     let points: Vec<[f64; 2]> = (0..n)
@@ -101,6 +104,7 @@ pub fn bench_parallel_transform(n: usize, iters: usize) -> f64 {
     }
     js_sys::Date::now() - t0
 }
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_parallel_snap(n: usize, iters: usize) -> f64 {
     let points: Vec<[f64; 2]> = (0..n)
@@ -113,6 +117,7 @@ pub fn bench_parallel_snap(n: usize, iters: usize) -> f64 {
     }
     js_sys::Date::now() - t0
 }
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn bench_parallel_invert(len: usize, iters: usize) -> f64 {
     let mut data = vec![0u8; len.min(1024 * 1024)]; // cap 1MB for bench speed
@@ -130,5 +135,13 @@ mod tests {
         let pts = vec![[5.0, 5.0], [20.0, 20.0]];
         let rects = vec![[0.0, 0.0, 10.0, 10.0]];
         assert_eq!(batch_hit_test_parallel(&pts, &rects), vec![1, 0]);
+    }
+
+    #[test]
+    fn composite_parallel_returns_owned_w_h_4() {
+        // Owned-RGBA return path (sub-plan 28 gate): the composite result's
+        // length is exactly width x height x 4 bytes (one 3x2 frame here).
+        let out = composite_parallel(&[vec![7u8; 3 * 2 * 4]]);
+        assert_eq!(out.len(), 3 * 2 * 4);
     }
 }

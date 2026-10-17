@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+pub mod brush_engine;
 pub mod engine;
 pub mod export;
 pub mod kernel;
-// Rust/WASM owns a WebGPU compute pipeline inside the webview.
-pub mod brush_engine;
 // Typed canonical document model. On the save path via `ptz_document`, which
 // wraps these types in the on-disk `.ptz` `document.json` payload.
 pub mod canonical_model;
@@ -34,10 +33,12 @@ pub mod parallel;
 pub mod pixel_store;
 pub(crate) mod projection;
 pub mod protocol;
+// Bench-only exports (js_sys timers, no consumers since the zero-copy bench
+// harness was deleted). No native caller — wasm build keeps them.
+#[cfg(target_arch = "wasm32")]
 pub mod rkyv_bench;
 pub mod selection;
 pub mod snapshot;
-pub mod webgpu_adjust;
 
 // Canonical persistent-pixel-ownership data model + tile-major store +
 // independent-copy parity oracle. `state_node` and `tile_store` are always

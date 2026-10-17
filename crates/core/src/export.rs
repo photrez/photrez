@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 // ── PNG decode offload (Rust-migration package: measured 1.8x vs browser) ────
@@ -13,7 +14,7 @@ use wasm_bindgen::prelude::*;
 /// Header-only dimension probe. Errors on invalid/truncated PNG.
 /// Errors are `String` (wasm-bindgen converts to JS Error; works in native
 /// tests where JsValue cannot be constructed).
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn png_dimensions_wasm(png_bytes: &[u8]) -> Result<DecodedImageMeta, String> {
     let reader = image::ImageReader::new(Cursor::new(png_bytes))
         .with_guessed_format()
@@ -27,42 +28,47 @@ pub fn png_dimensions_wasm(png_bytes: &[u8]) -> Result<DecodedImageMeta, String>
     })
 }
 
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct DecodedImageMeta {
     width: u32,
     height: u32,
 }
 
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl DecodedImageMeta {
-    #[wasm_bindgen(getter)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
     pub fn width(&self) -> u32 {
         self.width
     }
-    #[wasm_bindgen(getter)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
     pub fn height(&self) -> u32 {
         self.height
     }
 }
 
-/// Full decode of `png_bytes` into the pinned RGBA buffer `buf_id`
-/// (must be >= width*height*4; allocate via alloc_rgba_buffer after probing
-/// dimensions). Returns the decoded dimensions.
-#[wasm_bindgen]
-pub fn decode_png_into_wasm(png_bytes: &[u8], buf_id: u32) -> Result<DecodedImageMeta, String> {
+/// Full decode of `png_bytes` into `dst` (must be >= width*height*4). Returns
+/// the decoded dimensions. Out-parameter shape keeps buffer ownership with the
+/// caller; the wasm bridge variant takes a registry buffer id instead.
+pub fn decode_png_into(png_bytes: &[u8], dst: &mut [u8]) -> Result<DecodedImageMeta, String> {
     let img = image::load_from_memory_with_format(png_bytes, image::ImageFormat::Png)
         .map_err(|e| format!("PNG decode failed: {}", e))?;
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
     let need = width as usize * height as usize * 4;
-    crate::kernel::with_buffer_mut(buf_id, |dst| {
-        if dst.len() < need {
-            return Err(format!("buffer too small: {} < {}", dst.len(), need));
-        }
-        dst[..need].copy_from_slice(rgba.as_raw());
-        Ok(())
-    })?;
+    if dst.len() < need {
+        return Err(format!("buffer too small: {} < {}", dst.len(), need));
+    }
+    dst[..need].copy_from_slice(rgba.as_raw());
     Ok(DecodedImageMeta { width, height })
+}
+
+/// Wasm bridge: decode `png_bytes` into the pinned RGBA buffer `buf_id`
+/// (must be >= width*height*4; allocate via alloc_rgba_buffer after probing
+/// dimensions). Returns the decoded dimensions.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn decode_png_into_wasm(png_bytes: &[u8], buf_id: u32) -> Result<DecodedImageMeta, String> {
+    crate::kernel::with_buffer_mut(buf_id, |dst| decode_png_into(png_bytes, dst))
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -73,11 +79,11 @@ pub enum ExportFormat {
     TIFF,
 }
 
-/// Encode a pre-composited RGBA buffer to a file format. This is the only
-/// `#[wasm_bindgen]` entry point the frontend uses (`wasmExport.ts` ->
-/// `exportDocument.ts`); the app composites layers on the GPU/CPU side and
-/// passes the final RGBA bytes here. Kept free of any `Document`/layer model so
-/// the core crate carries no inert state code.
+/// Encode a pre-composited RGBA buffer to a file format. Wasm bridge for the
+/// frontend (`wasmExport.ts` -> `exportDocument.ts`); the app composites
+/// layers on the GPU/CPU side and passes the final RGBA bytes here. Kept free
+/// of any `Document`/layer model so the core crate carries no inert state code.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn encode_image_wasm(
     width: u32,
@@ -86,10 +92,32 @@ pub fn encode_image_wasm(
     format_str: &str,
     quality: u8,
 ) -> Result<Vec<u8>, JsValue> {
+    encode_image_inner(width, height, rgba_bytes, format_str, quality)
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Native counterpart of the wasm export: same encode path, `String` errors
+/// (no `JsValue` off-wasm).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn encode_image_wasm(
+    width: u32,
+    height: u32,
+    rgba_bytes: &[u8],
+    format_str: &str,
+    quality: u8,
+) -> Result<Vec<u8>, String> {
+    encode_image_inner(width, height, rgba_bytes, format_str, quality)
+}
+
+fn encode_image_inner(
+    width: u32,
+    height: u32,
+    rgba_bytes: &[u8],
+    format_str: &str,
+    quality: u8,
+) -> Result<Vec<u8>, String> {
     if rgba_bytes.len() != (width as usize * height as usize * 4) {
-        return Err(JsValue::from_str(
-            "Invalid pixel buffer length for width and height",
-        ));
+        return Err("Invalid pixel buffer length for width and height".to_string());
     }
 
     let format = match format_str.to_lowercase().as_str() {
@@ -97,7 +125,7 @@ pub fn encode_image_wasm(
         "jpeg" | "jpg" => ExportFormat::JPEG,
         "webp" => ExportFormat::WebP,
         "tiff" => ExportFormat::TIFF,
-        _ => return Err(JsValue::from_str("Unsupported export format")),
+        _ => return Err("Unsupported export format".to_string()),
     };
 
     let mut pixels = rgba_bytes.to_vec();
@@ -124,7 +152,7 @@ pub fn encode_image_wasm(
     let mut encoded_bytes = Vec::new();
 
     let img_buffer = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, pixels)
-        .ok_or_else(|| JsValue::from_str("Failed to create ImageBuffer from pixel vector"))?;
+        .ok_or_else(|| "Failed to create ImageBuffer from pixel vector".to_string())?;
 
     match format {
         ExportFormat::PNG => {
@@ -133,7 +161,7 @@ pub fn encode_image_wasm(
                     &mut Cursor::new(&mut encoded_bytes),
                     image::ImageFormat::Png,
                 )
-                .map_err(|e| JsValue::from_str(&format!("Failed to encode PNG: {}", e)))?;
+                .map_err(|e| format!("Failed to encode PNG: {}", e))?;
         }
         ExportFormat::JPEG => {
             let rgb_buffer = image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(
@@ -144,7 +172,7 @@ pub fn encode_image_wasm(
                     .flat_map(|p| [p[0], p[1], p[2]])
                     .collect::<Vec<u8>>(),
             )
-            .ok_or_else(|| JsValue::from_str("Failed to create RGB buffer"))?;
+            .ok_or_else(|| "Failed to create RGB buffer".to_string())?;
 
             let clamped_quality = quality.clamp(1, 100);
             let mut cursor = Cursor::new(&mut encoded_bytes);
@@ -152,7 +180,7 @@ pub fn encode_image_wasm(
                 image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, clamped_quality);
             encoder
                 .encode_image(&rgb_buffer)
-                .map_err(|e| JsValue::from_str(&format!("Failed to encode JPEG: {}", e)))?;
+                .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
         }
         ExportFormat::WebP => {
             // NOTE: the `image` crate's WebP support (image-webp 0.2.4) is
@@ -169,7 +197,7 @@ pub fn encode_image_wasm(
                     &mut Cursor::new(&mut encoded_bytes),
                     image::ImageFormat::WebP,
                 )
-                .map_err(|e| JsValue::from_str(&format!("Failed to encode WebP: {}", e)))?;
+                .map_err(|e| format!("Failed to encode WebP: {}", e))?;
         }
         ExportFormat::TIFF => {
             // TIFF is lossless and preserves alpha; quality is ignored.
@@ -178,7 +206,7 @@ pub fn encode_image_wasm(
                     &mut Cursor::new(&mut encoded_bytes),
                     image::ImageFormat::Tiff,
                 )
-                .map_err(|e| JsValue::from_str(&format!("Failed to encode TIFF: {}", e)))?;
+                .map_err(|e| format!("Failed to encode TIFF: {}", e))?;
         }
     }
 
@@ -332,23 +360,19 @@ mod png_decode_tests {
 
     #[test]
     fn decode_into_buffer_pixel_exact() {
-        let buf = crate::kernel::alloc_rgba_buffer(2 * 2 * 4);
-        let meta = decode_png_into_wasm(&tiny_png(), buf).expect("decode");
+        let mut buf = vec![0u8; 2 * 2 * 4];
+        let meta = decode_png_into(&tiny_png(), &mut buf).expect("decode");
         assert_eq!((meta.width(), meta.height()), (2, 2));
-        crate::kernel::with_buffer(buf, |px| {
-            assert_eq!(
-                px,
-                &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 0]
-            );
-        });
-        crate::kernel::free_rgba_buffer(buf);
+        assert_eq!(
+            &buf,
+            &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 0, 0, 0]
+        );
     }
 
     #[test]
     fn rejects_truncated_and_undersized_buffer() {
         assert!(png_dimensions_wasm(b"not a png").is_err());
-        let buf = crate::kernel::alloc_rgba_buffer(4); // too small on purpose
-        assert!(decode_png_into_wasm(&tiny_png(), buf).is_err());
-        crate::kernel::free_rgba_buffer(buf);
+        let mut small = vec![0u8; 4]; // too small on purpose
+        assert!(decode_png_into(&tiny_png(), &mut small).is_err());
     }
 }

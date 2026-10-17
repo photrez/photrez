@@ -6,16 +6,18 @@
 // Readout discipline: dab_view() returns a Float64Array view into wasm memory
 // that is only valid until the next begin()/update() call on this engine
 // (heap may grow on reallocation) - consume it immediately, never retain.
+#[cfg(target_arch = "wasm32")]
 use js_sys::Float64Array;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 /// spacing = max(1, round(size * 0.10)) - identical to getBrushDabSpacing.
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn brush_dab_spacing(size: f64) -> f64 {
     (size * 0.10).round().max(1.0)
 }
 
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct BrushStrokeEngine {
     last_x: f64,
     last_y: f64,
@@ -25,9 +27,9 @@ pub struct BrushStrokeEngine {
     dabs: Vec<f64>, // x0,y0,x1,y1,... cleared per update
 }
 
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl BrushStrokeEngine {
-    #[wasm_bindgen(constructor)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
     pub fn new(size: f64) -> BrushStrokeEngine {
         BrushStrokeEngine {
             last_x: 0.0,
@@ -104,7 +106,9 @@ impl BrushStrokeEngine {
     }
 
     /// Zero-copy view of the dabs from the most recent update(). Valid until
-    /// the next begin()/update() on this engine.
+    /// the next begin()/update() on this engine. Wasm-only: `Float64Array`
+    /// does not exist off-wasm32 (tests read `dab_slice` instead).
+    #[cfg(target_arch = "wasm32")]
     pub fn dab_view(&self) -> Float64Array {
         unsafe { Float64Array::view(&self.dabs) }
     }

@@ -3,13 +3,14 @@
 // Konsolidasi: semua geometry ops di 1 file biar tidak mencar (v0.2.0).
 // API: batched over whole buffer (1 crossing) — not per-point, per forum gate.
 
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 /// Batch transform 2D points: points = [x0,y0,x1,y1,...], matrix = [a,b,c,d,tx,ty]
 /// where [x',y'] = [a*x + c*y + tx, b*x + d*y + ty] (Photrez Transform2D).
 /// Returns new Vec<f64> with transformed points — caller owns it.
 /// Benchmark gate: must beat TS loop (JIT) at 10k points.
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn batch_transform_points(
     points: Vec<f64>,
     a: f64,
@@ -32,7 +33,7 @@ pub fn batch_transform_points(
 
 /// Batch hit-test: points vs rects (x,y,w,h). Returns bitmask Vec<u8> 1=hit.
 // Coarse-grained: all points + all rects in one call — 1 crossing.
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn batch_hit_test(points: Vec<f64>, rects: Vec<f64>) -> Vec<u8> {
     let mut out = Vec::with_capacity(points.len() / 2);
     for chunk in points.chunks_exact(2) {
@@ -56,7 +57,7 @@ pub fn batch_hit_test(points: Vec<f64>, rects: Vec<f64>) -> Vec<u8> {
 
 /// Batch snap: find closest snap target per point within threshold.
 /// points [x,y,...], targets [x,y,...] (snap lines). Returns snapped Vec<f64>.
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn batch_snap_points(points: Vec<f64>, targets: Vec<f64>, threshold: f64) -> Vec<f64> {
     let mut out = Vec::with_capacity(points.len());
     for chunk in points.chunks_exact(2) {

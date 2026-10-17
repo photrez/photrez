@@ -23,47 +23,20 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "tiff"] }
 uuid = { version = "1.7", features = ["v4", "js"] }
-wasm-bindgen = "0.2"
-js-sys = "0.3"
-wasm-bindgen-futures = "0.4"
-# Technique A (PoC-A): Rust/WASM owns a WebGPU canvas inside the webview.
-# web-sys exposes the browser's WebGPU API from wasm; enable only the types used
-# (mirrors the proven TS path in apps/desktop/src/lib/gpu/gpuCompute.ts).
-web-sys = { version = "0.3", features = [
-    "Window",
-    "Navigator",
-    "Gpu",
-    "GpuAdapter",
-    "GpuDevice",
-    "GpuQueue",
-    "GpuBuffer",
-    "GpuBufferDescriptor",
-    "GpuBufferBinding",
-    "GpuShaderModule",
-    "GpuShaderModuleDescriptor",
-    "GpuComputePipeline",
-    "GpuComputePipelineDescriptor",
-    "GpuProgrammableStage",
-    "GpuAutoLayoutMode",
-    "GpuBindGroup",
-    "GpuBindGroupDescriptor",
-    "GpuBindGroupLayout",
-    "GpuBindGroupEntry",
-    "GpuCommandEncoder",
-    "GpuComputePassEncoder",
-    "GpuComputePassDescriptor",
-    "GpuCommandBuffer",
-    "GpuSupportedLimits",
-] }
-# Dev-only panic hook so wasm panics surface in the console (used by
-# `set_panic_hook`, compiled only in debug builds).
-console_error_panic_hook = "0.1"
 rkyv = "0.8.18"
 rayon = "1.12.0"
 
-# web-sys exposes WebGPU types only under the `web_sys_unstable_apis` cfg
-# (used by the Technique A PoC in poa.rs). Declare it so the cfg name is known
-# and does not trigger an "unexpected cfg" warning.
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(web_sys_unstable_apis)'] }
+# Browser-only deps: consumed solely by the wasm build (`bun run build:wasm`,
+# wasm-pack target `web`) that the shipped webview app loads. A native build
+# must not pull them (sub-plan 28: de-wasm the canonical core).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# JS boundary + typed-array views. Every call site is target-gated: exports use
+# `cfg_attr(target_arch = "wasm32", wasm_bindgen)` (keeping the plain fn alive
+# off-wasm) or a whole-item `#[cfg(target_arch = "wasm32")]` for wasm-only
+# surfaces (registry buffers, `Uint8Array`/`Float64Array` views).
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+# Dev-only panic hook so wasm panics surface in the console (used by
+# `set_panic_hook`, compiled only in debug builds).
+console_error_panic_hook = "0.1"
 

@@ -14,6 +14,7 @@ use crate::projection::*;
 use crate::state_node::StateNode;
 use std::collections::HashSet;
 use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 // ── Engine ───────────────────────────────────────────────────────────────
 // HISTORY BOUNDARY: history/future store Vec<RenderLayer> METADATA snapshots only
@@ -809,6 +810,7 @@ thread_local! {
 }
 // Normalizes a document id: empty/absent maps to the reserved "default" key so
 // callers that do not thread a document id keep the shared-engine behavior.
+#[allow(dead_code)] // native consumers arrive with the native app seam (sub-plan 50); wasm consumes via the JS exports
 fn resolve_doc_key(doc_id: &str) -> &str {
     if doc_id.is_empty() {
         "default"
@@ -816,18 +818,21 @@ fn resolve_doc_key(doc_id: &str) -> &str {
         doc_id
     }
 }
-#[wasm_bindgen]
+#[allow(dead_code)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_contract_version() -> u32 {
     CONTRACT_VERSION
 }
 
-#[wasm_bindgen]
+#[allow(dead_code)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_version(doc_id: &str) -> DocumentVersion {
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| m.borrow().get(&key).map(|e| e.version()).unwrap_or(0))
 }
 
-#[wasm_bindgen]
+#[allow(dead_code)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_reset(doc_id: &str) {
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
@@ -835,21 +840,36 @@ pub fn protocol_reset(doc_id: &str) {
     });
 }
 
+#[allow(dead_code)]
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn protocol_apply_command(envelope_json: &str, doc_id: &str) -> Result<String, JsValue> {
-    let env: CommandEnvelope = serde_json::from_str(envelope_json)
-        .map_err(|e| JsValue::from_str(&format!("E_ENVELOPE_PARSE: {}", e)))?;
+    protocol_apply_command_inner(envelope_json, doc_id).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Native counterpart of the wasm export: `String` errors (no `JsValue` off-wasm).
+#[allow(dead_code)]
+#[cfg(not(target_arch = "wasm32"))]
+pub fn protocol_apply_command(envelope_json: &str, doc_id: &str) -> Result<String, String> {
+    protocol_apply_command_inner(envelope_json, doc_id)
+}
+
+#[allow(dead_code)]
+fn protocol_apply_command_inner(envelope_json: &str, doc_id: &str) -> Result<String, String> {
+    let env: CommandEnvelope =
+        serde_json::from_str(envelope_json).map_err(|e| format!("E_ENVELOPE_PARSE: {}", e))?;
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
         let mut map = m.borrow_mut();
         let eng = map.entry(key).or_default();
         eng.apply(env)
             .map(|r| serde_json::to_string(&r).unwrap())
-            .map_err(|e| JsValue::from_str(&serde_json::to_string(&e).unwrap()))
+            .map_err(|e| serde_json::to_string(&e).unwrap())
     })
 }
 
-#[wasm_bindgen]
+#[allow(dead_code)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_snapshot_json(doc_id: &str) -> String {
     let key = resolve_doc_key(doc_id).to_string();
     let snap = ENGINES.with(|m| {
@@ -871,10 +891,24 @@ pub fn protocol_snapshot_json(doc_id: &str) -> String {
 // the selection arms (selectAll reads doc dims from the shadow) can be exercised
 // through the production bridge. Production defaults to `None` canonical, so this
 // is never called in the default path; it exists for the parity matrix harness.
+#[allow(dead_code)]
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn protocol_seed_canonical(canonical_json: &str, doc_id: &str) -> Result<String, JsValue> {
-    let doc: CanonicalDocument = serde_json::from_str(canonical_json)
-        .map_err(|e| JsValue::from_str(&format!("E_CANONICAL_PARSE: {}", e)))?;
+    protocol_seed_canonical_inner(canonical_json, doc_id).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Native counterpart of the wasm export: `String` errors (no `JsValue` off-wasm).
+#[allow(dead_code)]
+#[cfg(not(target_arch = "wasm32"))]
+pub fn protocol_seed_canonical(canonical_json: &str, doc_id: &str) -> Result<String, String> {
+    protocol_seed_canonical_inner(canonical_json, doc_id)
+}
+
+#[allow(dead_code)]
+fn protocol_seed_canonical_inner(canonical_json: &str, doc_id: &str) -> Result<String, String> {
+    let doc: CanonicalDocument =
+        serde_json::from_str(canonical_json).map_err(|e| format!("E_CANONICAL_PARSE: {}", e))?;
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
         let mut map = m.borrow_mut();
@@ -885,7 +919,8 @@ pub fn protocol_seed_canonical(canonical_json: &str, doc_id: &str) -> Result<Str
 }
 
 // ── H0: history stream exports ─────────────────────────────────
-#[wasm_bindgen]
+#[allow(dead_code)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_register_payload_adapter(adapter_id: &str, doc_id: &str) {
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
@@ -896,7 +931,8 @@ pub fn protocol_register_payload_adapter(adapter_id: &str, doc_id: &str) {
     });
 }
 
-#[wasm_bindgen]
+#[allow(dead_code)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn protocol_history_query_json(doc_id: &str) -> String {
     let key = resolve_doc_key(doc_id).to_string();
     let q = ENGINES.with(|m| {
@@ -914,23 +950,36 @@ pub fn protocol_history_query_json(doc_id: &str) -> String {
     serde_json::to_string(&q).unwrap()
 }
 
+#[allow(dead_code)]
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn protocol_history_cursor_commit(json: &str, doc_id: &str) -> Result<String, JsValue> {
+    protocol_history_cursor_commit_inner(json, doc_id).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Native counterpart of the wasm export: `String` errors (no `JsValue` off-wasm).
+#[allow(dead_code)]
+#[cfg(not(target_arch = "wasm32"))]
+pub fn protocol_history_cursor_commit(json: &str, doc_id: &str) -> Result<String, String> {
+    protocol_history_cursor_commit_inner(json, doc_id)
+}
+
+#[allow(dead_code)]
+fn protocol_history_cursor_commit_inner(json: &str, doc_id: &str) -> Result<String, String> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Req {
         seq: u64,
         direction: String,
     }
-    let req: Req = serde_json::from_str(json)
-        .map_err(|e| JsValue::from_str(&format!("E_ENVELOPE_PARSE: {}", e)))?;
+    let req: Req = serde_json::from_str(json).map_err(|e| format!("E_ENVELOPE_PARSE: {}", e))?;
     let key = resolve_doc_key(doc_id).to_string();
     ENGINES.with(|m| {
         let mut map = m.borrow_mut();
         let eng = map.entry(key).or_default();
         eng.history_cursor_commit(req.seq, &req.direction)
             .map(|r| serde_json::to_string(&r).unwrap())
-            .map_err(|e| JsValue::from_str(&serde_json::to_string(&e).unwrap()))
+            .map_err(|e| serde_json::to_string(&e).unwrap())
     })
 }
 
