@@ -1,0 +1,46 @@
+# cargo-deny configuration: licence and advisory policy for the dependency tree.
+# Run from the repository root:
+#
+#   cargo deny check licenses
+#
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[licenses]
+version = 2
+# Minimum confidence for licence detection from licence files; an SPDX
+# expression in the crate manifest always wins over detection.
+confidence-threshold = 0.93
+allow = [
+    "0BSD",
+    "AGPL-3.0-or-later",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "NCSA",
+    "OpenSSL",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[advisories]
+version = 2
+yanked = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

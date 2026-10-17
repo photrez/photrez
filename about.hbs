@@ -1,0 +1,22 @@
+# Third-Party Licences and Notices
+
+Photrez is distributed under the GNU Affero General Public License v3.0 or later - see [`LICENSE`](LICENSE).
+
+This file is the machine-generated inventory of the third-party crates the application depends on, with the licence each is used under. It is the source list for the notices that accompany release bundles.
+
+Regenerate with:
+
+```
+cargo about generate about.hbs -o THIRD_PARTY.md
+```
+
+(the template lives in [`about.hbs`](about.hbs); requires `cargo install cargo-about --locked --features cli`)
+
+| Crate | Version | Licence |
+|---|---|---|
+{{#each crates}}{{#if package.source}}| {{package.name}} | {{package.version}} | {{license}} |
+{{/if}}{{/each}}
+
+## Notices in release bundles
+
+Before any release is published, the licence texts and notice files of every embedded third-party component must accompany the bundle; the inventory above is the source list for that step.
