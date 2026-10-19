@@ -59,8 +59,12 @@ struct ShotResult {
 /// Run the comparison loop. `Ok(exit_code)`: 0 = all shots green, 1 = at
 /// least one red (the report is written either way).
 pub fn run_parity(opts: &ParityOpts) -> Result<i32, String> {
+    // The baselines were captured with the English catalog: refuse a
+    // non-English request (environment or manifest) before any capture.
+    capture::require_english_locale()?;
     let manifest_path = opts.baseline.join("manifest.json");
     let manifest = manifest::load(&manifest_path)?;
+    manifest::require_english_locale(&manifest)?;
     let selected = manifest::select(&manifest, &opts.shots)?;
 
     std::fs::create_dir_all(&opts.report_dir)

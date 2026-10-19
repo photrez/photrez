@@ -264,18 +264,30 @@ pub fn t_plural(base: &str, count: u32) -> String {
 
 // ── startup detection ────────────────────────────────────────────────────────
 
-/// The startup detection order: the stored preference, then the OS locale,
-/// then `en`. Every failure at every step degrades to `en`.
+/// The environment override the capture driver pins (`PHOTREZ_LOCALE=en`; see
+/// the `xtask` capture runner). It outranks the stored preference so a parity
+/// capture resolves `en` on any machine.
+const ENV_LOCALE: &str = "PHOTREZ_LOCALE";
+
+/// The startup detection order: the `PHOTREZ_LOCALE` override, then the stored
+/// preference, then the OS locale, then `en`. Every failure at every step
+/// degrades to `en`.
 pub fn initial_locale(store: Option<&dyn SettingsStore>) -> Locale {
     detect_locale(
+        std::env::var(ENV_LOCALE).ok().as_deref(),
         store.and_then(|store| store.read(LOCALE_KEY)),
         &os_language_tag(),
     )
 }
 
-/// The detection rule, split from its two inputs so tests stay deterministic
+/// The detection rule, split from its three inputs so tests stay deterministic
 /// (neither the file system nor the environment is test input).
-fn detect_locale(stored: Option<String>, os_tag: &str) -> Locale {
+fn detect_locale(env: Option<&str>, stored: Option<String>, os_tag: &str) -> Locale {
+    if let Some(tag) = env {
+        if !tag.trim().is_empty() {
+            return Locale::normalize(tag);
+        }
+    }
     if let Some(tag) = stored {
         if !tag.trim().is_empty() {
             return Locale::normalize(&tag);
@@ -603,16 +615,48 @@ mod tests {
     }
 
     #[test]
-    fn detection_order_is_stored_then_os_then_english() {
-        assert_eq!(detect_locale(Some("id".to_owned()), "en-US"), Locale::Id);
-        assert_eq!(detect_locale(Some("id-ID".to_owned()), "en"), Locale::Id);
-        assert_eq!(detect_locale(None, "id_ID.UTF-8"), Locale::Id);
+    fn detection_order_is_env_then_stored_then_os_then_english() {
         assert_eq!(
-            detect_locale(Some("  ".to_owned()), "id_ID.UTF-8"),
+            detect_locale(None, Some("id".to_owned()), "en-US"),
             Locale::Id
         );
-        assert_eq!(detect_locale(None, ""), Locale::En);
-        assert_eq!(detect_locale(Some("fr".to_owned()), "id_ID"), Locale::En);
+        assert_eq!(
+            detect_locale(None, Some("id-ID".to_owned()), "en"),
+            Locale::Id
+        );
+        assert_eq!(detect_locale(None, None, "id_ID.UTF-8"), Locale::Id);
+        assert_eq!(
+            detect_locale(None, Some("  ".to_owned()), "id_ID.UTF-8"),
+            Locale::Id
+        );
+        assert_eq!(detect_locale(None, None, ""), Locale::En);
+        assert_eq!(
+            detect_locale(None, Some("fr".to_owned()), "id_ID"),
+            Locale::En
+        );
+    }
+
+    /// The capture driver's pin outranks everything else: a machine with a
+    /// stored `id` preference and an `id` OS tag still resolves `en` under
+    /// `PHOTREZ_LOCALE=en`; a blank value falls through untouched.
+    #[test]
+    fn env_override_outranks_stored_and_os() {
+        assert_eq!(
+            detect_locale(Some("en"), Some("id".to_owned()), "id_ID.UTF-8"),
+            Locale::En
+        );
+        assert_eq!(
+            detect_locale(Some("id"), Some("en".to_owned()), "en-US"),
+            Locale::Id
+        );
+        assert_eq!(
+            detect_locale(Some("  "), Some("id".to_owned()), "en"),
+            Locale::Id
+        );
+        assert_eq!(
+            detect_locale(Some("fr"), Some("en".to_owned()), "en"),
+            Locale::En
+        );
     }
 
     /// A stored preference survives a reload, through the same store the

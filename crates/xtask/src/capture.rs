@@ -107,6 +107,39 @@ fn assert_capture_environment(client_w: i32, client_h: i32, dpi: u32) -> Result<
 }
 
 // ---------------------------------------------------------------------------
+// capture locale guard
+// ---------------------------------------------------------------------------
+
+/// The locale every parity capture must resolve: the golden-master baselines
+/// were captured with the English catalog, so a diff under any other locale is
+/// meaningless rather than merely different.
+const CAPTURE_LOCALE: &str = "en";
+
+/// The override the app reads before any stored preference (see
+/// `photrez::i18n::initial_locale`). The driver sets it on the child it
+/// spawns; a caller who already set it to something else is refused.
+const LOCALE_ENV: &str = "PHOTREZ_LOCALE";
+
+/// Pure core of the guard: nothing requested is fine; a blank request means
+/// "unset"; anything but English is refused by name.
+fn locale_request_ok(requested: Option<&str>) -> Result<(), String> {
+    match requested {
+        None => Ok(()),
+        Some(tag) if tag.trim().is_empty() => Ok(()),
+        Some(tag) if tag.trim().eq_ignore_ascii_case(CAPTURE_LOCALE) => Ok(()),
+        Some(tag) => Err(format!(
+            "{LOCALE_ENV}={tag} requests a non-English locale; parity captures \
+             must resolve `{CAPTURE_LOCALE}`. Unset the variable or set it to `{CAPTURE_LOCALE}`."
+        )),
+    }
+}
+
+/// Read the incoming environment and refuse a non-English locale request.
+pub fn require_english_locale() -> Result<(), String> {
+    locale_request_ok(std::env::var(LOCALE_ENV).ok().as_deref())
+}
+
+// ---------------------------------------------------------------------------
 // resolve_exe
 // ---------------------------------------------------------------------------
 
@@ -487,11 +520,15 @@ fn capture_inner(spec: &CaptureSpec, child_pid: u32) -> Result<PathBuf, String> 
 /// comparison itself is portable, capture is not).
 #[cfg(windows)]
 pub fn capture(spec: &CaptureSpec) -> Result<PathBuf, String> {
+    require_english_locale()?;
     kill_stray_photrez()?;
     let exe = resolve_exe(spec.exe.as_deref())?;
 
     let mut cmd = std::process::Command::new(&exe);
-    cmd.stdout(std::process::Stdio::null())
+    // The baselines were captured with the English catalog: pin it on the
+    // child regardless of this machine's stored preference or OS locale.
+    cmd.env(LOCALE_ENV, CAPTURE_LOCALE)
+        .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     if let Some(ref id) = spec.shot {
         cmd.arg("--shot").arg(id);
@@ -580,6 +617,7 @@ mod tests {
     #[cfg(windows)]
     use super::assert_capture_environment;
     use super::bgra_to_rgba_top_down;
+    use super::locale_request_ok;
 
     /// 2x2 bottom-up BGRA buffer:
     ///
@@ -614,6 +652,20 @@ mod tests {
     fn zero_dims_rejected() {
         let r = bgra_to_rgba_top_down(&[], 0, 0, 0);
         assert!(r.is_err());
+    }
+
+    /// The capture locale guard: absent/blank means unset, English (any case)
+    /// passes, anything else is refused and named.
+    #[test]
+    fn locale_request_accepts_only_english() {
+        assert!(locale_request_ok(None).is_ok());
+        assert!(locale_request_ok(Some("")).is_ok());
+        assert!(locale_request_ok(Some("  ")).is_ok());
+        assert!(locale_request_ok(Some("en")).is_ok());
+        assert!(locale_request_ok(Some(" EN ")).is_ok());
+        let err = locale_request_ok(Some("id")).expect_err("id must be refused");
+        assert!(err.contains("PHOTREZ_LOCALE"), "names the variable: {err}");
+        assert!(err.contains("id"), "names the value: {err}");
     }
 
     #[test]
