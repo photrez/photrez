@@ -39,6 +39,26 @@ wildcards = "allow"
 [advisories]
 version = 2
 yanked = "warn"
+# Known, upstream-pinned advisories with no safe upgrade available — all
+# "unmaintained" (no active vulnerability). Same discipline as the bun-audit
+# ignore list in `.husky/pre-push` and `.github/workflows/ci.yml`: each entry
+# names the advisory, why it is accepted, and the revisit date. Revisit
+# 2026-12-31, or when a pinned upstream bumps its dependency.
+ignore = [
+    # Tauri desktop shell dependency tree
+    "RUSTSEC-2024-0370", # proc-macro-error - transitive via gtk3 stack
+    "RUSTSEC-2025-0075", # unic-char-range
+    "RUSTSEC-2025-0080", # unic-common
+    "RUSTSEC-2025-0081", # unic-char-property
+    "RUSTSEC-2025-0098", # unic-ucd-version
+    "RUSTSEC-2025-0100", # unic-ucd-ident
+    # gpui dependency tree
+    "RUSTSEC-2024-0384", # instant - via gpui-base
+    "RUSTSEC-2024-0436", # paste - via gpui-component / pulp / metal
+    "RUSTSEC-2025-0134", # rustls-pemfile - via gpui-pre-reqwest
+    "RUSTSEC-2026-0192", # ttf-parser - both trees
+    "RUSTSEC-2026-0206", # rustybuzz - via usvg/resvg
+]
 
 [sources]
 unknown-registry = "deny"

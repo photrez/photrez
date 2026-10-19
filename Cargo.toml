@@ -2,11 +2,33 @@
 resolver = "2"
 members = [
     "apps/desktop/src-tauri",
-    "crates/core"
+    "crates/core",
+    "crates/xtask"
 ]
 
 [workspace.dependencies]
 # We will define shared dependencies here as we proceed.
+
+[workspace.package]
+rust-version = "1.95.0"
+
+# One dependency-free mechanism, one place: members opt in with
+# `[lints] workspace = true`. `crates/core` opts in and carries no unsafe
+# block today; `photrez-desktop` deliberately does not - its 73 pre-existing
+# `unsafe` sites leave with the crate. `unsafe_code` is denied outright for
+# opt-ins, `dead_code` warns; the restriction lints that gate the new crate
+# (unwrap/expect/panic) are allowed at the root with a written reason: the
+# core engine carries 854 unwrap/expect sites, so a blanket deny here would
+# be decoration, not a gate. `crates/photrez` denies them in its own
+# workspace instead.
+[workspace.lints.rust]
+unsafe_code = "deny"
+dead_code = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "allow"
+expect_used = "allow"
+panic = "allow"
 
 # Native release profile. No package-scoped overrides remain: every crate uses
 # Cargo's default `release` tuning (opt-level = 3, LTO off). The size-targeted

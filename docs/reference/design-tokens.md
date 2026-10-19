@@ -2,7 +2,7 @@
 
 Token ini menjadi sumber tunggal styling UI Photrez di MVP yang menggunakan Tailwind v4 dan sistem warna OKLCH.
 
-> **Last synced**: 2026-07-02 — Synced with current desktop SolidJS & Tailwind v4 UI implementation. Colors mapped to OKLCH values in `src/styles.css`, layout dimensions matched to current docked side-by-side double-dock layout.
+> **Last synced**: 2026-10-18 — Synced with current desktop SolidJS & Tailwind v4 UI implementation. Colors mapped to OKLCH values in `src/styles.css`, layout dimensions re-verified against the shipped shell components and matched to the current docked side-by-side double-dock layout.
 
 ## 1) Usage Rules
 
@@ -73,14 +73,14 @@ Dimensi aktual yang berlabuh pada tepi window (docked layout):
 | Elemen | Dimensi | Catatan / Class Tailwind |
 | --- | --- | --- |
 | **AppTitleBar** height | `46px` | Desktop titlebar style, centered doc title, `h-[46px]` |
-| **DocumentTabsBar** height | `44px` | `h-[44px] bg-editor-topbar` |
+| **DocumentTabsBar** height | `38px` | `h-[38px] bg-editor-topbar` |
 | **OptionBar** height | `44px` | `h-[44px] bg-editor-toolbar` |
-| **BottomStatusBar** height | `30px` | `h-[30px] bg-editor-topbar` |
+| **BottomStatusBar** height | `24px` | `h-[24px] bg-editor-topbar` |
 | **LeftToolRail** width | `52px` | `w-[52px] bg-editor-toolbar` |
 | Tool rail items size | `36×36 px` | `size-9` (36px), rounded `[5px]` |
 | Tool rail icon size | `18px` | `size-[18px]` |
-| **RightDock** width (double-dock) | `560px` | `300px` Properties + `260px` Layers side-by-side |
-| RightDock 2XL screen width | `634px` | `336px` Properties + `298px` Layers side-by-side |
+| **RightDock** width (double-dock) | `533px` | `272px` Properties + `260px` Layers + `1px` divider, side-by-side |
+| RightDock 2XL screen width | `599px` | `300px` Properties + `298px` Layers + `1px` divider, side-by-side |
 | Input fields height | `26px` | Recessed boxes, `h-[26px] bg-editor-field` |
 
 ## 6) Scrollbar Tokens (Native-Feel Custom Overlay)
@@ -148,30 +148,28 @@ Gradien warna biphasic yang digunakan saat ini:
 
 ## 8) Premium Diagonal Color Swatch
 
-LeftToolRail memuat swatch warna bertumpuk diagonal inovatif yang memaksimalkan ukuran target klik hingga `36px` (mempet penuh untuk efisiensi ruang), dengan visual potongan diagonal geometris yang presisi:
+LeftToolRail memuat swatch warna lingkaran bertumpuk yang memaksimalkan ukuran target klik hingga `38px` (mempet penuh untuk efisiensi ruang), dengan komposisi diagonal dari dua lingkaran yang saling tumpang tindih:
 
 ```tsx
-// Implementasi custom diagonal swatches bertumpuk
-<div class="relative size-[36px]">
-  {/* Background Color (Bottom-Right Circle Segment) */}
-  <div 
-    class="absolute bottom-0 right-0 size-[35px] rounded-full bg-black border border-white/20"
-    style={{ "clip-path": "polygon(100% 100%, 100% 0, 0 100%)" }}
+// Implementasi swatch lingkaran bertumpuk (offset diagonal)
+<div class="relative size-[38px]">
+  {/* Background Color (Bottom-Right Circle) */}
+  <div
+    class="absolute bottom-0 right-0 size-[28px] rounded-full border border-white/20 shadow-md"
+    style={{ "background-color": bgColor() }}
   />
-  {/* Foreground Color (Top-Left Circle Segment) */}
-  <div 
-    class="absolute top-0 left-0 size-[35px] rounded-full bg-[#E8E8E8] border border-black/30 shadow-sm"
-    style={{ "clip-path": "polygon(0 0, 100% 0, 0 100%)" }}
+  {/* Foreground Color (Top-Left Circle) */}
+  <div
+    class="absolute top-0 left-0 size-[28px] rounded-full border border-white/30 outline outline-1 outline-black/40 shadow-md z-10"
+    style={{ "background-color": fgColor() }}
   />
 </div>
 ```
 
 **Aturan Visual**:
-1. Menggunakan overlapping circles berukuran `size-[35px]` di dalam container `size-[36px]`.
-2. Segmentasi dilakukan murni melalui properti CSS `clip-path` diagonal:
-   - Foreground: `polygon(0 0, 100% 0, 0 100%)` (segitiga kiri-atas)
-   - Background: `polygon(100% 100%, 100% 0, 0 100%)` (segitiga kanan-bawah)
-3. Gap pemisah dibentuk secara natural dari offset pemosisian absolut `top-0 left-0` vs `bottom-0 right-0` (menghasilkan jarak diagonal 1.4px transparan yang seimbang tanpa membutuhkan border masking tambahan).
+1. Dua lingkaran `size-[28px]` bertumpuk di dalam container `size-[38px]`: background di `bottom-0 right-0`, foreground di `top-0 left-0` dengan `z-10` sehingga menutupi area tengah.
+2. Pemisahan diagonal dihasilkan dari offset pemosisian absolut + urutan z-order, bukan `clip-path` atau border masking tambahan.
+3. Tombol swap warna mikro berada di sudut kanan-atas (`absolute -top-1.5 -right-1.5 z-20 size-4`, ikon `rotate`) dan hanya tampak saat hover (`scale-0 group-hover:scale-100`).
 
 ---
 
@@ -182,3 +180,4 @@ LeftToolRail memuat swatch warna bertumpuk diagonal inovatif yang memaksimalkan 
 | 2026-05-27 | Accent: Studio Indigo → Photon Amber | Identitas visual hardware-tooling yang hangat, sesuai arah branding |
 | 2026-05-30 | Synced with SolidJS Tailwind v4 UI | Memperbarui token ke sistem warna OKLCH, radius 6px modular, slider horizontal bergradien, dan layout double-dock side-by-side |
 | 2026-05-30 | UI/UX Polish: Diagonal Swatches & Tab Sizing | Implementasi custom diagonal split color swatches penuh 36px, visual tab typography alignment 12px (mengatasi ilusi optis kebesaran), layout tool rail bottom-aligned mt-auto, dan pemangkasan non-MVP icons |
+| 2026-10-18 | Sinkronisasi dimensi shell & swatch dengan implementasi saat ini | DocumentTabsBar 44→38px, BottomStatusBar 30→24px, RightDock 560→533px (272+260+1) dan varian 2XL 634→599px (300+298+1), swatch container 36→38px dengan lingkaran 35→28px (implementasi lingkaran bertumpuk, bukan clip-path) |

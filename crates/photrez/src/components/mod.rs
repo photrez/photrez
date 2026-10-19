@@ -5,3 +5,5 @@
 //!
 //! Must not own: screen composition (`views/`), application state (`app/`),
 //! or document logic (`photrez-core`).
+
+pub mod ui;

@@ -10,11 +10,15 @@
 
 use std::borrow::Cow;
 
-use gpui_kit::{div, rgb, Context, IntoElement, ParentElement, Render, Styled, Window};
+use gpui_kit::{AppContext, Context, Entity, IntoElement, Render, Window};
+
+use crate::state::AppState;
+use crate::views::workspace;
 
 /// The `.ptz` `document.json` payload the bridge probe parses below: a real
 /// payload of the production reader's shape, kept tiny. The dimensions the
 /// reader yields from it are what the window displays.
+#[allow(dead_code)] // only reachable from the bridge test until the shell wires it into a view
 const PROBE_DOCUMENT_JSON: &str = r#"{
   "id": "bridge-probe",
   "name": "Bridge Probe",
@@ -26,6 +30,9 @@ const PROBE_DOCUMENT_JSON: &str = r#"{
 /// Dimensions of the probe document, produced by [`photrez_core`]'s
 /// production `.ptz` JSON reader - not echoed from a constant here. This is
 /// the in-process wiring proof: the number on screen comes from core.
+#[allow(clippy::expect_used)]
+// the probe payload is a compile-time constant; a parse failure is a defect, not a runtime condition
+#[allow(dead_code)] // only reachable from the bridge test until the shell wires it into a view
 pub fn probe_document_size() -> (f64, f64) {
     let doc = photrez_core::canonical_model::CanonicalDocument::from_ptz_document_json(
         PROBE_DOCUMENT_JSON,
@@ -63,31 +70,30 @@ pub fn load_fonts(cx: &gpui_kit::App) {
     }
 }
 
-/// Root entity. For this scaffold it holds exactly one thing: the value the
-/// bridge produced, which the window displays.
+/// Root entity — the window's single GPUI root.
+///
+/// Holds the `AppState` that drives every region of the shell. At this stage
+/// `AppState` is seeded entirely from `shot::active()`, so a `--shot` launch
+/// renders the exact baseline state; `probe_document_size()` is kept as an
+/// in-process wiring proof that `photrez-core`'s JSON reader works.
 pub struct App {
-    probe_size: (f64, f64),
+    state: Entity<AppState>,
 }
 
 impl App {
-    pub fn new(_cx: &mut Context<Self>) -> Self {
+    /// Creates a new `App`, seeding `AppState` from the active shot id.
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let state = AppState::seeded(crate::shot::active());
         Self {
-            probe_size: probe_document_size(),
+            state: cx.new(|_| state),
         }
     }
 }
 
 impl Render for App {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let (w, h) = self.probe_size;
-        div()
-            .size_full()
-            .bg(rgb(0x171717))
-            .flex()
-            .items_center()
-            .justify_center()
-            .font_family("Inter")
-            .child(format!("photrez-core .ptz reader: {w} x {h}"))
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Delegate to the workspace renderer.
+        workspace::render(self.state.read(cx), window)
     }
 }
 
@@ -101,5 +107,12 @@ mod tests {
     #[test]
     fn bridge_returns_core_parsed_dimensions() {
         assert_eq!(probe_document_size(), (1748.0, 1240.0));
+    }
+
+    /// `App::new` seeds `AppState` from `shot::active()`.
+    #[test]
+    fn seeded_state_matches_shot() {
+        let state = AppState::seeded(Some("dock-closed"));
+        assert!(!state.dock_open);
     }
 }

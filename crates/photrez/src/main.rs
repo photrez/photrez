@@ -16,12 +16,19 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod assets;
 mod components;
 mod i18n;
 mod input;
 mod render;
 mod services;
+mod shot;
+mod state;
+mod tokens;
 mod views;
+
+#[cfg(test)]
+mod nav_regression_tests;
 
 use gpui_kit::{px, size, App, AppContext, TitlebarOptions, WindowBounds, WindowOptions};
 
@@ -36,9 +43,35 @@ pub(crate) const INTER: &[u8] = include_bytes!("../assets/inter-latin.ttf");
 const CLIENT_W: f32 = 1366.;
 const CLIENT_H: f32 = 820.;
 
+/// Parses `--shot <id>` from the process command-line arguments.
+/// Unknown flags and a missing value are ignored silently; the app never
+/// crashes on bad arguments.
+fn parse_shot_arg() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1; // skip the program name
+    while i < args.len() {
+        if args[i] == "--shot" {
+            if i + 1 < args.len() {
+                return Some(args[i + 1].clone());
+            }
+            return None; // `--shot` with no value: ignored
+        }
+        i += 1;
+    }
+    None
+}
+
 fn main() {
+    if let Some(id) = parse_shot_arg() {
+        shot::set_active(id);
+    }
     gpui_kit::application().run(|cx: &mut App| {
         gpui_kit::init(cx);
+
+        // Rasterise the logo once, before any window opens. `title_bar::init`
+        // fills the `LOGO_IMAGE` cache that `title_bar::logo` reads per frame;
+        // the same call the appearance reference's `main.rs` makes.
+        views::title_bar::init(&cx.svg_renderer());
 
         app::load_fonts(cx);
 
@@ -56,6 +89,8 @@ fn main() {
             ..Default::default()
         };
 
+        #[allow(clippy::expect_used)]
+        // startup cannot proceed without a window; the message is the diagnostic
         gpui_kit::open_window(options, cx, |_window, cx| cx.new(app::App::new))
             .expect("failed to open window");
     });

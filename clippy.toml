@@ -1,0 +1,8 @@
+# Clippy configuration for the whole repository (discovered by walking up from
+# the working tree, so one file covers both workspaces). It only tunes the
+# restriction lints that `crates/photrez` denies: test code may use
+# unwrap/expect/panic freely; non-test code needs a reasoned `#[allow]`
+# instead.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

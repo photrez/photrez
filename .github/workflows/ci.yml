@@ -46,6 +46,8 @@ jobs:
   # the browser build pipeline was removed; it resumes with the native build.
   # photrez-core is pure Rust (no WebView2), so the same tests run on all OSes
   # to catch platform-specific path/behavior drift.
+  # The native `photrez` crate is gated by its own manifest-path steps below
+  # (build steps Windows-only for now).
   rust:
     name: Rust tests (${{ matrix.os }})
     strategy:
@@ -53,19 +55,24 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # 60: the first cold run includes the ~850-crate gpui build (Windows) and
+    # a `cargo install cargo-deny` compile (Ubuntu).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # One cache covers both workspaces: the root config unifies build output
+      # into `target/` for every invocation that runs from the repo root,
+      # including the `--manifest-path crates/photrez` steps.
       - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'crates/photrez/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
@@ -74,11 +81,57 @@ jobs:
 
       # Lint gate: `-D warnings` keeps new code clippy-clean; fmt --check
       # keeps the tree rustfmt-stable (run `cargo fmt` locally when this fails).
+      # `--exclude photrez-desktop`: the Tauri binary is not built on runners
+      # (WebView2/windres; see the note above). The exclude goes away when the
+      # Tauri crate does.
       - name: Clippy (deny warnings)
-        run: cargo clippy -p photrez-core -- -D warnings
+        run: cargo clippy --workspace --exclude photrez-desktop --all-targets -- -D warnings
 
       - name: Format check
         run: cargo fmt --check
+
+      # ─── native crate (its own workspace + lockfile) ───
+      # Root invocations above cannot see crates/photrez. Its build/probe steps
+      # are Windows-only for now: the crate's build has only ever been proven
+      # on Windows (its local toolchain pin names a windows-gnu host), and the
+      # linux/macOS runner enablement check has not been done yet. Formatting
+      # is host-independent and runs everywhere.
+      - name: Format check (photrez workspace)
+        run: cargo fmt --manifest-path crates/photrez/Cargo.toml --check
+
+      - name: Clippy (photrez workspace, deny warnings)
+        if: runner.os == 'Windows'
+        run: cargo clippy --manifest-path crates/photrez/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests (photrez workspace)
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path crates/photrez/Cargo.toml
+
+      - name: Docs (deny warnings)
+        shell: bash
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --exclude photrez-desktop
+
+      - name: Install cargo-deny
+        if: runner.os == 'Ubuntu'
+        run: cargo install cargo-deny --locked
+
+      - name: Licence and advisory policy
+        if: runner.os == 'Ubuntu'
+        run: cargo deny check
+
+      - name: Licence and advisory policy (photrez workspace)
+        if: runner.os == 'Ubuntu'
+        working-directory: crates/photrez
+        env:
+          # The crate's toolchain file pins a windows-gnu channel for local
+          # linker reasons; cargo-deny only shells out to `cargo metadata`, so
+          # pin the host toolchain instead of fetching that one.
+          RUSTUP_TOOLCHAIN: "1.95.0"
+        run: cargo deny check
+
+      - name: File-size ratchet
+        shell: bash
+        run: sh scripts/check-rust-file-size.sh
 
   # ─── SECURITY: dependency audit (informational, non-blocking) ───
   # For a small OSS project the audit runs as a warning, not a hard gate: a

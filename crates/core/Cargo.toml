@@ -5,7 +5,10 @@ edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Core image editing engine for Photrez"
 repository = "https://github.com/photrez/photrez"
+rust-version.workspace = true
 
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["rlib"]

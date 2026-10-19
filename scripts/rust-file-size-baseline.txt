@@ -1,0 +1,34 @@
+# Files already above the size caps (500 non-test, 1000 test) on 2026-10-17,
+# grandfathered at their recorded size. Format: <line-count> <path>.
+# The ratchet only moves down: shrink freely; a listed file may not grow.
+1008 crates/core/src/document_core.rs
+1027 crates/core/src/document_core_apply.rs
+1047 crates/core/src/document_core_reorder_tests.rs
+1048 crates/core/src/model/tests.rs
+1219 apps/desktop/src-tauri/src/paint_parity_cmds.rs
+1264 apps/desktop/src-tauri/src/protocol_native_cmds.rs
+1733 crates/core/src/pixel_store/tests.rs
+507 crates/core/src/history.rs
+516 crates/core/src/canonical_shadow_tests.rs
+518 apps/desktop/src-tauri/src/pixel_history_depth.rs
+529 apps/desktop/src-tauri/src/printers.rs
+549 apps/desktop/src-tauri/src/paint_parity_raw.rs
+556 apps/desktop/src-tauri/src/print_core.rs
+563 apps/desktop/src-tauri/src/print_settings.rs
+566 crates/core/src/paint_parity.rs
+567 apps/desktop/src-tauri/src/pixel_store_bytes.rs
+589 crates/core/src/paint_parity_r15.rs
+659 apps/desktop/src-tauri/src/document_snapshot_cmds.rs
+697 crates/core/src/history_h0_tests.rs
+705 crates/core/src/document_core_canvas_tests.rs
+728 crates/core/src/canonical_bridge.rs
+734 crates/core/src/document_core_fuzz_tests.rs
+737 apps/desktop/src-tauri/src/save_stream.rs
+825 apps/desktop/src-tauri/src/file_io.rs
+833 crates/core/src/document_core_arm_structural_tests.rs
+857 crates/core/src/canonical_model.rs
+932 crates/core/src/kernel.rs
+950 crates/core/src/ptz_document.rs
+965 crates/core/src/pixel_store.rs
+984 crates/core/src/document_core_arm_tests.rs
+998 crates/core/src/document.rs

@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 publish = false
+rust-version.workspace = true
+
+[lints]
+workspace = true
 
 # Standalone workspace root: the gpui dependency tree (~850 packages) must
 # never enter the root `Cargo.lock` that `crates/core` and the Tauri app build
@@ -11,8 +15,25 @@ publish = false
 # (root `members = ["crates/*"]`), never as a side effect of building the app.
 [workspace]
 
+[workspace.package]
+rust-version = "1.95.0"
+
+# The hardest gate the new crate can carry, because it is the only tree with
+# no legacy to grandfather: an unsafe block, dead code, or an unwrap/expect/
+# panic in non-test code all fail the build. Tests may unwrap/expect
+# (clippy.toml), and a justified suppression carries its reason on the
+# attribute line.
+[workspace.lints.rust]
+unsafe_code = "deny"
+dead_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
 [dependencies]
-# Exact pin per sub-plan 15 A5 (`=0.7.3`): which GPUI API this builds against
-# must be readable from the manifest alone.
+# Exact pin (`=0.7.3`): which GPUI API this builds against must be
+# readable from the manifest alone.
 gpui-kit = "=0.7.3"
 photrez-core = { path = "../core" }

@@ -5,6 +5,7 @@ edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Desktop application for Photrez powered by Tauri"
 repository = "https://github.com/photrez/photrez"
+rust-version.workspace = true
 
 
 [dependencies]
