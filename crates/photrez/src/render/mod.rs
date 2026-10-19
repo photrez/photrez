@@ -8,3 +8,5 @@
 //! (`views/`), or input policy (`input/`).
 
 pub mod canvas_bridge;
+#[cfg(test)]
+mod invalid_input;

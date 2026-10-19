@@ -2,6 +2,8 @@
 
 Status date: 2026-08-07
 
+> **Runtime scope (2026-10-19):** this matrix gates the shipped v0.1.0 runtime - WebGL2 preview and Canvas2D export - and stays accurate for it. The native runtime under development renders by native texture draw and encodes in Rust; its blend-mode parity gate is stated when that runtime replaces v0.1.0.
+
 This matrix is the release gate for blend modes that affect both WebGL preview and Canvas2D export. A mode may be exposed in the product UI only when it is listed in `BLEND_MODE_OPTIONS` and has matching preview/export behavior documented here.
 
 ## Blend Modes

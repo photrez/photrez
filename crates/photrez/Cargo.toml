@@ -41,6 +41,12 @@ photrez-core = { path = "../core" }
 # `include_str!`). Already present in this crate's lock via the gpui-kit
 # dependency tree; the direct edge fetches no new package.
 serde_json = "1.0"
+# Builds the GPUI display image from `photrez-core` RGBA (`RenderImage::new`
+# consumes `image::Frame`; no gpui crate re-exports the type). Already present
+# in this crate's lock via the gpui-kit dependency tree - the direct edge
+# fetches no new package - and no default features, matching gpui-pre's own
+# edge, so the feature union does not move either.
+image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 # Parses the embedded face for the glyph-coverage gate (`i18n::tests::

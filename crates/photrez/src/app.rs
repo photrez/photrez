@@ -12,6 +12,8 @@ use std::borrow::Cow;
 
 use gpui_kit::{AppContext, Context, Entity, IntoElement, Render, Window};
 
+use crate::render::canvas_bridge::CanvasImage;
+use crate::services;
 use crate::state::AppState;
 use crate::views::workspace;
 
@@ -78,14 +80,29 @@ pub fn load_fonts(cx: &gpui_kit::App) {
 /// in-process wiring proof that `photrez-core`'s JSON reader works.
 pub struct App {
     state: Entity<AppState>,
+    /// The display snapshot of the demo document, built once at startup
+    /// through `photrez-core` (`services::document`). The seam only converts
+    /// and paints it; document truth stays in core. `None` is defined
+    /// behaviour: the canvas area falls back to its flat colour.
+    canvas: Option<CanvasImage>,
 }
 
 impl App {
-    /// Creates a new `App`, seeding `AppState` from the active shot id.
+    /// Creates a new `App`, seeding `AppState` from the active shot id and
+    /// building the demo document's display snapshot through core.
     pub fn new(cx: &mut Context<Self>) -> Self {
         let state = AppState::seeded(crate::shot::active());
+        let (width, height, rgba) = services::document::blank_white_document();
+        let canvas = match CanvasImage::from_rgba(width, height, rgba) {
+            Ok(canvas) => Some(canvas),
+            Err(error) => {
+                eprintln!("photrez: the demo document was refused by the display seam: {error:?}");
+                None
+            }
+        };
         Self {
             state: cx.new(|_| state),
+            canvas,
         }
     }
 }
@@ -93,7 +110,7 @@ impl App {
 impl Render for App {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Delegate to the workspace renderer.
-        workspace::render(self.state.read(cx), window)
+        workspace::render(self.state.read(cx), window, self.canvas.as_ref())
     }
 }
 

@@ -4605,6 +4605,7 @@ name = "photrez"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "image",
  "photrez-core",
  "serde_json",
  "ttf-parser",

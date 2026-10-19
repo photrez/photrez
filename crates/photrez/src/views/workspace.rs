@@ -10,6 +10,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, Window};
 
+use crate::render::canvas_bridge::{self, CanvasImage};
 use crate::shot;
 use crate::state::AppState;
 use crate::tokens::color;
@@ -47,10 +48,11 @@ const OPTIONBAR_H: f32 = 44.0;
 ///     RightDock           533px (only when dock_open)
 ///   BottomStatusBar        (24px)
 /// ```
-pub fn render(state: &AppState, window: &mut Window) -> impl IntoElement {
-    // Middle row height: 820 - 46 (title) - 24 (status).
-    let middle_h = 820.0 - TITLEBAR_H - STATUSBAR_H;
-
+pub fn render(
+    state: &AppState,
+    window: &mut Window,
+    canvas: Option<&CanvasImage>,
+) -> impl IntoElement {
     // Outer BG fill — full window, matches `bg-editor-bg` (`#171717`).
     v_flex()
         .size_full()
@@ -71,7 +73,7 @@ pub fn render(state: &AppState, window: &mut Window) -> impl IntoElement {
                         // LeftToolRail — 52px, flex_none
                         div()
                             .w(px(RAIL_W))
-                            .h(px(middle_h))
+                            .h_full()
                             .flex_none()
                             .bg(color::BG)
                             .child(tool_rail::render(&state.active_tool)),
@@ -106,10 +108,24 @@ pub fn render(state: &AppState, window: &mut Window) -> impl IntoElement {
                                     )
                                 })
                                 .child(
-                                    // CanvasViewport - flex_1, min_h_0. Flat
-                                    // stand-in: the document itself is
-                                    // `photrez-core`'s territory, not chrome.
-                                    div().flex_1().min_h(px(0.0)).w_full().bg(color::CANVAS),
+                                    // CanvasViewport - flex_1, min_h_0. With a
+                                    // document open, the display seam paints
+                                    // it (`render/canvas_bridge`); without
+                                    // one, the flat canvas colour stays. The
+                                    // document itself is `photrez-core`'s
+                                    // territory, not chrome.
+                                    match (state.has_document, canvas) {
+                                        (true, Some(canvas_image)) => {
+                                            canvas_bridge::canvas_element(canvas_image)
+                                                .into_any_element()
+                                        }
+                                        _ => div()
+                                            .flex_1()
+                                            .min_h(px(0.0))
+                                            .w_full()
+                                            .bg(color::CANVAS)
+                                            .into_any_element(),
+                                    },
                                 ),
                         )
                         // RightDock — only when dock_open and the chrome shows
@@ -117,7 +133,7 @@ pub fn render(state: &AppState, window: &mut Window) -> impl IntoElement {
                             el.child(
                                 div()
                                     .w(px(DOCK_W))
-                                    .h(px(middle_h))
+                                    .h_full()
                                     .flex_none()
                                     .bg(color::BG)
                                     .child(right_dock::render(
