@@ -677,4 +677,96 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Collect every character a parsed catalog carries: object keys, string
+    /// values, array items.
+    fn collect_catalog_chars(
+        value: &serde_json::Value,
+        out: &mut std::collections::BTreeSet<char>,
+    ) {
+        match value {
+            serde_json::Value::String(s) => {
+                out.extend(s.chars());
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    collect_catalog_chars(item, out);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for (key, item) in map {
+                    out.extend(key.chars());
+                    collect_catalog_chars(item, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Code points the embedded catalogs use that `inter-latin.ttf` does not
+    /// carry. They render through the toolkit's per-glyph fallback stack -
+    /// `gpui_pre::TextSystem` defaults to `.ZedMono, .ZedSans, Helvetica,
+    /// Segoe UI, ...` and this app never overrides it; `Segoe UI` was measured
+    /// to carry all five, which is also how the reference's Latin subsets
+    /// resolved them in the browser. Each entry is a reviewed decision: a new
+    /// code point either gains a glyph in the face or is added here with its
+    /// covering fallback named.
+    const FALLBACK_RENDERED: &[char] = &[
+        '\u{00B0}', // degree sign - rotation labels and tooltips
+        '\u{2014}', // em dash
+        '\u{2026}', // horizontal ellipsis - menu labels
+        '\u{2192}', // rightwards arrow - the foreground/background swatch label
+        '\u{2194}', // left-right arrow
+    ];
+
+    /// Gate: every non-ASCII code point the embedded `id` catalog uses must
+    /// render - from the registered face (`crate::INTER`, the same bytes
+    /// `app.rs` hands to `add_fonts`) or, for the reviewed list above, from
+    /// the toolkit's fallback stack. Ignored by default because it parses the
+    /// font binary; run explicitly:
+    /// `cargo test -p photrez i18n::tests::indonesian_glyph_coverage -- --ignored`
+    #[test]
+    #[ignore = "font gate; run explicitly"]
+    fn indonesian_glyph_coverage() {
+        let id_json = CATALOGS
+            .iter()
+            .find(|(locale, _)| *locale == Locale::Id)
+            .map(|(_, json)| *json)
+            .expect("the id catalog is embedded");
+
+        let value: serde_json::Value =
+            serde_json::from_str(id_json).expect("the embedded id catalog parses");
+        let mut corpus = std::collections::BTreeSet::new();
+        collect_catalog_chars(&value, &mut corpus);
+        corpus.retain(|c| !c.is_ascii());
+        assert!(
+            !corpus.is_empty(),
+            "the id catalog carries non-ASCII characters"
+        );
+
+        let face = ttf_parser::Face::parse(crate::INTER, 0).expect("the embedded face parses");
+        let unreviewed: Vec<char> = corpus
+            .iter()
+            .copied()
+            .filter(|c| face.glyph_index(*c).is_none() && !FALLBACK_RENDERED.contains(c))
+            .collect();
+        assert!(
+            unreviewed.is_empty(),
+            "neither in the registered face nor reviewed fallbacks: {}",
+            unreviewed
+                .iter()
+                .map(|c| format!("U+{:04X} {c:?}", *c as u32))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let in_face = corpus
+            .iter()
+            .filter(|c| face.glyph_index(**c).is_some())
+            .count();
+        eprintln!(
+            "glyph coverage: {} code point(s) - {in_face} in the face, {} fallback-reviewed",
+            corpus.len(),
+            corpus.len() - in_face
+        );
+    }
 }

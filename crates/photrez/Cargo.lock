@@ -4607,6 +4607,7 @@ dependencies = [
  "gpui-kit",
  "photrez-core",
  "serde_json",
+ "ttf-parser",
 ]
 
 [[package]]

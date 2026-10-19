@@ -41,3 +41,10 @@ photrez-core = { path = "../core" }
 # `include_str!`). Already present in this crate's lock via the gpui-kit
 # dependency tree; the direct edge fetches no new package.
 serde_json = "1.0"
+
+[dev-dependencies]
+# Parses the embedded face for the glyph-coverage gate (`i18n::tests::
+# indonesian_glyph_coverage`): the same byte buffer `app.rs` registers with
+# `add_fonts`. Already present in this crate's lock via the gpui-kit dependency
+# tree; the direct edge fetches no new package.
+ttf-parser = "0.25"
