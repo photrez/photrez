@@ -259,7 +259,7 @@ fn tooltip(label: &str, shortcut: Option<&str>) -> Div {
         row = row.child(kbd(keys));
     }
 
-    div()
+    h_flex()
         .h(px(TOOLTIP_H))
         .items_center()
         .px(px(PAD_X))
@@ -292,7 +292,7 @@ fn label_run(text: &str) -> Div {
 /// says, and pinning keeps the chip's border rows on crop 7/21 where the probe
 /// put them. `uppercase` is dropped as a no-op — see the module docs.
 fn kbd(keys: &str) -> Div {
-    div()
+    h_flex()
         .h(px(KBD_H))
         .flex_shrink_0()
         .items_center()

@@ -32,7 +32,7 @@ pub(super) fn size_group() -> impl IntoElement {
 
 /// The brush size slider (`BrushOptionBar.tsx`), gated behind `PAINT_SIZE_SLIDER`.
 pub(super) fn brush_size_slider(percent: f32) -> Div {
-    div()
+    h_flex()
         .relative()
         .flex_shrink_0()
         .w(px(BRUSH_SLIDER_W))
@@ -121,7 +121,7 @@ pub(super) fn tolerance_preset(
 
 /// The tolerance slider wrapper (`PaintBucketOptionBar.tsx`).
 pub(super) fn tolerance_slider() -> Div {
-    div()
+    h_flex()
         .relative()
         .flex_shrink_0()
         .w(px(TOLERANCE_SLIDER_W))

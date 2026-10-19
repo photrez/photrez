@@ -369,12 +369,15 @@ fn transform_section() -> Div {
                         .flex_1()
                         .items_center()
                         .gap(px(10.0))
-                        .child(div().flex_1().h(px(24.0)).child(ui::slider(
-                            100.0,
-                            None,
-                            ui::SliderKind::Alpha,
-                            false,
-                        )))
+                        // `h_flex` + `items_center`, not a bare block box: the
+                        // wrapper is what centres the 4px track in its 24px row.
+                        .child(
+                            h_flex()
+                                .flex_1()
+                                .h(px(24.0))
+                                .items_center()
+                                .child(ui::slider(100.0, None, ui::SliderKind::Alpha, false)),
+                        )
                         .child(
                             div()
                                 .w(px(44.0))
@@ -413,35 +416,39 @@ fn transform_section() -> Div {
 }
 
 /// `h-[26px] flex-1 rounded-[4px] border bg-editor-field px-2 text-[11px]`.
+///
+/// Three of these share a 186px slot, 58px each. The chrome is therefore kept
+/// at 28px (12px icon, 4px gap, 6px padding) so the widest label, "Flip H" at
+/// 10.5px, still has ~2px of slack: the toolkit measures a label's min-content
+/// as its whole string, so a heavier chrome makes the buttons sit at their
+/// intrinsic widths and pushes the last one past the row's edge ("Reset" used
+/// to clip to "Res").
 fn action_button(icon: &'static [u8], label: &str) -> Div {
     h_flex()
         .flex_1()
         .min_w(px(0.0))
         .overflow_hidden()
-        // min_w(0) + overflow_hidden: flex_1() on its own leaves the default
-        // min-width:auto, i.e. the content's intrinsic width, so the button
-        // refuses to shrink below icon+label+padding however little room the
-        // row has, and the last button gets pushed past the panel edge and cut
-        // in half. The icon and gap stay flex_none, so what gives is the label,
-        // which clips the way a truncated cell does.
         .h(px(BTN))
         .items_center()
         .justify_center()
-        .gap(px(6.0))
+        .gap(px(4.0))
         .rounded(px(R4))
         .border(px(1.0))
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
-        .px(px(8.0))
+        .px(px(6.0))
         .child(
             Icon::default()
                 .data(icon)
-                .size(px(14.0))
+                .size(px(12.0))
                 .text_color(color::TEXT),
         )
         .child(
+            // min_w(0) keeps the label shrinkable if it ever outgrows the slot;
+            // at the current chrome it fits on one line.
             div()
-                .text_size(px(11.0))
+                .min_w(px(0.0))
+                .text_size(px(10.5))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT)
                 .child(label.to_string()),
