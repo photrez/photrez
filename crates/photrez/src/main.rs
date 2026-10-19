@@ -34,6 +34,8 @@ mod nav_regression_tests;
 
 use gpui_kit::{px, size, App, AppContext, TitlebarOptions, WindowBounds, WindowOptions};
 
+use services::settings::SettingsStore as _;
+
 /// Inter, the same file the web build loads through
 /// `apps/desktop/public/fonts/fonts.css` - as TTF, because DirectWrite's
 /// `CreateInMemoryFontFileReference` rejects the woff2 container with
@@ -86,6 +88,38 @@ fn main() {
 
         app::load_fonts(cx);
 
+        // Restore the geometry the last session left behind, when it still
+        // lands on a display; otherwise open centered at the baseline size.
+        let displays = cx.displays();
+        let layout: Vec<_> = displays
+            .iter()
+            .map(|display| display.visible_bounds())
+            .collect();
+        let restored = settings
+            .as_ref()
+            .and_then(|store| store.read(services::window_state::KEY))
+            .and_then(|text| services::window_state::decode(&text))
+            .and_then(|geometry| services::window_state::restore(geometry, &layout));
+        let (window_bounds, display_id) = match restored {
+            // The record names the monitor it belongs to. Creating the window
+            // against that monitor (instead of the primary) is what lets the
+            // platform validate a placement on a second screen.
+            Some((index, geometry)) => (
+                // A maximized record carries its restore bounds, so the window
+                // opens maximized without losing the size behind it.
+                if geometry.maximized {
+                    WindowBounds::Maximized(geometry.bounds())
+                } else {
+                    WindowBounds::Windowed(geometry.bounds())
+                },
+                displays.get(index).map(|display| display.id()),
+            ),
+            None => (
+                WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx),
+                None,
+            ),
+        };
+
         // `appears_transparent` hands the whole top edge to our own title bar.
         // Without it the window shows two title bars: the OS caption plus the
         // ported 46px one, including an inert second set of window buttons.
@@ -95,14 +129,17 @@ fn main() {
                 appears_transparent: true,
                 ..Default::default()
             }),
-            window_bounds: Some(WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx)),
+            window_bounds: Some(window_bounds),
+            display_id,
             is_resizable: true,
             ..Default::default()
         };
 
         #[allow(clippy::expect_used)]
         // startup cannot proceed without a window; the message is the diagnostic
-        gpui_kit::open_window(options, cx, |_window, cx| cx.new(app::App::new))
-            .expect("failed to open window");
+        gpui_kit::open_window(options, cx, move |window, cx| {
+            cx.new(|cx| app::App::new(window, settings, cx))
+        })
+        .expect("failed to open window");
     });
 }

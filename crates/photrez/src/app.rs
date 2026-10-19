@@ -9,13 +9,23 @@
 //! in-process through the bridge below.
 
 use std::borrow::Cow;
+use std::time::{Duration, Instant};
 
-use gpui_kit::{AppContext, Context, Entity, IntoElement, Render, Window};
+use gpui_kit::{
+    AppContext, Context, Entity, IntoElement, Render, Subscription, Window, WindowBounds,
+};
 
 use crate::render::canvas_bridge::CanvasImage;
 use crate::services;
+use crate::services::settings::{FileSettings, SettingsStore};
+use crate::services::window_state::{self, WindowGeometry};
 use crate::state::AppState;
 use crate::views::workspace;
+
+/// A drag-resize produces a bounds change per pixel of movement; the geometry
+/// file is rewritten at most this often while that is happening. The settle
+/// points (focus loss, quit) always write, so the final position is never lost.
+const WRITE_INTERVAL: Duration = Duration::from_millis(500);
 
 /// The `.ptz` `document.json` payload the bridge probe parses below: a real
 /// payload of the production reader's shape, kept tiny. The dimensions the
@@ -85,12 +95,30 @@ pub struct App {
     /// and paints it; document truth stays in core. `None` is defined
     /// behaviour: the canvas area falls back to its flat colour.
     canvas: Option<CanvasImage>,
+    /// The window geometry seen on the last frame. `render` is the one place
+    /// handed a live window every frame, so it is where the geometry is
+    /// sampled; the observers below only decide when it is written.
+    live: Option<WindowGeometry>,
+    /// The record already on disk, and when it was written: unchanged geometry
+    /// is never rewritten and a drag-resize is throttled by [`WRITE_INTERVAL`].
+    saved: Option<WindowGeometry>,
+    saved_at: Option<Instant>,
+    /// Where the record goes. `None` (no config directory) disables persistence
+    /// without disabling the window.
+    settings: Option<FileSettings>,
+    /// Held for the window's lifetime: dropping a subscription cancels it.
+    _window_watch: Vec<Subscription>,
 }
 
 impl App {
-    /// Creates a new `App`, seeding `AppState` from the active shot id and
-    /// building the demo document's display snapshot through core.
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    /// Creates a new `App`, seeding `AppState` from the active shot id,
+    /// building the demo document's display snapshot through core, and
+    /// subscribing to the window geometry it will persist.
+    pub fn new(
+        window: &mut Window,
+        settings: Option<FileSettings>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let state = AppState::seeded(crate::shot::active());
         let (width, height, rgba) = services::document::blank_white_document();
         let canvas = match CanvasImage::from_rgba(width, height, rgba) {
@@ -100,15 +128,85 @@ impl App {
                 None
             }
         };
+
+        let mut window_watch = Vec::new();
+        // Resizes (and any bounds notification) are throttled; the settle
+        // points always write.
+        window_watch.push(cx.observe_window_bounds(window, |this, window, _cx| {
+            this.remember_bounds(window);
+            this.persist_bounds(false);
+        }));
+        // Focus loss is the settle point that follows a move, which the
+        // platform reports no event for: sample and write there.
+        window_watch.push(cx.observe_window_activation(window, |this, window, _cx| {
+            this.remember_bounds(window);
+            this.persist_bounds(true);
+        }));
+        window_watch.push(cx.on_app_quit(|this, _cx| {
+            this.persist_bounds(true);
+            async {}
+        }));
+
         Self {
             state: cx.new(|_| state),
             canvas,
+            live: Some(restorable_geometry(window)),
+            saved: None,
+            saved_at: None,
+            settings,
+            _window_watch: window_watch,
         }
+    }
+
+    fn remember_bounds(&mut self, window: &Window) {
+        self.live = Some(restorable_geometry(window));
+    }
+
+    /// Writes the last seen geometry when it differs from the record already on
+    /// disk. `settled` marks the end of a gesture (focus loss, quit), where the
+    /// throttle must not skip the final position.
+    fn persist_bounds(&mut self, settled: bool) {
+        let Some(geometry) = self.live else {
+            return;
+        };
+        if self.saved == Some(geometry) {
+            return;
+        }
+        if !settled
+            && self
+                .saved_at
+                .is_some_and(|at| at.elapsed() < WRITE_INTERVAL)
+        {
+            return;
+        }
+        if let Some(settings) = &self.settings {
+            settings.write(window_state::KEY, &window_state::encode(geometry));
+        }
+        self.saved = Some(geometry);
+        self.saved_at = Some(Instant::now());
+    }
+}
+
+/// The window's restorable geometry: a normal window's bounds, or a maximized
+/// window's restore bounds plus its state. `WindowBounds::Maximized` carries
+/// the restore rect by contract, so a maximized window is never remembered as
+/// a normal window the size of the screen.
+///
+/// The shell exposes no fullscreen command; a fullscreen window's restore rect
+/// is the honest record of where it was before.
+fn restorable_geometry(window: &Window) -> WindowGeometry {
+    match window.window_bounds() {
+        WindowBounds::Windowed(bounds) => WindowGeometry::of(bounds, false),
+        WindowBounds::Maximized(bounds) => WindowGeometry::of(bounds, true),
+        WindowBounds::Fullscreen(bounds) => WindowGeometry::of(bounds, false),
     }
 }
 
 impl Render for App {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The geometry is sampled here because this is the only place the root
+        // is handed a live window every frame.
+        self.remember_bounds(window);
         // Delegate to the workspace renderer.
         workspace::render(self.state.read(cx), window, self.canvas.as_ref())
     }
