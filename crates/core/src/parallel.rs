@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn composite_parallel_returns_owned_w_h_4() {
-        // Owned-RGBA return path (sub-plan 28 gate): the composite result's
+        // Owned-RGBA return path: the composite result's
         // length is exactly width x height x 4 bytes (one 3x2 frame here).
         let out = composite_parallel(&[vec![7u8; 3 * 2 * 4]]);
         assert_eq!(out.len(), 3 * 2 * 4);

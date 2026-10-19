@@ -808,7 +808,7 @@ thread_local! {
 }
 // Normalizes a document id: empty/absent maps to the reserved "default" key so
 // callers that do not thread a document id keep the shared-engine behavior.
-#[allow(dead_code)] // native consumers arrive with the native app seam (sub-plan 50)
+#[allow(dead_code)] // native consumers arrive with the native app seam
 fn resolve_doc_key(doc_id: &str) -> &str {
     if doc_id.is_empty() {
         "default"

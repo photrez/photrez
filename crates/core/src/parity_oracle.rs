@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Phase A0 test-only independent-copy parity oracle.
+//! Test-only independent-copy parity oracle.
 //!
 //! This is the REFERENCE TRUTH model: plain row-major `Vec<u8>`, no structural
 //! sharing, no `Arc`. The tile-major `TileStore` / `StateNode` model must
