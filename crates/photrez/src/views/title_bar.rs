@@ -258,19 +258,24 @@ fn logo_cell() -> impl IntoElement {
         .items_center()
         .pl(px(pad_left))
         .pr(px(title::LOGO_PAD_R))
-        .child(logo())
+        .child(logo(title::LOGO))
 }
 
 /// `<svg viewBox="0 0 512 512" class="size-[30px] shrink-0">` — full colour,
 /// see the module docs for why this is `img` and not `Icon`.
+///
+/// `size` is the box the call site asks for: [`title::LOGO`] in the bar, a
+/// larger mark in the About dialog. Both draw the same 60px raster, so the
+/// brand image stays one image with one copy of the gradient/mask/filter
+/// artwork.
 #[expect(clippy::expect_used)] // init() is the parent's wiring responsibility; a missing raster is a programmer error, not a runtime one
-fn logo() -> impl IntoElement {
+pub(crate) fn logo(size: f32) -> impl IntoElement {
     let image = LOGO_IMAGE
         .get()
         .expect("title_bar::init() must run before the window opens");
 
     img(ImageSource::Render(image.clone()))
-        .size(px(title::LOGO))
+        .size(px(size))
         .flex_shrink_0()
 }
 
