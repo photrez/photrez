@@ -79,6 +79,7 @@ use gpui_kit::{div, hsla, px, relative, BoxShadow, Div, FontWeight, Hsla};
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::shot;
 use crate::tokens::color;
 
@@ -200,32 +201,70 @@ const FIELD_PAD_DIALOG: f32 = 10.0;
 
 /// The seven dialogs, with their measured origins.
 ///
+/// The second field is the dialog title: a catalog key, resolved with [`t`] at
+/// the render site, or the literal where the frozen catalog has no match.
+///
 /// A capture is the authority for each of these: the origins are the manifest's
 /// boxes, not arithmetic on the source's centring transform, because
 /// `-translate-x-1/2 -translate-y-1/2` has no GPUI equivalent and re-deriving
 /// it would introduce exactly the half-pixel error the measurement avoids.
 const DIALOGS: &[(&str, &str, f32, f32, f32, f32)] = &[
-    ("dialog-resize", "Resize Canvas", 503.0, 278.0, 360.0, 265.0),
-    ("dialog-export", "Export Image", 503.0, 267.0, 360.0, 287.0),
+    (
+        "dialog-resize",
+        "dialogs.resizeCanvas.title",
+        503.0,
+        278.0,
+        360.0,
+        265.0,
+    ),
+    (
+        "dialog-export",
+        "dialogs.export.title",
+        503.0,
+        267.0,
+        360.0,
+        287.0,
+    ),
     (
         "dialog-new-document",
-        "New Document",
+        "dialogs.newDocument.title",
         293.0,
         161.0,
         780.0,
         498.0,
     ),
-    ("dialog-settings", "Settings", 473.0, 324.0, 420.0, 171.0),
-    ("dialog-about", "About Photrez", 483.0, 262.0, 400.0, 295.0),
+    (
+        "dialog-settings",
+        "settings.title",
+        473.0,
+        324.0,
+        420.0,
+        171.0,
+    ),
+    (
+        "dialog-about",
+        "dialogs.about.title",
+        483.0,
+        262.0,
+        400.0,
+        295.0,
+    ),
     (
         "dialog-print",
-        "Photrez Print Settings",
+        "Photrez Print Settings", // i18n-exempt: not in catalog
         163.0,
         80.0,
         1040.0,
         660.0,
     ),
-    ("dialog-color-picker", "Colour", 447.0, 261.0, 472.0, 298.0),
+    (
+        "dialog-color-picker",
+        "Colour", // i18n-exempt: not in catalog
+        447.0,
+        261.0,
+        472.0,
+        298.0,
+    ),
 ];
 
 pub fn render() -> impl IntoElement {
@@ -253,7 +292,7 @@ pub fn render() -> impl IntoElement {
             positioned(
                 *x,
                 *y,
-                dialog_shell(title, *w, *h, dialog_body(owned, *w, *h)),
+                dialog_shell(&t(title), *w, *h, dialog_body(owned, *w, *h)),
             )
         })
         // Unlisted ids (including `dialog-resize-full`, the full-viewport
@@ -475,22 +514,17 @@ fn resize_body() -> Div {
         .w_full()
         .h_full()
         .gap(px(RESIZE_GAP))
-        .child(
-            ui::clip(
-                div()
-                    .mb(px(4.0))
-                    .text_size(px(11.0))
-                    .font_family(ui::FONT_UI)
-                    .line_height(relative(1.35))
-                    .text_color(color::TEXT_DIM)
-                    .child(
-                        "Set the canvas dimensions. Existing layer content keeps its top-left position."
-                            .to_string(),
-                    ),
-            ),
-        )
-        .child(resize_row("Width", "800"))
-        .child(resize_row("Height", "600"))
+        .child(ui::clip(
+            div()
+                .mb(px(4.0))
+                .text_size(px(11.0))
+                .font_family(ui::FONT_UI)
+                .line_height(relative(1.35))
+                .text_color(color::TEXT_DIM)
+                .child(t("dialogs.resizeCanvas.description")),
+        ))
+        .child(resize_row(&t("dialogs.resizeCanvas.width"), "800"))
+        .child(resize_row(&t("dialogs.resizeCanvas.height"), "600"))
         .child(
             // `flex h-6 items-center pl-[52px]` - indented to line up with the
             // inputs, not the labels.
@@ -520,7 +554,7 @@ fn resize_body() -> Div {
                                 .text_size(px(11.0))
                                 .font_family(ui::FONT_UI)
                                 .text_color(color::TEXT)
-                                .child("Lock aspect ratio".to_string()),
+                                .child(t("dialogs.resizeCanvas.lockAspect")),
                         ),
                 ),
         )
@@ -661,14 +695,14 @@ fn about_body() -> Div {
                         .font_family(ui::FONT_UI)
                         .font_weight(FontWeight(500.))
                         .text_color(color::TEXT)
-                        .child("Photrez".to_string()),
+                        .child("Photrez".to_string()), // i18n-exempt: product name
                 )
                 .child(
                     div()
                         .text_size(px(10.0))
                         .font_family(ui::FONT_UI)
                         .text_color(color::TEXT_DIM)
-                        .child("Version 1.0.0".to_string()),
+                        .child("Version 1.0.0".to_string()), // i18n-exempt: demo content
                 ),
         )
 }
@@ -692,16 +726,16 @@ fn settings_body() -> Div {
                         .text_size(px(BODY_TEXT))
                         .font_family(ui::FONT_UI)
                         .text_color(color::TEXT)
-                        .child("Theme".to_string()),
+                        .child(t("settings.theme")),
                 )
-                .child(dialog_button("System", false)),
+                .child(dialog_button(&t("settings.themeSystem"), false)),
         )
         .child(
             div()
                 .text_size(px(10.0))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT_DIM)
-                .child("Changes apply immediately.".to_string()),
+                .child("Changes apply immediately.".to_string()), // i18n-exempt: not in catalog
         )
 }
 
@@ -737,6 +771,15 @@ mod tests {
     fn dialogs_table_entries_are_well_formed() {
         for (id, title, x, y, w, h) in DIALOGS {
             assert!(!title.is_empty(), "{id}: empty title");
+            // Catalog-key entries must resolve; a typo would render the key
+            // itself. The two exempt literals are skipped.
+            if title.chars().all(|c| c.is_ascii_lowercase() || c == '.') {
+                assert_ne!(
+                    t(title),
+                    *title,
+                    "{id}: title key `{title}` is not in the catalog"
+                );
+            }
             assert!(*x >= 0.0 && *y >= 0.0, "{id}: negative origin");
             assert!(*w > 0.0 && *h > 0.0, "{id}: non-positive size");
             // inner_h = h - TITLEBAR_H - ACTIONS_H must be non-negative
@@ -849,7 +892,8 @@ mod tests {
     fn dialog_resize_geometry_is_pinned() {
         let entry = &DIALOGS[0];
         assert_eq!(entry.0, "dialog-resize");
-        assert_eq!(entry.1, "Resize Canvas");
+        assert_eq!(entry.1, "dialogs.resizeCanvas.title");
+        assert_eq!(t(entry.1), "Resize Canvas");
         assert_eq!(entry.2, 503.0);
         assert_eq!(entry.3, 278.0);
         assert_eq!(entry.4, 360.0);

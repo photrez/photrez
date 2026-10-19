@@ -74,6 +74,7 @@
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::tokens::color;
 
 use gpui_kit::base::{h_flex, v_flex};
@@ -152,8 +153,8 @@ const HDR_TEXT: f32 = 12.5;
 // --- Static "Selected Layer" literals (single-selected-layer branch) ---
 // ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact text the
 // baseline capture shows; change them only if a capture disagrees.
-pub const LAYER_NAME: &str = "Layer 1";
-pub const LAYER_SUBTITLE: &str = "Raster layer \u{b7} 100 \u{d7} 100 px";
+pub const LAYER_NAME: &str = "Layer 1"; // i18n-exempt: demo content
+pub const LAYER_SUBTITLE: &str = "Raster layer \u{b7} 100 \u{d7} 100 px"; // i18n-exempt: demo content
 
 // --- Static Transform field values (pinned to the baseline) ---
 pub const POS_X: &str = "100";
@@ -163,13 +164,14 @@ pub const SIZE_H: &str = "100";
 pub const ROTATION: &str = "0";
 pub const SCALE_X: &str = "100";
 pub const SCALE_Y: &str = "100";
-pub const OPACITY: &str = "100 %";
+pub const OPACITY: &str = "100 %"; // i18n-exempt: numeric value
 
 // --- Action + quick-row icon tables (static, asserted in tests) ---
-pub const ACTIONS: &[(&[u8], &str)] = &[
-    (icons::FLIP_H, "Flip H"),
-    (icons::FLIP_V, "Flip V"),
-    (icons::ROTATE_CCW, "Reset"),
+// Action button labels are catalog keys; rendered at the call site via `t()`.
+pub const ACTIONS: &[(&'static [u8], &'static str)] = &[
+    (icons::FLIP_H, "properties.flipH"),
+    (icons::FLIP_V, "properties.flipV"),
+    (icons::ROTATE_CCW, "common.reset"),
 ];
 
 pub const QUICK_ICONS: &[&[u8]] = &[icons::ALIGN_H, icons::ALIGN_V, icons::SWAP, icons::BOX];
@@ -255,7 +257,10 @@ fn selected_layer_section() -> Div {
         .py(px(PAD_Y))
         .border_b(px(1.0))
         .border_color(color::DIVIDER)
-        .child(section_header(icons::LAYERS, "Selected Layer"))
+        .child(section_header(
+            icons::LAYERS,
+            &t("properties.selectedLayer"),
+        ))
         .child(
             div()
                 .mt(px(HEADER_GAP))
@@ -303,12 +308,12 @@ fn transform_section() -> Div {
         .py(px(PAD_Y))
         .border_b(px(1.0))
         .border_color(color::DIVIDER)
-        .child(section_header(icons::MOVE, "Transform"))
+        .child(section_header(icons::MOVE, &t("properties.transform")))
         .child(
             v_flex().mt(px(HEADER_GAP)).gap(px(8.0)).w_full().children([
                 // Position — X / Y, each taking half the slot.
                 ui::prop_row(
-                    "Position",
+                    &t("properties.position"),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -318,7 +323,7 @@ fn transform_section() -> Div {
                 .into_any_element(),
                 // Size — W / H plus the constrain-proportions toggle.
                 ui::prop_row(
-                    "Size",
+                    &t("tools.options.size"),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -343,13 +348,13 @@ fn transform_section() -> Div {
                 .into_any_element(),
                 // Rotation — one field, "deg" rather than "px".
                 ui::prop_row(
-                    "Rotation",
+                    &t("properties.rotation"),
                     ui::editable_num_field(Some("R"), ROTATION, Some("deg"), None),
                 )
                 .into_any_element(),
                 // Scale — read-only `NumField`s, percent.
                 ui::prop_row(
-                    "Scale",
+                    &t("properties.scale"),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -359,7 +364,7 @@ fn transform_section() -> Div {
                 .into_any_element(),
                 // Opacity — the slider plus a right-aligned 44px readout.
                 ui::prop_row(
-                    "Opacity",
+                    &t("tools.options.opacity"),
                     h_flex()
                         .flex_1()
                         .items_center()
@@ -382,20 +387,21 @@ fn transform_section() -> Div {
                         ),
                 )
                 .into_any_element(),
-                // Actions — three labelled buttons.
+                // Actions — three labelled buttons. Labels are catalog keys,
+                // resolved per the web build: properties.flipH / properties.flipV / common.reset.
                 ui::prop_row(
-                    "Actions",
+                    &t("properties.actions"),
                     h_flex().flex_1().gap(px(6.0)).children(
                         ACTIONS
                             .iter()
-                            .map(|&(svg, label)| action_button(svg, label)),
+                            .map(|&(svg, key)| action_button(svg, &t(key))),
                     ),
                 )
                 .into_any_element(),
                 // Quick — icon-only buttons, so the labels live in `Tooltip`
                 // wrappers that a static port cannot show.
                 ui::prop_row(
-                    "Quick",
+                    "Quick", // i18n-exempt: not in catalog (web t resolves canvasProps.quickActions = "Quick Actions", not byte-identical)
                     h_flex()
                         .flex_1()
                         .gap(px(4.0))
@@ -490,11 +496,11 @@ mod tests {
     fn action_table_matches_reference() {
         assert_eq!(ACTIONS.len(), 3);
         assert_eq!(ACTIONS[0].0, icons::FLIP_H);
-        assert_eq!(ACTIONS[0].1, "Flip H");
+        assert_eq!(t(ACTIONS[0].1), "Flip H");
         assert_eq!(ACTIONS[1].0, icons::FLIP_V);
-        assert_eq!(ACTIONS[1].1, "Flip V");
+        assert_eq!(t(ACTIONS[1].1), "Flip V");
         assert_eq!(ACTIONS[2].0, icons::ROTATE_CCW);
-        assert_eq!(ACTIONS[2].1, "Reset");
+        assert_eq!(t(ACTIONS[2].1), "Reset");
     }
 
     #[test]

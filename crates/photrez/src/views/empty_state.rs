@@ -194,6 +194,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{div, hsla, px, AnyElement, BoxShadow, Div, FontWeight, Hsla};
 
 use crate::assets::icons;
+use crate::i18n::t;
 use crate::shot;
 use crate::tokens::color;
 
@@ -527,7 +528,7 @@ fn header() -> Div {
                         .flex_1()
                         .min_w(px(0.0))
                         .child(text_line(
-                            "Start a Photrez document",
+                            &t("welcome.title"),
                             TITLE_TEXT,
                             TITLE_LINE_H,
                             FontWeight(600.),
@@ -535,7 +536,7 @@ fn header() -> Div {
                         ))
                         .child(
                             text_line(
-                                "Open an image, drop one into the workspace, or create a blank canvas.",
+                                &t("welcome.description"),
                                 DESC_TEXT,
                                 DESC_LINE_H,
                                 FontWeight(400.),
@@ -561,14 +562,14 @@ fn actions() -> Div {
         .gap(px(ACTIONS_GAP))
         .child(action_button(
             icons::FOLDER_PLUS,
-            "Open Image",
+            &t("welcome.openImage"),
             color::ACCENT,
             color::WHITE,
             false,
         ))
         .child(action_button(
             icons::PLUS,
-            "New Document",
+            &t("welcome.newDocument"),
             color::FIELD,
             color::TEXT,
             true,
@@ -640,7 +641,7 @@ fn presets() -> Div {
         .border_color(color::BORDER)
         .child(
             text_line(
-                "Quick Presets",
+                &t("welcome.quickPresets"),
                 HEADING_TEXT,
                 HEADING_LINE_H,
                 FontWeight(600.),
@@ -756,7 +757,7 @@ fn footer() -> Div {
                 .text_size(px(PROMPT_TEXT))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT_DIM)
-                .child("Drop PNG, JPEG, or WebP files anywhere in this workspace."),
+                .child(t("welcome.dropPromptDefault")),
         ))
         .child(ui::pin(kbd()))
 }
@@ -789,7 +790,7 @@ fn kbd() -> Div {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(400.))
                 .text_color(color::TEXT_DIM)
-                .child("Ctrl+O"),
+                .child("Ctrl+O"), // i18n-exempt: shortcut chord
         )
 }
 

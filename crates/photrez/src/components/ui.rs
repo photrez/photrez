@@ -99,7 +99,7 @@ const TEXT_SM: f32 = 11.0;
 ///
 /// Public for the same reason as [`FONT_UI`]: view modules that render mono
 /// values read it directly instead of spelling "Consolas" per module.
-pub const FONT_MONO: &str = "Consolas";
+pub const FONT_MONO: &str = "Consolas"; // i18n-exempt: technical token
 
 /// `--font-sans` — Inter, on everything that is *not* `font-mono`.
 /// Inter, the font every label in the port uses.
@@ -109,7 +109,7 @@ pub const FONT_MONO: &str = "Consolas";
 /// changed in one place and missed in twelve. The default `.SystemUIFont`
 /// (Segoe UI) cannot stand in: every measurement in the web build was taken
 /// against Inter.
-pub const FONT_UI: &str = "Inter";
+pub const FONT_UI: &str = "Inter"; // i18n-exempt: technical token
 
 /// A menu row's measured height, and its insets — the same figures both menu
 /// modules measured independently.

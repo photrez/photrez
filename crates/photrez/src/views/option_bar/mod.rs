@@ -31,6 +31,7 @@ use gpui_kit::{
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::state::ToolId;
 use crate::tokens::color;
 
@@ -259,31 +260,27 @@ const STRIP_CHECK: Hsla = Hsla {
 // ── Static text ─────────────────────────────────────────────────────────────────
 
 /// The Move pill label.
-const PILL_LABEL_MOVE: &str = "Move Tool";
+const PILL_LABEL_MOVE_KEY: &str = "tools.move";
 /// The brush/eraser pill label, selected by [`brush_params`].
-const PILL_LABEL_BRUSH: &str = "Brush Tool";
-const PILL_LABEL_ERASER: &str = "Eraser Tool";
+const PILL_LABEL_BRUSH_KEY: &str = "tools.brush";
+const PILL_LABEL_ERASER_KEY: &str = "tools.eraser";
 /// The eyedropper pill label.
-const PILL_LABEL_EYEDROPPER: &str = "Eyedropper Tool";
-/// The paint bucket pill label.
-const PILL_LABEL_BUCKET: &str = "Paint Bucket";
+const PILL_LABEL_EYEDROPPER_KEY: &str = "tools.eyedropper";
 /// The gradient pill label.
-const PILL_LABEL_GRADIENT: &str = "Gradient";
+const PILL_LABEL_GRADIENT_KEY: &str = "tools.gradient";
 /// The shape pill label.
-const PILL_LABEL_SHAPE: &str = "Shape";
+const PILL_LABEL_SHAPE: &str = "Shape"; // i18n-exempt: not in catalog
 /// The text pill label.
-const PILL_LABEL_TEXT: &str = "Text Tool";
-/// The selection pill label.
-const PILL_LABEL_SELECTION: &str = "Rectangle Select";
+const PILL_LABEL_TEXT_KEY: &str = "tools.text";
 /// The crop pill label.
-const PILL_LABEL_CROP: &str = "Crop Tool";
+const PILL_LABEL_CROP_KEY: &str = "tools.crop";
 
 /// The gradient preset label.
-const GRADIENT_PRESET: &str = "Foreground -> Background";
+const GRADIENT_PRESET_KEY: &str = "tools.options.fgBg";
 /// The text box-mode label.
-const BOX_MODE: &str = "Auto Width";
+const BOX_MODE: &str = "Auto Width"; // i18n-exempt: not in catalog
 /// The text weight label.
-const WEIGHT_LABEL: &str = "Regular";
+const WEIGHT_LABEL: &str = "Regular"; // i18n-exempt: not in catalog
 
 /// The paint-bucket tolerance presets.
 const TOLERANCE_PRESETS: [&str; 5] = ["0", "16", "32", "64", "128"];
@@ -343,7 +340,7 @@ pub fn brush_params(eraser: bool) -> BrushParams {
     if eraser {
         BrushParams {
             icon: icons::ERASER,
-            label: PILL_LABEL_ERASER,
+            label: PILL_LABEL_ERASER_KEY,
             size: "32",
             slider_pct: ERASER_SLIDER_PCT,
             hardness: "100",
@@ -351,7 +348,7 @@ pub fn brush_params(eraser: bool) -> BrushParams {
     } else {
         BrushParams {
             icon: icons::BRUSH,
-            label: PILL_LABEL_BRUSH,
+            label: PILL_LABEL_BRUSH_KEY,
             size: "20",
             slider_pct: BRUSH_SLIDER_PCT,
             hardness: "80",
@@ -404,17 +401,20 @@ fn fade_in_row(active_tool: &ToolId) -> Div {
 fn move_items(row: Div) -> Div {
     row.child(tool_pill(
         icons::with_stroke(icons::CURSOR, STROKE_PILL),
-        PILL_LABEL_MOVE,
+        t(PILL_LABEL_MOVE_KEY),
     ))
     .child(divider())
-    .child(option_checkbox("opt-auto-select", "Auto-Select"))
-    .child(option_checkbox("opt-snap", "Snap"))
+    .child(option_checkbox(
+        "opt-auto-select",
+        &t("tools.options.autoSelect"),
+    ))
+    .child(option_checkbox("opt-snap", &t("tools.options.snap")))
     .child(divider())
-    .child(option_checkbox("opt-transform", "Transform"))
+    .child(option_checkbox("opt-transform", &t("properties.transform")))
     .child(divider())
     .child(position_group())
     .child(size_group())
-    .child(editable_field("num-r", "R", FIELD_W_R, "0", "\u{b0}"))
+    .child(editable_field("num-r", "R", FIELD_W_R, "0", "\u{b0}")) // i18n-exempt: technical token (field label glyph)
     .when(MAIN_CONTROLS, |el| el.child(main_controls()))
     .when(MORE_DROPDOWN, |el| el.child(more_dropdown_button()))
 }
@@ -428,30 +428,40 @@ fn move_items(row: Div) -> Div {
 fn selection_items(row: Div) -> Div {
     row.child(tool_pill(
         icons::with_stroke(icons::SQUARE_DASHED, STROKE_PILL),
-        PILL_LABEL_SELECTION,
+        t("tools.rectSelect"),
     ))
     .child(divider())
     .child(select_dropdown(
         Some(icons::SQUARE_DASHED),
         None,
-        PILL_LABEL_SELECTION,
+        t("tools.rectSelect"),
     ))
     .child(divider())
-    .child(select_dropdown(None, Some("Style: "), "Normal"))
+    .child(select_dropdown(
+        None,
+        Some(format!("{}: ", t("tools.options.style")).as_str()),
+        t("tools.options.normal"),
+    ))
     .child(divider())
-    .when(GROUP_LABELS_960, |el| el.child(caps_label("Position")))
+    .when(GROUP_LABELS_960, |el| {
+        el.child(caps_label(&t("properties.position")))
+    })
     .child(field_pair(
-        dimmed(editable_field("sel-x", "X", FIELD_W_XY, "0", "px")),
-        dimmed(editable_field("sel-y", "Y", FIELD_W_XY, "0", "px")),
+        dimmed(editable_field("sel-x", "X", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
+        dimmed(editable_field("sel-y", "Y", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
     ))
     .child(divider())
-    .when(GROUP_LABELS_960, |el| el.child(caps_label("Size")))
+    .when(GROUP_LABELS_960, |el| {
+        el.child(caps_label(&t("tools.options.size")))
+    })
     .child(field_pair(
-        dimmed(editable_field("sel-w", "W", FIELD_W_XY, "0", "px")),
-        dimmed(editable_field("sel-h", "H", FIELD_W_XY, "0", "px")),
+        dimmed(editable_field("sel-w", "W", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
+        dimmed(editable_field("sel-h", "H", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
     ))
     .child(divider())
-    .when(GROUP_LABELS_960, |el| el.child(caps_label("Rotation")))
+    .when(GROUP_LABELS_960, |el| {
+        el.child(caps_label(&t("properties.rotation")))
+    })
     .child(dimmed(editable_field(
         "sel-r", "R", FIELD_W_R, "0", "\u{b0}",
     )))
@@ -488,18 +498,18 @@ pub struct CropParams {
 /// `Fill BG` ship checked; the fill colour block is visible (`fillEnabled()`).
 pub fn crop_params() -> CropParams {
     CropParams {
-        pill_label: PILL_LABEL_CROP,
-        ratio_prefix: "Aspect Ratio: ",
-        ratio_value: "Free",
+        pill_label: PILL_LABEL_CROP_KEY,
+        ratio_prefix: "tools.options.aspectRatio",
+        ratio_value: "crop.free",
         delete_id: "opt-crop-delete",
-        delete_label: "Delete",
+        delete_label: "Delete", // i18n-exempt: not in catalog
         delete_checked: true,
         fill_id: "opt-crop-fill",
-        fill_label: "Fill BG",
+        fill_label: "Fill BG", // i18n-exempt: not in catalog
         fill_checked: true,
-        use_bg_label: "Use BG",
-        cancel_label: "Cancel",
-        apply_label: "Apply",
+        use_bg_label: "Use BG", // i18n-exempt: not in catalog
+        cancel_label: "common.cancel",
+        apply_label: "common.apply",
     }
 }
 
@@ -520,10 +530,14 @@ fn crop_items(row: Div) -> Div {
     let p = crop_params();
     row.child(tool_pill(
         icons::with_stroke(icons::CROP, STROKE_PILL),
-        p.pill_label,
+        t(p.pill_label),
     ))
     .child(divider())
-    .child(select_dropdown(None, Some(p.ratio_prefix), p.ratio_value))
+    .child(select_dropdown(
+        None,
+        Some(format!("{}: ", t(p.ratio_prefix)).as_str()),
+        t(p.ratio_value),
+    ))
     .child(divider())
     .child(option_checkbox_state(
         p.delete_id,
@@ -550,33 +564,36 @@ fn crop_items(row: Div) -> Div {
 /// `eraser` selects the pill label, size string, slider percent and hardness.
 fn brush_items(row: Div, eraser: bool) -> Div {
     let p = brush_params(eraser);
-    row.child(tool_pill(icons::with_stroke(p.icon, STROKE_PILL), p.label))
-        .child(divider())
-        .child(paint_field(
-            "paint-size",
-            "Size",
-            PAINT_INPUT_W,
-            p.size,
-            "px",
-        ))
-        .when(PAINT_SIZE_SLIDER, |el| {
-            el.child(brush_size_slider(p.slider_pct))
-        })
-        .child(divider())
-        .child(paint_field(
-            "paint-hardness",
-            "Hard",
-            PAINT_INPUT_W_SM,
-            p.hardness,
-            "%",
-        ))
-        .child(paint_field(
-            "paint-opacity",
-            "Strength",
-            PAINT_INPUT_W_SM,
-            "100",
-            "%",
-        ))
+    row.child(tool_pill(
+        icons::with_stroke(p.icon, STROKE_PILL),
+        t(p.label),
+    ))
+    .child(divider())
+    .child(paint_field(
+        "paint-size",
+        &t("tools.options.size"),
+        PAINT_INPUT_W,
+        p.size,
+        "px",
+    ))
+    .when(PAINT_SIZE_SLIDER, |el| {
+        el.child(brush_size_slider(p.slider_pct))
+    })
+    .child(divider())
+    .child(paint_field(
+        "paint-hardness",
+        &t("tools.options.hard"),
+        PAINT_INPUT_W_SM,
+        p.hardness,
+        "%",
+    ))
+    .child(paint_field(
+        "paint-opacity",
+        &t("tools.options.strength"),
+        PAINT_INPUT_W_SM,
+        "100",
+        "%",
+    ))
 }
 
 // ── Eyedropper ─────────────────────────────────────────────────────────────────
@@ -585,7 +602,7 @@ fn brush_items(row: Div, eraser: bool) -> Div {
 fn eyedropper_items(row: Div) -> Div {
     row.child(tool_pill(
         icons::with_stroke(icons::PIPETTE, STROKE_PILL),
-        PILL_LABEL_EYEDROPPER,
+        t(PILL_LABEL_EYEDROPPER_KEY),
     ))
     .child(divider())
     .child(
@@ -599,7 +616,7 @@ fn eyedropper_items(row: Div) -> Div {
     .child(divider())
     .child(option_checkbox_state(
         "opt-auto-copy",
-        "Auto-Copy HEX",
+        &t("tools.options.autoCopyHex"),
         false,
     ))
 }
@@ -616,7 +633,7 @@ fn paint_bucket_items(row: Div) -> Div {
             .px(px(8.0))
             .child(tool_pill(
                 icons::with_stroke(icons::PAINT_BUCKET, STROKE_PILL),
-                PILL_LABEL_BUCKET,
+                t("tools.paintBucket"),
             ))
             .child(divider())
             .child(
@@ -624,7 +641,7 @@ fn paint_bucket_items(row: Div) -> Div {
                     .flex_shrink_0()
                     .items_center()
                     .gap(px(8.0))
-                    .child(dim_span("Tolerance:"))
+                    .child(dim_span(&format!("{}:", t("tools.options.tolerance"))))
                     .child(tolerance_slider())
                     .child(right_num_field("opt-tolerance", "32")),
             )
@@ -641,7 +658,11 @@ fn paint_bucket_items(row: Div) -> Div {
                     ),
             )
             .child(divider())
-            .child(option_checkbox_state("opt-contiguous", "Contiguous", true)),
+            .child(option_checkbox_state(
+                "opt-contiguous",
+                &t("tools.options.contiguous"),
+                true,
+            )),
     )
 }
 
@@ -657,12 +678,20 @@ fn gradient_items(row: Div) -> Div {
             .px(px(8.0))
             .child(tool_pill(
                 icons::with_stroke(icons::SWATCH, STROKE_PILL),
-                PILL_LABEL_GRADIENT,
+                t(PILL_LABEL_GRADIENT_KEY),
             ))
             .child(divider())
-            .child(select_dropdown(None, Some("Type: "), "Linear"))
+            .child(select_dropdown(
+                None,
+                Some(format!("{}: ", t("tools.options.gradientType")).as_str()),
+                t("tools.options.linear"),
+            ))
             .child(divider())
-            .child(select_dropdown(None, Some("Preset: "), GRADIENT_PRESET))
+            .child(select_dropdown(
+                None,
+                Some(format!("{}: ", t("tools.options.gradientPreset")).as_str()),
+                t(GRADIENT_PRESET_KEY),
+            ))
             .child(divider())
             .child(
                 h_flex()
@@ -683,10 +712,14 @@ fn gradient_items(row: Div) -> Div {
 fn shape_items(row: Div) -> Div {
     row.child(tool_pill(
         icons::with_stroke(icons::RECTANGLE, STROKE_PILL),
-        PILL_LABEL_SHAPE,
+        PILL_LABEL_SHAPE.to_string(),
     ))
     .child(divider())
-    .child(select_dropdown(Some(icons::RECTANGLE), None, "Rectangle"))
+    .child(select_dropdown(
+        Some(icons::RECTANGLE),
+        None,
+        t("tools.options.shapes.rect"),
+    ))
     .child(divider())
     .child(
         h_flex()
@@ -708,7 +741,7 @@ fn shape_items(row: Div) -> Div {
 fn text_items(row: Div) -> Div {
     row.child(tool_pill(
         icons::with_stroke(icons::TYPE, STROKE_PILL),
-        PILL_LABEL_TEXT,
+        t(PILL_LABEL_TEXT_KEY),
     ))
     .child(divider())
     .child(font_family_button())
@@ -722,7 +755,7 @@ fn text_items(row: Div) -> Div {
             .italic()
             .font_weight(FontWeight(700.))
             .text_size(px(TEXT_MD))
-            .child("I"),
+            .child("I"), // i18n-exempt: glyph or symbol
     ))
     .child(text_toggle_button(
         "opt-underline",
@@ -730,7 +763,7 @@ fn text_items(row: Div) -> Div {
             .underline()
             .font_weight(FontWeight(700.))
             .text_size(px(TEXT_MD))
-            .child("U"),
+            .child("U"), // i18n-exempt: glyph or symbol
     ))
     .child(text_toggle_button(
         "opt-strikethrough",
@@ -738,14 +771,14 @@ fn text_items(row: Div) -> Div {
             .line_through()
             .font_weight(FontWeight(700.))
             .text_size(px(TEXT_MD))
-            .child("S"),
+            .child("S"), // i18n-exempt: glyph or symbol
     ))
     .child(text_toggle_button(
         "opt-uppercase",
         div()
             .font_weight(FontWeight(700.))
             .text_size(px(TEXT_XS))
-            .child("TT"),
+            .child("TT"), // i18n-exempt: glyph or symbol
     ))
     .child(divider())
     .child(
@@ -791,7 +824,8 @@ mod tests {
     fn brush_params_brush_defaults() {
         let p = brush_params(false);
         assert!(p.icon == icons::BRUSH, "brush must use the BRUSH icon");
-        assert_eq!(p.label, "Brush Tool");
+        assert_eq!(p.label, PILL_LABEL_BRUSH_KEY);
+        assert_eq!(t(p.label), "Brush Tool");
         assert_eq!(p.size, "20");
         assert_eq!(p.hardness, "80");
         assert_eq!(p.slider_pct, BRUSH_SLIDER_PCT);
@@ -802,7 +836,8 @@ mod tests {
     fn brush_params_eraser_branch() {
         let p = brush_params(true);
         assert!(p.icon == icons::ERASER, "eraser must use the ERASER icon");
-        assert_eq!(p.label, "Eraser Tool");
+        assert_eq!(p.label, PILL_LABEL_ERASER_KEY);
+        assert_eq!(t(p.label), "Eraser Tool");
         assert_eq!(p.size, "32");
         assert_eq!(p.hardness, "100");
         assert_eq!(p.slider_pct, ERASER_SLIDER_PCT);
@@ -827,10 +862,11 @@ mod tests {
     fn crop_bar_resting_state() {
         let p = crop_params();
         // Pill label + ratio dropdown face.
-        assert_eq!(p.pill_label, "Crop Tool");
-        assert_eq!(p.ratio_prefix, "Aspect Ratio: ");
-        assert_eq!(p.ratio_value, "Free", "resting cropMode is 'free'");
-        // Both fill toggles ship checked (CropFillControls defaults).
+        assert_eq!(p.pill_label, PILL_LABEL_CROP_KEY);
+        assert_eq!(t(p.pill_label), "Crop Tool");
+        assert_eq!(p.ratio_prefix, "tools.options.aspectRatio");
+        assert_eq!(t("tools.options.aspectRatio"), "Aspect Ratio");
+        assert_eq!(t(p.ratio_value), "Free", "resting cropMode is 'free'");
         assert_eq!(p.delete_id, "opt-crop-delete");
         assert_eq!(p.delete_label, "Delete");
         assert!(p.delete_checked, "Delete ships checked");
@@ -839,7 +875,7 @@ mod tests {
         assert!(p.fill_checked, "Fill BG ships checked");
         // Swatch + action buttons.
         assert_eq!(p.use_bg_label, "Use BG");
-        assert_eq!(p.cancel_label, "Cancel");
-        assert_eq!(p.apply_label, "Apply");
+        assert_eq!(t(p.cancel_label), "Cancel");
+        assert_eq!(t(p.apply_label), "Apply");
     }
 }

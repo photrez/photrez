@@ -99,6 +99,7 @@
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::tokens::color;
 
 use gpui_kit::base::{h_flex, v_flex};
@@ -326,27 +327,27 @@ pub fn render() -> impl IntoElement {
                 .child(coming_soon_section(
                     icons::with_stroke(icons::SPLINE, 1.75),
                     color::TEXT_DIM,
-                    "Tone Curve",
+                    &t("adjustments.toneCurve"),
                 ))
                 .child(coming_soon_section(
                     icons::with_stroke(icons::PALETTE, 1.75),
                     SKY_400,
-                    "HSL / Color",
+                    &t("adjustments.hslColor"),
                 ))
                 .child(coming_soon_section(
                     icons::with_stroke(icons::SWATCH, 1.75),
                     AMBER_400,
-                    "Color Grading",
+                    &t("adjustments.colorGrading"),
                 ))
                 .child(coming_soon_section(
                     icons::with_stroke(icons::SPARKLES, 1.75),
                     SKY_300,
-                    "Detail",
+                    &t("adjustments.detail"),
                 ))
                 .child(coming_soon_section(
                     icons::with_stroke(icons::APERTURE, 1.75),
                     EMERALD_400,
-                    "Lens Corrections",
+                    &t("adjustments.lensCorrections"),
                 )),
         )
 }
@@ -428,7 +429,7 @@ fn selected_layer_section() -> Div {
         .border_color(color::BORDER)
         .child(section_header(
             icons::with_stroke(icons::LAYERS, 1.75),
-            "Selected Layer",
+            &t("adjustments.selectedLayer"),
             None,
         ))
         .child(
@@ -459,7 +460,7 @@ fn selected_layer_section() -> Div {
                                 // placeholder "Layer 1" the properties
                                 // port uses: this capture's layer is
                                 // named "Background".
-                                .child("Background".to_string()),
+                                .child("Background".to_string()), // i18n-exempt: demo content <layer name, captured frame>
                         )
                         // `mt-0.5` = 2px, and `leading-snug`.
                         .child(
@@ -472,7 +473,7 @@ fn selected_layer_section() -> Div {
                                 // Raster layers read "Image layer"
                                 // here, unlike the properties panel's
                                 // "Raster layer" (`AdjustmentsPanel.tsx:399`).
-                                .child("Image layer \u{00b7} 100 \u{00d7} 100 px".to_string()),
+                                .child("Image layer \u{00b7} 100 \u{00d7} 100 px".to_string()), // i18n-exempt: demo content <layer type+size, captured frame>
                         ),
                 ),
         )
@@ -491,7 +492,7 @@ fn basic_section() -> Div {
         .border_color(color::BORDER)
         .child(section_header(
             icons::with_stroke(icons::SUN, 1.75),
-            "Basic",
+            &t("adjustments.basic"),
             Some(reset_button()),
         ))
         .child(
@@ -499,9 +500,18 @@ fn basic_section() -> Div {
                 .mt(px(HEADER_GAP))
                 .gap(px(8.0))
                 .w_full()
-                .child(slider_row("Bright", ui::SliderKind::Brightness))
-                .child(slider_row("Contrast", ui::SliderKind::Contrast))
-                .child(slider_row("Saturate", ui::SliderKind::Saturation))
+                .child(slider_row(
+                    &t("adjustments.bright"),
+                    ui::SliderKind::Brightness,
+                ))
+                .child(slider_row(
+                    &t("adjustments.contrast"),
+                    ui::SliderKind::Contrast,
+                ))
+                .child(slider_row(
+                    &t("adjustments.saturate"),
+                    ui::SliderKind::Saturation,
+                ))
                 .child(
                     div()
                         .mt(px(DESC_MT))
@@ -510,13 +520,10 @@ fn basic_section() -> Div {
                         // `leading-snug`.
                         .line_height(relative(1.375))
                         .text_color(color::TEXT_DIM)
-                        .child(
-                            "Drag to preview directly on the active layer. Undo restores the previous pixels."
-                                .to_string(),
-                        ),
+                        .child(t("adjustments.dragToPreview")),
                 )
                 .child(status_hint(
-                    "This layer has no pixels yet. Add image pixels before adjusting tone.",
+                    "This layer has no pixels yet. Add image pixels before adjusting tone.", // i18n-exempt: not in catalog
                 )),
         )
 }

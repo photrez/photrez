@@ -275,18 +275,18 @@ const SHADOW_10: Hsla = Hsla {
 // operation passed to `showToast`, and this port has no engine to ask.
 
 /// `ed.showToast("Layer merged","info")`.
-const MSG_INFO: &str = "Layer merged";
+const MSG_INFO: &str = "Layer merged"; // i18n-exempt: not in catalog
 
 /// `ed.showToast("Could not write the file","warn")`.
-const MSG_WARN: &str = "Could not write the file";
+const MSG_WARN: &str = "Could not write the file"; // i18n-exempt: not in catalog
 
 /// `ed.showToast("Export failed","error")`.
-const MSG_ERROR: &str = "Export failed";
+const MSG_ERROR: &str = "Export failed"; // i18n-exempt: not in catalog
 
 /// The stack's three, in the order the capture fires them.
-const MSG_STACK_INFO: &str = "Opened";
-const MSG_STACK_WARN: &str = "Copied";
-const MSG_STACK_ERROR: &str = "Disk full";
+const MSG_STACK_INFO: &str = "Opened"; // i18n-exempt: not in catalog
+const MSG_STACK_WARN: &str = "Copied"; // i18n-exempt: not in catalog
+const MSG_STACK_ERROR: &str = "Disk full"; // i18n-exempt: not in catalog
 
 /// The three values of `ToastSeverity`, which the source uses to pick a border
 /// and a `role`. Only the border reaches pixels — see the module docs.

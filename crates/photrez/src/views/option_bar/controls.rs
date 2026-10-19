@@ -3,7 +3,7 @@ use super::*;
 // ── Shared parts ─�─────────────────────────────────────────────────────────────
 
 /// `ToolPill` (`OptionBarShared.tsx:56`).
-pub(super) fn tool_pill(icon: &'static [u8], label: &'static str) -> impl IntoElement {
+pub(super) fn tool_pill(icon: &'static [u8], label: String) -> impl IntoElement {
     h_flex()
         .h(px(CTRL_H))
         .flex_shrink_0()
@@ -36,14 +36,14 @@ pub(super) fn divider() -> impl IntoElement {
 }
 
 /// `OptionCheckbox` in the checked state — the Move bar's three are all checked.
-pub(super) fn option_checkbox(id: &'static str, label: &'static str) -> impl IntoElement {
+pub(super) fn option_checkbox(id: &'static str, label: &str) -> impl IntoElement {
     option_checkbox_state(id, label, true)
 }
 
 /// `OptionCheckbox` (`OptionBarShared.tsx:27`) with an explicit `checked`.
 pub(super) fn option_checkbox_state(
     id: &'static str,
-    label: &'static str,
+    label: &str,
     checked: bool,
 ) -> impl IntoElement {
     div()
@@ -68,9 +68,9 @@ pub(super) fn option_checkbox_state(
             div()
                 .font_weight(FontWeight(600.))
                 .text_color(color::WHITE)
-                .child(label)
+                .child(label.to_string())
         } else {
-            div().text_color(ZINC).child(label)
+            div().text_color(ZINC).child(label.to_string())
         })
 }
 
@@ -114,7 +114,7 @@ pub(super) fn unchecked_box() -> Div {
 /// `EditableNumField` (`primitives.tsx:208`) — an editable field drawn at rest.
 pub(super) fn editable_field(
     id: &'static str,
-    label: &'static str,
+    label: &str,
     width: f32,
     value: &'static str,
     suffix: &'static str,
@@ -139,7 +139,7 @@ pub(super) fn editable_field(
 
 /// `NumField` (`primitives.tsx:6`) — read-only W/H, value + suffix packed left.
 pub(super) fn num_field(
-    label: &'static str,
+    label: &str,
     width: f32,
     value: &'static str,
     suffix: &'static str,
@@ -170,12 +170,12 @@ pub(super) fn value_text(value: &'static str) -> impl IntoElement {
 }
 
 /// Caption run: `text-[10px] font-medium text-[#A1A1AA]`.
-pub(super) fn dim_span(text: &'static str) -> impl IntoElement {
+pub(super) fn dim_span(text: &str) -> impl IntoElement {
     div()
         .text_size(px(TEXT_XS))
         .font_weight(FontWeight(500.))
         .text_color(ZINC)
-        .child(text)
+        .child(text.to_string())
 }
 
 pub(super) fn suffix_span(s: &'static str) -> impl IntoElement {
@@ -202,7 +202,9 @@ pub(super) fn align_group() -> impl IntoElement {
         .flex_shrink_0()
         .items_center()
         .gap(px(ICON_GAP))
-        .when(FIELD_LABELS, |el| el.child(group_label("Align")))
+        .when(FIELD_LABELS, |el| {
+            el.child(group_label(&t("properties.align")))
+        })
         .child(square_icon_button("Align left", icons::ALIGN_LEFT))
         .child(square_icon_button(
             "Align center horizontal",
@@ -219,7 +221,9 @@ pub(super) fn flip_group() -> impl IntoElement {
         .flex_shrink_0()
         .items_center()
         .gap(px(ICON_GAP))
-        .when(FIELD_LABELS, |el| el.child(group_label("Flip")))
+        .when(FIELD_LABELS, |el| {
+            el.child(group_label(&t("properties.flip")))
+        })
         .child(square_icon_button("Flip horizontal", icons::FLIP_H))
         .child(square_icon_button("Flip vertical", icons::FLIP_V))
 }
@@ -244,7 +248,7 @@ pub(super) fn square_icon_button(id: &'static str, icon: &'static [u8]) -> impl 
         )
 }
 
-pub(super) fn group_label(text: &'static str) -> impl IntoElement {
+pub(super) fn group_label(text: &str) -> Div {
     div().mr(px(MR_LABEL)).child(dim_span(text))
 }
 
@@ -264,7 +268,7 @@ pub(super) fn reset_button() -> impl IntoElement {
         .font_weight(FontWeight(600.))
         .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
         .text_color(ZINC)
-        .child("Reset")
+        .child(t("common.reset"))
 }
 
 /// The overflow button (`MoreDropdown`) — `size-[24px] rounded-[3px]`.
@@ -293,8 +297,8 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
 /// `SelectDropdown` (`OptionBarShared.tsx:104-146`) — closed state.
 pub(super) fn select_dropdown(
     icon: Option<&'static [u8]>,
-    prefix: Option<&'static str>,
-    value: &'static str,
+    prefix: Option<&str>,
+    value: String,
 ) -> Div {
     let mut btn = div()
         .h(px(CTRL_H))
@@ -320,12 +324,14 @@ pub(super) fn select_dropdown(
     }
 
     let label = match prefix {
-        Some(p) => h_flex().child(div().text_color(ZINC).child(p)).child(
-            div()
-                .font_weight(FontWeight(600.))
-                .text_color(color::WHITE)
-                .child(value),
-        ),
+        Some(p) => h_flex()
+            .child(div().text_color(ZINC).child(p.to_string()))
+            .child(
+                div()
+                    .font_weight(FontWeight(600.))
+                    .text_color(color::WHITE)
+                    .child(value),
+            ),
         None => div()
             .font_weight(FontWeight(600.))
             .text_color(color::WHITE)
@@ -373,7 +379,7 @@ pub(super) fn ring_white_20() -> BoxShadow {
 /// The brush bar's Size field (`BrushOptionBar.tsx:143-156`).
 pub(super) fn paint_field(
     id: &'static str,
-    label: &'static str,
+    label: &str,
     input_w: f32,
     value: &'static str,
     suffix: &'static str,

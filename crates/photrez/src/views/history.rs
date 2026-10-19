@@ -99,6 +99,7 @@
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::tokens::color;
 
 use gpui_kit::base::{h_flex, v_flex};
@@ -189,9 +190,11 @@ const TEXT_30: Hsla = Hsla {
 
 // ── Copy ────────────────────────────────────────────────────────────────────
 
-/// `t("history.editsAppearHere", "Edits appear here")` — the `en` locale
-/// ships this literal (`i18n/locales/en/translation.json:321`).
-const HINT_TEXT: &str = "Edits appear here";
+/// The catalog key for the single-item hint: `t("history.editsAppearHere")`
+/// renders `"Edits appear here"` in `en` (`i18n/locales/en/translation.json`).
+/// `HistoryPanel.tsx:90` calls `t(...)` on it; the const holds the key, and
+/// every call site wraps it with [`t`].
+const HINT_TEXT_KEY: &str = "history.editsAppearHere";
 
 // ── Data ────────────────────────────────────────────────────────────────────
 
@@ -226,7 +229,7 @@ struct HistoryItem {
 /// `getHistoryStack()` yields exactly one entry, `Open`, and it is the
 /// current step.
 const ITEMS: &[HistoryItem] = &[HistoryItem {
-    label: "Open",
+    label: "Open", // i18n-exempt: demo content <engine history-step label, captured stack; kept English for action_icon's keyword match>
     step: Step::Current,
 }];
 
@@ -334,7 +337,7 @@ fn hint() -> Div {
         // Source asks for `text-editor-text-dim/55`; 55% composites to ~2.1:1
         // over the panel, so the hint paints at the full dim strength.
         .text_color(color::TEXT_DIM)
-        .child(HINT_TEXT.to_string())
+        .child(t(HINT_TEXT_KEY))
 }
 
 /// `getActionIcon` (`HistoryPanel.tsx:19-30`): keyword match on the lowercased
@@ -426,7 +429,7 @@ mod tests {
     #[test]
     fn hint_shows_only_for_single_item() {
         assert_eq!(ITEMS.len(), 1);
-        // `HINT_TEXT` is the `en` locale string for the single-item case.
-        assert_eq!(HINT_TEXT, "Edits appear here");
+        // `HINT_TEXT_KEY` is the `en` locale string for the single-item case.
+        assert_eq!(t(HINT_TEXT_KEY), "Edits appear here");
     }
 }

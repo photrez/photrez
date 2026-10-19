@@ -97,7 +97,7 @@ const SPINNER: f32 = 32.0;
 
 /// The label the source's spinner is captioned with; static, because the
 /// captured frame shows it at rest.
-const LABEL: &str = "Loading";
+const LABEL: &str = "Loading"; // i18n-exempt: not in catalog <"Loading" differs from common.loading's "Loading…"; frozen LoadingOverlay renders engine status messages, not this caption>
 
 pub fn render() -> impl IntoElement {
     // `loading-status` is only the bottom 24 rows, and that rectangle is

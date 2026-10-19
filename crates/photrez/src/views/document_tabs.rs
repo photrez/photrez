@@ -89,6 +89,7 @@ use gpui_kit::{div, px, FontWeight};
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::tokens::color;
 
 use gpui_kit::Div;
@@ -169,11 +170,11 @@ const EXPORT_ICON: f32 = 14.0;
 /// the document via `WorkspaceManager.createBlankDocument("capture-baseline",
 /// "Baseline", 800, 600)`, so `displayName` is "Baseline" — the same string
 /// [`crate::views::title_bar`] paints as the document name.
-const DOC_NAME: &str = "Baseline";
+const DOC_NAME: &str = "Baseline"; // i18n-exempt: demo content
 
 /// `t("menus.items.export", "Export")` — the *resolved* string, not the JSX
 /// fallback: `i18n/locales/en/translation.json:51` is `"Export…"`.
-const EXPORT_LABEL: &str = "Export\u{2026}";
+const EXPORT_LABEL_KEY: &str = "menus.items.export";
 
 /// `<div class="flex h-[38px] shrink-0 items-center border-b
 ///  border-editor-divider bg-editor-topbar justify-between select-none">`
@@ -428,7 +429,7 @@ fn export_button() -> impl IntoElement {
         .text_size(px(EXPORT_TEXT))
         .text_color(color::TEXT)
         .hover(|s| s.bg(color::WHITE_45))
-        .child(EXPORT_LABEL)
+        .child(t(EXPORT_LABEL_KEY))
         .child(
             Icon::default()
                 .data(icons::CHEVRON_DOWN)

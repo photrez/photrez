@@ -96,6 +96,7 @@
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::tokens::color;
 
 use gpui_kit::base::{h_flex, v_flex};
@@ -190,7 +191,7 @@ const STROKE: f32 = 1.75;
 
 /// The single placeholder layer's name (no document state — module docs,
 /// "What is a placeholder").
-pub const LAYER_NAME: &str = "Layer 1";
+pub const LAYER_NAME: &str = "Layer 1"; // i18n-exempt: demo content
 
 // --- Lock-header icon table (4 buttons, in order) ---
 pub const LOCK_BUTTONS: &[&[u8]] = &[
@@ -274,7 +275,7 @@ fn blend_header() -> Div {
                         .text_size(px(TEXT_12))
                         .font_family(ui::FONT_UI)
                         .text_color(color::TEXT_DIM)
-                        .child("Opacity".to_string()),
+                        .child(t("tools.options.opacity")),
                 )
                 .child(
                     div()
@@ -282,7 +283,7 @@ fn blend_header() -> Div {
                         .font_family(ui::FONT_UI)
                         .font_weight(FontWeight(500.))
                         .text_color(color::TEXT)
-                        .child("100%".to_string()),
+                        .child("100%".to_string()), // i18n-exempt: numeric value
                 )
                 .child(
                     Icon::default()
@@ -316,7 +317,7 @@ fn blend_select() -> Div {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(600.))
                 .text_color(color::TEXT)
-                .child("Normal".to_string()),
+                .child("Normal".to_string()), // i18n-exempt: not in catalog (blend-mode names come from engine data)
         ))
         .child(ui::pin(
             Icon::default()
@@ -346,7 +347,7 @@ fn lock_header() -> Div {
                 .text_size(px(TEXT_12))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT_DIM)
-                .child("Lock:".to_string()),
+                .child(t("layers.lock")),
         )
         .child(
             h_flex()

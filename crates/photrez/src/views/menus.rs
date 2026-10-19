@@ -98,6 +98,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{div, px, Div, Hsla};
 
 use crate::components::ui;
+use crate::i18n::t;
 use crate::shot;
 use crate::tokens::color;
 
@@ -216,7 +217,7 @@ fn recent_files_row() -> Div {
                 .text_size(px(RECENT_TEXT))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT_DIM)
-                .child("No Recent Files".to_string()),
+                .child(t("menus.items.noRecentFiles")),
         )
 }
 
@@ -247,15 +248,20 @@ fn menu_shell(entries: Vec<Div>) -> Div {
 /// `menu-file` passes `None`.
 fn file_menu(hover_first: Option<Hsla>) -> Div {
     menu_shell(vec![
-        ui::menu_row("New Document", Some("Ctrl+N"), false, hover_first),
-        ui::menu_row("Open Image...", Some("Ctrl+O"), false, None),
+        ui::menu_row(
+            &t("menus.items.newDocument"),
+            Some("Ctrl+N"),
+            false,
+            hover_first,
+        ),
+        ui::menu_row(&t("menus.items.openImage"), Some("Ctrl+O"), false, None),
         ui::menu_separator(),
-        ui::menu_row("Save", Some("Ctrl+S"), false, None),
-        ui::menu_row("Save As...", Some("Ctrl+Shift+S"), false, None),
+        ui::menu_row(&t("menus.items.save"), Some("Ctrl+S"), false, None),
+        ui::menu_row(&t("menus.items.saveAs"), Some("Ctrl+Shift+S"), false, None),
         ui::menu_separator(),
-        ui::menu_row("Export...", Some("Ctrl+Alt+E"), false, None),
+        ui::menu_row(&t("menus.items.export"), Some("Ctrl+Alt+E"), false, None),
         ui::menu_separator(),
-        ui::menu_row("Print...", Some("Ctrl+P"), false, None),
+        ui::menu_row(&t("menus.items.print"), Some("Ctrl+P"), false, None),
         // `RecentFilesMenu`, rendered in the File popup alone. Its
         // divider is the fourth full-bleed line the probe reads at
         // y=205; `MENU_DEFINITIONS` does not list it because it is
@@ -272,77 +278,127 @@ fn file_menu(hover_first: Option<Hsla>) -> Div {
 /// Edit — 9 items, 2 separators.
 fn edit_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row("Undo", Some("Ctrl+Z"), false, None),
-        ui::menu_row("Redo", Some("Ctrl+Shift+Z"), false, None),
+        ui::menu_row(&t("menus.items.undo"), Some("Ctrl+Z"), false, None),
+        ui::menu_row(&t("menus.items.redo"), Some("Ctrl+Shift+Z"), false, None),
         ui::menu_separator(),
-        ui::menu_row("Cut", Some("Ctrl+X"), false, None),
-        ui::menu_row("Copy", Some("Ctrl+C"), false, None),
-        ui::menu_row("Paste", Some("Ctrl+V"), false, None),
+        ui::menu_row(&t("menus.items.cut"), Some("Ctrl+X"), false, None),
+        ui::menu_row(&t("menus.items.copy"), Some("Ctrl+C"), false, None),
+        ui::menu_row(&t("menus.items.paste"), Some("Ctrl+V"), false, None),
         ui::menu_separator(),
-        ui::menu_row("Select All", Some("Ctrl+A"), false, None),
-        ui::menu_row("Deselect", Some("Ctrl+D"), false, None),
-        ui::menu_row("Invert Selection", Some("Ctrl+Shift+I"), false, None),
+        ui::menu_row(&t("menus.items.selectAll"), Some("Ctrl+A"), false, None),
+        ui::menu_row(&t("menus.items.deselect"), Some("Ctrl+D"), false, None),
+        ui::menu_row(
+            &t("menus.items.invertSelection"),
+            Some("Ctrl+Shift+I"),
+            false,
+            None,
+        ),
     ])
 }
 
 /// Image — one item, and a 38px popup: the header-only shape.
 fn image_menu() -> Div {
-    menu_shell(vec![ui::menu_row("Resize Canvas...", None, false, None)])
+    menu_shell(vec![ui::menu_row(
+        &t("menus.items.resizeCanvas"),
+        None,
+        false,
+        None,
+    )])
 }
 
 /// Layer — 7 items, 2 separators.
 fn layer_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row("New Layer", Some("Ctrl+Shift+N"), false, None),
-        ui::menu_row("Duplicate Layer", Some("Ctrl+J"), false, None),
-        ui::menu_row("Delete Layer", None, false, None),
-        ui::menu_row("Select All Layers", Some("Ctrl+Alt+A"), false, None),
+        ui::menu_row(
+            &t("menus.items.newLayer"),
+            Some("Ctrl+Shift+N"),
+            false,
+            None,
+        ),
+        ui::menu_row(
+            &t("menus.items.duplicateLayer"),
+            Some("Ctrl+J"),
+            false,
+            None,
+        ),
+        ui::menu_row(&t("menus.items.deleteLayer"), None, false, None),
+        ui::menu_row(
+            &t("menus.items.selectAllLayers"),
+            Some("Ctrl+Alt+A"),
+            false,
+            None,
+        ),
         ui::menu_separator(),
-        ui::menu_row("Merge Down", Some("Ctrl+E"), false, None),
-        ui::menu_row("Stamp Visible", Some("Ctrl+Shift+Alt+E"), false, None),
+        ui::menu_row(&t("menus.items.mergeDown"), Some("Ctrl+E"), false, None),
+        ui::menu_row(
+            &t("menus.items.stampVisible"),
+            Some("Ctrl+Shift+Alt+E"),
+            false,
+            None,
+        ),
         ui::menu_separator(),
-        ui::menu_row("Flatten Image", Some("Ctrl+Shift+E"), false, None),
+        ui::menu_row(
+            &t("menus.items.flattenImage"),
+            Some("Ctrl+Shift+E"),
+            false,
+            None,
+        ),
     ])
 }
 
 /// View — 10 items, 2 separators.
 fn view_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row("Zoom In", Some("Ctrl++"), false, None),
-        ui::menu_row("Zoom Out", Some("Ctrl+-"), false, None),
-        ui::menu_row("Actual Size", Some("Ctrl+1"), false, None),
-        ui::menu_row("Fit Canvas", Some("Ctrl+0"), false, None),
-        ui::menu_row("Zoom to Selection", Some("Ctrl+Alt+0"), false, None),
+        ui::menu_row(&t("menus.items.zoomIn"), Some("Ctrl++"), false, None),
+        ui::menu_row(&t("menus.items.zoomOut"), Some("Ctrl+-"), false, None),
+        ui::menu_row(&t("menus.items.actualSize"), Some("Ctrl+1"), false, None),
+        ui::menu_row(&t("menus.items.fitCanvas"), Some("Ctrl+0"), false, None),
+        ui::menu_row(
+            &t("menus.items.zoomToSelection"),
+            Some("Ctrl+Alt+0"),
+            false,
+            None,
+        ),
         ui::menu_separator(),
-        ui::menu_row("Snap", Some("Shift+Ctrl+;"), false, None),
-        ui::menu_row("Snap to Layers", None, false, None),
-        ui::menu_row("Snap to Canvas", None, false, None),
+        ui::menu_row(&t("menus.items.snap"), Some("Shift+Ctrl+;"), false, None),
+        ui::menu_row(&t("menus.items.snapToLayers"), None, false, None),
+        ui::menu_row(&t("menus.items.snapToCanvas"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row("Toggle Side Panels", Some("Ctrl+Shift+P"), false, None),
-        ui::menu_row("Use Stacked Side Dock", None, false, None),
+        ui::menu_row(
+            &t("menus.items.toggleSidePanels"),
+            Some("Ctrl+Shift+P"),
+            false,
+            None,
+        ),
+        ui::menu_row(&t("menus.items.useStackedSideDock"), None, false, None),
     ])
 }
 
 /// Window — 3 items, 1 separator.
 fn window_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row("Minimize", None, false, None),
-        ui::menu_row("Maximize / Restore", None, false, None),
+        ui::menu_row(&t("menus.items.minimize"), None, false, None),
+        ui::menu_row(&t("menus.items.maximize"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row("Close Window", Some("Alt+F4"), false, None),
+        ui::menu_row(&t("menus.items.closeWindow"), Some("Alt+F4"), false, None),
     ])
 }
 
 /// Help — one item, header-only shape.
 fn help_menu() -> Div {
-    menu_shell(vec![ui::menu_row("About Photrez", None, false, None)])
+    menu_shell(vec![ui::menu_row(
+        &t("menus.items.about"),
+        None,
+        false,
+        None,
+    )])
 }
 
 /// Settings — one item, header-only shape. `hover_first` paints it for
 /// `menu-settings-hover-item`.
 fn settings_menu(hover_first: Option<Hsla>) -> Div {
     menu_shell(vec![ui::menu_row(
-        "Preferences...",
+        &t("menus.items.preferences"),
         None,
         false,
         hover_first,

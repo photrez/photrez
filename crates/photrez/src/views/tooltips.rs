@@ -103,6 +103,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla};
 
 use crate::components::ui;
+use crate::i18n::t;
 use crate::shot;
 use crate::tokens::color;
 
@@ -182,7 +183,7 @@ fn tooltip_shadow() -> Vec<BoxShadow> {
 struct Spec {
     x: f32,
     y: f32,
-    label: &'static str,
+    label: String,
     shortcut: Option<&'static str>,
 }
 
@@ -200,20 +201,24 @@ fn spec_for(id: Option<&str>) -> Spec {
         Some("tooltip-rail-variant-tool") => Spec {
             x: 50.0,
             y: 97.0,
-            label: "Rectangle Select (Right-click for options)",
+            label: format!(
+                "{} ({})",
+                t("tools.rectSelect"),
+                t("tools.rightClickOptions")
+            ),
             shortcut: Some("M"),
         },
         Some("tooltip-rail-swatch") => Spec {
             x: 42.0,
             y: 743.0,
-            label: "Foreground Color",
+            label: t("tools.foregroundColor"),
             shortcut: None,
         },
         // "tooltip-rail-tool" and unset/unknown: the default state.
         _ => Spec {
             x: 50.0,
             y: 59.0,
-            label: "Move Tool",
+            label: t("tools.move"),
             shortcut: Some("V"),
         },
     }
@@ -226,7 +231,7 @@ fn spec_for(id: Option<&str>) -> Spec {
 /// source. Mount late in the tree: that is this port's only `z-[100]`.
 pub fn render() -> impl IntoElement {
     let spec = spec();
-    let tip: Div = tooltip(spec.label, spec.shortcut)
+    let tip: Div = tooltip(&spec.label, spec.shortcut)
         .absolute()
         .left(px(spec.x))
         .top(px(spec.y));

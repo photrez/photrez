@@ -1,4 +1,5 @@
 use super::*;
+use crate::i18n::t;
 
 // ── Move-variant parts ────────────────────────────────────────────────────────
 
@@ -11,8 +12,8 @@ pub(super) fn position_group() -> impl IntoElement {
         .flex_shrink_0()
         .items_center()
         .gap(px(ITEM_GAP))
-        .child(editable_field("num-x", "X", FIELD_W_XY, "0", "px"))
-        .child(editable_field("num-y", "Y", FIELD_W_XY, "0", "px"))
+        .child(editable_field("num-x", "X", FIELD_W_XY, "0", "px")) // i18n-exempt: technical token (field label glyph)
+        .child(editable_field("num-y", "Y", FIELD_W_XY, "0", "px")) // i18n-exempt: technical token (field label glyph)
 }
 
 /// `<div class="flex shrink-0 items-center gap-1">` around the W and H
@@ -25,8 +26,8 @@ pub(super) fn size_group() -> impl IntoElement {
         .flex_shrink_0()
         .items_center()
         .gap(px(ITEM_GAP))
-        .child(num_field("W", FIELD_W_WH, "800", "px"))
-        .child(num_field("H", FIELD_W_WH, "600", "px"))
+        .child(num_field("W", FIELD_W_WH, "800", "px")) // i18n-exempt: technical token (field label glyph)
+        .child(num_field("H", FIELD_W_WH, "600", "px")) // i18n-exempt: technical token (field label glyph)
 }
 
 /// The brush size slider (`BrushOptionBar.tsx`), gated behind `PAINT_SIZE_SLIDER`.
@@ -189,8 +190,8 @@ pub(super) fn reverse_button() -> Stateful<Div> {
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(600.))
         .text_color(ZINC)
-        .child(div().text_size(px(TEXT_MD)).child("\u{21c4}"))
-        .child(div().child("Reverse"))
+        .child(div().text_size(px(TEXT_MD)).child("\u{21c4}")) // i18n-exempt: glyph or symbol
+        .child(div().child(t("tools.options.reverse")))
 }
 
 // ── Shape ──────────────────────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ pub(super) fn fill_toggle() -> Stateful<Div> {
         .shadow(vec![
             BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.))
         ])
-        .child("Fill")
+        .child(t("tools.fill"))
 }
 
 /// The shape bar's 22px fill colour swatch.
@@ -265,14 +266,14 @@ pub(super) fn stroke_pill_off(id: &'static str) -> Stateful<Div> {
                 .items_center()
                 .gap(px(GAP))
                 .child(stroke_dot())
-                .child(div().text_color(ZINC).child("Stroke:"))
+                .child(div().text_color(ZINC).child("Stroke:")) // i18n-exempt: not in catalog (catalog has "Stroke" without colon)
                 .child(
                     div()
                         .w(px(STROKE_VAL_W))
                         .flex_none()
                         .font_family(ui::FONT_MONO)
                         .text_color(ZINC)
-                        .child("Off"),
+                        .child(t("common.off")),
                 ),
         ))
         .child(ui::pin(div().child(chevron_175())))
@@ -290,7 +291,7 @@ pub(super) fn radius_field() -> Div {
         .border_color(color::BORDER)
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .child(dim_span("Corner Radius"))
+        .child(dim_span(&t("properties.cornerRadius")))
         .child(
             div()
                 .w(px(RADIUS_INPUT_W))
@@ -298,7 +299,7 @@ pub(super) fn radius_field() -> Div {
                 .text_center()
                 .child(value_text("0")),
         )
-        .child(dim_span("px"))
+        .child(dim_span("px")) // i18n-exempt: technical token (unit)
 }
 
 // ── Text ───────────────────────────────────────────────────────────────────────
@@ -324,14 +325,14 @@ pub(super) fn font_family_button() -> Stateful<Div> {
                 .text_size(px(TEXT_13))
                 .font_weight(FontWeight(700.))
                 .text_color(color::ACCENT)
-                .font_family("Arial")
-                .child("Aa"),
+                .font_family("Arial") // i18n-exempt: technical token
+                .child("Aa"), // i18n-exempt: glyph or symbol
         )
         .child(
             div()
-                .font_family("Arial")
+                .font_family("Arial") // i18n-exempt: technical token
                 .text_color(color::WHITE)
-                .child("Arial"),
+                .child("Arial"), // i18n-exempt: technical token
         )
         .child(ml_label(chevron_175()))
 }
@@ -354,7 +355,7 @@ pub(super) fn font_size_field() -> Div {
                 .text_center()
                 .child(value_text("48")),
         )
-        .child(dim_span("px"))
+        .child(dim_span("px")) // i18n-exempt: technical token (unit)
         .child(ml_label(chevron_175()))
 }
 
@@ -487,13 +488,13 @@ pub(super) const HOVER_BORDER_LOCAL: Hsla = Hsla {
 // ── Group labels ─�─────────────────────────────────────────────────────────────
 
 /// The selection bar's caps captions ("Position", "Size", "Rotation").
-pub(super) fn caps_label(text: &'static str) -> Div {
+pub(super) fn caps_label(text: &str) -> Div {
     div()
         .mr(px(MR_LABEL))
         .text_size(px(TEXT_XS))
         .font_weight(FontWeight(700.))
         .text_color(color::TEXT_DIM)
-        .child(text)
+        .child(text.to_string())
 }
 
 // ── Crop ───────────────────────────────────────────────────────────────────────
@@ -534,7 +535,7 @@ pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
                 .text_size(px(TEXT_XS))
                 .text_color(ZINC)
                 .font_weight(FontWeight(500.))
-                .child("Use BG"),
+                .child("Use BG"), // i18n-exempt: not in catalog
         )
 }
 
@@ -566,7 +567,7 @@ pub(super) fn apply_button() -> Stateful<Div> {
         .shadow(vec![
             BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.))
         ])
-        .child("Apply")
+        .child(t("common.apply"))
 }
 
 /// `t("common.cancel", "Cancel")` (`CropOptionBar.tsx:642-657`) — secondary
@@ -588,5 +589,5 @@ pub(super) fn cancel_button() -> Stateful<Div> {
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(600.))
         .text_color(ZINC)
-        .child("Cancel")
+        .child(t("common.cancel"))
 }

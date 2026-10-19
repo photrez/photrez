@@ -92,6 +92,7 @@
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::state::{InspectorTab, LayerTab};
 use crate::tokens::color;
 use crate::views::{adjustments_panel, history, layers, properties_panel};
@@ -269,7 +270,7 @@ fn presets_stub() -> Div {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(500.))
                 .text_color(color::TEXT)
-                .child("Presets".to_string()),
+                .child(t("panels.presets")),
         )
         .child(
             div()
@@ -279,10 +280,7 @@ fn presets_stub() -> Div {
                 .line_height(relative(1.3))
                 .text_center()
                 .text_color(color::TEXT_DIM)
-                .child(
-                    "Coming soon: save and apply custom filter adjustments and effects."
-                        .to_string(),
-                ),
+                .child(t("panels.presetsComingSoon")),
         )
 }
 
@@ -315,7 +313,7 @@ fn navigator() -> Div {
                         .font_family(ui::FONT_UI)
                         .font_weight(FontWeight(500.))
                         .text_color(color::TEXT)
-                        .child("Navigator".to_string()),
+                        .child(t("panels.navigator")),
                 ),
         )
         .child(

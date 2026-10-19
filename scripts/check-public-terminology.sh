@@ -63,11 +63,15 @@ TOKEN_LIST='scripts/public-stack-tokens.txt'
 
 # Text-bearing call sites in the Rust UI sources: a string literal in one of
 # these positions is user-visible text. A const `&str` counts too, unless its
-# value is key-shaped (all lowercase letters/digits/dots/dashes - a catalog
+# value is key-shaped (starts lowercase; letters/digits/dots/dashes - a catalog
+# key segment may be camelCase, e.g. `status.toolTips.move`)
 # key or an id, not UI text). A literal that reaches the user another way is
 # review's catch, and the exemption marker is how review records its verdict.
-I18N_CALL_PATTERN='(menu_row|text_run|caption|value_mono|dialog_button|resize_row|slider_row)\(r?"[^"]|\.child\(r?"[^"]|(text|label|title|name|heading|tooltip|hint|description|placeholder|caption): r?"[^"]|const [A-Z0-9_]+: &str = r?"[^"]'
-I18N_KEY_SHAPED_CONST='const [A-Z0-9_]+: &str = r?"[a-z0-9_.-]+"'
+I18N_CALL_PATTERN='(menu_row|text_run|caption|value_mono|dialog_button|resize_row|slider_row|caps_label|group_label|dim_span|brush_section)\(r?"[^"]|(option_checkbox|option_checkbox_state|editable_field|paint_field)\(r?"[a-z0-9-]+",[[:space:]]*r?"[^"]|(^|[^a-zA-Z0-9_])num_field\(r?"[^"]|preset_row\(\[r?"[^"]|\.child\(r?"[^"]|(text|label|title|name|heading|tooltip|hint|description|placeholder|caption): r?"[^"]|const [A-Z0-9_]+: &str = r?"[^"]'
+I18N_KEY_SHAPED_CONST='const [A-Z0-9_]+: &str = r?"[a-z0-9][A-Za-z0-9_.-]*"'
+# A field whose value is a catalog key: same rule as the const, so a struct
+# that carries `label: "tools.move"` needs no exemption marker.
+I18N_KEY_SHAPED_FIELD='(text|label|title|name|heading|tooltip|hint|description|placeholder|caption): r?"[a-z][A-Za-z0-9_.-]*"'
 
 STALENESS=0
 SIMULATE_ABSENT=''
@@ -170,7 +174,7 @@ i18n_check() {
         in_test && /^}/ { in_test = 0; next }
         in_test { next }
         { printf "%d:%s\n", NR, $0 }
-      ' "$src" | grep -E "$I18N_CALL_PATTERN" | grep -vE "$I18N_KEY_SHAPED_CONST" | grep -v 'i18n-exempt:' || true)
+      ' "$src" | grep -E "$I18N_CALL_PATTERN" | grep -vE "$I18N_KEY_SHAPED_CONST" | grep -vE "$I18N_KEY_SHAPED_FIELD" | grep -v 'i18n-exempt:' || true)
       [ -n "$hits" ] || continue
       printf '%s\n' "$hits" | while IFS= read -r hit; do
         printf '%s:%s\n' "$src" "$hit"

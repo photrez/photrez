@@ -43,6 +43,14 @@ fi
 # (scripts/public-stack-tokens.txt) is the single source of truth.
 sh scripts/check-public-terminology.sh --staleness || exit 1
 
+# 0g. Hardcoded UI strings — staged Rust files under the swept trees must route
+# their user-visible text through the message catalog (t("key")), or carry an
+# explicit `// i18n-exempt: <reason>` marker.
+I18N_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^crates/photrez/src/(views|components)/.*\.rs$' | tr '\n' || true)
+if [ -n "$I18N_FILES" ]; then
+  sh scripts/check-public-terminology.sh --i18n --files "$I18N_FILES" || exit 1
+fi
+
 # (Type-check was removed with the browser build pipeline: tsc can no longer
 # resolve the removed browser module. It returns with the native build.)
 

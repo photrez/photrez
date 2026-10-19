@@ -147,6 +147,7 @@ use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla};
 
 use crate::components::ui;
 use crate::components::ui::SliderKind;
+use crate::i18n::t;
 use crate::shot;
 use crate::tokens::color;
 
@@ -276,17 +277,32 @@ fn menu_shadow() -> Vec<BoxShadow> {
 /// first enabled entry.
 fn canvas_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row("Cut", Some("Ctrl+X"), true, None),
-        ui::menu_row("Copy", Some("Ctrl+C"), true, None),
-        ui::menu_row("Paste", Some("Ctrl+V"), true, None),
+        ui::menu_row(&t("menus.items.cut"), Some("Ctrl+X"), true, None),
+        ui::menu_row(&t("menus.items.copy"), Some("Ctrl+C"), true, None),
+        ui::menu_row(&t("menus.items.paste"), Some("Ctrl+V"), true, None),
         ui::menu_separator(),
-        ui::menu_row("Select All", Some("Ctrl+A"), false, Some(FOCUS_BG)),
-        ui::menu_row("Deselect", Some("Ctrl+D"), true, None),
-        ui::menu_row("Invert Selection", Some("Ctrl+Shift+I"), false, None),
+        ui::menu_row(
+            &t("menus.items.selectAll"),
+            Some("Ctrl+A"),
+            false,
+            Some(FOCUS_BG),
+        ),
+        ui::menu_row(&t("menus.items.deselect"), Some("Ctrl+D"), true, None),
+        ui::menu_row(
+            &t("menus.items.invertSelection"),
+            Some("Ctrl+Shift+I"),
+            false,
+            None,
+        ),
         ui::menu_separator(),
-        ui::menu_row("Actual Size", Some("Ctrl+1"), false, None),
-        ui::menu_row("Fit Canvas", Some("Ctrl+0"), false, None),
-        ui::menu_row("Zoom to Selection", Some("Ctrl+Alt+0"), true, None),
+        ui::menu_row(&t("menus.items.actualSize"), Some("Ctrl+1"), false, None),
+        ui::menu_row(&t("menus.items.fitCanvas"), Some("Ctrl+0"), false, None),
+        ui::menu_row(
+            &t("menus.items.zoomToSelection"),
+            Some("Ctrl+Alt+0"),
+            true,
+            None,
+        ),
     ])
 }
 
@@ -294,11 +310,11 @@ fn canvas_menu() -> Div {
 /// 1 separator, 210x131, nothing disabled, no focus tint in the capture.
 fn export_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row("Quick Export as PNG", None, false, None),
-        ui::menu_row("Quick Export as JPG", None, false, None),
-        ui::menu_row("Quick Export as WebP", None, false, None),
+        ui::menu_row(&t("menus.items.quickExportPng"), None, false, None),
+        ui::menu_row(&t("menus.items.quickExportJpg"), None, false, None),
+        ui::menu_row(&t("menus.items.quickExportWebp"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row("Export As...", None, false, None),
+        ui::menu_row(&t("menus.items.exportAs"), None, false, None),
     ])
 }
 
@@ -319,20 +335,30 @@ fn export_menu() -> Div {
 /// `FocusBg` trace and the two top-group row orders follow the TSX.
 fn layer_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row("New Layer", Some("Ctrl+Shift+N"), false, Some(FOCUS_BG)),
-        ui::menu_row("Duplicate Layer", Some("Ctrl+J"), false, None),
-        ui::menu_row("Rename Layer", None, false, None),
+        ui::menu_row(
+            &t("layers.newLayer"),
+            Some("Ctrl+Shift+N"),
+            false,
+            Some(FOCUS_BG),
+        ),
+        ui::menu_row(&t("layers.duplicateLayer"), Some("Ctrl+J"), false, None),
+        ui::menu_row(&t("layers.renameLayer"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row("Hide Layer", None, false, None),
-        ui::menu_row("Lock Layer", None, false, None),
+        ui::menu_row(&t("layers.hideLayer"), None, false, None),
+        ui::menu_row(&t("layers.lockLayer"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row("Move Layer Up", None, true, None),
-        ui::menu_row("Move Layer Down", None, true, None),
-        ui::menu_row("Merge Down", Some("Ctrl+E"), true, None),
-        ui::menu_row("Flatten Image", Some("Ctrl+Shift+E"), true, None),
-        ui::menu_row("Apply Adjustment", None, true, None),
+        ui::menu_row(&t("layers.moveLayerUp"), None, true, None),
+        ui::menu_row(&t("layers.moveLayerDown"), None, true, None),
+        ui::menu_row(&t("layers.mergeDown"), Some("Ctrl+E"), true, None),
+        ui::menu_row(
+            &t("menus.items.flattenImage"),
+            Some("Ctrl+Shift+E"),
+            true,
+            None,
+        ),
+        ui::menu_row(&t("layers.applyAdjustment"), None, true, None),
         ui::menu_separator(),
-        ui::menu_row("Delete Layer", Some("Delete"), true, None),
+        ui::menu_row(&t("layers.deleteLayer"), Some("Delete"), true, None),
     ])
 }
 
@@ -354,15 +380,15 @@ fn brush_panel() -> Div {
         .overflow_hidden()
         .shadow(brush_shadow())
         .child(brush_section(
-            "Size: 20px",
+            &format!("{}: 20px", t("tools.options.size")),
             ui::slider(3.0, None, SliderKind::BrushSize, true),
         ))
         .child(brush_section(
-            "Hardness: 80%",
+            &format!("{}: 80%", t("tools.options.hardness")),
             ui::slider(80.0, None, SliderKind::BrushHardness, true),
         ))
         .child(brush_section(
-            "Strength: 100%",
+            &format!("{}: 100%", t("tools.options.strength")),
             ui::slider(100.0, None, SliderKind::Alpha, true),
         ))
         .child(preset_grid())
@@ -399,8 +425,8 @@ fn preset_grid() -> Div {
     v_flex()
         .w_full()
         .gap(px(BLOCK_GAP))
-        .child(preset_row(["Hard Round", "Soft Round"]))
-        .child(preset_row(["Detail", "Large Soft"]))
+        .child(preset_row(["Hard Round", "Soft Round"])) // i18n-exempt: brush preset names (no catalog key)
+        .child(preset_row(["Detail", "Large Soft"])) // i18n-exempt: brush preset names (no catalog key)
 }
 
 fn preset_row(names: [&str; 2]) -> Div {
@@ -450,7 +476,7 @@ fn reset_button() -> Div {
                 .text_size(px(BTN_TEXT))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT)
-                .child("Reset".to_string()),
+                .child(t("common.reset")),
         )
 }
 

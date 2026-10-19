@@ -70,6 +70,7 @@ use gpui_kit::{div, font, px, Hsla, StyledText, TextRun};
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::tokens::color;
 
 use gpui_kit::Div;
@@ -135,26 +136,26 @@ const HIT_PY: f32 = 4.5;
 /// `createBlankDocument("capture-baseline", "Baseline", 800, 600)`,
 /// `capture-baseline.ts:183`. The baseline renders the multiplication sign as
 /// the Unicode x-cross (`\u{d7}`); the port matches that glyph.
-const DOC_SIZE: &str = "800 \u{d7} 600 px";
+const DOC_SIZE: &str = "800 \u{d7} 600 px"; // i18n-exempt: numeric value
 
 /// `Math.round(zoom() * 100)}%` — BottomStatusBar.tsx:132, as captured (88%).
-const ZOOM: &str = "88%";
+const ZOOM: &str = "88%"; // i18n-exempt: numeric value
 
 /// `getToolDisplayName()` for `activeTool() === "move"` — BottomStatusBar.tsx:135,
 /// via `tools.move` in `locales/en/translation.json:110`.
-const TOOL: &str = "Move Tool";
+const TOOL_KEY: &str = "tools.move";
 
 /// `statusText()` for the `move` tool — BottomStatusBar.tsx:107 resolving
 /// `status.toolTips.move`, `locales/en/translation.json:396`. This is the
 /// tooltip sentence, not a status: the real component shows the same string
 /// whenever nothing else (gradient drag, transform session, paint block) is
 /// in flight.
-const STATUS_TIP: &str = "Drag to move layer. Hold Shift for constrained movement.";
+const STATUS_TIP_KEY: &str = "status.toolTips.move";
 
 /// `activeLayerName()` — BottomStatusBar.tsx:164. `activeTool()` is `move`, so
 /// the name comes from the selected layer, which for a blank document is the
 /// seed layer "Background" (`crates/core/src/canonical_model.rs:428`).
-const LAYER: &str = "Background";
+const LAYER: &str = "Background"; // i18n-exempt: demo content
 
 /// `text-editor-text/60` — the tool-tip sentence, BottomStatusBar.tsx:138.
 ///
@@ -249,11 +250,17 @@ fn left_group() -> Div {
     h_flex()
         .gap(px(GROUP_GAP))
         // The first cell is the only one without the `border-l ... pl-3` rule.
-        .child(field("Canvas: ", DOC_SIZE))
-        .child(divided_field("Zoom: ", ZOOM))
-        .child(divided_field("Active: ", TOOL))
+        .child(field(&format!("{}: ", t("status.canvas")), DOC_SIZE))
+        .child(divided_field(&format!("{}: ", t("status.zoom")), ZOOM))
+        .child(divided_field(
+            &format!("{}: ", t("status.active")),
+            &t(TOOL_KEY),
+        ))
         .child(divided_tip())
-        .child(divided_field("Selected Layer: ", LAYER))
+        .child(divided_field(
+            &format!("{}: ", t("status.selectedLayer")),
+            LAYER,
+        ))
         .child(divided_frame())
 }
 
@@ -305,7 +312,7 @@ fn frame_run_specs(metrics: &FrameMetrics, status_color: Hsla) -> Vec<FrameRun> 
     let max = metrics.max_ms_str();
     vec![
         FrameRun {
-            text: "Frame: ".to_string(),
+            text: "Frame: ".to_string(), // i18n-exempt: not in catalog
             color: status_color,
             bold: false,
         },
@@ -359,7 +366,7 @@ fn frame_text(metrics: &FrameMetrics, status_color: Hsla) -> StyledText {
 /// rather than colouring the ruled div keeps the two JSX layers apart, which
 /// matters if either ever grows a second child.
 fn divided_tip() -> impl IntoElement {
-    ruled(div().text_color(STATUS_COLOR).child(STATUS_TIP))
+    ruled(div().text_color(STATUS_COLOR).child(t(STATUS_TIP_KEY)))
 }
 
 /// The `border-l border-editor-divider pl-3` wrapper, applied to every cell
@@ -434,7 +441,7 @@ fn history_button() -> impl IntoElement {
                 .size(px(HISTORY_ICON))
                 .text_color(color::TEXT_DIM),
         )
-        .child("History")
+        .child(t("panels.history"))
 }
 
 #[cfg(test)]

@@ -141,19 +141,28 @@ use gpui_kit::{
 
 use crate::assets::icons;
 use crate::components::ui;
+use crate::i18n::t;
 use crate::tokens::{color, title};
 
-/// The eight top-level menus, in `MENU_ITEMS` order from `editorData.ts`.
+/// The eight top-level menus, in `MENU_ITEMS` order from `editorData.ts`,
+/// as catalog keys resolved with [`t`] at the trigger.
 /// Order matters: the measured trigger boxes in `manifest.json` are File at
 /// x=58, Edit at x=99.9, and so on, so a reordering would fail the diff.
 const MENUS: &[&str] = &[
-    "File", "Edit", "Image", "Layer", "View", "Window", "Help", "Settings",
+    "menus.file",
+    "menus.edit",
+    "menus.image",
+    "menus.layer",
+    "menus.view",
+    "menus.window",
+    "menus.help",
+    "menus.settings",
 ];
 
 /// `activeDocName()` for the captured state: `capture-baseline.ts:183` creates
 /// the document via `WorkspaceManager.createBlankDocument("capture-baseline",
 /// "Baseline", 800, 600)`, so `displayName` is "Baseline".
-const DOC_NAME: &str = "Baseline";
+const DOC_NAME: &str = "Baseline"; // i18n-exempt: demo content
 
 /// The logo raster. Filled by [`init`] before any window opens, so [`logo`]
 /// can rely on it being present.
@@ -280,18 +289,21 @@ fn menu_bar() -> impl IntoElement {
 /// One menu trigger: `<div class="relative flex h-full items-center">` wrapping
 /// the button itself.
 ///
+/// `key` is the catalog key: it names the element id and resolves the visible
+/// label, so the id stays locale-independent while the text follows the locale.
+///
 /// The button is not given a popup — see the module docs for why the open
 /// state is out of scope.
-fn menu_trigger(label: &'static str) -> impl IntoElement {
+fn menu_trigger(key: &'static str) -> impl IntoElement {
     h_flex().relative().self_stretch().items_center().child(
         div()
-            .id(label)
+            .id(key)
             .h_flex()
             .h(px(title::MENU_H))
             .items_center()
             .justify_center()
             .rounded(px(title::RADIUS))
-            .px(px(pad_x(label)))
+            .px(px(pad_x(key)))
             .text_size(px(title::MENU_TEXT))
             // `font-medium`
             .font_weight(FontWeight(500.))
@@ -299,7 +311,7 @@ fn menu_trigger(label: &'static str) -> impl IntoElement {
             .text_color(color::TEXT_90)
             // `hover:bg-white/[0.045] hover:text-editor-text`
             .hover(|s| s.bg(color::WHITE_45).text_color(color::TEXT))
-            .child(label),
+            .child(t(key)),
     )
 }
 
@@ -343,7 +355,7 @@ fn center_group() -> impl IntoElement {
                     div()
                         .text_size(px(title::SEP_TEXT))
                         .text_color(color::TEXT_DIM_60)
-                        .child("\u{b7}"),
+                        .child("\u{b7}"), // i18n-exempt: glyph or symbol
                 )
                 .child(
                     div()
@@ -355,7 +367,7 @@ fn center_group() -> impl IntoElement {
                         // separator dot stays at 60%: punctuation, exempt
                         // as decoration.
                         .text_color(color::TEXT_DIM)
-                        .child("photrez"),
+                        .child("photrez"), // i18n-exempt: product name
                 ),
         )
 }
@@ -593,12 +605,24 @@ mod tests {
     }
 
     /// The eight menu labels are frozen by the captured baseline: `File` at
-    /// x=58, `Settings` at x=421.20. A reordering fails the diff.
+    /// x=58, `Settings` at x=421.20. A reordering fails the diff. The array
+    /// holds catalog keys; the ends resolve to the captured labels.
     #[test]
     fn menus_array_is_frozen_order() {
         assert_eq!(
             MENUS,
-            &["File", "Edit", "Image", "Layer", "View", "Window", "Help", "Settings"]
+            &[
+                "menus.file",
+                "menus.edit",
+                "menus.image",
+                "menus.layer",
+                "menus.view",
+                "menus.window",
+                "menus.help",
+                "menus.settings",
+            ]
         );
+        assert_eq!(t(MENUS[0]), "File");
+        assert_eq!(t(MENUS[7]), "Settings");
     }
 }
