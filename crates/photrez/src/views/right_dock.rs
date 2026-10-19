@@ -146,6 +146,7 @@ pub fn render(inspector_tab: &InspectorTab, layer_tab: &LayerTab) -> impl IntoEl
         .flex_none()
         .items_stretch()
         .w(px(DOCK_W))
+        .h_full()
         .bg(color::PANEL)
         .child(inspector_dock(inspector_tab))
         .child(layer_dock(layer_tab))
@@ -175,20 +176,21 @@ fn inspector_dock(inspector_tab: &InspectorTab) -> Div {
 /// Which of the three inspector panels to draw.
 ///
 /// The Adjustments and Properties branches wrap their panels because the panel
-/// `render()` functions return opaque `impl IntoElement`, not `Div`. As in
-/// [`layer_body`], the wrapper carries the stretch the reference left on its
-/// bare panel, so the panel fills the column exactly as it did there. The
-/// Presets stub returns `Div` and sets its own `h_full`, so it needs no
-/// wrapper.
+/// `render()` functions return opaque `impl IntoElement`, not `Div`, so they
+/// need a uniform type from this single `match`. The wrapper must be a flex
+/// column, not a plain `div()`: the toolkit's default `display: block` would
+/// size the panel by its content instead of letting its `h_full`/`flex_1`
+/// reach the column. The Presets stub returns `Div` and sets its own `h_full`,
+/// so it needs no wrapper.
 fn inspector_body(inspector_tab: &InspectorTab) -> Div {
     match inspector_tab {
-        InspectorTab::Adjustments => div()
+        InspectorTab::Adjustments => v_flex()
             .flex_1()
             .min_h(px(0.0))
             .overflow_hidden()
             .child(adjustments_panel::render()),
         InspectorTab::Presets => presets_stub(),
-        InspectorTab::Properties => div()
+        InspectorTab::Properties => v_flex()
             .flex_1()
             .min_h(px(0.0))
             .overflow_hidden()
@@ -219,20 +221,21 @@ fn layer_dock(layer_tab: &LayerTab) -> Div {
 
 /// Which of the two LayerDock panels to draw.
 ///
-/// Both branches are wrapped in `div()` because the panel `render()` functions
-/// return opaque `impl IntoElement`, not `Div` — wrapping each branch yields a
-/// uniform `Div` type from this single `match` expression.
-///
-/// The Layers wrapper carries the stretch the reference left on its bare panel:
-/// the reference slotted `layers_panel::render()` straight into the flex column,
-/// where its `flex-1 min-h-0` let the list fill any window height. With a
-/// wrapper in between, those properties must sit on the wrapper too, or it hugs
-/// its content and leaves a band of bare column below the panel. History sets a
-/// fixed `PANEL_H`, so its plain wrapper is correct.
+/// Both branches are wrapped in a flex column because the panel `render()`
+/// functions return opaque `impl IntoElement`, not `Div`, and a plain `div()`
+/// is `display: block` in the toolkit - its child would take its content
+/// height, so the panel's `flex_1`/`h_full` would never reach the column and
+/// the Layers action footer would sit right under the rows instead of at the
+/// panel's foot. History's root stretches the same way (it was a fixed
+/// baseline height); at the baseline window both resolve to the measured 527.
 fn layer_body(layer_tab: &LayerTab) -> Div {
     match layer_tab {
-        LayerTab::History => div().child(history::render()),
-        LayerTab::Layers => div()
+        LayerTab::History => v_flex()
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_hidden()
+            .child(history::render()),
+        LayerTab::Layers => v_flex()
             .flex_1()
             .min_h(px(0.0))
             .overflow_hidden()

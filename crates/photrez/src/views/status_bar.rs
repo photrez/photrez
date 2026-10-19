@@ -152,10 +152,10 @@ const TOOL_KEY: &str = "tools.move";
 /// in flight.
 const STATUS_TIP_KEY: &str = "status.toolTips.move";
 
-/// `activeLayerName()` — BottomStatusBar.tsx:164. `activeTool()` is `move`, so
-/// the name comes from the selected layer, which for a blank document is the
-/// seed layer "Background" (`crates/core/src/canonical_model.rs:428`).
-const LAYER: &str = "Background"; // i18n-exempt: demo content
+/// `activeLayerName()` — BottomStatusBar.tsx:164. The status bar shows the same
+/// selected layer the Layers and Properties panels draw, so it must not keep
+/// the web capture's seed name: the port's seeded document is "Layer 1".
+const LAYER: &str = "Layer 1"; // i18n-exempt: demo content
 
 /// `text-editor-text/60` — the tool-tip sentence, BottomStatusBar.tsx:138.
 ///

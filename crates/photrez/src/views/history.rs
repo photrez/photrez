@@ -8,7 +8,10 @@
 //! between the dock's 38px tab bar (y 46..83, `border-b` painted at 83) and
 //! the Navigator (`shell-navigator` manifest box, y=611, drawn by whoever
 //! owns the dock chrome — not here). See `layers_panel.rs` for how those
-//! anchors were derived from `manifest.json`.
+//! anchors were derived from `manifest.json`. The panel root is `flex_1` (its
+//! parent is the definite flex column in `right_dock::layer_body`), so 527 is
+//! what the column resolves to at the baseline window and the list absorbs any
+//! difference when the window is taller or shorter.
 //!
 //! The baseline is **`dock-history.png`** (533x750 @ 833,46), the whole right
 //! dock with this tab selected; in crop coordinates this panel occupies
@@ -113,7 +116,16 @@ use gpui_kit::{div, px, Div, FontWeight, Hsla};
 /// dock runs to the window edge at 1366.
 const PANEL_W: f32 = 260.0;
 
-/// Content height above the Navigator: 611 - 84.
+/// Content height above the Navigator at the baseline window: 611 - 84.
+///
+/// Kept as the measured figure rather than as a layout input — the root is
+/// `flex_1` now (its parent supplies the definite column), so this is what the
+/// panel works out to at 1366x820 and what a capture at any other height grows
+/// or shrinks from.
+#[expect(
+    dead_code,
+    reason = "documents baseline geometry; root is flex_1 and absorbs window height"
+)]
 const PANEL_H: f32 = 527.0;
 
 /// The `scrollbar-gutter: stable` reservation of the `overflow-y-auto` list
@@ -252,8 +264,8 @@ pub fn render() -> impl IntoElement {
 
     v_flex()
         .w(px(PANEL_W))
-        .h(px(PANEL_H))
-        .flex_shrink_0()
+        .flex_1()
+        .min_h(px(0.0))
         .bg(color::PANEL)
         .child(list)
 }
