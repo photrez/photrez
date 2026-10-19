@@ -1,14 +1,16 @@
 //! # photrez - the native application entry point
 //!
-//! This file does four things and nothing else:
+//! This file does five things and nothing else:
 //!
 //!   1. `#![windows_subsystem = "windows"]` unconditionally - a debug build
 //!      that flashes a console window on top of the app is a defect that
 //!      hides itself in release, and the whole port is developed in debug.
 //!   2. `gpui_kit::application().run(...)` -> `gpui_kit::init(cx)` before any
 //!      control is constructed.
-//!   3. Register Inter, the same font the web build loads.
-//!   4. Open the main window on [`app::App`].
+//!   3. Settle the startup locale: stored preference, then the OS locale,
+//!      then `en` (`i18n::initial_locale`).
+//!   4. Register Inter, the same font the web build loads.
+//!   5. Open the main window on [`app::App`].
 //!
 //! It must not own: document state (`app/` + `photrez-core`), canvas painting
 //! (`render/`), or input policy (`input/`).
@@ -67,6 +69,15 @@ fn main() {
     }
     gpui_kit::application().run(|cx: &mut App| {
         gpui_kit::init(cx);
+
+        // Settle the locale before any control reads a string: the whole
+        // window tree renders from the catalog (`i18n/`).
+        let settings = services::settings::FileSettings::user_default();
+        i18n::set_locale(i18n::initial_locale(
+            settings
+                .as_ref()
+                .map(|store| store as &dyn services::settings::SettingsStore),
+        ));
 
         // Rasterise the logo once, before any window opens. `title_bar::init`
         // fills the `LOGO_IMAGE` cache that `title_bar::logo` reads per frame;

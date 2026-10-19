@@ -5,3 +5,5 @@
 //!
 //! Must not own: leaking concrete platform APIs into `views/` or
 //! `components/`, or any domain logic (`photrez-core`).
+
+pub mod settings;

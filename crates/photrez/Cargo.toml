@@ -37,3 +37,7 @@ panic = "deny"
 # readable from the manifest alone.
 gpui-kit = "=0.7.3"
 photrez-core = { path = "../core" }
+# Parses the embedded message catalogs (`assets/i18n/*.json`, baked in with
+# `include_str!`). Already present in this crate's lock via the gpui-kit
+# dependency tree; the direct edge fetches no new package.
+serde_json = "1.0"
