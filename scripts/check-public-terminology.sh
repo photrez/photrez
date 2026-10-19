@@ -26,7 +26,18 @@
 # Usage:
 #   scripts/check-public-terminology.sh --msg "<commit / PR title>"
 #   scripts/check-public-terminology.sh --files "<path> [path ...]"
+#   scripts/check-public-terminology.sh --i18n --files "<path-or-dir> [path-or-dir ...]"
 #   scripts/check-public-terminology.sh --staleness [--simulate-absent <stack>]
+#
+# "--i18n" flags a string literal used at a text-bearing call site in the
+# Rust sources it is pointed at (`components/`, `views/`): user-visible text
+# must come from the message catalog (`t("key")`), never a bare literal. It
+# skips in-file `mod tests` regions (test fixtures may use literals) and
+# accepts a line that carries `// i18n-exempt: <reason>` when a literal is
+# deliberately not translated (a shortcut chord, a numeric value, a product
+# name). The call-site list is intentionally narrow - the coarse net catches
+# the direct forms; text that reaches the user through a variable is the
+# reviewer's catch.
 #
 # "--staleness" checks that no tracked public surface still asserts a runtime
 # stack the tree no longer contains. The token/rule list lives in
@@ -50,8 +61,18 @@ PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transf
 PLAN_MD='pilot|FAANG|Technique [A-C]|slice|Phase [0-9]'
 TOKEN_LIST='scripts/public-stack-tokens.txt'
 
+# Text-bearing call sites in the Rust UI sources: a string literal in one of
+# these positions is user-visible text. A const `&str` counts too, unless its
+# value is key-shaped (all lowercase letters/digits/dots/dashes - a catalog
+# key or an id, not UI text). A literal that reaches the user another way is
+# review's catch, and the exemption marker is how review records its verdict.
+I18N_CALL_PATTERN='(menu_row|text_run|caption|value_mono|dialog_button|resize_row|slider_row)\(r?"[^"]|\.child\(r?"[^"]|(text|label|title|name|heading|tooltip|hint|description|placeholder|caption): r?"[^"]|const [A-Z0-9_]+: &str = r?"[^"]'
+I18N_KEY_SHAPED_CONST='const [A-Z0-9_]+: &str = r?"[a-z0-9_.-]+"'
+
 STALENESS=0
 SIMULATE_ABSENT=''
+I18N=0
+FILES=''
 
 fail() { echo "ERROR: $1" >&2; exit 1; }
 
@@ -106,6 +127,60 @@ staleness() {
   [ "$rc" -eq 0 ] || exit 1
 }
 
+# --- files (terminology scan) --------------------------------------------------
+files_check() {
+  for f in $FILES; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      *.ts|*.tsx|*.rs)
+        grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
+        ;;
+      *.md)
+        case "$f" in
+          README.md|CHANGELOG.md|CONTRIBUTING.md|SECURITY.md|docs/*|.github/*)
+            grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
+            grep -niE "$PLAN_MD" "$f" && fail "internal milestone vocabulary in public doc $f"
+            ;;
+        esac
+        ;;
+    esac
+  done
+}
+
+# --- i18n (hardcoded user-visible strings) -------------------------------------
+# Prints file:line:<source line> for every hit. Lines inside an in-file
+# `mod tests` block and lines carrying `i18n-exempt:` are skipped; a directory
+# argument is walked for *.rs.
+i18n_check() {
+  found=''
+  for f in $FILES; do
+    if [ -d "$f" ]; then
+      sources=$(find "$f" -name '*.rs' | sort)
+    elif [ -f "$f" ]; then
+      case "$f" in *.rs) sources="$f";; *) sources='';; esac
+    else
+      continue
+    fi
+    for src in $sources; do
+      # awk skips in-file `mod tests` regions and stamps every surviving line
+      # with its real line number; grep -E then matches the call shapes (its
+      # ERE dialect treats \( and \. literally, which this awk's does not).
+      hits=$(awk '
+        /^mod tests/ { in_test = 1; next }
+        in_test && /^}/ { in_test = 0; next }
+        in_test { next }
+        { printf "%d:%s\n", NR, $0 }
+      ' "$src" | grep -E "$I18N_CALL_PATTERN" | grep -vE "$I18N_KEY_SHAPED_CONST" | grep -v 'i18n-exempt:' || true)
+      [ -n "$hits" ] || continue
+      printf '%s\n' "$hits" | while IFS= read -r hit; do
+        printf '%s:%s\n' "$src" "$hit"
+      done
+      found=yes
+    done
+  done
+  [ -z "$found" ] || fail 'hardcoded user-visible string at a text-bearing call site (wrap it in the message catalog: t("key")); a literal that is deliberately not translated carries // i18n-exempt: <reason>'
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --msg)
@@ -117,22 +192,16 @@ while [ $# -gt 0 ]; do
     --files)
       shift
       [ $# -lt 1 ] && fail "--files requires a value"
-      for f in $1; do
-        [ -f "$f" ] || continue
-        case "$f" in
-          *.ts|*.tsx|*.rs)
-            grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
-            ;;
-          *.md)
-            case "$f" in
-              README.md|CHANGELOG.md|CONTRIBUTING.md|SECURITY.md|docs/*|.github/*)
-                grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
-                grep -niE "$PLAN_MD" "$f" && fail "internal milestone vocabulary in public doc $f"
-                ;;
-            esac
-            ;;
-        esac
+      # Consumes every following non-flag word, so both forms work:
+      # `--files a b` and the hook's `--files "a b"`.
+      while [ $# -gt 0 ]; do
+        case "$1" in --*) break;; esac
+        FILES="$FILES $1"
+        shift
       done
+      ;;
+    --i18n)
+      I18N=1
       shift
       ;;
     --staleness)
@@ -156,6 +225,15 @@ if [ "$STALENESS" -eq 1 ]; then
   echo "check-public-terminology: staleness OK"
   exit 0
 fi
+
+if [ "$I18N" -eq 1 ]; then
+  [ -n "$FILES" ] || fail "--i18n requires --files <path-or-dir> [path-or-dir ...]"
+  i18n_check
+  echo "check-public-terminology: i18n OK"
+  exit 0
+fi
+
+[ -n "$FILES" ] && files_check
 
 echo "check-public-terminology: OK"
 exit 0
