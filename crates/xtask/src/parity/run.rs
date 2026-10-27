@@ -38,10 +38,46 @@ pub struct ParityOpts {
     pub accept_ink_residual: bool,
 }
 
-/// The nondeterministic footer metrics strip, in viewport coordinates.
-/// x 620..=994, y 801..=816 (measured run-to-run variance, per baseline README).
-const METRICS_FOOTER_X: (u32, u32) = (620, 994);
-const METRICS_FOOTER_Y: (u32, u32) = (801, 816);
+/// The nondeterministic footer metrics strip, in viewport coordinates, as
+/// measured on the 1366x820 web baselines (x 620..=994, y 801..=816; run-to-run
+/// variance per the baseline README). Used only when the manifest declares no
+/// mask of its own *and* the candidate viewport is the size these numbers were
+/// measured on - see `resolve_mask`.
+const LEGACY_METRICS_MASK: manifest::MetricsMask = manifest::MetricsMask {
+    x0: 620,
+    y0: 801,
+    x1: 994,
+    y1: 816,
+    viewport_width: 1366,
+    viewport_height: 820,
+};
+
+/// Pick the footer mask for a candidate of this size, or refuse.
+///
+/// A mask rect is not portable between viewport sizes: blanking `y 801..=816` on
+/// a 1020px-tall capture hides a different band of the UI than it did on the
+/// 820px-tall capture the numbers came from, and the resulting diff still reads
+/// clean. Failing closed here is the only way that trap stays visible.
+fn resolve_mask(
+    declared: Option<manifest::MetricsMask>,
+    width: u32,
+    height: u32,
+) -> Result<manifest::MetricsMask, String> {
+    let mask = declared.unwrap_or(LEGACY_METRICS_MASK);
+    if mask.viewport_width == width && mask.viewport_height == height {
+        return Ok(mask);
+    }
+    let source = if declared.is_some() {
+        "manifest metricsMask is"
+    } else {
+        "the built-in mask is"
+    };
+    Err(format!(
+        "--mask-metrics refused: {source} calibrated for {}x{} but the candidate is {}x{}; \
+         declare a metricsMask in manifest.json for this size",
+        mask.viewport_width, mask.viewport_height, width, height
+    ))
+}
 
 /// Per-shot accumulated result for report assembly.
 struct ShotResult {
@@ -80,7 +116,14 @@ pub fn run_parity(opts: &ParityOpts) -> Result<i32, String> {
     let mut results: Vec<ShotResult> = Vec::new();
 
     for shot in selected {
-        let res = process_shot(shot, opts, &cand_dir, &sbs_dir, candidate_is_dir);
+        let res = process_shot(
+            shot,
+            opts,
+            manifest.metrics_mask,
+            &cand_dir,
+            &sbs_dir,
+            candidate_is_dir,
+        );
         results.push(res);
     }
 
@@ -123,6 +166,7 @@ pub fn run_parity(opts: &ParityOpts) -> Result<i32, String> {
 fn process_shot(
     shot: &Shot,
     opts: &ParityOpts,
+    mask: Option<manifest::MetricsMask>,
     cand_dir: &Path,
     sbs_dir: &Path,
     candidate_is_dir: bool,
@@ -217,10 +261,20 @@ fn process_shot(
 
     // --- Mask metrics (candidate coords: viewport; baseline coords: viewport - box origin) ---
     if opts.mask_metrics {
-        mask_footer(&mut candidate_crop, 0, 0);
-        let bx = bounds.x;
-        let by = bounds.y;
-        mask_footer_baseline(&mut baseline_crop, bx, by);
+        match resolve_mask(mask, candidate_img.width, candidate_img.height) {
+            Ok(m) => {
+                mask_footer(&mut candidate_crop, m, 0, 0);
+                let bx = bounds.x;
+                let by = bounds.y;
+                mask_footer_baseline(&mut baseline_crop, m, bx, by);
+            }
+            Err(e) => {
+                result.capture_error = Some(e.clone());
+                result.pass = false;
+                println!("{}  hard=N/A  diff=N/A  ink=N/A  FAIL ({})", shot.id, e);
+                return result;
+            }
+        }
     }
 
     // --- Compare ---
@@ -316,9 +370,9 @@ fn resolve_candidate(
 }
 
 /// Zero the footer metrics strip in viewport coordinates.
-fn mask_footer(img: &mut RgbaImage, ox: u32, oy: u32) {
-    let (x0, x1) = METRICS_FOOTER_X;
-    let (y0, y1) = METRICS_FOOTER_Y;
+fn mask_footer(img: &mut RgbaImage, mask: manifest::MetricsMask, ox: u32, oy: u32) {
+    let (x0, x1) = (mask.x0, mask.x1);
+    let (y0, y1) = (mask.y0, mask.y1);
     for y in y0..=y1.min(img.height - 1) {
         for x in x0..=x1 {
             if x + ox < img.width && y + oy < img.height {
@@ -336,9 +390,9 @@ fn mask_footer(img: &mut RgbaImage, ox: u32, oy: u32) {
 
 /// Zero the footer metrics strip in baseline crop coordinates (viewport offset
 /// by the box origin, clamped to crop bounds).
-fn mask_footer_baseline(img: &mut RgbaImage, box_x: u32, box_y: u32) {
-    let (x0, x1) = METRICS_FOOTER_X;
-    let (y0, y1) = METRICS_FOOTER_Y;
+fn mask_footer_baseline(img: &mut RgbaImage, mask: manifest::MetricsMask, box_x: u32, box_y: u32) {
+    let (x0, x1) = (mask.x0, mask.x1);
+    let (y0, y1) = (mask.y0, mask.y1);
     let cx0 = x0.saturating_sub(box_x);
     let cx1 = x1.saturating_sub(box_x);
     let cy0 = y0.saturating_sub(box_y);
@@ -462,4 +516,65 @@ fn write_json<T: serde::Serialize>(path: PathBuf, value: &T) -> Result<(), Strin
         .map_err(|e| format!("serialize {}: {e}", path.display()))?;
     std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_mask, LEGACY_METRICS_MASK};
+    use crate::parity::manifest::MetricsMask;
+
+    fn declared(w: u32, h: u32) -> MetricsMask {
+        MetricsMask {
+            x0: 1,
+            y0: 2,
+            x1: 3,
+            y1: 4,
+            viewport_width: w,
+            viewport_height: h,
+        }
+    }
+
+    /// The built-in mask still applies at the size it was measured on, so the
+    /// existing 1366x820 golden master keeps behaving exactly as before.
+    #[test]
+    fn legacy_mask_applies_at_its_own_size() {
+        let m = resolve_mask(None, 1366, 820).expect("legacy size accepted");
+        assert_eq!((m.x0, m.y0, m.x1, m.y1), (620, 801, 994, 816));
+    }
+
+    /// The trap this guard exists for: a different viewport must not inherit
+    /// coordinates measured elsewhere, because the diff would still read clean
+    /// while blanking the wrong pixels.
+    #[test]
+    fn legacy_mask_is_refused_at_another_size() {
+        let err = resolve_mask(None, 1920, 1020).expect_err("must refuse");
+        assert!(
+            err.contains("1366x820"),
+            "names the calibration size: {err}"
+        );
+        assert!(err.contains("1920x1020"), "names the candidate size: {err}");
+        assert!(err.contains("metricsMask"), "says how to fix it: {err}");
+    }
+
+    /// A manifest-declared mask is used at its own size and refused at any
+    /// other, so declaring a mask is not a way to bypass the check.
+    #[test]
+    fn declared_mask_must_match_the_candidate() {
+        let m = resolve_mask(Some(declared(1920, 1020)), 1920, 1020).expect("matching size");
+        assert_eq!((m.x0, m.y0, m.x1, m.y1), (1, 2, 3, 4));
+
+        let err = resolve_mask(Some(declared(1920, 1020)), 1366, 820).expect_err("must refuse");
+        assert!(
+            err.contains("manifest metricsMask"),
+            "blames the manifest: {err}"
+        );
+    }
+
+    /// The legacy constant really is the documented 1366x820 calibration; a
+    /// silent edit to it would otherwise change every masked comparison.
+    #[test]
+    fn legacy_constant_is_pinned() {
+        assert_eq!(LEGACY_METRICS_MASK.viewport_width, 1366);
+        assert_eq!(LEGACY_METRICS_MASK.viewport_height, 820);
+    }
 }

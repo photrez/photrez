@@ -12,7 +12,31 @@ pub struct Manifest {
     /// manifest records `"en"`. Absent in manifests that predate the field.
     #[serde(default)]
     pub locale: Option<String>,
+    /// The nondeterministic footer strip that `--mask-metrics` blanks. Absent in
+    /// manifests that predate the field, which fall back to the built-in mask
+    /// measured on the 1366x820 web baselines - and only at that size. The key
+    /// is renamed explicitly because this struct, unlike `Shot`, carries no
+    /// container-level `rename_all`.
+    #[serde(default, rename = "metricsMask")]
+    pub metrics_mask: Option<MetricsMask>,
     pub shots: Vec<Shot>,
+}
+
+/// A mask rect in viewport coordinates, plus the viewport size it was measured
+/// on. The size travels with the rect because a mask is not portable: blanking
+/// `y 801..=816` on a 1020px-tall capture hides a different part of the UI than
+/// it did on the 820px-tall one it was measured on, and the diff still reads
+/// clean. Declaring the calibration size turns that silent wrong answer into a
+/// refusal.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricsMask {
+    pub x0: u32,
+    pub y0: u32,
+    pub x1: u32,
+    pub y1: u32,
+    pub viewport_width: u32,
+    pub viewport_height: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -101,6 +125,7 @@ mod tests {
     fn manifest_with(locale: Option<&str>) -> Manifest {
         Manifest {
             locale: locale.map(str::to_owned),
+            metrics_mask: None,
             shots: Vec::new(),
         }
     }
@@ -116,5 +141,22 @@ mod tests {
         let err =
             require_english_locale(&manifest_with(Some("id"))).expect_err("id must be refused");
         assert!(err.contains("id"), "names the value: {err}");
+    }
+
+    /// `metricsMask` parses from camelCase JSON, and a manifest without it keeps
+    /// the pre-field shape instead of failing to deserialize.
+    #[test]
+    fn metrics_mask_is_optional_and_camel_case() {
+        let bare: Manifest = serde_json::from_str(r#"{"shots":[]}"#).expect("no mask parses");
+        assert!(bare.metrics_mask.is_none());
+
+        let with: Manifest = serde_json::from_str(
+            r#"{"metricsMask":{"x0":10,"y0":20,"x1":30,"y1":40,
+                "viewportWidth":1920,"viewportHeight":1020},"shots":[]}"#,
+        )
+        .expect("declared mask parses");
+        let m = with.metrics_mask.expect("mask present");
+        assert_eq!((m.x0, m.y0, m.x1, m.y1), (10, 20, 30, 40));
+        assert_eq!((m.viewport_width, m.viewport_height), (1920, 1020));
     }
 }
