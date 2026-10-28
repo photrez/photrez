@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — Photrez (Runtime Reference)
 
-> **Runtime status (2026-10-17):** The current release (v0.1.0) ships on the runtime described in this document - a Tauri 2 shell, a SolidJS/TypeScript frontend, and a WebGL2 renderer. A migration to a native Rust UI (the v0.2.0 "Native Update") is in development; it will replace this runtime, and nothing here describes that unreleased shell. The frozen Tauri-era source and history are preserved at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
+> **Runtime status (2026-10-23):** The current runtime is native GPUI (`crates/photrez`) + `photrez-core` (`crates/core`). `apps/desktop` remains the frozen Tauri 2 / SolidJS / TypeScript / WebGL2 reference; sections describing those technologies below are historical reference material, not the active runtime. The frozen Tauri-era source and history are preserved at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
 
 ---
 
@@ -8,27 +8,39 @@
 
 Photrez is a lightweight desktop image editor built for practical digital and print workflows.
 
-**MVP Runtime:** Tauri 2 (shell) + SolidJS/TypeScript (frontend) + TypeScript DocumentEngine (MVP document model; projected view when native routing is on, see Source of Truth) + **WebGL2** (renderer).
-**Current direction (2026-10-17):** the Rust core (`photrez-core`) ships **native** — the browser-target build and the WebView runtime were removed, and the core crate compiles into the native app directly. Passages below that describe the WebView-era renderer are the frozen v0.1.0 reference, preserved until teardown.
-**Superseded 2026-10-17:** interactive pixel compute once targeted **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; that runtime was removed and the native CPU path now covers adjustments / fill / gradient (parity-proven). **Native Rust** handles export encode (entropy coding is serial → CPU). See GPU Compute Layer below.
+**Current Runtime:** Native GPUI (`crates/photrez`) + Rust `photrez-core` (`crates/core`); there is no active WebView runtime.
+**Frozen Tauri-era Reference:** Tauri 2, SolidJS/TypeScript, TypeScript `DocumentEngine`, and WebGL2 describe the preserved `apps/desktop` reference, not the current runtime.
+**Superseded 2026-10-17:** interactive pixel compute once targeted **browser WebGPU (WGSL compute shaders)** for realtime/no-delay; that runtime was removed and the native CPU path now covers adjustments / fill / gradient (parity-proven). **Native Rust** handles export encode (entropy coding is serial → CPU). See GPU Compute Layer below; it documents the frozen v0.1.0 runtime.
 
-**Rust Engine SSOT — updated 2026-10-17 (originally 2026-08-18):** a `photrez-core` `Engine` owns a single layer's pixels + non-destructive adjustment state and renders in place — natively, with no binding layer. In the frozen v0.1.0 shell it was wired as the CPU-tier bake backend (`bakeAdjustmentToBitmapGpu`, behavior-preserving; falls back to TS on error). Live preview stayed the GPU shader uniform. The WebView-era wiring is reference material until teardown. Benchmarks and the decision record are internal project material.
+**Rust Engine SSOT — updated 2026-10-17 (originally 2026-08-18):** the current native runtime uses `photrez-core`; the Tauri-era wiring described here (`bakeAdjustmentToBitmapGpu`, its TypeScript fallback, and GPU-shader live preview) is frozen v0.1.0 reference material. Benchmarks and the decision record are internal project material.
 
 ---
 
 ## Project Status
 
+- **Current runtime**: Native GPUI (`crates/photrez`) + `photrez-core` (`crates/core`). `apps/desktop` remains frozen and read-only.
+- **Historical Tauri-era project snapshot**: The following recorded status describes the preserved v0.1.0 reference, not the active runtime.
 - **Phase**: Deep-sync & documentation hardening (2026-07-02). Bun migration, mojibake cleanup, print feature, keyboard shortcut expansion, window-state persistence, E2E grand-tour, and multi-cycle bug-fix passes completed.
  - **Core Crate**: `photrez-core` holds the document command engine (layer, transform, selection, adjustment, and history operations) plus the export encoder (PNG/JPEG/WebP via the `image` crate). Last measured run 2026-09-18: `cargo test -p photrez-core` 354 passed / 0 failed (5 ignored); `cargo test -p photrez-desktop` 114 passed / 0 failed. Native command routing is the unconditional production path; for routed operations the Rust engine holds the authoritative copy and the TypeScript `DocumentEngine` keeps a projected view of it.
-- **Renderer**: MVP rendering is **WebGL2** (`apps/desktop/src/renderer/webgl2.ts`). A standalone GPU crate was evaluated but removed from the workspace (a pre-existing Windows entry-point issue); the future rendering direction keeps WebGL2 and only reintroduces a GPU crate when compute shaders or advanced blend modes exceed WebGL2 capabilities.
+- **Renderer**: Frozen-reference MVP rendering is **WebGL2** (`apps/desktop/src/renderer/webgl2.ts`). A standalone GPU crate was evaluated but removed from the workspace (a pre-existing Windows entry-point issue); the future rendering direction keeps WebGL2 and only reintroduces a GPU crate when compute shaders or advanced blend modes exceed WebGL2 capabilities.
 - **Core Strategy (2026-06-30; updated 2026-10-17)**: `photrez-core` is the home of hot-path operations (brush mask, tile ops, transform math, color space, export encode), ported from TypeScript to Rust. It compiles natively into the app; the browser-target build was removed 2026-10-17 (no IPC boundary either way).
-- **Frontend**: Full UI shell with multi-document workspace, document tabs, empty state, drag/drop, and all core editing interactions. Artboard renders via WebGL2 projection-matrix-driven camera viewport.
-- **Testing**: Verified gates are enforced via CI (frontend unit tests, Rust `cargo test` on three OSes, and the public-artifact terminology guard). The browser-side type-check, component, and E2E gates were removed together with the browser build pipeline; those suites stay archived with the frozen v0.1.0 source. See `.github/workflows/ci.yml` for the current pipeline.
+- **Frontend**: The frozen Tauri/SolidJS reference has a UI shell with multi-document workspace, document tabs, empty state, drag/drop, and core editing interactions. Artboard renders via its WebGL2 projection-matrix-driven camera viewport.
+- **Testing**: Historical Tauri-era gates included frontend unit tests, Rust `cargo test` on three OSes, and the public-artifact terminology guard. The browser-side type-check, component, and E2E gates were removed with the browser build pipeline; those suites stay archived with the frozen v0.1.0 source. See `.github/workflows/ci.yml` for the current pipeline.
 - **Recovery Reference** (historical): the pre-migration archive lives at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
 
 ---
 
 ## Technology Stack
+
+| Active native runtime | Technology |
+| --------------------- | ---------- |
+| UI runtime | GPUI via `gpui-kit = "=0.7.3"` in `crates/photrez/` |
+| Core engine | Rust `photrez-core` in `crates/core/` |
+| Webview | None |
+
+### Frozen Tauri-era reference stack
+
+The following technologies describe `apps/desktop` only; they are not the active runtime.
 
 | Layer            | Technology                                              |
 | ---------------- | ------------------------------------------------------ |
@@ -50,9 +62,9 @@ Photrez is a lightweight desktop image editor built for practical digital and pr
 
 ## Architecture Diagram
 
-### Active MVP Runtime (2026-07-02)
+### Frozen Tauri-era MVP Runtime Reference (2026-07-02)
 
-This is the current runtime ownership map. Use this diagram and the registered command table as the source of truth for review.
+This is a historical ownership map for the frozen `apps/desktop` reference, not the current runtime map. The active runtime is native GPUI + `photrez-core`.
 
 ```text
 User input / UI events
@@ -87,7 +99,7 @@ Rust crate:
 
 ### Historical / Future-Target Reference
 
-Note 2026-06-19: the diagram below is historical and retained only for ownership-context archaeology. It still contains earlier workspace/layer/history command labels that are not registered in the current Tauri runtime. Do not use it as the active runtime command map.
+Note 2026-06-19: the diagram below is historical and retained only for ownership-context archaeology. It still contains earlier workspace/layer/history command labels that are not registered in the frozen Tauri reference. Do not use it as the active runtime command map.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -171,7 +183,7 @@ Note 2026-06-19: the diagram below is historical and retained only for ownership
 
 ---
 
-## Data Flow
+## Data Flow — Frozen Tauri-era Reference
 
 ### Hot Path (frozen v0.1.0 shell; the native core lives in `crates/core`)
 
@@ -198,7 +210,7 @@ Note 2026-06-19: the diagram below is historical and retained only for ownership
 5. scheduler.requestRender() → WebGL2 next frame
 ```
 
-### Cold Path (Tauri IPC — file I/O only)
+### Cold Path (Frozen Tauri IPC — file I/O only)
 
 ```text
 1. User triggers file open / save / export
@@ -216,7 +228,7 @@ Note 2026-06-19: the diagram below is historical and retained only for ownership
 
 ---
 
-## Response Envelope Contract (v2.0.0)
+## Response Envelope Contract (Frozen Tauri-era Reference, v2.0.0)
 
 ```rust
 // Success
@@ -230,16 +242,16 @@ Detail lengkap: `docs/reference/command-contract-spec.md`. The frozen Tauri shel
 
 ---
 
-## Registered Tauri Commands (Active Runtime)
+## Registered Tauri Commands (Frozen Tauri Reference)
 
-| Command | Params | Module | Status |
+| Command | Params | Module | Historical reference status |
 | --- | --- | --- | --- |
-| `ping` | none | Shell | Active |
-| `get_contract_info` | none | Shell | Active |
-| `read_file_bytes` | `path: String` | Shell file IO | Active, image import extension allowlist, 256MB cap |
-| `write_file_bytes` | `path: String, data: String` | Shell file IO | Active, image export extension allowlist, base64 payload, 256MB cap |
+| `ping` | none | Shell | Active in frozen reference |
+| `get_contract_info` | none | Shell | Active in frozen reference |
+| `read_file_bytes` | `path: String` | Shell file IO | Active in frozen reference, image import extension allowlist, 256MB cap |
+| `write_file_bytes` | `path: String, data: String` | Shell file IO | Active in frozen reference, image export extension allowlist, base64 payload, 256MB cap |
 
-### Native document commands (registered in `apps/desktop/src-tauri/src/main.rs`)
+### Native document commands (registered in the frozen reference at `apps/desktop/src-tauri/src/main.rs`)
 
 | Command | Purpose |
 | --- | --- |
@@ -273,7 +285,7 @@ Detail lengkap: `docs/reference/command-contract-spec.md`. The frozen Tauri shel
 
 The file, print, font, cursor, and paint-helper commands registered alongside these follow the same envelope contract; see `main.rs` for the full list.
 
-### Native dispatch surface
+### Native dispatch surface (Frozen Tauri reference)
 
 Every document edit routes through `nativeProtocol.protocol_apply_command_native` (`bridge.ts` `applyCommand`, line 229). The bridge is native-dispatch only: the browser-dispatch arms (`setProtocolWasm`, `isFacadeArmed`, `ensureFacadeReady`, `getContractVersion`, `resetWasmDoc`) are gone, and the retired `photrez.facade` / `photrez.facadeAuthority` opt-out pair has zero production reads — enforced by the census guard in `apps/desktop/src/lib/protocol/__tests__/flagRetirementCensus.test.ts`.
 
@@ -341,13 +353,13 @@ photrez/
 │   ├── INDEX.md                    # Documentation map
 │   ├── DESIGN.md                   # Design system and product intent
 │   ├── UI_GUIDE.md                 # Visual and interaction guidance
-│   ├── ARCHITECTURE.md             # Current runtime reference
+│   ├── ARCHITECTURE.md             # Runtime status and frozen Tauri-era references
 │   ├── CONVENTIONS.md              # Code patterns and domain behavior
 │   ├── FEATURES.md                 # Feature implementation status
 │   ├── TRANSLATION.md              # en/id translation guide
 │   ├── ptz-migration.md            # .ptz format versions and compatibility contract
 │   ├── frame-pacing-baseline.md    # Dated runtime measurements (append-only)
-│   └── reference/                  # Tauri/WebGL-era references (until the native UI lands)
+│   └── reference/                  # Frozen Tauri/WebGL-era references
 ├── media/                          # README images
 ├── scripts/                        # Build, validation, and maintenance scripts
 ├── .github/                        # CI, release, and contribution templates
@@ -364,7 +376,7 @@ photrez/
 
 ---
 
-## Architecture Rules (MANDATORY)
+## Architecture Rules (Frozen Tauri-era Reference)
 
 ### Module Boundaries
 

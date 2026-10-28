@@ -85,11 +85,11 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, FontWeight};
+use gpui_kit::{div, px, FontWeight, Point, TestSupportExt, Window};
 
-use crate::assets::icons;
 use crate::components::ui;
 use crate::i18n::t;
+use crate::icons;
 use crate::tokens::color;
 
 use gpui_kit::Div;
@@ -166,12 +166,6 @@ const EXPORT_TEXT: f32 = 12.5;
 /// `size-3.5` = 0.875rem — the `chevron-down` glyph (`:83-87`).
 const EXPORT_ICON: f32 = 14.0;
 
-/// `tab.displayName` for the captured state: `capture-baseline.ts:183` creates
-/// the document via `WorkspaceManager.createBlankDocument("capture-baseline",
-/// "Baseline", 800, 600)`, so `displayName` is "Baseline" — the same string
-/// [`crate::views::title_bar`] paints as the document name.
-const DOC_NAME: &str = "Baseline"; // i18n-exempt: demo content
-
 /// `t("menus.items.export", "Export")` — the *resolved* string, not the JSX
 /// fallback: `i18n/locales/en/translation.json:51` is `"Export…"`.
 const EXPORT_LABEL_KEY: &str = "menus.items.export";
@@ -184,7 +178,11 @@ const EXPORT_LABEL_KEY: &str = "menus.items.export";
 /// pixels. Width is not set: `main.rs` puts this in a `v_flex().items_stretch()`,
 /// so it spans the editor column (781px) exactly as the block-level div does
 /// in the browser.
-pub fn render() -> impl IntoElement {
+pub fn render(
+    tabs: &[crate::state::TabRow],
+    active_id: Option<&str>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
     h_flex()
         .h(px(BAR_H))
         .flex_shrink_0()
@@ -205,7 +203,7 @@ pub fn render() -> impl IntoElement {
         // The tab strip is the flexible one (it carries overflow-x-auto in the
         // source); the two controls at the far end are fixed and must never be
         // squeezed, so the strip yields and they do not.
-        .child(ui::clip(tab_list()))
+        .child(ui::clip(tab_list(tabs, active_id, cx)))
         .child(new_tab_button())
         .child(ui::pin(cluster()))
 }
@@ -217,7 +215,11 @@ pub fn render() -> impl IntoElement {
 /// `::-webkit-scrollbar` that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
 /// reserve or overlay a scrollbar the web render does not paint here.
-fn tab_list() -> Div {
+fn tab_list(
+    tabs: &[crate::state::TabRow],
+    active_id: Option<&str>,
+    cx: &Context<crate::app::App>,
+) -> Div {
     h_flex()
         // `h-full` on a centred row: stretch instead of hug, so the list is
         // the strip's full 37px content height.
@@ -227,7 +229,10 @@ fn tab_list() -> Div {
         .items_stretch()
         .flex_1()
         .min_w(px(0.))
-        .child(tab())
+        .children(tabs.iter().map(|tab_row| {
+            let active = active_id == Some(tab_row.doc_id.as_str());
+            tab(tab_row, active, cx)
+        }))
 }
 
 /// `<div role="tab" ... class="group relative flex shrink-0 items-center
@@ -248,11 +253,24 @@ fn tab_list() -> Div {
 /// `isDragOver` (`outline-2 outline-editor-accent`), `isDimmed`
 /// (`opacity-30`), `isBeingReordered` (`opacity-60 scale-[0.98] ring-1`)
 /// and the two `before:`/`after:` drop indicators.
-fn tab() -> impl IntoElement {
+fn tab(
+    tab_row: &crate::state::TabRow,
+    active: bool,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let doc_id = tab_row.doc_id.clone();
+    let click_id = tab_row.doc_id.clone();
+    let close_id = tab_row.doc_id.clone();
+    let drop_id = tab_row.doc_id.clone();
+    let ghost_name = tab_row.name.clone();
     h_flex()
         // `relative` — the containing block for the active underline, whose
         // `inset-x-0` resolves against this tab's *padding* box.
         .relative()
+        .id(format!("document-tab-{}", tab_row.doc_id))
+        .test_support()
+        .aria_selected(active)
+        .aria_label(tab_row.name.clone())
         .flex_shrink_0()
         .items_center()
         .gap(px(GAP_2))
@@ -260,25 +278,49 @@ fn tab() -> impl IntoElement {
         .pr(px(TAB_PAD_R))
         .border_r_1()
         .border_color(color::BORDER)
-        // `bg-editor-bg` (the active branch of the clsx chain).
-        .bg(color::BG)
-        .child(tab_label())
-        .child(close_tab_button())
-        .child(active_underline())
+        // `bg-editor-bg` is the active branch; inactive tabs sit on the strip
+        // colour, which is what `bg-editor-topbar` resolves to.
+        .when(active, |el| el.bg(color::BG))
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                let _ = app.activate_document(&click_id, cx);
+            }),
+        )
+        .on_drag(
+            doc_id.clone(),
+            move |_: &String, _: Point<gpui_kit::Pixels>, _: &mut Window, cx| {
+                cx.new(|_| TabDragGhost {
+                    name: ghost_name.clone(),
+                })
+            },
+        )
+        .on_drop::<String>(cx.listener(
+            move |app, from: &String, _window, cx: &mut Context<crate::app::App>| {
+                app.move_document_tab(from, &drop_id, cx);
+            },
+        ))
+        .child(tab_label(&tab_row.name, tab_row.dirty))
+        .child(close_tab_button(close_id, cx))
+        .when(active, |el| el.child(active_underline()))
 }
 
 /// `<span class="whitespace-nowrap text-[11.5px] ... text-editor-text
 ///  font-medium">` — the active, non-dirty branch of the clsx chain
 /// (`:533-537`). The dirty branch (`text-editor-accent` plus a `•`) is not
 /// rendered: a freshly captured blank document is clean.
-fn tab_label() -> impl IntoElement {
+fn tab_label(name: &str, dirty: bool) -> impl IntoElement {
     div()
         .whitespace_nowrap()
         .text_size(px(TAB_TEXT))
         // `font-medium`
         .font_weight(FontWeight(500.))
-        .text_color(color::TEXT)
-        .child(DOC_NAME)
+        .text_color(if dirty { color::ACCENT } else { color::TEXT })
+        .child(if dirty {
+            format!("\u{2022} {name}")
+        } else {
+            name.to_owned()
+        })
 }
 
 /// `<button class="flex size-4 items-center justify-center rounded
@@ -288,16 +330,24 @@ fn tab_label() -> impl IntoElement {
 /// `hover:bg-editor-app-hover` is omitted deliberately: there is no
 /// `--editor-app-hover` token anywhere in the app, so Tailwind generates no
 /// rule for it and the original's hover background is transparent too.
-fn close_tab_button() -> impl IntoElement {
+fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         // The id is what makes the button hit-testable, and therefore what
         // makes `.hover()` fire.
-        .id("close-tab")
+        .id(format!("close-tab-{doc_id}"))
+        .test_support()
         .size(px(CLOSE_BTN))
         .items_center()
         .justify_center()
         .rounded(px(CLOSE_RADIUS))
+        .cursor_pointer()
         .hover(|s| s.text_color(color::TEXT))
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                app.close_document_tab(&doc_id, cx);
+            }),
+        )
         .child(
             Icon::default()
                 .data(icons::X)
@@ -436,4 +486,26 @@ fn export_button() -> impl IntoElement {
                 .size(px(EXPORT_ICON))
                 .text_color(color::TEXT_DIM),
         )
+}
+
+/// The chip GPUI paints under the pointer while a tab is dragged.
+struct TabDragGhost {
+    name: String,
+}
+
+impl Render for TabDragGhost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .h(px(26.0))
+            .px(px(10.0))
+            .flex()
+            .items_center()
+            .rounded(px(4.0))
+            .bg(color::BG)
+            .border_1()
+            .border_color(color::ACCENT)
+            .text_size(px(TAB_TEXT))
+            .text_color(color::TEXT)
+            .child(self.name.clone())
+    }
 }

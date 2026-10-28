@@ -1,6 +1,12 @@
-# Command Contract Specification (Tauri Shell Runtime)
+# Command Contract Specification (Frozen Tauri Shell Runtime)
 
-This file defines the authoritative IPC contract currently exposed by the Tauri shell runtime.
+> **Scope:** this document describes the frozen v0.1.0 Tauri runtime and its
+> preserved reference source only. The active native GPUI app (`crates/photrez`)
+> has no IPC envelope or Tauri command layer; its services return the typed
+> `ServiceError` codes below directly. Do not cite this file as the native
+> runtime contract.
+
+This file defines the authoritative IPC contract of the frozen Tauri shell runtime (v0.1.0).
 
 Historical editor commands are implemented in the TypeScript MVP editor hot path, not registered as Tauri commands in the current runtime.
 

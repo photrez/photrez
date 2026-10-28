@@ -41,9 +41,9 @@ use super::tests::{
     sequence_canonical_fixture, snapshot_digest, ROUTED_SEED_LAYERS,
 };
 use crate::paint_parity_cmds::TEST_REGISTRY_LOCK;
-use photrez_core::canonical_model::CanonicalDocument;
-use photrez_core::pixel_store::DocumentPixelStore;
+use photrez_core::pixel::DocumentPixelStore;
 use photrez_core::protocol::{CommandEnvelope, DocumentCore, RenderLayer};
+use photrez_core::ptz::content::PtzDocumentContent;
 
 // Compile-time pin: the native authority's per-document engine field is the
 // core `DocumentCore` - the same type the wasm bridge drives. A different
@@ -100,9 +100,9 @@ fn bare_engine_digests() -> Vec<u64> {
     let layers: Vec<RenderLayer> =
         serde_json::from_str(ROUTED_SEED_LAYERS).expect("seed layer fixture parses");
     engine.seed_layers(layers, SEED_VERSION);
-    let canonical: CanonicalDocument =
+    let canonical: PtzDocumentContent =
         serde_json::from_str(&sequence_canonical_fixture()).expect("canonical fixture parses");
-    engine.seed_canonical(canonical);
+    engine.seed_ptz(canonical);
 
     let mut digests = vec![snapshot_digest(&engine.snapshot())];
     for command in routed_command_script() {

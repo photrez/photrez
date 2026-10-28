@@ -336,3 +336,16 @@ Guiding rule: cast in ONE place (helper), keep call sites clean. s unknown as T
 
 ### Forbidden
 - s any in production code (non-test) unless justified and documented. Current production count: 0.
+---
+
+## 9. Code Comment Hygiene
+
+When adding or editing code comments, use the `antislop-code` skill as the detailed checklist.
+
+- Keep comments that add non-obvious information: why, constraints, contracts, security, performance, accessibility, edge cases, legal facts, or measured provenance.
+- Remove decorative separators, signature echoes, obvious restatements, workflow narration, empty labels, vague TODOs, and end markers.
+- Prefer one short comment per meaningful block. Comment density is not a target by itself.
+- Comment-only cleanup must not alter executable code, identifiers, imports, formatting, control flow, or logic. For non-trivial cleanup, prove the code token stream is unchanged with a string-aware comparison.
+- Apply the rule to the owned scope; a wider audit needs explicit scope and its own evidence.
+
+Preserve geometry tables, parity measurements, API contracts, known gaps, and other comments whose facts are not recoverable from the code alone.

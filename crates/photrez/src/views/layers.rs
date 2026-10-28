@@ -2,12 +2,9 @@
 //!
 //! # Geometry: 260 wide, x 1106..1366, y 84..610 (527 tall)
 //!
-//! This is the LayerDock column, and **527 is not 712**: the dock's second
-//! column is 260px wide and the Navigator takes a fixed 185px off the bottom,
-//! so the panel above it is the remainder. `manifest.json` pins both anchors —
-//! `shell-navigator` is 260x185 at (1106,611) — and 611 - 84 = 527. Measured
-//! the same way, `hover-layer-item` is 254x50 at (1106,165), which says two
-//! separate things at once:
+//! `manifest.json` anchors `shell-navigator` at 260x185 at (1106,611) and
+//! `hover-layer-item` at 254x50 at (1106,165). The 260px LayerDock column's
+//! fixed 185px Navigator leaves 527, not 712: 611 - 84 = 527.
 //!
 //! * A layer row is **50px** tall (`h-[50px]`, `LayerItem.tsx:177`).
 //! * A row is **254px**, not 260 — the 6px is `scrollbar-gutter: stable`
@@ -15,26 +12,16 @@
 //!   over a `overflow-y-auto` list (`LayersPanel.tsx:643`). GPUI has no
 //!   scrollbars so nothing reserves it; transcribed as `.pr(px(6.))`.
 //!
-//! The headers above the list are 81px, and that figure is a check rather than
-//! a constant: 84 (panel top) + 12 (`pt-3`) + 26 (`h-[26px]` select) + 12
-//! (`py-3`) + 16 (the `size-4` lock buttons) + 12 = 182, plus the list's
-//! `border-y` = 183, and the baseline's first row starts at **165 + 46 - 46 =
-//! 165**, i.e. 165 from the panel's own top of 84 → 81px of header. The
-//! arithmetic lands within the line-height slack, which is as close as this
-//! measurement can resolve.
+//! Header: 84 (panel top) + 12 (`pt-3`) + 26 (`h-[26px]` select) + 12 (`py-3`)
+//!   plus 16 (`size-4` lock buttons) + 12 = 182; list `border-y` makes 183. The
+//!   baseline row starts at **165 + 46 - 46 = 165**, 81px below top 84.
 //!
 //! # What fills the space below the row: nothing — and a 38px footer
 //!
-//! The list is `flex-1 overflow-y-auto border-y border-editor-divider`
-//! (`LayersPanel.tsx:643`) and its content is `<For each={layers()}>`. The
-//! captured document holds one layer, so the rows stop after 50px and the
-//! remaining **357px** — baseline y 215..571 — is bare `#1e1e1e`. That
-//! emptiness is the source's own rather than an omission: nothing at all is
-//! rendered between the last row and the footer, so the list stays `flex_1`
-//! with the column stretched to the window and simply has nothing to paint.
-//!
-//! What the port was missing is the block *after* that run. Two full-width
-//! rules and a 37px band sit at its bottom:
+//! `flex-1 overflow-y-auto border-y border-editor-divider`
+//! (`LayersPanel.tsx:643`) holds `<For each={layers()}>`. One captured layer
+//! ends after 50px; y 215..571 is **357px** of `#1e1e1e`, with no content before
+//! the footer.
 //!
 //! ```text
 //!   y 572        #333333   the list's own border-y, bottom edge
@@ -43,66 +30,63 @@
 //!   y 611        #333333   the Navigator's border-t (right_dock.rs)
 //! ```
 //!
-//! So the "two dividers" are a 1px pair — the list's `border-b` immediately
-//! followed by the footer's `border-t`, with no gap between them — and 37px is
-//! exactly `py-2.5 + size-[17px] + py-2.5` (`LayersPanel.tsx:746`). The icons
-//! measure x 1122, 1159, 1196, 1233 (`px-4` then `gap-5` = 17 + 20) with
-//! Delete at 1333..1349, which is `1366 - 16 - 17` under `ml-auto`; the peak
-//! ink `#868686` is `text-editor-icon`. Both rules read `#333333` and not
-//! `#2e2e2e`, because the unlayered `* { border-color }` rule outranks
-//! `border-editor-divider` — see `tokens::color::BORDER`.
+//! The dividers are a touching 1px pair (`border-b`, `border-t`). Footer:
+//! `py-2.5 + size-[17px] + py-2.5` = 37px (`LayersPanel.tsx:746`); icons at
+//! x 1122, 1159, 1196, 1233 (`px-4`, `gap-5` = 17 + 20); Delete at 1333..1349
+//! (`1366 - 16 - 17`, `ml-auto`). Peak ink `#868686` is `text-editor-icon`.
+//! Unlayered `* { border-color }` outranks `border-editor-divider`: both rules
+//! read `#333333`, not `#2e2e2e` (`tokens::color::BORDER`).
 //!
-//! The footer is the only thing below the list: `dragGhost`, the context menu
-//! and the opacity popover are all `Show`-gated on state a resting capture
-//! never has.
+//! `dragGhost`, context menu, and opacity popover are `Show`-gated; the footer
+//! is the only content below the list in the resting capture.
 //!
 //! # The column stretches
 //!
-//! `RightDock.tsx:415` gives this panel `flex min-h-0 flex-1 flex-col`, so the
-//! root is `flex_1().min_h(0())` rather than a pinned height: 527 is the height
-//! it measures *at the baseline window* (`611 - 84`), and pinning it left a
-//! band of bare column below the Navigator's frame on any taller window. The
-//! list is the flex child that absorbs the difference, which is what makes the
-//! empty run grow instead of the footer moving.
+//! `RightDock.tsx:415` assigns `flex min-h-0 flex-1 flex-col`; the column is
+//! `flex_1().min_h(0())`, not a pinned height. Pinning left a bare band below
+//! the Navigator on taller windows; the list absorbs the difference.
 //!
-//! # What is a placeholder
+//! # The list reads live state
 //!
-//! The layer *list* is rendered as a single row, because the port has no
-//! document state and therefore one layer to show. The source maps over
-//! `layers()`, which could be any length; the baseline capture happens to show
-//! one active row, and that is what is reproduced. `active:bg-editor-row-active
-//! ring-1 ring-inset ring-editor-accent/40` is applied — the active row is the
-//! one visible, and the ring is a colour plus a 1px inset border, which GPUI
-//! can draw.
+//! One row per [`AppState::layers`] entry; the baseline's single row leaves
+//! resting geometry unchanged. The row whose `id` equals
+//! [`AppState::selected_layer`] gets `active:bg-editor-row-active ring-1
+//! ring-inset ring-editor-accent/40` (40% alpha, a drawable 1px inset border).
+//!
+//! # Interactions
+//!
+//! `.on_click` selects; `.on_drag` starts a reorder with [`rows::LayerDragGhost`]
+//! visible only during drag; `.on_drop::<u64>` moves the row to the target index
+//! and selects it. Reordering is UI state only: no history or document mutation,
+//! not undoable yet.
 //!
 //! The reorder chevrons are `opacity-0 group-hover:opacity-100`
-//! (`LayerItem.tsx:296`) — invisible at rest, so they are correctly absent from
-//! both the baseline and this port rather than merely omitted.
+//! (`LayerItem.tsx:296`), invisible at rest and absent from the baseline and port.
 //!
 //! # Gaps
 //!
-//! * `LayerThumb` is canvas-drawn (`LayerThumb.tsx`'s `createEffect` +
-//!   `drawImage`), so the row's thumbnail pixels are not reproducible; its
-//!   34x34 frame, border and checkerboard are. See `properties_panel.rs` for
-//!   the same treatment and why `checkerboard()` is drawn as one flat colour.
-//! * The blend-mode `<select>` is a native control. Its resting chrome is
-//!   drawn; its popup is not, because no baseline captures it open.
-//! * `Tooltip` wrappers on all four lock buttons and the eye toggle, plus
-//!   `transition-all duration-75` — interaction only.
-//! * `disabled:opacity-50` / `opacity-30` / `opacity-35` are states a static
-//!   render cannot distinguish from the enabled resting pixels.
-//! * `eye_toggle` from the reference is not ported: nothing at rest renders
-//!   it (it is not wired into any row), so it would be unreachable dead code.
+//! * `LayerThumb` is canvas-drawn (`LayerThumb.tsx`: `createEffect` + `drawImage`);
+//!   pixels are unreproducible, but its 34x34 frame, border, and checkerboard
+//!   are. `properties_panel.rs` uses the same flat-colour `checkerboard()`.
+//! * Native blend-mode `<select>`: resting chrome drawn, popup not captured open.
+//! * `Tooltip` wrappers on four lock buttons and the eye toggle, plus
+//!   `transition-all duration-75`, are interaction-only.
+//! * `disabled:opacity-50` / `opacity-30` / `opacity-35` are indistinguishable
+//!   from enabled resting pixels.
+//! * Reference `eye_toggle` is unported and unreachable; no row wires it.
 
-use crate::assets::icons;
 use crate::components::ui;
 use crate::i18n::t;
+use crate::icons;
+use crate::state::{AppState, LayerRow};
 use crate::tokens::color;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight, Hsla};
+use gpui_kit::{
+    div, px, AppContext, Context, Div, Entity, FontWeight, Hsla, Point, TestSupportExt, Window,
+};
 
 /// LayerDock's column width: `shell-navigator` is 260 wide at x=1106 and the
 /// dock runs to the window edge.
@@ -189,11 +173,6 @@ const FOOT_ICON: f32 = 17.0;
 /// first used, so the footer asks for this one by name.
 const STROKE: f32 = 1.75;
 
-/// The single placeholder layer's name (no document state — module docs,
-/// "What is a placeholder").
-pub const LAYER_NAME: &str = "Layer 1"; // i18n-exempt: demo content
-
-// --- Lock-header icon table (4 buttons, in order) ---
 pub const LOCK_BUTTONS: &[&[u8]] = &[
     icons::UNLOCK,
     icons::PAINT_BUCKET,
@@ -201,7 +180,6 @@ pub const LOCK_BUTTONS: &[&[u8]] = &[
     icons::ROTATE,
 ];
 
-// --- Footer icon table ---
 // `trailing` marks Delete, the only button the source pushes right with
 // `ml-auto` (`LayersPanel.tsx:790`): measured at x 1333..1349 = 1366 - 16
 // (`px-4`) - 17, with the four on the left at 1122, 1159, 1196, 1233
@@ -237,26 +215,49 @@ pub const FOOTER_ICONS: &[FooterIcon] = &[
 /// `<div id="right-dock-layers-panel" class="flex min-h-0 flex-1 flex-col
 /// overflow-hidden bg-editor-panel">` (`LayersPanel.tsx:415`).
 ///
-/// The root is `flex_1().min_h(0())`, not a pinned height: it owns whatever
-/// the column has between the 38px tab bar and the Navigator, and the list
-/// inside it is the part that grows. See the module docs for why the run
-/// below the single row is empty and what the pair of rules at its foot is.
-pub fn render() -> impl IntoElement {
+pub fn render(
+    state: &Entity<AppState>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    // One read per frame; the row list is cloned so the handlers below can
+    // mutate the same entity while this tree is built.
+    let (layers, selected, selected_layers, flags) = {
+        let s = state.read(cx);
+        (
+            s.layers.clone(),
+            s.selected_layer,
+            s.selected_layers.clone(),
+            s.layer_flags.clone(),
+        )
+    };
     v_flex()
         .w(px(PANEL_W))
         .flex_1()
         .min_h(px(0.0))
         .overflow_hidden()
         .bg(color::PANEL)
-        .child(blend_header())
+        .child(blend_header(state, cx))
         .child(lock_header())
-        .child(layer_list())
-        .child(actions_footer())
+        .child(layer_list(
+            &layers,
+            &flags,
+            &selected_layers,
+            selected,
+            layer_thumbs,
+            state,
+            cx,
+        ))
+        .child(actions_footer(cx))
 }
 
 /// `flex items-center gap-2 px-3.5 pt-3` — the blend select and the opacity
 /// readout, pushed to the right by `ml-auto`.
-fn blend_header() -> Div {
+fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
+    let (blend, opacity) = {
+        let s = state.read(cx);
+        (s.layer_blend.clone(), s.layer_opacity)
+    };
     h_flex()
         .w_full()
         .flex_shrink_0()
@@ -264,7 +265,7 @@ fn blend_header() -> Div {
         .gap(px(GAP_2))
         .px(px(PAD_X))
         .pt(px(PAD_T))
-        .child(blend_select())
+        .child(blend_select(blend, cx))
         .child(
             h_flex()
                 .ml_auto()
@@ -277,28 +278,57 @@ fn blend_header() -> Div {
                         .text_color(color::TEXT_DIM)
                         .child(t("tools.options.opacity")),
                 )
+                .child(opacity_button("layer-opacity-dec", "-", cx, -0.1))
                 .child(
                     div()
+                        .id("layer-opacity-value")
+                        .test_support()
                         .text_size(px(TEXT_12))
                         .font_family(ui::FONT_UI)
                         .font_weight(FontWeight(500.))
                         .text_color(color::TEXT)
-                        .child("100%".to_string()), // i18n-exempt: numeric value
+                        .child(format!("{:.0}%", opacity * 100.0)),
                 )
-                .child(
-                    Icon::default()
-                        .data(icons::CHEVRON_DOWN)
-                        .size(px(14.0))
-                        .text_color(color::ICON),
-                ),
+                .child(opacity_button("layer-opacity-inc", "+", cx, 0.1)),
         )
+}
+
+fn opacity_button(
+    id: &'static str,
+    label: &'static str,
+    cx: &Context<crate::app::App>,
+    delta: f64,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .test_support()
+        .w(px(16.0))
+        .h(px(16.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(3.0))
+        .border_1()
+        .border_color(color::BORDER)
+        .text_size(px(10.0))
+        .text_color(color::TEXT_DIM)
+        .cursor_pointer()
+        .hover(|style| style.text_color(color::TEXT))
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                app.adjust_selected_opacity(delta, cx);
+            }),
+        )
+        .child(label)
 }
 
 /// The native `<select>`'s resting chrome: `h-[26px] w-[120px] rounded-[4px]
 /// border border-editor-field-border bg-editor-field px-2 text-[11px]
 /// font-semibold`, with a chevron standing in for the control's own arrow.
-fn blend_select() -> Div {
+fn blend_select(label: String, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
+        .id("layer-blend-cycle")
+        .test_support()
         .w(px(SELECT_W))
         .h(px(SELECT_H))
         .flex_shrink_0()
@@ -309,6 +339,10 @@ fn blend_select() -> Div {
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
         .px(px(GAP_2))
+        .cursor_pointer()
+        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+            app.cycle_selected_blend(cx);
+        }))
         // Same split as the status bar: the value is the text that gives way,
         // the chevron is the mark that stays whole.
         .child(ui::clip(
@@ -317,7 +351,7 @@ fn blend_select() -> Div {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(600.))
                 .text_color(color::TEXT)
-                .child("Normal".to_string()), // i18n-exempt: not in catalog (blend-mode names come from engine data)
+                .child(label),
         ))
         .child(ui::pin(
             Icon::default()
@@ -357,7 +391,6 @@ fn lock_header() -> Div {
         )
 }
 
-/// A `size-4` centring box holding a 15px icon at stroke 1.75.
 fn lock_button(icon: &'static [u8]) -> Div {
     div()
         .w(px(LOCK_BOX))
@@ -374,76 +407,13 @@ fn lock_button(icon: &'static [u8]) -> Div {
         )
 }
 
-/// `flex-1 overflow-y-auto border-y border-editor-divider` — the layer stack.
-///
-/// The `pr` is the reserved scrollbar gutter; see the module docs on why 254
-/// and 260 are both correct answers here. `border_y` is [`color::BORDER`] and
-/// not [`color::DIVIDER`]: the baseline reads `#333333` on both edges (y=164
-/// and y=572), the `* { border-color }` rule being what reaches the screen for
-/// any `border-*` utility.
-fn layer_list() -> Div {
-    v_flex()
-        .w_full()
-        .flex_1()
-        .min_h(px(0.0))
-        .overflow_hidden()
-        .pr(px(6.0))
-        .border_y(px(1.0))
-        .border_color(color::BORDER)
-        .child(layer_row())
-}
-
-/// `flex h-[50px] items-center gap-2.5 px-3.5 border-b border-editor-divider/10`
-/// with the active row's `bg-editor-row-active` and its 1px inset ACCENT ring.
-///
-/// A `ring-1 ring-inset ring-editor-accent/40` has no GPUI equivalent — rings
-/// are a box-shadow family GPUI does not expose — so the 1px inset edge is
-/// drawn as a border and the colour as `ACCENT` at 40% alpha. That is the
-/// closest available reading of "a faint inner outline".
-fn layer_row() -> Div {
-    h_flex()
-        .w_full()
-        .h(px(ROW_H))
-        .flex_shrink_0()
-        .items_center()
-        .gap(px(ROW_GAP))
-        .px(px(PAD_X))
-        .bg(color::ROW_ACTIVE)
-        .border(px(1.0))
-        .border_color(Hsla {
-            h: color::ACCENT.h,
-            s: color::ACCENT.s,
-            l: color::ACCENT.l,
-            a: 0.4,
-        })
-        .child(layer_thumb())
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .text_size(px(ROW_TEXT))
-                .font_family(ui::FONT_UI)
-                .text_color(color::TEXT)
-                .child(LAYER_NAME.to_string()),
-        )
-}
-
 /// `flex shrink-0 items-center gap-5 border-t border-editor-divider
 /// bg-editor-panel px-4 py-2.5 text-editor-icon` — the Layer Actions footer
 /// (`LayersPanel.tsx:746-796`).
 ///
-/// It is what turns the two rules at the foot of the empty run into a pair:
-/// its `border-t` paints the row directly under the list's `border-y`, so
-/// y 572 and y 573 are both `#333333` with nothing between them, and its own
-/// height is fixed by the source rather than by anything in the port — `py-2.5`
-/// (10) + `size-[17px]` + `py-2.5` (10) = 37, plus the border, i.e. the 38px
-/// that ends the panel at y=610 with the Navigator's `border-t` at 611.
-///
-/// Every button is `Tooltip`-wrapped and carries a `hover:` tint — interaction
-/// a resting capture cannot show — and the `disabled:opacity-30` states are not
-/// distinguishable from the enabled resting pixels here, so all five glyphs
-/// are drawn at full [`color::ICON`] (`text-editor-icon`, measured `#868686`).
-fn actions_footer() -> Div {
+/// Tooltips, hover tint and `disabled:opacity-30` are interaction-only; resting
+/// captures show all five glyphs at measured `#868686`.
+fn actions_footer(cx: &Context<crate::app::App>) -> Div {
     h_flex()
         .w_full()
         .flex_shrink_0()
@@ -454,11 +424,39 @@ fn actions_footer() -> Div {
         .border_t(px(1.0))
         .border_color(color::BORDER)
         .bg(color::PANEL)
-        .children(FOOTER_ICONS.iter().map(|fi| {
+        .children(FOOTER_ICONS.iter().enumerate().map(|(index, fi)| {
+            let button = footer_icon(fi.svg)
+                .id(format!("layer-action-{index}"))
+                .test_support()
+                .cursor_pointer()
+                .on_click(cx.listener(
+                    move |app: &mut crate::app::App, _: &gpui_kit::ClickEvent, _window, cx| {
+                        match index {
+                            0 => app.add_empty_layer(cx),
+                            1 => {
+                                let result = app.duplicate_selected_layer(cx);
+                                app.report_layer_op_for_view(result, cx);
+                            }
+                            2 => {
+                                let result = if app.selected_layer_count(cx) > 1 {
+                                    app.merge_selected_layers(cx)
+                                } else {
+                                    app.merge_selected_layer_down(cx)
+                                };
+                                app.report_layer_op_for_view(result, cx);
+                            }
+                            3 => {
+                                let result = app.flatten_document(cx);
+                                app.report_layer_op_for_view(result, cx);
+                            }
+                            _ => app.delete_selected_layer(cx),
+                        }
+                    },
+                ));
             if fi.trailing {
-                div().ml_auto().child(footer_icon(fi.svg))
+                div().ml_auto().child(button).into_any_element()
             } else {
-                footer_icon(fi.svg)
+                button.into_any_element()
             }
         }))
 }
@@ -486,29 +484,9 @@ fn footer_icon(icon: &'static [u8]) -> Div {
         )
 }
 
-/// `LayerThumb`'s frame: 34x34, 1px border, `rounded-[3px]`, checker inside.
-///
-/// The canvas bitmap is a *layer preview*, which a static port cannot have —
-/// so this is the empty chrome, exactly as in `properties_panel.rs`.
-fn layer_thumb() -> Div {
-    div()
-        .w(px(THUMB))
-        .h(px(THUMB))
-        .rounded(px(R3))
-        .border(px(1.0))
-        .border_color(color::DIVIDER)
-        .bg(CHECKER_MEAN)
-        .flex_shrink_0()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn layer_row_name_pinned() {
-        assert_eq!(LAYER_NAME, "Layer 1");
-    }
 
     #[test]
     fn footer_icons_match_reference() {
@@ -534,3 +512,6 @@ mod tests {
         assert_eq!(LOCK_BUTTONS[3], icons::ROTATE);
     }
 }
+
+mod rows;
+use rows::layer_list;

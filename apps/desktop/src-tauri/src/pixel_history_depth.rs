@@ -14,7 +14,7 @@
 // oversize doc_id reject with a bare string (Tauri surfaces a Rust Err(String)
 // as a bare string); they never resolve to a zero-filled struct.
 
-use photrez_core::pixel_store::{registry, HistoryDepth, HistoryTip, PayloadKind};
+use photrez_core::pixel::{registry, HistoryDepth, HistoryTip, PayloadKind};
 
 /// Longest `doc_id` (UTF-8 bytes) this probe accepts. Production ids are
 /// `doc-<uuid>` (41 bytes); 256 keeps headroom while rejecting garbage before
@@ -243,7 +243,7 @@ mod tests {
     /// the real registry and the real commands, because the consequence is
     /// invisible to the caller: `PixelStoreRegistry::undo_pixel` collapses the
     /// empty `(None, None, None)` to `None` AFTER the cursor has already moved
-    /// (pixel_store.rs `_ => None`), and `rust_pixels_undo`'s `None` arm returns
+    /// (`pixel/store.rs` `_ => None`), and `rust_pixels_undo`'s `None` arm returns
     /// `Ok` with empty tiles (paint_parity_cmds.rs).
     ///
     /// The cursor state below is exactly what a metadata undo leaves behind. The

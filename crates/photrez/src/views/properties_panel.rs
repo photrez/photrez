@@ -72,15 +72,15 @@
 //!   rows are 6px narrower than its 272px column would suggest. Transcribed as
 //!   `.pr(px(6.))`.
 
-use crate::assets::icons;
 use crate::components::ui;
 use crate::i18n::t;
+use crate::icons;
 use crate::tokens::color;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, relative, Div, FontWeight, Hsla};
+use gpui_kit::{div, px, relative, Div, FontWeight, Hsla, TestSupportExt};
 
 /// InspectorDock's width: `lg:w-[272px]` (`RightDock.tsx:80`).
 ///
@@ -153,14 +153,26 @@ const HDR_TEXT: f32 = 12.5;
 // --- Static "Selected Layer" literals (single-selected-layer branch) ---
 // ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact text the
 // baseline capture shows; change them only if a capture disagrees.
-pub const LAYER_NAME: &str = "Layer 1"; // i18n-exempt: demo content
-pub const LAYER_SUBTITLE: &str = "Raster layer \u{b7} 100 \u{d7} 100 px"; // i18n-exempt: demo content
+pub const LAYER_NAME: &str = "Background"; // i18n-exempt: the frozen new-document layer name
+pub const LAYER_SUBTITLE: &str = "Image layer \u{b7} 800 \u{d7} 600 px"; // i18n-exempt: demo content
+
+/// The wired Actions row: (test id, handler) paired with the [ACTIONS] table
+/// order. The handlers are the ones the deleted additive strip used.
+type ActionHandler = fn(&mut crate::app::App, &mut Context<crate::app::App>) -> Result<(), String>;
+const ACTION_HANDLERS: &[(&str, ActionHandler)] = &[
+    ("prop-flip-h", |app, cx| app.flip_selected_layer(true, cx)),
+    ("prop-flip-v", |app, cx| app.flip_selected_layer(false, cx)),
+    ("prop-reset", |app, cx| app.reset_selected_transform(cx)),
+];
 
 // --- Static Transform field values (pinned to the baseline) ---
-pub const POS_X: &str = "100";
-pub const POS_Y: &str = "100";
-pub const SIZE_W: &str = "100";
-pub const SIZE_H: &str = "100";
+// The frozen new-document "Background" layer sits at 0,0 and spans the whole
+// 800x600 canvas; its position and rotation are locked (the oracle shows the
+// lock notice), so Position shows 0/0 and Size the canvas extent.
+pub const POS_X: &str = "0";
+pub const POS_Y: &str = "0";
+pub const SIZE_W: &str = "800";
+pub const SIZE_H: &str = "600";
 pub const ROTATION: &str = "0";
 pub const SCALE_X: &str = "100";
 pub const SCALE_Y: &str = "100";
@@ -168,7 +180,7 @@ pub const OPACITY: &str = "100 %"; // i18n-exempt: numeric value
 
 // --- Action + quick-row icon tables (static, asserted in tests) ---
 // Action button labels are catalog keys; rendered at the call site via `t()`.
-pub const ACTIONS: &[(&'static [u8], &'static str)] = &[
+pub const ACTIONS: &[(&[u8], &str)] = &[
     (icons::FLIP_H, "properties.flipH"),
     (icons::FLIP_V, "properties.flipV"),
     (icons::ROTATE_CCW, "common.reset"),
@@ -176,25 +188,345 @@ pub const ACTIONS: &[(&'static [u8], &'static str)] = &[
 
 pub const QUICK_ICONS: &[&[u8]] = &[icons::ALIGN_H, icons::ALIGN_V, icons::SWAP, icons::BOX];
 
-pub fn render() -> impl IntoElement {
+pub fn render(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    document_size: Option<(u32, u32)>,
+    zoom_percent: Option<u32>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let (has_document, has_layers, multi) = {
+        let s = state.read(cx);
+        (
+            s.has_document,
+            !s.layers.is_empty(),
+            s.selected_layers.len() > 1,
+        )
+    };
+    let body = if !has_document {
+        v_flex().child(no_image_open())
+    } else if !has_layers {
+        v_flex().child(canvas_properties(state, document_size, zoom_percent, cx))
+    } else if multi {
+        v_flex().child(multi_layers_section(state, cx))
+    } else {
+        // The additive flip/reset/raster strip is gone: the Actions row in the
+        // Transform section carries those actions (wired), which is where the
+        // frozen panel puts them. Only the text-layer typography steppers
+        // remain until the frozen text section is ported (they carry the only
+        // reachable `prop-text-*` controls).
+        let text_layer = {
+            let s = state.read(cx);
+            s.selected_layer_type.as_deref() == Some("text")
+        };
+        let body = v_flex()
+            .child(selected_layer_section())
+            .child(transform_section(cx));
+        if text_layer {
+            body.child(live_text_rows(state, cx))
+        } else {
+            body
+        }
+    };
     v_flex()
         .w_full()
         .h_full()
         .overflow_hidden()
         .bg(color::PANEL)
+        // `scrollbar-gutter: stable` reserves 6px on the trailing edge of
+        // every `overflow-y-auto`, even with nothing to scroll — `styles.css:321`
+        // and `:326`. The reference's module docs prescribe `.pr(px(6.))`
+        // here, but its render omits it, and its own box scan (x 12..259)
+        // matches the no-`pr` code within crop slop — so the port follows
+        // the code, not the sentence.
+        .child(v_flex().flex_1().overflow_hidden().child(body))
+}
+
+/// `PropertiesPanel`'s no-document branch: icon + two centred lines.
+fn no_image_open() -> impl IntoElement {
+    v_flex()
+        .id("properties-no-image")
+        .test_support()
+        .flex_1()
+        .h_full()
+        .items_center()
+        .justify_center()
+        .gap(px(12.0))
+        .px(px(24.0))
+        .text_center()
         .child(
-            // `scrollbar-gutter: stable` reserves 6px on the trailing edge of
-            // every `overflow-y-auto`, even with nothing to scroll — `styles.css:321`
-            // and `:326`. The reference's module docs prescribe `.pr(px(6.))`
-            // here, but its render omits it, and its own box scan (x 12..259)
-            // matches the no-`pr` code within crop slop — so the port follows
-            // the code, not the sentence.
-            v_flex()
-                .flex_1()
-                .overflow_hidden()
-                .child(selected_layer_section())
-                .child(transform_section()),
+            Icon::default()
+                .data(icons::SLIDERS)
+                .size(px(24.0))
+                .text_color(color::TEXT_DIM),
         )
+        .child(
+            div()
+                .text_size(px(13.0))
+                .font_family(ui::FONT_UI)
+                .font_weight(FontWeight(500.))
+                .text_color(color::TEXT)
+                .child(t("properties.noImageOpen")),
+        )
+        .child(
+            div()
+                .text_size(px(12.0))
+                .font_family(ui::FONT_UI)
+                .text_color(color::TEXT_DIM)
+                .child(t("properties.noImageOpenDesc")),
+        )
+}
+
+/// The `CanvasProperties` fallback: document card, canvas facts and actions.
+fn canvas_properties(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    document_size: Option<(u32, u32)>,
+    zoom_percent: Option<u32>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let (doc_name, width, height, zoom) = {
+        let s = state.read(cx);
+        let (w, h) = document_size.unwrap_or((0, 0));
+        (s.document_name.clone(), w, h, zoom_percent.unwrap_or(100))
+    };
+    v_flex()
+        .w_full()
+        .flex_shrink_0()
+        .child(
+            section_block()
+                .child(section_header(
+                    icons::IMAGE,
+                    &t("canvasProps.selectedDocument"),
+                ))
+                .child(
+                    h_flex()
+                        .mt(px(12.0))
+                        .items_center()
+                        .gap(px(12.0))
+                        .rounded(px(R4))
+                        .border(px(1.0))
+                        .border_color(color::DIVIDER)
+                        .bg(color::FIELD)
+                        .p(px(10.0))
+                        .child(
+                            div()
+                                .w(px(THUMB))
+                                .h(px(THUMB))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .flex_shrink_0()
+                                .rounded(px(R3))
+                                .border(px(1.0))
+                                .border_color(color::BORDER)
+                                .child(
+                                    Icon::default()
+                                        .data(icons::IMAGE)
+                                        .size(px(20.0))
+                                        .text_color(color::TEXT_DIM),
+                                ),
+                        )
+                        .child(
+                            v_flex()
+                                .min_w(px(0.0))
+                                .flex_1()
+                                .child(
+                                    div()
+                                        .overflow_hidden()
+                                        .text_size(px(12.5))
+                                        .font_family(ui::FONT_UI)
+                                        .font_weight(FontWeight(500.))
+                                        .text_color(color::TEXT)
+                                        .child(doc_name),
+                                )
+                                .child(
+                                    div()
+                                        .mt(px(2.0))
+                                        .text_size(px(11.0))
+                                        .font_family(ui::FONT_UI)
+                                        .text_color(color::TEXT_DIM)
+                                        .child(format!(
+                                            "{} \u{b7} {width} \u{d7} {height} px",
+                                            t("status.canvas")
+                                        )),
+                                ),
+                        ),
+                ),
+        )
+        .child(
+            section_block()
+                .child(section_header(icons::IMAGE, &t("status.canvas")))
+                .child(
+                    v_flex()
+                        .mt(px(12.0))
+                        .gap(px(8.0))
+                        .w_full()
+                        .child(ui::prop_row(
+                            &t("tools.options.size"),
+                            canvas_property_button(
+                                "canvas-size",
+                                &format!("{width} \u{d7} {height} px"),
+                                icons::CROP,
+                                cx,
+                                |app, window, cx| app.begin_resize_canvas(window, cx),
+                            ),
+                        ))
+                        .child(ui::prop_row(
+                            &t("canvasProps.mode"),
+                            ui::num_field(None, None, "RGB / 8", None),
+                        ))
+                        .child(ui::prop_row(
+                            &t("canvasProps.profile"),
+                            ui::num_field(None, None, "sRGB IEC61966-2.1", None),
+                        ))
+                        .child(ui::prop_row(
+                            &t("status.zoom"),
+                            canvas_property_button(
+                                "canvas-fit",
+                                &format!("{zoom} %"),
+                                icons::MAXIMIZE,
+                                cx,
+                                |app, _window, cx| {
+                                    app.fit_to_screen(cx);
+                                    Ok(())
+                                },
+                            ),
+                        )),
+                ),
+        )
+        .child(
+            section_block()
+                .child(section_header(
+                    icons::MAXIMIZE,
+                    &t("canvasProps.quickActions"),
+                ))
+                .child(
+                    v_flex()
+                        .mt(px(12.0))
+                        .gap(px(8.0))
+                        .w_full()
+                        .child(canvas_action_button(
+                            "canvas-action-fit",
+                            icons::MAXIMIZE,
+                            &t("canvasProps.fitToScreen"),
+                            cx,
+                            |app, _window, cx| {
+                                app.fit_to_screen(cx);
+                                Ok(())
+                            },
+                        ))
+                        .child(canvas_action_button(
+                            "canvas-action-resize",
+                            icons::CROP,
+                            &t("menus.items.resizeCanvas"),
+                            cx,
+                            |app, window, cx| app.begin_resize_canvas(window, cx),
+                        )),
+                ),
+        )
+}
+
+fn section_block() -> Div {
+    v_flex()
+        .w_full()
+        .flex_shrink_0()
+        .px(px(PAD_X))
+        .py(px(PAD_Y))
+        .border_b(px(1.0))
+        .border_color(color::DIVIDER)
+}
+
+fn canvas_property_button(
+    id: &'static str,
+    value: &str,
+    icon: &'static [u8],
+    cx: &Context<crate::app::App>,
+    action: impl Fn(
+            &mut crate::app::App,
+            &mut gpui_kit::Window,
+            &mut Context<crate::app::App>,
+        ) -> Result<(), String>
+        + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .test_support()
+        .flex_1()
+        .min_w(px(0.0))
+        .h(px(BTN))
+        .flex()
+        .items_center()
+        .justify_between()
+        .rounded(px(R4))
+        .border(px(1.0))
+        .border_color(color::FIELD_BORDER)
+        .bg(color::FIELD)
+        .px(px(10.0))
+        .text_size(px(12.0))
+        .font_family(ui::FONT_UI)
+        .text_color(color::TEXT)
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
+                let result = action(app, window, cx);
+                match result {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Canvas: {error}")), cx),
+                }
+            }),
+        )
+        .child(value.to_string())
+        .child(
+            Icon::default()
+                .data(icon)
+                .size(px(14.0))
+                .text_color(color::TEXT_DIM),
+        )
+}
+
+fn canvas_action_button(
+    id: &'static str,
+    icon: &'static [u8],
+    label: &str,
+    cx: &Context<crate::app::App>,
+    action: impl Fn(
+            &mut crate::app::App,
+            &mut gpui_kit::Window,
+            &mut Context<crate::app::App>,
+        ) -> Result<(), String>
+        + 'static,
+) -> impl IntoElement {
+    h_flex()
+        .id(id)
+        .test_support()
+        .w_full()
+        .h(px(30.0))
+        .items_center()
+        .gap(px(8.0))
+        .rounded(px(R4))
+        .border(px(1.0))
+        .border_color(color::FIELD_BORDER)
+        .bg(color::FIELD)
+        .px(px(10.0))
+        .text_size(px(12.0))
+        .font_family(ui::FONT_UI)
+        .text_color(color::TEXT)
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
+                let result = action(app, window, cx);
+                match result {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Canvas: {error}")), cx),
+                }
+            }),
+        )
+        .child(
+            Icon::default()
+                .data(icon)
+                .size(px(14.0))
+                .text_color(color::TEXT_DIM),
+        )
+        .child(label.to_string())
 }
 
 /// `SectionHeader` (`layers/SectionHeader.tsx`) — a 16px icon box holding a
@@ -300,7 +632,7 @@ fn selected_layer_section() -> Div {
 }
 
 /// One labelled row: 50px caption, then the slot beside it.
-fn transform_section() -> Div {
+fn transform_section(cx: &Context<crate::app::App>) -> Div {
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -390,14 +722,20 @@ fn transform_section() -> Div {
                         ),
                 )
                 .into_any_element(),
-                // Actions — three labelled buttons. Labels are catalog keys,
-                // resolved per the web build: properties.flipH / properties.flipV / common.reset.
+                // Actions — three labelled buttons, wired to the transform
+                // handlers (the additive strip that used to carry them is
+                // gone; the frozen panel puts these here). Labels are catalog
+                // keys, resolved per the web build: properties.flipH /
+                // properties.flipV / common.reset.
                 ui::prop_row(
                     &t("properties.actions"),
                     h_flex().flex_1().gap(px(6.0)).children(
                         ACTIONS
                             .iter()
-                            .map(|&(svg, key)| action_button(svg, &t(key))),
+                            .zip(ACTION_HANDLERS)
+                            .map(|(&(svg, key), (id, action))| {
+                                wired_action_button(svg, id, &t(key), cx, *action)
+                            }),
                     ),
                 )
                 .into_any_element(),
@@ -423,12 +761,23 @@ fn transform_section() -> Div {
 /// as its whole string, so a heavier chrome makes the buttons sit at their
 /// intrinsic widths and pushes the last one past the row's edge ("Reset" used
 /// to clip to "Res").
-fn action_button(icon: &'static [u8], label: &str) -> Div {
-    h_flex()
+/// The Actions-row button: the frozen chrome with the wired handler and the
+/// test id the mounted tests click (`prop-flip-h` etc.).
+fn wired_action_button(
+    icon: &'static [u8],
+    id: &'static str,
+    label: &str,
+    cx: &Context<crate::app::App>,
+    action: ActionHandler,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .test_support()
         .flex_1()
         .min_w(px(0.0))
         .overflow_hidden()
         .h(px(BTN))
+        .flex()
         .items_center()
         .justify_center()
         .gap(px(4.0))
@@ -437,6 +786,15 @@ fn action_button(icon: &'static [u8], label: &str) -> Div {
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
         .px(px(6.0))
+        .cursor_pointer()
+        .on_click(
+            cx.listener(
+                move |app, _: &gpui_kit::ClickEvent, _window, cx| match action(app, cx) {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
+                },
+            ),
+        )
         .child(
             Icon::default()
                 .data(icon)
@@ -453,6 +811,478 @@ fn action_button(icon: &'static [u8], label: &str) -> Div {
                 .text_color(color::TEXT)
                 .child(label.to_string()),
         )
+}
+
+/// The text-layer typography steppers (`prop-text-*`). These carry the only
+/// reachable text controls until the frozen text section is ported; the
+/// additive flip/reset/raster row of the old strip is gone — those actions
+/// live in the wired Actions row of the Transform section.
+fn live_text_rows(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let text = {
+        let s = state.read(cx);
+        Some((
+            s.selected_text_font_size,
+            s.selected_text_line_height,
+            s.selected_text_letter_spacing,
+            s.selected_text_font_weight >= 700.0,
+            s.selected_text_italic,
+            s.selected_text_align,
+        ))
+    };
+
+    let align_label = text
+        .map(|(_, _, _, _, _, align)| match align {
+            crate::state::TextAlignTool::Left => "L",
+            crate::state::TextAlignTool::Center => "C",
+            crate::state::TextAlignTool::Right => "R",
+        })
+        .unwrap_or("L");
+
+    let mut strip = v_flex()
+        .w_full()
+        .flex_shrink_0()
+        .px(px(PAD_X))
+        .py(px(PAD_Y))
+        .gap(px(4.0))
+        .border_b(px(1.0))
+        .border_color(color::DIVIDER);
+
+    if let Some((size, line, tracking, bold, italic, _)) = text {
+        strip = strip
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .child(live_label(format!("Size {size:.0}")).flex_1())
+                    .child(live_action_button(
+                        "prop-text-size-dec",
+                        "-",
+                        cx,
+                        |app, cx| app.adjust_selected_text(0, -1.0, cx),
+                    ))
+                    .child(live_action_button(
+                        "prop-text-size-inc",
+                        "+",
+                        cx,
+                        |app, cx| app.adjust_selected_text(0, 1.0, cx),
+                    ))
+                    .child(live_label(format!("Line {line:.1}")))
+                    .child(live_action_button(
+                        "prop-line-height-dec",
+                        "-",
+                        cx,
+                        |app, cx| app.adjust_selected_text(1, -1.0, cx),
+                    ))
+                    .child(live_action_button(
+                        "prop-line-height-inc",
+                        "+",
+                        cx,
+                        |app, cx| app.adjust_selected_text(1, 1.0, cx),
+                    )),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .child(live_label(format!("Track {tracking:+.1}")).flex_1())
+                    .child(live_action_button(
+                        "prop-letter-spacing-dec",
+                        "-",
+                        cx,
+                        |app, cx| app.adjust_selected_text(2, -0.5, cx),
+                    ))
+                    .child(live_action_button(
+                        "prop-letter-spacing-inc",
+                        "+",
+                        cx,
+                        |app, cx| app.adjust_selected_text(2, 0.5, cx),
+                    ))
+                    .child(live_button("prop-text-bold", "B", bold, cx, |app, cx| {
+                        app.toggle_selected_text_bold(cx)
+                    }))
+                    .child(live_button(
+                        "prop-text-italic",
+                        "I",
+                        italic,
+                        cx,
+                        |app, cx| app.toggle_selected_text_italic(cx),
+                    ))
+                    .child(live_action_button(
+                        "prop-text-align",
+                        align_label,
+                        cx,
+                        |app, cx| app.cycle_selected_text_align(cx),
+                    ))
+                    // Native-only improvement, recorded as such: the frozen
+                    // panel has no reachable rasterize for text layers, but the
+                    // ported behaviour contract (the mounted test) covers it.
+                    // It lives in the text branch only, so the raster-layer
+                    // captures still match the oracle.
+                    .child(live_action_button(
+                        "prop-rasterize",
+                        "Raster",
+                        cx,
+                        |app, cx| app.rasterize_selected_layer(cx),
+                    )),
+            );
+    }
+
+    strip
+}
+
+/// The multi-selection branch: header card, combined bounds, align/distribute
+/// and the batch actions, mirroring `PropertiesPanel`'s multi inspector.
+fn multi_layers_section(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let (count, names, bounds) = {
+        let s = state.read(cx);
+        let names: Vec<String> = s
+            .layers
+            .iter()
+            .filter(|row| s.selected_layers.contains(&row.id))
+            .map(|row| row.name.clone())
+            .collect();
+        (names.len(), names.join(", "), s.multi_bounds)
+    };
+    let bound_string = |value: f64| format!("{}", (value * 10.0).round() / 10.0);
+
+    let mut panel = v_flex().w_full().flex_shrink_0().child(
+        section_block()
+            .child(section_header(
+                icons::LAYERS,
+                &t("properties.multipleLayers"),
+            ))
+            .child(
+                h_flex()
+                    .mt(px(8.0))
+                    .items_center()
+                    .gap(px(10.0))
+                    .rounded(px(R4))
+                    .border(px(1.0))
+                    .border_color(color::DIVIDER)
+                    .bg(color::FIELD)
+                    .p(px(8.0))
+                    .child(
+                        div()
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .flex_shrink_0()
+                            .rounded(px(R3))
+                            .border(px(1.0))
+                            .border_color(color::DIVIDER)
+                            .bg(color::PANEL)
+                            .child(
+                                Icon::default()
+                                    .data(icons::LAYERS)
+                                    .size(px(16.0))
+                                    .text_color(color::ACCENT),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .min_w(px(0.0))
+                            .flex_1()
+                            .child(
+                                div()
+                                    .text_size(px(11.5))
+                                    .font_family(ui::FONT_UI)
+                                    .font_weight(FontWeight(500.))
+                                    .text_color(color::TEXT)
+                                    .child(crate::i18n::t_args(
+                                        "properties.layersSelected",
+                                        &[("count", &count.to_string())],
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(2.0))
+                                    .overflow_hidden()
+                                    .text_size(px(10.5))
+                                    .font_family(ui::FONT_UI)
+                                    .text_color(color::TEXT_DIM)
+                                    .child(names),
+                            ),
+                    ),
+            ),
+    );
+
+    if let Some((x, y, w, h)) = bounds {
+        panel = panel.child(
+            section_block()
+                .child(section_header(icons::MOVE, &t("properties.combinedBounds")))
+                .child(
+                    v_flex()
+                        .mt(px(8.0))
+                        .gap(px(8.0))
+                        .w_full()
+                        .child(ui::prop_row(
+                            &t("properties.position"),
+                            h_flex()
+                                .flex_1()
+                                .gap(px(SLOT_GAP))
+                                .child(ui::num_field(Some("X"), None, &bound_string(x), Some("px")))
+                                .child(ui::num_field(
+                                    Some("Y"),
+                                    None,
+                                    &bound_string(y),
+                                    Some("px"),
+                                )),
+                        ))
+                        .child(ui::prop_row(
+                            &t("tools.options.size"),
+                            h_flex()
+                                .flex_1()
+                                .gap(px(SLOT_GAP))
+                                .child(ui::num_field(Some("W"), None, &bound_string(w), Some("px")))
+                                .child(ui::num_field(
+                                    Some("H"),
+                                    None,
+                                    &bound_string(h),
+                                    Some("px"),
+                                )),
+                        )),
+                ),
+        );
+    }
+
+    let align_button = |id: &'static str, icon: &'static [u8], mode: u8| {
+        multi_icon_button(id, icon, cx, move |app, cx| {
+            app.align_selected_layers(mode, cx)
+        })
+    };
+    panel = panel.child(
+        section_block()
+            .child(section_header(
+                icons::GRID_3,
+                &t("properties.alignToCanvas"),
+            ))
+            .child(
+                h_flex()
+                    .mt(px(8.0))
+                    .gap(px(4.0))
+                    .w_full()
+                    .child(align_button("prop-align-left", icons::ALIGN_LEFT, 0))
+                    .child(align_button("prop-align-center-h", icons::ALIGN_H, 1))
+                    .child(align_button("prop-align-right", icons::ALIGN_RIGHT, 2))
+                    .child(align_button("prop-align-top", icons::ALIGN_TOP, 3))
+                    .child(align_button("prop-align-center-v", icons::ALIGN_V, 4))
+                    .child(align_button("prop-align-bottom", icons::ALIGN_BOTTOM, 5)),
+            ),
+    );
+
+    if count >= 3 {
+        panel = panel.child(
+            section_block()
+                .child(section_header(
+                    icons::SPLIT_H,
+                    &t("properties.distributeSpacing"),
+                ))
+                .child(
+                    h_flex()
+                        .mt(px(8.0))
+                        .gap(px(6.0))
+                        .w_full()
+                        .child(multi_text_button(
+                            "prop-distribute-h",
+                            icons::DISTRIBUTE_H,
+                            &t("properties.distributeH"),
+                            cx,
+                            |app, cx| app.distribute_selected_layers(true, cx),
+                        ))
+                        .child(multi_text_button(
+                            "prop-distribute-v",
+                            icons::DISTRIBUTE_V,
+                            &t("properties.distributeV"),
+                            cx,
+                            |app, cx| app.distribute_selected_layers(false, cx),
+                        )),
+                ),
+        );
+    }
+
+    panel.child(
+        section_block()
+            .child(section_header(
+                icons::SLIDERS,
+                &t("properties.batchActions"),
+            ))
+            .child(
+                v_flex()
+                    .mt(px(8.0))
+                    .gap(px(6.0))
+                    .w_full()
+                    .child(canvas_action_button(
+                        "prop-merge-selected",
+                        icons::LAYERS,
+                        &t("properties.mergeSelectedLayers"),
+                        cx,
+                        |app, _window, cx| app.merge_selected_layers(cx),
+                    ))
+                    .child(
+                        h_flex()
+                            .gap(px(6.0))
+                            .w_full()
+                            .child(canvas_action_button(
+                                "prop-duplicate",
+                                icons::COPY,
+                                &t("layers.duplicateLayer"),
+                                cx,
+                                |app, _window, cx| app.duplicate_selected_layer_id(cx).map(|_| ()),
+                            ))
+                            .child(canvas_action_button(
+                                "prop-delete",
+                                icons::TRASH,
+                                &t("layers.deleteLayer"),
+                                cx,
+                                |app, _window, cx| {
+                                    app.delete_selected_layer(cx);
+                                    Ok(())
+                                },
+                            )),
+                    ),
+            ),
+    )
+}
+
+fn multi_icon_button(
+    id: &'static str,
+    icon: &'static [u8],
+    cx: &Context<crate::app::App>,
+    action: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) -> Result<(), String> + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .test_support()
+        .flex_1()
+        .h(px(28.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(R3))
+        .border(px(1.0))
+        .border_color(color::DIVIDER)
+        .bg(color::FIELD)
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                let result = action(app, cx);
+                match result {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
+                }
+            }),
+        )
+        .child(
+            Icon::default()
+                .data(icon)
+                .size(px(14.0))
+                .text_color(color::TEXT_DIM),
+        )
+}
+
+fn multi_text_button(
+    id: &'static str,
+    icon: &'static [u8],
+    label: &str,
+    cx: &Context<crate::app::App>,
+    action: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) -> Result<(), String> + 'static,
+) -> impl IntoElement {
+    h_flex()
+        .id(id)
+        .test_support()
+        .flex_1()
+        .h(px(28.0))
+        .items_center()
+        .justify_center()
+        .gap(px(6.0))
+        .rounded(px(R3))
+        .border(px(1.0))
+        .border_color(color::DIVIDER)
+        .bg(color::FIELD)
+        .text_size(px(11.0))
+        .font_family(ui::FONT_UI)
+        .font_weight(FontWeight(500.))
+        .text_color(color::TEXT_DIM)
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                let result = action(app, cx);
+                match result {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
+                }
+            }),
+        )
+        .child(
+            Icon::default()
+                .data(icon)
+                .size(px(14.0))
+                .text_color(color::TEXT_DIM),
+        )
+        .child(label.to_string())
+}
+
+fn live_label(text: String) -> Div {
+    div()
+        .min_w(px(0.0))
+        .overflow_hidden()
+        .text_size(px(10.5))
+        .font_family(ui::FONT_UI)
+        .text_color(color::TEXT_DIM)
+        .child(text)
+}
+
+fn live_action_button(
+    id: &'static str,
+    label: &'static str,
+    cx: &Context<crate::app::App>,
+    action: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) -> Result<(), String> + 'static,
+) -> impl IntoElement {
+    live_button(id, label, false, cx, action)
+}
+
+/// The strip's button chrome. `active` marks a toggle that is currently on.
+fn live_button(
+    id: &'static str,
+    label: &'static str,
+    active: bool,
+    cx: &Context<crate::app::App>,
+    action: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) -> Result<(), String> + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .test_support()
+        .h(px(22.0))
+        .px(px(6.0))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(3.0))
+        .border_1()
+        .border_color(if active { color::ACCENT } else { color::BORDER })
+        .text_size(px(10.0))
+        .font_family(ui::FONT_UI)
+        .text_color(if active { color::ACCENT } else { color::TEXT })
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                let result = action(app, cx);
+                match result {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
+                }
+            }),
+        )
+        .child(label)
 }
 
 /// Same chrome, icon only — `size-3.5`, no label.
@@ -479,43 +1309,4 @@ fn icon_button(icon: &'static [u8]) -> Div {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn static_layer_values_pinned() {
-        // ASCII escapes must render to the expected characters.
-        assert_eq!(LAYER_NAME, "Layer 1");
-        assert!(LAYER_SUBTITLE.contains('\u{b7}'));
-        assert!(LAYER_SUBTITLE.contains('\u{d7}'));
-        assert_eq!(LAYER_SUBTITLE, "Raster layer \u{b7} 100 \u{d7} 100 px");
-        assert_eq!(POS_X, "100");
-        assert_eq!(POS_Y, "100");
-        assert_eq!(SIZE_W, "100");
-        assert_eq!(SIZE_H, "100");
-        assert_eq!(ROTATION, "0");
-        assert_eq!(SCALE_X, "100");
-        assert_eq!(SCALE_Y, "100");
-        assert_eq!(OPACITY, "100 %");
-    }
-
-    #[test]
-    fn action_table_matches_reference() {
-        assert_eq!(ACTIONS.len(), 3);
-        assert_eq!(ACTIONS[0].0, icons::FLIP_H);
-        assert_eq!(t(ACTIONS[0].1), "Flip H");
-        assert_eq!(ACTIONS[1].0, icons::FLIP_V);
-        assert_eq!(t(ACTIONS[1].1), "Flip V");
-        assert_eq!(ACTIONS[2].0, icons::ROTATE_CCW);
-        assert_eq!(t(ACTIONS[2].1), "Reset");
-    }
-
-    #[test]
-    fn quick_icons_match_reference() {
-        assert_eq!(QUICK_ICONS.len(), 4);
-        assert_eq!(QUICK_ICONS[0], icons::ALIGN_H);
-        assert_eq!(QUICK_ICONS[1], icons::ALIGN_V);
-        assert_eq!(QUICK_ICONS[2], icons::SWAP);
-        assert_eq!(QUICK_ICONS[3], icons::BOX);
-    }
-}
+mod tests;

@@ -1,10 +1,7 @@
 [workspace]
 resolver = "2"
-members = [
-    "apps/desktop/src-tauri",
-    "crates/core",
-    "crates/xtask"
-]
+members = ["crates/*"]
+exclude = ["apps/desktop/src-tauri"]
 
 [workspace.dependencies]
 # We will define shared dependencies here as we proceed.
@@ -19,8 +16,8 @@ rust-version = "1.95.0"
 # opt-ins, `dead_code` warns; the restriction lints that gate the new crate
 # (unwrap/expect/panic) are allowed at the root with a written reason: the
 # core engine carries 854 unwrap/expect sites, so a blanket deny here would
-# be decoration, not a gate. `crates/photrez` denies them in its own
-# workspace instead.
+# be decoration, not a gate. `crates/photrez` keeps stricter crate-level
+# denies instead.
 [workspace.lints.rust]
 unsafe_code = "deny"
 dead_code = "warn"
@@ -30,7 +27,28 @@ unwrap_used = "allow"
 expect_used = "allow"
 panic = "allow"
 
-# Native release profile. No package-scoped overrides remain: every crate uses
-# Cargo's default `release` tuning (opt-level = 3, LTO off). The size-targeted
-# `opt-level = "s"` override that used to sit here applied only to the removed
-# browser build, and keeping it would have silently slowed the native binary.
+# Native release profile. No package-scoped release overrides remain: every
+# crate uses Cargo's default `release` tuning (opt-level = 3, LTO off). The
+# size-targeted `opt-level = "s"` override that used to sit here applied only to
+# the removed browser build, and keeping it would have silently slowed the
+# native binary.
+#
+# The measurement command runs the debug profile. Keep GPUI's paint/upload path
+# optimised (the four package overrides the earlier standalone measurement pins)
+# and optimise this crate too: the seam's full-buffer RGBA->BGRA loop is
+# production code, and at rustc's default debug codegen it dominates the
+# measurement (the earlier measurement could leave its own crate unoptimised
+# because its per-frame work was a 64x64 overlay). This is a profile override,
+# not a behaviour change.
+[profile.dev.package]
+gpui-base = { opt-level = 2 }
+gpui-component = { opt-level = 2 }
+gpui-kit = { opt-level = 2 }
+gpui-pre = { opt-level = 2 }
+photrez = { opt-level = 2 }
+photrez-core = { opt-level = 3 }
+
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 3
+debug = "line-tables-only"

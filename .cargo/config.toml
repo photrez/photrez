@@ -4,3 +4,13 @@
 [build]
 target-dir = "target"
 
+# Workspace-wide entry points. `dev` relies on `default-run` in the photrez
+# manifest to pick the app binary (the measurement binaries are not the dev
+# loop). On a machine whose PATH lacks the gnu linker directory, use
+# `cargo xtask dev` instead - it prepends the directory to the child PATH.
+[alias]
+dev = ["run", "-p", "photrez"]
+verify = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+# Standard xtask bootstrap: `cargo xtask <args>` runs the workspace task crate.
+xtask = ["run", "--package", "xtask", "--"]
+

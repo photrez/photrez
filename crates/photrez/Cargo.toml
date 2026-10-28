@@ -1,52 +1,67 @@
 [package]
 name = "photrez"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 publish = false
 rust-version.workspace = true
+# Bare `cargo run -p photrez` must open the app, not demand a bin selection
+# between the product binary and the measurement binaries.
+default-run = "photrez"
 
-[lints]
-workspace = true
-
-# Standalone workspace root: the gpui dependency tree (~850 packages) must
-# never enter the root `Cargo.lock` that `crates/core` and the Tauri app build
-# from. Membership is flipped in one deliberate commit at the end of the port
-# (root `members = ["crates/*"]`), never as a side effect of building the app.
-[workspace]
-
-[workspace.package]
-rust-version = "1.95.0"
+[features]
+input-measurement = []
 
 # The hardest gate the new crate can carry, because it is the only tree with
 # no legacy to grandfather: an unsafe block, dead code, or an unwrap/expect/
 # panic in non-test code all fail the build. Tests may unwrap/expect
 # (clippy.toml), and a justified suppression carries its reason on the
 # attribute line.
-[workspace.lints.rust]
+# These remain crate-level because the root workspace lints are deliberately laxer.
+[lints.rust]
 unsafe_code = "deny"
 dead_code = "deny"
 
-[workspace.lints.clippy]
+[lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 
 [dependencies]
 # Exact pin (`=0.7.3`): which GPUI API this builds against must be
-# readable from the manifest alone.
-gpui-kit = "=0.7.3"
+# readable from the manifest alone. `profiler` enables the platform present
+# trace used only by the `measure-frames` binary; it is a Tier C decision the
+# user approved 2026-10-19 and pulls `hdrhistogram`, not a gpui backend.
+gpui-kit = { version = "=0.7.3", features = ["profiler"] }
 photrez-core = { path = "../core" }
+fontdb = "0.20"
 # Parses the embedded message catalogs (`assets/i18n/*.json`, baked in with
 # `include_str!`). Already present in this crate's lock via the gpui-kit
 # dependency tree; the direct edge fetches no new package.
 serde_json = "1.0"
+zip = { version = "=9.0.4", default-features = false, features = ["deflate"] }
+# One-shot frame wake for the measurement binary's on_next_frame wait.
+# futures 0.3.34 is already in this crate's lock via the gpui-kit tree; the
+# direct edge fetches no new package and is used only by the bench.
+futures = "0.3"
 # Builds the GPUI display image from `photrez-core` RGBA (`RenderImage::new`
 # consumes `image::Frame`; no gpui crate re-exports the type). Already present
 # in this crate's lock via the gpui-kit dependency tree - the direct edge
 # fetches no new package - and no default features, matching gpui-pre's own
 # edge, so the feature union does not move either.
 image = { version = "0.25", default-features = false }
+# GDI capture + own-window lookup for the measurement binary's paint-prove
+# (cold/warm protocol). windows-sys 0.52 is already in this crate's lock via the
+# gpui-kit dependency tree; the direct edge fetches no new package and is used
+# only by `src/bin/measure-frames/`, never by a product module.
+windows-sys = { version = "0.52", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Printing",
+  "Win32_Storage_Xps",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [dev-dependencies]
 # Parses the embedded face for the glyph-coverage gate (`i18n::tests::
@@ -54,3 +69,18 @@ image = { version = "0.25", default-features = false }
 # `add_fonts`. Already present in this crate's lock via the gpui-kit dependency
 # tree; the direct edge fetches no new package.
 ttf-parser = "0.25"
+# Mounted UI wiring tests use gpui-kit's test harness. gpui-fast 0.1.9
+# exact-pins two transitive versions (cocoa 0.26.0, unicode-properties
+# 0.1.3); Cargo.lock holds those pins. Re-run the test build after any
+# dependency update that moves them.
+gpui-kit = { version = "=0.7.3", features = ["test-support"] }
+
+[[bin]]
+name = "measure-frames"
+path = "src/bin/measure-frames/main.rs"
+
+[[bin]]
+name = "measure-input"
+path = "src/bin/measure-input/main.rs"
+required-features = ["input-measurement"]
+

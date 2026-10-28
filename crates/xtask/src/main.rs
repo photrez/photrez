@@ -24,6 +24,7 @@
 //! directory.
 
 mod capture;
+mod dev;
 mod parity;
 
 use std::path::{Path, PathBuf};
@@ -36,9 +37,16 @@ fn main() {
             0
         }
         Some("capture") => cmd_capture(&args[1..]),
+        Some("dev") => dev::run(&args[1..]),
         Some("parity") => {
             if args.get(1).map(String::as_str) == Some("cross-check") {
                 cmd_cross_check(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("inventory") {
+                cmd_parity_inventory(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("surfaces") {
+                parity::surfaces::cmd(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("strings") {
+                parity::strings::cmd(&args[2..])
             } else {
                 cmd_parity(&args[1..])
             }
@@ -58,6 +66,11 @@ fn print_help() {
          \n\
          USAGE:\n\
          \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>]\n\
+         \x20 xtask dev [-- <app args>]\n\
+         \x20     Build and run the app with the gnu linker directory on the\n\
+         \x20     child PATH (the link chain needs it for ld's DLLs and for\n\
+         \x20     windres' bare gcc; plain `cargo run` works when the directory\n\
+         \x20     is already on PATH).\n\
          \x20 xtask parity [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]\n\
          \x20              [--report <dir>] [--mask-metrics] [--accept-ink-residual]\n\
          \x20 xtask parity cross-check --case shape|diff|zoom|measure --a <png> --b <png>\n\
@@ -95,7 +108,47 @@ fn has_flag(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
 }
 
+/// `xtask parity inventory [--oracle-root <dir>] [--head-root <dir>] [--out <csv>]`
+/// — regenerate the parity inventory, validating against the oracle tree.
+fn cmd_parity_inventory(args: &[String]) -> i32 {
+    let default_out = std::path::PathBuf::from(".slim/deepwork/parity-inventory.csv");
+    let opts = parity::inventory::InventoryOpts {
+        oracle_root: flag(args, "--oracle-root")
+            .map(PathBuf::from)
+            .unwrap_or_default(),
+        head_root: flag(args, "--head-root")
+            .map(PathBuf::from)
+            .unwrap_or_default(),
+        out: flag(args, "--out")
+            .map(PathBuf::from)
+            .unwrap_or(default_out),
+    };
+    parity::inventory::run(&opts)
+}
+
 fn cmd_capture(args: &[String]) -> i32 {
+    if let Some(target) = flag(args, "--window") {
+        let Some(out) = flag(args, "--out") else {
+            eprintln!("xtask capture --window: --out <png> is required");
+            return 2;
+        };
+        let spec = capture::window::WindowSpec {
+            target: target.to_string(),
+            maximize: has_flag(args, "--maximize"),
+            wait_ms: 10_000,
+            out: PathBuf::from(out),
+        };
+        return match capture::window::capture_window(&spec) {
+            Ok(p) => {
+                println!("captured -> {}", p.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("window capture failed: {e}");
+                1
+            }
+        };
+    }
     let Some(out) = flag(args, "--out") else {
         eprintln!("xtask capture: --out <png> is required");
         return 2;

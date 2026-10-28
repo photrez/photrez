@@ -3,7 +3,7 @@
 // (process-global Mutex) like the frontend does: no mocks — these commands run
 // in the actual Tauri command layer.
 
-use photrez_core::pixel_store::registry;
+use photrez_core::pixel::registry;
 
 /// Per-layer metadata entry (no pixels). `bitmap_token` is the OPAQUE reference
 /// to the ImageBitmap TS owns; Rust never dereferences it (it only round-trips
@@ -153,10 +153,10 @@ pub fn document_restore(
 // re-attach the exact ImageBitmap by token (never a detached one). METADATA ONLY
 // — no pixel bytes cross the IPC.
 
-fn dto_to_core_snapshot(dto: DocumentSnapshotDto) -> photrez_core::snapshot::DocumentSnapshot {
-    let mut snap = photrez_core::snapshot::DocumentSnapshot::new(&dto.doc_id, dto.version);
+fn dto_to_core_snapshot(dto: DocumentSnapshotDto) -> photrez_core::document::DocumentSnapshot {
+    let mut snap = photrez_core::document::DocumentSnapshot::new(&dto.doc_id, dto.version);
     for l in dto.layers {
-        let mut ls = photrez_core::snapshot::LayerSnapshot::new(&l.layer_id, l.width, l.height);
+        let mut ls = photrez_core::document::LayerSnapshot::new(&l.layer_id, l.width, l.height);
         ls.epoch = l.epoch;
         ls.pixel_version = l.pixel_version;
         if let Some(token) = l.bitmap_token {
@@ -167,7 +167,7 @@ fn dto_to_core_snapshot(dto: DocumentSnapshotDto) -> photrez_core::snapshot::Doc
     snap
 }
 
-fn core_to_dto(snap: photrez_core::snapshot::DocumentSnapshot) -> DocumentSnapshotDto {
+fn core_to_dto(snap: photrez_core::document::DocumentSnapshot) -> DocumentSnapshotDto {
     let layers = snap
         .layers
         .into_iter()
@@ -187,7 +187,7 @@ fn core_to_dto(snap: photrez_core::snapshot::DocumentSnapshot) -> DocumentSnapsh
     }
 }
 
-fn max_layer_epoch(reg: &photrez_core::pixel_store::PixelStoreRegistry, doc_id: &str) -> u64 {
+fn max_layer_epoch(reg: &photrez_core::pixel::PixelStoreRegistry, doc_id: &str) -> u64 {
     reg.docs
         .get(doc_id)
         .map(|doc| doc.layers.values().map(|l| l.epoch()).max().unwrap_or(0))

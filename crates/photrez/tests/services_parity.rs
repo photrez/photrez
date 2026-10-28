@@ -1,3 +1,9 @@
+// Integration-test setup helpers fail the same way `#[test]` bodies may:
+// with expect/panic on precondition violations. clippy.toml's
+// allow-unwrap-in-tests only recognises test functions, so the allowance is
+// spelled out here, scoped to this test-only file.
+#![allow(clippy::expect_used, clippy::panic)]
+
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};

@@ -100,15 +100,16 @@
 //! * Icon tint is static (decided at tree-build time), matching the resting
 //!   state; the hover tint is not ported with the rest of the hover state.
 
-use crate::assets::icons;
 use crate::components::ui;
 use crate::i18n::t;
+use crate::icons;
+use crate::state::AppState;
 use crate::tokens::color;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight, Hsla};
+use gpui_kit::{div, px, Div, FontWeight, Hsla, TestSupportExt};
 
 // ── Geometry ────────────────────────────────────────────────────────────────
 
@@ -210,55 +211,41 @@ const HINT_TEXT_KEY: &str = "history.editsAppearHere";
 
 // ── Data ────────────────────────────────────────────────────────────────────
 
-/// The row's visual state, from `data-history-state` in the JSX. Only
-/// `Current` occurs in the baseline; the other two are transcribed because
-/// they are pure presentation.
+/// The row's visual state, from `data-history-state` in the JSX.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Step {
-    /// index === activeHistoryIndex: filled, accent icon, solid label.
+    /// The cursor is on this entry.
     Current,
-    /// item.isRedo: italic, 40% label, 30% icon.
+    /// A redo row ahead of the cursor.
     Future,
-    /// committed and behind the cursor: dim label and icon.
-    ///
-    /// Not constructed by the captured state (one `Current` row); kept because
-    /// the three states are the row's whole visual vocabulary, and the tests
-    /// exercise it. `allow`, not `expect`: the lint fires only in non-test
-    /// builds, so an expectation would be unfulfilled under `cfg(test)`.
-    #[allow(dead_code)]
+    /// A committed row behind the cursor.
     Past,
 }
 
-/// One row of `historyItems()`. The engine type (`engine/history.ts`
-/// `HistoryItem`) also carries snapshots and redo flags; only the label and
-/// the derived state reach the pixels, so only those are here.
-struct HistoryItem {
-    label: &'static str,
-    step: Step,
+impl Step {
+    fn for_row(row: &crate::state::HistoryRow) -> Self {
+        if row.current {
+            Self::Current
+        } else if row.applied {
+            Self::Past
+        } else {
+            Self::Future
+        }
+    }
 }
-
-/// The captured default state: a freshly opened, unedited document.
-/// `getHistoryStack()` yields exactly one entry, `Open`, and it is the
-/// current step.
-const ITEMS: &[HistoryItem] = &[HistoryItem {
-    label: "Open", // i18n-exempt: demo content <engine history-step label, captured stack; kept English for action_icon's keyword match>
-    step: Step::Current,
-}];
 
 // ── Panel ───────────────────────────────────────────────────────────────────
 
-/// `<div data-history-panel class="flex min-h-0 flex-1 select-none flex-col">`
-/// holding the `<Show when={activeDocumentId()}>` branch (the fallback is
-/// state-keyed and omitted — see the module docs).
-///
-/// The two pass-through flex columns between this div and the rows
-/// (`data-history-list` and the `flex-1 overflow-y-auto` scroll container)
-/// collapse into one; the scroll container keeps its `.pr(6)` reservation and
-/// its `overflow-hidden` (nothing overflows in this state, but the class is
-/// in the source and costs nothing).
-pub fn render() -> impl IntoElement {
-    let mut list = list_column();
-    if ITEMS.len() == 1 {
+/// The captured default state has one `Open` row and the “Edits appear here”
+/// hint; a document with entries lists them from the oldest applied entry to
+/// the newest redo row.
+pub fn render(
+    state: &gpui_kit::Entity<AppState>,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> impl IntoElement {
+    let rows = state.read(cx).history.clone();
+    let mut list = list_column(&rows, cx);
+    if rows.len() <= 1 {
         list = list.child(hint());
     }
 
@@ -273,31 +260,26 @@ pub fn render() -> impl IntoElement {
 /// `flex-1 overflow-y-auto` — the scroll container, with the 6px
 /// `scrollbar-gutter: stable` strip on its right (module docs). Rows are
 /// `w-full` of what remains: 254px.
-fn list_column() -> Div {
+fn list_column(rows: &[crate::state::HistoryRow], cx: &gpui_kit::Context<crate::app::App>) -> Div {
     let mut list = v_flex().flex_1().overflow_hidden().pr(px(SCROLLBAR_GUTTER));
-    for item in ITEMS {
-        list = list.child(history_row(item));
+    for (index, item) in rows.iter().enumerate() {
+        list = list.child(history_row(index, item, cx));
     }
     list
 }
 
-/// A history step: `<button class="group relative flex h-[38px] w-full
-/// items-center gap-2.5 px-4 py-1 text-left text-[12px] ...">` containing the
-/// action icon and the label.
-///
-/// The button's `relative`, `group`, `transition-colors`, `focus:outline-none`
-/// and `focus-visible:bg-white/[0.075]` are interaction-only and omitted; the
-/// label carries `truncate`'s three properties so a long step name clips with
-/// an ellipsis instead of painting over the gutter.
-fn history_row(item: &HistoryItem) -> impl IntoElement {
-    // Captured at tree-build time rather than inherited from a hover style —
-    // same constraint `tool_rail.rs` documents for its icons.
-    let (icon_tint, label_color) = match item.step {
+fn history_row(
+    index: usize,
+    item: &crate::state::HistoryRow,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> impl IntoElement {
+    let step = Step::for_row(item);
+    let (icon_tint, label_color) = match step {
         Step::Current => (color::ACCENT, color::TEXT),
         Step::Future => (TEXT_30, TEXT_40),
         Step::Past => (color::TEXT_DIM, color::TEXT_DIM),
     };
-    let stroke = if item.step == Step::Current {
+    let stroke = if step == Step::Current {
         STROKE_ACTIVE
     } else {
         STROKE_IDLE
@@ -312,25 +294,30 @@ fn history_row(item: &HistoryItem) -> impl IntoElement {
         .overflow_hidden()
         .text_ellipsis()
         .whitespace_nowrap()
-        .child(item.label.to_string());
-    if item.step == Step::Future {
+        .child(item.label.clone());
+    if step == Step::Future {
         label = label.italic();
     }
 
+    let on_click = cx.listener(move |app, _, _, cx| {
+        app.jump_history_action(index as u64, cx);
+    });
+
     h_flex()
-        // Reused as the ElementId so the row is hit-testable once onClick
-        // lands; inert in a static render.
-        .id(item.label)
+        .id(format!("history-row-{index}"))
+        .test_support()
         .h(px(ROW_H))
         .w_full()
         .items_center()
         .gap(px(ROW_GAP))
         .px(px(PAD_X))
         .py(px(ROW_PY))
-        .when(item.step == Step::Current, |el| el.bg(WHITE_12))
+        .when(step == Step::Current, |el| el.bg(WHITE_12))
+        .cursor_pointer()
+        .on_click(on_click)
         .child(
             Icon::default()
-                .data(icons::with_stroke(action_icon(item.label), stroke))
+                .data(icons::with_stroke(action_icon(&item.label), stroke))
                 .size(px(ICON_ROW))
                 .text_color(icon_tint),
         )
@@ -413,15 +400,36 @@ mod tests {
         assert_eq!(action_icon("Unknown"), icons::HISTORY);
     }
 
-    /// The captured default stack holds exactly one `Current` step —
-    /// `Step::Current` fills `ITEMS`. RED proof: change `Step::Current`
-    /// to `Step::Past` in the constant and the length assertion still
-    /// passes but the step assertion flips.
+    /// The row state follows the core cursor: the current row, applied rows
+    /// behind it, and redo rows ahead of it.
     #[test]
-    fn captured_items_shape() {
-        assert_eq!(ITEMS.len(), 1);
-        assert_eq!(ITEMS[0].label, "Open");
-        assert_eq!(ITEMS[0].step, Step::Current);
+    fn step_for_row_maps_cursor() {
+        use crate::state::HistoryRow;
+        let past = HistoryRow {
+            label: "Brush".into(),
+            applied: true,
+            current: false,
+        };
+        let current = HistoryRow {
+            label: "Brush".into(),
+            applied: true,
+            current: true,
+        };
+        let future = HistoryRow {
+            label: "Brush".into(),
+            applied: false,
+            current: false,
+        };
+        assert_eq!(Step::for_row(&past), Step::Past);
+        assert_eq!(Step::for_row(&current), Step::Current);
+        assert_eq!(Step::for_row(&future), Step::Future);
+    }
+
+    /// The hint is shown while the stream has no entries beyond the initial
+    /// "Open" row.
+    #[test]
+    fn hint_text_is_the_single_row_copy() {
+        assert_eq!(t(HINT_TEXT_KEY), "Edits appear here");
     }
 
     /// `Step` is `PartialEq + Eq` — the `Current` branch is the one the
@@ -434,14 +442,5 @@ mod tests {
         assert_ne!(Step::Current, Step::Future);
         assert_ne!(Step::Current, Step::Past);
         assert_ne!(Step::Future, Step::Past);
-    }
-
-    /// `render` adds the hint only when the stack has a single entry —
-    /// the exact captured condition.
-    #[test]
-    fn hint_shows_only_for_single_item() {
-        assert_eq!(ITEMS.len(), 1);
-        // `HINT_TEXT_KEY` is the `en` locale string for the single-item case.
-        assert_eq!(t(HINT_TEXT_KEY), "Edits appear here");
     }
 }

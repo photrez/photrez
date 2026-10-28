@@ -1,0 +1,491 @@
+//! # input - pointer and brush chain
+//!
+//! Owns: pointer/brush input policy - turning window events into tool actions
+//! and `photrez-core` commands.
+//!
+//! Must not own: painting (`render/`), widget layout (`views/`), or document
+//! mutation outside core commands.
+
+pub mod brush;
+
+use std::rc::Rc;
+
+use photrez_core::brush::engine::BrushStrokeEngine;
+use photrez_core::brush::tip::{bilinear_resize_premul, BrushTip};
+use photrez_core::paint::parity::{raster_shadow, ParityDab, ParityTip};
+
+use crate::state::ToolId;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CursorPolicy {
+    SystemDefault,
+    Crosshair,
+    Text,
+    Grabbing,
+    OpenHand,
+    ResizeNwse,
+    ResizeNesw,
+    ResizeEw,
+    ResizeNs,
+    NotAllowed,
+}
+
+/// The reachable native cursor inputs. Handles, rotate, pan, Alt-copy and the
+/// colour picker have no native implementation yet, so they are not inputs
+/// here; their frozen branches are recorded as 40/50 obligations.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CursorContext {
+    pub tool: ToolId,
+    pub phase: GesturePhase,
+    pub layer_locked: bool,
+    pub layer_paintable: bool,
+}
+
+pub(crate) fn cursor_policy_for_tool(tool: ToolId) -> CursorPolicy {
+    match tool {
+        // Move's reference cursor varies by handle; this hitbox has no handle-specific regions.
+        ToolId::Move | ToolId::Brush | ToolId::Eraser => CursorPolicy::SystemDefault,
+        ToolId::Selection
+        | ToolId::Crop
+        | ToolId::Eyedropper
+        | ToolId::PaintBucket
+        | ToolId::Gradient
+        | ToolId::Shape => CursorPolicy::Crosshair,
+        ToolId::Text => CursorPolicy::Text,
+    }
+}
+
+pub(crate) fn cursor_policy_for_context(context: CursorContext) -> CursorPolicy {
+    let writes = matches!(
+        context.tool,
+        ToolId::Brush | ToolId::Eraser | ToolId::PaintBucket | ToolId::Gradient
+    );
+    if writes && (!context.layer_paintable || context.layer_locked) {
+        return CursorPolicy::NotAllowed;
+    }
+    if context.tool == ToolId::Move && context.phase == GesturePhase::Action {
+        return CursorPolicy::Grabbing;
+    }
+    cursor_policy_for_tool(context.tool)
+}
+
+/// A non-brush pointer gesture that is waiting for pointer-up.
+pub struct PendingGesture {
+    pub tool: ToolId,
+    pub start: (f64, f64),
+    pub last: (f64, f64),
+    /// Shift constrains a pixel selection to a square (`input-handler.ts`).
+    pub shift: bool,
+    /// Alt grows a pixel selection from its centre instead of its corner.
+    pub alt: bool,
+}
+
+/// The explicit gesture lifecycle from the input contract.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GesturePhase {
+    #[default]
+    Idle,
+    Action,
+    Committed,
+    Cleanup,
+}
+
+impl GesturePhase {
+    fn can_advance_to(self, next: Self) -> bool {
+        matches!(
+            (self, next),
+            (Self::Idle, Self::Action)
+                | (Self::Action, Self::Committed)
+                | (Self::Committed, Self::Cleanup)
+                | (Self::Cleanup, Self::Idle)
+        )
+    }
+}
+
+/// The core layer a gesture mutates, captured at pointer-down.
+pub struct PaintTarget {
+    pub doc_id: String,
+    pub layer_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub base_pixels: Vec<u8>,
+}
+
+/// The layer a brush/eraser stroke targets. It carries no full-layer pixel
+/// copy; the preview reads the canonical crop and the commit reads the store.
+pub struct BrushTarget {
+    pub doc_id: String,
+    pub layer_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub display_scale: f64,
+}
+
+/// One in-flight brush or eraser stroke.
+pub struct BrushStroke {
+    pub target: BrushTarget,
+    pub engine: BrushStrokeEngine,
+    pub dabs: Vec<ParityDab>,
+    pub tip: Rc<BrushTip>,
+    pub eraser: bool,
+    pub size: f64,
+    /// `opacity * flow` from the tool settings; every dab carries it.
+    pub dab_alpha: f64,
+    pub start: (f64, f64),
+    pub last: (f64, f64),
+}
+
+/// One-entry tip cache keyed by the settings that shape the mask.
+///
+/// The frozen overlay pre-warms this off the pointer path; building an 800 px
+/// mask and its diagnostic upscales on every stroke cost ~40 ms of
+/// first-pixel latency. A changed size/hardness/colour rebuilds once.
+#[derive(Default)]
+pub(crate) struct BrushTipCache {
+    entry: Option<(u64, u64, [u8; 4], Rc<BrushTip>)>,
+}
+
+impl BrushTipCache {
+    pub(crate) fn get(&mut self, size: f64, hardness: f64, color: [u8; 4]) -> Rc<BrushTip> {
+        let key = (size.to_bits(), hardness.to_bits(), color);
+        if let Some((size_bits, hardness_bits, cached_color, tip)) = &self.entry {
+            if (*size_bits, *hardness_bits, *cached_color) == key {
+                return Rc::clone(tip);
+            }
+        }
+        let tip = Rc::new(brush::build_tip(size, hardness, color));
+        self.entry = Some((key.0, key.1, key.2, Rc::clone(&tip)));
+        tip
+    }
+}
+
+#[derive(Default)]
+pub struct InputState {
+    phase: GesturePhase,
+    brush: Option<BrushStroke>,
+}
+
+impl InputState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn phase(&self) -> GesturePhase {
+        self.phase
+    }
+
+    pub fn has_active_brush(&self) -> bool {
+        self.brush.is_some()
+    }
+
+    /// Begin a brush/eraser stroke. Refuses unless the machine is idle.
+    pub fn begin_brush(&mut self, stroke: BrushStroke) -> bool {
+        if self.brush.is_some() || !self.advance(GesturePhase::Action) {
+            return false;
+        }
+        self.brush = Some(stroke);
+        true
+    }
+
+    /// Feed one document-space pointer move. Returns false when idle.
+    pub fn update_brush(&mut self, x: f64, y: f64) -> bool {
+        if self.phase != GesturePhase::Action {
+            return false;
+        }
+        let Some(stroke) = self.brush.as_mut() else {
+            return false;
+        };
+        stroke.engine.update(x, y);
+        let produced = stroke.engine.dabs().to_vec();
+        let alpha = stroke.dab_alpha;
+        for pair in produced.chunks_exact(2) {
+            stroke.dabs.push(ParityDab {
+                x: pair[0],
+                y: pair[1],
+                alpha,
+            });
+        }
+        stroke.last = (x, y);
+        true
+    }
+
+    /// Close the action phase and hand the stroke to the committer.
+    pub fn finish_brush(&mut self) -> Option<BrushStroke> {
+        if self.phase != GesturePhase::Action || !self.advance(GesturePhase::Committed) {
+            return None;
+        }
+        self.brush.take()
+    }
+
+    /// `Committed -> Cleanup -> Idle`; refuses out-of-order cleanup.
+    pub fn cleanup(&mut self) -> bool {
+        if self.phase != GesturePhase::Committed {
+            return false;
+        }
+        self.advance(GesturePhase::Cleanup) && self.advance(GesturePhase::Idle)
+    }
+
+    /// Drop any in-flight stroke without committing (pointer cancel / Escape).
+    pub fn cancel(&mut self) {
+        self.brush = None;
+        self.phase = GesturePhase::Idle;
+    }
+
+    fn advance(&mut self, next: GesturePhase) -> bool {
+        if !self.phase.can_advance_to(next) {
+            return false;
+        }
+        self.phase = next;
+        true
+    }
+
+    pub(crate) fn active_brush(&self) -> Option<&BrushStroke> {
+        self.brush.as_ref()
+    }
+}
+
+/// One display-scale preview patch. `doc_*` is the document-space destination;
+/// `image_*` is the smaller preview raster; the display scales the image into
+/// the destination.
+#[derive(Clone, Debug)]
+pub(crate) struct ScaledPreviewPatch {
+    pub doc_x: u32,
+    pub doc_y: u32,
+    pub doc_width: u32,
+    pub doc_height: u32,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub data: Vec<u8>,
+}
+
+/// Render the whole current stroke at display scale over the canonical layer
+/// crop. The preview stays display-sized (bounded by `max_edge`) while the
+/// pointer-up commit remains the exact full-resolution authority.
+///
+/// The tip is resampled to the preview stamp size first, so the preview
+/// rasterizer reads a stamp-sized bitmap instead of the full-resolution tip.
+#[allow(clippy::too_many_arguments)] // the brush record is flat; a struct would only rename it
+pub(crate) fn scaled_preview_patches(
+    layer_pixels: &[u8],
+    width: u32,
+    height: u32,
+    dabs: &[ParityDab],
+    tip: &BrushTip,
+    eraser: bool,
+    display_scale: f64,
+    max_edge: u32,
+) -> Result<Vec<ScaledPreviewPatch>, String> {
+    if width == 0 || height == 0 {
+        return Err("preview layer dimensions are zero".to_owned());
+    }
+    let source_width = width as usize;
+    let source_height = height as usize;
+    let expected = source_width
+        .checked_mul(source_height)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "preview layer size overflow".to_owned())?;
+    if layer_pixels.len() != expected {
+        return Err("preview layer buffer length mismatch".to_owned());
+    }
+    if dabs.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !display_scale.is_finite() || display_scale <= 0.0 {
+        return Err("preview display scale is invalid".to_owned());
+    }
+
+    let doc_w = width as i64;
+    let doc_h = height as i64;
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for dab in dabs {
+        if !dab.x.is_finite() || !dab.y.is_finite() || !dab.alpha.is_finite() {
+            return Err("preview dab coordinates are not finite".to_owned());
+        }
+        min_x = min_x.min(dab.x);
+        min_y = min_y.min(dab.y);
+        max_x = max_x.max(dab.x);
+        max_y = max_y.max(dab.y);
+    }
+    let tip_span = (tip.diameter as f64)
+        .max(tip.width as f64)
+        .max(tip.height as f64);
+    let margin = (tip_span / 2.0).ceil() as i64 + 2;
+    let x0 = ((min_x.floor() as i64) - margin).clamp(0, doc_w - 1);
+    let y0 = ((min_y.floor() as i64) - margin).clamp(0, doc_h - 1);
+    let x1 = ((max_x.ceil() as i64) + margin).clamp(x0 + 1, doc_w);
+    let y1 = ((max_y.ceil() as i64) + margin).clamp(y0 + 1, doc_h);
+    let crop_w = (x1 - x0) as usize;
+    let crop_h = (y1 - y0) as usize;
+    if crop_w == 0 || crop_h == 0 {
+        return Err("preview crop is empty".to_owned());
+    }
+
+    let base_scale = display_scale.clamp(0.0, 1.0);
+    let cap = max_edge.max(1) as f64;
+    let scale = base_scale
+        .min(cap / crop_w as f64)
+        .min(cap / crop_h as f64)
+        .clamp(1e-4, 1.0);
+    let preview_w = ((crop_w as f64 * scale).ceil() as usize).max(1);
+    let preview_h = ((crop_h as f64 * scale).ceil() as usize).max(1);
+    let base = downsample_premultiplied(
+        layer_pixels,
+        source_width,
+        source_height,
+        x0,
+        y0,
+        crop_w,
+        crop_h,
+        preview_w,
+        preview_h,
+    )?;
+    let shifted: Vec<ParityDab> = dabs
+        .iter()
+        .map(|dab| ParityDab {
+            x: (dab.x - x0 as f64) * scale,
+            y: (dab.y - y0 as f64) * scale,
+            alpha: dab.alpha,
+        })
+        .collect();
+    let preview_brush = (tip.diameter as f64 * scale).max(1.0);
+    let preview_tip_edge = (preview_brush.ceil() as u32)
+        .min(tip.width.min(tip.height))
+        .max(1);
+    let preview_tip_data = resize_tip_premultiplied(tip, preview_tip_edge);
+    let parity_tip = ParityTip {
+        width: preview_tip_edge as usize,
+        height: preview_tip_edge as usize,
+        data: &preview_tip_data,
+    };
+    let (_, patches) = raster_shadow(
+        preview_w,
+        preview_h,
+        true,
+        Some(base),
+        eraser,
+        preview_brush,
+        &shifted,
+        &parity_tip,
+        true,
+    );
+
+    let mut result = Vec::with_capacity(patches.len());
+    for patch in patches {
+        let doc_x = (x0 as f64 + patch.x as f64 / scale)
+            .round()
+            .clamp(0.0, width as f64 - 1.0) as u32;
+        let doc_y = (y0 as f64 + patch.y as f64 / scale)
+            .round()
+            .clamp(0.0, height as f64 - 1.0) as u32;
+        let doc_right = (x0 as f64 + (patch.x + patch.w as i64) as f64 / scale)
+            .round()
+            .clamp(doc_x as f64 + 1.0, width as f64) as u32;
+        let doc_bottom = (y0 as f64 + (patch.y + patch.h as i64) as f64 / scale)
+            .round()
+            .clamp(doc_y as f64 + 1.0, height as f64) as u32;
+        let image_width =
+            u32::try_from(patch.w).map_err(|_| "preview image width overflow".to_owned())?;
+        let image_height =
+            u32::try_from(patch.h).map_err(|_| "preview image height overflow".to_owned())?;
+        let expected = image_width as usize * image_height as usize * 4;
+        if patch.data.len() != expected {
+            return Err("preview patch buffer length mismatch".to_owned());
+        }
+        result.push(ScaledPreviewPatch {
+            doc_x,
+            doc_y,
+            doc_width: doc_right - doc_x,
+            doc_height: doc_bottom - doc_y,
+            image_width,
+            image_height,
+            data: patch.data,
+        });
+    }
+    Ok(result)
+}
+
+/// Downsample the colorized tip to the preview stamp resolution. The
+/// resampler works on premultiplied pixels and emits straight RGBA, so the
+/// result feeds `ParityTip` unchanged.
+fn resize_tip_premultiplied(tip: &BrushTip, edge: u32) -> Vec<u8> {
+    let mut premultiplied = tip.rgba_data_size.clone();
+    for pixel in premultiplied.chunks_exact_mut(4) {
+        let alpha = pixel[3] as u32;
+        for channel in pixel.iter_mut().take(3) {
+            *channel = ((*channel as u32 * alpha + 127) / 255) as u8;
+        }
+    }
+    bilinear_resize_premul(&premultiplied, tip.width, tip.height, edge, edge)
+}
+
+#[allow(clippy::too_many_arguments)] // source/crop/destination are one geometric record
+fn downsample_premultiplied(
+    source: &[u8],
+    source_width: usize,
+    source_height: usize,
+    x0: i64,
+    y0: i64,
+    crop_w: usize,
+    crop_h: usize,
+    out_w: usize,
+    out_h: usize,
+) -> Result<Vec<u8>, String> {
+    if out_w == 0 || out_h == 0 || crop_w == 0 || crop_h == 0 {
+        return Err("preview downsample dimensions are zero".to_owned());
+    }
+    let expected = source_width
+        .checked_mul(source_height)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "preview source size overflow".to_owned())?;
+    if source.len() != expected {
+        return Err("preview source buffer length mismatch".to_owned());
+    }
+    let x0 = usize::try_from(x0).map_err(|_| "preview source x is negative".to_owned())?;
+    let y0 = usize::try_from(y0).map_err(|_| "preview source y is negative".to_owned())?;
+    if x0.saturating_add(crop_w) > source_width || y0.saturating_add(crop_h) > source_height {
+        return Err("preview source crop is outside the layer".to_owned());
+    }
+
+    let mut out = Vec::with_capacity(out_w * out_h * 4);
+    for oy in 0..out_h {
+        let sy0 = (oy * crop_h) / out_h;
+        let sy1 = (((oy + 1) * crop_h) / out_h).max(sy0 + 1).min(crop_h);
+        for ox in 0..out_w {
+            let sx0 = (ox * crop_w) / out_w;
+            let sx1 = (((ox + 1) * crop_w) / out_w).max(sx0 + 1).min(crop_w);
+            let mut red = 0u64;
+            let mut green = 0u64;
+            let mut blue = 0u64;
+            let mut alpha = 0u64;
+            let mut count = 0u64;
+            for sy in sy0..sy1 {
+                let row = (y0 + sy) * source_width;
+                for sx in sx0..sx1 {
+                    let index = (row + x0 + sx) * 4;
+                    let a = source[index + 3] as u64;
+                    if a != 0 {
+                        let half = a / 2;
+                        red += (source[index] as u64 * a + half) / 255;
+                        green += (source[index + 1] as u64 * a + half) / 255;
+                        blue += (source[index + 2] as u64 * a + half) / 255;
+                        alpha += a;
+                    }
+                    count += 1;
+                }
+            }
+            out.extend_from_slice(&[
+                (red.checked_div(count).unwrap_or(0)) as u8,
+                (green.checked_div(count).unwrap_or(0)) as u8,
+                (blue.checked_div(count).unwrap_or(0)) as u8,
+                (alpha.checked_div(count).unwrap_or(0)) as u8,
+            ]);
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests;

@@ -9,14 +9,14 @@
 // `rust_pixels_snapshot_tile` is registered and census-accepted but has no
 // production caller. Naming avoids resource_read_* / TileStore by design.
 
-use photrez_core::canonical_tip::{build_canonical_tip, TipSpec};
-use photrez_core::paint_parity::{raster_shadow, tiles_for_keys, ParityDab, ParityTip};
-use photrez_core::pixel_store::{registry, TilePatch};
+use photrez_core::brush::tip::{build_brush_tip, TipSpec};
+use photrez_core::paint::parity::{raster_shadow, tiles_for_keys, ParityDab, ParityTip};
+use photrez_core::pixel::{registry, TilePatch};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 // ── C5.1: document-namespaced canonical pixel store ──
-// Ownership lives in `photrez_core::pixel_store::PixelStoreRegistry`, keyed by
+// Ownership lives in `photrez_core::pixel::PixelStoreRegistry`, keyed by
 // (document_id, layer_id). The flat process-global `PIXEL_STORE: HashMap<layerId, PixelLayer>` (no lifecycle)
 // is gone. Lifecycle (open/close/add/remove/resize) is driven from TS via the
 // rust_pixels_* commands. No TileStore/Rayon/SAB/WebGPU.
@@ -535,13 +535,13 @@ pub struct ParityShadowRequest {
     pub tip_data: Vec<u8>,
     #[serde(default)]
     pub tip_id: Option<String>,
-    /// C2: when true, Rust builds the tip itself via canonical_tip (TipSpec).
+    /// When true, Rust builds the tip itself via `brush::tip` (TipSpec).
     #[serde(default)]
     pub canonical_tip: bool,
-    /// Hardness for the canonical tip builder (required when canonical_tip).
+    /// Hardness for the brush-tip builder (required when canonical_tip).
     #[serde(default)]
     pub hardness: Option<f64>,
-    /// Paint color for the canonical tip builder.
+    /// Paint color for the brush-tip builder.
     #[serde(default)]
     pub tip_color: Option<[u8; 3]>,
 }
@@ -577,7 +577,7 @@ fn dabs_of(req: &ParityShadowRequest) -> Vec<ParityDab> {
         .collect()
 }
 
-fn tile_json(t: photrez_core::paint_parity::TilePatchOut) -> TilePatchJson {
+fn tile_json(t: photrez_core::paint::parity::TilePatchOut) -> TilePatchJson {
     TilePatchJson {
         key: t.key,
         x: t.x,
@@ -595,7 +595,7 @@ fn effective_tip(req: &ParityShadowRequest) -> Result<(usize, usize, Vec<u8>), S
             req.hardness.unwrap_or(0.8),
             req.tip_color.unwrap_or([225, 90, 23]),
         );
-        let t = build_canonical_tip(&spec);
+        let t = build_brush_tip(&spec);
         // stamp bitmap is DIAMETER-space: width = height = diameter
         let w = t.diameter as usize;
         return Ok((w, w, t.rgba_diameter));

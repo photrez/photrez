@@ -33,13 +33,14 @@ SHA-256 is
 It was generated once with a scratch Rust program outside the test path. The
 program read the two sidecars above, created a `LocalFileIo` save target, and
 called `SaveStream::begin`, `write_layer`, and `end`. It linked the production
-library built from this checkout using Rust 1.95.0 and the actual
-`crates/photrez/Cargo.lock` (SHA-256
-`f3b7a55c8d66e5ac6e48cf834df9d694a486008f015b6796b7e04384c1a9071d`). The
-locked feature tree was inspected with:
+library built from this checkout using Rust 1.95.0 and the lockfile that then
+covered the crate (the pre-consolidation `crates/photrez/Cargo.lock`,
+SHA-256 `f3b7a55c8d66e5ac6e48cf834df9d694a486008f015b6796b7e04384c1a9071d`;
+that file no longer exists — the workspace consolidation replaced it with the
+single root `Cargo.lock`). The locked feature tree was inspected with:
 
 ```text
-cargo tree --locked --manifest-path crates/photrez/Cargo.toml -i zip@9.0.4 -e features
+cargo tree --locked -i zip@9.0.4 -e features
 ```
 
 The manifest pins `zip = "=9.0.4"`, disables default features, and enables
@@ -47,10 +48,12 @@ The manifest pins `zip = "=9.0.4"`, disables default features, and enables
 `deflate-zopfli`. Production `file_options()` uses Deflate level 6, the DOS
 system, external attributes `0o600 << 16`, and the ZIP epoch timestamp.
 
-The exact one-off build, run, and copy commands were:
+The exact one-off build, run, and copy commands were (the first command is
+restated in today's form; the recorded run used the pre-consolidation
+`--manifest-path crates/photrez/Cargo.toml` variant):
 
 ```text
-cargo test --locked --manifest-path crates/photrez/Cargo.toml --test services_parity --no-run -vv
+cargo test --locked --test services_parity --no-run -vv
 & "C:\Users\Qolbi\.rustup\toolchains\stable-x86_64-pc-windows-gnu\bin\rustc.exe" --edition=2021 --crate-name generate_save_stream_golden "C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\src\main.rs" -o "C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\generate-save-stream-golden.exe" -L "dependency=D:\Project\image-studio\target\debug\deps" --extern "photrez=D:\Project\image-studio\target\debug\deps\libphotrez-59c57dca65e0abaa.rlib" -L "native=D:\Project\image-studio\target\debug\build\gpui-pre-7bf38c27cb1854b1\out" -L "native=C:\Users\Qolbi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_gnu-0.52.6\lib" -L "native=C:\Users\Qolbi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_gnu-0.53.1\lib"
 & "C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\generate-save-stream-golden.exe"
 Copy-Item -LiteralPath 'C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\same-writer.golden.ptz' -Destination 'crates\photrez\tests\fixtures\bounded-raster.save-stream.golden.ptz'

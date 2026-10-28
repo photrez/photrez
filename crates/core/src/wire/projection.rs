@@ -1,0 +1,223 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Render projection types (RenderSnapshot / RenderDelta) + the pixel-history
+// delta helpers that translate Arc<StateNode> states to the TS-facing TilePatch
+// form, and the error DTO. The history view DTOs live in `wire::history`.
+
+use crate::pixel::state_node::{StateNode, TILE};
+use crate::pixel::tile::TilePatch;
+use crate::ptz::content::SelectionState;
+use crate::render::layer::{RenderLayer, RenderLayerChange};
+use crate::wire::command::DocumentVersion;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderSnapshot {
+    pub version: DocumentVersion,
+    pub layers: Vec<RenderLayer>,
+    // Additive: selection rides the Model-A snapshot (host-side undo history).
+    // Optional so pre-selection envelopes still parse; skip when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionState>,
+    // Additive: document size rides the snapshot so document-dimension commands
+    // (Crop Canvas / Apply Crop / Resize Canvas) can surface the new canvas size
+    // without a dedicated delta channel. Optional so pre-dims envelopes still
+    // parse; skip when the engine has no document size (e.g. an unseeded
+    // engine running only layer arms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderDelta {
+    pub base_version: DocumentVersion,
+    pub version: DocumentVersion,
+    pub changes: Vec<RenderLayerChange>,
+    // Additive: document size affected by this delta. Set by the canvas-size arms
+    // (Crop Canvas / Apply Crop / Resize Canvas) and by the undo/redo restoration
+    // of those entries, so consumers can resize the canvas from the delta without
+    // re-reading the snapshot (Resize Canvas emits an EMPTY layer delta, so the
+    // dims are its only signal). Optional so every pre-dims delta stays
+    // byte-identical on the wire; skipped when the delta does not change the size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
+}
+impl RenderDelta {
+    pub fn is_applicable(&self, rendered_version: DocumentVersion) -> bool {
+        self.base_version == rendered_version
+    }
+}
+/// The delta tile set between two states: the tiles in `src` whose `TileRef`
+/// `Arc<[u8]>` (shared packed subarray) identity differs from the matching tile
+/// in `oth`. This is EXACTLY the set `LayerState::cow_batch` re-tiled (untouched
+/// tiles share the packed `Arc` identity, per I3/I4/I9), so emitting only these
+/// reproduces the dirty-region delta geometry (clipped edge tiles
+/// included) WITHOUT shipping the whole layer over IPC on every undo/redo.
+pub(crate) fn state_node_touched_patches(
+    src: &Arc<StateNode>,
+    oth: &Arc<StateNode>,
+) -> Vec<TilePatch> {
+    let oth_ids: HashMap<(u32, u32), (usize, usize)> = oth
+        .tiles
+        .iter()
+        .map(|t| ((t.grid_x, t.grid_y), t.identity_key()))
+        .collect();
+    src.tiles
+        .iter()
+        .filter(|t| {
+            oth_ids
+                .get(&(t.grid_x, t.grid_y))
+                .map(|key| *key != t.identity_key())
+                .unwrap_or(true)
+        })
+        .map(|t| TilePatch {
+            x: (t.grid_x as i64) * (TILE as i64),
+            y: (t.grid_y as i64) * (TILE as i64),
+            w: t.w as usize,
+            h: t.h as usize,
+            data: t.bytes().to_vec(),
+        })
+        .collect()
+}
+/// Sum the byte cost of the delta tiles WITHOUT materializing the per-tile
+/// `Vec<u8>` (`data: t.bytes().to_vec()`) that `state_node_touched_patches`
+/// would copy just to sum `w*h*4`. Iterates the touched tiles' dims directly
+/// (zero buffer copy), so the commit-path memory-cost estimate has no full-tile
+/// memcpy overhead.
+fn touched_delta_tiles_size(src: &Arc<StateNode>, oth: &Arc<StateNode>) -> u64 {
+    let oth_ids: HashMap<(u32, u32), (usize, usize)> = oth
+        .tiles
+        .iter()
+        .map(|t| ((t.grid_x, t.grid_y), t.identity_key()))
+        .collect();
+    src.tiles
+        .iter()
+        .filter(|t| {
+            oth_ids
+                .get(&(t.grid_x, t.grid_y))
+                .map(|key| *key != t.identity_key())
+                .unwrap_or(true)
+        })
+        .map(|t| (t.w * t.h * 4) as u64)
+        .sum()
+}
+/// Rough memory-cost estimate for a pixel history entry. Untouched tiles between
+/// before/after are SHARED via `Arc`, so counting every tile in both states
+/// overstates retention; count only the delta (touched) tiles of the transition.
+pub(crate) fn state_node_delta_memory_cost(before: &Arc<StateNode>, after: &Arc<StateNode>) -> u64 {
+    touched_delta_tiles_size(before, after) + touched_delta_tiles_size(after, before)
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolError {
+    pub code: String,
+    pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ptz::content::SelectionShape;
+
+    // Additive field: a snapshot JSON that predates the `selection` field must still
+    // parse (selection defaults to None). Guards the wire-compat contract.
+    #[test]
+    fn render_snapshot_parses_without_selection_key() {
+        let json = r#"{"version":3,"layers":[{"id":"L1","name":"A","visible":true,"opacity":1.0,"resourceId":1,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0}]}"#;
+        let snap: RenderSnapshot = serde_json::from_str(json).expect("legacy snapshot must parse");
+        assert_eq!(snap.version, 3);
+        assert_eq!(snap.selection, None);
+    }
+
+    #[test]
+    fn render_snapshot_parses_with_selection() {
+        let json = r#"{"version":1,"layers":[],"selection":{"x":1,"y":2,"width":3,"height":4,"angle":5,"shape":"ellipse","inverted":true}}"#;
+        let snap: RenderSnapshot =
+            serde_json::from_str(json).expect("snapshot with selection must parse");
+        assert_eq!(
+            snap.selection,
+            Some(SelectionState {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                angle: 5.0,
+                shape: Some(SelectionShape::Ellipse),
+                inverted: Some(true),
+            })
+        );
+    }
+
+    // Additive field: a snapshot JSON that predates the `width`/`height` document
+    // size fields must still parse (both default to None). Guards the wire-compat
+    // contract for the Crop Canvas / Apply Crop / Resize Canvas arms.
+    #[test]
+    fn render_snapshot_parses_without_dims_keys() {
+        let json = r#"{"version":3,"layers":[]}"#;
+        let snap: RenderSnapshot =
+            serde_json::from_str(json).expect("legacy snapshot without dims must parse");
+        assert_eq!(snap.width, None);
+        assert_eq!(snap.height, None);
+    }
+
+    #[test]
+    fn render_snapshot_parses_with_dims_and_emits_both_keys() {
+        let snap = RenderSnapshot {
+            version: 7,
+            layers: vec![],
+            selection: None,
+            width: Some(1024.0),
+            height: Some(768.0),
+        };
+        let json = serde_json::to_string(&snap).expect("snapshot with dims serializes");
+        let parsed: RenderSnapshot = serde_json::from_str(&json).expect("round-trips with dims");
+        assert_eq!(parsed.width, Some(1024.0));
+        assert_eq!(parsed.height, Some(768.0));
+        assert!(json.contains("\"width\":1024"));
+        assert!(json.contains("\"height\":768"));
+    }
+
+    // Additive field: a delta that predates the `width`/`height` document-size
+    // fields must serialize byte-identically (both keys are skipped when absent)
+    // and still parse. Guards the wire-compat contract for the canvas arms.
+    #[test]
+    fn render_delta_without_dims_is_byte_identical_and_parses() {
+        let delta = RenderDelta {
+            base_version: 1,
+            version: 2,
+            changes: vec![],
+            width: None,
+            height: None,
+        };
+        let json = serde_json::to_string(&delta).expect("delta serializes");
+        assert_eq!(json, r#"{"baseVersion":1,"version":2,"changes":[]}"#);
+        let parsed: RenderDelta =
+            serde_json::from_str(r#"{"baseVersion":1,"version":2,"changes":[]}"#)
+                .expect("legacy delta without dims must parse");
+        assert_eq!(parsed.width, None);
+        assert_eq!(parsed.height, None);
+    }
+
+    #[test]
+    fn render_delta_with_dims_round_trips() {
+        let delta = RenderDelta {
+            base_version: 1,
+            version: 2,
+            changes: vec![],
+            width: Some(320.0),
+            height: Some(240.0),
+        };
+        let json = serde_json::to_string(&delta).expect("delta with dims serializes");
+        assert!(json.contains("\"width\":320"));
+        assert!(json.contains("\"height\":240"));
+        let parsed: RenderDelta = serde_json::from_str(&json).expect("round-trips with dims");
+        assert_eq!(parsed.width, Some(320.0));
+        assert_eq!(parsed.height, Some(240.0));
+    }
+}

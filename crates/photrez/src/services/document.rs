@@ -1,14 +1,32 @@
-//! # document - the demo document, built through `photrez-core`
+//! # document - the demo document and the loaded-document save path
 //!
-//! Owns: constructing the in-process document the shell displays today. Its
-//! pixels are produced by `photrez-core` primitives - the same region
-//! snapshot the display seam will use for partial updates - never by this
-//! module or the views.
+//! Owns: constructing the in-process demo document and writing a loaded
+//! document back through the approved `FileIo` + `SaveStream` boundary. Pixels
+//! are produced by `photrez-core` primitives - the same region snapshot the
+//! display seam uses - never by this module or the views.
 //!
-//! Must not own: rendering (`render/`), UI state (`state.rs`), or any file
-//! I/O (the real open/save path arrives with its own work).
+//! Must not own: rendering (`render/`), UI state (`state.rs`), or direct file
+//! access. Project bytes enter only through the approved `FileIo` boundary.
 
-use photrez_core::pixel_store::PixelLayer;
+use std::path::Path;
+
+use photrez_core::pixel::export::encode_image;
+use photrez_core::pixel::PixelLayer;
+use photrez_core::ptz::content::{LayerType, PtzDocumentContent};
+use photrez_core::ptz::file::PtzDocument;
+
+use crate::services::error::ServiceError;
+use crate::services::file_io::FileIo;
+use crate::services::ptz_limits::{self, MAX_LAYER_DIMENSION};
+use crate::services::save_stream::{SaveHandle, SaveStream};
+
+mod loader;
+
+use loader::{integer_dimension, resource_limit, validation};
+pub use loader::{load_document_candidate, LoadedDocument};
+
+#[cfg(test)]
+mod tests;
 
 /// Width of the frozen captures' document (the New Document dialog's
 /// defaults, as driven by `capture-baseline.ts` `createBlankCanvas`).
@@ -31,16 +49,144 @@ pub fn blank_white_document() -> (u32, u32, Vec<u8>) {
     (width, height, region)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl LoadedDocument {
+    pub(crate) fn save_to(
+        &self,
+        files: &dyn FileIo,
+        path: &Path,
+        save_stream: &SaveStream,
+    ) -> Result<(), ServiceError> {
+        let content = self
+            .registry
+            .document_content(&self.document_id)
+            .ok_or_else(|| ServiceError::Internal("loaded document content is missing".into()))?;
+        let document = self.live_document(content)?;
+        let document_json = document
+            .to_json()
+            .map_err(|error| validation(format!("cannot serialize document.json: {error}")))?;
+        let layers = self.raster_pngs(content)?;
 
-    /// The demo document is core-produced, not hand-rolled: it carries the
-    /// frozen capture's exact shape and an opaque white fill.
-    #[test]
-    fn blank_document_is_800x600_opaque_white() {
-        let (width, height, rgba) = blank_white_document();
-        assert_eq!((width, height), (800, 600));
-        assert_eq!(rgba, vec![255u8; 800 * 600 * 4]);
+        let target = files.authorize_save_target(path)?;
+        let handle = save_stream.begin(target, document_json.as_bytes())?;
+        for (layer_id, png) in &layers {
+            if let Err(error) = save_stream.write_layer(handle, layer_id, png) {
+                return Err(cleanup_failed_save(save_stream, handle, error));
+            }
+        }
+        if let Err(error) = save_stream.end(handle) {
+            return Err(cleanup_failed_save(save_stream, handle, error));
+        }
+        Ok(())
+    }
+
+    /// The file envelope for the live canonical content.
+    ///
+    /// Session fields (`activeLayerId`, `viewport`, `dirty`) are not document
+    /// content: preserve the active layer when it still exists, keep the
+    /// loaded viewport until the native viewport owns one, and write
+    /// `dirty: false` because a successful save is the clean state.
+    fn live_document(&self, content: &PtzDocumentContent) -> Result<PtzDocument, ServiceError> {
+        if content.id != self.document_id {
+            return Err(validation(
+                "canonical content id no longer matches the loaded document",
+            ));
+        }
+        if !content.width.is_finite()
+            || !content.height.is_finite()
+            || content.width <= 0.0
+            || content.height <= 0.0
+        {
+            return Err(validation("canonical document dimensions are invalid"));
+        }
+        let mut seen = std::collections::HashSet::with_capacity(content.layers.len());
+        for layer in &content.layers {
+            if layer.id.is_empty() || !seen.insert(layer.id.as_str()) {
+                return Err(validation(
+                    "canonical layer ids must be non-empty and unique",
+                ));
+            }
+        }
+        let original = self.document_snapshot();
+        let mut layers = content.layers.clone();
+        // `resourceId` is a live store token, not file metadata: the frozen
+        // envelope has no such field, and writing it would change every
+        // unmodified round-trip.
+        for layer in &mut layers {
+            layer.resource_id = None;
+        }
+        let active_layer_id = original
+            .active_layer_id
+            .as_ref()
+            .filter(|id| layers.iter().any(|layer| &layer.id == *id))
+            .cloned();
+        Ok(PtzDocument {
+            id: content.id.clone(),
+            name: content.name.clone(),
+            width: content.width,
+            height: content.height,
+            layers,
+            active_layer_id,
+            selection: content.selection.clone(),
+            viewport: original.viewport.clone(),
+            dirty: false,
+        })
+    }
+
+    /// Encode every raster layer, in content order. Shape and text layers are
+    /// carried by `document.json`; adjustment and group layers never reach a
+    /// loaded document because the loader refuses them.
+    fn raster_pngs(
+        &self,
+        content: &PtzDocumentContent,
+    ) -> Result<Vec<(String, Vec<u8>)>, ServiceError> {
+        let mut layers = Vec::new();
+        for layer in &content.layers {
+            if !matches!(layer.layer_type, LayerType::Raster) {
+                continue;
+            }
+            ptz_limits::validate_layer_id(&layer.id)?;
+            let width = integer_dimension(layer.width, MAX_LAYER_DIMENSION, "raster width")?;
+            let height = integer_dimension(layer.height, MAX_LAYER_DIMENSION, "raster height")?;
+            if (width == 0) != (height == 0) {
+                return Err(validation("raster dimensions must both be zero or nonzero"));
+            }
+            let canonical = self
+                .registry
+                .get_layer(&self.document_id, &layer.id)
+                .ok_or_else(|| validation("canonical raster pixels are missing"))?;
+            if (canonical.width, canonical.height) != (width, height) {
+                return Err(validation(
+                    "canonical pixel dimensions do not match raster metadata",
+                ));
+            }
+            let expected_size =
+                ptz_limits::decoded_rgba_bytes(u64::from(width), u64::from(height))?;
+            let expected_size = usize::try_from(expected_size)
+                .map_err(|_| resource_limit("canonical raster size does not fit in memory"))?;
+            if canonical.pixels.len() != expected_size {
+                return Err(validation(
+                    "canonical raster byte count does not match its dimensions",
+                ));
+            }
+            if width == 0 {
+                continue;
+            }
+            let png = encode_image(width, height, &canonical.pixels, "png", 100)
+                .map_err(|error| validation(format!("cannot encode raster PNG: {error}")))?;
+            layers.push((layer.id.clone(), png));
+        }
+        Ok(layers)
+    }
+}
+
+fn cleanup_failed_save(
+    save_stream: &SaveStream,
+    handle: SaveHandle,
+    save_error: ServiceError,
+) -> ServiceError {
+    match save_stream.cancel(handle) {
+        Ok(()) => save_error,
+        Err(ServiceError::Conflict(_)) => save_error,
+        Err(cleanup_error) => cleanup_error,
     }
 }

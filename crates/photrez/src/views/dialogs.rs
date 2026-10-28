@@ -76,15 +76,15 @@
 //!   not SVG.
 
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, relative, BoxShadow, Div, FontWeight, Hsla, Stateful};
+use gpui_kit::{div, px, Div, Entity, Hsla, TestSupportExt};
 
 use super::title_bar;
-use crate::assets::icons;
+#[allow(unused_imports)]
 use crate::components::ui;
-use crate::i18n::t;
+use crate::i18n::{t, t_args};
 use crate::shot;
+use crate::state::{AppState, DialogId};
 use crate::tokens::color;
 
 /// The transparent frame every dialog lives in.
@@ -311,6 +311,1067 @@ pub fn render() -> impl IntoElement {
         .child(body)
 }
 
+/// Live Settings body: the language preference. The frozen theme row stays a
+/// deferred stub (theme switching is not authorized).
+fn settings_body_live(_state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    use crate::i18n::{self, Locale};
+    let current = i18n::locale();
+    let mut body = v_flex().p(px(16.0)).gap(px(8.0)).w_full();
+    body = body.child(
+        div()
+            .text_size(px(11.5))
+            .text_color(color::TEXT_DIM)
+            .child(t("settings.language")),
+    );
+    for (locale, label) in [(Locale::En, "English"), (Locale::Id, "Bahasa Indonesia")] {
+        body = body.child(
+            div()
+                .id(format!("settings-locale-{}", locale.code()))
+                .test_support()
+                .h(px(26.0))
+                .px(px(8.0))
+                .flex()
+                .items_center()
+                .rounded(px(3.0))
+                .border_1()
+                .border_color(if locale == current {
+                    color::ACCENT
+                } else {
+                    color::BORDER
+                })
+                .text_size(px(11.5))
+                .text_color(color::TEXT)
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        app.set_locale(locale, cx);
+                    }),
+                )
+                .child(label.to_string()),
+        );
+    }
+    body.child(
+        div()
+            .mt(px(4.0))
+            .text_size(px(10.0))
+            .text_color(color::TEXT_DIM)
+            .child("Theme switching is not implemented.".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+    )
+}
+
+/// Resize Canvas body: the two digit buffers with the active field marked.
+fn resize_canvas_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    let (width, height, field) = state
+        .read(cx)
+        .resize_canvas
+        .as_ref()
+        .map(|session| (session.width.clone(), session.height.clone(), session.field))
+        .unwrap_or_default();
+    let cancel_state = state.clone();
+    v_flex()
+        .p(px(16.0))
+        .gap(px(8.0))
+        .w_full()
+        .child(resize_field("resize-width", "W", &width, field == 0, 0, cx))
+        .child(resize_field(
+            "resize-height",
+            "H",
+            &height,
+            field == 1,
+            1,
+            cx,
+        ))
+        .child(
+            div()
+                .text_size(px(10.0))
+                .text_color(color::TEXT_DIM)
+                .child("Tab switches field, Enter resizes, Escape cancels.".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+        )
+        .child(
+            div()
+                .mt(px(4.0))
+                .flex()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .id("resize-cancel")
+                        .test_support()
+                        .h(px(26.0))
+                        .px(px(10.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(color::BORDER)
+                        .text_size(px(11.5))
+                        .text_color(color::TEXT_DIM)
+                        .cursor_pointer()
+                        .on_click(
+                            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                                cx.stop_propagation();
+                                let _ = &cancel_state;
+                                app.cancel_resize_canvas(cx);
+                            }),
+                        )
+                        .child(t("common.cancel").to_string()),
+                )
+                .child(
+                    div()
+                        .id("resize-confirm")
+                        .test_support()
+                        .h(px(26.0))
+                        .px(px(10.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(4.0))
+                        .bg(color::ACCENT)
+                        .text_size(px(11.5))
+                        .text_color(color::BG)
+                        .cursor_pointer()
+                        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            let result = app.apply_resize_canvas(cx);
+                            match result {
+                                Ok(()) => app.set_status_error(None, cx),
+                                Err(error) => {
+                                    app.set_status_error(Some(format!("Resize: {error}")), cx)
+                                }
+                            }
+                        }))
+                        .child(t("dialogs.resizeCanvas.resize").to_string()),
+                ),
+        )
+}
+
+fn resize_field(
+    id: &'static str,
+    label: &str,
+    value: &str,
+    active: bool,
+    field: u8,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> Div {
+    h_flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(
+            div()
+                .w(px(16.0))
+                .text_size(px(11.0))
+                .text_color(color::TEXT_DIM)
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .id(id)
+                .test_support()
+                .h(px(26.0))
+                .flex_1()
+                .px(px(8.0))
+                .flex()
+                .items_center()
+                .rounded(px(4.0))
+                .border_1()
+                .border_color(if active { color::ACCENT } else { color::BORDER })
+                .bg(color::FIELD)
+                .text_size(px(12.0))
+                .text_color(color::TEXT)
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        app.set_resize_field(field, cx);
+                    }),
+                )
+                .child(format!("{value}|")),
+        )
+}
+
+/// The rename prompt shows the live buffer; Enter commits, Escape cancels.
+fn rename_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    let content = state
+        .read(cx)
+        .rename_layer
+        .as_ref()
+        .map(|session| session.content.clone())
+        .unwrap_or_default();
+    let cancel_state = state.clone();
+    v_flex()
+        .p(px(16.0))
+        .gap(px(8.0))
+        .w_full()
+        .child(
+            div()
+                .id("rename-value")
+                .test_support()
+                .h(px(28.0))
+                .px(px(8.0))
+                .flex()
+                .items_center()
+                .rounded(px(4.0))
+                .border_1()
+                .border_color(color::ACCENT)
+                .bg(color::FIELD)
+                .text_size(px(12.0))
+                .text_color(color::TEXT)
+                .child(format!("{content}|")),
+        )
+        .child(
+            div()
+                .text_size(px(10.0))
+                .text_color(color::TEXT_DIM)
+                .child("Enter to rename, Escape to cancel.".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+        )
+        .child(
+            div()
+                .mt(px(4.0))
+                .flex()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .id("rename-cancel")
+                        .test_support()
+                        .h(px(26.0))
+                        .px(px(10.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(4.0))
+                        .border_1()
+                        .border_color(color::BORDER)
+                        .text_size(px(11.5))
+                        .text_color(color::TEXT_DIM)
+                        .cursor_pointer()
+                        .on_click(
+                            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                                cx.stop_propagation();
+                                let _ = &cancel_state;
+                                app.cancel_rename_layer(cx);
+                            }),
+                        )
+                        .child(t("common.cancel").to_string()),
+                )
+                .child(
+                    div()
+                        .id("rename-confirm")
+                        .test_support()
+                        .h(px(26.0))
+                        .px(px(10.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(4.0))
+                        .bg(color::ACCENT)
+                        .text_size(px(11.5))
+                        .text_color(color::BG)
+                        .cursor_pointer()
+                        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            let result = app.commit_rename_layer(cx);
+                            match result {
+                                Ok(()) => app.set_status_error(None, cx),
+                                Err(error) => {
+                                    app.set_status_error(Some(format!("Rename: {error}")), cx)
+                                }
+                            }
+                        }))
+                        .child("Rename".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+                ),
+        )
+}
+
+/// The startup recovery prompt: list every autosave entry and let the user
+/// restore all of them as unsaved tabs or discard the store.
+fn recovery_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    let entries = state.read(cx).recovery_entries.clone();
+    let mut body = v_flex().p(px(16.0)).gap(px(6.0)).w_full();
+    body = body.child(
+        div()
+            .text_size(px(11.5))
+            .text_color(color::TEXT_DIM)
+            .child("Unsaved documents found in the autosave store:".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+    );
+    for entry in entries {
+        body = body.child(
+            div()
+                .h(px(24.0))
+                .flex()
+                .items_center()
+                .text_size(px(11.5))
+                .text_color(color::TEXT)
+                .child(entry.name),
+        );
+    }
+    body.child(
+        div()
+            .mt(px(6.0))
+            .flex()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .id("recovery-discard")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .text_size(px(11.5))
+                    .text_color(color::TEXT_DIM)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            app.discard_autosaves(cx);
+                        }),
+                    )
+                    .child(t("common.discard").to_string()),
+            )
+            .child(
+                div()
+                    .id("recovery-restore")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .bg(color::ACCENT)
+                    .text_size(px(11.5))
+                    .text_color(color::BG)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        app.restore_autosaves(cx);
+                    }))
+                    .child("Restore".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+            ),
+    )
+}
+
+/// Print dialog: paper, orientation, copies and the Print action.
+fn print_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    use crate::app::PRINT_PAPERS;
+    let (paper, copies, landscape, printers, selected_printer) = {
+        let s = state.read(cx);
+        (
+            s.print_paper,
+            s.print_copies,
+            s.print_landscape,
+            s.printers.clone(),
+            s.print_printer,
+        )
+    };
+    let mut body = v_flex().p(px(16.0)).gap(px(6.0)).w_full();
+    if printers.is_empty() {
+        body = body.child(
+            div()
+                .text_size(px(11.0))
+                .text_color(color::TEXT_DIM)
+                .child("Printer: system default".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+        );
+    } else {
+        for (index, name) in printers.iter().enumerate() {
+            let state = state.clone();
+            body = body.child(
+                div()
+                    .id(format!("print-printer-{index}"))
+                    .test_support()
+                    .h(px(22.0))
+                    .px(px(8.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(3.0))
+                    .border_1()
+                    .border_color(if index == selected_printer {
+                        color::ACCENT
+                    } else {
+                        color::BORDER
+                    })
+                    .text_size(px(11.0))
+                    .text_color(color::TEXT)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            state.update(cx, |state, _| state.print_printer = index);
+                            cx.notify();
+                        }),
+                    )
+                    .child(name.clone()),
+            );
+        }
+    }
+    for (index, (name, ..)) in PRINT_PAPERS.iter().enumerate() {
+        let state = state.clone();
+        body = body.child(
+            div()
+                .id(format!("print-paper-{index}"))
+                .test_support()
+                .h(px(24.0))
+                .px(px(8.0))
+                .flex()
+                .items_center()
+                .rounded(px(3.0))
+                .border_1()
+                .border_color(if index == paper {
+                    color::ACCENT
+                } else {
+                    color::BORDER
+                })
+                .text_size(px(11.5))
+                .text_color(color::TEXT)
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        state.update(cx, |state, _| state.print_paper = index);
+                        cx.notify();
+                    }),
+                )
+                .child((*name).to_string()),
+        );
+    }
+    let orientation_state = state.clone();
+    body = body
+        .child(
+            div()
+                .id("print-orientation")
+                .test_support()
+                .h(px(26.0))
+                .px(px(8.0))
+                .flex()
+                .items_center()
+                .rounded(px(3.0))
+                .border_1()
+                .border_color(color::BORDER)
+                .text_size(px(11.5))
+                .text_color(color::TEXT)
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        orientation_state.update(cx, |state, _| {
+                            state.print_landscape = !state.print_landscape;
+                        });
+                        cx.notify();
+                    }),
+                )
+                .child(if landscape {
+                    "Landscape".to_string()
+                } else {
+                    "Portrait".to_string()
+                }),
+        )
+        .child(
+            div().flex().items_center().gap(px(6.0)).child(
+                div()
+                    .text_size(px(11.5))
+                    .text_color(color::TEXT_DIM)
+                    .child(format!("Copies: {copies}")),
+            ),
+        );
+    let copies_dec = state.clone();
+    let copies_inc = state.clone();
+    body = body.child(
+        div()
+            .flex()
+            .gap(px(6.0))
+            .child(
+                div()
+                    .id("print-copies-dec")
+                    .test_support()
+                    .h(px(24.0))
+                    .w(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(3.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            copies_dec.update(cx, |state, _| {
+                                state.print_copies = state.print_copies.saturating_sub(1).max(1);
+                            });
+                            cx.notify();
+                        }),
+                    )
+                    .child("-"), // i18n-exempt: glyph or symbol
+            )
+            .child(
+                div()
+                    .id("print-copies-inc")
+                    .test_support()
+                    .h(px(24.0))
+                    .w(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(3.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            copies_inc.update(cx, |state, _| {
+                                state.print_copies = state.print_copies.saturating_add(1).min(99);
+                            });
+                            cx.notify();
+                        }),
+                    )
+                    .child("+"), // i18n-exempt: glyph or symbol
+            ),
+    );
+    let cancel_state = state.clone();
+    body.child(
+        div()
+            .mt(px(6.0))
+            .flex()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .id("print-cancel")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .text_size(px(11.5))
+                    .text_color(color::TEXT_DIM)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            cancel_state.update(cx, |state, _| state.active_dialog = None);
+                            cx.notify();
+                        }),
+                    )
+                    .child(t("common.cancel").to_string()),
+            )
+            .child(
+                div()
+                    .id("print-confirm")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .bg(color::ACCENT)
+                    .text_size(px(11.5))
+                    .text_color(color::BG)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        app.print_now(cx);
+                    }))
+                    .child(t("dialogs.print.printBtn").to_string()),
+            ),
+    )
+}
+
+/// Export dialog: format, quality and the path prompt.
+fn export_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    use crate::state::ExportFormat;
+    let (format, quality) = {
+        let s = state.read(cx);
+        (s.export_format, s.export_quality)
+    };
+    let mut body = v_flex().p(px(16.0)).gap(px(8.0)).w_full();
+    let mut formats = v_flex().gap(px(4.0));
+    for candidate in [
+        ExportFormat::Png,
+        ExportFormat::Jpeg,
+        ExportFormat::WebP,
+        ExportFormat::Tiff,
+    ] {
+        let state = state.clone();
+        formats = formats.child(
+            div()
+                .id(format!("export-format-{}", candidate.extension()))
+                .test_support()
+                .h(px(24.0))
+                .px(px(8.0))
+                .flex()
+                .items_center()
+                .rounded(px(3.0))
+                .border_1()
+                .border_color(if candidate == format {
+                    color::ACCENT
+                } else {
+                    color::BORDER
+                })
+                .text_size(px(11.5))
+                .text_color(color::TEXT)
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        state.update(cx, |state, _| state.export_format = candidate);
+                        cx.notify();
+                    }),
+                )
+                .child(candidate.label().to_string()),
+        );
+    }
+    body = body.child(formats).child(
+        div().flex().items_center().gap(px(6.0)).child(
+            div()
+                .text_size(px(11.5))
+                .text_color(color::TEXT_DIM)
+                .child(format!("Quality: {quality}")),
+        ),
+    );
+    let quality_dec = state.clone();
+    let quality_inc = state.clone();
+    body = body.child(
+        div()
+            .flex()
+            .gap(px(6.0))
+            .child(
+                div()
+                    .id("export-quality-dec")
+                    .test_support()
+                    .h(px(24.0))
+                    .w(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(3.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            quality_dec.update(cx, |state, _| {
+                                state.export_quality =
+                                    state.export_quality.saturating_sub(5).max(1);
+                            });
+                            cx.notify();
+                        }),
+                    )
+                    .child("-"), // i18n-exempt: glyph or symbol
+            )
+            .child(
+                div()
+                    .id("export-quality-inc")
+                    .test_support()
+                    .h(px(24.0))
+                    .w(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(3.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            quality_inc.update(cx, |state, _| {
+                                state.export_quality =
+                                    state.export_quality.saturating_add(5).min(100);
+                            });
+                            cx.notify();
+                        }),
+                    )
+                    .child("+"), // i18n-exempt: glyph or symbol
+            ),
+    );
+    let cancel_state = state.clone();
+    body.child(
+        div()
+            .mt(px(6.0))
+            .flex()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .id("export-cancel")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .text_size(px(11.5))
+                    .text_color(color::TEXT_DIM)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            cancel_state.update(cx, |state, _| state.active_dialog = None);
+                            cx.notify();
+                        }),
+                    )
+                    .child(t("common.cancel").to_string()),
+            )
+            .child(
+                div()
+                    .id("export-confirm")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .bg(color::ACCENT)
+                    .text_size(px(11.5))
+                    .text_color(color::BG)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        app.export_now(cx);
+                    }))
+                    .child("Export...".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+            ),
+    )
+}
+
+const NEW_DOC_PRESETS: &[(&str, u32, u32)] = &[
+    ("800 x 600", 800, 600),
+    ("1920 x 1080", 1920, 1080),
+    ("1080 x 1080", 1080, 1080),
+    ("3840 x 2160", 3840, 2160),
+];
+
+/// The New Document dialog body: preset sizes plus Create/Cancel. The frozen
+/// dialog's free-form width/height fields are represented by presets until the
+/// shared text-input surface lands.
+fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    let selected = state
+        .read(cx)
+        .new_document_preset
+        .min(NEW_DOC_PRESETS.len() - 1);
+    let mut body = v_flex().p(px(16.0)).gap(px(8.0)).w_full();
+    for (index, (label, _, _)) in NEW_DOC_PRESETS.iter().enumerate() {
+        let state = state.clone();
+        body = body.child(
+            div()
+                .id(format!("new-doc-preset-{index}"))
+                .test_support()
+                .h(px(28.0))
+                .px(px(10.0))
+                .flex()
+                .items_center()
+                .rounded(px(4.0))
+                .border_1()
+                .border_color(if index == selected {
+                    color::ACCENT
+                } else {
+                    color::BORDER
+                })
+                .text_size(px(11.5))
+                .text_color(color::TEXT)
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        state.update(cx, |state, _| state.new_document_preset = index);
+                        cx.notify();
+                    }),
+                )
+                .child(label.to_string()),
+        );
+    }
+    let state_for_cancel = state.clone();
+    body.child(
+        div()
+            .mt(px(4.0))
+            .flex()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .id("new-doc-cancel")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .text_size(px(11.5))
+                    .text_color(color::TEXT_DIM)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            state_for_cancel.update(cx, |state, _| state.active_dialog = None);
+                            cx.notify();
+                        }),
+                    )
+                    .child(t("common.cancel").to_string()),
+            )
+            .child(
+                div()
+                    .id("new-doc-create")
+                    .test_support()
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.0))
+                    .bg(color::ACCENT)
+                    .text_size(px(11.5))
+                    .text_color(color::BG)
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            let (_, width, height) = NEW_DOC_PRESETS[selected];
+                            let result = app.create_document(width, height, cx);
+                            if let Err(error) = result {
+                                app.set_status_error(Some(format!("New: {error}")), cx);
+                            }
+                        }),
+                    )
+                    .child(t("dialogs.newDocument.create").to_string()),
+            ),
+    )
+}
+
+/// Render a production dialog over the live shell.
+///
+/// The overlay is transparent (the frozen dialog has no scrim) and closes on a
+/// click anywhere; the framed shell keeps the measured origin and size.
+pub fn render_dialog(
+    state: &Entity<AppState>,
+    dialog: DialogId,
+    rename_focus: &gpui_kit::FocusHandle,
+    resize_focus: &gpui_kit::FocusHandle,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> impl IntoElement {
+    let state_for_close = state.clone();
+    let close = cx.listener(
+        move |app, _, _, cx: &mut gpui_kit::Context<crate::app::App>| {
+            if dialog == DialogId::DirtyClose {
+                app.dirty_close_cancel(cx);
+            } else {
+                state_for_close.update(cx, |state, _| state.active_dialog = None);
+                cx.notify();
+            }
+        },
+    );
+    let framed = match dialog {
+        DialogId::DirtyClose => dirty_close_shell(state, cx).into_any_element(),
+        DialogId::NewDocument => {
+            let Some((_, title, x, y, w, h)) =
+                DIALOGS.iter().find(|(id, ..)| *id == "dialog-new-document")
+            else {
+                return div().into_any_element();
+            };
+            div()
+                .id("dialog-new-document")
+                .test_support()
+                .absolute()
+                .left(px(*x))
+                .top(px(*y))
+                .child(dialog_shell(
+                    &t(title),
+                    *w,
+                    *h,
+                    new_document_body(state, cx),
+                ))
+                .into_any_element()
+        }
+        DialogId::ResizeCanvas => div()
+            .id("dialog-resize-canvas")
+            .test_support()
+            .absolute()
+            .left(px(493.0))
+            .top(px(260.0))
+            .child(dialog_shell(
+                "Resize Canvas",
+                380.0,
+                220.0,
+                resize_canvas_body(state, cx),
+            ))
+            .into_any_element(),
+        DialogId::Rename => div()
+            .id("dialog-rename")
+            .test_support()
+            .absolute()
+            .left(px(493.0))
+            .top(px(300.0))
+            .child(dialog_shell(
+                "Rename layer",
+                360.0,
+                180.0,
+                rename_body(state, cx),
+            ))
+            .into_any_element(),
+        DialogId::Print => div()
+            .id("dialog-print")
+            .test_support()
+            .absolute()
+            .left(px(493.0))
+            .top(px(260.0))
+            .child(dialog_shell("Print", 380.0, 480.0, print_body(state, cx)))
+            .into_any_element(),
+        DialogId::Export => div()
+            .id("dialog-export")
+            .test_support()
+            .absolute()
+            .left(px(493.0))
+            .top(px(260.0))
+            .child(dialog_shell("Export", 380.0, 380.0, export_body(state, cx)))
+            .into_any_element(),
+        DialogId::Recovery => div()
+            .id("dialog-recovery")
+            .test_support()
+            .absolute()
+            .left(px(493.0))
+            .top(px(260.0))
+            .child(dialog_shell(
+                "Recover unsaved work", // i18n-exempt: recovery dialog copy
+                380.0,
+                300.0,
+                recovery_body(state, cx),
+            ))
+            .into_any_element(),
+        DialogId::Settings => {
+            let Some((_, title, x, y, w, _h)) =
+                DIALOGS.iter().find(|(id, ..)| *id == "dialog-settings")
+            else {
+                return div().into_any_element();
+            };
+            div()
+                .id("dialog-settings")
+                .test_support()
+                .absolute()
+                .left(px(*x))
+                .top(px(*y))
+                .child(dialog_shell(
+                    &t(title),
+                    *w,
+                    260.0,
+                    settings_body_live(state, cx),
+                ))
+                .into_any_element()
+        }
+        DialogId::About => {
+            let key = match dialog {
+                DialogId::About => "dialog-about",
+                DialogId::NewDocument
+                | DialogId::Settings
+                | DialogId::DirtyClose
+                | DialogId::Recovery
+                | DialogId::Export
+                | DialogId::Print
+                | DialogId::Rename
+                | DialogId::ResizeCanvas => unreachable!("handled above"),
+            };
+            let Some((_, title, x, y, w, h)) = DIALOGS.iter().find(|(id, ..)| *id == key) else {
+                return div().into_any_element();
+            };
+            div()
+                .id(key)
+                .test_support()
+                .absolute()
+                .left(px(*x))
+                .top(px(*y))
+                .child(dialog_shell(&t(title), *w, *h, dialog_body(key, *w, *h)))
+                .into_any_element()
+        }
+    };
+    div()
+        .id("dialog-overlay")
+        .test_support()
+        .absolute()
+        .inset(px(0.0))
+        .when(dialog == DialogId::Rename, |overlay| {
+            overlay.track_focus(rename_focus).on_key_down(cx.listener(
+                |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                    app.rename_key(event, cx);
+                },
+            ))
+        })
+        .when(dialog == DialogId::ResizeCanvas, |overlay| {
+            overlay.track_focus(resize_focus).on_key_down(cx.listener(
+                |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                    app.resize_key(event, cx);
+                },
+            ))
+        })
+        // The dirty-close prompt is modal: a click outside must not discard
+        // the user's decision. Other dialogs keep click-anywhere dismissal.
+        .when(dialog == DialogId::DirtyClose, |overlay| {
+            overlay.on_click(|_, _, _| {})
+        })
+        .when(dialog != DialogId::DirtyClose, |overlay| {
+            overlay.on_click(close)
+        })
+        .child(framed)
+        .into_any_element()
+}
+
+/// The dirty-close prompt: Save, Discard, or Cancel.
+///
+/// The frozen app's document-close confirm offers Discard/Cancel only; the
+/// native prompt adds Save because G17 requires the save path to be reachable
+/// from the close decision. Geometry follows the settings dialog's measured
+/// frame (420x171 at 473,324).
+fn dirty_close_shell(
+    state: &Entity<AppState>,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> impl IntoElement {
+    let name = state.read(cx).document_name.clone();
+    let message = t_args("dialogs.unsavedChanges.message", &[("name", name.as_str())]);
+    let body = v_flex().w_full().h_full().child(
+        div()
+            .text_size(px(12.0))
+            .font_family(ui::FONT_UI)
+            .line_height(px(18.0))
+            .text_color(color::TEXT)
+            .child(message),
+    );
+    let discard = dialog_action_button(
+        &t("common.discard"),
+        false,
+        "dirty-close-discard",
+        cx.listener(|app, _, _, cx| app.dirty_close_discard(cx)),
+    )
+    .into_any_element();
+    let cancel = dialog_action_button(
+        &t("common.cancel"),
+        false,
+        "dirty-close-cancel",
+        cx.listener(|app, _, _, cx| app.dirty_close_cancel(cx)),
+    )
+    .into_any_element();
+    let save = dialog_action_button(
+        &t("menus.items.save"),
+        true,
+        "dirty-close-save",
+        cx.listener(|app, _, _, cx| app.dirty_close_save(cx)),
+    )
+    .into_any_element();
+    div()
+        .id("dialog-dirty-close")
+        .test_support()
+        .absolute()
+        .left(px(473.0))
+        .top(px(324.0))
+        .child(dialog_shell_with_actions(
+            &t("dialogs.unsavedChanges.title"),
+            420.0,
+            171.0,
+            body,
+            vec![discard, cancel, save],
+        ))
+}
+
 /// Pin a dialog at the origin the manifest recorded, rather than re-deriving
 /// the source's `left-1/2 top-1/2` centre.
 ///
@@ -322,868 +1383,17 @@ fn positioned(x: f32, y: f32, dialog: Div) -> Div {
     dialog.absolute().left(px(x)).top(px(y))
 }
 
-/// `DesktopDialog`'s shell: a rounded 1px-edged PANEL box with a 36px TOPBAR
-/// titlebar, a body, and a translucent TOPBAR footer.
-///
-/// Height is fixed rather than derived from the body so that a stubbed body
-/// still occupies the same space the real one will: a dialog whose footer moves
-/// when its body is filled in would make every before/after comparison lie.
-fn dialog_shell(title: &str, w: f32, h: f32, body: Div) -> Div {
-    let inner_h = h - TITLEBAR_H - ACTIONS_H;
-    v_flex()
-        .w(px(w))
-        .h(px(h))
-        .rounded(px(SHELL_R))
-        .border_1()
-        .border_color(color::FIELD_BORDER)
-        .bg(color::PANEL)
-        .overflow_hidden()
-        .shadow(vec![BoxShadow::new(
-            px(0.0),
-            px(18.0),
-            hsla(0.0, 0.0, 0.0, 0.55),
-        )
-        .blur_radius(px(50.0))])
-        .child(titlebar(title))
-        .child(
-            div()
-                .w_full()
-                .h(px(inner_h))
-                .overflow_hidden()
-                .px(px(BODY_PX))
-                .py(px(BODY_PY))
-                .child(body),
-        )
-        .child(actions(vec![]))
-}
-
-/// `flex h-9 items-center justify-between border-b border-editor-divider
-/// bg-editor-topbar px-3` \u{2014} brand mark, title, close button.
-fn titlebar(title: &str) -> Div {
-    h_flex()
-        .w_full()
-        .h(px(TITLEBAR_H))
-        .flex_shrink_0()
-        .items_center()
-        .justify_between()
-        .px(px(BAR_PX))
-        .border_b_1()
-        .border_color(color::DIVIDER)
-        .bg(color::TOPBAR)
-        .child(
-            h_flex()
-                .items_center()
-                .gap(px(GAP_2))
-                .min_w(px(0.0))
-                // The brand mark is an inline `<svg>` with two gradients, a
-                // mask and a drop-shadow filter. `assets/icons.rs` is generated
-                // from lucide paths and cannot carry any of that, so the port
-                // draws the slot rather than the mark; `title_bar.rs` owns the
-                // importable LOGO for the same reason.
-                .child(
-                    div()
-                        .w(px(BRAND))
-                        .h(px(BRAND))
-                        .flex_shrink_0()
-                        .rounded(px(4.0))
-                        .bg(color::ACCENT),
-                )
-                .child(
-                    div()
-                        .text_size(px(TITLE_TEXT))
-                        .font_family(ui::FONT_UI)
-                        .font_weight(FontWeight(500.))
-                        .text_color(color::TEXT)
-                        .child(title.to_string()),
-                ),
-        )
-        .child(
-            div()
-                .w(px(CLOSE_BOX))
-                .h(px(CLOSE_BOX))
-                .flex()
-                .items_center()
-                .justify_center()
-                .flex_shrink_0()
-                .rounded(px(4.0))
-                .child(
-                    Icon::default()
-                        .data(icons::X)
-                        .size(px(CLOSE_ICON))
-                        .text_color(color::ICON),
-                ),
-        )
-}
-
-/// `flex min-h-11 items-center justify-end gap-2 border-t border-editor-divider
-/// bg-editor-topbar/65 px-3 py-2` \u{2014} the footer, and the buttons in it.
-fn actions(buttons: Vec<Div>) -> Div {
-    h_flex()
-        .w_full()
-        .min_h(px(ACTIONS_H))
-        .flex_shrink_0()
-        .items_center()
-        .justify_end()
-        .gap(px(GAP_2))
-        .px(px(BAR_PX))
-        .py(px(8.0))
-        .border_t_1()
-        .border_color(color::DIVIDER)
-        .bg(FOOTER_FILL)
-        .children(buttons)
-}
-
-/// `DesktopDialogButton`: `h-7 min-w-16 rounded-[6px] border px-3 text-[11px]
-/// font-medium`.
-///
-/// `primary` is `border-editor-accent bg-editor-accent text-black/90`; the
-/// black text is the one place a dialog inverts the palette, and it is why
-/// `TEXT_BLACK` is spelled as a literal rather than borrowed from a token.
-fn dialog_button(label: &str, primary: bool) -> Div {
-    div()
-        .h(px(BTN_H))
-        .min_w(px(BTN_MIN_W))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(BTN_R))
-        .border_1()
-        .border_color(if primary {
-            color::ACCENT
-        } else {
-            color::FIELD_BORDER
-        })
-        .bg(if primary { color::ACCENT } else { color::FIELD })
-        .px(px(BAR_PX))
-        .child(
-            div()
-                .text_size(px(BTN_TEXT))
-                .font_family(ui::FONT_UI)
-                .font_weight(if primary {
-                    FontWeight(600.)
-                } else {
-                    FontWeight(500.)
-                })
-                .text_color(if primary {
-                    Hsla {
-                        h: 0.0,
-                        s: 0.0,
-                        l: 0.0,
-                        a: 0.9,
-                    }
-                } else {
-                    color::TEXT
-                })
-                .child(label.to_string()),
-        )
-}
-
-/// The body of whichever dialog was asked for.
-///
-/// `dialog-settings` is transcribed in full and `dialog-about` is rebuilt for
-/// the native shell; the rest are the right size with their controls stubbed.
-/// See the module docs on why the chrome is real for all seven but the bodies
-/// are not.
-fn dialog_body(id: &str, _w: f32, _h: f32) -> Div {
-    match id {
-        "dialog-about" => about_body(),
-        "dialog-settings" => settings_body(),
-        "dialog-new-document" => v_flex()
-            .w_full()
-            .h_full()
-            .bg(color::PANEL)
-            .child(new_document_swatch(id)),
-        "dialog-resize" => resize_body(),
-        _ => div().w_full().h_full().bg(color::PANEL),
-    }
-}
-
-/// `ResizeCanvasModal.tsx:146-200`. Two dimension rows, a unit picker, and an
-/// aspect-lock button.
-///
-/// The description is `text-[11px] text-editor-text-dim` with `mb-1`, and the
-/// whole column is `flex flex-col gap-2.5`. Each row is `flex items-center
-/// gap-2` holding a 52px label, an input that is `flex-1 min-w-0`, and a 60px
-/// `shrink-0` unit picker -- the same label/field/select shape as
-/// [`ui::prop_row`] but with different widths and a 30px field, so it is built
-/// here rather than reused.
-///
-/// Resting state, so the inputs are painted, not editable: they show the
-/// canvas dimensions the dialog opens with, and the focus/commit/arrow-step
-/// behaviour an `<input type="number">` carries is out of scope exactly as it
-/// is for [`ui::editable_num_field`].
-fn resize_body() -> Div {
-    v_flex()
-        .w_full()
-        .h_full()
-        .gap(px(RESIZE_GAP))
-        .child(ui::clip(
-            div()
-                .mb(px(4.0))
-                .text_size(px(11.0))
-                .font_family(ui::FONT_UI)
-                .line_height(relative(1.35))
-                .text_color(color::TEXT_DIM)
-                .child(t("dialogs.resizeCanvas.description")),
-        ))
-        .child(resize_row(&t("dialogs.resizeCanvas.width"), "800"))
-        .child(resize_row(&t("dialogs.resizeCanvas.height"), "600"))
-        .child(
-            // `flex h-6 items-center pl-[52px]` - indented to line up with the
-            // inputs, not the labels.
-            h_flex()
-                .w_full()
-                .h(px(24.0))
-                .items_center()
-                .pl(px(RESIZE_LABEL_W))
-                .child(
-                    h_flex()
-                        .h(px(24.0))
-                        .items_center()
-                        .gap(px(6.0))
-                        .rounded(px(6.0))
-                        .px(px(6.0))
-                        .bg(color::FIELD)
-                        .child(
-                            Icon::default()
-                                // icons::LINK, the source's Link icon --
-                                // dialogs.rs had no chain glyph of its own.
-                                .data(icons::LINK)
-                                .size(px(14.0))
-                                .text_color(color::ACCENT),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .font_family(ui::FONT_UI)
-                                .text_color(color::TEXT)
-                                .child(t("dialogs.resizeCanvas.lockAspect")),
-                        ),
-                ),
-        )
-}
-
-/// One `flex items-center gap-2` dimension row.
-fn resize_row(label: &str, value: &str) -> Div {
-    h_flex()
-        .w_full()
-        .items_center()
-        .gap(px(RESIZE_ROW_GAP))
-        // The label yields and the picker does not, for the same reason as
-        // everywhere else in this port: min-width defaults to the content's
-        // intrinsic width, so a fixed-width column that cannot shrink pushes
-        // whatever follows it past the dialog edge.
-        .child(ui::clip(
-            div()
-                .w(px(RESIZE_LABEL_W))
-                .flex_none()
-                .text_size(px(11.0))
-                .font_family(ui::FONT_UI)
-                .font_weight(FontWeight(500.))
-                .text_color(color::TEXT_DIM)
-                .child(label.to_string()),
-        ))
-        .child(ui::clip(dialog_field(value)))
-        .child(ui::pin(unit_picker("px")))
-}
-
-/// `desktopDialogFieldClass` with a value in it: h-[30px], rounded-[4px], a
-/// FIELD_BORDER edge on a FIELD fill, px-2.5, right-aligned so the digits sit
-/// where a number input puts them.
-fn dialog_field(value: &str) -> Div {
-    h_flex()
-        .h(px(DIALOG_FIELD_H))
-        .flex_1()
-        .min_w(px(0.0))
-        .overflow_hidden()
-        .items_center()
-        .justify_end()
-        .rounded(px(R4))
-        .border_1()
-        .border_color(color::FIELD_BORDER)
-        .bg(color::FIELD)
-        .px(px(FIELD_PAD_DIALOG))
-        .text_size(px(DIALOG_FIELD_TEXT))
-        .font_family(ui::FONT_UI)
-        .text_color(color::TEXT)
-        .child(value.to_string())
-}
-
-/// The 60px `shrink-0` unit picker: `${desktopDialogFieldClass} text-center`,
-/// so the value is centred rather than right-aligned like the number field.
-///
-/// The source renders a real `<select>`, which means the browser's own arrow;
-/// the port draws CHEVRON_DOWN beside the value instead, the same stand-in
-/// [`ui::select_field`] documents.
-fn unit_picker(unit: &str) -> Div {
-    h_flex()
-        .w(px(RESIZE_UNIT_W))
-        .flex_none()
-        .h(px(DIALOG_FIELD_H))
-        .items_center()
-        .justify_center()
-        .gap(px(4.0))
-        .rounded(px(R4))
-        .border_1()
-        .border_color(color::FIELD_BORDER)
-        .bg(color::FIELD)
-        .px(px(FIELD_PAD_DIALOG))
-        .text_size(px(DIALOG_FIELD_TEXT))
-        .font_family(ui::FONT_UI)
-        .text_color(color::TEXT)
-        .child(unit.to_string())
-        .child(
-            Icon::default()
-                .data(icons::CHEVRON_DOWN)
-                .size(px(12.0))
-                .text_color(color::FIELD_CAPTION),
-        )
-}
-
-/// The canvas-preview swatch - the *only* thing that differs between
-/// `dialog-new-document` and `empty-new-document`.
-///
-/// Measured, not assumed: the two PNGs differ in 21 501 pixels, of which
-/// 20 949 sit inside a single 154x144 block at crop x 190..343, y 102..244,
-/// and only 19 pixels in the whole image exceed delta 60. The block is
-/// `#191919` when the dialog opened with a document (`needsDoc: true`) and
-/// `#272727` when it did not - the empty state previews the *page*, the dialog
-/// previews the *canvas*.
-///
-/// Drawn at the crop coordinates relative to the dialog's own top-left, which
-/// puts it 66px below the titlebar: the body's `py-4` plus the source's own
-/// header row. Both fills are written as `Hsla` rather than borrowed from a
-/// token because neither is PANEL, which is the whole point of measuring them.
-fn new_document_swatch(id: &str) -> Div {
-    let fill = if id == "empty-new-document" {
-        SWATCH_PAGE
-    } else {
-        SWATCH_CANVAS
-    };
-    div()
-        .absolute()
-        .left(px(SWATCH_X))
-        .top(px(SWATCH_Y))
-        .w(px(SWATCH_W))
-        .h(px(SWATCH_H))
-        .bg(fill)
-}
-
-/// The About dialog's own measurements. `AboutDialog.tsx:44-128` carries the
-/// class names most of these come from; the departures \u{2014} the brand mark
-/// drawn at 44px instead of a 32px glyph inside a 48px tile, and the 12px
-/// rhythm between the three blocks \u{2014} are the rebuild's, not the source's.
-const ABOUT_MARK: f32 = 44.0;
-
-/// The body column's rhythm between hero, spec panel and link row.
-const ABOUT_GAP: f32 = 12.0;
-
-/// `gap-3.5` \u{2014} mark to identity block.
-const ABOUT_HERO_GAP: f32 = 14.0;
-
-/// `p-2.5` and `gap-y-1.5` on the spec panel, whose `rounded-[6px]` is the
-/// shared R6.
-const ABOUT_PANEL_PAD: f32 = 10.0;
-const ABOUT_PANEL_ROW_GAP: f32 = 6.0;
-
-/// `h-7` link buttons with a `size-3.5` icon at `gap-1.5`.
-const ABOUT_LINK_H: f32 = 28.0;
-const ABOUT_ICON: f32 = 14.0;
-
-/// `px-1.5 py-0.5 rounded-[4px]` on the version pill.
-const ABOUT_PILL_PX: f32 = 6.0;
-const ABOUT_PILL_PY: f32 = 2.0;
-
-/// `bg-[#151516]` \u{2014} the spec panel's fill (`AboutDialog.tsx:47,87`), a
-/// component literal two steps darker than PANEL, so it is pinned here rather
-/// than joining `tokens.rs`.
-const ABOUT_PANEL_BG: Hsla = Hsla {
-    h: 0.0,
-    s: 0.0,
-    l: 0.0824,
-    a: 1.0,
-};
-
-/// `bg-editor-accent/10` \u{2014} the version pill's fill (`AboutDialog.tsx:76`),
-/// alongside the crop bar's `ACCENT_15` in `tokens.rs`.
-const ABOUT_PILL_FILL: Hsla = Hsla {
-    h: color::ACCENT.h,
-    s: color::ACCENT.s,
-    l: color::ACCENT.l,
-    a: 0.10,
-};
-
-/// `border-editor-accent/40` \u{2014} the version pill's edge (`AboutDialog.tsx:76`)
-/// and the link buttons' hover border (`:109,119`).
-const ABOUT_ACCENT_40: Hsla = Hsla {
-    h: color::ACCENT.h,
-    s: color::ACCENT.s,
-    l: color::ACCENT.l,
-    a: 0.40,
-};
-
-/// The four spec rows' labels, catalogue-routed like the web dialog's.
-const ABOUT_SPEC_LABELS: [&str; 4] = [
-    "dialogs.about.coreEngine",
-    "dialogs.about.rasterizer",
-    "dialogs.about.runtimeShell",
-    "dialogs.about.license",
-];
-
-/// The spec values stay literals: the embedded catalogues are byte-locked to
-/// the reference (see the i18n module), so a native-only string cannot join
-/// them. The two rows the web dialog fills with "WebGL 2D" and "Tauri v2 +
-/// SolidJS" name the shell this port replaces; these name what actually runs.
-const ABOUT_SPEC_VALUES: [&str; 4] = [
-    "Rust (photrez-core)", // i18n-exempt: tech value, literal in the reference
-    "CPU tile renderer",   // i18n-exempt: tech value, not in catalog
-    "Rust + GPUI",         // i18n-exempt: tech value, not in catalog
-    "AGPLv3 Open-Source",  // i18n-exempt: tech value, literal in the reference
-];
-
-/// The two shipped catalogues' names for themselves, so the line reads the
-/// same under either locale. Comma-separated rather than a middle dot: the
-/// embedded face has no U+00B7, and the coverage gate reviews catalogue text,
-/// not native literals.
-const ABOUT_LANGUAGES: &str = "English, Bahasa Indonesia"; // i18n-exempt: endonyms, not in catalog
-
-/// The link row's labels \u{2014} literals in the web dialog
-/// (`AboutDialog.tsx:114,126`), not catalogue keys.
-const ABOUT_LINK_GITHUB: &str = "GitHub Repository"; // i18n-exempt: not in catalog
-const ABOUT_LINK_WEBSITE: &str = "Official Website"; // i18n-exempt: not in catalog
-
-/// Where the two link buttons lead (`AboutDialog.tsx:108,118`).
-const ABOUT_LINK_GITHUB_URL: &str = "https://github.com/photrez/photrez"; // i18n-exempt: URL, not text
-const ABOUT_LINK_WEBSITE_URL: &str = "https://photrez.github.io"; // i18n-exempt: URL, not text
-
-/// `v{version}` \u{2014} the web dialog asks Tauri's `getVersion()` at mount and
-/// falls back to a hardcoded "0.1.0"; here the crate's own version is the only
-/// source, so there is no fallback string to go stale.
-fn about_version() -> String {
-    format!("v{}", env!("CARGO_PKG_VERSION"))
-}
-
-/// `AboutDialog`, rebuilt for the native shell rather than transcribed from
-/// `dialog-about.png`: the web dialog's hero, spec grid and link row survive
-/// as the structure, and three things change with the shell. The mark is the
-/// real brand raster at 44px instead of a glyph in a tile; the version comes
-/// from `CARGO_PKG_VERSION` instead of a runtime round-trip; and the locale
-/// line plus the two corrected stack rows state what ships here rather than
-/// what the replaced shell ran. The chrome above and below is shared and
-/// untouched, and the capture difference is a recorded decision, not drift.
-fn about_body() -> Div {
-    v_flex()
-        .w_full()
-        .h_full()
-        .justify_center()
-        .gap(px(ABOUT_GAP))
-        .child(about_hero())
-        .child(about_specs())
-        .child(about_links())
-}
-
-/// `flex items-center gap-3.5` \u{2014} brand mark beside the identity block.
-fn about_hero() -> Div {
-    h_flex()
-        .w_full()
-        .items_center()
-        .gap(px(ABOUT_HERO_GAP))
-        .child(title_bar::logo(ABOUT_MARK))
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w(px(0.0))
-                .child(
-                    h_flex()
-                        .items_center()
-                        .gap(px(GAP_2))
-                        .child(
-                            div()
-                                .text_size(px(15.0))
-                                .font_family(ui::FONT_UI)
-                                .font_weight(FontWeight(700.))
-                                .line_height(relative(1.35))
-                                .text_color(color::WHITE)
-                                .child("Photrez".to_string()), // i18n-exempt: product name
-                        )
-                        .child(about_version_pill()),
-                )
-                .child(ui::clip(
-                    div()
-                        .mt(px(2.0))
-                        .text_size(px(11.0))
-                        .font_family(ui::FONT_UI)
-                        .line_height(relative(1.35))
-                        .text_color(color::TEXT_DIM)
-                        .child(t("dialogs.about.tagline")),
-                ))
-                .child(
-                    div()
-                        .mt(px(2.0))
-                        .text_size(px(10.0))
-                        .font_family(ui::FONT_UI)
-                        .line_height(relative(1.35))
-                        .text_color(color::TEXT_DIM)
-                        .child(ABOUT_LANGUAGES.to_string()),
-                ),
-        )
-}
-
-/// `rounded-[4px] border border-editor-accent/40 bg-editor-accent/10 px-1.5
-/// py-0.5 text-[10px] font-semibold text-editor-accent` (`AboutDialog.tsx:76`).
-fn about_version_pill() -> Div {
-    div()
-        .rounded(px(R4))
-        .border_1()
-        .border_color(ABOUT_ACCENT_40)
-        .bg(ABOUT_PILL_FILL)
-        .px(px(ABOUT_PILL_PX))
-        .py(px(ABOUT_PILL_PY))
-        .child(
-            div()
-                .text_size(px(10.0))
-                .font_family(ui::FONT_UI)
-                .font_weight(FontWeight(600.))
-                .line_height(relative(1.3))
-                .text_color(color::ACCENT)
-                .child(about_version()),
-        )
-}
-
-/// `rounded-[6px] border border-editor-field-border bg-[#151516] p-2.5` with a
-/// two-column `gap-y-1.5` grid inside (`AboutDialog.tsx:87-101`).
-fn about_specs() -> Div {
-    v_flex()
-        .w_full()
-        .rounded(px(R6))
-        .border_1()
-        .border_color(color::FIELD_BORDER)
-        .bg(ABOUT_PANEL_BG)
-        .p(px(ABOUT_PANEL_PAD))
-        .gap(px(ABOUT_PANEL_ROW_GAP))
-        .child(about_spec_row(0, 1))
-        .child(about_spec_row(2, 3))
-}
-
-/// One `grid-cols-2` row: two equal cells with no column gap \u{2014} the split
-/// the web dialog renders.
-fn about_spec_row(left: usize, right: usize) -> Div {
-    h_flex()
-        .w_full()
-        .child(about_spec_cell(left))
-        .child(about_spec_cell(right))
-}
-
-/// `Label: value` on one line: the label in the caption colour, the value
-/// carrying `font-medium text-editor-text`. The label is pinned and the cell
-/// clips, so the first cell's longer value cannot paint over the second.
-fn about_spec_cell(i: usize) -> Div {
-    ui::clip(h_flex().flex_1().gap(px(4.0)))
-        .child(ui::pin(
-            div()
-                .text_size(px(11.0))
-                .font_family(ui::FONT_UI)
-                .line_height(relative(1.35))
-                .text_color(color::TEXT_DIM)
-                .child(format!("{}:", t(ABOUT_SPEC_LABELS[i]))),
-        ))
-        .child(
-            div()
-                .text_size(px(11.0))
-                .font_family(ui::FONT_UI)
-                .font_weight(FontWeight(500.))
-                .line_height(relative(1.35))
-                .text_color(color::TEXT)
-                .child(ABOUT_SPEC_VALUES[i].to_string()),
-        )
-}
-
-/// `flex items-center gap-2` \u{2014} the two `h-7 flex-1` link buttons
-/// (`AboutDialog.tsx:105-128`).
-fn about_links() -> Div {
-    h_flex()
-        .w_full()
-        .gap(px(GAP_2))
-        .child(about_link_button(
-            icons::GITHUB,
-            ABOUT_LINK_GITHUB,
-            ABOUT_LINK_GITHUB_URL,
-        ))
-        .child(about_link_button(
-            icons::GLOBE,
-            ABOUT_LINK_WEBSITE,
-            ABOUT_LINK_WEBSITE_URL,
-        ))
-}
-
-/// `h-7 flex-1 rounded-[4px] border border-editor-field-border bg-editor-field
-/// text-[11px] font-medium` with a `size-3.5` icon at `gap-1.5`.
-///
-/// The dialog's one wired control: `cursor-pointer`, `hover:bg-white/[0.08]`,
-/// `hover:border-editor-accent/40` and the web button's open-in-browser click
-/// (`AboutDialog.tsx:106-115`). `url` is both the hit-test id and the target,
-/// so a button cannot drift from where it leads. Returns `Stateful<Div>` for
-/// `.id(..)`, like the dock's tab button.
-fn about_link_button(icon: &'static [u8], label: &str, url: &'static str) -> Stateful<Div> {
-    h_flex()
-        .id(url)
-        .flex_1()
-        .min_w(px(0.0))
-        .h(px(ABOUT_LINK_H))
-        .items_center()
-        .justify_center()
-        .gap(px(6.0))
-        .rounded(px(R4))
-        .border_1()
-        .border_color(color::FIELD_BORDER)
-        .bg(color::FIELD)
-        .cursor_pointer()
-        // No token holds 8% white (the scale carries 5 and 10); inline like the
-        // dock tab's 2%. The alpha blends over FIELD exactly as the CSS does.
-        .hover(|s| {
-            s.bg(hsla(0.0, 0.0, 1.0, 0.08))
-                .border_color(ABOUT_ACCENT_40)
-        })
-        .on_click(move |_, _, cx| cx.open_url(url))
-        .child(
-            Icon::default()
-                .data(icon)
-                .size(px(ABOUT_ICON))
-                .text_color(color::ICON),
-        )
-        .child(ui::pin(
-            div()
-                .text_size(px(11.0))
-                .font_family(ui::FONT_UI)
-                .font_weight(FontWeight(500.))
-                .line_height(relative(1.35))
-                .text_color(color::TEXT)
-                .child(label.to_string()),
-        ))
-}
-
-/// `SettingsDialog` is the shortest dialog (420x171), and its body is a single
-/// labelled row plus the footer's buttons, so the body is one row rather than a
-/// stack.
-fn settings_body() -> Div {
-    v_flex()
-        .w_full()
-        .h_full()
-        .justify_center()
-        .gap(px(GAP_2))
-        .child(
-            h_flex()
-                .items_center()
-                .justify_between()
-                .gap(px(GAP_2))
-                .child(
-                    div()
-                        .text_size(px(BODY_TEXT))
-                        .font_family(ui::FONT_UI)
-                        .text_color(color::TEXT)
-                        .child(t("settings.theme")),
-                )
-                .child(dialog_button(&t("settings.themeSystem"), false)),
-        )
-        .child(
-            div()
-                .text_size(px(10.0))
-                .font_family(ui::FONT_UI)
-                .text_color(color::TEXT_DIM)
-                .child("Changes apply immediately.".to_string()), // i18n-exempt: not in catalog
-        )
-}
-
+mod about;
+mod chrome;
+mod content;
 #[cfg(test)]
-mod tests {
-    //! Pins the pure-logic contracts this module owns.
+mod tests;
 
-    use super::*;
-
-    /// The `DIALOGS` table carries the exact seven shot ids the manifest
-    /// lists. Changing any title string, x/y origin, or w/h without updating
-    /// this test is an untracked geometry drift.
-    #[test]
-    fn dialogs_table_has_all_seven_entries() {
-        let ids: Vec<&str> = DIALOGS.iter().map(|e| e.0).collect();
-        assert_eq!(
-            ids,
-            vec![
-                "dialog-resize",
-                "dialog-export",
-                "dialog-new-document",
-                "dialog-settings",
-                "dialog-about",
-                "dialog-print",
-                "dialog-color-picker",
-            ]
-        );
-        assert_eq!(DIALOGS.len(), 7);
-    }
-
-    /// Each entry's title must be non-empty and the geometry must be positive.
-    #[test]
-    fn dialogs_table_entries_are_well_formed() {
-        for (id, title, x, y, w, h) in DIALOGS {
-            assert!(!title.is_empty(), "{id}: empty title");
-            // Catalog-key entries must resolve; a typo would render the key
-            // itself. The two exempt literals are skipped.
-            if title.chars().all(|c| c.is_ascii_lowercase() || c == '.') {
-                assert_ne!(
-                    t(title),
-                    *title,
-                    "{id}: title key `{title}` is not in the catalog"
-                );
-            }
-            assert!(*x >= 0.0 && *y >= 0.0, "{id}: negative origin");
-            assert!(*w > 0.0 && *h > 0.0, "{id}: non-positive size");
-            // inner_h = h - TITLEBAR_H - ACTIONS_H must be non-negative
-            let inner_h = *h - TITLEBAR_H - ACTIONS_H;
-            assert!(
-                inner_h > 0.0,
-                "{id}: inner height {inner_h} is not positive"
-            );
-        }
-    }
-
-    /// `dialog-resize-full` is NOT in the table (it is the full-viewport
-    /// no-scrim proof), but `render()` must still route it to the empty-frame
-    /// fallthrough without panicking. This test defeats the fallthrough by
-    /// asserting that the DIALOGS lookup returns None for that id.
-    #[test]
-    fn dialog_resize_full_is_not_in_table() {
-        assert!(
-            !DIALOGS.iter().any(|(id, ..)| *id == "dialog-resize-full"),
-            "dialog-resize-full must not be in the DIALOGS table"
-        );
-    }
-
-    /// `empty-new-document` routes through `lookup` to `dialog-new-document`,
-    /// but `dialog_body` must receive the *un-normalised* id so it can pick
-    /// the correct swatch fill. This test defeats the fold by checking that
-    /// `dialog_body` returns different fills for the two ids.
-    #[test]
-    fn swatch_fill_differs_between_empty_and_dialog_new_document() {
-        // `empty-new-document` -> SWATCH_PAGE (#272727, l=0.1529)
-        // `dialog-new-document` -> SWATCH_CANVAS (#191919, l=0.0980)
-        // The two swatch fills are different constants — verify that the
-        // selection logic in `new_document_swatch(id)` routes correctly.
-        // RED proof: if both arms returned the same constant this test would
-        // assert_ne fail (both l = 0.0980 or both = 0.1529).
-
-        // Verify the constant values differ:
-        assert_ne!(
-            SWATCH_PAGE.l, SWATCH_CANVAS.l,
-            "swatch fills must not be the same colour"
-        );
-        // Verify the fill selection logic mirrors `new_document_swatch`:
-        let fill_for_empty: Hsla = if "empty-new-document" == "empty-new-document" {
-            SWATCH_PAGE
-        } else {
-            SWATCH_CANVAS
-        };
-        let fill_for_dialog: Hsla = if "dialog-new-document" == "empty-new-document" {
-            SWATCH_PAGE
-        } else {
-            SWATCH_CANVAS
-        };
-        assert_eq!(fill_for_empty, SWATCH_PAGE);
-        assert_eq!(fill_for_dialog, SWATCH_CANVAS);
-        assert_ne!(fill_for_empty, fill_for_dialog);
-    }
-
-    /// `SWATCH_Y` must equal `102.0 - TITLEBAR_H` (the swatch offset measured
-    /// from the dialog's top-left, where the body starts below the titlebar).
-    #[test]
-    fn swatch_y_is_102_minus_titlebar() {
-        assert_eq!(SWATCH_Y, 102.0 - TITLEBAR_H);
-        assert_eq!(SWATCH_Y, 66.0); // 102 - 36
-    }
-
-    /// The swatch fill constants are pinned to their measured hex values:
-    /// SWATCH_CANVAS = #191919 (l=0.0980), SWATCH_PAGE = #272727 (l=0.1529).
-    /// A silent re-measurement that drifts either value reddens this.
-    #[test]
-    fn swatch_fills_are_pinned() {
-        assert_eq!(SWATCH_CANVAS.l, 0.0980);
-        assert_eq!(SWATCH_PAGE.l, 0.1529);
-        assert_eq!(SWATCH_CANVAS.a, 1.0);
-        assert_eq!(SWATCH_PAGE.a, 1.0);
-    }
-
-    /// `DIALOGS[2]` (dialog-new-document) must be the entry that
-    /// `empty-new-document` folds onto. This is the fold that the swatch test
-    /// relies on: `lookup == "dialog-new-document"` when `owned == "empty-new-document"`.
-    #[test]
-    fn empty_new_document_fold_targets_dialog_new_document() {
-        // The fold logic from render():
-        let owned = "empty-new-document";
-        let lookup = if owned == "empty-new-document" {
-            "dialog-new-document"
-        } else {
-            owned
-        };
-        assert_eq!(lookup, "dialog-new-document");
-        // And that id IS in the table:
-        assert!(
-            DIALOGS.iter().any(|(id, ..)| *id == lookup),
-            "fold target must exist in DIALOGS"
-        );
-    }
-
-    /// `FOOTER_FILL` is the composite of TOPBAR/65 over PANEL. Verify the
-    /// lightness constant by hand: 0.65 * l(TOPBAR) + 0.35 * l(PANEL)
-    /// = 0.65 * 0.0784 + 0.35 * 0.1176 = 0.05096 + 0.04116 = 0.09212
-    /// \u{2248} 0.0902 (the measured value, off by the rounding in HSL→HSL).
-    #[test]
-    fn footer_fill_is_translucent_topbar() {
-        assert_eq!(FOOTER_FILL.a, 0.65);
-        assert_eq!(FOOTER_FILL.l, 0.0902);
-    }
-
-    /// `DIALOGS` entry at index 0 (`dialog-resize`) must carry the manifest's
-    /// measured box: x=503, y=278, w=360, h=265.
-    #[test]
-    fn dialog_resize_geometry_is_pinned() {
-        let entry = &DIALOGS[0];
-        assert_eq!(entry.0, "dialog-resize");
-        assert_eq!(entry.1, "dialogs.resizeCanvas.title");
-        assert_eq!(t(entry.1), "Resize Canvas");
-        assert_eq!(entry.2, 503.0);
-        assert_eq!(entry.3, 278.0);
-        assert_eq!(entry.4, 360.0);
-        assert_eq!(entry.5, 265.0);
-    }
-
-    /// The About dialog's compiled-in strings: the version line is the
-    /// crate's own, the catalogue labels resolve, and every literal stays
-    /// ASCII. The embedded face covers a Latin subset and the coverage gate
-    /// only walks catalogue text, so a fresh codepoint in one of these
-    /// literals would fall through to the system font unreviewed; this test is
-    /// where it reddens instead.
-    #[test]
-    fn about_strings_are_ascii_and_the_version_is_the_crates() {
-        assert_eq!(about_version(), concat!("v", env!("CARGO_PKG_VERSION")));
-
-        for key in ABOUT_SPEC_LABELS {
-            assert_ne!(t(key), key, "label `{key}` is not in the catalog");
-            assert!(t(key).is_ascii(), "label `{key}` left the Latin subset");
-        }
-        for value in ABOUT_SPEC_VALUES {
-            assert!(!value.is_empty());
-            assert!(value.is_ascii(), "value `{value}` left the Latin subset");
-        }
-        for text in [ABOUT_LANGUAGES, ABOUT_LINK_GITHUB, ABOUT_LINK_WEBSITE] {
-            assert!(!text.is_empty());
-            assert!(text.is_ascii(), "`{text}` left the Latin subset");
-        }
-    }
-
-    /// The About dialog names the locales that ship. If a catalogue is added
-    /// or removed, this line and its doc move in the same change.
-    #[test]
-    fn about_names_the_shipped_locales() {
-        assert!(ABOUT_LANGUAGES.contains("English"));
-        assert!(ABOUT_LANGUAGES.contains("Bahasa Indonesia"));
-    }
-}
+use about::about_body;
+#[cfg(test)]
+use about::{
+    about_version, ABOUT_LANGUAGES, ABOUT_LINK_GITHUB, ABOUT_LINK_WEBSITE, ABOUT_SPEC_LABELS,
+    ABOUT_SPEC_VALUES,
+};
+use chrome::{dialog_action_button, dialog_shell, dialog_shell_with_actions};
+use content::dialog_body;

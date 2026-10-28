@@ -16,7 +16,7 @@
 //! commits-landed and timer-variance pins must fail. Normal runs leave the
 //! variable unset.
 
-use photrez_core::pixel_store::PixelStoreRegistry;
+use photrez_core::pixel::PixelStoreRegistry;
 use std::time::Instant;
 
 const SIZES: [usize; 3] = [512, 2048, 4096];

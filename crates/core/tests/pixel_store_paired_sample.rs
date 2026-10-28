@@ -15,7 +15,7 @@
 //! returns a constant, which must trip the driver's "all timings identical"
 //! guard; a normal run leaves the variable unset.
 
-use photrez_core::pixel_store::PixelStoreRegistry;
+use photrez_core::pixel::PixelStoreRegistry;
 use std::time::Instant;
 
 #[test]

@@ -188,18 +188,15 @@
 //! run pinned to an explicit line-box height - which four other modules
 //! re-implement inline; it is left local, as they are.
 
-use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, AnyElement, BoxShadow, Div, FontWeight, Hsla};
+use gpui_kit::{div, px, AnyElement};
 
-use crate::assets::icons;
-use crate::i18n::t;
+use crate::icons;
 use crate::shot;
+#[allow(unused_imports)]
 use crate::tokens::color;
 
 use super::dialogs;
-use crate::components::ui;
 
 // ── Frame ────────────────────────────────────────────────────────────────────
 
@@ -217,14 +214,6 @@ const CARD_W: f32 = 520.0;
 /// The section's own height. The source sets no height; 351.5 is what the
 /// four blocks below add up to, and the border-box the browser paints is 352.
 const CARD_H: f32 = 352.0;
-
-/// **Painted** left edge, in viewport pixels.
-///
-/// The CSS box is at `182.5` (`76 + (733-520)/2`, see the module docs) and
-/// Chromium snaps the 1px border outward, so the border column lands on 183.
-/// Placing the card at 182 would shift the whole card one pixel left against
-/// the baseline crop, which `shell-diff.ts` takes at `trunc(182.5) = 182`.
-const CARD_X: f32 = 183.0;
 
 /// **Painted** top edge. The CSS box is at `245.25`; snapping rounds down here,
 /// so this one is the number the manifest already quotes.
@@ -425,16 +414,23 @@ fn select(shot: Option<&str>) -> EmptyVariant {
 ///
 /// The frame is absolute so it disturbs nothing wherever it is appended, and
 /// the caller must add it late in the tree: GPUI has no `z-index`, so paint
-/// order is the only stacking control available.
-pub fn render() -> impl IntoElement {
+/// order is the only stacking control available. `canvas_col_w` is the live
+/// canvas column width: the source centres the card inside it, so the painted
+/// left edge moves with the viewport and the `2xl` dock widths (the frozen
+/// `CARD_X = 183` is this same formula evaluated at the 1366x820 baseline).
+/// `col_left` is the canvas column's left edge in window coordinates (the
+/// rail width); the card's painted left edge is
+/// `col_left + (col_w - CARD_W) / 2`.
+pub fn render(col_left: f32, col_w: f32) -> impl IntoElement {
     // `AnyElement` rather than `Div`, because the two arms are different
     // types: the card is a concrete `Div` and `dialogs::render()` is an
     // opaque `impl IntoElement`.
+    let card_x = col_left + ((col_w - CARD_W) / 2.0).max(0.0);
     let body: AnyElement = match select(shot::active()) {
         EmptyVariant::NewDocument => dialogs::render().into_any_element(),
         EmptyVariant::Card => card()
             .absolute()
-            .left(px(CARD_X))
+            .left(px(card_x))
             .top(px(CARD_Y))
             .into_any_element(),
     };
@@ -448,443 +444,8 @@ pub fn render() -> impl IntoElement {
         .child(body)
 }
 
-/// The `<section>` itself: 520x352, 6px corners, a 1px [`color::BORDER`] edge
-/// and a [`color::PANEL`] fill, over `0 12px 32px rgba(0,0,0,0.8)`.
-///
-/// `overflow_hidden` stands in for nothing the source has - the card's content
-/// is exactly 350 tall - but it keeps a stray flex rounding step from painting
-/// past the 6px corners.
-fn card() -> Div {
-    v_flex()
-        .items_stretch()
-        .w(px(CARD_W))
-        .h(px(CARD_H))
-        .rounded(px(CARD_R))
-        .border_1()
-        .border_color(color::BORDER)
-        .bg(color::PANEL)
-        .overflow_hidden()
-        .shadow(card_shadow())
-        .child(header())
-        .child(actions())
-        .child(presets())
-        .child(footer())
-}
-
-/// `shadow-[0_12px_32px_rgba(0,0,0,0.8)]`.
-///
-/// The parameters are exact; the *curve* is not. Chromium's coverage at the
-/// card's own edge reads about 0.4 (`#090909` over a `#0f0f0f` canvas, 3px out,
-/// symmetric on both sides), because a finite blurred rect offset 12px down
-/// never reaches full coverage at its edge - and GPUI approximates the blur
-/// differently again. `empty-card.png` is cropped to the card, so it contains
-/// no shadow at all; only `empty-full.png` shows this, 12px below and 30px
-/// either side of it.
-fn card_shadow() -> Vec<BoxShadow> {
-    vec![BoxShadow::new(px(0.0), px(12.0), hsla(0.0, 0.0, 0.0, 0.8)).blur_radius(px(32.0))]
-}
-
-/// The header block: `border-b border-editor-divider px-5 py-4`.
-///
-/// 74px = 16 + 41 + 16 + 1. The border is [`color::BORDER`], not
-/// [`color::DIVIDER`] - every rule in the card is, and `tokens.rs` says why.
-fn header() -> Div {
-    v_flex()
-        .w_full()
-        .h(px(HEADER_H))
-        .flex_shrink_0()
-        .px(px(PAD_X))
-        .py(px(HEADER_PAD_Y))
-        .border_b(px(1.0))
-        .border_color(color::BORDER)
-        .child(
-            h_flex()
-                .w_full()
-                .h(px(HEADER_ROW_H))
-                // `items-center`, resolved by hand: the icon box would sit at
-                // +2 of the 41px row and the capture has it at +3.
-                .items_start()
-                .gap(px(HEADER_GAP))
-                .child(
-                    div()
-                        .w(px(HEADER_ICON_BOX))
-                        .h(px(HEADER_ICON_BOX))
-                        .mt(px(HEADER_ICON_OFFSET))
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(R4))
-                        .bg(color::FIELD)
-                        .child(
-                            Icon::default()
-                                .data(icons::IMAGE_PLUS)
-                                .size(px(HEADER_ICON))
-                                .text_color(color::TEXT_DIM),
-                        ),
-                )
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .child(text_line(
-                            &t("welcome.title"),
-                            TITLE_TEXT,
-                            TITLE_LINE_H,
-                            FontWeight(600.),
-                            color::TEXT,
-                        ))
-                        .child(
-                            text_line(
-                                &t("welcome.description"),
-                                DESC_TEXT,
-                                DESC_LINE_H,
-                                FontWeight(400.),
-                                color::TEXT_DIM,
-                            )
-                            .mt(px(DESC_MT)),
-                        ),
-                ),
-        )
-}
-
-/// The two action buttons: `grid grid-cols-2 gap-2.5 px-5 py-3.5`.
-///
-/// 64px = 14 + 36 + 14. Column widths are 234 each, from (478 - 10) / 2.
-fn actions() -> Div {
-    h_flex()
-        .w_full()
-        .h(px(ACTIONS_H))
-        .flex_shrink_0()
-        .items_stretch()
-        .px(px(PAD_X))
-        .py(px(ACTIONS_PAD_Y))
-        .gap(px(ACTIONS_GAP))
-        .child(action_button(
-            icons::FOLDER_PLUS,
-            &t("welcome.openImage"),
-            color::ACCENT,
-            color::WHITE,
-            false,
-        ))
-        .child(action_button(
-            icons::PLUS,
-            &t("welcome.newDocument"),
-            color::FIELD,
-            color::TEXT,
-            true,
-        ))
-}
-
-/// One action button.
-///
-/// The first is `bg-editor-accent text-white` with no border; the second is
-/// `border border-editor-field-border bg-editor-field text-editor-text`, and
-/// that `border-editor-field-border` resolves to [`color::BORDER`] like every
-/// other border in the app rather than to [`color::FIELD_BORDER`].
-///
-/// Both are `h-9 ... justify-center gap-2 px-3`, so the icon and the label
-/// centre as a group: the baseline puts the first group's ink at crop
-/// x 91..186 (97 wide) and the second's at 328..440 (114 wide), against a
-/// 234px column.
-fn action_button(icon: &'static [u8], label: &str, fill: Hsla, ink: Hsla, bordered: bool) -> Div {
-    let mut button = h_flex()
-        .w(px(BUTTON_W))
-        .h(px(BUTTON_H))
-        .flex_shrink_0()
-        .items_center()
-        .justify_center()
-        .gap(px(BUTTON_GAP))
-        .rounded(px(R4))
-        .bg(fill);
-
-    if bordered {
-        button = button.border_1().border_color(color::BORDER);
-    }
-
-    button
-        .child(
-            Icon::default()
-                .data(icon)
-                .size(px(BUTTON_ICON))
-                .text_color(ink),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .whitespace_nowrap()
-                .text_size(px(BUTTON_TEXT))
-                .font_family(ui::FONT_UI)
-                .font_weight(FontWeight(500.))
-                .text_color(ink)
-                .child(label.to_string()),
-        )
-}
-
-/// The Quick Presets block: `border-t border-editor-divider px-5 py-3.5`.
-///
-/// 166px = 1 + 14 + 17 + 10 + 51 + 8 + 51 + 14. Two things are worth keeping
-/// in mind when this block is read again: the heading's line box is 17 rather
-/// than the 16.5 that `11 x 1.5` gives, and the tiles are 51 rather than the
-/// 49 that `p-2` plus two default line heights suggest. Both are what the
-/// capture measures, and both are load-bearing for the rows landing on crop
-/// 181 and 240.
-fn presets() -> Div {
-    v_flex()
-        .w_full()
-        .h(px(PRESETS_H))
-        .flex_shrink_0()
-        .px(px(PAD_X))
-        .py(px(PRESETS_PAD_Y))
-        .border_t(px(1.0))
-        .border_color(color::BORDER)
-        .child(
-            text_line(
-                &t("welcome.quickPresets"),
-                HEADING_TEXT,
-                HEADING_LINE_H,
-                FontWeight(600.),
-                color::TEXT,
-            )
-            .mb(px(PRESETS_HEADING_MB)),
-        )
-        .child(
-            v_flex()
-                .w_full()
-                .gap(px(PRESET_ROW_GAP))
-                .child(preset_row(0, 1))
-                .child(preset_row(2, 3)),
-        )
-}
-
-/// One row of the `grid-cols-2` presets grid - two 235px tiles 8px apart.
-fn preset_row(first: usize, second: usize) -> Div {
-    h_flex()
-        .w_full()
-        .h(px(TILE_H))
-        .flex_shrink_0()
-        .items_stretch()
-        .gap(px(PRESET_ROW_GAP))
-        .child(preset_tile(first))
-        .child(preset_tile(second))
-}
-
-/// One preset: `flex items-center gap-2.5 rounded-[4px] border
-/// border-editor-field-border bg-editor-field p-2`.
-///
-/// 51px = 2 borders + 16 padding + 33 of content, and the 33 is an 18px label
-/// line over a 15px tag line. The 28px icon box centres in that 33 at +2.5,
-/// which GPUI rounds the same way the capture does - so unlike the header's
-/// icon box, this one is left to `items_center`.
-fn preset_tile(index: usize) -> Div {
-    let (label, tag) = PRESETS[index];
-
-    h_flex()
-        .w(px(TILE_W))
-        .h(px(TILE_H))
-        .flex_shrink_0()
-        .items_center()
-        .gap(px(TILE_GAP))
-        .rounded(px(R4))
-        .border_1()
-        .border_color(color::BORDER)
-        .bg(color::FIELD)
-        .p(px(TILE_PAD))
-        .child(
-            div()
-                .w(px(TILE_ICON_BOX))
-                .h(px(TILE_ICON_BOX))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(R3))
-                .bg(color::PANEL)
-                .child(
-                    Icon::default()
-                        .data(preset_icon(index))
-                        .size(px(TILE_ICON))
-                        .text_color(color::TEXT_DIM),
-                ),
-        )
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w(px(0.0))
-                .child(text_line(
-                    label,
-                    TILE_LABEL_TEXT,
-                    TILE_LABEL_LINE_H,
-                    FontWeight(500.),
-                    color::TEXT,
-                ))
-                .child(text_line(
-                    tag,
-                    TAG_TEXT,
-                    TAG_LINE_H,
-                    FontWeight(400.),
-                    color::TEXT_DIM,
-                )),
-        )
-}
-
-/// The footer: `flex items-center justify-between border-t
-/// border-editor-divider px-5 py-3 text-[11px] text-editor-text-dim`.
-///
-/// 46px = 1 + 12 + 21 + 12. The 21 is the `<kbd>`'s own height (2 border +
-/// 4 padding + a 15px 10px line), and it is the tallest thing in the row, so
-/// it sets the block's content height rather than the 11px prompt.
-fn footer() -> Div {
-    h_flex()
-        .w_full()
-        .h(px(FOOTER_H))
-        .flex_shrink_0()
-        .items_center()
-        .justify_between()
-        .px(px(PAD_X))
-        .py(px(FOOTER_PAD_Y))
-        .border_t(px(1.0))
-        .border_color(color::BORDER)
-        // The prompt is one long unwrapped sentence and the kbd chip is a
-        // fixed 44px mark at its right. Before the split the sentence kept its
-        // intrinsic width and painted straight through the chip.
-        .child(ui::clip(
-            div()
-                .flex()
-                .items_center()
-                .whitespace_nowrap()
-                .text_size(px(PROMPT_TEXT))
-                .font_family(ui::FONT_UI)
-                .text_color(color::TEXT_DIM)
-                .child(t("welcome.dropPromptDefault")),
-        ))
-        .child(ui::pin(kbd()))
-}
-
-/// `<kbd class="font-sans rounded-[3px] border border-editor-divider
-/// bg-editor-field px-1.5 py-0.5 text-[10px] text-editor-text-dim">`.
-///
-/// Measured 44x21 at crop x 456..499, y 318..338, with the "Ctrl+O" run's ink
-/// at x 463..492 - which is `456 + 1 (border) + 6 (px-1.5)`, so the box is
-/// exactly padding + text + padding and nothing here needs an explicit width.
-/// (The *earlier* apparent 38px text run was the chip's own top and bottom
-/// border rows being read as ink.)
-fn kbd() -> Div {
-    h_flex()
-        .flex_shrink_0()
-        .items_center()
-        .justify_center()
-        .rounded(px(R3))
-        .border_1()
-        .border_color(color::BORDER)
-        .bg(color::FIELD)
-        .px(px(KBD_PAD_X))
-        .py(px(KBD_PAD_Y))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .whitespace_nowrap()
-                .text_size(px(TAG_TEXT))
-                .font_family(ui::FONT_UI)
-                .font_weight(FontWeight(400.))
-                .text_color(color::TEXT_DIM)
-                .child("Ctrl+O"), // i18n-exempt: shortcut chord
-        )
-}
-
-/// A text run pinned to an explicit line-box height.
-///
-/// **Worth consolidating.** Tailwind's `text-[Npx]` here resolves to a line
-/// box of 1.5N, and this card depends on those heights for four of its block
-/// sizes, so each run is given the height it was measured at and centred in
-/// it. Centring is enough rather than a computed baseline offset: a glyph's
-/// baseline lands at `box_centre + (ascent - descent) / 2` whatever the
-/// line-height, because half-leading is symmetric - which is also why the
-/// button labels need no explicit height even though Chromium gave them a
-/// 19.5px line box inside a 36px button.
-///
-/// Four other modules spell this out inline at the call site
-/// (`text_size` + `font_family` + `font_weight` + `text_color` on a fixed-height
-/// `div`), so this is the natural thing to hoist into `ui.rs` if a fifth
-/// arrives.
-///
-/// `whitespace_nowrap` stands in for the source's `truncate` on the preset
-/// labels and for the single-line spans; nothing clips at these widths, so
-/// the ellipsis itself never appears.
-fn text_line(text: &str, size: f32, line_h: f32, weight: FontWeight, colour: Hsla) -> Div {
-    div()
-        .h(px(line_h))
-        .flex()
-        .items_center()
-        .whitespace_nowrap()
-        .text_size(px(size))
-        .font_family(ui::FONT_UI)
-        .font_weight(weight)
-        .text_color(colour)
-        .child(text.to_string())
-}
-
+mod card;
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    // ── Variant table ───────────────────────────────────────────────────────
-
-    #[test]
-    fn select_routes_empty_new_document_to_dialog() {
-        assert_eq!(
-            select(Some("empty-new-document")),
-            EmptyVariant::NewDocument
-        );
-    }
-
-    #[test]
-    fn select_draws_card_for_every_other_shot() {
-        assert_eq!(select(Some("empty-card")), EmptyVariant::Card);
-        assert_eq!(select(Some("empty-full")), EmptyVariant::Card);
-        // An unset id (plain launch) still draws the card.
-        assert_eq!(select(None), EmptyVariant::Card);
-        // Shots that belong to other modules do not hijack the card arm.
-        assert_eq!(select(Some("loading-overlay")), EmptyVariant::Card);
-    }
-
-    // ── Empty-state card content table ──────────────────────────────────────
-
-    #[test]
-    fn presets_table_has_four_entries() {
-        assert_eq!(PRESETS.len(), 4);
-        assert_eq!(PRESETS[0].0, "Instagram Post");
-        assert_eq!(PRESETS[3].1, "2480 \u{00d7} 3508 px");
-        // The multiplication sign is the measured glyph, not a stray '*'.
-        assert!(PRESETS.iter().all(|(_l, t)| t.contains("\u{00d7}")));
-    }
-
-    #[test]
-    fn preset_icons_line_up_with_labels() {
-        assert_eq!(PRESET_ICONS.len(), PRESETS.len());
-        // preset_icon re-strokes each tile icon; the header icon stays at its
-        // baked 1.5, so it is not part of the re-stroked tile set.
-        for i in 0..PRESET_ICONS.len() {
-            let re = preset_icon(i);
-            assert!(!re.is_empty(), "tile {i} produced an empty glyph");
-        }
-    }
-
-    // ── Geometry invariant: blocks tile the card height exactly ─────────────
-
-    #[test]
-    fn blocks_tile_card_height() {
-        // 74 + 64 + 166 + 46 = 350 content; the 352 border box adds the 1px
-        // header border implicitly captured by CARD_H in the docs.
-        assert!(
-            (HEADER_H + ACTIONS_H + PRESETS_H + FOOTER_H - 350.0).abs() < 1e-9,
-            "block heights must sum to the 350px content height"
-        );
-        assert!(
-            (HEADER_H + ACTIONS_H + PRESETS_H + FOOTER_H - (CARD_H - 2.0)).abs() < 1e-9
-                || (HEADER_H + ACTIONS_H + PRESETS_H + FOOTER_H - CARD_H).abs() < 1e-9
-        );
-    }
-}
+use card::card;

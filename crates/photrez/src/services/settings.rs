@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 /// The file name inside the per-user config directory.
 const FILE_NAME: &str = "settings.json";
+const TRUSTED_PATHS_FILE_NAME: &str = "trusted-paths.json";
 
 /// Flat key-value persistence for user preferences.
 ///
@@ -60,6 +61,34 @@ impl FileSettings {
     pub fn at(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
+
+    pub(crate) fn trusted_paths_path(&self) -> PathBuf {
+        self.path.with_file_name(TRUSTED_PATHS_FILE_NAME)
+    }
+}
+
+pub(crate) fn user_cache_root() -> Option<PathBuf> {
+    cache_root_from(
+        cfg!(windows),
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+        std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+    )
+}
+
+fn cache_root_from(
+    windows: bool,
+    local_app_data: Option<PathBuf>,
+    xdg_cache_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let base = if windows {
+        local_app_data
+    } else {
+        xdg_cache_home
+    };
+    base.or_else(|| home.map(|path| path.join(".cache")))
+        .map(|path| path.join("photrez"))
 }
 
 impl SettingsStore for FileSettings {
@@ -122,6 +151,42 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join(FILE_NAME)
+    }
+
+    #[test]
+    fn trusted_paths_file_is_beside_the_injected_settings_file() {
+        let settings_path = PathBuf::from("profile").join("settings.json");
+        let store = FileSettings::at(&settings_path);
+        assert_eq!(
+            store.trusted_paths_path(),
+            PathBuf::from("profile").join("trusted-paths.json")
+        );
+    }
+
+    #[test]
+    fn cache_root_uses_platform_location_then_home_fallback() {
+        assert_eq!(
+            cache_root_from(
+                true,
+                Some(PathBuf::from("local")),
+                Some(PathBuf::from("xdg")),
+                Some(PathBuf::from("home"))
+            ),
+            Some(PathBuf::from("local/photrez"))
+        );
+        assert_eq!(
+            cache_root_from(
+                false,
+                None,
+                Some(PathBuf::from("xdg")),
+                Some(PathBuf::from("home"))
+            ),
+            Some(PathBuf::from("xdg/photrez"))
+        );
+        assert_eq!(
+            cache_root_from(false, None, None, Some(PathBuf::from("home"))),
+            Some(PathBuf::from("home/.cache/photrez"))
+        );
     }
 
     #[test]

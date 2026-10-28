@@ -217,6 +217,26 @@ layer.delete  — useEditorCommands.ts:55, 93, 186, 604
 
 No `DeleteLayerConfirm` component exists. `layer.delete` runs directly with no confirmation dialog. Matches the recorded assertion: none exists.
 
+## 2026-10-25 G6 mounted closeout
+
+| # | Mounted test | Production surface | RED mutation |
+|---|---|---|---|
+| L1 | `document_tab_shows_the_active_document` | tab id/name/`aria_selected` from `AppState.document_name`/`document_id` | remove `.test_support()` |
+| L2 | `dock_tabs_click_update_selected_tab`, `dock_tab_clicks_mount_only_selected_panel` | inspector tab bar | recorded in A8.3 |
+| L3 | same dock-tab tests | layer tab bar | recorded in A8.3 |
+| L4 | `dock_columns_and_navigator_match_mounted_geometry` | InspectorDock/LayerDock/Navigator | rename `layer-dock` id |
+| L5 | `each_tool_selects_its_option_bar`, `tool_rail_click_updates_active_tool` | ten tool buttons | recorded in A8.2 |
+| L6 | `selection_variant_flyout_exposes_rect_and_ellipse` | right-click fly-out, rect/ellipse rows | variant handler never opens |
+| L7 | `each_tool_selects_its_option_bar` | option bar per tool | recorded in A8.2/A8.3 |
+| L8 | `menu_triggers_open_measured_popups` | `open_menu` overlay at measured origins | trigger never opens |
+| L9 | `narrow_title_bar_toggle_controls_the_right_dock`, `right_dock_visibility_follows_state` | `<lg` panel toggle | toggle no-op |
+| L10 | `menu_commands_open_the_shell_dialogs` | File/Help/Settings command rows -> `active_dialog` | command does not set dialog |
+| L11 | none (no confirmation exists) | none | n/a |
+
+All mutations were restored byte-for-byte before the green run. The suite is `cargo test --workspace --lib nav_regression_tests`; the recorded 13-passed run predates the workspace consolidation and used the then-current `--manifest-path crates/photrez/Cargo.toml` form.
+
+Known limits: L6's fly-out origin is derived from the rail geometry/source classes, not a captured baseline; L8 popup origins are the manifest constants; L10 proves reachability of the framed dialog shells, not their bodies' controls; L1 proves the active tab, not multi-document switching (WF-05). The 74-shot pixel sweep is a separate G3/G5 gate and was not re-run here.
+
 ## Open questions
 
 - **L4 regex**: The recorded census command uses regex metacharacters (`[`, `|`, `()`) without PowerShell escaping. On PowerShell + Select-String, `-Pattern 'w-\[(272\|260)px'` is rejected as an invalid regex. The recorded honest variant matches `272px`/`260px` literals directly. If the regression test must use the exact recorded command, it needs `git grep` (which handles ERE) or `-Pattern` with fully escaped `w-\[(272|260)px`.

@@ -5,12 +5,12 @@
 // TTL-based pruning (orphan cleanup when the frontend dies mid-save).
 //
 // The document payload is SERIALIZED HERE, not in the host: `document` arrives
-// as a JSON value, is parsed into the typed `photrez_core::ptz_document::PtzDocument`
+// as a JSON value, is parsed into the typed `photrez_core::ptz::file::PtzDocument`
 // (so a document that does not match the on-disk contract fails the save
 // instead of being written), then re-serialized by that type and written into
 // the ZIP. See `write_document_json_into_zip` for the atomicity contract.
 
-use photrez_core::ptz_document::PtzDocument;
+use photrez_core::ptz::file::PtzDocument;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write;
@@ -120,7 +120,7 @@ fn serialize_document_json(document: &Value) -> Result<String, Value> {
 /// `editorOpenImage.ts` is `JSON.parse` plus `restoreSnapshot`, and there is no
 /// Rust read path for `document.json`. So nothing at runtime enforces that the
 /// writer and the reader agree on the shape; only the round-trip tests do
-/// (`ptz_document.rs` and `ptzWriterGolden.test.ts`).
+/// (`ptz/file.rs` and `ptzWriterGolden.test.ts`).
 ///
 /// Everything that must succeed BEFORE the filesystem is touched: path
 /// validation and document serialization.
@@ -371,7 +371,7 @@ pub(crate) fn save_project_streaming_cancel(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use photrez_core::ptz_fixtures::{
+    use photrez_core::ptz::fixtures::{
         LEGACY_TEXT_LAYER_MODEL, MIXED_LAYER_TYPES_MODEL, REAL_DUMPED_MODEL,
     };
     use std::io::Read;
@@ -443,11 +443,11 @@ mod tests {
         assert_eq!(painted.lock_transparency, Some(true));
         assert_eq!(
             painted.blend_mode,
-            photrez_core::canonical_model::BlendMode::Multiply
+            photrez_core::ptz::content::BlendMode::Multiply
         );
         assert_eq!(
             painted.layer_type,
-            photrez_core::canonical_model::LayerType::Raster
+            photrez_core::ptz::content::LayerType::Raster
         );
 
         let background = reparsed
@@ -532,7 +532,7 @@ mod tests {
         assert_eq!(text.text_data.as_ref().unwrap().content, "Hello");
         assert_eq!(
             text.text_data.as_ref().unwrap().stroke.align,
-            Some(photrez_core::canonical_model::TextStrokeAlign::Inside)
+            Some(photrez_core::ptz::content::TextStrokeAlign::Inside)
         );
         let adjusted = reparsed
             .layers

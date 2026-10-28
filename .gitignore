@@ -57,10 +57,12 @@ test-results/
 !media/*.png
 !crates/photrez/tests/baseline/**/*.png
 !crates/xtask/tests/fixtures/*.png
+!crates/photrez/tests/fixtures/*.png
 *.jpg
 *.jpeg
 !apps/desktop/src/assets/**/*
 *.py
+!crates/photrez/tests/fixtures/*.py
 *.zip
 *.tgz
 

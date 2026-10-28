@@ -15,7 +15,7 @@
 // It reports no pixel bytes. It reports LENGTHS, so a caller learns the store's
 // footprint without a single pixel crossing the boundary.
 
-use photrez_core::pixel_store::{registry, PixelStoreBytes};
+use photrez_core::pixel::{registry, PixelStoreBytes};
 
 /// Longest `doc_id` (UTF-8 bytes) this probe accepts. Production ids are
 /// `doc-<uuid>` (41 bytes); 256 keeps headroom while rejecting garbage before it
@@ -540,8 +540,8 @@ mod tests {
         }
     }
 
-    fn sub_tile() -> photrez_core::pixel_store::TilePatch {
-        photrez_core::pixel_store::TilePatch {
+    fn sub_tile() -> photrez_core::pixel::TilePatch {
+        photrez_core::pixel::TilePatch {
             x: 0,
             y: 0,
             w: 4,

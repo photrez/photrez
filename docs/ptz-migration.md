@@ -17,7 +17,7 @@
 └── ...
 ```
 
-- **`document.json`**: Written by the Rust core, not the TypeScript host. The save path (`save_project_streaming_begin` in `apps/desktop/src-tauri/src/save_stream.rs`) parses the document into `PtzDocument` (`crates/core/src/ptz_document.rs`) and that type serializes the bytes. Per-layer `imageBitmap` / `baseImageBitmap` are written as `null`; pixels live in the ZIP.
+- **`document.json`**: Written by the Rust core, not the TypeScript host. The save path (`save_project_streaming_begin` in `apps/desktop/src-tauri/src/save_stream.rs`) parses the document into `PtzDocument` (`crates/core/src/ptz/file.rs`) and that type serializes the bytes. Per-layer `imageBitmap` / `baseImageBitmap` are written as `null`; pixels live in the ZIP.
 - **Layer PNGs**: Raw PNG bytes (not base64), written under `layers/<layer.id>.png` and DEFLATE-compressed by the ZIP container (`CompressionMethod::Deflated`) — the PNG data itself is not additionally compressed. The Rust side reads them as `Vec<u8>`.
 - **Version field**: Files this build writes carry `version: 3`. Alpha files may have no `version` field at all; version `0` / absent / `1` / `2` / `3` are all treated as compatible.
 - **Float precision**: floats are parsed correctly-rounded and echoed back unchanged. `crates/core/Cargo.toml` enables `serde_json`'s `float_roundtrip` feature for this — its default float parsing is approximate and can be 1 ULP off on some decimal literals. A file re-saved by this build may therefore differ from the previous writer's output in the last digit of some floats (and in nothing else). This is a precision *gain*: the value now matches what `str::parse::<f64>` and the loader's `JSON.parse` both produce.
@@ -31,7 +31,7 @@
 
 Rust owns the WRITE; TypeScript owns this READ. There is no Rust read path for
 `document.json`, so nothing at runtime enforces that the two agree on the shape
-— only the tests do (`crates/core/src/ptz_document.rs` round-trips the real
+— only the tests do (`crates/core/src/ptz/file.rs` round-trips the real
 writer output, and `apps/desktop/src/components/editor/__tests__/ptzWriterGolden.test.ts`
 diffs the TypeScript test model against those bytes).
 
@@ -43,7 +43,7 @@ diffs the TypeScript test model against those bytes).
 
 *On load:* extra fields in `document.json` are ignored by `JSON.parse` + the spread into the model. Old files without the field get `undefined` and the engine's defaults apply. Example: adding `"guides": [...]` — old files get `undefined`, treated as "no guides".
 
-*On save:* **not silent.** `PtzDocument` is a typed projection, so a document field with no corresponding field on that struct is DROPPED from every file written from then on. Adding a field to `DocumentModel` therefore requires adding it to `PtzDocument` (and to `CanonicalDocument` / `CanonicalLayer` in `crates/core/src/canonical_model.rs`) in the same change, or the data is lost on the next save. The round-trip tests in `ptz_document.rs` assert exact key sets precisely to catch this.
+*On save:* **not silent.** `PtzDocument` is a typed projection, so a document field with no corresponding field on that struct is DROPPED from every file written from then on. Adding a field to `DocumentModel` therefore requires adding it to `PtzDocument` (and to `PtzDocumentContent` / `PtzLayer` in `crates/core/src/ptz/content.rs`) in the same change, or the data is lost on the next save. The round-trip tests in `crates/core/src/ptz/tests/file.rs` assert exact key sets precisely to catch this.
 
 Fields that predate the Rust writer must carry a serde default on the Rust side: the loader never normalises nested layer params (`textData`, `shapeParams`, `basicAdjustment` are raw-spread by `restoreSnapshot`), so a file predating a nested field reaches the save path with it genuinely absent and would otherwise fail the save with `E_VALIDATION` and write nothing.
 
@@ -57,7 +57,7 @@ Fields that predate the Rust writer must carry a serde default on the Rust side:
 
 ## How to Bump Format Version
 
-1. Increment `PTZ_VERSION` in `crates/core/src/ptz_document.rs`. That constant is the only place the written version lives — the host cannot set it, and `projectSerialize.ts` no longer builds the payload.
+1. Increment `PTZ_VERSION` in `crates/core/src/ptz/file.rs`. That constant is the only place the written version lives — the host cannot set it, and `projectSerialize.ts` no longer builds the payload.
 2. Teach the loader the new version in `editorOpenImage.ts` `loadProjectFile`. It warns on any `version` greater than the highest it knows, so raising `PTZ_VERSION` without this step toasts on every project open.
 3. In `editorOpenImage.ts` `loadProjectFile`, add a version map:
    ```ts
@@ -68,8 +68,8 @@ Fields that predate the Rust writer must carry a serde default on the Rust side:
    ```
 4. For each version gap, apply migrators sequentially.
 5. Keep old version files loadable — after `v0.1.0` backward compat may **never** be dropped (additive + migrator only). Post-`v1.0.0`, dropping compatibility requires a MAJOR app version bump.
-6. **Update the version assertions.** `crates/core/src/ptz_document.rs` has `writes_the_v3_header_the_loader_expects`, which hard-asserts `version == 3`; it will go red the moment you bump the constant, and its failure message points here. `crates/core/src/ptz_writer_golden.rs` also pins the exact written bytes — regenerate with `cargo test -p photrez-core --lib -- --ignored ptz_writer_golden` and review the diff as the record of the format change.
-7. Add a fixture for the new shape to `crates/core/src/ptz_fixtures.rs` and assert it round-trips. `crates/core/src/canonical_model.rs` also contains a `to_ptz_document_json` that writes `version: 4`; it is fenced to `#[cfg(test)]` and is NOT the writer — do not wire it into a save path.
+6. **Update the version assertions.** `crates/core/src/ptz/file.rs` has `writes_the_v3_header_the_loader_expects`, which hard-asserts `version == 3`; it will go red the moment you bump the constant, and its failure message points here. `crates/core/src/ptz/tests/writer_golden.rs` also pins the exact written bytes - regenerate with `cargo test -p photrez-core --lib -- --ignored ptz_writer_golden` and review the diff as the record of the format change.
+7. Add a fixture for the new shape to `crates/core/src/ptz/fixtures.rs` and assert it round-trips. `crates/core/src/ptz/content.rs` also contains a `to_ptz_document_json` that writes `version: 4`; it is fenced to `#[cfg(test)]` and is NOT the writer — do not wire it into a save path.
 
 ## Testing
 

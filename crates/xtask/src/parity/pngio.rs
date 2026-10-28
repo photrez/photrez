@@ -1,5 +1,5 @@
 //! PNG loading and saving for the parity tooling, normalised to 8-bit RGBA
-//! with row-major top-down order. Every input (Playwright element crops,
+//! with row-major top-down order. Every input (browser element crops,
 //! Windows screen captures) is converted on load; writers always emit RGBA8.
 
 use std::path::Path;

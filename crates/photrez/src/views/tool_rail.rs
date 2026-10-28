@@ -27,13 +27,13 @@
 //! `ToolId` on the `Tool` struct and compares it against the `active_tool`
 //! argument so the correct button is lit per shot.
 
-use gpui_kit::base::v_flex;
+use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Hsla};
+use gpui_kit::{div, hsla, px, BoxShadow, Context, Entity, Hsla, MouseButton, TestSupportExt};
 
-use crate::assets::icons;
-use crate::state::ToolId;
+use crate::icons;
+use crate::state::{AppState, SelectionShape, ToolId};
 use crate::tokens::{color, dim};
 
 /// Mirrors `ToolItem` in `editorData.ts`. `has_variants` drives the
@@ -154,10 +154,13 @@ fn shadow_md_layers() -> Vec<BoxShadow> {
 /// `<aside class="flex w-[52px] shrink-0 flex-col items-center gap-0.5
 ///  bg-editor-toolbar py-2">`
 ///
-/// `active_tool` is the tool the shell currently has selected; the matching
-/// button is highlighted. No arguments otherwise: the reference's hardcoded
-/// resting state has been replaced by this parameter.
-pub fn render(active_tool: &ToolId) -> impl IntoElement {
+/// `state` is the live app-state entity the rail writes its selection back
+/// into; the active tool is read once here (it is `Copy`) and passed down so
+/// each button can light itself. No arguments otherwise: the reference's
+/// hardcoded resting state has been replaced by this parameter.
+pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
+    // `Copy` the single field we branch on; the borrow of the state ends here.
+    let active_tool = state.read(cx).active_tool;
     // `flex_none()` so the rail keeps its 52px at any window width; the port's
     // shells were all captured at 1366 and a shrunken rail misplaces every
     // button by a different amount.
@@ -169,7 +172,7 @@ pub fn render(active_tool: &ToolId) -> impl IntoElement {
         .gap(px(dim::RAIL_GAP))
         .bg(color::TOOLBAR)
         .py(px(dim::RAIL_PY))
-        .children(TOOLS.iter().map(|t| tool_button(t, active_tool)))
+        .children(TOOLS.iter().map(|t| tool_button(t, active_tool, state, cx)))
         .child(divider())
         .child(swatch_stack())
 }
@@ -180,17 +183,47 @@ pub fn render(active_tool: &ToolId) -> impl IntoElement {
 /// The original wraps the button in `<div class="relative">` purely to anchor
 /// the fly-out popover, which this port omits - so the `relative` moves onto
 /// the button itself, where it is needed for the absolute triangle.
-fn tool_button(tool: &Tool, active_tool: &ToolId) -> impl IntoElement {
+///
+/// The click handler writes this button's `ToolId` back into the live
+/// `AppState` and notifies the root so the shell repaints with the new tool.
+fn tool_button(
+    tool: &Tool,
+    active_tool: ToolId,
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
     // `Icon` captures its tint when the element tree is built, *before* hover
     // styles are applied at paint time, so the tint has to be decided here
     // rather than inherited from the button's `.hover(|s| s.text_color(..))`.
     // Consequence: the icon does not brighten on hover, only the button
     // background does. See KNOWN-FIDELITY-GAPS.
-    let active = tool.tool_id == *active_tool;
+    let active = tool.tool_id == active_tool;
     let icon_tint = if active { color::TEXT } else { color::ICON };
+    let selection_shape = state.read(cx).selection_shape;
+    let icon = if tool.tool_id == ToolId::Selection && selection_shape == SelectionShape::Ellipse {
+        icons::CIRCLE_DASHED
+    } else {
+        tool.icon
+    };
+
+    // Each button captures its own copy of the state handle; the handler runs
+    // on the owning App and re-enters the state entity through it.
+    let state_for_click = state.clone();
+    let tool_id = tool.tool_id;
+    let on_click = cx.listener(move |app, _, _, cx: &mut Context<crate::app::App>| {
+        app.cancel_canvas_gesture(cx);
+        state_for_click.update(cx, |s, _| s.active_tool = tool_id);
+        cx.notify();
+    });
+    let state_for_variants = state.clone();
+    let on_right_click = cx.listener(move |_, _, _, cx: &mut Context<crate::app::App>| {
+        state_for_variants.update(cx, |s, _| s.selection_flyout_open = true);
+        cx.notify();
+    });
 
     div()
         .id(tool.id)
+        .test_support()
         .relative()
         .size(px(dim::TOOL_BTN))
         .flex_shrink_0()
@@ -199,6 +232,10 @@ fn tool_button(tool: &Tool, active_tool: &ToolId) -> impl IntoElement {
         .items_center()
         .justify_center()
         .rounded(px(dim::TOOL_BTN_RADIUS))
+        .on_click(on_click)
+        .when(tool.has_variants, |el| {
+            el.on_mouse_down(MouseButton::Right, on_right_click)
+        })
         .when(active, |el| el.bg(color::WHITE_5).text_color(color::TEXT))
         .when(!active, |el| {
             el.text_color(color::ICON)
@@ -206,11 +243,101 @@ fn tool_button(tool: &Tool, active_tool: &ToolId) -> impl IntoElement {
         })
         .child(
             Icon::default()
-                .data(tool.icon)
+                .data(icon)
                 .size(px(dim::ICON))
                 .text_color(icon_tint),
         )
         .when(tool.has_variants, |el| el.child(variant_indicator()))
+}
+
+/// The selection tool's right-click sub-variant popover.
+///
+/// It is an overlay appended after the shell (GPUI has no z-index): the
+/// measured origin is the selection row's right edge, 50px from the rail's
+/// left, 92px below the window top (46 title + 8 rail inset + one 36px row +
+/// 2 gap). Width and row metrics come from the frozen `LeftToolRail.tsx`
+/// popover (`min-w-[140px]`, `px-3 py-1.5 text-[11px]`).
+pub fn render_flyout(
+    state: &Entity<AppState>,
+    active_shape: SelectionShape,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let state_for_close = state.clone();
+    let close = cx.listener(move |_, _, _, cx: &mut Context<crate::app::App>| {
+        state_for_close.update(cx, |s, _| s.selection_flyout_open = false);
+        cx.notify();
+    });
+
+    let variants = [
+        (
+            SelectionShape::Rect,
+            "variant-rect",
+            icons::SQUARE_DASHED,
+            crate::i18n::t("tools.rectSelect"),
+        ),
+        (
+            SelectionShape::Ellipse,
+            "variant-ellipse",
+            icons::CIRCLE_DASHED,
+            crate::i18n::t("tools.ellipseSelect"),
+        ),
+    ];
+    let mut popover = v_flex()
+        .id("selection-variant-flyout")
+        .test_support()
+        .absolute()
+        .left(px(50.0))
+        .top(px(92.0))
+        .w(px(140.0))
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(color::FIELD_BORDER)
+        .bg(color::PANEL)
+        .py(px(4.0))
+        .overflow_hidden();
+    for (shape, id, icon, label) in variants {
+        let state = state.clone();
+        let active = shape == active_shape;
+        popover = popover.child(
+            h_flex()
+                .id(id)
+                .test_support()
+                .h(px(28.0))
+                .items_center()
+                .gap(px(8.0))
+                .px(px(12.0))
+                .text_size(px(11.0))
+                .font_family(crate::components::ui::FONT_UI)
+                .text_color(if active { color::TEXT } else { color::TEXT_DIM })
+                .when(active, |el| el.bg(color::WHITE_10))
+                .hover(|style| style.bg(color::WHITE_5).text_color(color::TEXT))
+                .on_click(
+                    cx.listener(move |_, _, _, cx: &mut Context<crate::app::App>| {
+                        state.update(cx, |s, _| {
+                            s.selection_shape = shape;
+                            s.active_tool = ToolId::Selection;
+                            s.selection_flyout_open = false;
+                        });
+                        cx.notify();
+                    }),
+                )
+                .child(
+                    Icon::default()
+                        .data(icon)
+                        .size(px(16.0))
+                        .text_color(if active { color::TEXT } else { color::ICON }),
+                )
+                .child(label),
+        );
+    }
+
+    div()
+        .id("selection-flyout-frame")
+        .test_support()
+        .absolute()
+        .inset(px(0.0))
+        .on_click(close)
+        .child(popover)
 }
 
 /// `absolute bottom-1 right-1 size-[5px] text-editor-text-dim/80`

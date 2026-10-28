@@ -1,13 +1,11 @@
 #!/bin/sh
 # File-size ratchet for the Rust trees.
 #
-# Thresholds: 500 lines for a non-test module, 1000 for a test module. A file
-# that is already above its threshold is grandfathered in
-# scripts/rust-file-size-baseline.txt at its recorded size and may not grow
-# past that size. Any other oversized file fails. The ratchet only moves down:
-# shrinking is always allowed, growing a grandfathered file never is.
+# User-selected local policy: active non-baseline Rust sources have a 1000-line
+# hard cap and warnings from 900 lines; warnings do not fail the check. Existing
+# baseline entries receive ratchet-only enforcement. The current baseline
+# contents are frozen apps/desktop reference files; do not add baseline entries.
 #
-# Test module = path contains a tests/ directory or the file is named tests.rs.
 set -u
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || {
@@ -30,26 +28,28 @@ if [ -z "$files" ]; then
     exit 1
 fi
 
+hard_cap=1000
+warning_at=900
 fail=0
+warnings=0
 old_ifs=$IFS
 IFS='
 '
 for f in $files; do
     IFS=$old_ifs
     lines=$(wc -l <"$f" | tr -d '[:space:]')
-    case "$f" in
-    */tests/* | tests/* | */tests.rs | tests.rs) cap=1000 ;;
-    *) cap=500 ;;
-    esac
     base=$(recorded_for "$f")
     if [ -n "$base" ]; then
         if [ "$lines" -gt "$base" ]; then
             echo "FAIL (ratchet): $f grew to $lines lines (recorded $base)"
             fail=1
         fi
-    elif [ "$lines" -gt "$cap" ]; then
-        echo "FAIL (> cap): $f is $lines lines (cap $cap)"
+    elif [ "$lines" -gt "$hard_cap" ]; then
+        echo "FAIL (> hard cap): $f is $lines lines (hard cap $hard_cap)"
         fail=1
+    elif [ "$lines" -ge "$warning_at" ]; then
+        echo "WARN (near cap): $f is $lines lines (warning starts at $warning_at; hard cap $hard_cap)"
+        warnings=$((warnings + 1))
     fi
     IFS='
 '
@@ -57,6 +57,8 @@ done
 IFS=$old_ifs
 
 if [ "$fail" -eq 0 ]; then
-    echo "check-rust-file-size: OK (caps 500/1000, baseline ratchet honored)"
+    echo "check-rust-file-size: PASS (non-baseline hard cap $hard_cap; warning threshold $warning_at; warnings $warnings; existing frozen-reference-only baseline carve-out honored; ratchet honored)"
+else
+    echo "check-rust-file-size: FAIL (non-baseline hard cap $hard_cap or baseline ratchet; warning threshold $warning_at; warnings $warnings; frozen-reference-only baseline carve-out follows current baseline contents)"
 fi
 exit "$fail"

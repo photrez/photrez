@@ -44,7 +44,7 @@
 //! Errors stay `Result<_, String>`; every other command here returns errors the
 //! same way, so the error envelope shape is unchanged.
 
-use photrez_core::pixel_store::registry;
+use photrez_core::pixel::registry;
 use tauri::ipc::{InvokeBody, Request, Response};
 
 const MAGIC: &[u8; 8] = b"PTZRW01!";

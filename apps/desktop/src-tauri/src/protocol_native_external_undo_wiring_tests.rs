@@ -54,7 +54,7 @@ fn seed_payload_json(ids: &[&str]) -> String {
     format!(r#"{{"version":0,"layers":[{}]}}"#, layers.join(","))
 }
 
-/// The `CanonicalDocument` payload `protocol_seed_canonical_native`
+/// The `PtzDocumentContent` payload `protocol_seed_canonical_native`
 /// deserializes (camelCase, `id`/`name`/`width`/`height`/`layers`).
 fn canon_payload_json(ids: &[&str]) -> String {
     let layers: Vec<String> = ids

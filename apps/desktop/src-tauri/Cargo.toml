@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 
 [dependencies]
-photrez-core = { path = "../../../crates/core" }
+photrez-core = { path = "../../../crates/core", features = ["legacy-tauri"] }
 tauri = { version = "2.11.5", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -43,4 +43,4 @@ tauri = { version = "2.11.5", features = ["test"] }
 # `save_stream.rs` round-trips against the same fixtures the core tests use.
 # Dev-dependency features do not leak into the app build (workspace resolver
 # "2"), so the fixture JSON stays out of the shipped binary.
-photrez-core = { path = "../../../crates/core", features = ["ptz-test-fixtures"] }
+photrez-core = { path = "../../../crates/core", features = ["legacy-tauri", "ptz-test-fixtures"] }

@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+//! Public typed protocol and wire facade. The former process-global protocol
+//! registry is callerless and has been removed.
+//!
+//! ```compile_fail
+//! use photrez_core::protocol::protocol_reset;
+//! fn main() { protocol_reset("doc"); }
+//! ```
 // Re-export surface for the protocol engine. The implementations now live in
-// document_core.rs / model.rs / history.rs / command.rs / projection.rs (the
-// split of the former protocol.rs). This shim keeps `photrez_core::protocol::*`
-// as the single public path to those types; the split modules are `pub(crate)`,
-// so items not listed in the `pub use` lines below are crate-internal. No
-// external crate currently consumes this path: the flat JS/IPC command names
-// (protocol_apply_command, etc.) reach it through their own surfaces and
-// src-tauri does not reference `protocol::`.
+// the `document/` bounded context (engine, history, snapshot) and in `wire/`
+// (command envelopes, projections). The frozen host consumes the DTO types;
+// its legacy process-global engine registry is not part of this facade.
 
-pub use crate::command::*;
-pub use crate::document_core::DocumentCore;
-pub use crate::history::{Origin, PayloadKind};
-pub use crate::model::{LayerMeta, Rect, RenderLayer, RenderLayerChange};
-pub use crate::projection::{
-    HistoryEntryView, HistoryQuery, PendingExternalView, ProtocolError, RenderDelta, RenderSnapshot,
+pub use crate::document::layer_set::LayerMeta;
+pub use crate::document::DocumentCore;
+pub use crate::render::layer::{Rect, RenderLayer, RenderLayerChange};
+pub use crate::wire::command::*;
+pub use crate::wire::history::{
+    HistoryEntryView, HistoryQuery, Origin, PayloadKind, PendingExternalView,
 };
+pub use crate::wire::projection::{ProtocolError, RenderDelta, RenderSnapshot};

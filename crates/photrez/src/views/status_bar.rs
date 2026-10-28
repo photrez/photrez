@@ -66,11 +66,11 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, font, px, Hsla, StyledText, TextRun};
+use gpui_kit::{div, font, px, Hsla, StyledText, TestSupportExt, TextRun};
 
-use crate::assets::icons;
 use crate::components::ui;
 use crate::i18n::t;
+use crate::icons;
 use crate::tokens::color;
 
 use gpui_kit::Div;
@@ -115,7 +115,7 @@ const HISTORY_ICON: f32 = 14.0;
 /// `strokeWidth={1.75}` — BottomStatusBar.tsx:239. Deliberately *not*
 /// `tokens::dim::ICON_STROKE` (1.6, the tool rail's) and not
 /// `tokens::title::ICON_STROKE` (1.75, but title-bar scoped): `icons::HISTORY`
-/// bakes 1.5, so this call site asks [`crate::assets::icons::with_stroke`] for
+/// bakes 1.5, so this call site asks [`crate::icons::with_stroke`] for
 /// its own width.
 const ICON_STROKE: f32 = 1.75;
 
@@ -123,6 +123,11 @@ const ICON_STROKE: f32 = 1.75;
 /// bar's line height), which left a 15px click target; 2x4.5 lifts the hit box
 /// to the 24px minimum target size. Symmetric, so nothing moves visually.
 const HIT_PY: f32 = 4.5;
+
+/// Cap for the save-error message. The cell is the only variable-width member
+/// of the pinned right group, so a filesystem error sentence must clip rather
+/// than walk the History button off the bar.
+const SAVE_ERROR_MAX_W: f32 = 420.0;
 
 // ── State stand-ins ──
 //
@@ -143,8 +148,6 @@ const ZOOM: &str = "88%"; // i18n-exempt: numeric value
 
 /// `getToolDisplayName()` for `activeTool() === "move"` — BottomStatusBar.tsx:135,
 /// via `tools.move` in `locales/en/translation.json:110`.
-const TOOL_KEY: &str = "tools.move";
-
 /// `statusText()` for the `move` tool — BottomStatusBar.tsx:107 resolving
 /// `status.toolTips.move`, `locales/en/translation.json:396`. This is the
 /// tooltip sentence, not a status: the real component shows the same string
@@ -153,9 +156,10 @@ const TOOL_KEY: &str = "tools.move";
 const STATUS_TIP_KEY: &str = "status.toolTips.move";
 
 /// `activeLayerName()` — BottomStatusBar.tsx:164. The status bar shows the same
-/// selected layer the Layers and Properties panels draw, so it must not keep
-/// the web capture's seed name: the port's seeded document is "Layer 1".
-const LAYER: &str = "Layer 1"; // i18n-exempt: demo content
+/// selected layer the Layers and Properties panels draw, so it must not keep a
+/// stale seed name: the seeded document's layer is the frozen new-document
+/// "Background" layer.
+const LAYER: &str = "Background"; // i18n-exempt: the frozen new-document layer name
 
 /// `text-editor-text/60` — the tool-tip sentence, BottomStatusBar.tsx:138.
 ///
@@ -215,7 +219,18 @@ impl FrameMetrics {
 ///
 /// `relative` only exists in the source to anchor the tiling-progress hairline
 /// (omitted above); it is kept so the element tree still mirrors the JSX.
-pub fn render() -> impl IntoElement {
+///
+/// `status_error` is production state, not a baseline value: the resting captures
+/// pass `None`, so the default bar is pixel-identical to the golden master. A
+/// failed save paints the typed service error in red until a save succeeds.
+pub fn render(
+    status_error: Option<&str>,
+    zoom_percent: Option<u32>,
+    doc_size: Option<(u32, u32)>,
+    tool: crate::state::ToolId,
+    layer_name: Option<&str>,
+    autosave: crate::state::AutosaveStatus,
+) -> impl IntoElement {
     h_flex()
         .relative()
         .h(px(BAR_H))
@@ -233,11 +248,17 @@ pub fn render() -> impl IntoElement {
         .text_size(px(TEXT_SIZE))
         .line_height(px(LINE_H))
         .text_color(color::TEXT_DIM)
-        // The left group yields and the right group does not: the readout cells
-        // are variable-width, so with nothing shrinking a long layer name used
-        // to walk the zoom percentage and the whole right cluster off the bar.
-        .child(ui::clip(left_group()))
-        .child(ui::pin(right_group()))
+        // With no document open the frozen bar shows no readout cells at all -
+        // the Canvas/Zoom/Active/Selected segment describes a document that
+        // does not exist. The left child must still exist: `justify_between`
+        // with a single child would park the History hint on the left, and the
+        // frozen bar keeps it on the right.
+        .child(if doc_size.is_some() {
+            ui::clip(left_group(zoom_percent, doc_size, tool, layer_name)).into_any_element()
+        } else {
+            div().into_any_element()
+        })
+        .child(ui::pin(right_group(status_error, autosave)))
 }
 
 /// `<div class="flex items-center gap-3">` — the readout cells, in order.
@@ -246,22 +267,51 @@ pub fn render() -> impl IntoElement {
 /// Frame timing. The Frame cell is gated in the web build on
 /// `devFrameStats() && devFrameStats()!.frames > 0`; the dev-mode capture
 /// always has frames > 0, so the cell is always present in the golden master.
-fn left_group() -> Div {
+fn left_group(
+    zoom_percent: Option<u32>,
+    doc_size: Option<(u32, u32)>,
+    tool: crate::state::ToolId,
+    layer_name: Option<&str>,
+) -> Div {
+    let zoom = zoom_percent
+        .map(|percent| format!("{percent}%"))
+        .unwrap_or_else(|| ZOOM.to_string());
+    let doc = doc_size
+        .map(|(width, height)| format!("{width} \u{d7} {height} px"))
+        .unwrap_or_else(|| DOC_SIZE.to_string());
+    let tool_label = t(tool_key(tool));
+    let layer = layer_name.unwrap_or(LAYER).to_string();
     h_flex()
         .gap(px(GROUP_GAP))
         // The first cell is the only one without the `border-l ... pl-3` rule.
-        .child(field(&format!("{}: ", t("status.canvas")), DOC_SIZE))
-        .child(divided_field(&format!("{}: ", t("status.zoom")), ZOOM))
+        .child(field(&format!("{}: ", t("status.canvas")), &doc))
+        .child(divided_field(&format!("{}: ", t("status.zoom")), &zoom))
         .child(divided_field(
             &format!("{}: ", t("status.active")),
-            &t(TOOL_KEY),
+            &tool_label,
         ))
         .child(divided_tip())
         .child(divided_field(
             &format!("{}: ", t("status.selectedLayer")),
-            LAYER,
+            &layer,
         ))
         .child(divided_frame())
+}
+
+fn tool_key(tool: crate::state::ToolId) -> &'static str {
+    use crate::state::ToolId;
+    match tool {
+        ToolId::Move => "tools.move",
+        ToolId::Selection => "tools.selection",
+        ToolId::Crop => "tools.crop",
+        ToolId::Eyedropper => "tools.eyedropper",
+        ToolId::Brush => "tools.brush",
+        ToolId::Eraser => "tools.eraser",
+        ToolId::PaintBucket => "tools.paintBucket",
+        ToolId::Gradient => "tools.gradient",
+        ToolId::Shape => "tools.shape",
+        ToolId::Text => "tools.text",
+    }
 }
 
 /// `label: <strong>value</strong>` without a rule — the `Canvas` cell.
@@ -404,14 +454,53 @@ fn labeled(label: &str, value: &str) -> StyledText {
     ])
 }
 
-/// `<div class="flex shrink-0 items-center gap-5">` — the right-hand cell.
+/// `<div class="flex shrink-0 items-center gap-5">` — the right-hand cells.
 ///
 /// The source also toggles `opacity-50 pointer-events-none` when no document
 /// is open; the baseline has one, so that branch never renders here.
-fn right_group() -> Div {
+fn right_group(status_error: Option<&str>, autosave: crate::state::AutosaveStatus) -> Div {
     h_flex()
         .flex_shrink_0()
         .gap(px(RIGHT_GAP))
+        .when(autosave == crate::state::AutosaveStatus::Saving, |row| {
+            row.child(
+                div()
+                    .id("autosave-status")
+                    .test_support()
+                    .text_color(color::TEXT_DIM)
+                    .child(t("common.saving")),
+            )
+        })
+        .when(autosave == crate::state::AutosaveStatus::Saved, |row| {
+            row.child(
+                div()
+                    .id("autosave-status")
+                    .test_support()
+                    .text_color(color::TEXT_DIM)
+                    .child(t("common.saved")),
+            )
+        })
+        .when(autosave == crate::state::AutosaveStatus::Error, |row| {
+            row.child(
+                div()
+                    .id("autosave-status")
+                    .test_support()
+                    .text_color(color::RED_500)
+                    .child(t("common.saveFailed")),
+            )
+        })
+        .when_some(status_error, |row, message| {
+            row.child(
+                div()
+                    .id("status-error")
+                    .test_support()
+                    .max_w(px(SAVE_ERROR_MAX_W))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_color(color::RED_500)
+                    .child(message.to_string()),
+            )
+        })
         .child(history_button())
 }
 
@@ -435,7 +524,7 @@ fn history_button() -> impl IntoElement {
         .hover(|s| s.text_color(color::TEXT))
         .child(
             // `icons::HISTORY` bakes stroke-width 1.5; this call site asks for
-            // lucide's `strokeWidth={1.75}` — see `crate::assets::icons::with_stroke`.
+            // lucide's `strokeWidth={1.75}` — see `crate::icons::with_stroke`.
             Icon::default()
                 .data(icons::with_stroke(icons::HISTORY, ICON_STROKE))
                 .size(px(HISTORY_ICON))

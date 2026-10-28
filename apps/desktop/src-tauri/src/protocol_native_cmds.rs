@@ -1,6 +1,6 @@
 // Native (Tauri) authority command surface for the per-document
 // `DocumentCore`. ADDITIVE ONLY - mirrors the wasm `protocol_*` bridge in
-// `document_core.rs` but drives the REAL `pixel_store` REGISTRY (keyed by
+// `protocol/registry.rs` but drives the REAL `pixel::store` registry (keyed by
 // `doc_id`) instead of the wasm `ENGINES` thread_local. The facade dispatches
 // here by default (native authority); set `photrez.facadeAuthority` to `wasm`
 // to route to the wasm engine. Production behavior follows the flag.
@@ -12,11 +12,11 @@
 // wrapper, which expects `{ ok, error }` and would mis-handle a bare-string
 // rejection. (Tauri v2 `invoke()` rejects with exactly this string on `Err`.)
 
-use photrez_core::canonical_model::CanonicalDocument;
-use photrez_core::pixel_store::registry;
+use photrez_core::pixel::registry;
 use photrez_core::protocol::{
     CommandEnvelope, CommandResult, HistoryQuery, ProtocolError, RenderLayer, RenderSnapshot,
 };
+use photrez_core::ptz::content::PtzDocumentContent;
 
 /// Normalize an empty/absent `doc_id` to the reserved `"default"` key so the
 /// native surface and the TS client agree on the shared document. The client
@@ -164,7 +164,7 @@ pub fn protocol_seed_native(payload_json: String, doc_id: String) -> Result<Stri
     Ok(serde_json::to_string(&snap).unwrap())
 }
 
-/// Seed a complete `CanonicalDocument` copy into the native per-doc
+/// Seed a complete `PtzDocumentContent` copy into the native per-doc
 /// `DocumentCore`, alongside the RenderLayer set the sibling `protocol_seed_native`
 /// seeds. ADDITIVE authority command (native-canonical-authority handoff plumbing):
 /// nothing routes through it yet, so production behavior is unchanged. Mirrors the
@@ -181,7 +181,7 @@ pub fn protocol_seed_canonical_native(
     payload_json: String,
     doc_id: String,
 ) -> Result<String, String> {
-    let doc: CanonicalDocument =
+    let doc: PtzDocumentContent =
         serde_json::from_str(&payload_json).map_err(|e| format!("E_CANONICAL_PARSE: {e}"))?;
     let doc_key = resolve_doc_key(&doc_id).to_string();
     let mut reg_guard = registry();
@@ -190,11 +190,11 @@ pub fn protocol_seed_canonical_native(
         .docs
         .get_mut(&doc_key)
         .ok_or_else(|| format!("document not open: {doc_key}"))?;
-    engine.history.seed_canonical(doc);
+    engine.history.seed_ptz(doc);
     Ok(serde_json::to_string(&()).unwrap())
 }
 
-/// Read back the seeded `CanonicalDocument` copy for the native per-doc
+/// Read back the seeded `PtzDocumentContent` copy for the native per-doc
 /// `DocumentCore`. ADDITIVE / UNWIRED: no runtime path consumes the result yet.
 ///
 /// Reuses the REGISTRY access the sibling read-only native commands use
@@ -213,7 +213,7 @@ pub fn protocol_canonical_native(doc_id: String) -> Result<String, String> {
         .docs
         .get(&doc_key)
         .ok_or_else(|| format!("document not open: {doc_key}"))?;
-    match engine.history.canonical() {
+    match engine.history.ptz_content() {
         Some(c) => Ok(serde_json::to_string(c).unwrap()),
         None => Err(format!(
             "E_CANONICAL_ABSENT: no canonical copy seeded for {doc_key}"
@@ -221,7 +221,7 @@ pub fn protocol_canonical_native(doc_id: String) -> Result<String, String> {
     }
 }
 
-/// Native mirror of wasm `protocol_snapshot_json` (`document_core.rs:774-787`).
+/// Native mirror of wasm `protocol_snapshot_json` (`protocol/registry.rs`).
 ///
 /// Returns the per-doc native `DocumentCore`'s `RenderSnapshot` as JSON,
 /// reusing the same REGISTRY access the sibling native commands use
@@ -300,7 +300,7 @@ pub fn protocol_layer_ids_native(doc_id: String) -> Result<String, String> {
 mod tests {
     use super::*;
     use crate::paint_parity_cmds::TEST_REGISTRY_LOCK;
-    use photrez_core::pixel_store::registry;
+    use photrez_core::pixel::registry;
 
     const SNAP_DOC: &str = "snapshot-native-test-doc";
     const VERSION_DOC: &str = "version-native-test-doc";
@@ -427,7 +427,7 @@ mod tests {
     const CANON_ABSENT_DOC: &str = "canonical-absent-native-test-doc";
     const CANON_MISSING_DOC: &str = "canonical-missing-native-test-doc";
 
-    /// Real-shape `CanonicalDocument` JSON (camelCase keys) with a text layer
+    /// Real-shape `PtzDocumentContent` JSON (camelCase keys) with a text layer
     /// carrying `textData`, `blendMode`, and locks - mirrors the TS builder output.
     const CANON_FIXTURE: &str = r##"{
         "id":"canon-doc-1",

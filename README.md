@@ -36,7 +36,7 @@
 
 > ℹ️ **SmartScreen Notice:** The installer is currently not code-signed with a commercial certificate. If Windows SmartScreen displays a warning upon launch, click **"More info"** and then **"Run anyway"**.
 
-> The Tauri/SolidJS-era source and its full history are preserved at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy) - a frozen, read-only archive. The current release (v0.1.0) is built on that same stack; the planned v0.2.0 "Native Update" replaces the web-view shell (see the roadmap below).
+> The Tauri/SolidJS-era source and its full history are preserved at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy) - a frozen, read-only archive. The current release (v0.1.0) is built on that same stack; the in-tree v0.2.0 "Native Update" replaces the web-view shell and is implemented locally, but it is not yet shipped (see the roadmap below).
 
 ---
 
@@ -98,7 +98,7 @@
   - ✅ **Text layers** — live, re-editable text on the canvas (`T`)
   - ✅ **Shape layers** — rectangle, ellipse, line, arrow, star; editable until rasterized (`U`)
   - ✅ **All 12 blend modes** — preview/export parity verified
-  - 🚧 **Native Rust UI** — planned replacement for the Tauri web-view shell. Not yet implemented or shipped; installer/performance claims await measurement.
+  - 🚧 **Native Rust UI** — the in-tree native shell (GPUI + `photrez-core`) is implemented in `crates/photrez`; it is not yet shipped, and installer/performance claims await measurement.
 - [ ] **`v0.3.0` (planned)** — Floating and detachable inspector panels.
 - [ ] **`v0.4.0` (planned)** — Multi-image windows.
 - [ ] **`v1.0.0` (planned)** — Full cross-platform release (Windows, macOS, Linux).
@@ -111,7 +111,7 @@ Photrez is a lightweight desktop image editor for practical digital and print wo
 
 - **Local-first editing:** Your work stays on your machine; no cloud account is required.
 - **A complete editing toolkit:** Layers, text, shapes, selection, brush tools, transforms, print settings, and export.
-- **The Native Update:** v0.1.0 ships on Tauri 2 with the operating system's web-view runtime. The planned 0.2.0 release moves the interface to a native Rust UI; performance and installer claims will follow measurement.
+- **The Native Update:** v0.1.0 ships on Tauri 2 with the operating system's web-view runtime. The in-tree 0.2.0 work moves the interface to a native Rust UI; it is implemented but not yet released, and performance/installer claims will follow measurement.
 - **Open source:** Licensed under AGPL-3.0-or-later.
 
 <p align="center">
@@ -146,7 +146,7 @@ bun run --filter photrez-desktop test:unit
 
 <details>
 <summary><b>Why is the v0.1.0 installer small (~5MB)?</b></summary>
-<p>The v0.1.0 release uses Tauri 2 with the operating system's WebView2 runtime. The planned 0.2.0 native Rust UI uses a different runtime; its installer size will be measured before release.</p>
+<p>The v0.1.0 release uses Tauri 2 with the operating system's WebView2 runtime. The in-tree 0.2.0 native Rust UI uses a different runtime; it is implemented but not yet shipped, and its installer size will be measured before release.</p>
 </details>
 
 <details>

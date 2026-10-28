@@ -625,3 +625,712 @@ today, it fails.
 
 Windows, session 1, 1536 x 816 viewport, 60 Hz panel, 4-6 GB free RAM,
 ~257 processes. These figures describe that machine only.
+
+## Native production-seam measurement: `measure-frames` (2026-10-19)
+
+These rows are a different binary and a different display path from every table
+above. The tables above measure the shipped v0.1.0 WebView2 runtime through
+`scripts/frame-pacing-live.mjs` (browser pointer injection plus Tauri IPC). This
+section measures the native GPUI canvas seam in `crates/photrez`; that seam does
+not exist in v0.1.0. Do not compare a row in one section with a row in the other.
+
+**Binary:** `crates/photrez/src/bin/measure-frames` (`photrez` 0.2.0, dev profile
+with `opt-level = 2` for the gpui crates and the app crate; `gpui-kit` 0.7.3 with
+the `profiler` feature; `gpui-pre` 0.3.9).
+
+**Machine:** Windows x86_64, 8 logical CPUs, AMD Radeon(TM) Graphics (integrated),
+1024x768 window. The adapter and machine strings are repeated in every JSON row;
+the rows below describe this machine only.
+
+Command:
+
+```sh
+cd crates/photrez
+cargo run --bin measure-frames -- --strokes 12 --moves 40
+```
+
+**What is measured:** document-update-to-present through the production
+`render::canvas_bridge` seam. One run is one process: open the window, wait for
+its first frame, optionally warm up, upload the full document, then for each move
+paint a disc into the retained RGBA trail, clone it (the seam consumes and swaps
+its input), create a new `RenderImage`, notify, and wait for the profiler's
+present event. `upload_dirty_ms` is `null`: the seam has no partial-upload path,
+so reporting a dirty number would be fabrication. There is no pointer injection:
+the native shell has no production pointer path yet, so this is not
+pointer-to-brush.
+
+`RenderImage` is a snapshot. GPUI's sprite atlas keys every image by its unique
+id; a new image per update is retained unless retired. The bench evicts the
+previous texture with `Window::drop_image` at the start of the next render.
+Without that eviction a 4096 run stops mid-run on a 64 MiB allocation; the
+eviction is a lifecycle cost of the snapshot path, not a measurement shortcut.
+
+### 4096x4096, warm (n=3)
+
+Window 1024x768, 12 strokes x 40 moves, brush 32 document px, 3 warm-up moves.
+
+| run | upload_full_ms | frame_p95_ms | frames >= 33 ms | update_p95_ms | update_max_ms | paint-proven |
+|---|---|---|---|---|---|---|
+| 1 | 70.94 | 82.77 | 479 / 480 | 82.45 | 87.59 | yes (1.32%) |
+| 2 | 82.02 | 83.99 | 479 / 480 | 83.72 | 104.85 | yes (1.32%) |
+| 3 | 70.78 | 85.04 | 479 / 480 | 84.82 | 94.39 | yes (1.32%) |
+
+### 4096x4096, cold (n=3)
+
+Same interaction, no warm-up moves. Each run is a fresh process/window.
+
+| run | upload_full_ms | frame_p95_ms | frames >= 33 ms | update_p95_ms | update_max_ms | paint-proven |
+|---|---|---|---|---|---|---|
+| 1 | 76.83 | 87.03 | 479 / 480 | 86.66 | 91.89 | yes (1.32%) |
+| 2 | 76.08 | 87.57 | 479 / 480 | 87.08 | 112.43 | yes (1.32%) |
+| 3 | 75.04 | 88.77 | 479 / 480 | 88.46 | 97.81 | yes (1.32%) |
+
+### 800x600 demo document, warm (n=3)
+
+The real demo document, same 12 x 40 interaction. This is the product's default
+document size, not the 4096 harness size.
+
+| run | upload_full_ms | frame_p95_ms | frames >= 33 ms | update_p95_ms | update_max_ms | paint-proven |
+|---|---|---|---|---|---|---|
+| 1 | 4.96 | 18.41 | 0 / 480 | 16.43 | 18.29 | yes (10.50%) |
+| 2 | 7.14 | 18.40 | 0 / 480 | 16.56 | 19.17 | yes (10.50%) |
+| 3 | 7.06 | 18.47 | 0 / 480 | 16.23 | 18.34 | yes (10.50%) |
+
+### Fault-injection check
+
+`--red upload` injects a 40 ms delay immediately before the full upload. The run
+must report the delay and exit non-zero; otherwise the instrument cannot see a
+known-bad frame.
+
+| check | upload_full_ms | reported verdict | exit |
+|---|---|---|---|
+| 40 ms injected before the full upload | 57.02 | `upload_full_ms 57.02 > 16.7` | 1 |
+
+### Reading
+
+1. **4096x4096 fails by a wide margin.** The full-document upload alone is
+   70.78-82.02 ms, and the present interval is 82.77-85.04 ms p95; 479 of 480
+   frames are at or above 33 ms. The cost is the 64 MiB snapshot created and
+   uploaded per move. This is the silent cliff the display contract warns about:
+   a full-canvas upload per frame is not viable at this size. A partial-upload
+   path is now the required next step, not an optional optimization.
+2. **800x600 is close but not green.** The demos have zero frames at or above
+   33 ms and a 16.23-16.56 ms update p95, but the present-interval p95 is
+   18.40-18.47 ms, about 1.5 ms over the 16.9 ms target. The clean-boundary rows
+   above measured 17.2-17.7 ms maxima on the WebView2 path, so the target sits at
+   the edge of this machine's present cadence. The number is recorded as a tight
+   margin, not rounded into a pass.
+3. **Atlas retention is real.** A new `RenderImage` per update is a new id; the
+   sprite atlas retains each one until `Window::drop_image` removes it. The
+   bench's eviction keeps a 480-frame run inside the machine's memory; a
+   continuous canvas path must do the same.
+4. **Scope limits.** Full upload only (`upload_dirty_ms` is `null`), no pointer
+   injection, and the adapter/machine strings are printed in every JSON row. The
+   numbers describe this machine only.
+
+### Re-running the native rows
+
+```sh
+cd crates/photrez
+cargo run --bin measure-frames -- --strokes 12 --moves 40
+cargo run --bin measure-frames -- --mode cold --strokes 12 --moves 40
+cargo run --bin measure-frames -- --demo --strokes 12 --moves 40
+cargo run --bin measure-frames -- --demo --strokes 1 --moves 1 --warmup 0 --red upload
+```
+
+The last command is expected to exit 1. Each run prints one JSON row; `--out
+PATH` also writes it to a file.
+
+## Native production-seam measurement: dirty-rect upload with a patch overlay (2026-10-20)
+
+**The display seam changed since the section above, so the rows below are not
+comparable with it.** The section above measured a full-document upload per
+move. The seam now uploads only the dirty rectangle: the document is held as a
+**512 px base-tile grid**, and a live **patch overlay** carries the dirty
+rectangle until it is folded back into the base tiles.
+
+**Binary:** `crates/photrez/src/bin/measure-frames` (`photrez` 0.2.0, dev profile
+with `opt-level = 2` for the gpui crates and the app crate; `gpui-kit` 0.7.3 with
+the `profiler` feature; `gpui-pre` 0.3.9). The bench reports
+`dirty_strategy: base_tiles_plus_patch_overlay`.
+
+**Machine:** Windows x86_64, 60 Hz panel, AMD Radeon(TM) Graphics (integrated),
+1024x768 window. 4096x4096 document unless the demo document is named; brush
+radius 32 document px, so the dirty rectangle is 65x65. Warm n=5, cold n=3,
+demo warm n=3.
+
+### What the seam does
+
+- The document is uploaded as a grid of 512 px base tiles. Base tiles are
+  immutable images; an unchanged tile keeps its identity and its atlas entry.
+- A dirty region is uploaded as its own **patch** image, carrying only the
+  dirty rectangle.
+- Patches are **folded into the touched base tiles every 8 dense moves**, so a
+  long stroke does not accumulate an unbounded patch list.
+- A region update is refused while patches are pending, and the texture
+  accessor returns the base tiles together with the live patches.
+- The bench takes **12 isolated dirty samples** for the dirty-upload metric;
+  each sample is committed right after it is sampled, so exactly one patch is
+  in the scene while it is measured. The dense phase then reports the update
+  and commit statistics.
+
+### Targets
+
+| metric | target | role |
+|---|---|---|
+| `upload_dirty_ms` | <= 16.7 ms | the dirty-upload budget |
+| `frame_p95_ms` | <= 16.9 ms | do not regress the present-interval p95 |
+| `frames_ge_33ms` | 0 | no dropped-frame class |
+| `upload_full_ms` | record only | per-frame full upload is not a product operation |
+
+The full-upload figure is retained as a record, not as a verdict; the fault
+injection switches are retained so both instruments stay falsifiable.
+
+### 4096x4096, warm (n=5)
+
+12 strokes x 40 moves, 3 warm-up moves. 60 patch commits per run in every row
+below (480 dense moves folded every 8 moves).
+
+| run | upload_full_ms | upload_dirty_ms | frame_p95_ms | frames >= 33 ms | update_p95_ms | update_max_ms | commit_p95_ms | commit_max_ms | paint-proven |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 111.44 | 16.27 | 17.59 | 0 | 16.63 | 17.97 | 16.92 | 18.06 | yes (1.3166%) |
+| 2 | 140.88 | 15.68 | 17.62 | 1 | 16.77 | 18.22 | 17.49 | 18.20 | yes (1.3166%) |
+| 3 | 116.75 | 15.73 | 17.77 | 0 | 16.86 | 18.45 | 17.28 | 17.84 | yes (1.3166%) |
+| 4 | 103.07 | 17.07 | 17.86 | 4 | 16.99 | 18.13 | 17.35 | 19.37 | yes (1.3166%) |
+| 5 | 116.19 | 16.22 | 17.76 | 1 | 16.64 | 17.97 | 17.37 | 18.37 | yes (1.3166%) |
+
+The first three runs of this table are also reported as the warm n=3 sample:
+dirty 16.27 / 15.68 / 15.73 ms, frame p95 17.59 / 17.62 / 17.77 ms, frames
+>= 33 ms 0 / 1 / 0.
+
+### 4096x4096, cold (n=3)
+
+Same interaction, no warm-up moves. Each run is a fresh process/window.
+
+| run | upload_full_ms | upload_dirty_ms | frame_p95_ms | frames >= 33 ms | update_p95_ms | update_max_ms | commit_p95_ms | commit_max_ms | paint-proven |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 152.46 | 15.98 | 17.65 | 1 | 16.47 | 17.38 | 16.74 | 17.58 | yes (1.3166%) |
+| 2 | 130.60 | 16.14 | 17.92 | 1 | 16.98 | 18.69 | 17.64 | 18.16 | yes (1.3166%) |
+| 3 | 121.88 | 15.93 | 17.92 | 2 | 16.99 | 18.36 | 18.06 | 18.93 | yes (1.3166%) |
+
+### 800x600 demo document, warm (n=3)
+
+The real demo document, same 12 x 40 interaction. This is the product's default
+document size, not the 4096 harness size.
+
+| run | upload_full_ms | upload_dirty_ms | frame_p95_ms | frames >= 33 ms | update_p95_ms | update_max_ms | commit_p95_ms | commit_max_ms | paint-proven |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 6.17 | 16.80 | 17.60 | 2 | 16.94 | 17.91 | 16.83 | 17.77 | yes (10.6812%) |
+| 2 | 12.35 | 16.10 | 17.57 | 1 | 16.61 | 18.21 | 16.80 | 17.03 | yes (10.6812%) |
+| 3 | 10.25 | 16.30 | 17.89 | 3 | 16.84 | 18.45 | 17.19 | 17.56 | yes (10.6812%) |
+
+### Fault-injection check
+
+Both switches must report the injected delay and exit non-zero; otherwise the
+instrument cannot see a known-bad frame.
+
+| check | measured | reported verdict | exit |
+|---|---|---|---|
+| `--red dirty` (delay before the dirty upload) | `upload_dirty_ms` 47.67 | dirty upload over the 16.7 ms budget | 1 |
+| `--red upload` (delay before the full upload) | `upload_full_ms` 144.88 | full upload over the 16.7 ms budget | 1 |
+
+### Comparison with the other upload strategies measured on this machine
+
+Same binary family, same machine, same interaction. The two tiled rows without
+a patch overlay are earlier iterations of this work and are listed for
+comparison only.
+
+| strategy | warm `upload_dirty_ms` | warm `upload_full_ms` | warm `frame_p95_ms` | warm frames >= 33 ms |
+|---|---|---|---|---|
+| single full image, no tiles (2026-10-19 section) | - | 70.78-82.02 | 82.77-85.04 | 479 / 480 |
+| 256 px tiles, no patch overlay | 17.83 / 15.44 / 14.00 | 136.61 / 136.80 / 139.04 | 18.50 / 18.58 / 18.80 | 4 / 0 / 2 |
+| 512 px tiles, no patch overlay | 17.21 / 17.19 / 17.84 | 154.95 / 122.18 / 146.29 | 17.63 / 17.59 / 17.99 | 0 / 1 / 0 |
+| **512 px tiles + patch overlay (this section)** | **16.27 / 15.68 / 15.73 / 17.07 / 16.22** | 111.44 / 140.88 / 116.75 / 103.07 / 116.19 | 17.59 / 17.62 / 17.77 / 17.86 / 17.76 | 0 / 1 / 0 / 4 / 1 |
+
+### Reading
+
+1. **The dirty upload is inside the budget most of the time, not always.**
+   Against the 16.7 ms budget: 4 of 5 warm runs pass (16.27 / 15.68 / 15.73 /
+   16.22 ms; the 17.07 ms run misses), 3 of 3 cold runs pass (15.93-16.14 ms),
+   and 2 of 3 demo runs pass (16.80 ms misses by 0.10 ms). This is not a
+   universal pass and is not reported as one.
+2. **The present-interval p95 is still above its target.** 17.57-17.92 ms
+   everywhere, against a 16.9 ms target. That range sits inside the deviation
+   band (17.46-18.33 ms) that was already recorded for this machine, so it is
+   carried as a **recorded deviation**, not as a green pass.
+3. **Dropped frames are not zero.** Frames >= 33 ms: warm 0 / 1 / 0 / 4 / 1,
+   cold 1 / 1 / 2, demo 2 / 1 / 3. The measured update max (17.38-18.45 ms) and
+   commit max (17.58-19.37 ms) both stay below 19.37 ms, so these stalls are
+   **not attributable to the measured canvas update/commit path**; they are
+   environment/compositor residual. The target of zero is not met, and the
+   residual is not claimed as fixed.
+4. **The full upload is record-only, and the tiled opening upload is a real
+   regression.** 103.07-152.46 ms at 4096 (demo 6.17-12.35 ms) against
+   70.78-82.02 ms for the single-image path measured on 2026-10-19. The
+   per-frame full upload remains a design constraint, and the tiled opening
+   upload costs more than the single image did.
+5. **Known limitation.** A 1 px document-edge tile can map below one device
+   pixel; it is skipped rather than squeezed. This is a documented limitation
+   of the tile grid, not a claim about the seam's correctness.
+6. **Paint-prove holds in every run.** 1.3166 % changed pixels at 4096 and
+   10.6812 % in the demo.
+
+### Re-running the native rows
+
+```sh
+cd crates/photrez
+cargo run --bin measure-frames -- --strokes 12 --moves 40
+cargo run --bin measure-frames -- --mode cold --strokes 12 --moves 40
+cargo run --bin measure-frames -- --demo --strokes 12 --moves 40
+cargo run --bin measure-frames -- --demo --strokes 1 --moves 1 --warmup 0 --red upload
+cargo run --bin measure-frames -- --demo --strokes 1 --moves 1 --warmup 0 --red dirty
+```
+
+The last two commands are expected to exit 1. Each run prints one JSON row;
+`--out PATH` also writes it to a file.
+
+### Idle-repaint control (2026-10-20)
+
+The control keeps the same window and document and repaints the same scene 480
+times per run, with **no canvas mutation**. Three warm-up repaints precede the
+measured phase. A before/after GDI capture must be **unchanged**; this is the
+inverse of the normal paint-prove and proves the run really is idle.
+
+| run | 4096 p95 (ms) | 4096 frames >= 33 ms | demo p95 (ms) | demo frames >= 33 ms | canvas changed |
+|---|---|---|---|---|---|
+| 1 | 17.53 | 1 | 17.77 | 2 | 0.0% |
+| 2 | 17.80 | 4 | 17.51 | 0 | 0.0% |
+| 3 | 17.46 | 0 | 18.10 | 0 | 0.0% |
+
+Every run reported 480/480 presents and `control_unchanged: true`.
+
+- The **application-present idle floor** is 17.46-18.10 ms p95, above the
+  16.9 ms target. PresentMon's **displayed** p95 for the 4096 control is
+  16.93 ms (one displayed 33 ms stall), so the target is 0.03 ms over on the
+  display, not below a 17.5 ms machine floor. The target is not met.
+- The **33 ms class is not zero at idle** (4096 1/4/0; demo 2/0/0). The 4-frame
+  run reproduces with no canvas update at all, so those stalls are not
+  attributable to the canvas update/commit path.
+- The control does **not** measure `upload_dirty_ms`; the 17.07 ms warm and
+  16.80 ms demo dirty outliers remain recorded misses.
+- `paint_proven` is false in control rows by design (nothing changed); the
+  validity check is `control_unchanged`, not a paint change.
+
+```sh
+cd crates/photrez
+cargo run --bin measure-frames -- --control --strokes 12 --moves 40
+cargo run --bin measure-frames -- --demo --control --strokes 12 --moves 40
+```
+
+### Application-present vs displayed interval (2026-10-20, frame-callback wait)
+
+The runs below replace the measurement loop's 2 ms sleep poll with GPUI's
+`Window::on_next_frame` plus a one-shot wake. The poll was inside the measured
+loop; it did not change a recorded present timestamp, but it could delay the
+next notify. PresentMon 2.6 captured the same runs.
+
+`frame_p95_ms` in the JSON is the **application present interval**: it matches
+PresentMon's `MsBetweenPresents` exactly (17.61 ms). It is not the **displayed
+interval** (`MsBetweenDisplayChange`). On this machine the displayed interval
+is lower:
+
+| run | app p95 (ms) | display p95 (ms) | app >= 33 ms | display >= 33 ms |
+|---|---|---|---|---|
+| 4096 control, frame-callback wait, n=3 | 17.60 / 17.46 / 17.71 | 16.93 (one run captured) | 0 / 0 / 1 | 1 (33.29) |
+| 4096 warm normal, frame-callback wait, n=3 | 17.61 / 17.68 / 17.65 | 16.92 (one run captured) | 0 / 0 / 0 | 1 stroke (33.33; startup/full-upload intervals excluded) |
+
+- The **displayed** p95 is 16.92-16.93 ms: 0.02-0.03 ms over the 16.9 ms target,
+  and one displayed 33 ms stall remains. This is not a pass, and the target is
+  not redefined here. The **application** p95 is 17.61 ms; the earlier
+  "17.46-18.10 ms idle floor" is that application interval, not the displayed
+  one.
+- The frame-callback wait removes the **application** 33 ms stalls: control
+  0/0/1 and warm 0/0/0, against the earlier 1/4/0 and 0/1/0/4/1. The remaining
+  displayed stall is separate from the application present interval.
+- The wait has a **measurement cost**: cold `upload_dirty_ms` is
+  16.79 / 17.06 / 17.04 ms, failing all three against <= 16.7 ms, versus
+  15.98 / 16.14 / 15.93 ms with the old poll. Warm is 16.65 / 16.53 / 16.72 ms
+  (2/3) and demo 16.65 / 16.63 / 16.99 ms (2/3). This is a loop-timing
+  regression, not a canvas-path regression.
+- The production edit path is still not wired to the patch overlay; the tiled
+  opening upload remains 103-152 ms. No green claim.
+
+## Sampling wait, displayed gate, and opening experiments (2026-10-20)
+
+This section separates three clocks that the earlier rows mixed. The product
+gate is the **displayed** interval from PresentMon's
+`MsBetweenDisplayChange` column. The GPUI application present interval
+(`MsBetweenPresents`) is diagnostic. The per-update sample uses the same
+frame-callback wait for the dense loop, control and compose, but a bounded
+2 ms sample wait for the isolated full-document and dirty samples, so the
+measurement does not pay a one-frame callback cost it is trying to measure.
+
+Method: one process per run; 4096x4096 and 800x600 demo; 12 strokes x 40
+moves; 32 document px brush (65x65 dirty rect); 60 commits; GDI paint-prove;
+PresentMon 2.6 CSV with `--presentmon-skip-ms 4000` so the startup and
+full-upload rows (including sub-100 ms present rows) are excluded by
+`TimeInMs`, not only by a duration filter. The displayed target remains
+p95 <= 16.9 ms and zero displayed frames >= 33 ms. The dirty target remains
+`upload_dirty_ms` <= 16.7 ms.
+
+The capture form is two commands: start PresentMon writing a CSV while the
+bench runs, then pass that CSV back to the same JSON row for the gate.
+
+```powershell
+# terminal 1: capture displayed intervals
+presentmon.exe --process_name measure-frames.exe --output_file target\g6-presentmon-warm.csv --timed 20 --terminate_after_timed
+# terminal 2: run the product seam
+cargo run -p photrez --bin measure-frames -- --size 4096 --mode warm
+# gate the captured intervals; skip the startup/full-upload prefix
+cargo run -p photrez --bin measure-frames -- --size 4096 --mode warm --presentmon-csv target\g6-presentmon-warm.csv --presentmon-skip-ms 4000
+```
+
+### Default 512 px tiles, 8-move commits, split wait
+
+| mode | `upload_dirty_ms` (3 runs) | application p95 (3 runs) | application >= 33 ms | `upload_full_ms` (3 runs) | paint-proven |
+|---|---|---|---|---|---|
+| cold | 17.30 / 16.53 / 17.24 | 17.53 / 17.68 / 17.72 | 0 / 0 / 0 | 146.14 / 127.50 / 166.36 | yes |
+| warm | 16.68 / 16.34 / 16.73 | 17.62 / 17.59 / 17.69 | 0 / 0 / 0 | 119.57 / 123.99 / 113.95 | yes |
+| demo | 16.96 / 16.66 / 17.86 | 17.51 / 17.61 / 17.53 | 0 / 0 / 0 | 4.47 / 15.31 / 15.17 | yes |
+
+Every row reports 480/480 presents and `paint_proven: true`. The isolated
+dirty population is now published per sample (`dirty_samples_ms`,
+`dirty_max_index`), not only as a maximum. The worst cold sample in the
+follow-up was 17.55 ms at index 5; the cold max still misses the 16.7 ms
+target in 2 of 3 runs.
+
+Displayed replay of the warm 4096 capture: p95 **16.92 ms**, **1** displayed
+frame >= 33 ms, 517 samples after 54 skipped opening rows. The same capture's
+application interval is p95 17.60 ms with 0 application frames >= 33 ms.
+The control replay is displayed p95 16.93 ms with one 33.29 ms stall. The
+displayed 16.9 ms target is 0.02 ms over and the zero-33 target is missed.
+This is the official deviation; neither target is redefined.
+
+### Default-off experiments
+
+| experiment | cold dirty (3) | warm dirty (3) | application p95 (6) | application >= 33 ms (cold 3 + warm 3) | commit p95 (6) | result |
+|---|---|---|---|---|---|---|
+| 1024 px tiles | 16.41 / 16.03 / 15.73 | 16.24 / 16.33 / 16.44 | 17.70-17.94 | 0 / 0 / 0 + 0 / 0 / 0 | 18.75-19.18 | dirty 6/6, but commit/application worse; off |
+| 16-move commits | 17.36 / 16.88 / 16.44 | 16.46 / 17.75 / 16.54 | 17.51-17.81 | 0 / 0 / 0 + 0 / 12 / 0 | 18.10-18.82 | one warm run returns 12 application 33 ms frames; off |
+| patch union | 16.47 / 17.09 / 15.97 | 16.88 / 16.55 / 16.88 | 17.80-18.27 | 0 / 0 / 0 + 0 / 0 / 0 | 17.67-18.43 | 60 updates instead of 480, but application p95 worse; off |
+| progressive first quarter | first 77.39 / 73.14 / 83.63 | first 90.20 / 74.71 / 93.22 | 17.53-17.81 | 0 / 0 / 0 + 11 / 14 / 0 | n/a | 2/3 cold first paint <= 82 ms, 1/3 warm; full still 105.76-128.89, total 180.69-213.83; off |
+
+The 1024 px tile experiment is the only one that makes the dirty target
+universal (6/6), but it moves the cost into commits and the application
+interval; it is not a free win. The 16-move commit and progressive runs
+reintroduce application 33 ms frames, so they are rejected. Patch union
+reduces the number of uploads by 8x but raises the application p95; it is
+rejected. The progressive first paint sometimes lands under 82 ms, but the
+full document still takes more than 100 ms and the total is worse than the
+synchronous 512 px opening; the default opening remains synchronous.
+
+### Opening and production wiring
+
+The full 512 px tiled upload is 113.95-166.36 ms at 4096, versus the
+single-image 70.78-82.02 ms measured in the 2026-10-19 section. The
+progressive probe does not close that gap. The native shell still has no
+pointer/paint path: `app.rs` owns a one-shot `CanvasImage`, `input.rs` is a
+pointer-policy placeholder, and `views/workspace.rs` receives
+`Option<&CanvasImage>` for display. Native app edit wiring is therefore not
+claimed; it needs a separate input/paint specification.
+
+Defaults remain 512 px base tiles and an 8-move commit interval. No
+production default, ownership surface, or target changed. With the defaults,
+the displayed and dirty targets remain unmet; not green.
+
+## Native synthetic input-to-commit smoke (2026-10-25)
+
+This dated result updates the earlier **Opening and production wiring** note:
+a synthetic event now traverses the real native App through the production
+canvas hitbox using `Window::dispatch_event`. It measures a software
+input-to-commit boundary, not physical input, displayed-frame pacing,
+smoothness, or display latency.
+
+> Note (workspace consolidation): the command form below is the pre-consolidation two-workspace form (`--manifest-path crates/photrez/Cargo.toml`); today the equivalent is `cargo run --locked -p photrez --features input-measurement --bin measure-input -- --samples 1`. The numbers were also produced by a build where `photrez-core` compiled at `opt-level = 0`; they are not comparable with post-consolidation measurements.
+
+Command: `cargo run --locked --manifest-path crates/photrez/Cargo.toml --features input-measurement --bin measure-input -- --samples 1`.
+The build took 51.04 s; the executable exited 0 with status `ok` and claim
+`synthetic_input_to_commit_only`.
+
+| Receipt field | Result |
+|---|---|
+| Fixture; sample | `bounded-raster.ptz`; 1 |
+| Document; layer | `parity-doc`; `raster-1` |
+| Epoch; version | 0 -> 1; 0 -> 1 |
+| Canonical bytes changed; refresh succeeded | true; true |
+| Dispatch to commit | 0.4760 ms |
+| Handler entry to commit; pointer-up entry to commit | 0.4221 ms; 0.2349 ms |
+| App render after commit | 0.3812 ms |
+| Render identity | `WindowId(1v1)` |
+| Draw start/end offsets from commit; draw duration | 0.3233 / 10.3497 ms; 10.0264 ms |
+| Commit to submission completion | 22.3092 ms |
+| Physical display latency | null (`not_measured`) |
+
+The sample uses a Windows x86_64 machine with 8 CPUs and a development build.
+The commit timestamp follows successful commit; render evidence requires the
+matching window identity and successful refresh. This single small-fixture
+sample is not a 4096 x 4096 benchmark and proves no performance threshold.
+The prior displayed-frame verdict and targets above are unchanged.
+
+## Single-sample live recheck (2026-10-25)
+
+This is a second separately recorded run; the earlier 0.4760 ms sample remains
+unchanged. This is a one-sample software-boundary smoke, not a performance or
+frame-pacing benchmark.
+
+> Note (workspace consolidation): pre-consolidation two-workspace command form; today `cargo run --locked -p photrez --features input-measurement --bin measure-input -- --samples 1`. Measured on a build where `photrez-core` compiled at `opt-level = 0` — non-comparable with post-consolidation numbers.
+
+Command: `cargo run --locked --manifest-path crates/photrez/Cargo.toml --features input-measurement --bin measure-input -- --samples 1`.
+The build took 28.60 s; the executable exited 0 with JSON status `ok` and claim
+`synthetic_input_to_commit_only`.
+
+| Receipt field | Result |
+|---|---|
+| Canonical bytes changed; epoch; version | true; 0 -> 1; 0 -> 1 |
+| Refresh succeeded; render identity | true; `WindowId(1v1)` |
+| Dispatch to commit | 0.7951 ms |
+| Handler entry to commit; pointer-up to commit | 0.7041 ms; 0.3934 ms |
+| App render after commit | 0.2966 ms |
+| Draw start/end offsets from commit; draw duration | 0.2395 / 10.4705 ms; 10.231 ms |
+| Commit to submission completion | 23.045 ms |
+| Physical display latency | null (`not_measured`) |
+
+The CLI accepts only `--samples 1`; advertised counts 2-8 are rejected.
+`present_end < draw_end` is also rejected. The two guard cases were observed
+RED (2 failures) before correction; the focused suite then passed 12/12, and
+native formatting plus the feature-bin check exited 0.
+
+The driver loads a controlled fixture after `App::new`; this does not prove the
+startup `--open` route. Review found no blocking issue for this demonstrated
+one-sample path. The final root and native feature-on/off gate remains pending.
+No hardware latency, smoothness, benchmark, or performance-threshold claim is
+made.
+
+## G8 vehicle extension and early 4096 smoke (2026-10-26)
+
+The `measure-input` vehicle now accepts `--samples`, `--strokes`, `--moves`,
+`--canvas`, `--brush-sizes`, and `--base`. A canvas larger than 2 is generated
+at runtime as a `.ptz` archive with a stored-zlib PNG layer; the bounded 2x1
+fixture remains the default. Each stroke records dispatch/handler/up/commit/
+render/draw timing, stage submission completion, changed pixels and 256 px
+tiles, and a pixel digest. Aggregates report p50/p95/max per brush size. RSS is
+not measured in-process (`rss_status: external_sampling_required`). The output
+reports `profile: dev|release`.
+
+Metric mapping: `pointer_to_brush_ms` is `dispatch_to_commit_ms` (down dispatch
+to successful commit), not Q6's pointer-event-to-first-stroke-pixel. The native
+app commits the stroke at pointer-up and has no live first-pixel commit, so the
+Q6 first-pixel definition remains unimplemented. The harness also dispatches
+down/moves/up as one burst before waiting for a single commit render, so it
+cannot measure a per-move first-pixel present even if a preview existed. A live
+preview and a per-move render/present wait are required before the Q6 metric can
+be measured.
+
+Smoke results, all development profile and single-run:
+
+| Workload | Dispatch to commit | App render after commit | Changed px / tiles |
+|---|---:|---:|---:|
+| bounded 2x1, brush 2, 1x1 | 0.5081 ms | 0.6257 ms | 1 / 1 |
+| generated 64x64 blank, brush 8, 1x2 | 1.3434 ms | 1.1616 ms | 419 / 1 |
+| generated 512x512 opaque, brush 40, 2x4 | 61.70 / 62.89 ms | 91.60 / 95.01 ms | 19,532 / 2 per stroke |
+| generated 4096x4096 blank, brush 800, 1x1 | **2413.89 ms** | **3161.03 ms** | 876,272 / 28 |
+
+The 4096 result also measured handler-entry-to-commit 2413.78 ms,
+up-to-commit 2117.39 ms, draw 106.07 ms, and commit-to-submission 3281.48 ms.
+It is far above the 33.3 ms target and is recorded as an early failing
+measurement, not the canonical G8 run. The canonical 4096x4096, brush 800/40,
+12x40, blank/opaque, cold/warm, n>=3 run has not been executed. The plan's
+failure branch applies: the failing metric is recorded, and the conditional
+optimization spec (dirty-rect/tiled commit and display, or a Tier C GPU
+decision) is the next investigation. No brush math, default, or target changed.
+The development profile is not a performance claim; a release-profile run and
+the Q6 first-pixel decision are still open. RSS remains externally sampled.
+
+## 4096² release baseline (2026-10-26)
+
+The release build required the environment fixes recorded in ADR-0016: MSYS2
+`windres` on `PATH` and `RC`, plus `GPUI_FXC_PATH` for `fxc.exe`. The exact build
+(pre-consolidation two-workspace command form; today `cargo build --locked
+--release -p photrez --features input-measurement --bin measure-input`; the
+numbers were produced by a build where `photrez-core` compiled at
+`opt-level = 0` and are not comparable with post-consolidation measurements):
+
+```text
+PATH=/c/msys64/mingw64/bin:$PATH \
+RC='C:\msys64\mingw64\bin\windres.exe' \
+GPUI_FXC_PATH='C:\Users\Qolbi\photrez-tools\winsdk\10.0.28000.0\x64\fxc.exe' \
+cargo build --locked --manifest-path crates/photrez/Cargo.toml \
+  --features input-measurement --bin measure-input --release
+```
+
+It finished in 5m26s; `target/release/measure-input.exe` is 64.7 MB. The run:
+
+```text
+target/release/measure-input.exe --samples 1 --strokes 1 --moves 1 \
+  --canvas 4096 --brush-sizes 800 --base blank
+```
+
+| Release receipt field | Result |
+|---|---:|
+| Dispatch to commit | 308.30 ms |
+| Handler entry to commit | 308.25 ms |
+| Pointer-up to commit | 252.37 ms |
+| App render after commit | 216.91 ms |
+| Draw duration | 54.53 ms |
+| Commit to submission completion | 282.73 ms |
+| Changed pixels / tiles | 876,272 / 28 |
+| Digest | `8a612fb286f19f05` |
+
+The dev-profile comparison is 2413.89 ms dispatch/3161.03 ms render; release is
+about 7.8x faster on commit and 14.6x faster on render, with an identical pixel
+digest. It is still about 9.3x over the 33.3 ms commit bar and 6.5x over it on
+render, and the 54.5 ms draw alone exceeds the bar. This is the full-commit
+path, not Q6 first-pixel; the dirty patch/live preview work and the canonical
+12x40 cold/warm n>=3 run remain open. No target or default changed.
+
+### Single-layer dirty display patch (2026-10-26)
+
+The brush commit now consumes the core `after` `TilePatch` set and updates the
+existing display snapshot through `CanvasImage::push_patch` and
+`commit_patches` for a single-layer document. Multi-layer documents, or a
+patch failure, fall back to the full composite. Same release command/workload:
+
+| Metric | Full composite | Dirty patch |
+|---|---:|---:|
+| Dispatch to commit | 308.30 ms | 317.05 ms |
+| App render after commit | 216.91 ms | **16.56 ms** |
+| Draw duration | 54.53 ms | **17.10 ms** |
+| Commit to submission completion | 282.73 ms | **49.09 ms** |
+| Digest | `8a612fb286f19f05` | `8a612fb286f19f05` |
+
+The render and draw portions now sit under the 33.3 ms bar; the core commit
+(~317 ms) is unchanged and remains the dominant cost. The displayed first
+pixel still follows that commit, so the full-commit path cannot satisfy Q6
+first-pixel. A live preview plus a per-move render/present wait is still
+required, and the core commit optimization is still open. The dirty path is
+deliberately single-layer only; multi-layer keeps the full composite. No target
+or default changed.
+
+The frozen reference confirms the Q6 shape: its brush overlay is seeded with the
+layer, draws dabs into a 2D canvas per move (the composite/RAF path), and
+`commitBrushStroke` runs at pointer-up. Q6 first-pixel is therefore the overlay
+pixel, not the core commit; the core commit is the separate `brush_commit`
+record. The native app has no live overlay, so its first-pixel path is still
+missing.
+
+## Live preview 12x40 release (2026-10-26)
+
+The native single-layer live preview now pushes an exact `raster_shadow` crop
+through `CanvasImage::push_patch` on pointer-down and each move; the final commit
+applies the exact `after` tiles. The Q6 first-pixel is the first preview present
+after pointer-down, measured per stroke.
+
+Command (release):
+
+```text
+target/release/measure-input.exe --samples 1 --strokes 12 --moves 40 \
+  --canvas 4096 --brush-sizes 800,40 --base blank
+```
+
+| Brush | first-pixel p50/p95/max | preview push p50/p95 | commit p50/p95 | render p50/p95 | changed px/tiles |
+|---|---:|---:|---:|---:|---:|
+| 800 | 68.85 / **85.83** / 91.19 ms | 61.73 / 71.77 ms | 657.01 / 743.47 ms | 29.28 / 35.72 ms | 10,515,264 / 336 |
+| 40 | 15.63 / **19.66** / 24.54 ms | 11.42 / 13.45 ms | 202.34 / 210.19 ms | 3.92 / 7.79 ms | 709,007 / 120 |
+
+The 40 brush passes the 33.3 ms first-pixel target; the 800 brush fails and its
+preview push is the bottleneck. Commit metrics are record-only. This is a
+reduced one-sample early measurement, not the green canonical G8: cold/warm,
+opaque, n>=3 remain open. The 800 optimization spec is
+`.slim/deepwork/g8-800-preview-spec.md`; no target, brush math, or default
+changed.
+
+## Display-scale preview 12x40 release (2026-10-26)
+
+R1 display-scale preview plus a settings-keyed tip cache. The preview raster is
+`min(viewport zoom, cap/crop)`; the tip is resampled to the preview stamp, and
+the pointer-up commit discards every preview before the exact tiles land. The
+earlier 800 number was dominated by rebuilding the 800 px tip on every
+pointer-down (~40 ms) and re-rasterizing the exact full-resolution crop.
+
+Canonical command (release), cap 256:
+
+```text
+PHOTREZ_PREVIEW_MAX_EDGE=256 target/release/measure-input.exe --samples 3 \
+  --strokes 12 --moves 40 --canvas 4096 --brush-sizes 800,40 --base opaque
+```
+
+Per-sample p95 (s1 / s2 / s3):
+
+| Base | Brush | first-pixel | preview push | commit p95 range |
+|---|---|---:|---:|---:|
+| opaque | 800 | 12.28 / 9.09 / 8.30 ms | 3.68 / 4.79 / 3.71 ms | 585-653 ms |
+| opaque | 40 | 4.74 / 5.46 / 5.70 ms | 0.10 / 0.12 / 0.09 ms | 193-207 ms |
+| blank | 800 | 9.05 / 8.85 / 9.05 ms | 2.72 / 3.73 / 3.50 ms | 440-612 ms |
+| blank | 40 | 4.23 / 4.75 / 4.01 ms | 0.09 / 0.11 / 0.09 ms | 177-188 ms |
+
+All first-pixel/preview numbers are under the 33.3 ms target for both brushes,
+both bases, cold and warm samples. The worst cold first stroke was 22.27 ms
+(sample 1, 800 px, opaque) and remains under target. Commit stays record-only;
+the bounded-crop commit is the next wave.
+
+Cap A/B (opaque, n=3, worst per-sample p95): 128 -> 800 12.53 ms / 40 5.40 ms;
+256 -> 12.28 / 5.70 ms; 384 -> 10.38 / 7.48 ms. All caps pass and are nearly
+indistinguishable because the 4096 fit zoom is 0.169, so the display scale (not
+the cap) bounds the preview. 256 is kept: it matches the frozen overlay's
+`PREVIEW_MAX_SIZE`, and it leaves headroom above fit zoom for the same raster.
+
+The tip cache is a behavioural fix, not a target change: `build_brush_tip_data`
+skips the diameter-space diagnostic upscales the native rasterizer never reads,
+and `BrushTipCache` reuses one tip per (size, hardness, colour). A regression
+test pins the scaled tip against the old top-left-corner sampling.
+
+## Bounded crop commit 12x40 release (2026-10-26)
+
+R2(2): `compute_commit` now premultiplies and rasters only the tile-aligned
+bounding box of the dab batch, then shifts the extracted tiles back into
+document space. `commit_pixels_with_phases` reports the crop and per-phase
+timings, and the measurement receipt carries them into the JSON. Two in-core
+parity tests assert byte-identical before/after tiles against the full-pass
+reference: interior dabs at two tiles, and a wide stroke whose brush (400 px)
+is larger than its tip data (128 px).
+
+Same command as above, opaque n=3, cap 256. Pointer-up -> commit (record-only):
+
+| Brush | before p50/p95 | after p50/p95 | premultiply p50 | raster p50 | patch p50 | apply p50 | last crop |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 800 | 237.1 / 267.3 ms | 166.3-172.4 / 188.4-200.9 ms | 30.1-30.9 ms | 20.0-20.7 ms | 81.5-86.3 ms | 21.5-22.0 ms | 4096x1024 |
+| 40 | 139.8 / 170.3 ms | 51.9-54.9 / 90.9-97.2 ms | 7.8-9.6 ms | 10.7-12.4 ms | 24.8-25.4 ms | 4.9-5.3 ms | 4096x256 |
+
+Phase columns are per-sample p50 ranges across the three runs. The G8
+first-pixel/preview gate is unchanged and still green (worst p95 12.54 ms
+first-pixel, 4.27 ms preview push). Patch generation (unpremul of the touched
+tile bytes) is now the largest core phase; the exact accumulator is not needed
+for the gate.
+
+Digest caveat: repeated invocations of the **same** binary produce different
+stroke bytes (sample 1 brush 800 changed 1,790,036 vs 1,792,552 px with
+different digests) because the synthetic pointer path maps through live window
+bounds. Cross-run digests are not a correctness proof; exactness rests on the
+two in-core full-pass parity tests.
+
+## Settled-tree final G8 (2026-10-26)
+
+Final release rerun after the G6/G7/G9/G10 changes (custom pointer surface,
+cursor context policy, corrected `G`/`Shift+G`, bracket keys, selected-layer
+projection). Command as above, cap 256, opaque/blank, n=3:
+
+| Base | Brush | first-pixel p95 s1/s2/s3 | preview push p95 s1/s2/s3 | commit p95 s1/s2/s3 |
+|---|---|---:|---:|---:|
+| opaque | 800 | 12.25 / 12.87 / 9.73 ms | 4.47 / 5.48 / 4.33 ms | 630 / 611 / 610 ms |
+| opaque | 40 | 7.77 / 4.97 / 7.15 ms | 0.12 / 0.11 / 0.13 ms | 127 / 117 / 130 ms |
+| blank | 800 | 7.59 / 8.94 / 10.22 ms | 2.58 / 3.51 / 4.61 ms | 358 / 598 / 610 ms |
+| blank | 40 | 5.84 / 5.88 / 6.21 ms | 0.10 / 0.11 / 0.11 ms | 106 / 110 / 112 ms |
+
+Worst first-pixel p95 across the settled matrix: **12.87 ms**; worst preview
+push: **5.48 ms**. Both are under the 33.3 ms target for both brushes, both
+bases, cold and warm samples. Commit remains record-only; the bounded crop is
+4096x1024 for 800 and 4096x256 for 40 on this workload.
+
+Code tree at close: `05054d9c8f8add0ae950258bd343e56de1b5ef86` (stash
+`665df5f12b30642683a88d6ea759988c0f41e108`; this docs stamp follows the code
+tree). No commit.

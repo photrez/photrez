@@ -29,7 +29,14 @@
 
 #![allow(unsafe_code)] // reason: thin windows-sys screen-capture wrapper; the rest of the crate stays deny.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+mod executable;
+#[cfg(test)]
+mod tests;
+pub mod window;
+
+pub use executable::resolve_exe;
 
 #[cfg(windows)]
 use std::time::{Duration, Instant};
@@ -138,139 +145,6 @@ fn locale_request_ok(requested: Option<&str>) -> Result<(), String> {
 pub fn require_english_locale() -> Result<(), String> {
     locale_request_ok(std::env::var(LOCALE_ENV).ok().as_deref())
 }
-
-// ---------------------------------------------------------------------------
-// resolve_exe
-// ---------------------------------------------------------------------------
-
-/// Search the same mingw `bin` candidates as `dev.psl`: msys2, Git for Windows,
-/// then scoop's msys2. Returns the first directory containing `gcc.exe`.
-#[cfg(windows)]
-fn find_mingw_bin() -> Result<PathBuf, String> {
-    let home = std::env::var("USERPROFILE")
-        .map_err(|_| "USERPROFILE is not set in the environment".to_string())?;
-    let candidates = [
-        PathBuf::from(r"C:\msys64\mingw64\bin"),
-        PathBuf::from(r"C:\Program Files\Git\mingw64\bin"),
-        PathBuf::from(home)
-            .join("scoop")
-            .join("apps")
-            .join("msys2")
-            .join("current")
-            .join("mingw64")
-            .join("bin"),
-    ];
-    for c in &candidates {
-        if c.join("gcc.exe").is_file() {
-            return Ok(c.clone());
-        }
-    }
-    Err("No GNU toolchain found. Tried C:\\msys64\\mingw64\\bin, \
-         C:\\Program Files\\Git\\mingw64\\bin, and \
-         <USERPROFILE>\\scoop\\apps\\msys2\\current\\mingw64\\bin. \
-         Install MSYS2, then: pacman -S mingw-w64-x86_64-gcc"
-        .to_string())
-}
-
-/// Locate the photrez debug executable, building it if necessary.
-///
-/// Order: the explicit `--exe` path; else `crates/photrez/target/debug/photrez.exe`
-/// relative to the repository root (found by walking up for the root
-/// `Cargo.toml`); else `cargo build` with the crate's own manifest (its
-/// `.cargo/config.toml` decides the target dir and linker) and the executable
-/// read out of `--message-format=json` compiler-artifact rows. The mingw `bin`
-/// directory (msys64 / Git for Windows / scoop) is put on PATH for the build -
-/// the same candidates the dev scripts search, found the same way.
-pub fn resolve_exe(explicit: Option<&Path>) -> Result<PathBuf, String> {
-    // 1. Explicit path - trust but verify it exists.
-    if let Some(p) = explicit {
-        if p.exists() {
-            return Ok(p.to_path_buf());
-        }
-        return Err(format!("explicit exe not found: {}", p.display()));
-    }
-
-    // 2. Default debug artefact location relative to repo root.
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| "cannot resolve xtask parent dir (CARGO_MANIFEST_DIR)".to_string())?
-        .parent()
-        .ok_or_else(|| "cannot resolve repository root from xtask location".to_string())?;
-    let exe_name = if std::env::consts::EXE_EXTENSION.is_empty() {
-        "photrez".to_string()
-    } else {
-        format!("photrez.{}", std::env::consts::EXE_EXTENSION)
-    };
-    let default_exe = repo_root
-        .join("crates")
-        .join("photrez")
-        .join("target")
-        .join("debug")
-        .join(&exe_name);
-    if default_exe.exists() {
-        return Ok(default_exe);
-    }
-
-    // 3. Fresh build via cargo build --message-format=json.
-    let photrez_manifest = repo_root.join("crates").join("photrez").join("Cargo.toml");
-    let mut cmd = std::process::Command::new("cargo");
-    #[cfg(windows)]
-    {
-        let mingw = find_mingw_bin()?;
-        let old_path = std::env::var("PATH").unwrap_or_default();
-        cmd.env("PATH", format!("{};{}", mingw.display(), old_path));
-    }
-    cmd.arg("build")
-        .arg("--manifest-path")
-        .arg(&photrez_manifest)
-        .arg("--message-format=json");
-    let output = cmd
-        .output()
-        .map_err(|e| format!("failed to spawn cargo build: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("cargo build failed:\n{stderr}"));
-    }
-
-    // Parse compiler-artifact JSON rows to find the photrez binary path.
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let msg: serde_json::Value = match serde_json::from_str(line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        if msg.get("reason").and_then(|v| v.as_str()) != Some("compiler-artifact") {
-            continue;
-        }
-        let target = match msg.get("target").and_then(|v| v.as_object()) {
-            Some(t) => t,
-            None => continue,
-        };
-        let is_bin = target
-            .get("kind")
-            .and_then(|v| v.as_array())
-            .map(|kinds| kinds.iter().any(|k| k.as_str() == Some("bin")))
-            .unwrap_or(false);
-        if !is_bin {
-            continue;
-        }
-        if msg.get("package").and_then(|v| v.as_str()) != Some("photrez") {
-            continue;
-        }
-        if let Some(exe) = msg.get("executable").and_then(|v| v.as_str()) {
-            let p = PathBuf::from(exe);
-            if p.exists() {
-                return Ok(p);
-            }
-        }
-    }
-    Err("cargo build succeeded but no photrez executable was found in the artifact output".into())
-}
-
 // ---------------------------------------------------------------------------
 // capture (Windows-only)
 // ---------------------------------------------------------------------------
@@ -401,7 +275,12 @@ fn park_point(box_x: i32, box_y: i32, box_w: i32, box_h: i32) -> POINT {
 /// `src_x` / `src_y` is the screen coordinate of the client origin; `w` / `h`
 /// are the client dimensions in pixels.
 #[cfg(windows)]
-unsafe fn capture_client(src_x: i32, src_y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
+pub(crate) unsafe fn capture_client(
+    src_x: i32,
+    src_y: i32,
+    w: i32,
+    h: i32,
+) -> Result<Vec<u8>, String> {
     let hdc_screen = GetDC(HWND_DESKTOP);
     if hdc_screen.is_null() {
         return Err("GetDC(HWND_DESKTOP) returned NULL".into());
@@ -610,108 +489,4 @@ pub(crate) fn bgra_to_rgba_top_down(
         }
     }
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(windows)]
-    use super::assert_capture_environment;
-    use super::bgra_to_rgba_top_down;
-    use super::locale_request_ok;
-
-    /// 2x2 bottom-up BGRA buffer:
-    ///
-    ///   screen top-left  = Red   BGRA [  0,   0, 255, 255]
-    ///   screen top-right = Green BGRA [  0, 255,   0, 255]
-    ///   screen bot-left  = Blue  BGRA [255,   0,   0, 255]
-    ///   screen bot-right = White BGRA [255, 255, 255, 255]
-    ///
-    /// Memory layout (bottom-up, stride 8):
-    ///   row 0 (bottom on screen): Blue, White
-    ///   row 1 (top on screen):    Red, Green
-    #[test]
-    fn bgra_2x2_flip_and_swap() {
-        let bottom: [u8; 8] = [255, 0, 0, 255, 255, 255, 255, 255];
-        let top: [u8; 8] = [0, 0, 255, 255, 0, 255, 0, 255];
-        let src: Vec<u8> = bottom.iter().chain(top.iter()).copied().collect();
-
-        let out = bgra_to_rgba_top_down(&src, 2, 2, 8).expect("2x2 conversion");
-
-        // Expected top-down RGBA:
-        //   row 0 (top):    Red -> [255, 0, 0, 255]
-        //                   Green -> [  0, 255, 0, 255]
-        //   row 1 (bottom): Blue -> [  0,   0, 255, 255]
-        //                   White -> [255, 255, 255, 255]
-        let expected: [u8; 16] = [
-            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
-        ];
-        assert_eq!(out.as_slice(), expected.as_slice());
-    }
-
-    #[test]
-    fn zero_dims_rejected() {
-        let r = bgra_to_rgba_top_down(&[], 0, 0, 0);
-        assert!(r.is_err());
-    }
-
-    /// The capture locale guard: absent/blank means unset, English (any case)
-    /// passes, anything else is refused and named.
-    #[test]
-    fn locale_request_accepts_only_english() {
-        assert!(locale_request_ok(None).is_ok());
-        assert!(locale_request_ok(Some("")).is_ok());
-        assert!(locale_request_ok(Some("  ")).is_ok());
-        assert!(locale_request_ok(Some("en")).is_ok());
-        assert!(locale_request_ok(Some(" EN ")).is_ok());
-        let err = locale_request_ok(Some("id")).expect_err("id must be refused");
-        assert!(err.contains("PHOTREZ_LOCALE"), "names the variable: {err}");
-        assert!(err.contains("id"), "names the value: {err}");
-    }
-
-    #[test]
-    fn stride_too_small_rejected() {
-        // 2 px wide but stride of only 4 bytes (need 8).
-        let r = bgra_to_rgba_top_down(&[0; 8], 2, 1, 4);
-        assert!(r.is_err());
-    }
-
-    #[test]
-    fn buffer_too_short_rejected() {
-        // stride 8, 2 rows need 16 bytes, give only 8.
-        let r = bgra_to_rgba_top_down(&[0; 8], 2, 2, 8);
-        assert!(r.is_err());
-    }
-
-    #[test]
-    fn single_row_identity() {
-        // 1x1, bottom-up == top-down for a single row; BGRA -> RGBA.
-        let src: [u8; 4] = [10, 20, 30, 40]; // B=10 G=20 R=30 A=40
-        let out = bgra_to_rgba_top_down(&src, 1, 1, 4).expect("1x1");
-        assert_eq!(out, vec![30, 20, 10, 40]); // R=30 G=20 B=10 A=40
-    }
-
-    /// The reference environment: 100% scale, exact 1366x820 client.
-    #[cfg(windows)]
-    #[test]
-    fn capture_environment_accepts_reference_conditions() {
-        assert!(assert_capture_environment(1366, 820, 96).is_ok());
-    }
-
-    /// A scaled display (120 dpi = 125%) must be rejected with the scale named.
-    #[cfg(windows)]
-    #[test]
-    fn capture_environment_rejects_scaled_display() {
-        let err = assert_capture_environment(1366, 820, 120).expect_err("125% must be rejected");
-        assert!(err.contains("125%"), "message names the scale: {err}");
-    }
-
-    /// A client clamped by the work area (e.g. 816 high) must be rejected with
-    /// the clamp named, not silently captured as a cropped page.
-    #[cfg(windows)]
-    #[test]
-    fn capture_environment_rejects_clamped_client() {
-        let err =
-            assert_capture_environment(1366, 816, 96).expect_err("clamped client must be rejected");
-        assert!(err.contains("clamped"), "message names the cause: {err}");
-    }
 }

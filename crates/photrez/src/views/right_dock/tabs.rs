@@ -1,0 +1,152 @@
+use super::*;
+
+/// One tab bar: a 38px band with a full-width bottom border, holding
+/// content-width `nav` buttons.
+///
+/// `active` is the id of the currently lit tab; `tabs` are the ids in order.
+/// `write` is the per-dock mutation: it resolves the clicked id back to the
+/// owning enum and writes it onto [`AppState`], returning whether the
+/// selection changed. The label is derived from the id via [`tab_label`]
+/// rather than stored beside it.
+pub(super) fn tab_bar(
+    active: &'static str,
+    tabs: &'static [&'static str],
+    write: fn(&mut AppState, &str),
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let bar = div()
+        .w_full()
+        .h(px(TAB_BAR_H))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .overflow_hidden()
+        .border_b(px(SPLIT_BORDER))
+        .border_color(color::BORDER)
+        .bg(color::PANEL);
+
+    let mut row = h_flex().h_full().min_w(px(0.0)).items_center();
+    for &id in tabs {
+        row = row.child(tab_button(id, id == active, write, state, cx));
+    }
+    bar.child(row)
+}
+
+/// Writes the inspector tab named by `id` onto the live state.
+///
+/// Unknown ids are ignored: the tab bar only ever passes its own ids.
+pub(super) fn write_inspector_tab(state: &mut AppState, id: &str) {
+    if let Some(tab) = inspector_tab_from_id(id) {
+        state.inspector_tab = tab;
+    }
+}
+
+/// Writes the layer tab named by `id` onto the live state.
+///
+/// Unknown ids are ignored: the tab bar only ever passes its own ids.
+pub(super) fn write_layer_tab(state: &mut AppState, id: &str) {
+    if let Some(tab) = layer_tab_from_id(id) {
+        state.layer_tab = tab;
+    }
+}
+
+pub(super) fn inspector_tab_from_id(id: &str) -> Option<InspectorTab> {
+    match id {
+        "properties" => Some(InspectorTab::Properties),
+        "adjustments" => Some(InspectorTab::Adjustments),
+        "presets" => Some(InspectorTab::Presets),
+        _ => None,
+    }
+}
+
+pub(super) fn layer_tab_from_id(id: &str) -> Option<LayerTab> {
+    match id {
+        "layers" => Some(LayerTab::Layers),
+        "history" => Some(LayerTab::History),
+        _ => None,
+    }
+}
+
+pub(super) fn tab_label(id: &str) -> String {
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+pub(super) fn inspector_tab_id(tab: &InspectorTab) -> &'static str {
+    match tab {
+        InspectorTab::Properties => "properties",
+        InspectorTab::Adjustments => "adjustments",
+        InspectorTab::Presets => "presets",
+    }
+}
+
+pub(super) fn layer_tab_id(tab: &LayerTab) -> &'static str {
+    match tab {
+        LayerTab::Layers => "layers",
+        LayerTab::History => "history",
+    }
+}
+
+/// A `relative flex h-full items-center px-3 text-[11.5px] font-medium`
+/// button, with the 2px ACCENT underline under it when active.
+///
+/// The underline is the button's *last child* rather than an absolutely
+/// positioned pseudo-element: `after:absolute after:bottom-0 after:inset-x-0`
+/// needs a positioned ancestor, which this port has no way to declare, and
+/// `z_index` is unavailable besides. Stacking the label in a `flex_1` row
+/// above a full-width 2px bar gets the same pixels without either.
+///
+/// The click handler writes the clicked tab id back onto the live state
+/// through `write` and notifies the owning root, so the next frame lights the
+/// new tab and swaps the panel behind it.
+///
+/// Returns `impl IntoElement` rather than a concrete type: `.test_support()`
+/// wraps the element in the toolkit's observer in test builds and returns it
+/// unchanged otherwise, so the concrete type differs per build. `id` is
+/// `'static` because the tab ids are all string literals.
+fn tab_button(
+    id: &'static str,
+    active: bool,
+    write: fn(&mut AppState, &str),
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let label = tab_label(id);
+    // Each button captures its own copy of the state handle; the handler runs
+    // on the owning App and re-enters the state entity through it.
+    let state = state.clone();
+    let on_click = cx.listener(move |_, _, _, cx: &mut Context<crate::app::App>| {
+        state.update(cx, |s, _| write(s, id));
+        cx.notify();
+    });
+    let mut btn = v_flex()
+        .h_full()
+        .flex_shrink_0()
+        .id(id)
+        .test_support()
+        .cursor_pointer()
+        .on_click(on_click)
+        .child(
+            h_flex()
+                .flex_1()
+                .items_center()
+                .px(px(TAB_PAD_X))
+                .text_size(px(TAB_TEXT))
+                .font_family(ui::FONT_UI)
+                .font_weight(FontWeight(500.))
+                .text_color(if active { color::TEXT } else { color::TEXT_DIM })
+                .child(label),
+        );
+    if active {
+        btn = btn.child(div().w_full().h(px(UNDERLINE_H)).bg(color::ACCENT));
+    } else {
+        // `hover:bg-white/[0.02] hover:text-editor-text` — Tailwind emits
+        // CSS for both. No token for 2% white; use hsla inline.
+        btn = btn.hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.02)).text_color(color::TEXT));
+    }
+    btn
+}
