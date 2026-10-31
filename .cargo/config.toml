@@ -4,12 +4,21 @@
 [build]
 target-dir = "target"
 
+# GNU ld is the documented default linker for x86_64-pc-windows-gnu; rust-lld
+# ships with the toolchain and links this workspace. `-Clinker-features=+lld`
+# is still unstable, so name the bundled linker directly instead.
+# revert: delete this table.
+[target.x86_64-pc-windows-gnu]
+linker = "rust-lld"
+
 # Workspace-wide entry points. `dev` relies on `default-run` in the photrez
 # manifest to pick the app binary (the measurement binaries are not the dev
 # loop). On a machine whose PATH lacks the gnu linker directory, use
 # `cargo xtask dev` instead - it prepends the directory to the child PATH.
 [alias]
 dev = ["run", "-p", "photrez"]
+# UI iteration profile: same dev settings, app crate at opt-level 1.
+ui = ["run", "--profile", "dev-ui", "-p", "photrez"]
 verify = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
 # Standard xtask bootstrap: `cargo xtask <args>` runs the workspace task crate.
 xtask = ["run", "--package", "xtask", "--"]

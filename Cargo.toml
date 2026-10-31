@@ -48,6 +48,22 @@ gpui-pre = { opt-level = 2 }
 photrez = { opt-level = 2 }
 photrez-core = { opt-level = 3 }
 
+# Dev builds need backtraces, not variable-level DWARF: full debug info was most
+# of the 773 MB binary (292 MB with this setting). When a debugger needs
+# variables again, override it for one build:
+#   cargo build -p photrez --config "profile.dev.debug=2"
+[profile.dev]
+debug = "line-tables-only"
+
+# UI iteration: the app crate dominates an incremental build at `dev`'s
+# opt-level 2, while the GPUI stack keeps its tuned settings through `inherits`.
+# Measurements stay on `dev`; this profile is for the edit/run loop only.
+[profile.dev-ui]
+inherits = "dev"
+
+[profile.dev-ui.package]
+photrez = { opt-level = 1 }
+
 [profile.dev-fast]
 inherits = "dev"
 opt-level = 3
