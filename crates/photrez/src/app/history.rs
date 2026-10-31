@@ -46,6 +46,43 @@ impl App {
         state.active_tool == crate::state::ToolId::Crop && state.crop_rect.is_some()
     }
 
+    /// `edit.undo` enablement (`useEditorCommands.ts:137-151`): a live
+    /// transform session, the crop tool's mini undo, or core history.
+    pub(crate) fn can_undo_document(&self, cx: &Context<Self>) -> bool {
+        let state = self.state.read(cx);
+        if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
+            return true;
+        }
+        if state.active_tool == crate::state::ToolId::Crop && !state.crop_history.is_empty() {
+            return true;
+        }
+        self.history_cursor().is_some_and(|(cursor, _)| cursor > 0)
+    }
+
+    /// `edit.redo` enablement, mirroring [`Self::can_undo_document`].
+    pub(crate) fn can_redo_document(&self, cx: &Context<Self>) -> bool {
+        let state = self.state.read(cx);
+        if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
+            return true;
+        }
+        if state.active_tool == crate::state::ToolId::Crop && !state.crop_redo.is_empty() {
+            return true;
+        }
+        self.history_cursor()
+            .is_some_and(|(cursor, entries)| cursor < entries)
+    }
+
+    fn history_cursor(&self) -> Option<(usize, usize)> {
+        let doc_id = self.active_document.as_ref()?.doc_id.clone();
+        let query = self
+            .sessions
+            .get(&doc_id)?
+            .loaded_document()
+            .registry
+            .history_query(&doc_id)?;
+        Some((query.cursor as usize, query.entries.len()))
+    }
+
     fn history_action(&mut self, undo: bool, cx: &mut Context<Self>) {
         match self.step_history(undo, cx) {
             Ok(true) => self.set_status_error(None, cx),
@@ -188,10 +225,15 @@ impl App {
         // changed even when a dirty-rect pixel handoff rides the same delta, so
         // the projection must always follow the cursor.
         self.project_layers(cx);
-        if let Some(handoff) = result.pixel_patches {
-            self.display_history_handoff(&doc_id, &handoff, cx)?;
-        } else {
+        let handoffs = result.pixel_patches.unwrap_or_default();
+        if handoffs.is_empty() {
             self.refresh_active_canvas(cx)?;
+        } else {
+            // One handoff per restored layer: a destructive crop restores the
+            // whole stack in a single step.
+            for handoff in &handoffs {
+                self.display_history_handoff(&doc_id, handoff, cx)?;
+            }
         }
         self.project_history(cx);
         Ok(true)

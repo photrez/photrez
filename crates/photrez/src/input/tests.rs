@@ -146,9 +146,7 @@ fn scaled_preview_renders_the_scaled_tip_not_its_corner() {
     );
     let layer = vec![0; 1024 * 1024 * 4];
     let patches = scaled_preview_patches(
-        &layer,
-        1024,
-        1024,
+        PreviewBase::document(&layer, 1024, 1024),
         &stroke.dabs,
         &stroke.tip,
         stroke.eraser,
@@ -238,9 +236,7 @@ fn scaled_preview_respects_cap_and_document_bounds() {
     });
     let layer = vec![0; 8 * 8 * 4];
     let patches = scaled_preview_patches(
-        &layer,
-        8,
-        8,
+        PreviewBase::document(&layer, 8, 8),
         &stroke.dabs,
         &stroke.tip,
         stroke.eraser,
@@ -259,4 +255,125 @@ fn scaled_preview_respects_cap_and_document_bounds() {
             patch.image_width as usize * patch.image_height as usize * 4
         );
     }
+}
+
+#[test]
+fn region_preview_matches_the_document_preview_for_the_same_crop() {
+    let mut stroke = brush::begin_stroke(
+        BrushTarget {
+            doc_id: "doc".into(),
+            layer_id: "layer".into(),
+            width: 64,
+            height: 64,
+            display_scale: 0.5,
+        },
+        30.0,
+        30.0,
+        6.0,
+        false,
+        1.0,
+        Rc::new(brush::build_tip(6.0, 1.0, [255, 0, 0, 255])),
+    );
+    stroke.dabs.push(ParityDab {
+        x: 34.5,
+        y: 31.0,
+        alpha: 1.0,
+    });
+    let mut document = Vec::with_capacity(64 * 64 * 4);
+    for _ in 0..64 * 64 {
+        document.extend_from_slice(&[10, 20, 30, 255]);
+    }
+    let rect = preview_rect(&stroke.dabs, &stroke.tip, 64, 64)
+        .expect("rect computes")
+        .expect("the stroke has dabs");
+    assert!(rect.x + rect.width <= 64 && rect.y + rect.height <= 64);
+
+    let whole = scaled_preview_patches(
+        PreviewBase::document(&document, 64, 64),
+        &stroke.dabs,
+        &stroke.tip,
+        stroke.eraser,
+        stroke.target.display_scale,
+        256,
+    )
+    .expect("document preview");
+    let mut region = Vec::with_capacity(rect.width as usize * rect.height as usize * 4);
+    for y in rect.y..rect.y + rect.height {
+        let start = ((y as usize * 64) + rect.x as usize) * 4;
+        let end = start + rect.width as usize * 4;
+        region.extend_from_slice(&document[start..end]);
+    }
+    let crop = scaled_preview_patches(
+        PreviewBase::region(&region, rect, 64, 64),
+        &stroke.dabs,
+        &stroke.tip,
+        stroke.eraser,
+        stroke.target.display_scale,
+        256,
+    )
+    .expect("region preview");
+
+    assert!(!whole.is_empty(), "the stroke must produce preview pixels");
+    assert_eq!(whole.len(), crop.len());
+    for (document_patch, region_patch) in whole.iter().zip(&crop) {
+        assert_eq!(
+            (
+                document_patch.doc_x,
+                document_patch.doc_y,
+                document_patch.doc_width,
+                document_patch.doc_height
+            ),
+            (
+                region_patch.doc_x,
+                region_patch.doc_y,
+                region_patch.doc_width,
+                region_patch.doc_height
+            )
+        );
+        assert_eq!(
+            (document_patch.image_width, document_patch.image_height),
+            (region_patch.image_width, region_patch.image_height)
+        );
+        assert_eq!(document_patch.data, region_patch.data);
+    }
+}
+
+#[test]
+fn region_preview_rejects_a_base_that_does_not_cover_the_crop() {
+    let stroke = brush::begin_stroke(
+        BrushTarget {
+            doc_id: "doc".into(),
+            layer_id: "layer".into(),
+            width: 64,
+            height: 64,
+            display_scale: 1.0,
+        },
+        32.0,
+        32.0,
+        6.0,
+        false,
+        1.0,
+        Rc::new(brush::build_tip(6.0, 1.0, [255, 0, 0, 255])),
+    );
+    let slim = vec![0u8; 4 * 4 * 4];
+    let error = scaled_preview_patches(
+        PreviewBase::region(
+            &slim,
+            PreviewRect {
+                x: 0,
+                y: 0,
+                width: 4,
+                height: 4,
+            },
+            64,
+            64,
+        ),
+        &stroke.dabs,
+        &stroke.tip,
+        stroke.eraser,
+        stroke.target.display_scale,
+        256,
+    )
+    .expect_err("a 4x4 base cannot cover a stroke near the document centre");
+    assert_eq!(error, "preview base does not cover the stroke crop");
 }

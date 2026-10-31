@@ -14,6 +14,7 @@ use super::{shape, text};
 use crate::pixel::kernel::apply_basic_adjustment;
 use crate::pixel::store::PixelStoreRegistry;
 use crate::ptz::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D};
+use std::borrow::Cow;
 use std::fmt;
 
 /// A composited document image in row-major RGBA order.
@@ -21,6 +22,24 @@ use std::fmt;
 pub struct CompositedRgba {
     pub width: u32,
     pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
+/// A document-space rectangle requested from the CPU compositor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompositeRegion {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A row-major RGBA composite clipped to `region` in document coordinates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompositedRegionRgba {
+    pub document_width: u32,
+    pub document_height: u32,
+    pub region: CompositeRegion,
     pub pixels: Vec<u8>,
 }
 
@@ -87,182 +106,21 @@ pub fn composite_layers_with_font_data(
     font_data: Option<&[u8]>,
 ) -> Result<CompositedRgba, CompositeError> {
     let (width, height) = document_dimensions(content)?;
-    if width == 0 || height == 0 {
-        return Ok(CompositedRgba {
+    let output = composite_layers_in_region_with_font_data(
+        content,
+        pixels,
+        font_data,
+        CompositeRegion {
+            x: 0,
+            y: 0,
             width,
             height,
-            pixels: Vec::new(),
-        });
-    }
-    let byte_len = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|length| length.checked_mul(4))
-        .ok_or(CompositeError::DocumentSizeOverflow)?;
-    let mut out = vec![0u8; byte_len];
-
-    for layer in content.layers.iter().rev() {
-        if !layer.visible || layer.opacity <= 0.0 {
-            continue;
-        }
-        if !layer.opacity.is_finite() {
-            return Err(CompositeError::InvalidOpacity {
-                layer_id: layer.id.clone(),
-            });
-        }
-        if !matches!(
-            layer.layer_type,
-            LayerType::Raster | LayerType::Shape | LayerType::Text
-        ) {
-            return Err(CompositeError::UnsupportedLayerType {
-                layer_id: layer.id.clone(),
-            });
-        }
-        if !transform_is_finite(&layer.transform) {
-            return Err(CompositeError::UnsupportedTransform {
-                layer_id: layer.id.clone(),
-            });
-        }
-        let exact_offsets = if is_exact_axis_aligned(&layer.transform) {
-            match (
-                integer_offset(layer.transform.x),
-                integer_offset(layer.transform.y),
-            ) {
-                (Some(x), Some(y)) => Some((x, y)),
-                _ => None,
-            }
-        } else {
-            None
-        };
-        let shape_bitmap = if matches!(layer.layer_type, LayerType::Shape) {
-            let params =
-                layer
-                    .shape_params
-                    .as_ref()
-                    .ok_or_else(|| CompositeError::InvalidShape {
-                        layer_id: layer.id.clone(),
-                    })?;
-            Some(
-                shape::rasterize_shape(params).map_err(|_| CompositeError::InvalidShape {
-                    layer_id: layer.id.clone(),
-                })?,
-            )
-        } else {
-            None
-        };
-        let text_bitmap = if matches!(layer.layer_type, LayerType::Text) {
-            let data = layer
-                .text_data
-                .as_ref()
-                .ok_or_else(|| CompositeError::InvalidText {
-                    layer_id: layer.id.clone(),
-                })?;
-            Some(text::rasterize_text(data, font_data, 1.0).map_err(|_| {
-                CompositeError::InvalidText {
-                    layer_id: layer.id.clone(),
-                }
-            })?)
-        } else {
-            None
-        };
-        let (layer_width, layer_height) = if let Some(bitmap) = &shape_bitmap {
-            (bitmap.width, bitmap.height)
-        } else if let Some(bitmap) = &text_bitmap {
-            (bitmap.width, bitmap.height)
-        } else {
-            layer_dimensions(layer)?
-        };
-        if layer_width == 0 && layer_height == 0 {
-            continue;
-        }
-        let base_pixels: &[u8] = if let Some(bitmap) = &shape_bitmap {
-            &bitmap.pixels
-        } else if let Some(bitmap) = &text_bitmap {
-            &bitmap.pixels
-        } else {
-            let source = pixels.get_layer(&content.id, &layer.id).ok_or_else(|| {
-                CompositeError::MissingPixels {
-                    layer_id: layer.id.clone(),
-                }
-            })?;
-            if source.width != layer_width || source.height != layer_height {
-                return Err(CompositeError::PixelDimensionMismatch {
-                    layer_id: layer.id.clone(),
-                });
-            }
-            let expected_len = (layer_width as usize)
-                .checked_mul(layer_height as usize)
-                .and_then(|length| length.checked_mul(4))
-                .ok_or(CompositeError::DocumentSizeOverflow)?;
-            if source.pixels.len() != expected_len {
-                return Err(CompositeError::PixelDimensionMismatch {
-                    layer_id: layer.id.clone(),
-                });
-            }
-            &source.pixels
-        };
-        let adjusted_pixels = layer.basic_adjustment.as_ref().map(|adjustment| {
-            apply_basic_adjustment(
-                base_pixels,
-                adjustment.brightness,
-                adjustment.contrast,
-                adjustment.saturation,
-            )
-        });
-        let source_pixels: &[u8] = adjusted_pixels.as_deref().unwrap_or(base_pixels);
-
-        let opacity = opacity_alpha(layer.opacity);
-        if let Some((offset_x, offset_y)) = exact_offsets {
-            let flip_h = layer.transform.flip_h;
-            let flip_v = layer.transform.flip_v;
-            for sy in 0..layer_height as usize {
-                let src_row = sy * layer_width as usize * 4;
-                for sx in 0..layer_width as usize {
-                    let source_x = if flip_h {
-                        layer_width as i64 - 1 - sx as i64
-                    } else {
-                        sx as i64
-                    };
-                    let source_y = if flip_v {
-                        layer_height as i64 - 1 - sy as i64
-                    } else {
-                        sy as i64
-                    };
-                    let x = offset_x + source_x;
-                    let y = offset_y + source_y;
-                    if x < 0 || y < 0 || x >= width as i64 || y >= height as i64 {
-                        continue;
-                    }
-                    let dst = (y as usize * width as usize + x as usize) * 4;
-                    let src = src_row + sx * 4;
-                    let mut dst_pixel: [u8; 4] = out[dst..dst + 4]
-                        .try_into()
-                        .expect("destination pixel is four bytes");
-                    let src_pixel: [u8; 4] = source_pixels[src..src + 4]
-                        .try_into()
-                        .expect("source pixel is four bytes");
-                    source_over(&mut dst_pixel, src_pixel, opacity, &layer.blend_mode);
-                    out[dst..dst + 4].copy_from_slice(&dst_pixel);
-                }
-            }
-        } else {
-            composite_transformed(
-                &mut out,
-                width as usize,
-                height as usize,
-                source_pixels,
-                layer_width as usize,
-                layer_height as usize,
-                &layer.transform,
-                opacity,
-                &layer.blend_mode,
-            );
-        }
-    }
-
+        },
+    )?;
     Ok(CompositedRgba {
         width,
         height,
-        pixels: out,
+        pixels: output.pixels,
     })
 }
 
@@ -272,6 +130,213 @@ pub fn composite_layers(
     pixels: &PixelStoreRegistry,
 ) -> Result<CompositedRgba, CompositeError> {
     composite_layers_with_font_data(content, pixels, None)
+}
+
+/// Composite the layer stack into a clipped document-space region; the returned region and
+/// row-major straight RGBA8 pixels describe the intersection with the document bounds.
+pub fn composite_layers_in_region_with_font_data(
+    content: &PtzDocumentContent,
+    pixels: &PixelStoreRegistry,
+    font_data: Option<&[u8]>,
+    region: CompositeRegion,
+) -> Result<CompositedRegionRgba, CompositeError> {
+    let (document_width, document_height) = document_dimensions(content)?;
+    let x = region.x.min(document_width);
+    let y = region.y.min(document_height);
+    let right = region.x.saturating_add(region.width).min(document_width);
+    let bottom = region.y.saturating_add(region.height).min(document_height);
+    let clipped = CompositeRegion {
+        x,
+        y,
+        width: right.saturating_sub(x),
+        height: bottom.saturating_sub(y),
+    };
+    let byte_len = (clipped.width as usize)
+        .checked_mul(clipped.height as usize)
+        .and_then(|length| length.checked_mul(4))
+        .ok_or(CompositeError::DocumentSizeOverflow)?;
+    let mut out = vec![0u8; byte_len];
+
+    if clipped.width > 0 && clipped.height > 0 {
+        let context = CompositeRegionContext {
+            content_id: &content.id,
+            pixels,
+            font_data,
+            region: clipped,
+        };
+        for layer in content.layers.iter().rev() {
+            composite_layer_in_region(&mut out, &context, layer)?;
+        }
+    }
+
+    Ok(CompositedRegionRgba {
+        document_width,
+        document_height,
+        region: clipped,
+        pixels: out,
+    })
+}
+
+struct CompositeRegionContext<'a> {
+    content_id: &'a str,
+    pixels: &'a PixelStoreRegistry,
+    font_data: Option<&'a [u8]>,
+    region: CompositeRegion,
+}
+
+struct CompositeLayerParams<'a> {
+    source: &'a [u8],
+    layer_width: usize,
+    layer_height: usize,
+    transform: &'a Transform2D,
+    opacity: u32,
+    blend_mode: &'a BlendMode,
+}
+
+fn composite_layer_in_region(
+    out: &mut [u8],
+    context: &CompositeRegionContext<'_>,
+    layer: &PtzLayer,
+) -> Result<(), CompositeError> {
+    if !layer.visible || layer.opacity <= 0.0 {
+        return Ok(());
+    }
+    if !layer.opacity.is_finite() {
+        return Err(CompositeError::InvalidOpacity {
+            layer_id: layer.id.clone(),
+        });
+    }
+    if !matches!(
+        layer.layer_type,
+        LayerType::Raster | LayerType::Shape | LayerType::Text
+    ) {
+        return Err(CompositeError::UnsupportedLayerType {
+            layer_id: layer.id.clone(),
+        });
+    }
+    if !transform_is_finite(&layer.transform) {
+        return Err(CompositeError::UnsupportedTransform {
+            layer_id: layer.id.clone(),
+        });
+    }
+
+    let exact_offsets = if is_exact_axis_aligned(&layer.transform) {
+        match (
+            integer_offset(layer.transform.x),
+            integer_offset(layer.transform.y),
+        ) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let (layer_width, layer_height, base_pixels) = layer_pixels(layer, context)?;
+    if layer_width == 0 && layer_height == 0
+        || !layer_intersects_region(
+            layer_width,
+            layer_height,
+            &layer.transform,
+            context.region,
+            exact_offsets,
+        )
+    {
+        return Ok(());
+    }
+
+    let adjusted_pixels = layer.basic_adjustment.as_ref().map(|adjustment| {
+        apply_basic_adjustment(
+            &base_pixels,
+            adjustment.brightness,
+            adjustment.contrast,
+            adjustment.saturation,
+        )
+    });
+    let composite = CompositeLayerParams {
+        source: adjusted_pixels.as_deref().unwrap_or(&base_pixels),
+        layer_width: layer_width as usize,
+        layer_height: layer_height as usize,
+        transform: &layer.transform,
+        opacity: opacity_alpha(layer.opacity),
+        blend_mode: &layer.blend_mode,
+    };
+    if exact_offsets.is_some() {
+        composite_exact(out, context.region, &composite);
+    } else {
+        composite_transformed(out, context.region, &composite);
+    }
+    Ok(())
+}
+
+fn layer_pixels<'a>(
+    layer: &PtzLayer,
+    context: &CompositeRegionContext<'a>,
+) -> Result<(u32, u32, Cow<'a, [u8]>), CompositeError> {
+    match layer.layer_type {
+        LayerType::Raster => {
+            let (width, height) = layer_dimensions(layer)?;
+            if width == 0 && height == 0 {
+                return Ok((width, height, Cow::Borrowed(&[])));
+            }
+            let source = context
+                .pixels
+                .get_layer(context.content_id, &layer.id)
+                .ok_or_else(|| CompositeError::MissingPixels {
+                    layer_id: layer.id.clone(),
+                })?;
+            if source.width != width || source.height != height {
+                return Err(CompositeError::PixelDimensionMismatch {
+                    layer_id: layer.id.clone(),
+                });
+            }
+            let expected_len = (width as usize)
+                .checked_mul(height as usize)
+                .and_then(|length| length.checked_mul(4))
+                .ok_or(CompositeError::DocumentSizeOverflow)?;
+            if source.pixels.len() != expected_len {
+                return Err(CompositeError::PixelDimensionMismatch {
+                    layer_id: layer.id.clone(),
+                });
+            }
+            Ok((width, height, Cow::Borrowed(&source.pixels)))
+        }
+        LayerType::Shape => {
+            let params =
+                layer
+                    .shape_params
+                    .as_ref()
+                    .ok_or_else(|| CompositeError::InvalidShape {
+                        layer_id: layer.id.clone(),
+                    })?;
+            let bitmap =
+                shape::rasterize_shape(params).map_err(|_| CompositeError::InvalidShape {
+                    layer_id: layer.id.clone(),
+                })?;
+            Ok((bitmap.width, bitmap.height, Cow::Owned(bitmap.pixels)))
+        }
+        LayerType::Text => {
+            let data = layer
+                .text_data
+                .as_ref()
+                .ok_or_else(|| CompositeError::InvalidText {
+                    layer_id: layer.id.clone(),
+                })?;
+            // A fresh text session starts empty (`textTool.ts` creates content
+            // ""); the layer paints nothing until the first glyph arrives.
+            if data.content.is_empty() {
+                return Ok((1, 1, Cow::Owned(vec![0, 0, 0, 0])));
+            }
+            let bitmap = text::rasterize_text(data, context.font_data, 1.0).map_err(|_| {
+                CompositeError::InvalidText {
+                    layer_id: layer.id.clone(),
+                }
+            })?;
+            Ok((bitmap.width, bitmap.height, Cow::Owned(bitmap.pixels)))
+        }
+        _ => Err(CompositeError::UnsupportedLayerType {
+            layer_id: layer.id.clone(),
+        }),
+    }
 }
 
 fn document_dimensions(content: &PtzDocumentContent) -> Result<(u32, u32), CompositeError> {
@@ -334,38 +399,69 @@ fn integer_offset(value: f64) -> Option<i64> {
     }
 }
 
-#[allow(clippy::too_many_arguments)] // flat pixel-loop context; a struct would add no validation
-fn composite_transformed(
-    out: &mut [u8],
-    doc_width: usize,
-    doc_height: usize,
-    source: &[u8],
+fn layer_intersects_region(
+    layer_width: u32,
+    layer_height: u32,
+    transform: &Transform2D,
+    region: CompositeRegion,
+    exact_offsets: Option<(i64, i64)>,
+) -> bool {
+    if let Some((offset_x, offset_y)) = exact_offsets {
+        let Some(right) = offset_x.checked_add(layer_width as i64) else {
+            return false;
+        };
+        let Some(bottom) = offset_y.checked_add(layer_height as i64) else {
+            return false;
+        };
+        let region_right = region.x.saturating_add(region.width) as i64;
+        let region_bottom = region.y.saturating_add(region.height) as i64;
+        return offset_x < region_right
+            && offset_y < region_bottom
+            && right > region.x as i64
+            && bottom > region.y as i64;
+    }
+
+    let Some((min_x, min_y, max_x, max_y)) =
+        transformed_bounds(layer_width as usize, layer_height as usize, transform)
+    else {
+        return false;
+    };
+    let left = (min_x.floor() - 1.0).max(0.0);
+    let top = (min_y.floor() - 1.0).max(0.0);
+    let right = max_x.ceil() + 1.0;
+    let bottom = max_y.ceil() + 1.0;
+    let region_right = region.x.saturating_add(region.width) as f64;
+    let region_bottom = region.y.saturating_add(region.height) as f64;
+    left < region_right
+        && top < region_bottom
+        && right > region.x as f64
+        && bottom > region.y as f64
+}
+
+fn transformed_bounds(
     layer_width: usize,
     layer_height: usize,
     transform: &Transform2D,
-    opacity: u32,
-    blend_mode: &BlendMode,
-) {
-    let w = layer_width as f64;
-    let h = layer_height as f64;
+) -> Option<(f64, f64, f64, f64)> {
+    let width = layer_width as f64;
+    let height = layer_height as f64;
     let sx = transform.scale_x * if transform.flip_h { -1.0 } else { 1.0 };
     let sy = transform.scale_y * if transform.flip_v { -1.0 } else { 1.0 };
     if sx == 0.0 || sy == 0.0 {
-        return;
+        return None;
     }
-    let cx = transform.x + (w * transform.scale_x.abs()) / 2.0;
-    let cy = transform.y + (h * transform.scale_y.abs()) / 2.0;
+    let cx = transform.x + (width * transform.scale_x.abs()) / 2.0;
+    let cy = transform.y + (height * transform.scale_y.abs()) / 2.0;
     let theta = transform.rotation.to_radians();
     let cos = theta.cos();
     let sin = theta.sin();
-
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
-    for (corner_x, corner_y) in [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)] {
-        let local_x = (corner_x - w / 2.0) * sx;
-        let local_y = (corner_y - h / 2.0) * sy;
+    for (corner_x, corner_y) in [(0.0, 0.0), (width, 0.0), (0.0, height), (width, height)] {
+        let local_x = (corner_x - width / 2.0) * sx;
+        let local_y = (corner_y - height / 2.0) * sy;
         let x = cx + local_x * cos - local_y * sin;
         let y = cy + local_x * sin + local_y * cos;
         min_x = min_x.min(x);
@@ -373,10 +469,102 @@ fn composite_transformed(
         max_x = max_x.max(x);
         max_y = max_y.max(y);
     }
-    let x0 = (min_x.floor() - 1.0).max(0.0) as usize;
-    let y0 = (min_y.floor() - 1.0).max(0.0) as usize;
-    let x1 = (max_x.ceil() + 1.0).min(doc_width as f64) as usize;
-    let y1 = (max_y.ceil() + 1.0).min(doc_height as f64) as usize;
+    [min_x, min_y, max_x, max_y]
+        .into_iter()
+        .all(f64::is_finite)
+        .then_some((min_x, min_y, max_x, max_y))
+}
+
+fn composite_exact(out: &mut [u8], region: CompositeRegion, composite: &CompositeLayerParams<'_>) {
+    let source = composite.source;
+    let layer_width = composite.layer_width;
+    let layer_height = composite.layer_height;
+    let transform = composite.transform;
+    let opacity = composite.opacity;
+    let blend_mode = composite.blend_mode;
+    let (Some(offset_x), Some(offset_y)) =
+        (integer_offset(transform.x), integer_offset(transform.y))
+    else {
+        return;
+    };
+    let Some(layer_right) = offset_x.checked_add(layer_width as i64) else {
+        return;
+    };
+    let Some(layer_bottom) = offset_y.checked_add(layer_height as i64) else {
+        return;
+    };
+    let left = offset_x.max(region.x as i64).max(0);
+    let top = offset_y.max(region.y as i64).max(0);
+    let right = layer_right.min(region.x.saturating_add(region.width) as i64);
+    let bottom = layer_bottom.min(region.y.saturating_add(region.height) as i64);
+    if right <= left || bottom <= top {
+        return;
+    }
+
+    for y in top..bottom {
+        let layer_y = (y - offset_y) as usize;
+        let source_y = if transform.flip_v {
+            layer_height - 1 - layer_y
+        } else {
+            layer_y
+        };
+        for x in left..right {
+            let layer_x = (x - offset_x) as usize;
+            let source_x = if transform.flip_h {
+                layer_width - 1 - layer_x
+            } else {
+                layer_x
+            };
+            let src = (source_y * layer_width + source_x) * 4;
+            let dst = (((y - region.y as i64) as usize * region.width as usize)
+                + (x - region.x as i64) as usize)
+                * 4;
+            let mut dst_pixel: [u8; 4] = out[dst..dst + 4]
+                .try_into()
+                .expect("destination pixel is four bytes");
+            let src_pixel: [u8; 4] = source[src..src + 4]
+                .try_into()
+                .expect("source pixel is four bytes");
+            source_over(&mut dst_pixel, src_pixel, opacity, blend_mode);
+            out[dst..dst + 4].copy_from_slice(&dst_pixel);
+        }
+    }
+}
+
+fn composite_transformed(
+    out: &mut [u8],
+    region: CompositeRegion,
+    composite: &CompositeLayerParams<'_>,
+) {
+    let source = composite.source;
+    let layer_width = composite.layer_width;
+    let layer_height = composite.layer_height;
+    let transform = composite.transform;
+    let opacity = composite.opacity;
+    let blend_mode = composite.blend_mode;
+    let width = layer_width as f64;
+    let height = layer_height as f64;
+    let sx = transform.scale_x * if transform.flip_h { -1.0 } else { 1.0 };
+    let sy = transform.scale_y * if transform.flip_v { -1.0 } else { 1.0 };
+    if sx == 0.0 || sy == 0.0 {
+        return;
+    }
+    let cx = transform.x + (width * transform.scale_x.abs()) / 2.0;
+    let cy = transform.y + (height * transform.scale_y.abs()) / 2.0;
+    let theta = transform.rotation.to_radians();
+    let cos = theta.cos();
+    let sin = theta.sin();
+    let Some((min_x, min_y, max_x, max_y)) =
+        transformed_bounds(layer_width, layer_height, transform)
+    else {
+        return;
+    };
+    let region_right = region.x.saturating_add(region.width) as f64;
+    let region_bottom = region.y.saturating_add(region.height) as f64;
+    let x0 = (min_x.floor() - 1.0).max(region.x as f64).max(0.0) as usize;
+    let y0 = (min_y.floor() - 1.0).max(region.y as f64).max(0.0) as usize;
+    let x1 = (max_x.ceil() + 1.0).min(region_right) as usize;
+    let y1 = (max_y.ceil() + 1.0).min(region_bottom) as usize;
 
     for y in y0..y1 {
         for x in x0..x1 {
@@ -384,9 +572,9 @@ fn composite_transformed(
             let ry = y as f64 + 0.5 - cy;
             let local_x = rx * cos + ry * sin;
             let local_y = -rx * sin + ry * cos;
-            let u = local_x / sx + w / 2.0;
-            let v = local_y / sy + h / 2.0;
-            let covered = coverage(x, y, w, h, cx, cy, cos, sin, sx, sy);
+            let u = local_x / sx + width / 2.0;
+            let v = local_y / sy + height / 2.0;
+            let covered = coverage(x, y, width, height, cx, cy, cos, sin, sx, sy);
             if covered <= 0.0 {
                 continue;
             }
@@ -396,7 +584,8 @@ fn composite_transformed(
                 continue;
             }
             src_pixel[3] = alpha;
-            let dst = (y * doc_width + x) * 4;
+            let dst =
+                (((y - region.y as usize) * region.width as usize) + (x - region.x as usize)) * 4;
             let mut dst_pixel: [u8; 4] = out[dst..dst + 4]
                 .try_into()
                 .expect("destination pixel is four bytes");
@@ -405,7 +594,6 @@ fn composite_transformed(
         }
     }
 }
-
 fn sample_bilinear(source: &[u8], width: usize, height: usize, u: f64, v: f64) -> [u8; 4] {
     let x = (u - 0.5).clamp(0.0, (width - 1) as f64);
     let y = (v - 0.5).clamp(0.0, (height - 1) as f64);
@@ -496,6 +684,23 @@ fn opacity_alpha(opacity: f64) -> u32 {
 fn source_over(dst: &mut [u8; 4], src: [u8; 4], opacity: u32, mode: &BlendMode) {
     let sa = div255(src[3] as u32 * opacity);
     if sa == 0 {
+        return;
+    }
+    if matches!(mode, BlendMode::Normal) {
+        if sa == 255 {
+            *dst = src;
+            return;
+        }
+        let da = dst[3] as u32;
+        let inv = 255 - sa;
+        let out_a = (sa + div255(da * inv)).min(255);
+        for channel in 0..3 {
+            let src_premul = div255(src[channel] as u32 * sa);
+            let dst_premul = div255(dst[channel] as u32 * da);
+            let premul = (src_premul + div255(dst_premul * inv)).min(255);
+            dst[channel] = ((premul * 255 + out_a / 2) / out_a).min(255) as u8;
+        }
+        dst[3] = out_a as u8;
         return;
     }
     let da = dst[3] as u32;

@@ -7,7 +7,9 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui_kit::{Bounds, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point};
+use gpui_kit::{
+    Bounds, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window,
+};
 use photrez_core::paint::parity::ParityTip;
 use photrez_core::pixel::tile::TilePatch;
 use photrez_core::protocol::{Command, CommandEnvelope, TransformPatch, CONTRACT_VERSION};
@@ -18,6 +20,7 @@ use photrez_core::ptz::layer_params::{
     ShapeFill, ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextData,
 };
 
+use super::transform_move::TransformDragUpdate;
 use super::App;
 use crate::input::{brush, BrushTarget, CursorContext, CursorPolicy, PaintTarget, PendingGesture};
 use crate::render::canvas_bridge::CanvasImage;
@@ -80,7 +83,12 @@ impl App {
         _: &CancelCanvasGesture,
         cx: &mut Context<Self>,
     ) {
+        self.close_select(cx);
+        self.close_stroke_popover(cx);
+        self.close_text_stroke_popover(cx);
+        self.close_brush_menu(cx);
         self.cancel_canvas_gesture(cx);
+        self.selection_edit_mode = false;
     }
 
     pub(crate) fn toggle_selection_shape_action(
@@ -168,6 +176,14 @@ impl App {
 
     fn select_canvas_tool(&mut self, tool: ToolId, cx: &mut Context<Self>) {
         self.cancel_canvas_gesture(cx);
+        self.selection_edit_mode = false;
+        // Entering Crop with no pending frame opens the oracle's default frame
+        // over the whole page (`CropOverlay` renders as soon as the tool arms).
+        let seed_crop = if tool == ToolId::Crop && self.state.read(cx).crop_rect.is_none() {
+            self.active_document_size().ok()
+        } else {
+            None
+        };
         self.state.update(cx, |state, _| {
             state.active_tool = tool;
             if tool == ToolId::Selection {
@@ -177,10 +193,33 @@ impl App {
                 state.crop_rect = None;
                 state.crop_history.clear();
                 state.crop_redo.clear();
+            } else if let Some((doc_w, doc_h)) = seed_crop {
+                state.crop_rect = Some([0.0, 0.0, f64::from(doc_w), f64::from(doc_h)]);
+                state.crop_history.clear();
+                state.crop_redo.clear();
             }
             state.selection_drag = None;
         });
+        self.sync_canvas_cursor(cx);
         cx.notify();
+    }
+
+    /// Apply the paint-tool cursor policy to the OS cursor: the frozen canvas
+    /// hides the pointer under the brush/eraser ring and restores it elsewhere.
+    fn sync_canvas_cursor(&self, cx: &Context<Self>) {
+        let (hovered, tool) = {
+            let state = self.state.read(cx);
+            (state.canvas_hovered, state.active_tool)
+        };
+        let hide = hovered && matches!(tool, ToolId::Brush | ToolId::Eraser);
+        crate::platform::set_brush_cursor_hidden(hide);
+    }
+
+    /// Track canvas hover for the cursor policy.
+    pub(crate) fn set_canvas_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        self.state
+            .update(cx, |state, _| state.canvas_hovered = hovered);
+        self.sync_canvas_cursor(cx);
     }
 
     /// Drop the platform pointer capture and the shared slot (lost window).
@@ -195,8 +234,10 @@ impl App {
         self.clear_brush_axis();
         self.alt_sampling = false;
         self.brush_adjust = None;
+        self.cancel_move_marquee(cx);
         self.state.update(cx, |state, _| state.hud = None);
         self.cancel_transform_drag(cx);
+        self.cancel_selection_rotation(cx);
         let had_brush = self.input.has_active_brush();
         let had_preview = self.state.read(cx).selection_drag.is_some();
         let tool = self.state.read(cx).active_tool;
@@ -205,6 +246,7 @@ impl App {
             self.pending_gesture = None;
             self.state.update(cx, |state, _| {
                 state.selection_drag = None;
+                state.gradient_badge = None;
                 if tool == ToolId::Crop {
                     state.crop_rect = None;
                     state.crop_history.clear();
@@ -227,8 +269,55 @@ impl App {
     ) {
         #[cfg(feature = "input-measurement")]
         let down_at = std::time::Instant::now();
+        if self.state.read(cx).open_select.is_some() {
+            let inside = self
+                .state
+                .read(cx)
+                .select_panel_bounds
+                .get()
+                .map(|bounds| bounds.contains(&event.position))
+                .unwrap_or(false);
+            if !inside {
+                self.close_select(cx);
+            }
+            return;
+        }
+        if self.state.read(cx).stroke_popover_open {
+            let inside = self
+                .state
+                .read(cx)
+                .stroke_panel_bounds
+                .get()
+                .map(|bounds| bounds.contains(&event.position))
+                .unwrap_or(false);
+            if !inside {
+                self.close_stroke_popover(cx);
+            }
+            return;
+        }
+        if self.state.read(cx).text_stroke_popover_open {
+            let inside = self
+                .state
+                .read(cx)
+                .text_stroke_panel_bounds
+                .get()
+                .map(|bounds| bounds.contains(&event.position))
+                .unwrap_or(false);
+            if !inside {
+                self.close_text_stroke_popover(cx);
+            }
+            return;
+        }
         if self.begin_pan(event, cx) {
             return;
+        }
+        {
+            let camera = self.active_camera();
+            if let Some(point) = canvas_doc_coords_free(event.position, bounds, doc_size, camera) {
+                if self.selection_rotate_start(bounds, doc_size, point, cx) {
+                    return;
+                }
+            }
         }
         if event.button == gpui_kit::MouseButton::Right
             && event.modifiers.alt
@@ -254,11 +343,20 @@ impl App {
             return;
         }
         if event.button == gpui_kit::MouseButton::Right {
-            self.state.update(cx, |state, _| {
-                state.context_menu =
-                    Some((f32::from(event.position.x), f32::from(event.position.y)));
-            });
-            cx.notify();
+            // `BrushContextMenu.tsx:132-137` owns the paint tools' right-click;
+            // `CanvasContextMenu.tsx:44-49` skips brush and eraser.
+            if matches!(
+                self.state.read(cx).active_tool,
+                ToolId::Brush | ToolId::Eraser
+            ) {
+                self.open_brush_menu(f32::from(event.position.x), f32::from(event.position.y), cx);
+            } else {
+                self.state.update(cx, |state, _| {
+                    state.context_menu =
+                        Some((f32::from(event.position.x), f32::from(event.position.y)));
+                });
+                cx.notify();
+            }
             return;
         }
         if event.button != gpui_kit::MouseButton::Left {
@@ -320,17 +418,30 @@ impl App {
             ToolId::PaintBucket => self.fill_bucket(x, y, cx),
             ToolId::Eyedropper => self.sample_eyedropper(x, y, cx),
             ToolId::Move => {
-                let zoom = self
-                    .effective_camera()
-                    .map(|camera| camera.zoom as f64)
-                    .unwrap_or(1.0);
+                let zoom = display_scale(bounds, doc_size, camera);
                 if event.modifiers.alt {
                     if let Err(error) = self.duplicate_selected_layer_id(cx) {
                         self.set_status_error(Some(format!("Alt-copy: {error}")), cx);
                         return;
                     }
                 }
-                self.begin_transform_drag((x, y), zoom, cx);
+                let modify = event.modifiers.shift || event.modifiers.control;
+                if self.state.read(cx).move_auto_select
+                    && self.move_auto_select_click(x, y, modify, cx)
+                {
+                    return;
+                }
+                if self.state.read(cx).show_transform_controls
+                    && self.begin_transform_drag((x, y), zoom, cx)
+                {
+                    return;
+                }
+                // A press that misses every layer starts the layer marquee;
+                // the transform drag above owns presses inside the selection.
+                if self.layer_hit_at(x, y).is_none() {
+                    let screen = (f32::from(event.position.x), f32::from(event.position.y));
+                    self.begin_move_marquee((x, y), screen, modify, cx);
+                }
             }
             ToolId::Selection | ToolId::Crop | ToolId::Shape | ToolId::Gradient | ToolId::Text => {
                 self.pending_gesture = Some(PendingGesture {
@@ -349,9 +460,34 @@ impl App {
         event: &MouseMoveEvent,
         bounds: &Rc<Cell<Option<Bounds<Pixels>>>>,
         doc_size: (u32, u32),
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Win32 re-arms the window cursor on every WM_SETCURSOR (mouse move),
+        // so the hidden paint-tool cursor is re-applied for each move.
+        let tool = self.state.read(cx).active_tool;
+        if matches!(tool, ToolId::Brush | ToolId::Eraser) {
+            crate::platform::set_brush_cursor_hidden(true);
+        }
         if self.update_pan(event, cx) {
+            return;
+        }
+        if self.selection_rotation_drag.is_some() {
+            let camera = self.active_camera();
+            if let Some(point) = canvas_doc_coords_free(event.position, bounds, doc_size, camera) {
+                self.selection_rotate_update(point, event.modifiers.shift, cx);
+            }
+            return;
+        }
+        if self.move_marquee.is_some() {
+            let camera = self.active_camera();
+            if let Some((x, y)) = canvas_doc_coords_free(event.position, bounds, doc_size, camera) {
+                self.update_move_marquee(
+                    (x, y),
+                    (f32::from(event.position.x), f32::from(event.position.y)),
+                    cx,
+                );
+            }
             return;
         }
         if let Some(adjust) = self.brush_adjust {
@@ -389,12 +525,15 @@ impl App {
                 return;
             };
             let modifiers = event.modifiers;
-            self.update_transform_drag(
-                (x, y),
-                (f32::from(event.position.x), f32::from(event.position.y)),
-                modifiers.shift,
-                modifiers.alt,
-                modifiers.control,
+            self.queue_transform_drag_update(
+                TransformDragUpdate {
+                    point: (x, y),
+                    screen: (f32::from(event.position.x), f32::from(event.position.y)),
+                    shift: modifiers.shift,
+                    alt: modifiers.alt,
+                    bypass_snap: modifiers.control,
+                },
+                window,
                 cx,
             );
             return;
@@ -423,8 +562,21 @@ impl App {
         let Some((x, y)) = canvas_doc_coords(event.position, bounds, doc_size, camera) else {
             return;
         };
+        let mut gradient_badge = None;
         if let Some(pending) = self.pending_gesture.as_mut() {
             pending.last = (x, y);
+            if pending.tool == ToolId::Gradient {
+                let dx = x - pending.start.0;
+                let dy = y - pending.start.1;
+                let distance = (dx * dx + dy * dy).sqrt().round();
+                let degrees = (dy.atan2(dx).to_degrees() + 360.0) % 360.0;
+                gradient_badge = Some(crate::state::GradientBadge {
+                    x: f32::from(event.position.x),
+                    y: f32::from(event.position.y),
+                    distance,
+                    angle: (degrees * 10.0).round() / 10.0,
+                });
+            }
             let (px, py, pw, ph) = gesture_rect(pending);
             let preview = [px, py, pw, ph];
             match pending.tool {
@@ -439,6 +591,10 @@ impl App {
                     cx.notify();
                 }
                 _ => {}
+            }
+            if let Some(badge) = gradient_badge {
+                self.state
+                    .update(cx, |state, _| state.gradient_badge = Some(badge));
             }
             self.track_edge_scroll(event.position, cx);
             return;
@@ -496,6 +652,18 @@ impl App {
         cx: &mut Context<Self>,
     ) {
         self.stop_edge_scroll();
+        if self.selection_rotation_drag.is_some() {
+            // Apply the mouse-up coordinate before the commit (the same
+            // latest-sample rule the transform drag follows): a fast rotation
+            // that releases between two move samples must not lose its final
+            // movement.
+            let camera = self.active_camera();
+            if let Some((x, y)) = canvas_doc_coords_free(event.position, bounds, doc_size, camera) {
+                self.selection_rotate_update((x, y), event.modifiers.shift, cx);
+            }
+            self.selection_rotate_finish(cx);
+            return;
+        }
         if self.alt_sampling {
             self.alt_sampling = false;
             return;
@@ -504,7 +672,29 @@ impl App {
             self.state.update(cx, |state, _| state.hud = None);
             return;
         }
+        if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
+            let camera = self.active_camera();
+            if let Some((x, y)) = canvas_doc_coords_free(event.position, bounds, doc_size, camera) {
+                let modifiers = event.modifiers;
+                self.update_transform_drag_immediately(
+                    TransformDragUpdate {
+                        point: (x, y),
+                        screen: (f32::from(event.position.x), f32::from(event.position.y)),
+                        shift: modifiers.shift,
+                        alt: modifiers.alt,
+                        bypass_snap: modifiers.control,
+                    },
+                    cx,
+                );
+            } else {
+                self.flush_pending_transform_drag_update(cx);
+            }
+        }
         if self.finish_transform_drag(cx) {
+            return;
+        }
+        if self.move_marquee.is_some() {
+            self.finish_move_marquee(cx);
             return;
         }
         if let Some(drag) = self.crop_drag.take() {
@@ -825,38 +1015,37 @@ impl App {
         else {
             return Ok(false);
         };
-        if !self.can_patch_single_layer(&doc_id) {
+        let max_edge = preview_max_edge();
+        let Some(stroke) = self.input.active_brush() else {
+            return Ok(false);
+        };
+        if stroke.target.doc_id != doc_id {
+            return Err("brush stroke targets a different document".to_string());
+        }
+        // The preview is drawn over the display composite, which is only
+        // correct while the painted layer is the topmost visible one.
+        let topmost_visible = self
+            .sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .and_then(|content| {
+                content
+                    .layers
+                    .iter()
+                    .find(|layer| layer.visible && layer.opacity > 0.0)
+                    .map(|layer| layer.id.clone())
+            });
+        if topmost_visible.as_deref() != Some(stroke.target.layer_id.as_str()) {
             return Ok(false);
         }
-        let max_edge = preview_max_edge();
-        let patches = {
-            let Some(stroke) = self.input.active_brush() else {
-                return Ok(false);
-            };
-            if stroke.target.doc_id != doc_id {
-                return Err("brush stroke targets a different document".to_string());
-            }
-            let loaded = self
-                .sessions
-                .get(&doc_id)
-                .ok_or_else(|| "active session is missing".to_string())?
-                .loaded_document();
-            let canonical = loaded
-                .registry
-                .get_layer(&doc_id, &stroke.target.layer_id)
-                .ok_or_else(|| "active brush layer is missing".to_string())?;
-            crate::input::scaled_preview_patches(
-                &canonical.pixels,
-                canonical.width,
-                canonical.height,
-                &stroke.dabs,
-                &stroke.tip,
-                stroke.eraser,
-                stroke.target.display_scale,
-                max_edge,
-            )?
+        let width = stroke.target.width;
+        let height = stroke.target.height;
+        let display_scale = stroke.target.display_scale;
+        let Some(rect) = crate::input::preview_rect(&stroke.dabs, &stroke.tip, width, height)?
+        else {
+            return Ok(false);
         };
-        let retired = {
+        let (retired, base) = {
             let active = self
                 .active_document
                 .as_mut()
@@ -865,6 +1054,26 @@ impl App {
                 return Err("active document changed during the brush preview".to_string());
             }
             let retired = active.canvas.discard_preview_patches();
+            let base = active
+                .canvas
+                .read_region_rgba(rect.x, rect.y, rect.width, rect.height)
+                .map_err(|error| format!("brush preview base: {error:?}"))?;
+            (retired, base)
+        };
+        self.retired_textures.extend(retired);
+        let patches = crate::input::scaled_preview_patches(
+            crate::input::PreviewBase::region(&base, rect, width, height),
+            &stroke.dabs,
+            &stroke.tip,
+            stroke.eraser,
+            display_scale,
+            max_edge,
+        )?;
+        {
+            let active = self
+                .active_document
+                .as_mut()
+                .ok_or_else(|| "no active document".to_string())?;
             for patch in &patches {
                 active
                     .canvas
@@ -879,12 +1088,12 @@ impl App {
                     )
                     .map_err(|error| format!("brush preview patch: {error:?}"))?;
             }
-            retired
-        };
-        self.retired_textures.extend(retired);
+        }
         if patches.is_empty() {
             return Ok(false);
         }
+        #[cfg(test)]
+        self.preview_pushes.set(self.preview_pushes.get() + 1);
         #[cfg(feature = "input-measurement")]
         self.measurement.accepted_preview(std::time::Instant::now());
         cx.notify();
@@ -951,8 +1160,10 @@ impl App {
     }
 
     fn finish_pointer_gesture(&mut self, pending: PendingGesture, cx: &mut Context<Self>) {
-        self.state
-            .update(cx, |state, _| state.selection_drag = None);
+        self.state.update(cx, |state, _| {
+            state.selection_drag = None;
+            state.gradient_badge = None;
+        });
         let result = match pending.tool {
             ToolId::Selection => {
                 let rect = gesture_rect(&pending);
@@ -1079,6 +1290,125 @@ impl App {
         ))
     }
 
+    /// One live rotation of the committed pixel selection about its centre
+    /// (`selectionRotation.ts`). The rectangle stays fixed; only the angle moves
+    /// until the pointer is released, which commits one `SetSelection`.
+    pub(crate) fn committed_selection(&self) -> Option<SelectionState> {
+        let doc_id = self
+            .active_document
+            .as_ref()
+            .map(|doc| doc.doc_id.clone())?;
+        self.sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .and_then(|content| content.selection.clone())
+    }
+
+    /// Start a selection rotation when the press lands on the rotate pin.
+    fn selection_rotate_start(
+        &mut self,
+        bounds: &Rc<Cell<Option<Bounds<Pixels>>>>,
+        doc_size: (u32, u32),
+        point: (f64, f64),
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.state.read(cx).active_tool != ToolId::Selection || !self.selection_edit_mode {
+            return false;
+        }
+        let Some(selection) = self.committed_selection() else {
+            return false;
+        };
+        if selection.inverted.unwrap_or(false) {
+            return false;
+        }
+        let scale = display_scale(bounds, doc_size, self.active_camera());
+        if !scale.is_finite() || scale <= 0.0 {
+            return false;
+        }
+        let (top_mid, normal) = crate::app::transform_geometry::selection_pin(
+            selection.x,
+            selection.y,
+            selection.width,
+            selection.height,
+            selection.angle,
+        );
+        let pin = (
+            top_mid.x + normal.x * 24.0 / scale,
+            top_mid.y + normal.y * 24.0 / scale,
+        );
+        let (dx, dy) = (point.0 - pin.0, point.1 - pin.1);
+        if (dx * dx + dy * dy).sqrt() > 12.0 / scale {
+            return false;
+        }
+        let center = crate::app::transform_geometry::Point {
+            x: selection.x + selection.width / 2.0,
+            y: selection.y + selection.height / 2.0,
+        };
+        let reference = crate::app::transform_geometry::angle_about(
+            center,
+            crate::app::transform_geometry::Point {
+                x: point.0,
+                y: point.1,
+            },
+        );
+        self.selection_rotation_drag = Some(SelectionRotationDrag {
+            selection: selection.clone(),
+            start_angle: selection.angle,
+            reference_angle: reference,
+            preview_angle: selection.angle,
+        });
+        cx.notify();
+        true
+    }
+
+    fn selection_rotate_update(&mut self, point: (f64, f64), shift: bool, cx: &mut Context<Self>) {
+        let Some(mut drag) = self.selection_rotation_drag.clone() else {
+            return;
+        };
+        let center = crate::app::transform_geometry::Point {
+            x: drag.selection.x + drag.selection.width / 2.0,
+            y: drag.selection.y + drag.selection.height / 2.0,
+        };
+        let current = crate::app::transform_geometry::angle_about(
+            center,
+            crate::app::transform_geometry::Point {
+                x: point.0,
+                y: point.1,
+            },
+        );
+        let reference = drag.reference_angle;
+        let mut angle = drag.start_angle + (current - reference);
+        if shift {
+            angle = (angle / 15.0).round() * 15.0;
+        }
+        drag.preview_angle = crate::app::transform_geometry::normalize_rotation(angle);
+        self.selection_rotation_drag = Some(drag);
+        cx.notify();
+    }
+
+    fn selection_rotate_finish(&mut self, cx: &mut Context<Self>) {
+        let Some(drag) = self.selection_rotation_drag.take() else {
+            return;
+        };
+        let selection = SelectionState {
+            angle: drag.preview_angle,
+            ..drag.selection.clone()
+        };
+        let result = self.active_doc_id().and_then(|doc_id| {
+            self.apply_core_command(&doc_id, Command::SetSelection { selection }, false, cx)
+        });
+        if let Err(error) = result {
+            self.set_status_error(Some(error), cx);
+        }
+        cx.notify();
+    }
+
+    fn cancel_selection_rotation(&mut self, cx: &mut Context<Self>) {
+        if self.selection_rotation_drag.take().is_some() {
+            cx.notify();
+        }
+    }
+
     fn apply_selection(
         &mut self,
         rect: (f64, f64, f64, f64),
@@ -1131,13 +1461,23 @@ impl App {
     ) -> Result<(), String> {
         let (x, y, width, height) = normalized_rect(start, end);
         let (doc_w, doc_h) = self.active_document_size()?;
-        let (kind, fill_enabled, stroke_enabled, stroke_width, radius, arrow_head, color) = {
+        let (
+            kind,
+            fill_enabled,
+            stroke_enabled,
+            stroke_width,
+            stroke_color,
+            radius,
+            arrow_head,
+            color,
+        ) = {
             let state = self.state.read(cx);
             (
                 shape_tool_kind(state.shape_kind),
                 state.shape_fill,
                 state.shape_stroke,
                 state.shape_stroke_width,
+                hex_color(state.shape_stroke_color),
                 state.shape_radius,
                 state.shape_arrow_head,
                 hex_color(state.fg_color),
@@ -1158,18 +1498,18 @@ impl App {
             },
             stroke: ShapeStroke {
                 enabled: stroke_enabled,
-                color: "#000000".to_string(),
+                color: stroke_color,
                 width: stroke_width.max(1.0),
             },
             arrow_head,
         };
         let id = next_layer_id();
         let doc_id = self.active_doc_id()?;
-        self.apply_core_command(
+        let result = self.apply_core_command(
             &doc_id,
             Command::AddLayer {
-                id,
-                name: format!("Shape at {x:.0},{y:.0}"),
+                id: id.clone(),
+                name: "Shape".to_string(), // i18n-exempt: layer name from shapeTool.ts
                 width: doc_w,
                 height: doc_h,
                 index: 0,
@@ -1181,12 +1521,18 @@ impl App {
             },
             true,
             cx,
-        )
+        );
+        if result.is_ok() {
+            // shapeTool.ts selects the layer it just created; reproject with the
+            // new core id so the Properties/Inspector fields follow it too.
+            self.project_layers_with_selection(Some(id.as_str()), cx);
+        }
+        result
     }
 
     fn apply_text(&mut self, at: (f64, f64), cx: &mut Context<Self>) -> Result<(), String> {
         let (doc_w, doc_h) = self.active_document_size()?;
-        let (color, font_size, font_weight, italic, align) = {
+        let (color, font_size, font_weight, italic, align, stroke) = {
             let state = self.state.read(cx);
             (
                 hex_color(state.fg_color),
@@ -1194,11 +1540,16 @@ impl App {
                 state.text_font_weight,
                 state.text_italic,
                 state.text_align,
+                photrez_core::ptz::layer_params::TextStroke {
+                    width: state.text_stroke_width,
+                    color: crate::palette::to_hex(state.text_stroke_color),
+                    align: Some(state.text_stroke_align),
+                },
             )
         };
         let data = TextData {
-            content: "Text".to_string(),
-            font_family: "Inter".to_string(),
+            content: String::new(),
+            font_family: "Arial".to_string(), // i18n-exempt: technical token
             font_size,
             font_weight,
             font_style: if italic {
@@ -1218,6 +1569,7 @@ impl App {
                 }
             },
             color,
+            stroke,
             ..Default::default()
         };
         let id = next_layer_id();
@@ -1235,12 +1587,12 @@ impl App {
                 y: Some(at.1),
                 layer_type: Some(LayerType::Text),
                 shape_params: None,
-                text_data: Some(data),
+                text_data: Some(data.clone()),
             },
             true,
             cx,
         )?;
-        self.begin_text_edit(edit_id, at.0, at.1, "Text".to_string(), cx);
+        self.begin_text_edit(edit_id, at.0, at.1, data, cx);
         Ok(())
     }
 
@@ -1578,7 +1930,9 @@ impl App {
                 }
             }
         }
-        if self.state.read(cx).active_tool == ToolId::Move {
+        if self.state.read(cx).active_tool == ToolId::Move
+            && self.state.read(cx).show_transform_controls
+        {
             if let (Some(position), Some((doc_w, doc_h))) = (
                 self.hover_pos,
                 self.active_document
@@ -1596,11 +1950,13 @@ impl App {
                             .effective_camera()
                             .map(|camera| camera.zoom as f64)
                             .unwrap_or(1.0);
+                        let (frame_w, frame_h) =
+                            crate::app::transform_geometry::layer_frame_size(&layer);
                         if let Some(handle) = crate::app::transform_geometry::detect_handle(
                             crate::app::transform_geometry::Point { x, y },
                             &layer.transform,
-                            layer.width,
-                            layer.height,
+                            frame_w,
+                            frame_h,
                             zoom,
                         ) {
                             use crate::app::transform_geometry::Handle;
@@ -1712,6 +2068,8 @@ impl App {
 
     /// Recompose the active document after a core mutation.
     pub(crate) fn refresh_active_canvas(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        #[cfg(test)]
+        self.full_composites.set(self.full_composites.get() + 1);
         let doc_id = self
             .active_document
             .as_ref()
@@ -1746,6 +2104,16 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(crate) fn full_composites_for_test(&self) -> usize {
+        self.full_composites.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn preview_pushes_for_test(&self) -> usize {
+        self.preview_pushes.get()
+    }
+
+    #[cfg(test)]
     pub(crate) fn last_shape_kind_for_test(&self) -> Option<ShapeKind> {
         let doc_id = self.active_document.as_ref()?.doc_id.clone();
         let content = self
@@ -1758,6 +2126,25 @@ impl App {
                 .shape_params
                 .as_ref()
                 .map(|params| params.kind.clone())
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_shape_stroke_for_test(&self) -> Option<(bool, String, f64)> {
+        let doc_id = self.active_document.as_ref()?.doc_id.clone();
+        let content = self
+            .sessions
+            .get(&doc_id)?
+            .loaded_document()
+            .content_snapshot()?;
+        content.layers.iter().find_map(|layer| {
+            layer.shape_params.as_ref().map(|params| {
+                (
+                    params.stroke.enabled,
+                    params.stroke.color.clone(),
+                    params.stroke.width,
+                )
+            })
         })
     }
 
@@ -2044,7 +2431,7 @@ fn preview_max_edge() -> u32 {
         .clamp(64, 1024)
 }
 
-fn canvas_doc_coords_free(
+pub(crate) fn canvas_doc_coords_free(
     position: Point<Pixels>,
     bounds: &Rc<Cell<Option<Bounds<Pixels>>>>,
     doc_size: (u32, u32),
@@ -2068,7 +2455,7 @@ fn canvas_doc_coords_free(
     ))
 }
 
-fn canvas_doc_coords(
+pub(crate) fn canvas_doc_coords(
     position: Point<Pixels>,
     bounds: &Rc<Cell<Option<Bounds<Pixels>>>>,
     doc_size: (u32, u32),
@@ -2094,6 +2481,32 @@ fn canvas_doc_coords(
     }
     let x = ((local_x - page_x) / page_w * doc_w).clamp(0.0, (doc_w - 1.0).max(0.0));
     let y = ((local_y - page_y) / page_h * doc_h).clamp(0.0, (doc_h - 1.0).max(0.0));
+    Some((x as f64, y as f64))
+}
+
+/// Window position to document coordinates without the page containment test.
+/// Pointer-following chrome (the paint cursor ring) stays visible over the
+/// pasteboard, matching BrushCursorOverlay.tsx's camera.screenToDocument.
+pub(crate) fn canvas_doc_position(
+    position: Point<Pixels>,
+    bounds: &Rc<Cell<Option<Bounds<Pixels>>>>,
+    doc_size: (u32, u32),
+    camera: Option<crate::render::canvas_bridge::Camera>,
+) -> Option<(f64, f64)> {
+    let bounds = bounds.get()?;
+    let local_x = f32::from(position.x) - f32::from(bounds.origin.x);
+    let local_y = f32::from(position.y) - f32::from(bounds.origin.y);
+    let viewport_w: f32 = bounds.size.width.into();
+    let viewport_h: f32 = bounds.size.height.into();
+    let (doc_w, doc_h) = (doc_size.0 as f32, doc_size.1 as f32);
+    let (page_x, page_y, page_w, page_h) = crate::render::canvas_bridge::camera_placement(
+        viewport_w, viewport_h, doc_w, doc_h, camera,
+    )?;
+    let x = (local_x - page_x) / page_w * doc_w;
+    let y = (local_y - page_y) / page_h * doc_h;
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
     Some((x as f64, y as f64))
 }
 
@@ -2158,4 +2571,13 @@ pub(crate) fn next_layer_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
     format!("native-layer-{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+/// One in-flight rotation of the committed pixel selection.
+#[derive(Clone, Debug)]
+pub(crate) struct SelectionRotationDrag {
+    selection: SelectionState,
+    start_angle: f64,
+    reference_angle: f64,
+    pub(crate) preview_angle: f64,
 }

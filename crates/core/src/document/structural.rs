@@ -395,9 +395,19 @@ impl DocumentCore {
     /// shape/text params, keep bitmap/dims/transform/adjustments intact. A
     /// non-parametric layer is a silent no-op (mirrors shapeLayerToRaster /
     /// textLayerToRaster's type guard, which returns silently).
+    ///
+    /// `pixels` carries the host-rendered bitmap that materializes the layer's
+    /// canonical buffer (parametric layers are metadata-only — "typed add;
+    /// rasterization stays host-side"). With it, the layer's dimensions become
+    /// the bitmap's, matching the oracle where a text layer always carries its
+    /// bitmap at bitmap-sized dims; the buffer itself is drained by
+    /// `DocumentPixelStore` through `pending_rasterize`. Without it the flip is
+    /// metadata-only (the historical behaviour that left the layer
+    /// un-compositable — the U11 defect receipt).
     pub(crate) fn apply_rasterize(
         &mut self,
         id: &str,
+        pixels: Option<&crate::wire::command::RasterizePixels>,
     ) -> Result<Vec<RenderLayerChange>, ProtocolError> {
         let pos = match self.layers.position_by_id(id) {
             Some(p) => p,
@@ -411,6 +421,41 @@ impl DocumentCore {
                 _ => return Ok(Vec::new()),
             }
         };
+        let material = match pixels {
+            Some(pixels) => {
+                let width = pixels.width.max(0.0) as u32;
+                let height = pixels.height.max(0.0) as u32;
+                let expected = (width as usize)
+                    .checked_mul(height as usize)
+                    .and_then(|len| len.checked_mul(4))
+                    .ok_or_else(|| ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: "rasterize pixel buffer overflows".to_string(),
+                    })?;
+                if width == 0
+                    || height == 0
+                    || !pixels.width.is_finite()
+                    || !pixels.height.is_finite()
+                {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: "rasterize pixel dimensions must be positive and finite"
+                            .to_string(),
+                    });
+                }
+                if pixels.rgba.len() != expected {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: format!(
+                            "rasterize pixel buffer is {} bytes, expected {expected}",
+                            pixels.rgba.len()
+                        ),
+                    });
+                }
+                Some((width, height, pixels.rgba.clone()))
+            }
+            None => None,
+        };
         let _e = self.begin_forward("Rasterize Layer", &[id.to_string()]);
         let mut nl = self.layers.get(pos).expect("layer present").clone();
         nl.layer_type = Some(LayerType::Raster);
@@ -419,7 +464,20 @@ impl DocumentCore {
             LayerType::Text => nl.text_data = None,
             _ => {}
         }
-        // basic_adjustment / has_adjustments, bitmap dims, and transform are kept.
+        if let Some((width, height, rgba)) = &material {
+            // The materialized bitmap defines the layer frame (the oracle's
+            // text layers always carry bitmap-sized dims).
+            nl.width = Some(f64::from(*width));
+            nl.height = Some(f64::from(*height));
+            self.pending_rasterize = Some(crate::document::rasterize_bake::RasterizePlan {
+                layer_id: id.to_string(),
+                width: *width,
+                height: *height,
+                rgba: rgba.clone(),
+            });
+        }
+        // basic_adjustment / has_adjustments, bitmap dims (without a
+        // materialized bitmap), and transform are kept.
         nl.dirty_rect = Some(Rect {
             x: 0,
             y: 0,

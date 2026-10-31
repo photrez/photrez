@@ -155,11 +155,14 @@
 //!
 //! # Deliberately omitted — behaviour, not pixels
 //!
+//! The shot path ([`render`]) paints a fixed stack for a capture and owns no
+//! timers, so these belong to the live path instead:
+//!
 //! * `setTimeout` dismissal (3500ms info/warn, 5000ms error) and
-//!   `dismissToast` on click: no timers in a static port.
+//!   `dismissToast` on click: [`render_live`] renders the queue that
+//!   `app::toasts` owns, and that queue carries the two deadlines.
 //! * the FIFO cap (`next.length > 3 ? slice(-3)`) — `toast-stacked` *is* the
-//!   post-cap state; reproducing the cap would be behaviour with no pixel to
-//!   show for it.
+//!   post-cap state; `app::toasts` applies the same cap to the live queue.
 //! * enter/exit transition and the host's `pointer-events` flags — interaction.
 //! * `aria-live`, `role="status"|"alert"` — accessibility, not rendering.
 //!
@@ -197,10 +200,11 @@
 
 use gpui_kit::base::v_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, BoxShadow, Div, Hsla};
+use gpui_kit::{div, px, AnyElement, BoxShadow, Div, Hsla, TestSupportExt};
 
 use crate::components::ui;
 use crate::shot;
+use crate::state::{AppState, ToastSeverity};
 use crate::tokens::color;
 
 // ── Geometry (Tailwind, 16px root) ──
@@ -319,6 +323,16 @@ impl Severity {
     }
 }
 
+impl From<ToastSeverity> for Severity {
+    fn from(severity: ToastSeverity) -> Self {
+        match severity {
+            ToastSeverity::Info => Severity::Info,
+            ToastSeverity::Warn => Severity::Warn,
+            ToastSeverity::Error => Severity::Error,
+        }
+    }
+}
+
 // ── Shot dispatch ───────────────────────────────────────────────────────────
 
 /// Maps a shot id to the toast stack it should render.
@@ -350,12 +364,36 @@ fn messages_for(id: Option<&str>) -> Vec<(Severity, &'static str)> {
 /// only lands on the window's edges if its containing block is the
 /// window-sized root, and it paints over the shell only if it is appended late
 /// in that root's child list (there is no `z_index` to lean on).
-pub fn render() -> impl IntoElement {
-    let stack: Vec<Div> = messages_for(shot::active())
+pub fn render() -> Div {
+    let stack: Vec<AnyElement> = messages_for(shot::active())
         .into_iter()
-        .map(|(sev, msg)| toast(sev, msg))
+        .map(|(sev, msg)| render_toast(sev, msg).into_any_element())
         .collect();
+    host(stack)
+}
 
+/// The production host: the live queue from [`AppState::toasts`], rendered in
+/// the same bottom-right stack as the shot above.
+///
+/// Rows carry their queue id as the element id (and `test_support`) so mounted
+/// tests can address one toast; the source's `role="status"|"alert"` has no
+/// GPUI surface yet and is not faked.
+pub fn render_live(state: &gpui_kit::Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
+    let toasts = state.read(cx).toasts.clone();
+    let stack: Vec<AnyElement> = toasts
+        .into_iter()
+        .map(|toast| {
+            render_toast(toast.severity.into(), &toast.message)
+                .id(format!("toast-{}", toast.id))
+                .test_support()
+                .into_any_element()
+        })
+        .collect();
+    host(stack)
+}
+
+/// The shot host and the live host differ only in their rows.
+fn host(stack: Vec<AnyElement>) -> Div {
     // The `fixed ... bottom-6 right-6` host: a layer over the window, with the
     // stack pushed into its bottom-right corner by flex alignment plus the
     // two insets. `.inset(px(0.))` is the fill pattern `ui::slider` already
@@ -385,7 +423,7 @@ pub fn render() -> impl IntoElement {
 /// singles, and the stack's own width is its widest child's. The bottom-right
 /// position comes from the parent, so a width that lands a fraction off moves
 /// the *left* border only, which is the same trade the source makes.
-fn toast(severity: Severity, message: &str) -> Div {
+fn render_toast(severity: Severity, message: &str) -> Div {
     div()
         // A toast is a single line in the source and in all four baselines;
         // in the stack the widest child is laid out at exactly its own

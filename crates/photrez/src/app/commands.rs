@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gpui_kit::{AppContext as _, Context, PathPromptOptions};
 
 use super::{
-    ensure_ptz_path, App, CloseDocument, ExportDocument, OpenDocument, PrintDocument, SaveDocument,
-    SaveDocumentAs,
+    ensure_ptz_path, App, CloseDocument, ExportDocument, NewDocumentAction, OpenDocument,
+    PrintDocument, SaveDocument, SaveDocumentAs, ToggleSidePanelsAction,
 };
 use crate::render::canvas_bridge::CanvasImage;
 use crate::services::document::LoadedDocument;
@@ -80,6 +80,24 @@ impl App {
         false
     }
 
+    /// `file.new` from the oracle: open the New Document dialog and close any
+    /// open menu surface first.
+    pub(crate) fn new_document_action(&mut self, _: &NewDocumentAction, cx: &mut Context<Self>) {
+        self.open_new_document(cx);
+    }
+
+    /// View > Toggle Side Panels: hide or show the right dock. The oracle's
+    /// row label flips between Hide/Show; the value drives `dock_open`.
+    pub(crate) fn toggle_side_panels_action(
+        &mut self,
+        _: &ToggleSidePanelsAction,
+        cx: &mut Context<Self>,
+    ) {
+        self.state
+            .update(cx, |state, _| state.dock_open = !state.dock_open);
+        cx.notify();
+    }
+
     pub(crate) fn close_document_action(&mut self, _: &CloseDocument, cx: &mut Context<Self>) {
         self.close_after_dirty = false;
         self.pending_tab_close = None;
@@ -129,7 +147,16 @@ impl App {
             state.has_document = false;
             state.document_id = None;
             state.document_name = "Baseline".to_owned(); // i18n-exempt: demo content
+                                                         // Nothing is on screen once the last document closes, so the
+                                                         // panels must not keep projecting its layers or history.
+            state.layers.clear();
+            state.selected_layers.clear();
+            state.layer_flags.clear();
+            state.history.clear();
         });
+        self.document_tabs.retain(|open| open != &doc_id);
+        self.tab_cameras.remove(&doc_id);
+        self.project_tabs(cx);
         cx.notify();
     }
 
@@ -611,6 +638,18 @@ impl App {
         cx.notify();
     }
 
+    /// Re-list the platform printers for the Print dialog's refresh control.
+    pub(crate) fn refresh_printers(&mut self, cx: &mut Context<Self>) {
+        let printers = crate::services::print::PrintService::default()
+            .list_printers()
+            .unwrap_or_default();
+        self.state.update(cx, |state, _| {
+            state.printers = printers;
+            state.print_printer = 0;
+        });
+        cx.notify();
+    }
+
     /// The Print dialog's Print button.
     pub(crate) fn print_now(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| state.active_dialog = None);
@@ -672,6 +711,23 @@ impl App {
         self.project_tabs(cx);
         cx.notify();
         Ok(())
+    }
+
+    /// Dismiss the active modal (the About dialog's Close button).
+    pub(crate) fn close_active_dialog(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| state.active_dialog = None);
+        cx.notify();
+    }
+
+    /// Escape on a dialog that has no field-specific key handler. `DesktopDialog`
+    /// routes Escape to `onDismiss` for every managed-focus dialog; the alert
+    /// prompts (dirty close) keep their explicit decision buttons.
+    pub(crate) fn dismiss_chrome_dialog(&mut self, cx: &mut Context<Self>) {
+        match self.state.read(cx).active_dialog {
+            Some(DialogId::Settings) => self.close_settings(cx),
+            Some(DialogId::About) => self.close_active_dialog(cx),
+            _ => {}
+        }
     }
 
     pub(crate) fn set_status_error(&mut self, error: Option<String>, cx: &mut Context<Self>) {

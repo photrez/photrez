@@ -24,12 +24,13 @@ use super::{
     InputMeasurementReceipt, InputMeasurementRender, InputMeasurementSnapshot, RefreshOutcome,
 };
 
-const USAGE: &str = "measure-input [options]\n  --samples N       independent runs (default 1; max 10)\n  --strokes N       strokes per run (default 1; max 100)\n  --moves N         pointer moves per stroke (default 1; max 1000)\n  --canvas N        square canvas (2 = bounded fixture; default 2; max 4096)\n  --brush-sizes A,B brush sizes in document px (default 2)\n  --base blank|opaque base layer for a generated canvas (default opaque)\n  --help            show this help\n\nG8 example: --samples 3 --strokes 12 --moves 40 --canvas 4096 --brush-sizes 800,40 --base blank";
+const USAGE: &str = "measure-input [options]\n  --samples N       independent runs (default 1; max 10)\n  --strokes N       strokes per run (default 1; max 100)\n  --moves N         pointer moves per stroke (default 1; max 1000)\n  --canvas N        canvas width (2 = bounded fixture; default 2; max 4096)\n  --canvas-height N canvas height (default: same as --canvas)\n  --layers N        raster layers in the generated fixture (default 1; max 4)\n  --brush-sizes A,B brush sizes in document px (default 2)\n  --base blank|opaque base layer for a generated canvas (default opaque)\n  --help            show this help\n\nG8 example: --samples 3 --strokes 12 --moves 40 --canvas 4096 --canvas-height 1024 --layers 3 --brush-sizes 800,40 --base blank";
 const MAX_SAMPLES: usize = 10;
 const MAX_STROKES: usize = 100;
 const MAX_MOVES: usize = 1_000;
 const MAX_CANVAS: u32 = 4_096;
 const MAX_BRUSH: u32 = 4_096;
+const MAX_LAYERS: usize = 4;
 const WAIT_LIMIT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
 const BOUNDED_FIXTURE: &[u8] = include_bytes!("../../../tests/fixtures/bounded-raster.ptz");
@@ -62,8 +63,20 @@ struct Config {
     strokes: usize,
     moves: usize,
     canvas: u32,
+    canvas_height: u32,
+    layers: usize,
     brush_sizes: Vec<u32>,
     base: Base,
+}
+
+impl Config {
+    fn height(&self) -> u32 {
+        if self.canvas_height == 0 {
+            self.canvas
+        } else {
+            self.canvas_height
+        }
+    }
 }
 
 impl Default for Config {
@@ -73,6 +86,8 @@ impl Default for Config {
             strokes: 1,
             moves: 1,
             canvas: 2,
+            canvas_height: 0,
+            layers: 1,
             brush_sizes: vec![2],
             base: Base::Opaque,
         }
@@ -115,6 +130,25 @@ enum Correlation<W> {
     Pending,
     Matched(Submission<W>),
     Rejected(&'static str),
+}
+
+#[derive(Clone, Copy)]
+struct StrokeRequest {
+    sample_index: usize,
+    stroke_index: usize,
+    brush_size: u32,
+}
+
+struct SampleReport<W> {
+    request: StrokeRequest,
+    dispatch_started: Instant,
+    first_pixel_ms: Option<f64>,
+    preview_push_ms: Option<f64>,
+    before: CanonicalState,
+    snapshot: InputMeasurementSnapshot,
+    submission: Submission<W>,
+    window_id_label: String,
+    expected_window: W,
 }
 
 fn parse_args(args: &[String]) -> Result<Option<Config>, String> {
@@ -171,6 +205,30 @@ fn parse_args(args: &[String]) -> Result<Option<Config>, String> {
                     return Err(format!("--canvas must be in 2..={MAX_CANVAS}"));
                 }
             }
+            "--canvas-height" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--canvas-height requires a value".to_owned())?;
+                config.canvas_height = value
+                    .parse::<u32>()
+                    .map_err(|_| format!("invalid canvas height: {value}"))?;
+                if !(2..=MAX_CANVAS).contains(&config.canvas_height) {
+                    return Err(format!("--canvas-height must be in 2..={MAX_CANVAS}"));
+                }
+            }
+            "--layers" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--layers requires a value".to_owned())?;
+                config.layers = value
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid layer count: {value}"))?;
+                if !(1..=MAX_LAYERS).contains(&config.layers) {
+                    return Err(format!("--layers must be in 1..={MAX_LAYERS}"));
+                }
+            }
             "--brush-sizes" => {
                 index += 1;
                 let value = args
@@ -216,41 +274,55 @@ fn stage_fixture(root: &std::path::Path, config: &Config) -> Result<(PathBuf, St
             .map_err(|error| format!("cannot stage bounded fixture: {error}"))?;
         return Ok((path, "bounded-raster.ptz".into()));
     }
-    let label = format!("generated-{}-{}.ptz", config.canvas, config.base.label());
+    let label = format!(
+        "generated-{}x{}-{}l-{}.ptz",
+        config.canvas,
+        config.height(),
+        config.layers,
+        config.base.label()
+    );
     let path = root.join(&label);
-    let bytes = build_ptz(config.canvas, config.base)?;
+    let bytes = build_ptz(config.canvas, config.height(), config.layers, config.base)?;
     std::fs::write(&path, &bytes)
         .map_err(|error| format!("cannot stage generated fixture: {error}"))?;
     Ok((path, label))
 }
 
-fn build_ptz(size: u32, base: Base) -> Result<Vec<u8>, String> {
+fn build_ptz(width: u32, height: u32, layers: usize, base: Base) -> Result<Vec<u8>, String> {
+    if layers == 0 {
+        return Err("a fixture needs at least one raster layer".to_owned());
+    }
+    let raster_layers: Vec<Value> = (0..layers)
+        .map(|index| {
+            serde_json::json!({
+                "id": format!("raster-{}", index + 1),
+                "name": format!("Raster {}", index + 1),
+                "type": "raster",
+                "visible": true,
+                "opacity": 1.0,
+                "locked": false,
+                "blendMode": "normal",
+                "transform": {
+                    "x": 0.0, "y": 0.0, "scaleX": 1.0, "scaleY": 1.0,
+                    "rotation": 0.0, "flipH": false, "flipV": false
+                },
+                "width": width,
+                "height": height
+            })
+        })
+        .collect();
     let document = serde_json::json!({
         "format": "photrez-ptz",
         "version": 3,
         "id": "parity-doc",
-        "name": format!("Generated {size} {}", base.label()),
-        "width": size,
-        "height": size,
-        "layers": [{
-            "id": "raster-1",
-            "name": "Raster",
-            "type": "raster",
-            "visible": true,
-            "opacity": 1.0,
-            "locked": false,
-            "blendMode": "normal",
-            "transform": {
-                "x": 0.0, "y": 0.0, "scaleX": 1.0, "scaleY": 1.0,
-                "rotation": 0.0, "flipH": false, "flipV": false
-            },
-            "width": size,
-            "height": size
-        }]
+        "name": format!("Generated {width}x{height} {}", base.label()),
+        "width": width,
+        "height": height,
+        "layers": raster_layers
     });
     let document = serde_json::to_vec(&document)
         .map_err(|error| format!("cannot encode fixture document: {error}"))?;
-    let png = encode_png(size, size, base.pixel())?;
+    let png = encode_png(width, height, base.pixel())?;
     let cursor = std::io::Cursor::new(Vec::new());
     let mut writer = zip::write::ZipWriter::new(cursor);
     writer
@@ -259,12 +331,14 @@ fn build_ptz(size: u32, base: Base) -> Result<Vec<u8>, String> {
     writer
         .write_all(&document)
         .map_err(|error| format!("cannot write fixture document: {error}"))?;
-    writer
-        .start_file("layers/raster-1.png", fixture_file_options())
-        .map_err(|error| format!("cannot start fixture layer entry: {error}"))?;
-    writer
-        .write_all(&png)
-        .map_err(|error| format!("cannot write fixture layer: {error}"))?;
+    for index in 1..=layers {
+        writer
+            .start_file(format!("layers/raster-{index}.png"), fixture_file_options())
+            .map_err(|error| format!("cannot start fixture layer entry: {error}"))?;
+        writer
+            .write_all(&png)
+            .map_err(|error| format!("cannot write fixture layer: {error}"))?;
+    }
     let cursor = writer
         .finish()
         .map_err(|error| format!("cannot finish fixture archive: {error}"))?;
@@ -290,12 +364,14 @@ fn encode_png(width: u32, height: u32, pixel: [u8; 4]) -> Result<Vec<u8>, String
     let raw_len = (height as usize)
         .checked_mul(row)
         .ok_or_else(|| "PNG data size overflow".to_owned())?;
+    let mut row_bytes = Vec::with_capacity(row);
+    row_bytes.push(0);
+    for _ in 0..width {
+        row_bytes.extend_from_slice(&pixel);
+    }
     let mut raw = Vec::with_capacity(raw_len);
     for _ in 0..height {
-        raw.push(0);
-        for _ in 0..width {
-            raw.extend_from_slice(&pixel);
-        }
+        raw.extend_from_slice(&row_bytes);
     }
     let zlib = zlib_store(&raw);
     let mut png = Vec::with_capacity(zlib.len() + 64);
@@ -510,6 +586,10 @@ impl Runner {
         if let Err(error) = self.select_brush(cx) {
             self.finish(failure_json(error), 1);
         }
+        let baseline = match self.canonical(cx) {
+            Ok(state) => state,
+            Err(error) => self.finish(failure_json(error), 1),
+        };
 
         let samples = self.config.samples;
         let strokes_per_run = self.config.strokes;
@@ -522,10 +602,18 @@ impl Runner {
                 }
                 let mut strokes = Vec::with_capacity(strokes_per_run);
                 for stroke in 0..strokes_per_run {
-                    match self.run_sample(sample, stroke, brush_size, cx).await {
+                    let request = StrokeRequest {
+                        sample_index: sample,
+                        stroke_index: stroke,
+                        brush_size,
+                    };
+                    match self.run_sample(request, cx).await {
                         Ok(value) => strokes.push(value),
                         Err(error) => self.finish(failure_json(error), 1),
                     }
+                }
+                if let Err(error) = self.reset_run(strokes_per_run, &baseline, cx) {
+                    self.finish(failure_json(error), 1);
                 }
                 let aggregate = aggregate_strokes(&strokes);
                 runs.push(json!({
@@ -538,6 +626,30 @@ impl Runner {
         }
         let summary = summary_json(&self.config, &self.fixture_label, runs, "ok");
         self.finish(summary, 0);
+    }
+
+    fn canonical(&self, cx: &mut gpui_kit::AsyncApp) -> Result<CanonicalState, String> {
+        self.app
+            .update(cx, inspect_canonical)
+            .map_err(|error| format!("App closed while reading canonical state: {error:?}"))?
+    }
+
+    fn reset_run(
+        &self,
+        strokes: usize,
+        baseline: &CanonicalState,
+        cx: &mut gpui_kit::AsyncApp,
+    ) -> Result<(), String> {
+        self.app
+            .update(cx, |app, app_cx| {
+                app.input_measurement_undo(strokes, app_cx)
+            })
+            .map_err(|error| format!("App closed while resetting the run: {error:?}"))?;
+        let after = self.canonical(cx)?;
+        if after.layer_id != baseline.layer_id || after.pixels != baseline.pixels {
+            return Err("document pixels did not return to the run baseline after undo".to_owned());
+        }
+        Ok(())
     }
 
     fn set_brush_size(&self, brush_size: u32, cx: &mut gpui_kit::AsyncApp) -> Result<(), String> {
@@ -605,17 +717,17 @@ impl Runner {
 
     async fn run_sample(
         &self,
-        sample_index: usize,
-        stroke_index: usize,
-        brush_size: u32,
+        request: StrokeRequest,
         cx: &mut gpui_kit::AsyncApp,
     ) -> Result<Value, String> {
-        let before = self
-            .app
-            .update(cx, |app, cx| inspect_canonical(app, cx))
-            .map_err(|error| {
-                format!("sample {sample_index}: cannot read pre-state: {error:?}")
-            })??;
+        let StrokeRequest {
+            sample_index,
+            stroke_index,
+            brush_size,
+        } = request;
+        let before = self.app.update(cx, inspect_canonical).map_err(|error| {
+            format!("sample {sample_index}: cannot read pre-state: {error:?}")
+        })??;
         let bounds = self
             .app
             .update(cx, |app, _| app.input_measurement_bounds().get())
@@ -652,15 +764,7 @@ impl Runner {
             .map_err(|error| format!("sample {sample_index}: App closed while arming: {error:?}"))?
             .ok_or_else(|| format!("sample {sample_index}: another measurement is outstanding"))?;
         let result = self
-            .dispatch_and_observe(
-                sample_index,
-                stroke_index,
-                brush_size,
-                sample_id,
-                before,
-                &points,
-                cx,
-            )
+            .dispatch_and_observe(request, sample_id, before, &points, cx)
             .await;
         if result.is_err() {
             let _ = self
@@ -672,14 +776,13 @@ impl Runner {
 
     async fn dispatch_and_observe(
         &self,
-        sample_index: usize,
-        stroke_index: usize,
-        brush_size: u32,
+        request: StrokeRequest,
         sample_id: u64,
         before: CanonicalState,
         points: &[gpui_kit::Point<Pixels>],
         cx: &mut gpui_kit::AsyncApp,
     ) -> Result<Value, String> {
+        let sample_index = request.sample_index;
         let Some(start) = points.first().copied() else {
             return Err("stroke has no pointer points".to_owned());
         };
@@ -781,17 +884,17 @@ impl Runner {
                 match correlate(&frames, window_id, render.rendered_at) {
                     Correlation::Matched(submission) => {
                         return self.finish_sample(
-                            sample_index,
-                            stroke_index,
-                            brush_size,
-                            dispatch_started,
-                            first_pixel_ms,
-                            preview_push_ms,
-                            before,
-                            snapshot,
-                            submission,
-                            window_id_label,
-                            window_id,
+                            SampleReport {
+                                request,
+                                dispatch_started,
+                                first_pixel_ms,
+                                preview_push_ms,
+                                before,
+                                snapshot,
+                                submission,
+                                window_id_label,
+                                expected_window: window_id,
+                            },
                             cx,
                         );
                     }
@@ -892,19 +995,25 @@ impl Runner {
 
     fn finish_sample<W: Copy + PartialEq>(
         &self,
-        sample_index: usize,
-        stroke_index: usize,
-        brush_size: u32,
-        dispatch_started: Instant,
-        first_pixel_ms: Option<f64>,
-        preview_push_ms: Option<f64>,
-        before: CanonicalState,
-        snapshot: InputMeasurementSnapshot,
-        submission: Submission<W>,
-        window_id_label: String,
-        expected_window: W,
+        report: SampleReport<W>,
         cx: &mut gpui_kit::AsyncApp,
     ) -> Result<Value, String> {
+        let SampleReport {
+            request,
+            dispatch_started,
+            first_pixel_ms,
+            preview_push_ms,
+            before,
+            snapshot,
+            submission,
+            window_id_label,
+            expected_window,
+        } = report;
+        let StrokeRequest {
+            sample_index,
+            stroke_index,
+            brush_size,
+        } = request;
         let receipt = snapshot
             .receipt
             .as_ref()
@@ -913,12 +1022,9 @@ impl Runner {
             .render
             .as_ref()
             .ok_or_else(|| format!("sample {sample_index}: missing App render marker"))?;
-        let after = self
-            .app
-            .update(cx, |app, cx| inspect_canonical(app, cx))
-            .map_err(|error| {
-                format!("sample {sample_index}: cannot read post-state: {error:?}")
-            })??;
+        let after = self.app.update(cx, inspect_canonical).map_err(|error| {
+            format!("sample {sample_index}: cannot read post-state: {error:?}")
+        })??;
         validate_committed_state(sample_index, &before, &after, receipt, render)?;
         if submission.window_id != expected_window {
             return Err(format!(
@@ -1003,8 +1109,8 @@ fn pixel_diff(before: &CanonicalState, after: &CanonicalState) -> Result<(usize,
         return Err("canonical buffer length changed during a stroke".to_owned());
     }
     const TILE: usize = 256;
-    let tiles_x = (width + TILE - 1) / TILE;
-    let tiles_y = (height + TILE - 1) / TILE;
+    let tiles_x = width.div_ceil(TILE);
+    let tiles_y = height.div_ceil(TILE);
     let mut changed_tiles = vec![false; tiles_x.saturating_mul(tiles_y)];
     let mut changed_pixels = 0usize;
     for (index, (left, right)) in before
@@ -1395,7 +1501,7 @@ fn correlate<W: Copy + PartialEq>(
     };
     match *event {
         FrameRecord::Draw { .. } => {
-            return Correlation::Rejected("a new Draw preceded the matching Present");
+            Correlation::Rejected("a new Draw preceded the matching Present")
         }
         FrameRecord::Present { window_id, end } => {
             if window_id != expected_window {
@@ -1404,12 +1510,12 @@ fn correlate<W: Copy + PartialEq>(
             if end < draw_end {
                 return Correlation::Rejected("matching Present predates Draw completion");
             }
-            return Correlation::Matched(Submission {
+            Correlation::Matched(Submission {
                 window_id,
                 draw_start,
                 draw_end,
                 present_end: end,
-            });
+            })
         }
     }
 }
@@ -1438,8 +1544,11 @@ fn summary_json(config: &Config, fixture: &str, runs: Vec<Value>, status: &str) 
             "strokes": config.strokes,
             "moves": config.moves,
             "canvas": config.canvas,
+            "canvas_height": config.height(),
+            "layers": if config.canvas == 2 { 1 } else { config.layers },
             "brush_sizes": config.brush_sizes,
             "base": if config.canvas == 2 { "bounded" } else { config.base.label() },
+            "reset_between_runs": "undo to the run baseline, pixels verified",
         },
         "profile": if cfg!(debug_assertions) { "dev" } else { "release" },
         "runs": runs,
@@ -1500,6 +1609,10 @@ mod tests {
         assert!(parse_args(&["--moves".into(), "1001".into()]).is_err());
         assert!(parse_args(&["--canvas".into(), "1".into()]).is_err());
         assert!(parse_args(&["--canvas".into(), "4097".into()]).is_err());
+        assert!(parse_args(&["--canvas-height".into(), "1".into()]).is_err());
+        assert!(parse_args(&["--canvas-height".into(), "4097".into()]).is_err());
+        assert!(parse_args(&["--layers".into(), "0".into()]).is_err());
+        assert!(parse_args(&["--layers".into(), "5".into()]).is_err());
         assert!(parse_args(&["--brush-sizes".into(), "0".into()]).is_err());
         assert!(parse_args(&["--base".into(), "both".into()]).is_err());
         assert_eq!(parse_args(&["--help".into()]), Ok(None));
@@ -1516,6 +1629,10 @@ mod tests {
             "40",
             "--canvas",
             "4096",
+            "--canvas-height",
+            "1024",
+            "--layers",
+            "3",
             "--brush-sizes",
             "800,40",
             "--base",
@@ -1531,8 +1648,22 @@ mod tests {
         assert_eq!(config.strokes, 12);
         assert_eq!(config.moves, 40);
         assert_eq!(config.canvas, 4096);
+        assert_eq!(config.height(), 1024);
+        assert_eq!(config.layers, 3);
         assert_eq!(config.brush_sizes, vec![800, 40]);
         assert_eq!(config.base, Base::Blank);
+    }
+
+    #[test]
+    fn canvas_height_defaults_to_width() {
+        let args: Vec<String> = ["--canvas", "4096"]
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect();
+        let config = parse_args(&args).expect("width parses").expect("not help");
+        assert_eq!(config.canvas, 4096);
+        assert_eq!(config.height(), 4096);
+        assert_eq!(config.layers, 1);
     }
 
     #[test]
@@ -1550,9 +1681,22 @@ mod tests {
 
     #[test]
     fn generated_fixture_is_a_zip_archive() {
-        let bytes = build_ptz(2, Base::Blank).expect("generated fixture builds");
+        let bytes = build_ptz(2, 2, 1, Base::Blank).expect("generated fixture builds");
         assert!(bytes.starts_with(b"PK\x03\x04"));
         assert!(bytes.len() > 100);
+    }
+
+    #[test]
+    fn generated_fixture_carries_every_requested_layer() {
+        let bytes = build_ptz(8, 4, 3, Base::Opaque).expect("three-layer fixture builds");
+        let text = String::from_utf8_lossy(&bytes);
+        for index in 1..=3 {
+            assert!(
+                text.contains(&format!("layers/raster-{index}.png")),
+                "layer {index} entry is present"
+            );
+        }
+        assert!(!text.contains("layers/raster-4.png"));
     }
 
     #[test]

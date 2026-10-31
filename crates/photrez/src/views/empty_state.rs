@@ -193,7 +193,6 @@ use gpui_kit::{div, px, AnyElement};
 
 use crate::icons;
 use crate::shot;
-#[allow(unused_imports)]
 use crate::tokens::color;
 
 use super::dialogs;
@@ -349,16 +348,24 @@ const PROMPT_TEXT: f32 = 11.0;
 /// 1.75 ones go through [`preset_icon`] / the baked `1.75` constants.
 const STROKE_PRESET: f32 = 1.75;
 
-/// `EmptyWorkspace.tsx`'s `PRESETS`, in source order: label, then the size tag
-/// under it. The `x` is U+00D7 and is present in the baseline - the first
-/// tile's tag scans as four ink groups at crop x 69..89, 94..98, 103..123,
-/// 128..137, and the second is a 5px glyph.
-const PRESETS: [(&str, &str); 4] = [
-    ("Instagram Post", "1080 \u{00d7} 1080 px"),
-    ("Story / Reels", "1080 \u{00d7} 1920 px"),
-    ("Full HD Canvas", "1920 \u{00d7} 1080 px"),
-    ("A4 Print (300 DPI)", "2480 \u{00d7} 3508 px"),
+/// `EmptyWorkspace.tsx`'s `PRESETS`, in source order: label, the size tag
+/// under it, and the document size the tile creates. The `x` is U+00D7 and is
+/// present in the baseline - the first tile's tag scans as four ink groups at
+/// crop x 69..89, 94..98, 103..123, 128..137, and the second is a 5px glyph.
+const PRESETS: [(&str, &str, u32, u32); 4] = [
+    ("Instagram Post", "1080 \u{00d7} 1080 px", 1080, 1080),
+    ("Story / Reels", "1080 \u{00d7} 1920 px", 1080, 1920),
+    ("Full HD Canvas", "1920 \u{00d7} 1080 px", 1920, 1080),
+    ("A4 Print (300 DPI)", "2480 \u{00d7} 3508 px", 2480, 3508),
 ];
+
+/// The document a Quick Preset creates: its label as the name and its pixel
+/// size. `None` for an index the table does not have.
+pub(crate) fn preset_document(index: usize) -> Option<(&'static str, u32, u32)> {
+    PRESETS
+        .get(index)
+        .map(|&(label, _tag, width, height)| (label, width, height))
+}
 
 /// The same four entries' `icon` field, in the same order: `square`,
 /// `smartphone`, `image`, `file-text`.
@@ -442,6 +449,41 @@ pub fn render(col_left: f32, col_w: f32) -> impl IntoElement {
         .w(px(FRAME_W))
         .h(px(FRAME_H))
         .child(body)
+}
+
+/// The production no-document state: the same card, centred in the canvas
+/// slot and wired to the actions it advertises.
+///
+/// The oracle's wrapper is `flex flex-1 items-center justify-center
+/// bg-editor-canvas p-6`, so the card centres in the space the canvas would
+/// occupy rather than at a captured coordinate. The frozen [`render`] pins the
+/// card because its frame is the whole 1366x820 window; here the slot is the
+/// live layout and centring is the honest reproduction.
+pub fn render_live(cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {
+    div()
+        .id("empty-workspace")
+        .flex_1()
+        .min_h(px(0.0))
+        .w_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(24.0))
+        .bg(color::CANVAS)
+        .on_drop::<crate::app::cross_doc::LayerDragPayload>(cx.listener(
+            |app,
+             payload: &crate::app::cross_doc::LayerDragPayload,
+             window,
+             cx: &mut gpui_kit::Context<crate::app::App>| {
+                app.apply_layer_drag(
+                    payload,
+                    crate::app::cross_doc::LayerDropTarget::NewDocument,
+                    window.modifiers().alt,
+                    cx,
+                );
+            },
+        ))
+        .child(card::card_live(cx))
 }
 
 mod card;

@@ -1,173 +1,369 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use super::{
+    build_inventory, compare_production_sets, head_scan_differences, parse_ls_tree_paths,
+    reference_rows, snapshot_from_paths, validate_text, OracleSnapshot,
+};
 
-use super::{production_files, run, InventoryOpts};
+const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const HEAD_COMMIT: &str = "fedcba9876543210fedcba9876543210fedcba98";
+const MANIFEST_NAME: &str = "inventory.tests.txt";
 
-/// A scratch tree with one file per classification branch: an exact override,
-/// a prefix-rule file, an unclassified file, a test file that must be excluded,
-/// and a type-only file.
-struct Fixture {
-    root: PathBuf,
+fn snapshot(paths: &[&str]) -> OracleSnapshot {
+    snapshot_at(COMMIT, paths)
 }
 
-impl Fixture {
-    fn new(tag: &str) -> Self {
-        let root =
-            std::env::temp_dir().join(format!("xtask-inventory-{}-{}", tag, std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("src/components/editor")).expect("fixture dirs");
-        Self { root }
-    }
-
-    fn write(&self, rel: &str, contents: &str) {
-        let path = self.root.join("src").join(rel);
-        fs::create_dir_all(path.parent().expect("parent")).expect("create dirs");
-        fs::write(path, contents).expect("write fixture file");
-    }
+fn head_snapshot(paths: &[&str]) -> OracleSnapshot {
+    snapshot_at(HEAD_COMMIT, paths)
 }
 
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+fn snapshot_at(commit: &str, paths: &[&str]) -> OracleSnapshot {
+    let listing = format!("{}\0", paths.join("\0"));
+    let paths = parse_ls_tree_paths(listing.as_bytes()).expect("fixture path listing");
+    snapshot_from_paths(commit.to_string(), paths).expect("fixture tree snapshot")
+}
+
+fn with_commit(snapshot: &OracleSnapshot, commit: &str) -> OracleSnapshot {
+    OracleSnapshot {
+        commit: commit.to_string(),
+        production_files: snapshot.production_files.clone(),
+        test_files: snapshot.test_files.clone(),
+        backend_files: snapshot.backend_files.clone(),
     }
 }
 
-fn out_path(tag: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "xtask-inventory-out-{tag}-{}.csv",
-        std::process::id()
-    ))
+fn validate_error(
+    csv: &str,
+    manifest: &str,
+    oracle: &OracleSnapshot,
+    head: &OracleSnapshot,
+) -> Vec<String> {
+    validate_text(
+        csv,
+        manifest,
+        oracle,
+        head,
+        &oracle.production_files,
+        &head.production_files,
+        MANIFEST_NAME,
+    )
+    .expect_err("fixture must be rejected")
+    .0
+}
+
+fn remove_row(csv: &str, id: &str) -> String {
+    let prefix = format!("{id},");
+    format!(
+        "{}\n",
+        csv.lines()
+            .filter(|line| !line.starts_with(&prefix))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 #[test]
-fn known_tree_classifies_every_branch() {
-    let fx = Fixture::new("branches");
-    fx.write("components/editor/AdjustmentsPanel.tsx", "export {}");
-    fx.write("components/editor/canvas/HoverHighlight.tsx", "export {}");
-    fx.write("components/editor/someUnmappedThing.ts", "export {}");
-    fx.write("components/editor/someThing.test.ts", "test only");
-    fx.write("components/editor/types.ts", "export {}");
-    fx.write("components/editor/paintStrokeRenderer.ts", "export {}");
+fn full_tree_snapshot_preserves_test_census_filters() {
+    let snapshot = snapshot(&[
+        "src/App.tsx",
+        "src/__tests__/alpha.test.ts",
+        "src/components/editor/AdjustmentsPanel.tsx",
+        "src/components/editor/AdjustmentsPanel.test.tsx",
+        "e2e/editor.spec.ts",
+        "e2e/pixels.test.js",
+        "e2e/node_modules/dependency.test.ts",
+        "e2e/pkg/generated.test.tsx",
+        "e2e/case-sensitive.test.JS",
+        "src-tauri/build.rs",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/windows/dialog.rs",
+    ]);
 
-    let files = production_files(&fx.root);
     assert_eq!(
-        files,
+        snapshot.production_files,
         vec![
-            "components/editor/AdjustmentsPanel.tsx",
-            "components/editor/canvas/HoverHighlight.tsx",
-            "components/editor/paintStrokeRenderer.ts",
-            "components/editor/someUnmappedThing.ts",
-            "components/editor/types.ts",
+            "App.tsx".to_string(),
+            "components/editor/AdjustmentsPanel.tsx".to_string()
+        ]
+    );
+    assert_eq!(
+        snapshot.test_files,
+        vec![
+            "e2e/editor.spec.ts".to_string(),
+            "e2e/pixels.test.js".to_string(),
+            "src/__tests__/alpha.test.ts".to_string(),
+            "src/components/editor/AdjustmentsPanel.test.tsx".to_string(),
+        ]
+    );
+    assert_eq!(
+        snapshot.backend_files,
+        vec![
+            "src-tauri/build.rs".to_string(),
+            "src-tauri/src/main.rs".to_string(),
+            "src-tauri/src/windows/dialog.rs".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn production_set_comparison_names_missing_extra_and_duplicate_paths() {
+    let snapshot = snapshot(&["src/components/editor/types.ts"]);
+    let tracked = snapshot.production_files;
+    assert!(compare_production_sets(&tracked, &tracked, "Oracle").is_empty());
+
+    let missing = compare_production_sets(&tracked, &[], "Oracle");
+    assert!(missing.iter().any(|error| {
+        error == "src/components/editor/types.ts: tracked Oracle production file missing from filesystem scan"
+    }));
+    let extra = compare_production_sets(
+        &tracked,
+        &[
+            "components/editor/types.ts".to_string(),
+            "generated/new.ts".to_string(),
         ],
-        "test files are excluded and the rest sorted"
+        "Oracle",
     );
-
-    let out = out_path("branches");
-    let code = run(&InventoryOpts {
-        oracle_root: fx.root.clone(),
-        head_root: fx.root.clone(),
-        out: out.clone(),
-    });
-    let text = fs::read_to_string(&out).expect("csv written");
-    assert!(
-        text.contains("components/editor/AdjustmentsPanel.tsx,adjustments"),
-        "exact override classified: {}",
-        text.lines().nth(4).unwrap_or("")
+    assert!(extra.iter().any(|error| {
+        error == "src/generated/new.ts: untracked/generated production file is not tracked in Oracle"
+    }));
+    let duplicate = compare_production_sets(
+        &tracked,
+        &[
+            "components/editor/types.ts".to_string(),
+            "components/editor/types.ts".to_string(),
+        ],
+        "Oracle",
     );
-    assert!(text.contains(",MISSING,"), "prefix rule status carried");
-    assert!(
-        text.contains(",UNMAPPED,"),
-        "unclassified file falls through to UNMAPPED"
-    );
-    // The re-baseline override classifies the C4 file instead of leaving it
-    // unmapped.
-    assert!(text.contains("paintStrokeRenderer.ts,brush,"));
-    assert_eq!(code, 1, "UNMAPPED rows make the precheck fail");
-    let _ = fs::remove_file(&out);
+    assert!(duplicate
+        .iter()
+        .any(|error| error == "components/editor/types.ts: duplicate path in filesystem scan"));
 }
 
 #[test]
-fn head_only_files_become_out_of_target_rows() {
-    let fx = Fixture::new("oot");
-    let oracle = Fixture::new("oot-oracle");
-    fx.write("components/editor/AdjustmentsPanel.tsx", "export {}");
-    fx.write("components/editor/octoberOnly.ts", "export {}");
-    oracle.write("components/editor/AdjustmentsPanel.tsx", "export {}");
+fn out_of_target_uses_tracked_head_and_scan_drift_fails_closed() {
+    let oracle = snapshot(&["src/components/editor/AdjustmentsPanel.tsx"]);
+    let head = head_snapshot(&[
+        "src/components/editor/AdjustmentsPanel.tsx",
+        "src/components/editor/octoberOnly.ts",
+    ]);
+    let (csv, manifest, out_of_target, _) = build_inventory(&oracle, &head, MANIFEST_NAME);
+    assert_eq!(out_of_target, 1);
+    assert!(csv.contains("O001,behavior,apps/desktop/src/components/editor/octoberOnly.ts"));
+    assert!(validate_text(
+        &csv,
+        &manifest,
+        &oracle,
+        &head,
+        &oracle.production_files,
+        &head.production_files,
+        MANIFEST_NAME,
+    )
+    .is_ok());
 
-    let out = out_path("oot");
-    let code = run(&InventoryOpts {
-        oracle_root: oracle.root.clone(),
-        head_root: fx.root.clone(),
-        out: out.clone(),
-    });
-    let text = fs::read_to_string(&out).expect("csv written");
-    assert!(
-        text.contains("behavior,apps/desktop/src/components/editor/octoberOnly.ts,"),
-        "head-only file present: {text}"
+    let missing_scan = vec!["components/editor/AdjustmentsPanel.tsx".to_string()];
+    let (missing, extra) = head_scan_differences(&head.production_files, &missing_scan);
+    assert_eq!(missing, ["components/editor/octoberOnly.ts"]);
+    assert!(extra.is_empty());
+    let errors = validate_text(
+        &csv,
+        &manifest,
+        &oracle,
+        &head,
+        &oracle.production_files,
+        &missing_scan,
+        MANIFEST_NAME,
+    )
+    .expect_err("missing tracked HEAD path fails validation")
+    .0;
+    assert!(errors.iter().any(|error| {
+        error == "src/components/editor/octoberOnly.ts: tracked HEAD production file missing from filesystem scan"
+    }));
+
+    let with_generated = vec![
+        "components/editor/AdjustmentsPanel.tsx".to_string(),
+        "components/editor/octoberOnly.ts".to_string(),
+        "generated/created.tsx".to_string(),
+    ];
+    let (missing, extra) = head_scan_differences(&head.production_files, &with_generated);
+    assert!(missing.is_empty());
+    assert_eq!(extra, ["generated/created.tsx"]);
+    let (tracked_csv, _, _, _) = build_inventory(&oracle, &head, MANIFEST_NAME);
+    assert!(!tracked_csv.contains("generated/created.tsx"));
+    assert!(validate_text(
+        &csv,
+        &manifest,
+        &oracle,
+        &head,
+        &oracle.production_files,
+        &with_generated,
+        MANIFEST_NAME,
+    )
+    .is_ok());
+
+    assert_eq!(
+        head_scan_differences(&head.production_files, &head.production_files),
+        (Vec::<String>::new(), Vec::<String>::new())
     );
-    assert!(
-        text.contains(",OUT-OF-TARGET,"),
-        "head-only file marked out of target"
-    );
-    assert_eq!(code, 0, "both trees classify fully, so validation passes");
-    let _ = fs::remove_file(&out);
+    assert!(validate_text(
+        &csv,
+        &manifest,
+        &oracle,
+        &head,
+        &oracle.production_files,
+        &head.production_files,
+        MANIFEST_NAME,
+    )
+    .is_ok());
 }
 
 #[test]
-fn validator_fails_when_a_row_is_removed() {
-    // RED proof for the file-completeness layer: deleting one F row must make
-    // the validator fail naming the removed file.
-    let fx = Fixture::new("red");
-    fx.write("components/editor/AdjustmentsPanel.tsx", "export {}");
-    fx.write("components/editor/types.ts", "export {}");
+fn generator_emits_backend_paths_with_unknown_targets() {
+    let mut paths = vec!["src/components/editor/AdjustmentsPanel.tsx".to_string()];
+    paths.extend((0..19).map(|index| format!("src-tauri/src/backend_{index:02}.rs")));
+    paths.extend([
+        "e2e/editor.spec.ts".to_string(),
+        "src/__tests__/canvas.test.tsx".to_string(),
+    ]);
+    let listing = format!("{}\0", paths.join("\0"));
+    let snapshot = snapshot_from_paths(
+        COMMIT.to_string(),
+        parse_ls_tree_paths(listing.as_bytes()).expect("fixture path listing"),
+    )
+    .expect("fixture snapshot");
+    let head_snapshot = with_commit(&snapshot, HEAD_COMMIT);
 
-    let out = out_path("red");
-    let code = run(&InventoryOpts {
-        oracle_root: fx.root.clone(),
-        head_root: fx.root.clone(),
-        out: out.clone(),
-    });
-    assert_eq!(code, 0, "fixture classifies fully");
-    let text = fs::read_to_string(&out).expect("csv");
-    let mut lines: Vec<String> = text
-        .lines()
-        .map(str::to_owned)
-        .filter(|l| !l.starts_with("components/editor/types.ts") && !l.ends_with("types.ts,F"))
-        .collect();
-    lines.retain(|l| !(l.contains("types.ts") && l.starts_with("F")));
-    let removed: String = lines.join("\n");
-    fs::write(&out, &removed).expect("write reduced csv");
-    let code = super::validate(&out, &fx.root);
-    assert_eq!(code, 1, "validator must fail with a row removed");
-    let _ = fs::remove_file(&out);
+    let references = reference_rows(&snapshot, MANIFEST_NAME);
+    assert_eq!(references.len(), 31);
+    assert_eq!(references[11][0], "R012");
+    assert_eq!(references[11][2], MANIFEST_NAME);
+    assert!(references[11][7].contains("exact tracked manifest (2 paths)"));
+    assert!(references[11][7].contains(COMMIT));
+    for (index, backend) in snapshot.backend_files.iter().enumerate() {
+        let row = &references[12 + index];
+        assert_eq!(row[0], format!("R{:03}", 13 + index));
+        assert_eq!(row[2], format!("apps/desktop/{backend}"));
+        assert_eq!(row[3], "reference-platform");
+        assert_eq!(row[4], "UNKNOWN");
+        assert_eq!(row[5], "REFERENCE");
+        assert_eq!(row[7], "No per-file native destination is evidenced.");
+    }
+
+    let (csv, manifest, out_of_target, reference_count) =
+        build_inventory(&snapshot, &head_snapshot, MANIFEST_NAME);
+    assert_eq!(out_of_target, 0);
+    assert_eq!(reference_count, 31);
+    assert!(csv.contains("reference rows: 31"));
+    assert!(csv.contains(&format!("# oracle: {COMMIT}")));
+    assert!(csv.contains(&format!("# head: {HEAD_COMMIT}")));
+    assert_eq!(
+        manifest,
+        "apps/desktop/e2e/editor.spec.ts\napps/desktop/src/__tests__/canvas.test.tsx\n"
+    );
 }
 
 #[test]
-fn aggregate_reference_rows_carry_measured_counts() {
-    let fx = Fixture::new("globs");
-    fx.write("components/editor/types.ts", "export {}");
-    // The oracle root also needs src-tauri content to measure.
-    fs::create_dir_all(fx.root.join("src-tauri/src")).expect("tauri dir");
-    fs::write(fx.root.join("src-tauri/src/main.rs"), "fn main() {}").expect("rs file");
-    fs::write(fx.root.join("src-tauri/src/lib.rs"), "pub fn f() {}").expect("rs file");
-    fs::write(fx.root.join("src/components/editor/x.test.ts"), "test").expect("test file");
+fn test_manifest_missing_extra_duplicate_fail_and_restore_passes() {
+    let snapshot = snapshot(&[
+        "src/components/editor/AdjustmentsPanel.tsx",
+        "e2e/editor.spec.ts",
+        "src/__tests__/canvas.test.tsx",
+    ]);
+    let head = head_snapshot(&[
+        "src/components/editor/AdjustmentsPanel.tsx",
+        "e2e/editor.spec.ts",
+        "src/__tests__/canvas.test.tsx",
+    ]);
+    let (csv, manifest, _, _) = build_inventory(&snapshot, &head, MANIFEST_NAME);
+    assert!(validate_text(
+        &csv,
+        &manifest,
+        &snapshot,
+        &head,
+        &snapshot.production_files,
+        &head.production_files,
+        MANIFEST_NAME
+    )
+    .is_ok());
 
-    let out = out_path("globs");
-    run(&InventoryOpts {
-        oracle_root: fx.root.clone(),
-        head_root: fx.root.clone(),
-        out: out.clone(),
-    });
-    let text = fs::read_to_string(&out).expect("csv");
-    assert!(
-        text.contains("apps/desktop/src-tauri/**/*.rs (2 files)"),
-        "rs glob row carries the measured count: {text}"
+    let missing = manifest.replace("apps/desktop/e2e/editor.spec.ts\n", "");
+    assert!(validate_error(&csv, &missing, &snapshot, &head)
+        .iter()
+        .any(|error| error == "apps/desktop/e2e/editor.spec.ts: test manifest path is missing"));
+
+    let extra = format!("{manifest}apps/desktop/src/fake.test.ts\n");
+    assert!(validate_error(&csv, &extra, &snapshot, &head)
+        .iter()
+        .any(|error| error == "apps/desktop/src/fake.test.ts: extra test manifest path"));
+
+    let duplicate = format!("{manifest}apps/desktop/src/__tests__/canvas.test.tsx\n");
+    assert!(validate_error(&csv, &duplicate, &snapshot, &head)
+        .iter()
+        .any(|error| error
+            == "apps/desktop/src/__tests__/canvas.test.tsx: duplicate test manifest path"));
+
+    assert!(validate_text(
+        &csv,
+        &manifest,
+        &snapshot,
+        &head,
+        &snapshot.production_files,
+        &head.production_files,
+        MANIFEST_NAME
+    )
+    .is_ok());
+}
+
+#[test]
+fn backend_rows_missing_or_extra_fail_then_restore_passes() {
+    let snapshot = snapshot(&[
+        "src/components/editor/AdjustmentsPanel.tsx",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/menu.rs",
+        "src/__tests__/canvas.test.tsx",
+    ]);
+    let head = head_snapshot(&[
+        "src/components/editor/AdjustmentsPanel.tsx",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/menu.rs",
+        "src/__tests__/canvas.test.tsx",
+    ]);
+    let (csv, manifest, _, _) = build_inventory(&snapshot, &head, MANIFEST_NAME);
+    assert!(csv.contains("R013,reference,apps/desktop/src-tauri/src/main.rs,reference-platform,UNKNOWN,REFERENCE,,No per-file native destination is evidenced."));
+    assert!(validate_text(
+        &csv,
+        &manifest,
+        &snapshot,
+        &head,
+        &snapshot.production_files,
+        &head.production_files,
+        MANIFEST_NAME
+    )
+    .is_ok());
+
+    let missing = remove_row(&csv, "R013");
+    assert!(validate_error(&missing, &manifest, &snapshot, &head)
+        .iter()
+        .any(
+            |error| error == "apps/desktop/src-tauri/src/main.rs: backend reference row is missing"
+        ));
+
+    let extra = format!(
+        "{csv}R999,reference,apps/desktop/src-tauri/src/generated.rs,reference-platform,UNKNOWN,REFERENCE,,No per-file native destination is evidenced.\n"
     );
-    assert!(
-        text.contains("*.test.(ts|tsx) (1 files)"),
-        "test glob row carries the measured count"
-    );
-    let _ = fs::remove_file(&out);
+    assert!(validate_error(&extra, &manifest, &snapshot, &head)
+        .iter()
+        .any(
+            |error| error == "apps/desktop/src-tauri/src/generated.rs: extra backend reference row"
+        ));
+
+    assert!(validate_text(
+        &csv,
+        &manifest,
+        &snapshot,
+        &head,
+        &snapshot.production_files,
+        &head.production_files,
+        MANIFEST_NAME
+    )
+    .is_ok());
 }
 
 #[test]
@@ -178,7 +374,3 @@ fn csv_parser_handles_quoted_commas() {
     assert_eq!(rows[0], vec!["1", "a.rs, b.rs"]);
     assert_eq!(rows[1], vec!["2", "say \"hi\""]);
 }
-
-/// Keep the unused-import lint honest when tests reference the Path import.
-#[allow(unused)]
-fn _assert_path_used(p: &Path) {}

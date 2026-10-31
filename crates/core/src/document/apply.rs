@@ -113,6 +113,7 @@ impl DocumentCore {
             Command::Noop => Vec::new(),
             cmd @ (Command::Ping { .. }
             | Command::AddLayer { .. }
+            | Command::AddLayerWithState { .. }
             | Command::DeleteLayer { .. }) => self.apply_create_or_delete_arm(cmd)?,
             cmd @ (Command::SetVisible { .. }
             | Command::SetLocked { .. }
@@ -142,7 +143,7 @@ impl DocumentCore {
                 self.apply_merge_selected(&ids, &merged_id)?
             }
             Command::Flatten { merged_id } => self.apply_flatten(&merged_id)?,
-            Command::RasterizeLayer { id } => self.apply_rasterize(&id)?,
+            Command::RasterizeLayer { id, pixels } => self.apply_rasterize(&id, pixels.as_ref())?,
             // -- Canvas-size command arms (Crop Canvas / Apply Crop / Resize Canvas) --
             // Each delegates to a private helper in document/canvas.rs that
             // performs begin_forward -> mutate doc_size + (optional) layers ->
@@ -172,6 +173,8 @@ impl DocumentCore {
                 rotation,
                 target_width,
                 target_height,
+                delete_cropped_pixels,
+                fill_background,
             } => {
                 let entries_before = self.entries.len();
                 let changes = self.apply_apply_crop(
@@ -182,6 +185,8 @@ impl DocumentCore {
                     rotation,
                     target_width,
                     target_height,
+                    delete_cropped_pixels,
+                    fill_background,
                 )?;
                 if self.entries.len() > entries_before {
                     delta_dims = self.doc_size;
@@ -248,6 +253,7 @@ impl DocumentCore {
                             before,
                             after,
                             doc_size_before,
+                            pixel_deltas,
                             ..
                         } => {
                             let new_layers =
@@ -277,6 +283,11 @@ impl DocumentCore {
                                     sh.doc.height = d.1;
                                 }
                             }
+                            // Pixel half of a destructive arm (crop with baking):
+                            // replay the entry's `before` states so one undo step
+                            // restores metadata AND pixels.
+                            let restore = restored_pixel_steps(pixel_deltas, false);
+                            self.pending_pixels.extend(restore);
                             // doc_size single-owner invariant (enforced by construction,
                             // never by seed_ptz): doc_size has exactly three owners -
                             // (1) the baseline set in seed_ptz only when engine
@@ -308,7 +319,7 @@ impl DocumentCore {
                             if let Some((layer_id, tiles, node)) =
                                 self.pixel_step_at(self.cursor - 1, false)
                             {
-                                self.pending_pixel = Some((layer_id, tiles, node));
+                                self.pending_pixels.push((layer_id, tiles, node));
                                 self.cursor -= 1;
                             }
                             Vec::new()
@@ -364,6 +375,7 @@ impl DocumentCore {
                             after,
                             before,
                             doc_size_after,
+                            pixel_deltas,
                             ..
                         } => {
                             let new_layers =
@@ -386,6 +398,10 @@ impl DocumentCore {
                                     sh.doc.height = d.1;
                                 }
                             }
+                            // See the undo arm: destructive arms carry their pixel
+                            // half in the entry, so redo replays the `after` states.
+                            let restore = restored_pixel_steps(pixel_deltas, true);
+                            self.pending_pixels.extend(restore);
                             // doc_size single-owner invariant (enforced by construction,
                             // never by seed_ptz): doc_size has exactly three owners -
                             // (1) the baseline set in seed_ptz only when engine
@@ -410,7 +426,7 @@ impl DocumentCore {
                             if let Some((layer_id, tiles, node)) =
                                 self.pixel_step_at(self.cursor, true)
                             {
-                                self.pending_pixel = Some((layer_id, tiles, node));
+                                self.pending_pixels.push((layer_id, tiles, node));
                                 self.cursor += 1;
                             }
                             Vec::new()
@@ -480,4 +496,29 @@ impl DocumentCore {
             external_token: None,
         })
     }
+}
+
+/// Materialize the pixel steps a destructive metadata entry replays.
+/// `redo = false` restores the entry's `before` states (undo), `true` the
+/// `after` states (redo). Pure over the entry's deltas so both walker arms
+/// share one definition.
+fn restored_pixel_steps(
+    deltas: &[PixelDelta],
+    redo: bool,
+) -> Vec<(String, Vec<crate::pixel::tile::TilePatch>, Arc<StateNode>)> {
+    deltas
+        .iter()
+        .map(|d| {
+            let (node, other) = if redo {
+                (&d.after, &d.before)
+            } else {
+                (&d.before, &d.after)
+            };
+            (
+                d.layer_id.clone(),
+                crate::wire::projection::state_node_touched_patches(node, other),
+                node.clone(),
+            )
+        })
+        .collect()
 }

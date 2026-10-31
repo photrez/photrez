@@ -252,6 +252,8 @@ fn apply_crop_plain_rect_recenters_layer() {
         rotation: None,
         target_width: None,
         target_height: None,
+        delete_cropped_pixels: false,
+        fill_background: None,
     }))
     .unwrap();
 
@@ -286,6 +288,8 @@ fn apply_crop_with_rotation_and_target_matches_oracle() {
         rotation: Some(-5.0),
         target_width: Some(100.0),
         target_height: Some(200.0),
+        delete_cropped_pixels: false,
+        fill_background: None,
     }))
     .unwrap();
 
@@ -313,6 +317,8 @@ fn apply_crop_half_target_pair_rejects() {
         rotation: None,
         target_width: Some(200.0),
         target_height: None,
+        delete_cropped_pixels: false,
+        fill_background: None,
     }));
     assert!(res.is_err());
     assert_eq!(res.unwrap_err().code, "E_INVALID");
@@ -332,6 +338,8 @@ fn apply_crop_non_finite_rotation_rejects() {
         rotation: Some(f64::NAN),
         target_width: None,
         target_height: None,
+        delete_cropped_pixels: false,
+        fill_background: None,
     }));
     assert!(res.is_err());
     assert_eq!(res.unwrap_err().code, "E_INVALID");
@@ -395,6 +403,8 @@ fn apply_crop_non_positive_is_silent_noop() {
         rotation: None,
         target_width: None,
         target_height: None,
+        delete_cropped_pixels: false,
+        fill_background: None,
     }))
     .unwrap();
     assert_eq!(e.entries.len(), 0);
@@ -424,6 +434,8 @@ fn apply_crop_clears_selection() {
         rotation: None,
         target_width: None,
         target_height: None,
+        delete_cropped_pixels: false,
+        fill_background: None,
     }))
     .unwrap();
     assert!(e.selection().is_none());
@@ -607,6 +619,8 @@ fn apply_crop_delta_carries_final_target_dims() {
             rotation: None,
             target_width: Some(200.0),
             target_height: Some(100.0),
+            delete_cropped_pixels: false,
+            fill_background: None,
         }))
         .unwrap();
     assert_eq!(res.delta.width, Some(200.0));
@@ -695,6 +709,8 @@ fn apply_crop_zero_target_is_silent_noop() {
             rotation: None,
             target_width: Some(0.0),
             target_height: Some(0.0),
+            delete_cropped_pixels: false,
+            fill_background: None,
         }))
         .unwrap();
     assert_eq!(e.entries.len(), 0, "zero target creates no history entry");

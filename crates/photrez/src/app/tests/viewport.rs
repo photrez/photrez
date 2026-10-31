@@ -97,6 +97,62 @@ fn ctrl_wheel_zooms_around_the_cursor_and_plain_wheel_pans(cx: &mut gpui_kit::Te
     .expect("test window remains open");
 }
 
+/// S054: zoom shortcut -> status bar readout refresh (press + one render).
+#[gpui_kit::test]
+#[ignore = "performance measurement; run explicitly"]
+fn status_zoom_readout_latency(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        tab_to_canvas(window, cx);
+        window.render_frame(cx);
+        let mut samples = Vec::new();
+        let mut last: Option<f32> = None;
+        let control = gpui_kit::Modifiers {
+            control: true,
+            ..Default::default()
+        };
+        for i in 0..9 {
+            let key = if i % 2 == 0 { "=" } else { "-" };
+            // Dispatch the binding without gpui-kit's press helper: it renders
+            // a frame before and after the key, so timing it would charge
+            // three frames to one event. This measures event -> visible frame.
+            let start = std::time::Instant::now();
+            let _ = window.dispatch_event(
+                PlatformInput::KeyDown(gpui_kit::KeyDownEvent {
+                    keystroke: gpui_kit::Keystroke {
+                        modifiers: control,
+                        key: key.to_string(),
+                        key_char: None,
+                    },
+                    is_held: false,
+                    prefer_character_input: false,
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            let zoom = camera(&content, cx).zoom;
+            if let Some(previous) = last {
+                assert_ne!(zoom, previous, "the zoom shortcut must move the readout");
+            }
+            last = Some(zoom);
+        }
+        let mut sorted = samples.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "S054_STATUS_ZOOM_MS samples={samples:?} p50={:.3} p95={:.3}",
+            sorted[4], sorted[8]
+        );
+        assert!(
+            sorted[8] <= 33.3,
+            "status readout refresh p95 {:.3} ms exceeds the 33.3 ms budget",
+            sorted[8]
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn zoom_shortcuts_fit_actual_size_and_selection(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -114,6 +170,18 @@ fn zoom_shortcuts_fit_actual_size_and_selection(cx: &mut gpui_kit::TestAppContex
             "ctrl+= must zoom the fitted view by 1.25"
         );
         window.press("ctrl--", cx);
+        window.render_frame(cx);
+        assert!((camera(&content, cx).zoom - 10.).abs() < 1e-4);
+
+        // The oracle accepts both "-" and "_" for zoom out; "_" is
+        // Ctrl+Shift+- on a US layout.
+        window.press("ctrl-shift--", cx);
+        window.render_frame(cx);
+        assert!(
+            (camera(&content, cx).zoom - 8.).abs() < 1e-4,
+            "Ctrl+Shift+- (_) must zoom out like Ctrl+-"
+        );
+        window.press("ctrl-=", cx);
         window.render_frame(cx);
         assert!((camera(&content, cx).zoom - 10.).abs() < 1e-4);
 
@@ -272,6 +340,57 @@ fn navigator_click_centres_the_camera_on_the_clicked_document_point(
         assert!((centred.x - (viewport_w / 2. - 1.)).abs() < 1e-3);
         assert!((centred.y - (viewport_h / 2. - 0.5)).abs() < 1e-3);
         assert!((centred.zoom - 1.).abs() < 1e-6);
+    })
+    .expect("test window remains open");
+}
+
+/// S029: navigator click recentre latency (dispatch + one render).
+/// Measured explicitly: concurrent suite load inflates this click path.
+#[gpui_kit::test]
+#[ignore = "performance measurement; run explicitly"]
+fn navigator_click_latency(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_camera(&content, cx, Camera::new(0., 0., 1.).unwrap());
+        window.render_frame(cx);
+        let origin = window.find("navigator-hitbox").bounds().origin;
+        let position = origin + point(px(16. + 16. + 88.), px(16. + 44.));
+        let mut samples = Vec::new();
+        for _ in 0..9 {
+            let start = std::time::Instant::now();
+            let _ = window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button: MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            let _ = window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            let centred = camera(&content, cx);
+            assert!((centred.zoom - 1.).abs() < 1e-6, "the navigator keeps zoom");
+        }
+        let mut sorted = samples.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "S029_NAVIGATOR_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
+            sorted[4], sorted[8]
+        );
+        assert!(
+            sorted[8] <= 33.3,
+            "navigator click p95 {:.3} ms exceeds the 33.3 ms budget",
+            sorted[8]
+        );
     })
     .expect("test window remains open");
 }

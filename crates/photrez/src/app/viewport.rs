@@ -283,6 +283,30 @@ impl App {
         if self.state.read(cx).text_edit.is_some() && self.text_edit_key(event, cx) {
             return;
         }
+        if self.state.read(cx).crop_edit.is_some() && self.crop_edit_key(event, cx) {
+            return;
+        }
+        if self.state.read(cx).open_select.is_some() {
+            match event.keystroke.key.as_str() {
+                "down" => {
+                    self.select_arrow(1, cx);
+                    return;
+                }
+                "up" => {
+                    self.select_arrow(-1, cx);
+                    return;
+                }
+                "enter" => {
+                    self.select_confirm(cx);
+                    return;
+                }
+                "escape" => {
+                    self.close_select(cx);
+                    return;
+                }
+                _ => {}
+            }
+        }
         if event.keystroke.key == "space" && !self.space_pressed {
             self.space_pressed = true;
             cx.notify();

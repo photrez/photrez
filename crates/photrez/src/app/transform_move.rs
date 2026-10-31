@@ -5,16 +5,69 @@
 
 use gpui_kit::Context;
 use photrez_core::protocol::{Command, TransformPatch};
-use photrez_core::ptz::content::Transform2D;
+use photrez_core::ptz::content::{LayerType, Transform2D};
 
 use crate::app::transform_geometry::{
-    apply_resize_handle, apply_rotation_drag, detect_handle, layer_center, Handle, Point,
+    apply_resize_handle, apply_rotation_drag, detect_press_handle, document_to_layer_local,
+    layer_center, layer_corners, Handle, Point,
 };
 
 use super::App;
 
 /// Axis-aligned document-space bounds: (x, y, width, height).
 type LayerBounds = (f64, f64, f64, f64);
+fn layer_damage_bounds(
+    previous: &Transform2D,
+    next: &Transform2D,
+    width: f64,
+    height: f64,
+) -> Option<LayerBounds> {
+    let (old_x, old_y, old_w, old_h) =
+        crate::app::transform_geometry::layer_aabb(previous, width, height);
+    let (new_x, new_y, new_w, new_h) =
+        crate::app::transform_geometry::layer_aabb(next, width, height);
+    let left = old_x.min(new_x);
+    let top = old_y.min(new_y);
+    let right = (old_x + old_w).max(new_x + new_w);
+    let bottom = (old_y + old_h).max(new_y + new_h);
+    if ![left, top, right, bottom].into_iter().all(f64::is_finite) || right <= left || bottom <= top
+    {
+        return None;
+    }
+    Some((left, top, right - left, bottom - top))
+}
+
+fn merge_damage_bounds(bounds: &mut Option<LayerBounds>, next: LayerBounds) {
+    *bounds = Some(match *bounds {
+        Some((x, y, width, height)) => {
+            let left = x.min(next.0);
+            let top = y.min(next.1);
+            let right = (x + width).max(next.0 + next.2);
+            let bottom = (y + height).max(next.1 + next.3);
+            (left, top, right - left, bottom - top)
+        }
+        None => next,
+    });
+}
+
+fn damage_region(bounds: LayerBounds) -> Option<photrez_core::render::compositor::CompositeRegion> {
+    let (x, y, width, height) = bounds;
+    let right = x + width;
+    let bottom = y + height;
+    if ![x, y, right, bottom].into_iter().all(f64::is_finite) {
+        return None;
+    }
+    let x = (x.floor() - 1.0).max(0.0) as u32;
+    let y = (y.floor() - 1.0).max(0.0) as u32;
+    let right = (right.ceil() + 1.0).max(f64::from(x)) as u32;
+    let bottom = (bottom.ceil() + 1.0).max(f64::from(y)) as u32;
+    Some(photrez_core::render::compositor::CompositeRegion {
+        x,
+        y,
+        width: right.saturating_sub(x),
+        height: bottom.saturating_sub(y),
+    })
+}
 
 /// A snap guide proposed while dragging: (is-vertical, document position).
 type GuideLine = (bool, f64);
@@ -50,6 +103,15 @@ pub(crate) struct TransformDrag {
     pub mode: TransformMode,
     pub start_doc: Point,
     pub preview: Transform2D,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TransformDragUpdate {
+    pub point: (f64, f64),
+    pub screen: (f32, f32),
+    pub shift: bool,
+    pub alt: bool,
+    pub bypass_snap: bool,
 }
 
 impl App {
@@ -107,14 +169,15 @@ impl App {
         let Ok((_, layer)) = self.selected_layer_for_cursor(cx) else {
             return false;
         };
-        let Some(handle) = detect_handle(
+        let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+        let Some(handle) = detect_press_handle(
             Point {
                 x: point.0,
                 y: point.1,
             },
             &layer.transform,
-            layer.width,
-            layer.height,
+            frame_w,
+            frame_h,
             zoom,
         ) else {
             return false;
@@ -124,11 +187,12 @@ impl App {
             Handle::Rotate => TransformMode::Rotate,
             other => TransformMode::Resize(other),
         };
+        self.clear_queued_transform_drag_update();
         self.transform_drag = Some(TransformDrag {
             layer_id: layer.id,
             start: layer.transform.clone(),
-            width: layer.width,
-            height: layer.height,
+            width: frame_w,
+            height: frame_h,
             mode,
             start_doc: Point {
                 x: point.0,
@@ -170,11 +234,9 @@ impl App {
                 id: layer.id.clone(),
                 start: layer.transform.clone(),
             });
-            let (x, y, w, h) = crate::app::transform_geometry::layer_aabb(
-                &layer.transform,
-                layer.width,
-                layer.height,
-            );
+            let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(layer);
+            let (x, y, w, h) =
+                crate::app::transform_geometry::layer_aabb(&layer.transform, frame_w, frame_h);
             min_x = min_x.min(x);
             min_y = min_y.min(y);
             max_x = max_x.max(x + w);
@@ -212,7 +274,7 @@ impl App {
             flip_h: false,
             flip_v: false,
         };
-        let Some(handle) = detect_handle(
+        let Some(handle) = detect_press_handle(
             Point {
                 x: point.0,
                 y: point.1,
@@ -233,6 +295,7 @@ impl App {
             .iter()
             .map(|member| (member.id.clone(), member.start.clone()))
             .collect();
+        self.clear_queued_transform_drag_update();
         self.group_transform_drag = Some(GroupTransformDrag {
             members,
             group_start,
@@ -244,6 +307,68 @@ impl App {
             previews,
         });
         true
+    }
+
+    pub(crate) fn queue_transform_drag_update(
+        &mut self,
+        update: TransformDragUpdate,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.transform_drag_frame_pending {
+            self.pending_transform_drag_update = Some(update);
+            return;
+        }
+
+        // The first move of a frame applies now so the preview and HUD appear
+        // on the very next render; moves that arrive before that render
+        // coalesce into one update through the frame callback.
+        self.transform_drag_frame_pending = true;
+        let generation = self.transform_drag_frame_generation;
+        cx.on_next_frame(window, move |app, _, cx| {
+            if app.transform_drag_frame_generation != generation {
+                return;
+            }
+            app.flush_pending_transform_drag_update(cx);
+        });
+        self.update_transform_drag(
+            update.point,
+            update.screen,
+            update.shift,
+            update.alt,
+            update.bypass_snap,
+            cx,
+        );
+    }
+
+    pub(crate) fn update_transform_drag_immediately(
+        &mut self,
+        update: TransformDragUpdate,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_transform_drag_update = Some(update);
+        self.flush_pending_transform_drag_update(cx);
+    }
+
+    pub(crate) fn flush_pending_transform_drag_update(&mut self, cx: &mut Context<Self>) {
+        self.transform_drag_frame_pending = false;
+        let Some(update) = self.pending_transform_drag_update.take() else {
+            return;
+        };
+        self.update_transform_drag(
+            update.point,
+            update.screen,
+            update.shift,
+            update.alt,
+            update.bypass_snap,
+            cx,
+        );
+    }
+
+    fn clear_queued_transform_drag_update(&mut self) {
+        self.pending_transform_drag_update = None;
+        self.transform_drag_frame_pending = false;
+        self.transform_drag_frame_generation = self.transform_drag_frame_generation.wrapping_add(1);
     }
 
     /// Update the preview for one pointer move. Returns true when the gesture
@@ -345,7 +470,7 @@ impl App {
             },
         };
         self.state.update(cx, |state, _| state.hud = Some(hud));
-        if let Err(error) = self.display_with_transform(&drag.layer_id, &next, cx) {
+        if let Err(error) = self.display_with_transform(&drag.layer_id, &drag.start, &next, cx) {
             self.set_status_error(Some(format!("Transform preview: {error}")), cx);
         }
         cx.notify();
@@ -494,7 +619,7 @@ impl App {
         if let Some(state) = self.group_transform_drag.as_mut() {
             state.previews = previews.clone();
         }
-        if let Err(error) = self.display_with_transforms(&previews, cx) {
+        if let Err(error) = self.display_with_transforms(&drag.members, &previews, cx) {
             self.set_status_error(Some(format!("Transform preview: {error}")), cx);
         }
         cx.notify();
@@ -516,19 +641,18 @@ impl App {
             .loaded_document()
             .content_snapshot()?;
         let dragged = content.layers.iter().find(|layer| layer.id == layer_id)?;
+        let (dragged_w, dragged_h) = crate::app::transform_geometry::layer_frame_size(dragged);
         let (left, top, width, height) =
-            crate::app::transform_geometry::layer_aabb(next, dragged.width, dragged.height);
+            crate::app::transform_geometry::layer_aabb(next, dragged_w, dragged_h);
         let mut vertical_targets = vec![0.0, content.width / 2.0, content.width];
         let mut horizontal_targets = vec![0.0, content.height / 2.0, content.height];
         for layer in &content.layers {
             if layer.id == layer_id || !layer.visible {
                 continue;
             }
-            let (x, y, w, h) = crate::app::transform_geometry::layer_aabb(
-                &layer.transform,
-                layer.width,
-                layer.height,
-            );
+            let (other_w, other_h) = crate::app::transform_geometry::layer_frame_size(layer);
+            let (x, y, w, h) =
+                crate::app::transform_geometry::layer_aabb(&layer.transform, other_w, other_h);
             vertical_targets.extend([x, x + w / 2.0, x + w]);
             horizontal_targets.extend([y, y + h / 2.0, y + h]);
         }
@@ -579,6 +703,9 @@ impl App {
     /// Commit the previewed transform as one history entry (one per member for
     /// a group transform).
     pub(crate) fn finish_transform_drag(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
+            self.clear_queued_transform_drag_update();
+        }
         self.state.update(cx, |state, _| state.hud = None);
         if let Some(drag) = self.group_transform_drag.take() {
             let Ok(doc_id) = self.active_doc_id() else {
@@ -707,6 +834,8 @@ impl App {
             {
                 continue;
             }
+            // Align keeps the document-sized layer box; shape-rect alignment is
+            // a separate, unported behaviour.
             let layer_w = (layer.width * layer.transform.scale_x).round();
             let layer_h = (layer.height * layer.transform.scale_y).round();
             let (mut x, mut y) = (layer.transform.x, layer.transform.y);
@@ -842,6 +971,7 @@ impl App {
 
     /// Drop the preview without committing.
     pub(crate) fn cancel_transform_drag(&mut self, cx: &mut Context<Self>) -> bool {
+        self.clear_queued_transform_drag_update();
         self.state.update(cx, |state, _| state.hud = None);
         if self.group_transform_drag.take().is_some() {
             let _ = self.refresh_active_canvas(cx);
@@ -859,11 +989,12 @@ impl App {
 
     fn display_with_transforms(
         &mut self,
+        starts: &[GroupMember],
         previews: &[(String, Transform2D)],
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let doc_id = self.active_doc_id()?;
-        let composite = {
+        let (content, region_composite) = {
             let loaded = self
                 .sessions
                 .get(&doc_id)
@@ -873,30 +1004,65 @@ impl App {
                 .content_snapshot()
                 .ok_or_else(|| "loaded content is missing".to_string())?
                 .clone();
-            for (id, transform) in previews {
-                if let Some(layer) = content.layers.iter_mut().find(|layer| &layer.id == id) {
-                    layer.transform = transform.clone();
+            let mut damage = None;
+            let mut can_update_region = starts.len() == previews.len();
+            for (index, (id, transform)) in previews.iter().enumerate() {
+                let Some(layer) = content.layers.iter_mut().find(|layer| &layer.id == id) else {
+                    can_update_region = false;
+                    continue;
+                };
+                let base_transform = match starts.get(index) {
+                    Some(member) if &member.id == id => &member.start,
+                    _ => {
+                        can_update_region = false;
+                        &layer.transform
+                    }
+                };
+                if matches!(layer.layer_type, LayerType::Raster) {
+                    if let Some(bounds) =
+                        layer_damage_bounds(base_transform, transform, layer.width, layer.height)
+                    {
+                        merge_damage_bounds(&mut damage, bounds);
+                    } else {
+                        can_update_region = false;
+                    }
+                } else {
+                    can_update_region = false;
                 }
+                layer.transform = transform.clone();
             }
-            photrez_core::render::compositor::composite_layers_with_font_data(
-                &content,
-                &loaded.registry,
-                Some(crate::INTER),
-            )
-            .map_err(|error| error.to_string())?
+            let region_composite = if can_update_region {
+                damage.and_then(damage_region).and_then(|region| {
+                    photrez_core::render::compositor::composite_layers_in_region_with_font_data(
+                        &content,
+                        &loaded.registry,
+                        Some(crate::INTER),
+                        region,
+                    )
+                    .ok()
+                })
+            } else {
+                None
+            };
+            (content, region_composite)
         };
-        let canvas = crate::render::canvas_bridge::CanvasImage::from_rgba(
-            composite.width,
-            composite.height,
-            composite.pixels,
-        )
-        .map_err(|error| format!("{error:?}"))?;
-        if let Some(active) = self.active_document.as_mut() {
-            let retired = std::mem::replace(&mut active.canvas, canvas);
-            self.retired_textures.extend(retired.into_textures());
+        if let Some(composite) = region_composite {
+            if self.display_region_composite(composite, cx) {
+                return Ok(());
+            }
         }
-        cx.notify();
-        Ok(())
+        let loaded = self
+            .sessions
+            .get(&doc_id)
+            .ok_or_else(|| "active session is missing".to_string())?
+            .loaded_document();
+        let composite = photrez_core::render::compositor::composite_layers_with_font_data(
+            &content,
+            &loaded.registry,
+            Some(crate::INTER),
+        )
+        .map_err(|error| error.to_string())?;
+        self.display_composite(composite.width, composite.height, composite.pixels, cx)
     }
 
     /// Composite the document with one layer's transform overridden for the
@@ -904,11 +1070,12 @@ impl App {
     fn display_with_transform(
         &mut self,
         layer_id: &str,
+        base_transform: &Transform2D,
         transform: &Transform2D,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let doc_id = self.active_doc_id()?;
-        let composite = {
+        let (content, region_composite) = {
             let loaded = self
                 .sessions
                 .get(&doc_id)
@@ -923,20 +1090,94 @@ impl App {
                 .iter_mut()
                 .find(|layer| layer.id == layer_id)
                 .ok_or_else(|| "the transformed layer is missing".to_string())?;
+            let damage = matches!(layer.layer_type, LayerType::Raster)
+                .then(|| layer_damage_bounds(base_transform, transform, layer.width, layer.height))
+                .flatten();
             layer.transform = transform.clone();
-            photrez_core::render::compositor::composite_layers_with_font_data(
-                &content,
-                &loaded.registry,
-                Some(crate::INTER),
-            )
-            .map_err(|error| error.to_string())?
+            let region_composite = damage.and_then(damage_region).and_then(|region| {
+                photrez_core::render::compositor::composite_layers_in_region_with_font_data(
+                    &content,
+                    &loaded.registry,
+                    Some(crate::INTER),
+                    region,
+                )
+                .ok()
+            });
+            (content, region_composite)
         };
-        let canvas = crate::render::canvas_bridge::CanvasImage::from_rgba(
-            composite.width,
-            composite.height,
-            composite.pixels,
+        if let Some(composite) = region_composite {
+            if self.display_region_composite(composite, cx) {
+                return Ok(());
+            }
+        }
+        let loaded = self
+            .sessions
+            .get(&doc_id)
+            .ok_or_else(|| "active session is missing".to_string())?
+            .loaded_document();
+        let composite = photrez_core::render::compositor::composite_layers_with_font_data(
+            &content,
+            &loaded.registry,
+            Some(crate::INTER),
         )
-        .map_err(|error| format!("{error:?}"))?;
+        .map_err(|error| error.to_string())?;
+        self.display_composite(composite.width, composite.height, composite.pixels, cx)
+    }
+
+    fn display_region_composite(
+        &mut self,
+        composite: photrez_core::render::compositor::CompositedRegionRgba,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let width = composite.document_width;
+        let height = composite.document_height;
+        let region = composite.region;
+        let Some(active) = self.active_document.as_mut() else {
+            return false;
+        };
+        let tile_size = active.canvas.tile_size().max(1);
+        let expected_tiles =
+            width.div_ceil(tile_size) as usize * height.div_ceil(tile_size) as usize;
+        if active.canvas.dimensions() != (width, height)
+            || active.canvas.tile_count() != expected_tiles
+        {
+            return false;
+        }
+        if region.width == 0 || region.height == 0 {
+            return true;
+        }
+        let Some(expected_bytes) = (region.width as usize)
+            .checked_mul(region.height as usize)
+            .and_then(|length| length.checked_mul(4))
+        else {
+            return false;
+        };
+        if composite.pixels.len() != expected_bytes {
+            return false;
+        }
+        let Ok(retired) = active.canvas.replace_preview_patch(
+            region.x,
+            region.y,
+            region.width,
+            region.height,
+            &composite.pixels,
+        ) else {
+            return false;
+        };
+        self.retired_textures.extend(retired);
+        cx.notify();
+        true
+    }
+
+    fn display_composite(
+        &mut self,
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let canvas = crate::render::canvas_bridge::CanvasImage::from_rgba(width, height, pixels)
+            .map_err(|error| format!("{error:?}"))?;
         if let Some(active) = self.active_document.as_mut() {
             let retired = std::mem::replace(&mut active.canvas, canvas);
             self.retired_textures.extend(retired.into_textures());
@@ -977,4 +1218,120 @@ impl App {
             .clone();
         Ok((doc_id, layer))
     }
+
+    /// Topmost visible, non-background layer under a document-space point.
+    /// Mirrors `viewport/layerHitTest.ts`: text/shape layers are hit by their
+    /// whole box, raster layers by in-box alpha above 10%.
+    pub(crate) fn layer_hit_at(&self, doc_x: f64, doc_y: f64) -> Option<String> {
+        let doc_id = self.active_document.as_ref()?.doc_id.clone();
+        let session = self.sessions.get(&doc_id)?;
+        let loaded = session.loaded_document();
+        let content = loaded.content_snapshot()?;
+        for layer in &content.layers {
+            if !layer.visible || layer.opacity <= 0.0 || layer.is_background == Some(true) {
+                continue;
+            }
+            if layer.width <= 0.0 || layer.height <= 0.0 {
+                continue;
+            }
+            let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(layer);
+            let corners = layer_corners(&layer.transform, frame_w, frame_h);
+            if !point_in_polygon(doc_x, doc_y, &corners) {
+                continue;
+            }
+            if matches!(layer.layer_type, LayerType::Text | LayerType::Shape) {
+                return Some(layer.id.clone());
+            }
+            let local =
+                document_to_layer_local(doc_x, doc_y, &layer.transform, layer.width, layer.height);
+            if !local.x.is_finite() || !local.y.is_finite() || local.x < 0.0 || local.y < 0.0 {
+                continue;
+            }
+            let (lx, ly) = (local.x.floor() as usize, local.y.floor() as usize);
+            let Some(pixels) = loaded.registry.get_layer(&doc_id, &layer.id) else {
+                continue;
+            };
+            if lx >= pixels.width as usize || ly >= pixels.height as usize {
+                continue;
+            }
+            let index = (ly * pixels.width as usize + lx) * 4;
+            let alpha = pixels.pixels.get(index + 3).copied().unwrap_or(0);
+            if f32::from(alpha) / 255.0 < 0.1 {
+                continue;
+            }
+            return Some(layer.id.clone());
+        }
+        None
+    }
+
+    /// Move-tool auto-select click (`useCanvasPointerTools.ts:495`). Returns
+    /// true when the click changed the selection, in which case no transform
+    /// drag starts; clicking the already-active layer keeps the native
+    /// drag-to-move interaction.
+    pub(crate) fn move_auto_select_click(
+        &mut self,
+        doc_x: f64,
+        doc_y: f64,
+        modify: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(core_id) = self.layer_hit_at(doc_x, doc_y) else {
+            return false;
+        };
+        let (row_id, already_selected, already_active) = {
+            let state = self.state.read(cx);
+            let row_id = state
+                .layers
+                .iter()
+                .find(|row| row.core_id.as_deref() == Some(core_id.as_str()))
+                .map(|row| row.id);
+            let already_selected = row_id.is_some_and(|row| state.selected_layers.contains(&row));
+            (
+                row_id,
+                already_selected,
+                row_id == Some(state.selected_layer),
+            )
+        };
+        let Some(row_id) = row_id else {
+            return false;
+        };
+        if modify {
+            self.state.update(cx, |state, _| {
+                if let Some(index) = state.selected_layers.iter().position(|id| *id == row_id) {
+                    state.selected_layers.remove(index);
+                } else {
+                    state.selected_layers.push(row_id);
+                }
+                state.selected_layer = row_id;
+            });
+            cx.notify();
+            return true;
+        }
+        if already_selected && already_active {
+            return false;
+        }
+        self.state.update(cx, |state, _| {
+            state.selected_layer = row_id;
+            if !already_selected {
+                state.selected_layers = vec![row_id];
+            }
+        });
+        cx.notify();
+        true
+    }
+}
+
+/// Even-odd containment test used by the layer hit test (`layerHitTest.ts`).
+fn point_in_polygon(x: f64, y: f64, corners: &[Point; 4]) -> bool {
+    let mut inside = false;
+    let mut j = corners.len() - 1;
+    for i in 0..corners.len() {
+        let (xi, yi) = (corners[i].x, corners[i].y);
+        let (xj, yj) = (corners[j].x, corners[j].y);
+        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
 }

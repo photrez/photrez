@@ -175,16 +175,8 @@ fn about_strings_are_ascii_and_the_version_is_the_crates() {
         assert!(!value.is_empty());
         assert!(value.is_ascii(), "value `{value}` left the Latin subset");
     }
-    for text in [ABOUT_LANGUAGES, ABOUT_LINK_GITHUB, ABOUT_LINK_WEBSITE] {
+    for text in [ABOUT_LINK_GITHUB, ABOUT_LINK_WEBSITE] {
         assert!(!text.is_empty());
         assert!(text.is_ascii(), "`{text}` left the Latin subset");
     }
-}
-
-/// The About dialog names the locales that ship. If a catalogue is added
-/// or removed, this line and its doc move in the same change.
-#[test]
-fn about_names_the_shipped_locales() {
-    assert!(ABOUT_LANGUAGES.contains("English"));
-    assert!(ABOUT_LANGUAGES.contains("Bahasa Indonesia"));
 }

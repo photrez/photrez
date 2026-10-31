@@ -208,6 +208,58 @@ impl CanvasImage {
         Ok(retired)
     }
 
+    /// Reads the current base pixels for `[x, x + width) x [y, y + height)` as
+    /// straight RGBA8, in document coordinates.
+    ///
+    /// This is the display composite the user currently sees. Pending live
+    /// overlays are refused so the caller never reads a half-updated surface;
+    /// discarding previews and committing exact patches first keeps the read
+    /// consistent.
+    pub fn read_region_rgba(
+        &self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, FrameError> {
+        if !self.patches.is_empty() {
+            return Err(FrameError::PendingPatches);
+        }
+        if !self.preview_patches.is_empty() {
+            return Err(FrameError::PendingPreviews);
+        }
+        let expected = width as usize * height as usize * 4;
+        self.validate_region(x, y, width, height, expected)?;
+        let right = x + width;
+        let bottom = y + height;
+        let mut out = vec![0u8; expected];
+        for tile in &self.tiles {
+            let x0 = x.max(tile.rect.x);
+            let y0 = y.max(tile.rect.y);
+            let x1 = right.min(tile.rect.x + tile.rect.width);
+            let y1 = bottom.min(tile.rect.y + tile.rect.height);
+            if x0 >= x1 || y0 >= y1 {
+                continue;
+            }
+            let copy_width = (x1 - x0) as usize;
+            for row in y0..y1 {
+                let src_offset = (((row - tile.rect.y) as usize * tile.rect.width as usize)
+                    + (x0 - tile.rect.x) as usize)
+                    * 4;
+                let dst_offset = (((row - y) as usize * width as usize) + (x0 - x) as usize) * 4;
+                for column in 0..copy_width {
+                    let src = src_offset + column * 4;
+                    let dst = dst_offset + column * 4;
+                    out[dst] = tile.bgra[src + 2];
+                    out[dst + 1] = tile.bgra[src + 1];
+                    out[dst + 2] = tile.bgra[src];
+                    out[dst + 3] = tile.bgra[src + 3];
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Adds a live dirty rectangle as an immutable overlay image. The base
     /// tiles are not rebuilt, so the per-move upload is exactly the dirty
     /// rectangle instead of a whole display tile.
@@ -308,6 +360,36 @@ impl CanvasImage {
             image,
         });
         Ok(())
+    }
+
+    /// Replaces all live preview overlays with one exact-resolution dirty rectangle.
+    /// The new image is built first so an error preserves the currently displayed preview.
+    #[must_use = "the returned textures must be dropped with Window::drop_image"]
+    pub fn replace_preview_patch(
+        &mut self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<Vec<Arc<RenderImage>>, FrameError> {
+        self.validate_region(x, y, width, height, rgba.len())?;
+        let mut bgra = Vec::with_capacity(rgba.len());
+        for pixel in rgba.chunks_exact(4) {
+            bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+        }
+        let image = render_image(width, height, bgra)?;
+        let retired = self.discard_preview_patches();
+        self.preview_patches.push(PreviewPatch {
+            rect: TileRect {
+                x,
+                y,
+                width,
+                height,
+            },
+            image,
+        });
+        Ok(retired)
     }
 
     /// Discards every scaled preview overlay and returns its textures for

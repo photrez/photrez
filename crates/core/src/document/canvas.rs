@@ -132,6 +132,8 @@ impl DocumentCore {
         rotation: Option<f64>,
         target_width: Option<f64>,
         target_height: Option<f64>,
+        delete_cropped_pixels: bool,
+        fill_background: Option<[u8; 4]>,
     ) -> Result<Vec<RenderLayerChange>, ProtocolError> {
         let rot = rotation.unwrap_or(0.0);
         if ![x, y, width, height, rot].iter().all(|v| v.is_finite()) {
@@ -164,6 +166,33 @@ impl DocumentCore {
         let sin = rad.sin();
         let export_scale_x = final_w / width;
         let export_scale_y = final_h / height;
+
+        // Fill bakes a document-sized background, so capture the Background's
+        // ORIGINAL placement (the sampling transform) before the crop rewrites
+        // it, plus the colour to bake under it.
+        let background_fill = fill_background.and_then(|color| {
+            let layer = self
+                .layers
+                .0
+                .iter()
+                .find(|l| l.is_background == Some(true))?;
+            let (width, height) = (layer.width?, layer.height?);
+            Some(crate::document::crop_bake::FillBakePlan {
+                layer_id: layer.id.clone(),
+                placement: crate::document::crop_bake::CropLayerPlacement {
+                    x: layer.x,
+                    y: layer.y,
+                    scale_x: layer.scale_x,
+                    scale_y: layer.scale_y,
+                    rotation: layer.rotation,
+                    flip_h: layer.flip_h.unwrap_or(false),
+                    flip_v: layer.flip_v.unwrap_or(false),
+                },
+                width: width as u32,
+                height: height as u32,
+                color,
+            })
+        });
 
         let affected: Vec<String> = self.layers.0.iter().map(|l| l.id.clone()).collect();
         let _e = self.begin_forward("Crop Canvas", &affected);
@@ -217,6 +246,65 @@ impl DocumentCore {
             sh.doc.height = final_h;
         }
         self.set_engine_selection(None);
+        if let Some(fill) = &background_fill {
+            // The baked Background is document-sized and axis aligned; its
+            // pixels are replaced by the store, so the metadata must describe
+            // that identity placement in the same entry.
+            for index in 0..self.layers.0.len() {
+                let mut layer = self.layers.get(index).expect("layer present").clone();
+                if layer.id != fill.layer_id {
+                    continue;
+                }
+                layer.x = 0.0;
+                layer.y = 0.0;
+                layer.scale_x = 1.0;
+                layer.scale_y = 1.0;
+                layer.rotation = 0.0;
+                layer.flip_h = Some(false);
+                layer.flip_v = Some(false);
+                layer.width = Some(final_w);
+                layer.height = Some(final_h);
+                layer.dirty_rect = Some(Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                });
+                self.layers = self.layers.replaced(index, layer);
+            }
+        }
+        if delete_cropped_pixels || background_fill.is_some() {
+            let layers: Vec<crate::document::crop_bake::CropBakeLayer> = if delete_cropped_pixels {
+                self.layers
+                    .0
+                    .iter()
+                    .filter(|l| l.locked != Some(true) && l.width.is_some() && l.height.is_some())
+                    .map(|l| crate::document::crop_bake::CropBakeLayer {
+                        layer_id: l.id.clone(),
+                        placement: crate::document::crop_bake::CropLayerPlacement {
+                            x: l.x,
+                            y: l.y,
+                            scale_x: l.scale_x,
+                            scale_y: l.scale_y,
+                            rotation: l.rotation,
+                            flip_h: l.flip_h.unwrap_or(false),
+                            flip_v: l.flip_v.unwrap_or(false),
+                        },
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if !layers.is_empty() || background_fill.is_some() {
+                self.pending_crop_bake = Some(crate::document::crop_bake::CropBakePlan {
+                    entry_index: _e,
+                    doc_width: final_w,
+                    doc_height: final_h,
+                    layers,
+                    fill: background_fill,
+                });
+            }
+        }
         self.finish_forward(_e);
         Ok(self
             .layers

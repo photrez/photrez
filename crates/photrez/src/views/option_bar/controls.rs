@@ -36,18 +36,18 @@ pub(super) fn divider() -> impl IntoElement {
 }
 
 /// `OptionCheckbox` in the checked state — the Move bar's three are all checked.
-pub(super) fn option_checkbox(id: &'static str, label: &str) -> impl IntoElement {
-    option_checkbox_state(id, label, true)
-}
-
 /// `OptionCheckbox` (`OptionBarShared.tsx:27`) with an explicit `checked`.
-pub(super) fn option_checkbox_state(
+pub(super) fn option_checkbox_action(
     id: &'static str,
     label: &str,
     checked: bool,
+    focus: Option<gpui_kit::FocusHandle>,
+    cx: &Context<crate::app::App>,
+    on_click: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) + 'static,
 ) -> impl IntoElement {
-    div()
+    let mut el = div()
         .id(id)
+        .test_support()
         .h_flex()
         .h(px(CTRL_H))
         .items_center()
@@ -58,7 +58,9 @@ pub(super) fn option_checkbox_state(
         .px(px(FIELD_PX))
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(500.))
+        .cursor_pointer()
         .hover(|s| s.bg(FIELD_60))
+        .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)))
         .child(if checked {
             checked_box()
         } else {
@@ -71,7 +73,14 @@ pub(super) fn option_checkbox_state(
                 .child(label.to_string())
         } else {
             div().text_color(ZINC).child(label.to_string())
-        })
+        });
+    if let Some(handle) = focus {
+        el = el
+            .track_focus(&handle)
+            .focusable()
+            .focus(|style| style.border_color(color::ACCENT));
+    }
+    el
 }
 
 /// The checked square: accent fill, 1px shadow, tick at stroke 3.5.
@@ -121,6 +130,7 @@ pub(super) fn editable_field(
 ) -> impl IntoElement {
     div()
         .id(id)
+        .test_support()
         .h_flex()
         .h(px(CTRL_H))
         .w(px(width))
@@ -132,7 +142,7 @@ pub(super) fn editable_field(
         .bg(color::FIELD)
         .px(px(FIELD_PX))
         .hover(|s| s.border_color(HOVER_BORDER_LOCAL))
-        .when(FIELD_LABELS, |el| el.child(dim_span(label)))
+        .when(show_field_labels(), |el| el.child(dim_span(label)))
         .child(div().flex_1().min_w(px(0.)).child(value_text(value)))
         .child(suffix_span(suffix))
 }
@@ -154,7 +164,7 @@ pub(super) fn num_field(
         .border_color(color::BORDER)
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .when(FIELD_LABELS, |el| el.child(dim_span(label)))
+        .when(show_field_labels(), |el| el.child(dim_span(label)))
         .child(value_text(value))
         .child(suffix_span(suffix))
 }
@@ -202,7 +212,7 @@ pub(super) fn align_group() -> impl IntoElement {
         .flex_shrink_0()
         .items_center()
         .gap(px(ICON_GAP))
-        .when(FIELD_LABELS, |el| {
+        .when(show_field_labels(), |el| {
             el.child(group_label(&t("properties.align")))
         })
         .child(square_icon_button("Align left", icons::ALIGN_LEFT))
@@ -221,7 +231,7 @@ pub(super) fn flip_group() -> impl IntoElement {
         .flex_shrink_0()
         .items_center()
         .gap(px(ICON_GAP))
-        .when(FIELD_LABELS, |el| {
+        .when(show_field_labels(), |el| {
             el.child(group_label(&t("properties.flip")))
         })
         .child(square_icon_button("Flip horizontal", icons::FLIP_H))
@@ -294,6 +304,34 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
         )
 }
 
+/// The eraser's full-strength helper (`Hard 100` in `BrushOptionBar.tsx`):
+/// hardness, strength and flow all to 100 % and the preset cleared.
+pub(super) fn hard100_button(id: &'static str, cx: &Context<crate::app::App>) -> impl IntoElement {
+    div()
+        .id(id)
+        .test_support()
+        .h(px(CTRL_H))
+        .flex_shrink_0()
+        .h_flex()
+        .items_center()
+        .rounded(px(RADIUS))
+        .border_1()
+        .border_color(color::BORDER)
+        .bg(FIELD_40)
+        .px(px(PILL_PX))
+        .text_size(px(TEXT_SM))
+        .font_weight(FontWeight(600.))
+        .text_color(ZINC)
+        .cursor_pointer()
+        .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
+        .child("Hard 100") // i18n-exempt: oracle literal, not in catalog
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                app.eraser_full_strength(cx);
+            }),
+        )
+}
+
 /// `SelectDropdown` (`OptionBarShared.tsx:104-146`) — closed state.
 pub(super) fn select_dropdown(
     icon: Option<&'static [u8]>,
@@ -346,6 +384,191 @@ pub(super) fn select_dropdown(
     )
 }
 
+/// Hover tooltip (`Tooltip.tsx`): the control publishes its id on hover and a
+/// deferred panel paints above it; leaving clears the id.
+///
+/// The id is owned rather than `&'static str` so callers whose rows carry a
+/// per-row id (the layer list) can key both the hover state and the element.
+pub(crate) fn tooltip(
+    state: &gpui_kit::Entity<AppState>,
+    id: impl Into<String>,
+    text: impl Into<String>,
+    shortcut: Option<&'static str>,
+    cx: &Context<crate::app::App>,
+    child: impl IntoElement,
+) -> impl IntoElement {
+    let id: String = id.into();
+    let shown = state.read(cx).tooltip.as_deref() == Some(id.as_str());
+    let hover_id = id.clone();
+    let mut wrapper = h_flex()
+        .id(format!("{id}-hover"))
+        .relative()
+        .flex_shrink_0()
+        .items_center()
+        .on_hover(cx.listener(move |app, hovered: &bool, _window, cx| {
+            app.set_tooltip(
+                if *hovered {
+                    Some(hover_id.clone())
+                } else {
+                    None
+                },
+                cx,
+            );
+        }))
+        .child(child);
+    if shown {
+        let mut panel = div()
+            .id(format!("{id}-tooltip"))
+            .test_support()
+            .absolute()
+            .bottom(px(CTRL_H + 6.0))
+            .left(px(0.0))
+            .flex()
+            .items_center()
+            .gap(px(GAP))
+            .rounded(px(RADIUS))
+            .border_1()
+            .border_color(color::BORDER)
+            .bg(color::TOOLBAR)
+            .px(px(PILL_PX))
+            .py(px(4.0))
+            .text_size(px(TEXT_SM))
+            .text_color(color::WHITE)
+            .shadow(vec![
+                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(14.))
+            ])
+            .child(text.into());
+        if let Some(shortcut) = shortcut {
+            panel = panel.child(dim_span(shortcut));
+        }
+        wrapper = wrapper.child(gpui_kit::deferred(panel));
+    }
+    wrapper
+}
+
+/// A live dropdown: closed chrome plus a deferred option panel when open.
+#[allow(clippy::too_many_arguments)] // flat args mirror the frozen SelectDropdown props
+pub(super) fn live_select(
+    id: &'static str,
+    icon: Option<&'static [u8]>,
+    prefix: Option<&str>,
+    value: String,
+    options: &'static [&'static str],
+    active: usize,
+    open: bool,
+    panel_bounds: std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let mut trigger = div()
+        .id(id)
+        .test_support()
+        .h(px(CTRL_H))
+        .flex_shrink_0()
+        .h_flex()
+        .items_center()
+        .gap(px(GAP))
+        .rounded(px(RADIUS))
+        .border_1()
+        .border_color(color::BORDER)
+        .bg(color::FIELD)
+        .px(px(PILL_PX))
+        .text_size(px(TEXT_SM))
+        .font_weight(FontWeight(500.))
+        .cursor_pointer();
+    let label = match prefix {
+        Some(p) => h_flex()
+            .child(div().text_color(ZINC).child(p.to_string()))
+            .child(
+                div()
+                    .font_weight(FontWeight(600.))
+                    .text_color(color::WHITE)
+                    .child(value),
+            ),
+        None => div()
+            .font_weight(FontWeight(600.))
+            .text_color(color::WHITE)
+            .child(value),
+    };
+    if let Some(data) = icon {
+        trigger = trigger.child(
+            Icon::default()
+                .data(icons::with_stroke(data, STROKE_DROPDOWN))
+                .size(px(ICON_MD))
+                .text_color(color::ACCENT),
+        );
+    }
+    trigger = trigger.child(label).child(
+        Icon::default()
+            .data(icons::with_stroke(icons::CHEVRON_DOWN, STROKE_DROPDOWN))
+            .size(px(ICON_SM))
+            .text_color(ZINC),
+    );
+    let trigger = trigger.on_click(cx.listener(
+        move |app, _: &gpui_kit::ClickEvent, window, cx| {
+            app.toggle_select(id, active, options.len(), window, cx);
+        },
+    ));
+    let mut wrapper = div().relative().flex_shrink_0().child(trigger);
+    if open {
+        let mut panel = div()
+            .id(format!("{id}-panel"))
+            .absolute()
+            .top(px(CTRL_H + 4.0))
+            .left(px(0.0))
+            .min_w(px(140.0))
+            .flex()
+            .flex_col()
+            .rounded(px(RADIUS))
+            .border_1()
+            .border_color(color::BORDER)
+            .bg(color::TOOLBAR)
+            .py(px(4.0))
+            .occlude()
+            .shadow(vec![
+                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+            ]);
+        for (index, option) in options.iter().enumerate() {
+            panel = panel.child(
+                div()
+                    .id(format!("{id}-option-{index}"))
+                    .test_support()
+                    .h(px(24.0))
+                    .px(px(FIELD_PX))
+                    .flex()
+                    .items_center()
+                    .gap(px(GAP))
+                    .text_size(px(TEXT_SM))
+                    .text_color(if index == active {
+                        color::ACCENT
+                    } else {
+                        color::TEXT
+                    })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(FIELD_60))
+                    .on_click(
+                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            app.choose_select(id, index, cx);
+                        }),
+                    )
+                    .child(*option)
+                    .when(index == active, |el| {
+                        el.child(
+                            Icon::default()
+                                .data(icons::CHECK)
+                                .size(px(ICON_SM))
+                                .text_color(color::ACCENT),
+                        )
+                    }),
+            );
+        }
+        wrapper = wrapper.child(gpui_kit::deferred(SelectPanelSurface::new(
+            panel,
+            panel_bounds,
+        )));
+    }
+    wrapper
+}
+
 /// A 1.75-stroke chevron used by the text bar's custom buttons.
 pub(super) fn chevron_175() -> impl IntoElement {
     Icon::default()
@@ -376,30 +599,63 @@ pub(super) fn ring_white_20() -> BoxShadow {
 
 // ── Brush bar ────────────────────────────────────────────────────────────────
 
-/// The brush bar's Size field (`BrushOptionBar.tsx:143-156`).
-pub(super) fn paint_field(
+/// A brush-bar numeric field. Clicking starts an inline edit; valid keystrokes
+/// commit live, Enter ends, Escape restores the value.
+#[allow(clippy::too_many_arguments)] // flat args mirror the frozen paint field props
+pub(super) fn brush_field(
     id: &'static str,
     label: &str,
     input_w: f32,
-    value: &'static str,
+    value: String,
     suffix: &'static str,
-) -> Stateful<Div> {
-    div()
+    editing: Option<String>,
+    focus: Option<gpui_kit::FocusHandle>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let active = editing.is_some();
+    let text = match editing {
+        Some(buffer) if buffer.is_empty() => "|".to_string(),
+        Some(buffer) => format!("{buffer}|"),
+        None => value,
+    };
+    let mut field = h_flex()
         .id(id)
+        .test_support()
         .h(px(CTRL_H))
         .flex_shrink_0()
-        .h_flex()
         .items_center()
         .gap(px(ITEM_GAP))
         .rounded(px(RADIUS))
         .border_1()
-        .border_color(color::BORDER)
+        .border_color(if active { color::ACCENT } else { color::BORDER })
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .hover(|s| s.border_color(HOVER_BORDER_LOCAL))
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
+                app.begin_brush_field(id, window, cx);
+            }),
+        )
         .child(dim_span(label))
-        .child(div().w(px(input_w)).flex_none().child(value_text(value)))
-        .child(dim_span(suffix))
+        .child(
+            div()
+                .w(px(input_w))
+                .flex_none()
+                .font_family(ui::FONT_MONO)
+                .text_size(px(TEXT_SM))
+                .font_weight(FontWeight(600.))
+                .text_color(color::WHITE)
+                .child(text),
+        )
+        .child(dim_span(suffix));
+    if let Some(handle) = focus {
+        field = field.track_focus(&handle).on_key_down(cx.listener(
+            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                app.num_field_key(event, cx);
+            },
+        ));
+    }
+    field
 }
 
 /// `opacity-40` wrapper for the selection bar's disabled fields.
@@ -418,22 +674,3 @@ pub(super) fn field_pair(first: impl IntoElement, second: impl IntoElement) -> D
 }
 
 // ── Paint Bucket ───────────────────────────────────────────────────────────────
-
-/// The tolerance `<input type="number">` (`PaintBucketOptionBar.tsx`).
-pub(super) fn right_num_field(id: &'static str, value: &'static str) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(CTRL_H))
-        .w(px(TOLERANCE_FIELD_W))
-        .flex_shrink_0()
-        .h_flex()
-        .items_center()
-        .justify_end()
-        .rounded(px(RADIUS))
-        .border_1()
-        .border_color(color::BORDER)
-        .bg(color::FIELD)
-        .px(px(FIELD_PX))
-        .hover(|s| s.border_color(HOVER_BORDER_LOCAL))
-        .child(value_text(value))
-}

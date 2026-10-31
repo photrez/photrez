@@ -153,7 +153,6 @@ const ZOOM: &str = "88%"; // i18n-exempt: numeric value
 /// tooltip sentence, not a status: the real component shows the same string
 /// whenever nothing else (gradient drag, transform session, paint block) is
 /// in flight.
-const STATUS_TIP_KEY: &str = "status.toolTips.move";
 
 /// `activeLayerName()` — BottomStatusBar.tsx:164. The status bar shows the same
 /// selected layer the Layers and Properties panels draw, so it must not keep a
@@ -290,7 +289,7 @@ fn left_group(
             &format!("{}: ", t("status.active")),
             &tool_label,
         ))
-        .child(divided_tip())
+        .child(divided_tip(tool))
         .child(divided_field(
             &format!("{}: ", t("status.selectedLayer")),
             &layer,
@@ -415,8 +414,24 @@ fn frame_text(metrics: &FrameMetrics, status_color: Hsla) -> StyledText {
 /// The inner span carries the colour and the outer the rule; nesting them
 /// rather than colouring the ruled div keeps the two JSX layers apart, which
 /// matters if either ever grows a second child.
-fn divided_tip() -> impl IntoElement {
-    ruled(div().text_color(STATUS_COLOR).child(t(STATUS_TIP_KEY)))
+fn divided_tip(tool: crate::state::ToolId) -> impl IntoElement {
+    ruled(div().text_color(STATUS_COLOR).child(t(tip_key(tool))))
+}
+
+fn tip_key(tool: crate::state::ToolId) -> &'static str {
+    use crate::state::ToolId;
+    match tool {
+        ToolId::Move => "status.toolTips.move",
+        ToolId::Selection => "status.toolTips.selection",
+        ToolId::Crop => "status.toolTips.crop",
+        ToolId::Eyedropper => "status.toolTips.eyedropper",
+        ToolId::Brush => "status.toolTips.brush",
+        ToolId::Eraser => "status.toolTips.eraser",
+        ToolId::PaintBucket => "status.toolTips.paintBucket",
+        ToolId::Gradient => "status.toolTips.gradient",
+        ToolId::Shape => "status.toolTips.shape",
+        ToolId::Text => "status.toolTips.text",
+    }
 }
 
 /// The `border-l border-editor-divider pl-3` wrapper, applied to every cell

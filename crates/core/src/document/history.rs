@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 mod payload;
 
-pub(crate) use payload::{EntryPayload, HistoryEntry};
+pub(crate) use payload::{EntryPayload, HistoryEntry, PixelDelta};
 
 /// Pixel undo/redo transaction result: `(layer_id, delta TilePatches,
 /// authoritative StateNode Arc)`. The delta is the dirty-region tile set, not the

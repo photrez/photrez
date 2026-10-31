@@ -153,7 +153,7 @@ impl Element for CanvasPointerSurface {
             }
             if let Some(app) = move_app.upgrade() {
                 app.update(cx, |app, cx| {
-                    app.canvas_pointer_move(event, &move_bounds, move_doc, cx);
+                    app.canvas_pointer_move(event, &move_bounds, move_doc, window, cx);
                 });
             }
         });
@@ -175,29 +175,35 @@ impl Element for CanvasPointerSurface {
         });
 
         let drop_app = self.app.clone();
-        window.on_mouse_event(move |event: &FileDropEvent, phase, _window, cx| {
-            if phase != DispatchPhase::Bubble {
-                return;
-            }
-            let Some(app) = drop_app.upgrade() else {
-                return;
-            };
-            match event {
-                FileDropEvent::Entered { paths, .. } => app.update(cx, |app, _| {
-                    app.stage_dropped_paths(paths.paths().to_vec());
-                }),
-                FileDropEvent::Submit { .. } => app.update(cx, |app, cx| {
-                    app.submit_dropped_paths(cx);
-                }),
-                FileDropEvent::Exited | FileDropEvent::Ended => app.update(cx, |app, _| {
-                    app.clear_dropped_paths();
-                }),
-                FileDropEvent::Pending { .. } => {}
-            }
-        });
+        register_file_drop(window, drop_app);
 
         self.surface.paint(window, cx);
     }
+}
+
+/// Route OS file drops to the app. Registered from an element's `paint` because
+/// `Window::on_mouse_event` is paint-only.
+pub(crate) fn register_file_drop(window: &mut Window, drop_app: WeakEntity<PhotrezApp>) {
+    window.on_mouse_event(move |event: &FileDropEvent, phase, _window, cx| {
+        if phase != DispatchPhase::Bubble {
+            return;
+        }
+        let Some(app) = drop_app.upgrade() else {
+            return;
+        };
+        match event {
+            FileDropEvent::Entered { paths, position } => app.update(cx, |app, _| {
+                app.stage_dropped_paths(paths.paths().to_vec(), *position);
+            }),
+            FileDropEvent::Submit { .. } => app.update(cx, |app, cx| {
+                app.submit_dropped_paths(cx);
+            }),
+            FileDropEvent::Exited | FileDropEvent::Ended => app.update(cx, |app, _| {
+                app.clear_dropped_paths();
+            }),
+            FileDropEvent::Pending { .. } => {}
+        }
+    });
 }
 
 fn owns_capture(window: &Window, capture: &Cell<Option<HitboxId>>) -> bool {

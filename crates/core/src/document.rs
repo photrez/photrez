@@ -29,10 +29,12 @@ pub use snapshot::{DocumentSnapshot, LayerSnapshot};
 
 mod apply;
 mod canvas;
+pub(crate) mod crop_bake;
 pub(crate) mod duplicate_name;
 mod engine;
 pub(crate) mod history;
 pub(crate) mod layer_set;
+pub(crate) mod rasterize_bake;
 pub(crate) mod snapshot;
 mod structural;
 

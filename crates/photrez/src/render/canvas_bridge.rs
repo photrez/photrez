@@ -593,22 +593,326 @@ const NAV_HEADER_H: f32 = 38.;
 /// pass maps them through the same page placement as the tiles.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct CanvasOverlay {
-    /// `(x, y, width, height, ellipse)` — `ellipse` still paints a rectangular
-    /// marquee because GPUI quads carry no ellipse outline.
-    pub selection: Option<(f64, f64, f64, f64, bool)>,
+    /// The committed or live pixel selection, painted as the oracle's
+    /// double-stroke marching ants (the ellipse shape draws a dashed ellipse).
+    pub selection: Option<SelectionOverlay>,
+    /// The rotate-cursor sprite following the pointer during selection
+    /// rotation (`cursorRotate.ts`).
+    pub rotate_cursor: Option<RotateCursorOverlay>,
     /// Crop frame `(x, y, width, height)`.
     pub crop: Option<(f64, f64, f64, f64)>,
     /// Move-tool transform frame: four visual corners and eight handle points
     /// in document space.
     pub transform: Option<TransformFrame>,
+    /// Mode B (interactive handles) when true; Mode A (corner brackets) when
+    /// false. Only consulted while `transform` is present.
+    pub transform_controls: bool,
     /// Smart-guide lines: `(vertical, document coordinate)`.
     pub guides: Vec<(bool, f64)>,
+    /// Move-tool layer marquee `(x, y, width, height)` in document space.
+    pub move_marquee: Option<(f64, f64, f64, f64)>,
+    /// Move-tool hover outline `(x, y, width, height)` for a non-active layer.
+    pub hover_highlight: Option<(f64, f64, f64, f64)>,
+    /// Brush/eraser ring painted at the pointer (screen-visible cursor).
+    pub brush_cursor: Option<BrushCursor>,
+    /// Live gradient drag line while the Gradient tool is drawing.
+    pub gradient_line: Option<GradientLine>,
+}
+
+/// `GradientOverlay.tsx`: the line and endpoint handles shown while a
+/// gradient drag is in progress.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct GradientLine {
+    pub start: [f64; 2],
+    pub end: [f64; 2],
+    pub radial: bool,
+}
+
+/// `BrushCursorOverlay.tsx`: the ring marks the 20% alpha contour of the
+/// active brush profile and follows the active layer's scale and rotation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct BrushCursor {
+    /// Ring centre in document space.
+    pub center: [f64; 2],
+    /// Ring radii in document units after the layer transform.
+    pub radii: [f64; 2],
+    /// Layer rotation in radians.
+    pub rotation: f64,
+    /// The eraser paints no centre crosshair.
+    pub crosshair: bool,
+}
+
+/// One pixel selection as the display paints it, in document space. `angle`
+/// rotates the rectangle about its centre (core `SelectionState.angle`);
+/// `edit_mode` paints the oracle's transform chrome: the eight resize
+/// handles, the rotation connector and the rotate pin.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SelectionOverlay {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub ellipse: bool,
+    pub angle: f64,
+    pub edit_mode: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct TransformFrame {
     pub corners: [[f64; 2]; 4],
     pub handles: [[f64; 2]; 8],
+}
+
+/// The `cursorRotate.ts` rotate-cursor sprite painted at the pointer: the
+/// oracle's 32-unit white/black arrow glyph rotated by `angle` degrees. The
+/// system cursor stays visible beside it until the owner rules on cursor
+/// hiding (gpui exposes no hide API), so this is a disclosed difference.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RotateCursorOverlay {
+    /// Window-space pointer position.
+    pub position: [f32; 2],
+    /// Sprite angle in degrees (pointer angle about the rotation centre
+    /// plus the source's 45-degree base tilt).
+    pub angle: f32,
+}
+
+fn painted_circle(
+    window: &mut gpui_kit::Window,
+    center: (f32, f32),
+    radius: f32,
+    stroke: Option<f32>,
+    color: gpui_kit::Hsla,
+) {
+    let mut path = match stroke {
+        Some(width) => PathBuilder::stroke(px(width)),
+        None => PathBuilder::fill(),
+    };
+    for step in 0..=48 {
+        let t = step as f32 / 48.0 * std::f32::consts::TAU;
+        let (sin, cos) = t.sin_cos();
+        let p = point(px(center.0 + radius * cos), px(center.1 + radius * sin));
+        if step == 0 {
+            path.move_to(p);
+        } else {
+            path.line_to(p);
+        }
+    }
+    path.close();
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
+}
+
+/// The `cursorRotate.ts` sprite: the 32-unit glyph at 0.75 scale (24 px),
+/// its (1, 7) hotspot anchored at the pointer, white fill with a black
+/// 1.2-unit stroke, rotated with the pointer angle.
+fn painted_rotate_cursor(window: &mut gpui_kit::Window, position: (f32, f32), angle: f32) {
+    let scale: f32 = 0.75;
+    let polygon = crate::app::transform_geometry::rotate_cursor_polygon(f64::from(angle));
+    let mut fill = PathBuilder::fill();
+    let mut stroke = PathBuilder::stroke(px(1.2 * scale));
+    for (index, (x, y)) in polygon.iter().enumerate() {
+        let p = point(
+            px(position.0 - 1.0 * scale + f32::from(*x) * scale),
+            px(position.1 - 7.0 * scale + f32::from(*y) * scale),
+        );
+        if index == 0 {
+            fill.move_to(p);
+            stroke.move_to(p);
+        } else {
+            fill.line_to(p);
+            stroke.line_to(p);
+        }
+    }
+    fill.close();
+    stroke.close();
+    if let Ok(path) = fill.build() {
+        window.paint_path(path, hsla(0., 0., 1., 1.));
+    }
+    if let Ok(path) = stroke.build() {
+        window.paint_path(path, hsla(0., 0., 0., 1.));
+    }
+}
+
+/// A white square handle with an accent rim, centred on a window point.
+fn painted_handle(window: &mut gpui_kit::Window, center: (f32, f32), edge: f32) {
+    let bounds = Bounds {
+        origin: point(px(center.0 - edge / 2.), px(center.1 - edge / 2.)),
+        size: size(px(edge), px(edge)),
+    };
+    window.paint_quad(fill(bounds, hsla(0., 0., 1., 1.)));
+    window.paint_quad(outline(bounds, color::ACCENT, BorderStyle::Solid));
+}
+
+fn painted_dashed_line(
+    window: &mut gpui_kit::Window,
+    from: (f32, f32),
+    to: (f32, f32),
+    width: f32,
+    dash: f32,
+    gap: f32,
+    color: gpui_kit::Hsla,
+) {
+    painted_dashed_line_offset(window, from, to, width, dash, gap, 0.0, color);
+}
+
+/// `painted_dashed_line` with the pattern shifted by `offset` px along the
+/// line, so a second stroke can interleave with the first (`stroke-dashoffset`).
+fn painted_dashed_line_offset(
+    window: &mut gpui_kit::Window,
+    from: (f32, f32),
+    to: (f32, f32),
+    width: f32,
+    dash: f32,
+    gap: f32,
+    offset: f32,
+    color: gpui_kit::Hsla,
+) {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let length = (dx * dx + dy * dy).sqrt();
+    if length <= f32::EPSILON {
+        return;
+    }
+    let (ux, uy) = (dx / length, dy / length);
+    let mut path = PathBuilder::stroke(px(width));
+    let period = dash + gap;
+    let phase = offset.rem_euclid(period);
+    let mut travelled = -(period - phase);
+    while travelled < length {
+        let start = travelled.max(0.0);
+        let end = (travelled + dash).min(length);
+        if end > start {
+            path.move_to(point(px(from.0 + ux * start), px(from.1 + uy * start)));
+            path.line_to(point(px(from.0 + ux * end), px(from.1 + uy * end)));
+        }
+        travelled += period;
+    }
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
+}
+
+/// `painted_dashed_line` walked along a polyline: the dash pattern continues
+/// across corners, so a whole marquee needs one tessellated path per layer
+/// instead of one per edge. A dash running past a corner loses its remainder
+/// (at most one dash length per corner).
+fn painted_dashed_polyline(
+    window: &mut gpui_kit::Window,
+    points: &[(f32, f32)],
+    width: f32,
+    dash: f32,
+    gap: f32,
+    offset: f32,
+    color: gpui_kit::Hsla,
+) {
+    if points.len() < 2 {
+        return;
+    }
+    let period = dash + gap;
+    let mut path = PathBuilder::stroke(px(width));
+    // Arc distance until the next dash boundary, relative to each edge start.
+    let mut position = -offset.rem_euclid(period);
+    let mut first = true;
+    for pair in points.windows(2) {
+        let from = (pair[0].0, pair[0].1);
+        let to = (pair[1].0, pair[1].1);
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        let length = (dx * dx + dy * dy).sqrt();
+        if length <= f32::EPSILON {
+            continue;
+        }
+        let (ux, uy) = (dx / length, dy / length);
+        while position < length {
+            let start = position.max(0.0);
+            let end = (position + dash).min(length);
+            if end > start {
+                let a = point(px(from.0 + ux * start), px(from.1 + uy * start));
+                let b = point(px(from.0 + ux * end), px(from.1 + uy * end));
+                if first {
+                    path.move_to(a);
+                    first = false;
+                } else {
+                    path.line_to(a);
+                }
+                path.line_to(b);
+            }
+            position += period;
+        }
+        position -= length;
+    }
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
+}
+
+fn painted_dashed_circle(
+    window: &mut gpui_kit::Window,
+    center: (f32, f32),
+    radius: f32,
+    width: f32,
+    dash: f32,
+    gap: f32,
+    color: gpui_kit::Hsla,
+) {
+    painted_dashed_ellipse(window, center, radius, radius, width, dash, gap, 0.0, color);
+}
+
+/// A dashed axis-aligned ellipse (`rx`/`ry` in window px) whose dash pattern
+/// starts `offset` px along the perimeter, so a white stroke can interleave
+/// with an accent one.
+#[allow(clippy::too_many_arguments)] // one knob per SelectionRenderer stroke property
+fn painted_dashed_ellipse(
+    window: &mut gpui_kit::Window,
+    center: (f32, f32),
+    rx: f32,
+    ry: f32,
+    width: f32,
+    dash: f32,
+    gap: f32,
+    offset: f32,
+    color: gpui_kit::Hsla,
+) {
+    if rx <= f32::EPSILON || ry <= f32::EPSILON {
+        return;
+    }
+    // Ramanujan's approximation keeps the dash period in real px.
+    let perimeter = std::f32::consts::PI
+        * (3.0 * (rx + ry) - ((3.0 * rx + ry) * (rx + 3.0 * ry)).sqrt()).max(1.0);
+    let segments = (perimeter / (dash + gap)).ceil().max(4.0) as usize;
+    let step = std::f32::consts::TAU / segments as f32;
+    let on = step * dash / (dash + gap);
+    let phase = (offset / (dash + gap)).rem_euclid(1.0) * step;
+    let mut path = PathBuilder::stroke(px(width));
+    for segment in 0..segments {
+        let start = segment as f32 * step + phase;
+        let mut first = true;
+        for sub in 0..=4 {
+            let t = start + on * sub as f32 / 4.0;
+            let (sin, cos) = t.sin_cos();
+            let p = point(px(center.0 + rx * cos), px(center.1 + ry * sin));
+            if first {
+                path.move_to(p);
+                first = false;
+            } else {
+                path.line_to(p);
+            }
+        }
+    }
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
+}
+
+/// Point `distance` document units from `from` towards `to`.
+fn step_towards(from: [f64; 2], to: [f64; 2], distance: f64) -> [f64; 2] {
+    let dx = to[0] - from[0];
+    let dy = to[1] - from[1];
+    let length = (dx * dx + dy * dy).sqrt();
+    if length <= f64::EPSILON {
+        return from;
+    }
+    let t = (distance / length).min(1.0);
+    [from[0] + dx * t, from[1] + dy * t]
 }
 
 fn doc_point_to_window(
@@ -794,10 +1098,178 @@ fn canvas_element_inner(
                 size: size(px(w), px(h)),
             };
             if let Some(selection) = overlay.selection {
-                let rect = (selection.0, selection.1, selection.2, selection.3);
-                if let Some(bounds) = doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, rect) {
-                    window.paint_quad(outline(bounds, hsla(0., 0., 1., 0.9), BorderStyle::Dashed));
+                // `SelectionRenderer.tsx` marching ants: a 1.5 px accent dash
+                // under a 1 px white dash offset by one period, so the marquee
+                // stays visible on both light and dark content. Each layer is
+                // one tessellated polyline — one path per layer, not per edge.
+                let ants = |window: &mut gpui_kit::Window, ring: &[(f32, f32)]| {
+                    painted_dashed_polyline(window, ring, 1.5, 4.0, 4.0, 0.0, color::ACCENT);
+                    painted_dashed_polyline(
+                        window,
+                        ring,
+                        1.0,
+                        4.0,
+                        4.0,
+                        4.0,
+                        hsla(0., 0., 1., 0.9),
+                    );
+                };
+                if selection.angle.abs() < 1e-6 {
+                    let rect = (selection.x, selection.y, selection.w, selection.h);
+                    if let Some(bounds) =
+                        doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, rect)
+                    {
+                        if selection.ellipse {
+                            let center = (
+                                f32::from(bounds.origin.x) + f32::from(bounds.size.width) / 2.0,
+                                f32::from(bounds.origin.y) + f32::from(bounds.size.height) / 2.0,
+                            );
+                            painted_dashed_ellipse(
+                                window,
+                                center,
+                                f32::from(bounds.size.width) / 2.0,
+                                f32::from(bounds.size.height) / 2.0,
+                                1.5,
+                                4.0,
+                                4.0,
+                                0.0,
+                                color::ACCENT,
+                            );
+                            painted_dashed_ellipse(
+                                window,
+                                center,
+                                f32::from(bounds.size.width) / 2.0,
+                                f32::from(bounds.size.height) / 2.0,
+                                1.0,
+                                4.0,
+                                4.0,
+                                4.0,
+                                hsla(0., 0., 1., 0.9),
+                            );
+                        } else {
+                            let left = f32::from(bounds.origin.x);
+                            let top = f32::from(bounds.origin.y);
+                            let right = left + f32::from(bounds.size.width);
+                            let bottom = top + f32::from(bounds.size.height);
+                            let ring = [
+                                (left, top),
+                                (right, top),
+                                (right, bottom),
+                                (left, bottom),
+                                (left, top),
+                            ];
+                            ants(window, &ring);
+                        }
+                    }
+                } else {
+                    let corners = crate::app::transform_geometry::rotated_rect_corners(
+                        selection.x,
+                        selection.y,
+                        selection.w,
+                        selection.h,
+                        selection.angle,
+                    );
+                    let mut screen: Vec<(f32, f32)> = corners
+                        .iter()
+                        .filter_map(|corner| {
+                            doc_point_to_window(
+                                page_x,
+                                page_y,
+                                w,
+                                h,
+                                doc_w,
+                                doc_h,
+                                [corner.x, corner.y],
+                            )
+                            .map(|p| (f32::from(p.x), f32::from(p.y)))
+                        })
+                        .collect();
+                    if screen.len() == 4 {
+                        if let Some(&first_corner) = screen.first() {
+                            screen.push(first_corner);
+                        }
+                        ants(window, &screen);
+                    }
                 }
+                if selection.edit_mode {
+                    let (top_mid, normal) = crate::app::transform_geometry::selection_pin(
+                        selection.x,
+                        selection.y,
+                        selection.w,
+                        selection.h,
+                        selection.angle,
+                    );
+                    let mapped_top = doc_point_to_window(
+                        page_x,
+                        page_y,
+                        w,
+                        h,
+                        doc_w,
+                        doc_h,
+                        [top_mid.x, top_mid.y],
+                    );
+                    if let Some(top) = mapped_top {
+                        let scale = (w / doc_w).max(1e-6) as f32;
+                        let unit = (normal.x as f32, normal.y as f32);
+                        let anchor = (
+                            f32::from(top.x) + unit.0 * 4.0,
+                            f32::from(top.y) + unit.1 * 4.0,
+                        );
+                        let pin = (
+                            f32::from(top.x) + unit.0 * 24.0 * scale,
+                            f32::from(top.y) + unit.1 * 24.0 * scale,
+                        );
+                        let rim = (pin.0 - unit.0 * 5.0, pin.1 - unit.1 * 5.0);
+                        painted_dashed_line(window, anchor, rim, 1.0, 2.0, 2.0, color::ACCENT);
+                        painted_circle(window, pin, 5.0, None, hsla(0., 0., 1., 1.));
+                        painted_circle(window, pin, 5.0, Some(1.5), color::ACCENT);
+                    }
+                    // `SelectionRenderer.tsx` edit mode: 8 px corner squares
+                    // and 6 px edge squares on the rotated frame.
+                    let corners = crate::app::transform_geometry::rotated_rect_corners(
+                        selection.x,
+                        selection.y,
+                        selection.w,
+                        selection.h,
+                        selection.angle,
+                    );
+                    let mapped: Vec<(f32, f32)> = corners
+                        .iter()
+                        .filter_map(|corner| {
+                            doc_point_to_window(
+                                page_x,
+                                page_y,
+                                w,
+                                h,
+                                doc_w,
+                                doc_h,
+                                [corner.x, corner.y],
+                            )
+                            .map(|p| (f32::from(p.x), f32::from(p.y)))
+                        })
+                        .collect();
+                    if mapped.len() == 4 {
+                        for index in 0..4 {
+                            painted_handle(window, mapped[index], 8.0);
+                            let next = mapped[(index + 1) % 4];
+                            painted_handle(
+                                window,
+                                (
+                                    (mapped[index].0 + next.0) / 2.0,
+                                    (mapped[index].1 + next.1) / 2.0,
+                                ),
+                                6.0,
+                            );
+                        }
+                    }
+                }
+            }
+            if let Some(sprite) = overlay.rotate_cursor {
+                painted_rotate_cursor(
+                    window,
+                    (sprite.position[0], sprite.position[1]),
+                    sprite.angle,
+                );
             }
             for (vertical, position) in &overlay.guides {
                 let guide_color = hsla(0.09, 0.9, 0.55, 0.9);
@@ -825,8 +1297,109 @@ fn canvas_element_inner(
                     ));
                 }
             }
+            if let Some(highlight) = overlay.hover_highlight {
+                if let Some(rect) =
+                    doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, highlight)
+                {
+                    window.paint_quad(outline(
+                        rect,
+                        color::ACCENT.opacity(0.8),
+                        BorderStyle::Solid,
+                    ));
+                }
+            }
+            if let Some(cursor) = overlay.brush_cursor {
+                if doc_w > 0. && doc_h > 0. {
+                    if let Some(center) =
+                        doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, cursor.center)
+                    {
+                        let cx: f32 = center.x.into();
+                        let cy: f32 = center.y.into();
+                        let rx = (cursor.radii[0] * (w / doc_w) as f64) as f32;
+                        let ry = (cursor.radii[1] * (h / doc_h) as f64) as f32;
+                        let (sin, cos) = cursor.rotation.sin_cos();
+                        let (sin, cos) = (sin as f32, cos as f32);
+                        let ring = |width: f32| {
+                            let mut path = PathBuilder::stroke(px(width));
+                            for step in 0..=48 {
+                                let t = step as f32 / 48.0 * std::f32::consts::TAU;
+                                let (st, ct) = t.sin_cos();
+                                let local_x = rx * ct;
+                                let local_y = ry * st;
+                                let x = cx + local_x * cos - local_y * sin;
+                                let y = cy + local_x * sin + local_y * cos;
+                                if step == 0 {
+                                    path.move_to(point(px(x), px(y)));
+                                } else {
+                                    path.line_to(point(px(x), px(y)));
+                                }
+                            }
+                            path.close();
+                            path.build().ok()
+                        };
+                        if let Some(path) = ring(1.5) {
+                            window.paint_path(path, hsla(0., 0., 0., 0.5));
+                        }
+                        if let Some(path) = ring(1.0) {
+                            window.paint_path(path, hsla(0., 0., 1., 1.));
+                        }
+                        if cursor.crosshair {
+                            let mut cross = PathBuilder::stroke(px(1.0));
+                            cross.move_to(point(px(cx - 4.0), px(cy)));
+                            cross.line_to(point(px(cx + 4.0), px(cy)));
+                            cross.move_to(point(px(cx), px(cy - 4.0)));
+                            cross.line_to(point(px(cx), px(cy + 4.0)));
+                            if let Ok(path) = cross.build() {
+                                window.paint_path(path, hsla(0., 0., 1., 1.));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(line) = overlay.gradient_line {
+                if let (Some(start), Some(end)) = (
+                    doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, line.start),
+                    doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, line.end),
+                ) {
+                    let s = (f32::from(start.x), f32::from(start.y));
+                    let e = (f32::from(end.x), f32::from(end.y));
+                    let white = hsla(0., 0., 1., 1.);
+                    if line.radial && doc_w > 0. {
+                        let dx = line.end[0] - line.start[0];
+                        let dy = line.end[1] - line.start[1];
+                        let radius = ((dx * dx + dy * dy).sqrt() * (w / doc_w) as f64) as f32;
+                        painted_circle(window, s, radius, Some(3.0), hsla(0., 0., 0., 0.4));
+                        painted_dashed_circle(
+                            window,
+                            s,
+                            radius,
+                            1.5,
+                            4.0,
+                            4.0,
+                            color::ACCENT.opacity(0.9),
+                        );
+                    }
+                    painted_dashed_line(window, s, e, 3.0, 1.0e6, 0.0, hsla(0., 0., 0., 0.5));
+                    painted_dashed_line(window, s, e, 2.0, 6.0, 3.0, color::ACCENT);
+                    painted_circle(window, s, 6.0, None, color::ACCENT);
+                    painted_circle(window, s, 6.0, Some(2.0), white);
+                    painted_circle(window, e, 5.0, None, white);
+                    painted_circle(window, e, 5.0, Some(2.5), color::ACCENT);
+                }
+            }
+            if let Some(marquee) = overlay.move_marquee {
+                if let Some(rect) = doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, marquee)
+                {
+                    window.paint_quad(fill(rect, color::ACCENT.opacity(0.15)));
+                    window.paint_quad(outline(rect, color::ACCENT, BorderStyle::Dashed));
+                }
+            }
             if let Some(frame) = overlay.transform {
-                let mut path = PathBuilder::stroke(px(1.5));
+                let mut path = PathBuilder::stroke(px(if overlay.transform_controls {
+                    1.5
+                } else {
+                    1.25
+                }));
                 if let Some(first) =
                     doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, frame.corners[0])
                 {
@@ -848,22 +1421,113 @@ fn canvas_element_inner(
                         }
                     }
                 }
-                let handle_edge = 6.0f32;
-                for handle in frame.handles {
+                if !overlay.transform_controls {
+                    let doc_per_screen = f64::from(doc_w) / f64::from(w).max(1.0);
+                    let leg = (8.0 * doc_per_screen).max(1.0);
+                    let mut brackets = PathBuilder::stroke(px(1.25));
+                    let mut drew = false;
+                    for index in 0..4 {
+                        let corner = frame.corners[index];
+                        let next = frame.corners[(index + 1) % 4];
+                        let previous = frame.corners[(index + 3) % 4];
+                        let leg_point = |towards: [f64; 2]| step_towards(corner, towards, leg);
+                        if let (Some(origin), Some(a), Some(b)) = (
+                            doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, corner),
+                            doc_point_to_window(
+                                page_x,
+                                page_y,
+                                w,
+                                h,
+                                doc_w,
+                                doc_h,
+                                leg_point(next),
+                            ),
+                            doc_point_to_window(
+                                page_x,
+                                page_y,
+                                w,
+                                h,
+                                doc_w,
+                                doc_h,
+                                leg_point(previous),
+                            ),
+                        ) {
+                            brackets.move_to(origin);
+                            brackets.line_to(a);
+                            brackets.move_to(origin);
+                            brackets.line_to(b);
+                            drew = true;
+                        }
+                    }
+                    if drew {
+                        if let Ok(path) = brackets.build() {
+                            window.paint_path(path, color::ACCENT);
+                        }
+                    }
+                }
+                let handle_edge = 8.0f32;
+                let visible_handles: &[[f64; 2]] = if overlay.transform_controls {
+                    &frame.handles
+                } else {
+                    &[]
+                };
+                // `SelectionTransformOverlay.tsx` draws a rotate pin 20 px above
+                // the rotated top edge: a 1.25 px accent stem and a 4.5 px white
+                // circle with an accent rim.
+                if overlay.transform_controls {
+                    let window_corners: Vec<(f32, f32)> = frame
+                        .corners
+                        .iter()
+                        .filter_map(|corner| {
+                            doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, *corner)
+                                .map(|p| (f32::from(p.x), f32::from(p.y)))
+                        })
+                        .collect();
+                    if window_corners.len() == 4 {
+                        let top_mid = (
+                            (window_corners[0].0 + window_corners[1].0) / 2.0,
+                            (window_corners[0].1 + window_corners[1].1) / 2.0,
+                        );
+                        let center = (
+                            window_corners.iter().map(|p| p.0).sum::<f32>() / 4.0,
+                            window_corners.iter().map(|p| p.1).sum::<f32>() / 4.0,
+                        );
+                        let edge = (
+                            window_corners[1].0 - window_corners[0].0,
+                            window_corners[1].1 - window_corners[0].1,
+                        );
+                        let mut normal = (-edge.1, edge.0);
+                        let length = (normal.0 * normal.0 + normal.1 * normal.1).sqrt();
+                        if length > f32::EPSILON {
+                            normal = (normal.0 / length, normal.1 / length);
+                            if normal.0 * (top_mid.0 - center.0) + normal.1 * (top_mid.1 - center.1)
+                                < 0.0
+                            {
+                                normal = (-normal.0, -normal.1);
+                            }
+                            let pin = (top_mid.0 + normal.0 * 20.0, top_mid.1 + normal.1 * 20.0);
+                            let mut stem = PathBuilder::stroke(px(1.25));
+                            stem.move_to(point(px(top_mid.0), px(top_mid.1)));
+                            stem.line_to(point(px(pin.0), px(pin.1)));
+                            if let Ok(path) = stem.build() {
+                                window.paint_path(path, color::ACCENT);
+                            }
+                            painted_circle(window, pin, 4.5, None, hsla(0., 0., 1., 1.));
+                            painted_circle(window, pin, 4.5, Some(1.5), color::ACCENT);
+                        }
+                    }
+                }
+                for handle in visible_handles {
                     let Some(center) =
-                        doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, handle)
+                        doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, *handle)
                     else {
                         continue;
                     };
-                    let bounds = Bounds {
-                        origin: point(
-                            px(f32::from(center.x) - handle_edge / 2.),
-                            px(f32::from(center.y) - handle_edge / 2.),
-                        ),
-                        size: size(px(handle_edge), px(handle_edge)),
-                    };
-                    window.paint_quad(fill(bounds, hsla(0., 0., 1., 1.)));
-                    window.paint_quad(outline(bounds, color::ACCENT, BorderStyle::Solid));
+                    painted_handle(
+                        window,
+                        (f32::from(center.x), f32::from(center.y)),
+                        handle_edge,
+                    );
                 }
             }
             if let Some(crop) = overlay.crop {
@@ -899,8 +1563,16 @@ fn canvas_element_inner(
                             window.paint_quad(fill(visible, mask));
                         }
                     }
-                    window.paint_quad(outline(rect, color::ACCENT, BorderStyle::Solid));
-                    let guide = hsla(0., 0., 1., 0.25);
+                    // `ModernCropOverlay.tsx`: a dark outer hairline, a white
+                    // inner one, white thirds at half opacity, and eight
+                    // 8 px white handles with a dark rim.
+                    window.paint_quad(outline(rect, hsla(0., 0., 0., 0.55), BorderStyle::Solid));
+                    let inner = Bounds {
+                        origin: point(rect.origin.x + px(1.), rect.origin.y + px(1.)),
+                        size: size(rect.size.width - px(2.), rect.size.height - px(2.)),
+                    };
+                    window.paint_quad(outline(inner, hsla(0., 0., 1., 0.9), BorderStyle::Solid));
+                    let guide = hsla(0., 0., 1., 0.5);
                     for step in [1. / 3., 2. / 3.] {
                         let x = rect.origin.x + rect.size.width * step;
                         let y = rect.origin.y + rect.size.height * step;
@@ -918,6 +1590,28 @@ fn canvas_element_inner(
                             },
                             guide,
                         ));
+                    }
+                    let handle_edge = 8.0f32;
+                    let center_x = rect.origin.x + rect.size.width / 2.;
+                    let center_y = rect.origin.y + rect.size.height / 2.;
+                    let xs = [rect.origin.x, center_x, rect.origin.x + rect.size.width];
+                    let ys = [rect.origin.y, center_y, rect.origin.y + rect.size.height];
+                    for (column, x) in xs.iter().enumerate() {
+                        for (row, y) in ys.iter().enumerate() {
+                            if column == 1 && row == 1 {
+                                continue;
+                            }
+                            let bounds = Bounds {
+                                origin: point(*x - px(handle_edge / 2.), *y - px(handle_edge / 2.)),
+                                size: size(px(handle_edge), px(handle_edge)),
+                            };
+                            window.paint_quad(fill(bounds, hsla(0., 0., 1., 0.9)));
+                            window.paint_quad(outline(
+                                bounds,
+                                hsla(0., 0., 0., 0.35),
+                                BorderStyle::Solid,
+                            ));
+                        }
                     }
                 }
             }

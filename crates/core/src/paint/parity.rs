@@ -16,6 +16,23 @@ pub fn fnv1a(bytes: &[u8]) -> u32 {
     h
 }
 
+/// FNV-1a over a tile's unpremultiplied bytes, without materialising them.
+/// Same byte stream as `unpremul` row-major, so the digest is identical to
+/// hashing a built patch; used where the caller does not need the bytes.
+fn fnv1a_unpremul_tile(buf: &[u8], x0: i64, y0: i64, tw: usize, th: usize, w: usize) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for row in 0..th as i64 {
+        for col in 0..tw as i64 {
+            let i = ((y0 + row) as usize * w + (x0 + col) as usize) * 4;
+            for b in unpremul(buf, i) {
+                h ^= b as u32;
+                h = h.wrapping_mul(0x0100_0193);
+            }
+        }
+    }
+    h
+}
+
 fn mul_div_255(c: u64, a: u64) -> u8 {
     ((c * a + 127) / 255) as u8
 }
@@ -163,25 +180,34 @@ pub fn raster_shadow(
         let py0 = oy.clamp(0, h as i64);
         let px1 = (ox + brush as i64).clamp(0, w as i64);
         let py1 = (oy + brush as i64).clamp(0, h as i64);
+        // The stroke settings (opacity x flow) ride the dab, so the tip mask
+        // stays a pure geometry/colour cache. Constant for the whole dab.
+        let dab_alpha = (d.alpha.clamp(0.0, 1.0) * 255.0).round() as u64;
+        // Tip data spans the full nominal diameter; map the stamp around the
+        // dab centre onto it. Sampling the raw rounded offset would read only
+        // the top-left corner whenever the data cap (256) is smaller than the
+        // brush, and a small brush would read a transparent edge.
+        //
+        // The column mapping is identical to the per-pixel expression it
+        // replaces, hoisted out of the inner loop: two f64 divides plus a floor
+        // per pixel dominated the raster phase of a large stroke.
+        let tip_xs: Vec<u32> = (px0..px1)
+            .map(|px| {
+                ((px as f64 + 0.5 - fx) * iw as f64 / stamp)
+                    .floor()
+                    .clamp(0.0, iw.saturating_sub(1) as f64) as u32
+            })
+            .collect();
         for py in py0..py1 {
+            let tip_y = ((py as f64 + 0.5 - fy) * ih as f64 / stamp)
+                .floor()
+                .clamp(0.0, ih.saturating_sub(1) as f64) as usize;
+            let row_base = tip_y * iw;
+            let dst_row = py as usize * w;
             for px in px0..px1 {
-                // The tip data spans the full nominal diameter; map the stamp
-                // around the dab centre onto it. Sampling the raw rounded
-                // offset would read only the top-left corner whenever the data
-                // cap (256) is smaller than the brush, and a small brush would
-                // read a transparent edge.
-                let txx = ((px as f64 + 0.5 - fx) * iw as f64 / stamp)
-                    .floor()
-                    .clamp(0.0, iw.saturating_sub(1) as f64);
-                let tyy = ((py as f64 + 0.5 - fy) * ih as f64 / stamp)
-                    .floor()
-                    .clamp(0.0, ih.saturating_sub(1) as f64);
-                let ti = ((tyy as usize) * iw + (txx as usize)) * 4;
-                // The stroke settings (opacity x flow) ride the dab, so the
-                // tip mask stays a pure geometry/colour cache.
-                let dab_alpha = (d.alpha.clamp(0.0, 1.0) * 255.0).round() as u64;
+                let ti = (row_base + tip_xs[(px - px0) as usize] as usize) * 4;
                 let sa = mul_div_255(tip.data[ti + 3] as u64, dab_alpha) as u64;
-                let di = (py as usize * w + px as usize) * 4;
+                let di = (dst_row + px as usize) * 4;
                 let inv = 255 - sa;
                 if eraser {
                     for ch in 0..4usize {
@@ -220,43 +246,50 @@ pub fn raster_shadow(
     let x1 = (w as i64).min((maxx.ceil() as i64) + margin);
     let y1 = (h as i64).min((maxy.ceil() as i64) + margin);
 
+    // Only the shipped case materialises tile bytes: the commit path consumes
+    // them, a digest-only run hashes the same byte stream in place. Both paths
+    // previously paid a per-tile allocation plus a second full copy into
+    // `out_tiles`, which at a large brush is tens of megabytes per stroke.
+    let mut tile_hashes: Vec<(String, String)> = Vec::new();
     let mut tile_patches: Vec<(String, i64, i64, usize, usize, Vec<u8>)> = Vec::new();
+    let mut changed_bytes: usize = 0;
     for tref in tiles_in_rect(x0, y0, x1, y1, w as i64, h as i64) {
-        let mut data = Vec::with_capacity(tref.w * tref.h * 4);
-        for row in 0..tref.h as i64 {
-            for col in 0..tref.w as i64 {
-                let i = ((tref.y + row) * w as i64 + (tref.x + col)) as usize * 4;
-                data.extend_from_slice(&unpremul(&buf, i));
+        let bytes = tref.w * tref.h * 4;
+        changed_bytes += bytes;
+        if include_tiles {
+            let mut data = Vec::with_capacity(bytes);
+            for row in 0..tref.h as i64 {
+                for col in 0..tref.w as i64 {
+                    let i = ((tref.y + row) * w as i64 + (tref.x + col)) as usize * 4;
+                    data.extend_from_slice(&unpremul(&buf, i));
+                }
             }
+            tile_hashes.push((tref.key.clone(), format!("{:08x}", fnv1a(&data))));
+            tile_patches.push((tref.key, tref.x, tref.y, tref.w, tref.h, data));
+        } else {
+            let hash = fnv1a_unpremul_tile(&buf, tref.x, tref.y, tref.w, tref.h, w);
+            tile_hashes.push((tref.key, format!("{hash:08x}")));
         }
-        tile_patches.push((tref.key, tref.x, tref.y, tref.w, tref.h, data));
     }
-    let mut tile_hashes: Vec<(String, String)> = tile_patches
-        .iter()
-        .map(|(k, _, _, _, _, d)| (k.clone(), format!("{:08x}", fnv1a(d))))
-        .collect();
     tile_hashes.sort_by(|a, b| a.0.cmp(&b.0));
     let combined: String = tile_hashes
         .iter()
         .map(|(k, h)| format!("{k}:{h};"))
         .collect();
     let digest = format!("{:08x}", fnv1a(combined.as_bytes()));
-    let changed_bytes: usize = tile_patches.iter().map(|(_, _, _, _, _, d)| d.len()).sum();
     let patchgen_us = t2.elapsed().as_micros();
 
-    let mut out_tiles = Vec::new();
-    if include_tiles {
-        for (key, x, y, tw, th, data) in &tile_patches {
-            out_tiles.push(TilePatchOut {
-                key: key.clone(),
-                x: *x,
-                y: *y,
-                w: *tw,
-                h: *th,
-                data: data.clone(),
-            });
-        }
-    }
+    let out_tiles: Vec<TilePatchOut> = tile_patches
+        .into_iter()
+        .map(|(key, x, y, w, h, data)| TilePatchOut {
+            key,
+            x,
+            y,
+            w,
+            h,
+            data,
+        })
+        .collect();
 
     (
         ShadowMeta {

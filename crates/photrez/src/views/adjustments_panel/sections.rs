@@ -4,7 +4,7 @@ use super::*;
 /// 15px icon, 8px gap, 12.5px medium label, and optional trailing item.
 /// Call sites use stroke width 1.75; `icons::with_stroke` adjusts icons
 /// pinned to a different width.
-fn section_header(icon: &'static [u8], label: &str, trailing: Option<Div>) -> Div {
+fn section_header(icon: &'static [u8], label: &str, trailing: Option<gpui_kit::AnyElement>) -> Div {
     let mut row = h_flex().items_center().justify_between().child(
         h_flex()
             .items_center()
@@ -57,7 +57,7 @@ fn layer_thumb() -> Div {
 }
 
 /// Selected Layer section (`AdjustmentsPanel.tsx:386-401`).
-pub(super) fn selected_layer_section() -> Div {
+pub(super) fn selected_layer_section(name: &str, layer_type: &str, width: u32, height: u32) -> Div {
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -94,11 +94,7 @@ pub(super) fn selected_layer_section() -> Div {
                                 // `leading-tight`.
                                 .line_height(relative(1.25))
                                 .text_color(color::TEXT)
-                                // Measured in the baseline, not the
-                                // placeholder "Layer 1" the properties
-                                // port uses: this capture's layer is
-                                // named "Background".
-                                .child("Background".to_string()), // i18n-exempt: demo content <layer name, captured frame>
+                                .child(name.to_string()),
                         )
                         // `mt-0.5` = 2px, and `leading-snug`.
                         .child(
@@ -111,7 +107,9 @@ pub(super) fn selected_layer_section() -> Div {
                                 // Raster layers read "Image layer"
                                 // here, unlike the properties panel's
                                 // "Raster layer" (`AdjustmentsPanel.tsx:399`).
-                                .child("Image layer \u{00b7} 100 \u{00d7} 100 px".to_string()), // i18n-exempt: demo content <layer type+size, captured frame>
+                                .child(format!(
+                                    "{layer_type} layer \u{00b7} {width} \u{00d7} {height} px"
+                                )),
                         ),
                 ),
         )
@@ -119,7 +117,43 @@ pub(super) fn selected_layer_section() -> Div {
 
 /// Basic section: reset, three sliders, hint and no-pixels status
 /// (`AdjustmentsPanel.tsx:403-456`).
-pub(super) fn basic_section() -> Div {
+pub(super) fn basic_section(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let (bright, contrast, saturate, has_pixels, has_pending) = {
+        let s = state.read(cx);
+        (
+            s.adjustment_brightness.round() as i32,
+            s.adjustment_contrast.round() as i32,
+            s.adjustment_saturation.round() as i32,
+            s.active_layer_has_pixels,
+            s.adjustment_brightness != 0.0
+                || s.adjustment_contrast != 0.0
+                || s.adjustment_saturation != 0.0,
+        )
+    };
+    let bounds: Vec<std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>> =
+        state.read(cx).adjustment_slider_bounds.to_vec();
+    let capture = state.read(cx).slider_capture.clone();
+    let mut reset = reset_button().id("adj-reset").test_support();
+    if has_pending {
+        reset = reset.cursor_pointer().opacity(1.0);
+    }
+    let reset = reset
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                if has_pending {
+                    let result = app.reset_selected_adjustment(cx);
+                    match result {
+                        Ok(()) => app.set_status_error(None, cx),
+                        Err(error) => app.set_status_error(Some(format!("Adjust: {error}")), cx),
+                    }
+                }
+            }),
+        )
+        .into_any_element();
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -130,7 +164,7 @@ pub(super) fn basic_section() -> Div {
         .child(section_header(
             icons::with_stroke(icons::SUN, 1.75),
             &t("adjustments.basic"),
-            Some(reset_button()),
+            Some(reset),
         ))
         .child(
             v_flex()
@@ -140,14 +174,29 @@ pub(super) fn basic_section() -> Div {
                 .child(slider_row(
                     &t("adjustments.bright"),
                     ui::SliderKind::Brightness,
+                    bright,
+                    crate::state::SliderTarget::AdjustmentBrightness,
+                    &capture,
+                    &bounds[0],
+                    cx,
                 ))
                 .child(slider_row(
                     &t("adjustments.contrast"),
                     ui::SliderKind::Contrast,
+                    contrast,
+                    crate::state::SliderTarget::AdjustmentContrast,
+                    &capture,
+                    &bounds[1],
+                    cx,
                 ))
                 .child(slider_row(
                     &t("adjustments.saturate"),
                     ui::SliderKind::Saturation,
+                    saturate,
+                    crate::state::SliderTarget::AdjustmentSaturation,
+                    &capture,
+                    &bounds[2],
+                    cx,
                 ))
                 .child(
                     div()
@@ -159,9 +208,11 @@ pub(super) fn basic_section() -> Div {
                         .text_color(color::TEXT_DIM)
                         .child(t("adjustments.dragToPreview")),
                 )
-                .child(status_hint(
-                    "This layer has no pixels yet. Add image pixels before adjusting tone.", // i18n-exempt: not in catalog
-                )),
+                .when(!has_pixels, |col| {
+                    col.child(status_hint(
+                        "This layer has no pixels yet. Add image pixels before adjusting tone.", // i18n-exempt: not in catalog
+                    ))
+                }),
         )
 }
 
@@ -170,7 +221,18 @@ pub(super) fn basic_section() -> Div {
 ///
 /// Not [`ui::prop_row`]: this label is 58px, `text-[12px] font-medium`
 /// `text-editor-text-dim`; `PropRow` uses 50px of 11px `text-[#A1A1AA]`.
-fn slider_row(label: &str, kind: ui::SliderKind) -> Div {
+fn slider_row(
+    label: &str,
+    kind: ui::SliderKind,
+    value: i32,
+    target: crate::state::SliderTarget,
+    capture: &std::rc::Rc<std::cell::Cell<Option<gpui_kit::HitboxId>>>,
+    bounds: &std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    use crate::views::option_bar::slider_surface::BarSliderSurface;
+    // Centre-origin: 0 sits at 50 %, the ends are -100 / +100.
+    let percent = ((f64::from(value) + 100.0) / 2.0) as f32;
     h_flex()
         .min_h(px(SLIDER_ROW_H))
         .items_center()
@@ -195,16 +257,21 @@ fn slider_row(label: &str, kind: ui::SliderKind) -> Div {
                 // The source's invisible range input needs this wrapper;
                 // it centers the 4px slider in 18px.
                 .child(
-                    h_flex()
+                    div()
                         .flex_1()
                         .h(px(SLIDER_WRAP_H))
-                        .items_center()
-                        // At rest, centre-origin sliders use 50% and 0:
-                        // no fill, only the centre tick and thumb; accent
-                        // is unused by these kinds.
-                        .child(ui::slider(50.0, Some(0.0), kind, true)),
+                        .child(BarSliderSurface::new(
+                            // Centre-origin: no fill, the centre tick and
+                            // thumb; accent is unused by these kinds.
+                            ui::slider(percent, Some(0.0), kind, true),
+                            cx.entity().downgrade(),
+                            target,
+                            bounds.clone(),
+                            capture.clone(),
+                            None,
+                        )),
                 )
-                .child(value_box(&format_display_value(0))),
+                .child(value_box(&format_display_value(value))),
         )
 }
 

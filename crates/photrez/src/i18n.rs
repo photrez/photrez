@@ -185,6 +185,12 @@ fn lookup(key: &str) -> Option<&'static str> {
         .and_then(|catalog| catalog.get(key))
 }
 
+fn lookup_in(locale: Locale, key: &str) -> Option<&'static str> {
+    catalogs()
+        .get(index_of(locale))
+        .and_then(|catalog| catalog.get(key))
+}
+
 // ── interpolation ────────────────────────────────────────────────────────────
 
 /// Why a template could not be rendered. Both mismatch kinds are rejected
@@ -236,6 +242,14 @@ pub fn render(value: &str, args: &[(&str, &str)]) -> Result<String, RenderError>
 /// capture says exactly which lookup failed.
 pub fn t(key: &str) -> String {
     lookup(key)
+        .map(str::to_owned)
+        .unwrap_or_else(|| key.to_owned())
+}
+
+/// [`t`] in an explicit locale. Callers that need a locale they can assert
+/// without reading - or racing - the process-wide one use this.
+pub fn t_in(locale: Locale, key: &str) -> String {
+    lookup_in(locale, key)
         .map(str::to_owned)
         .unwrap_or_else(|| key.to_owned())
 }

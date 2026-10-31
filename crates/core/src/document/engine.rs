@@ -35,6 +35,7 @@ impl DocumentCore {
                 // is filled in by finish_forward.
                 doc_size_before: self.doc_size,
                 doc_size_after: None,
+                pixel_deltas: Vec::new(),
             },
         };
         self.entries.push(entry);
@@ -119,6 +120,25 @@ impl DocumentCore {
         self.version += 1;
         self.version
     }
+    /// Fold a destructive step's pixel half into the metadata entry at `idx`.
+    /// The engine owns no pixel buffer; `DocumentPixelStore` computes the
+    /// before/after nodes while it bakes and hands them back here, so one
+    /// command undoes metadata AND pixels as a single history step.
+    pub(crate) fn attach_pixel_deltas(&mut self, idx: usize, deltas: Vec<PixelDelta>) {
+        let Some(entry) = self.entries.get_mut(idx) else {
+            return;
+        };
+        let EntryPayload::Native { pixel_deltas, .. } = &mut entry.payload else {
+            return;
+        };
+        let cost: u64 = deltas
+            .iter()
+            .map(|d| state_node_delta_memory_cost(&d.before, &d.after))
+            .sum();
+        *pixel_deltas = deltas;
+        entry.memory_cost_bytes = entry.memory_cost_bytes.saturating_add(cost);
+    }
+
     pub fn invalidate_layer(&mut self, layer_id: &str) {
         // Barrier (defense-in-depth): no history mutation while a host handoff
         // (pending_external) is unconfirmed. Unreachable while pending in

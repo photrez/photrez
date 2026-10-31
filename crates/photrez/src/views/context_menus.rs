@@ -252,6 +252,18 @@ fn positioned(x: f32, y: f32, menu: Div) -> Div {
 /// One helper for all three small menus — the entries differ, the chrome
 /// does not.
 fn menu_shell(entries: Vec<Div>) -> Div {
+    shell(
+        entries
+            .into_iter()
+            .map(IntoElement::into_any_element)
+            .collect(),
+    )
+}
+
+/// The live context menus share this shell: 210 px, 6 px corners, 1 px border,
+/// `py-1`, clipped and shadowed. One geometry source for the frozen specimen
+/// and the production menu.
+pub(crate) fn shell(entries: Vec<gpui_kit::AnyElement>) -> Div {
     v_flex()
         .w(px(CTX_W))
         .rounded(px(MENU_R))

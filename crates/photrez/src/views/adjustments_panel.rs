@@ -248,6 +248,19 @@ pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
+    let (layer_name, layer_type, layer_w, layer_h) = {
+        let s = state.read(cx);
+        (
+            s.active_layer_name.clone(),
+            match s.selected_layer_type.as_deref() {
+                Some("shape") => "Shape",
+                Some("text") => "Text",
+                _ => "Image",
+            },
+            s.active_layer_width,
+            s.active_layer_height,
+        )
+    };
     v_flex()
         .w_full()
         .h_full()
@@ -260,9 +273,13 @@ pub fn render(
                 // `scrollbar-gutter: stable` reserves 6px on every
                 // `overflow-y-auto` (`styles.css:321,326`); GPUI has no
                 // scrollbars, so reserve that space explicitly.
-                .child(live_adjustment_controls(state, cx))
-                .child(selected_layer_section())
-                .child(basic_section())
+                .child(selected_layer_section(
+                    &layer_name,
+                    layer_type,
+                    layer_w,
+                    layer_h,
+                ))
+                .child(basic_section(state, cx))
                 // All five `COMING_SOON_SECTIONS` are collapsed in the
                 // capture, so only their header rows render.
                 .child(coming_soon_section(
@@ -295,110 +312,6 @@ pub fn render(
 
 mod sections;
 use sections::{basic_section, coming_soon_section, selected_layer_section};
-
-/// Live basic-adjustment steppers. The frozen sliders are painted below; this
-/// strip makes the same three channels reachable with mouse-only clicks.
-fn live_adjustment_controls(
-    state: &gpui_kit::Entity<crate::state::AppState>,
-    cx: &Context<crate::app::App>,
-) -> Div {
-    let (brightness, contrast, saturation) = {
-        let s = state.read(cx);
-        (
-            s.adjustment_brightness,
-            s.adjustment_contrast,
-            s.adjustment_saturation,
-        )
-    };
-    let mut row = v_flex().p(px(12.0)).gap(px(4.0)).w_full();
-    for (channel, label, value) in [
-        (0u8, "Brightness", brightness),
-        (1u8, "Contrast", contrast),
-        (2u8, "Saturation", saturation),
-    ] {
-        row = row.child(
-            h_flex()
-                .items_center()
-                .gap(px(4.0))
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(color::TEXT_DIM)
-                        .child(format!("{label} {value:+.0}")),
-                )
-                .child(adjustment_button(
-                    format!("adj-{channel}-dec"),
-                    "-",
-                    cx,
-                    channel,
-                    -5.0,
-                ))
-                .child(adjustment_button(
-                    format!("adj-{channel}-inc"),
-                    "+",
-                    cx,
-                    channel,
-                    5.0,
-                )),
-        );
-    }
-    row.child(
-        div()
-            .id("adj-reset")
-            .test_support()
-            .h(px(22.0))
-            .px(px(8.0))
-            .flex()
-            .items_center()
-            .rounded(px(3.0))
-            .border_1()
-            .border_color(color::BORDER)
-            .text_size(px(10.0))
-            .text_color(color::TEXT_DIM)
-            .cursor_pointer()
-            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
-                let result = app.reset_selected_adjustment(cx);
-                match result {
-                    Ok(()) => app.set_status_error(None, cx),
-                    Err(error) => app.set_status_error(Some(format!("Adjust: {error}")), cx),
-                }
-            }))
-            .child(t("common.reset").to_string()),
-    )
-}
-
-fn adjustment_button(
-    id: String,
-    label: &'static str,
-    cx: &Context<crate::app::App>,
-    channel: u8,
-    delta: f64,
-) -> impl IntoElement {
-    div()
-        .id(id)
-        .test_support()
-        .h(px(20.0))
-        .w(px(20.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(3.0))
-        .border_1()
-        .border_color(color::BORDER)
-        .text_size(px(10.0))
-        .text_color(color::TEXT)
-        .cursor_pointer()
-        .on_click(
-            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                let result = app.adjust_selected_adjustment(channel, delta, cx);
-                match result {
-                    Ok(()) => app.set_status_error(None, cx),
-                    Err(error) => app.set_status_error(Some(format!("Adjust: {error}")), cx),
-                }
-            }),
-        )
-        .child(label)
-}
 
 #[cfg(test)]
 mod tests {

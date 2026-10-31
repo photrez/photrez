@@ -68,7 +68,25 @@ pub(super) fn layer_tab_from_id(id: &str) -> Option<LayerTab> {
     }
 }
 
+/// The tab's visible label in the active locale.
 pub(super) fn tab_label(id: &str) -> String {
+    tab_label_for(crate::i18n::locale(), id)
+}
+
+/// The tab's visible label in `locale`: the `panels.<id>` catalog entry, or
+/// the id with its first character capitalized when the catalog has no such
+/// key. Both tab bars only pass their own ids, and every one of those has an
+/// entry; the fallback keeps an id rendered outside the bars from showing a
+/// key.
+///
+/// The locale is an argument rather than a process-global read so the label
+/// mapping is testable without racing the app-wide locale.
+pub(super) fn tab_label_for(locale: crate::i18n::Locale, id: &str) -> String {
+    let key = format!("panels.{id}");
+    let translated = crate::i18n::t_in(locale, &key);
+    if translated != key {
+        return translated;
+    }
     let mut chars = id.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),

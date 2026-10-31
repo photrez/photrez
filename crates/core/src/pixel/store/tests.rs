@@ -9,6 +9,7 @@ use crate::pixel::layer::PixelLayer;
 use crate::pixel::parity_oracle::assert_byte_eq;
 use crate::pixel::tile::TilePatch;
 
+mod crop_bake;
 mod history_round_trip;
 mod history_unification;
 mod invalid_input;

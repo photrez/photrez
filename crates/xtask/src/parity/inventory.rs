@@ -11,7 +11,7 @@
 //! out-of-target file (exists only in the current tree; kept so the inventory
 //! stays a complete map of both trees), `R` = reference artifact.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use super::csv;
@@ -28,107 +28,238 @@ const STATUSES: &[&str] = &[
     "INTERACTIVE",
     "VERIFIED",
 ];
+const UNKNOWN_BACKEND_NOTE: &str = "No per-file native destination is evidenced.";
+
+struct OracleSnapshot {
+    commit: String,
+    production_files: Vec<String>,
+    test_files: Vec<String>,
+    backend_files: Vec<String>,
+}
 
 /// Production-file walker: `.ts`/`.tsx` under `<root>/src`, excluding test
 /// files, `__tests__`/`node_modules`/`test` directories, ambient `.d.ts`
 /// declarations and dotfiles — the same exclusions the frozen census uses to
 /// reach its 208 production files. Returns slash-separated paths relative to
 /// `<root>/src`, sorted.
-pub(super) fn production_files(root: &Path) -> Vec<String> {
+pub(super) fn production_files(root: &Path) -> Result<Vec<String>, String> {
     let src = root.join("src");
     let mut out = Vec::new();
-    walk(&src, &src, &mut out);
+    walk(&src, &src, &mut out)?;
     out.sort();
-    out
+    duplicate_paths(&out, "filesystem scan")?;
+    Ok(out)
 }
 
-fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy().into_owned();
+fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) -> Result<(), String> {
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("cannot scan {}: {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("cannot read entry in {}: {e}", dir.display()))?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| format!("non-UTF-8 path in {}", dir.display()))?;
         let path = entry.path();
-        if path.is_dir() {
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("cannot inspect {}: {e}", path.display()))?;
+        if file_type.is_dir() {
             if name == "__tests__" || name == "node_modules" || name == "test" {
                 continue;
             }
-            walk(&path, base, out);
-        } else if name.ends_with(".ts") || name.ends_with(".tsx") {
-            if name.starts_with('.')
-                || name.ends_with(".d.ts")
-                || name.contains(".test.")
-                || name.contains(".spec.")
-            {
-                continue;
+            walk(&path, base, out)?;
+        } else if let Some(rel) = path.strip_prefix(base).ok().and_then(Path::to_str) {
+            let rel = rel.replace('\\', "/");
+            if is_production_path(&rel) {
+                out.push(rel);
             }
-            if let Ok(rel) = path.strip_prefix(base) {
-                out.push(rel.to_string_lossy().replace('\\', "/"));
-            }
-        }
-    }
-}
-
-/// Files matching the test vocabulary (`*.test.*` / `*.spec.*`), counted for
-/// the aggregate frozen-test reference row. Name-pattern only, matching the
-/// frozen census command (`grep -c '\.(test|spec)\.(ts|tsx|js)$'` over the
-/// tracked tree). Walks the whole `apps/desktop` tree (the oracle's frozen
-/// corpus includes `e2e/`), skipping dependency and build-output directories.
-fn count_test_files(root: &Path) -> usize {
-    let mut count = 0;
-    walk_all_skipping(root, &["node_modules", "pkg"], &mut |path| {
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-        let Some(name) = name else { return };
-        let is_ts = name.ends_with(".ts") || name.ends_with(".tsx") || name.ends_with(".js");
-        if is_ts && (name.contains(".test.") || name.contains(".spec.")) {
-            count += 1;
-        }
-    });
-    count
-}
-
-fn count_rs_files(dir: &Path) -> usize {
-    let mut count = 0;
-    walk_all_skipping(dir, &[], &mut |path| {
-        if path.extension().map(|e| e == "rs").unwrap_or(false) {
-            count += 1;
-        }
-    });
-    count
-}
-
-fn walk_all_skipping(dir: &Path, skip: &[&str], f: &mut dyn FnMut(&Path)) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-            if name.as_deref().map(|n| skip.contains(&n)).unwrap_or(false) {
-                continue;
-            }
-            walk_all_skipping(&path, skip, f);
         } else {
-            f(&path);
+            return Err(format!(
+                "cannot make source path relative: {}",
+                path.display()
+            ));
         }
     }
+    Ok(())
 }
 
-/// Short oracle commit recorded into the CSV header comment, or `unknown`
-/// when the tree is not a git checkout.
-fn oracle_commit(root: &Path) -> String {
-    let output = std::process::Command::new("git")
-        .args(["-C", root.to_string_lossy().as_ref()])
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .output();
-    match output {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        _ => "unknown".to_string(),
+fn is_production_path(rel: &str) -> bool {
+    let Some(name) = rel.rsplit('/').next() else {
+        return false;
+    };
+    (name.ends_with(".ts") || name.ends_with(".tsx"))
+        && !name.starts_with('.')
+        && !name.ends_with(".d.ts")
+        && !name.contains(".test.")
+        && !name.contains(".spec.")
+        && !rel
+            .split('/')
+            .take(rel.split('/').count().saturating_sub(1))
+            .any(|part| matches!(part, "__tests__" | "node_modules" | "test"))
+}
+
+fn duplicate_paths(paths: &[String], source: &str) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for path in paths {
+        if !seen.insert(path) {
+            return Err(format!("{path}: duplicate path in {source}"));
+        }
     }
+    Ok(())
+}
+
+fn git_snapshot(root: &Path) -> Result<OracleSnapshot, String> {
+    let head = git_output(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    let head = String::from_utf8(head)
+        .map_err(|e| format!("git returned a non-UTF-8 HEAD: {e}"))?
+        .trim()
+        .to_string();
+    if !matches!(head.len(), 40 | 64) || !head.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("git returned an invalid full HEAD: {head}"));
+    }
+
+    let listing = git_output(
+        root,
+        &[
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            head.as_str(),
+            "--",
+            ".",
+        ],
+    )?;
+    snapshot_from_paths(head, parse_ls_tree_paths(&listing)?)
+}
+
+fn parse_ls_tree_paths(listing: &[u8]) -> Result<Vec<String>, String> {
+    if !listing.is_empty() && !listing.ends_with(&[0]) {
+        return Err("git ls-tree output is missing its NUL terminator".to_string());
+    }
+    let mut paths = Vec::new();
+    for bytes in listing
+        .split(|byte| *byte == 0)
+        .filter(|bytes| !bytes.is_empty())
+    {
+        let path = std::str::from_utf8(bytes)
+            .map_err(|e| format!("git returned a non-UTF-8 source path: {e}"))?;
+        paths.push(path.to_string());
+    }
+    paths.sort();
+    duplicate_paths(&paths, "git ls-tree HEAD")?;
+    Ok(paths)
+}
+
+fn snapshot_from_paths(commit: String, mut paths: Vec<String>) -> Result<OracleSnapshot, String> {
+    paths.sort();
+    duplicate_paths(&paths, "Git tree snapshot")?;
+
+    let production_files = paths
+        .iter()
+        .filter_map(|path| path.strip_prefix("src/"))
+        .filter(|path| is_production_path(path))
+        .map(str::to_string)
+        .collect();
+    let test_files: Vec<String> = paths
+        .iter()
+        .filter(|path| is_test_reference_path(path))
+        .cloned()
+        .collect();
+    if let Some(path) = test_files
+        .iter()
+        .find(|path| path.contains('\r') || path.contains('\n'))
+    {
+        return Err(format!(
+            "test path cannot be represented in a line manifest: {path:?}"
+        ));
+    }
+    let backend_files = paths
+        .iter()
+        .filter(|path| {
+            path.starts_with("src-tauri/") && Path::new(path).extension().is_some_and(|e| e == "rs")
+        })
+        .cloned()
+        .collect();
+
+    Ok(OracleSnapshot {
+        commit,
+        production_files,
+        test_files,
+        backend_files,
+    })
+}
+
+fn is_test_reference_path(path: &str) -> bool {
+    let Some(name) = path.rsplit('/').next() else {
+        return false;
+    };
+    let is_source = name.ends_with(".ts") || name.ends_with(".tsx") || name.ends_with(".js");
+    let dirs = path
+        .rsplit_once('/')
+        .map(|(dirs, _)| dirs)
+        .unwrap_or_default();
+    is_source
+        && (name.contains(".test.") || name.contains(".spec."))
+        && !dirs
+            .split('/')
+            .any(|part| matches!(part, "node_modules" | "pkg"))
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .map_err(|e| format!("cannot run git in {}: {e}", root.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} failed in {}: {}",
+            args.join(" "),
+            root.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(output.stdout)
+}
+
+fn compare_production_sets(tracked: &[String], scanned: &[String], tree: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    if let Err(error) = duplicate_paths(tracked, "Git tree snapshot") {
+        errors.push(error);
+    }
+    if let Err(error) = duplicate_paths(scanned, "filesystem scan") {
+        errors.push(error);
+    }
+    let tracked_set: BTreeSet<&str> = tracked.iter().map(String::as_str).collect();
+    let scanned_set: BTreeSet<&str> = scanned.iter().map(String::as_str).collect();
+    for rel in tracked_set.difference(&scanned_set) {
+        errors.push(format!(
+            "src/{rel}: tracked {tree} production file missing from filesystem scan"
+        ));
+    }
+    for rel in scanned_set.difference(&tracked_set) {
+        errors.push(format!(
+            "src/{rel}: untracked/generated production file is not tracked in {tree}"
+        ));
+    }
+    errors
+}
+
+fn head_scan_differences(tracked: &[String], scanned: &[String]) -> (Vec<String>, Vec<String>) {
+    let tracked_set: BTreeSet<&str> = tracked.iter().map(String::as_str).collect();
+    let scanned_set: BTreeSet<&str> = scanned.iter().map(String::as_str).collect();
+    let missing = tracked_set
+        .difference(&scanned_set)
+        .map(|path| path.to_string())
+        .collect();
+    let extra = scanned_set
+        .difference(&tracked_set)
+        .map(|path| path.to_string())
+        .collect();
+    (missing, extra)
 }
 
 /// Exact-path override, then directory prefix, then UNMAPPED. The optional
@@ -180,6 +311,64 @@ fn classify(
     )
 }
 
+fn reference_rows(snapshot: &OracleSnapshot, manifest_name: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    let mut next_id = 1;
+    for (path, family, target, status, notes) in REFERENCE_FILES {
+        if path.contains("*.test.") {
+            rows.push(vec![
+                format!("R{next_id:03}"),
+                "reference".to_string(),
+                manifest_name.to_string(),
+                family.to_string(),
+                target.to_string(),
+                status.to_string(),
+                String::new(),
+                format!(
+                    "{notes}; exact tracked manifest ({} paths); oracle {}",
+                    snapshot.test_files.len(),
+                    snapshot.commit
+                ),
+            ]);
+            next_id += 1;
+        } else if path.contains("src-tauri/**/*.rs") {
+            for backend_path in &snapshot.backend_files {
+                rows.push(vec![
+                    format!("R{next_id:03}"),
+                    "reference".to_string(),
+                    format!("apps/desktop/{backend_path}"),
+                    family.to_string(),
+                    "UNKNOWN".to_string(),
+                    status.to_string(),
+                    String::new(),
+                    UNKNOWN_BACKEND_NOTE.to_string(),
+                ]);
+                next_id += 1;
+            }
+        } else {
+            rows.push(vec![
+                format!("R{next_id:03}"),
+                "reference".to_string(),
+                path.to_string(),
+                family.to_string(),
+                target.to_string(),
+                status.to_string(),
+                String::new(),
+                notes.to_string(),
+            ]);
+            next_id += 1;
+        }
+    }
+    rows
+}
+
+fn test_manifest(test_files: &[String]) -> String {
+    test_files
+        .iter()
+        .map(|path| format!("apps/desktop/{path}\n"))
+        .collect()
+}
+
 pub struct InventoryOpts {
     /// Tree whose `src/` defines the parity target (the oracle worktree's
     /// `apps/desktop`). Defaults to the repository's own `apps/desktop`.
@@ -211,15 +400,139 @@ pub fn run(opts: &InventoryOpts) -> i32 {
         opts.head_root.clone()
     };
 
-    let commit = oracle_commit(&oracle_root);
-    let oracle_files = production_files(&oracle_root);
-    let head_files = production_files(&head_root);
-    let oracle_set: BTreeSet<&String> = oracle_files.iter().collect();
+    let oracle_snapshot = match git_snapshot(&oracle_root) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            eprintln!("inventory: cannot resolve oracle Git set: {error}");
+            return 1;
+        }
+    };
+    let head_snapshot = match git_snapshot(&head_root) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            eprintln!("inventory: cannot resolve HEAD Git set: {error}");
+            return 1;
+        }
+    };
+    run_with_snapshot(
+        opts,
+        &oracle_root,
+        &head_root,
+        &oracle_snapshot,
+        &head_snapshot,
+    )
+}
 
+fn run_with_snapshot(
+    opts: &InventoryOpts,
+    oracle_root: &Path,
+    head_root: &Path,
+    oracle_snapshot: &OracleSnapshot,
+    head_snapshot: &OracleSnapshot,
+) -> i32 {
+    let oracle_scan = match production_files(&oracle_root) {
+        Ok(files) => files,
+        Err(error) => {
+            eprintln!("inventory: oracle source scan failed: {error}");
+            return 1;
+        }
+    };
+    let oracle_errors =
+        compare_production_sets(&oracle_snapshot.production_files, &oracle_scan, "Oracle");
+    if !oracle_errors.is_empty() {
+        for error in oracle_errors.iter().take(20) {
+            eprintln!("inventory: oracle source mismatch: {error}");
+        }
+        eprintln!(
+            "inventory: {} oracle source problem(s)",
+            oracle_errors.len()
+        );
+        return 1;
+    }
+    let head_files = match production_files(&head_root) {
+        Ok(files) => files,
+        Err(error) => {
+            eprintln!("inventory: HEAD source scan failed: {error}");
+            return 1;
+        }
+    };
+    let (missing_head_files, extra_head_files) =
+        head_scan_differences(&head_snapshot.production_files, &head_files);
+    if !extra_head_files.is_empty() {
+        let paths = extra_head_files
+            .iter()
+            .map(|path| format!("apps/desktop/src/{path}"))
+            .collect::<Vec<_>>();
+        eprintln!(
+            "inventory: HEAD working-tree-only production paths excluded from target ({}): {}",
+            paths.len(),
+            paths.join(", ")
+        );
+    }
+    if !missing_head_files.is_empty() {
+        for path in missing_head_files.iter().take(20) {
+            eprintln!(
+                "inventory: HEAD tracked production file missing from filesystem scan: apps/desktop/src/{path}"
+            );
+        }
+        eprintln!(
+            "inventory: {} HEAD tracked production file(s) missing",
+            missing_head_files.len()
+        );
+        return 1;
+    }
+    let manifest_path = opts.out.with_extension("tests.txt");
+    let Some(manifest_name) = manifest_path.file_name().and_then(|name| name.to_str()) else {
+        eprintln!("inventory: test manifest filename is not UTF-8");
+        return 1;
+    };
+    let (document, manifest, out_of_target, reference_count) =
+        build_inventory(oracle_snapshot, head_snapshot, manifest_name);
+
+    if let Some(parent) = opts.out.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            eprintln!("inventory: cannot create {}: {error}", parent.display());
+            return 1;
+        }
+    }
+    if let Err(error) = std::fs::write(&manifest_path, &manifest) {
+        eprintln!(
+            "inventory: cannot write test manifest {}: {error}",
+            manifest_path.display()
+        );
+        return 1;
+    }
+    if let Err(e) = std::fs::write(&opts.out, &document) {
+        eprintln!("inventory: cannot write {}: {e}", opts.out.display());
+        return 1;
+    }
+
+    println!(
+        "wrote {} (oracle {} production rows, {out_of_target} out-of-target, {} references, {} tests, {} backend files; manifest {})",
+        opts.out.display(),
+        oracle_snapshot.production_files.len(),
+        reference_count,
+        oracle_snapshot.test_files.len(),
+        oracle_snapshot.backend_files.len(),
+        manifest_path.display()
+    );
+    validate_with_snapshot(
+        &opts.out,
+        &manifest_path,
+        oracle_snapshot,
+        head_snapshot,
+        &oracle_scan,
+        &head_files,
+    )
+}
+
+fn build_inventory(
+    oracle_snapshot: &OracleSnapshot,
+    head_snapshot: &OracleSnapshot,
+    manifest_name: &str,
+) -> (String, String, usize, usize) {
+    let oracle_set: BTreeSet<&String> = oracle_snapshot.production_files.iter().collect();
     let extra: &[(&str, &str, &str, &str, &str, &str)] = &[
-        // Re-baseline classifications for the three oracle files that no
-        // October-era rule could see (they are absent at HEAD). Decisions
-        // recorded in the 2026-10-28 re-baseline notes.
         (
             "components/editor/paintStrokeRenderer.ts",
             "brush",
@@ -245,9 +558,8 @@ pub fn run(opts: &InventoryOpts) -> i32 {
             "stroke history budget enforced by the core pixel history",
         ),
     ];
-
-    let mut rows: Vec<Vec<String>> = Vec::new();
-    for (i, rel) in oracle_files.iter().enumerate() {
+    let mut rows = Vec::new();
+    for (i, rel) in oracle_snapshot.production_files.iter().enumerate() {
         let (family, target, status, evidence, notes) = classify(rel, extra);
         let kind = if rel.ends_with(".tsx") {
             "component"
@@ -267,13 +579,11 @@ pub fn run(opts: &InventoryOpts) -> i32 {
     }
 
     let mut out_of_target = 0;
-    for rel in &head_files {
+    for rel in &head_snapshot.production_files {
         if oracle_set.contains(rel) {
             continue;
         }
         out_of_target += 1;
-        // The October-era rule status is intentionally replaced: the row is
-        // out of target regardless of how far the port got.
         let (family, target, _status, evidence, notes) = classify(rel, extra);
         let kind = if rel.ends_with(".tsx") {
             "component"
@@ -281,7 +591,7 @@ pub fn run(opts: &InventoryOpts) -> i32 {
             "behavior"
         };
         rows.push(vec![
-            format!("O{:03}", out_of_target),
+            format!("O{out_of_target:03}"),
             kind.to_string(),
             format!("apps/desktop/src/{rel}"),
             family,
@@ -296,36 +606,9 @@ pub fn run(opts: &InventoryOpts) -> i32 {
         ]);
     }
 
-    // Reference rows; the two aggregate globs are measured from the oracle
-    // tree instead of carrying HEAD-era numbers.
-    let rs_count = count_rs_files(&oracle_root.join("src-tauri"));
-    let test_count = count_test_files(&oracle_root);
-    for (j, (path, family, target, status, notes)) in REFERENCE_FILES.iter().enumerate() {
-        let (path, notes) = if path.contains("src-tauri/**/*.rs") {
-            (
-                format!("apps/desktop/src-tauri/**/*.rs ({rs_count} files)"),
-                format!("{notes}; count measured from the oracle tree"),
-            )
-        } else if path.contains("*.test.(ts|tsx)") {
-            (
-                format!("apps/desktop/src/**/*.test.(ts|tsx) ({test_count} files)"),
-                format!("{notes}; count measured from the oracle tree"),
-            )
-        } else {
-            (path.to_string(), notes.to_string())
-        };
-        rows.push(vec![
-            format!("R{:03}", j + 1),
-            "reference".to_string(),
-            path,
-            family.to_string(),
-            target.to_string(),
-            status.to_string(),
-            String::new(),
-            notes,
-        ]);
-    }
-
+    let references = reference_rows(oracle_snapshot, manifest_name);
+    let reference_count = references.len();
+    rows.extend(references);
     let header = [
         "id",
         "kind",
@@ -338,61 +621,51 @@ pub fn run(opts: &InventoryOpts) -> i32 {
     ];
     let mut document = format!(
         "# Parity inventory generated by `cargo xtask parity inventory`.\n\
-         # oracle: {commit}\n\
-         # oracle production files: {} | out-of-target rows: {out_of_target} | reference rows: {}\n",
-        oracle_files.len(),
-        REFERENCE_FILES.len()
+         # oracle: {}\n\
+         # head: {}\n\
+         # oracle production files: {} | HEAD production files: {} | out-of-target rows: {out_of_target} | reference rows: {reference_count}\n",
+        oracle_snapshot.commit,
+        head_snapshot.commit,
+        oracle_snapshot.production_files.len(),
+        head_snapshot.production_files.len(),
     );
     document.push_str(&super::csv::write(&header, &rows));
-
-    if let Some(parent) = opts.out.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Err(e) = std::fs::write(&opts.out, &document) {
-        eprintln!("inventory: cannot write {}: {e}", opts.out.display());
-        return 1;
-    }
-
-    println!(
-        "wrote {} (oracle {} production rows, {out_of_target} out-of-target, {} references)",
-        opts.out.display(),
-        oracle_files.len(),
-        REFERENCE_FILES.len()
-    );
-    validate(&opts.out, &oracle_root)
+    (
+        document,
+        test_manifest(&oracle_snapshot.test_files),
+        out_of_target,
+        reference_count,
+    )
 }
 
-/// Validate an inventory CSV against the oracle tree. Returns the exit code.
-pub fn validate(csv_path: &Path, oracle_root: &Path) -> i32 {
-    let text = match std::fs::read_to_string(csv_path) {
-        Ok(text) => text,
-        Err(e) => {
-            eprintln!(
-                "inventory validate: cannot read {}: {e}",
-                csv_path.display()
-            );
-            return 1;
-        }
-    };
-    let records = match csv::parse(&text) {
-        Ok((_h, r)) => match csv::records_as_maps(&_h, &r) {
-            Ok(maps) => maps,
-            Err(e) => {
-                eprintln!("inventory validate: {e}");
-                return 1;
-            }
-        },
-        Err(e) => {
-            eprintln!("inventory validate: {e}");
-            return 1;
-        }
-    };
-
+fn validate_rows(
+    records: &[HashMap<String, String>],
+    oracle_snapshot: &OracleSnapshot,
+    head_snapshot: &OracleSnapshot,
+    manifest_name: &str,
+) -> Vec<String> {
     let mut errors: Vec<String> = Vec::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
-    for row in &records {
+    let mut seen_ids = BTreeSet::new();
+    let oracle_paths: BTreeSet<String> = oracle_snapshot
+        .production_files
+        .iter()
+        .map(|rel| format!("apps/desktop/src/{rel}"))
+        .collect();
+    let head_paths: BTreeSet<String> = head_snapshot
+        .production_files
+        .iter()
+        .map(|rel| format!("apps/desktop/src/{rel}"))
+        .collect();
+    let mut production_rows = BTreeSet::new();
+    let mut out_of_target_rows = BTreeSet::new();
+    for row in records {
         let path = row.get("path").cloned().unwrap_or_default();
         let status = row.get("status").cloned().unwrap_or_default();
+        let id = row.get("id").map(String::as_str).unwrap_or_default();
+        if !seen_ids.insert(id.to_string()) {
+            errors.push(format!("{id}: duplicate row ID"));
+        }
         if !STATUSES.contains(&status.as_str()) {
             errors.push(format!(
                 "{path}: status `{status}` is not in the vocabulary"
@@ -407,34 +680,287 @@ pub fn validate(csv_path: &Path, oracle_root: &Path) -> i32 {
         if !seen.insert(path.clone()) {
             errors.push(format!("{path}: duplicate row"));
         }
+        if id.starts_with('F') {
+            production_rows.insert(path.clone());
+            if !oracle_paths.contains(&path) {
+                errors.push(format!(
+                    "{path}: generated/untracked Oracle production row is not in pinned HEAD"
+                ));
+            }
+        } else if id.starts_with('O') {
+            out_of_target_rows.insert(path);
+        }
     }
 
-    let oracle_files = production_files(oracle_root);
-    for rel in &oracle_files {
+    for rel in &oracle_snapshot.production_files {
         let path = format!("apps/desktop/src/{rel}");
-        if !seen.contains(&path) {
+        if !production_rows.contains(&path) {
             errors.push(format!("{path}: oracle production file is unmapped"));
         }
     }
-
-    if errors.is_empty() {
-        println!(
-            "inventory validate: PASS ({} rows, {} oracle production files)",
-            records.len(),
-            oracle_files.len()
-        );
-        0
-    } else {
-        for e in errors.iter().take(20) {
-            eprintln!("inventory validate: FAIL {e}");
-        }
-        eprintln!(
-            "inventory validate: {} problem(s) across {} rows",
-            errors.len(),
-            records.len()
-        );
-        1
+    let expected_out_of_target: BTreeSet<String> =
+        head_paths.difference(&oracle_paths).cloned().collect();
+    for path in expected_out_of_target.difference(&out_of_target_rows) {
+        errors.push(format!(
+            "{path}: tracked HEAD-only production file is unmapped"
+        ));
     }
+    for path in out_of_target_rows.difference(&expected_out_of_target) {
+        errors.push(format!(
+            "{path}: extra out-of-target row is not in the tracked Oracle/HEAD difference"
+        ));
+    }
+
+    let test_index = REFERENCE_FILES
+        .iter()
+        .position(|(path, _, _, _, _)| path.contains("*.test."));
+    if let Some(test_index) = test_index {
+        let (_, family, target, status, notes) = REFERENCE_FILES[test_index];
+        let test_id = test_index + 1;
+        let id = format!("R{test_id:03}");
+        let matches: Vec<_> = records
+            .iter()
+            .filter(|row| row.get("id").map(String::as_str) == Some(id.as_str()))
+            .collect();
+        if matches.len() != 1 {
+            errors.push(format!("{id}: expected one test-manifest summary row"));
+        }
+        let expected_notes = format!(
+            "{notes}; exact tracked manifest ({} paths); oracle {}",
+            oracle_snapshot.test_files.len(),
+            oracle_snapshot.commit
+        );
+        if let Some(row) = matches.first() {
+            for (field, expected) in [
+                ("path", manifest_name),
+                ("family", family),
+                ("native_target", target),
+                ("status", status),
+                ("notes", &expected_notes),
+            ] {
+                if row.get(field).map(String::as_str) != Some(expected) {
+                    errors.push(format!("{id}: {field} does not match the test manifest"));
+                }
+            }
+        }
+    }
+
+    let backend_index = REFERENCE_FILES
+        .iter()
+        .position(|(path, _, _, _, _)| path.contains("src-tauri/**/*.rs"));
+    if let Some(backend_index) = backend_index {
+        let (_, family, _, status, _) = REFERENCE_FILES[backend_index];
+        let backend_start = backend_index + 1;
+        let expected_paths: BTreeSet<String> = oracle_snapshot
+            .backend_files
+            .iter()
+            .map(|path| format!("apps/desktop/{path}"))
+            .collect();
+        let actual_rows: Vec<_> = records
+            .iter()
+            .filter(|row| {
+                row.get("path")
+                    .is_some_and(|path| path.starts_with("apps/desktop/src-tauri/"))
+            })
+            .collect();
+        let actual_paths: BTreeSet<String> = actual_rows
+            .iter()
+            .filter_map(|row| row.get("path").cloned())
+            .collect();
+        for path in expected_paths.difference(&actual_paths) {
+            errors.push(format!("{path}: backend reference row is missing"));
+        }
+        for path in actual_paths.difference(&expected_paths) {
+            errors.push(format!("{path}: extra backend reference row"));
+        }
+        for (index, expected_path) in oracle_snapshot.backend_files.iter().enumerate() {
+            let id = format!("R{:03}", backend_start + index);
+            let expected_path = format!("apps/desktop/{expected_path}");
+            let Some(row) = records
+                .iter()
+                .find(|row| row.get("id").map(String::as_str) == Some(id.as_str()))
+            else {
+                errors.push(format!("{expected_path}: backend row {id} is missing"));
+                continue;
+            };
+            if row.get("path").map(String::as_str) != Some(expected_path.as_str()) {
+                errors.push(format!("{id}: expected backend path {expected_path}"));
+            }
+            for (field, expected) in [
+                ("family", family),
+                ("native_target", "UNKNOWN"),
+                ("status", status),
+                ("notes", UNKNOWN_BACKEND_NOTE),
+            ] {
+                if row.get(field).map(String::as_str) != Some(expected) {
+                    errors.push(format!(
+                        "{expected_path}: backend disposition field {field} differs"
+                    ));
+                }
+            }
+        }
+    }
+    errors
+}
+
+fn validate_with_snapshot(
+    csv_path: &Path,
+    manifest_path: &Path,
+    oracle_snapshot: &OracleSnapshot,
+    head_snapshot: &OracleSnapshot,
+    oracle_scan: &[String],
+    head_scan: &[String],
+) -> i32 {
+    let text = match std::fs::read_to_string(csv_path) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!(
+                "inventory validate: cannot read {}: {e}",
+                csv_path.display()
+            );
+            return 1;
+        }
+    };
+    let manifest = match std::fs::read_to_string(manifest_path) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            eprintln!(
+                "inventory validate: cannot read test manifest {}: {error}",
+                manifest_path.display()
+            );
+            return 1;
+        }
+    };
+    let Some(manifest_name) = manifest_path.file_name().and_then(|name| name.to_str()) else {
+        eprintln!("inventory validate: test manifest filename is not UTF-8");
+        return 1;
+    };
+    match validate_text(
+        &text,
+        &manifest,
+        oracle_snapshot,
+        head_snapshot,
+        oracle_scan,
+        head_scan,
+        manifest_name,
+    ) {
+        Ok(rows) => {
+            println!(
+                "inventory validate: PASS ({rows} rows, {} Oracle and {} HEAD production files)",
+                oracle_snapshot.production_files.len(),
+                head_snapshot.production_files.len()
+            );
+            0
+        }
+        Err((errors, rows)) => {
+            for error in errors.iter().take(20) {
+                eprintln!("inventory validate: FAIL {error}");
+            }
+            eprintln!(
+                "inventory validate: {} problem(s) across {} rows",
+                errors.len(),
+                rows
+            );
+            1
+        }
+    }
+}
+
+fn validate_text(
+    text: &str,
+    manifest: &str,
+    oracle_snapshot: &OracleSnapshot,
+    head_snapshot: &OracleSnapshot,
+    oracle_scan: &[String],
+    head_scan: &[String],
+    manifest_name: &str,
+) -> Result<usize, (Vec<String>, usize)> {
+    let (header, rows) = csv::parse(text).map_err(|error| (vec![error], 0))?;
+    let records = csv::records_as_maps(&header, &rows).map_err(|error| (vec![error], 0))?;
+    let mut errors = Vec::new();
+    if !text
+        .lines()
+        .any(|line| line == format!("# oracle: {}", oracle_snapshot.commit))
+    {
+        errors.push(format!(
+            "oracle header does not identify pinned HEAD {}",
+            oracle_snapshot.commit
+        ));
+    }
+    if !text
+        .lines()
+        .any(|line| line == format!("# head: {}", head_snapshot.commit))
+    {
+        errors.push(format!(
+            "HEAD header does not identify tracked HEAD {}",
+            head_snapshot.commit
+        ));
+    }
+    errors.extend(compare_production_sets(
+        &oracle_snapshot.production_files,
+        oracle_scan,
+        "Oracle",
+    ));
+    let (missing_head_files, _) = head_scan_differences(&head_snapshot.production_files, head_scan);
+    errors.extend(missing_head_files.into_iter().map(|path| {
+        format!("src/{path}: tracked HEAD production file missing from filesystem scan")
+    }));
+    errors.extend(validate_manifest(manifest, oracle_snapshot));
+    errors.extend(validate_rows(
+        &records,
+        oracle_snapshot,
+        head_snapshot,
+        manifest_name,
+    ));
+    let out_of_target = records
+        .iter()
+        .filter(|row| row.get("id").is_some_and(|id| id.starts_with('O')))
+        .count();
+    let reference_count = records
+        .iter()
+        .filter(|row| row.get("id").is_some_and(|id| id.starts_with('R')))
+        .count();
+    let expected_summary = format!(
+        "# oracle production files: {} | HEAD production files: {} | out-of-target rows: {out_of_target} | reference rows: {reference_count}",
+        oracle_snapshot.production_files.len(),
+        head_snapshot.production_files.len()
+    );
+    if !text.lines().any(|line| line == expected_summary) {
+        errors.push("inventory header counts do not match emitted rows".to_string());
+    }
+    if errors.is_empty() {
+        Ok(records.len())
+    } else {
+        Err((errors, records.len()))
+    }
+}
+
+fn validate_manifest(manifest: &str, snapshot: &OracleSnapshot) -> Vec<String> {
+    let actual: Vec<String> = manifest.lines().map(str::to_string).collect();
+    let expected: Vec<String> = snapshot
+        .test_files
+        .iter()
+        .map(|path| format!("apps/desktop/{path}"))
+        .collect();
+    let mut errors = Vec::new();
+    let mut seen = BTreeSet::new();
+    for path in &actual {
+        if !seen.insert(path) {
+            errors.push(format!("{path}: duplicate test manifest path"));
+        }
+    }
+    let expected_set: BTreeSet<&str> = expected.iter().map(String::as_str).collect();
+    let actual_set: BTreeSet<&str> = actual.iter().map(String::as_str).collect();
+    for path in expected_set.difference(&actual_set) {
+        errors.push(format!("{path}: test manifest path is missing"));
+    }
+    for path in actual_set.difference(&expected_set) {
+        errors.push(format!("{path}: extra test manifest path"));
+    }
+    if actual != expected {
+        errors.push("test manifest paths are not in expected sorted order".to_string());
+    }
+    errors
 }
 
 #[cfg(test)]

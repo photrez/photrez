@@ -1,6 +1,7 @@
 use super::input::{mount_archive_app, select_layer};
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
+use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
 
 fn layers_len(content: &Entity<App>, cx: &mut gpui_kit::App) -> usize {
     content.read(cx).active_core_layer_count_for_test().unwrap()
@@ -58,6 +59,66 @@ fn footer_adds_and_deletes_layers_with_undo(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
+/// S028: the layer row eye toggle response (dispatch + one render).
+#[gpui_kit::test]
+#[ignore = "performance measurement; run explicitly"]
+fn layer_eye_toggle_latency(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let top = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("top"))
+            .expect("top row")
+            .id;
+        let mut samples = Vec::new();
+        let mut visible = flags(&content, cx)[0].visible;
+        for _ in 0..9 {
+            let position = window.find(format!("layer-eye-{top}")).bounds().center();
+            let start = std::time::Instant::now();
+            let _ = window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button: MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            let _ = window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            let now = flags(&content, cx)[0].visible;
+            assert_ne!(now, visible, "the eye toggle flips visibility");
+            visible = now;
+        }
+        let mut sorted = samples.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "S028_LAYER_EYE_MS samples={samples:?} p50={:.3} p95={:.3}",
+            sorted[4], sorted[8]
+        );
+        assert!(
+            sorted[8] <= 33.3,
+            "layer eye toggle p95 {:.3} ms exceeds the 33.3 ms budget",
+            sorted[8]
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn row_eye_toggle_hides_the_layer_and_undo_restores_it(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -69,6 +130,16 @@ fn row_eye_toggle_hides_the_layer_and_undo_restores_it(cx: &mut gpui_kit::TestAp
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         assert!(flags(&content, cx)[0].visible);
+        assert!(
+            window.try_find("layer-eye-0-tooltip").is_none(),
+            "the eye tooltip is absent at rest"
+        );
+        window.hover("layer-eye-0", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("layer-eye-0-tooltip").is_some(),
+            "hovering the eye shows its tooltip"
+        );
         window.click("layer-eye-0", cx);
         window.render_frame(cx);
         assert!(
@@ -113,6 +184,567 @@ fn row_lock_toggle_round_trips_and_blocks_painting(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
+/// S044: the Properties status refresh after a Layers lock toggle.
+#[gpui_kit::test]
+#[ignore = "performance measurement; run explicitly"]
+fn properties_status_refresh_latency(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let top = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("top"))
+            .expect("top row")
+            .id;
+        select_layer(&content, cx, top);
+        window.render_frame(cx);
+        window.click("layer-lock-header-position", cx);
+        window.render_frame(cx);
+        let mut samples = Vec::new();
+        for _ in 0..9 {
+            let position = window.find("layer-lock-header-rotation").bounds().center();
+            let start = std::time::Instant::now();
+            let _ = window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button: MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            let _ = window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            assert!(
+                window.try_find("properties-status-pos").is_some()
+                    || window.try_find("properties-status-pos-rot").is_some(),
+                "each toggle must refresh the Properties status hint"
+            );
+        }
+        let mut sorted = samples.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "S044_PROPERTIES_REFRESH_MS samples={samples:?} p50={:.3} p95={:.3}",
+            sorted[4], sorted[8]
+        );
+        assert!(
+            sorted[8] <= 33.3,
+            "Properties refresh p95 {:.3} ms exceeds the 33.3 ms budget",
+            sorted[8]
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn properties_transform_status_follows_the_layer_locks(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let top = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("top"))
+            .expect("top row")
+            .id;
+        select_layer(&content, cx, top);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("properties-status-pos").is_none()
+                && window.try_find("properties-status-rot").is_none()
+                && window.try_find("properties-status-pos-rot").is_none()
+                && window.try_find("properties-status-layer-locked").is_none(),
+            "an unlocked layer shows no transform status hint"
+        );
+        window.click("layer-lock-header-position", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("properties-status-pos").is_some(),
+            "a position lock shows the position hint"
+        );
+        window.click("layer-lock-header-rotation", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("properties-status-pos-rot").is_some(),
+            "both partial locks show the combined hint"
+        );
+        window.click("layer-lock-header-base", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("properties-status-layer-locked").is_some(),
+            "the base lock outranks the partial hints"
+        );
+        window.click("layer-lock-header-base", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("properties-status-pos-rot").is_some(),
+            "unlocking the base lock returns to the partial hint"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn row_lock_never_toggles_the_background_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with_background(),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let rows_and_flags = flags(&content, cx);
+        assert!(
+            rows_and_flags[1].is_background,
+            "the fixture bottom row is the Background"
+        );
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let bottom = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("bottom"))
+            .expect("bottom row")
+            .id;
+        window.click(format!("layer-lock-{bottom}"), cx);
+        window.render_frame(cx);
+        assert!(
+            !flags(&content, cx)[1].locked,
+            "the Background lock never writes a lock flag"
+        );
+        assert!(
+            !content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .is_some_and(|(_, _, dirty)| dirty),
+            "the guarded click leaves the document untouched"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn background_lock_click_shows_the_warn_toast(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with_background(),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("toast-1").is_none(),
+            "the live host is empty at rest"
+        );
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let bottom = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("bottom"))
+            .expect("bottom row")
+            .id;
+        window.click(format!("layer-lock-{bottom}"), cx);
+        window.render_frame(cx);
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert_eq!(state.toasts.len(), 1, "the guarded click posts one toast");
+            assert_eq!(state.toasts[0].message, "Rename the layer to unlock");
+            assert_eq!(state.toasts[0].severity, crate::state::ToastSeverity::Warn);
+        }
+        assert!(
+            window.try_find("toast-1").is_some(),
+            "the host paints the live queue"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// S060: the guarded row-lock click plus the toast paint (dispatch + render).
+#[gpui_kit::test]
+#[ignore = "performance measurement; run explicitly"]
+fn background_lock_toast_latency(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with_background(),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let bottom = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("bottom"))
+            .expect("bottom row")
+            .id;
+        let id = format!("layer-lock-{bottom}");
+        let dismiss = |cx: &mut gpui_kit::App| {
+            let toast = content.read(cx).state_for_test().read(cx).toasts[0].id;
+            content.update(cx, |app, cx| app.dismiss_toast(toast, cx));
+        };
+        // Warm once; the first click pays the host mount cost.
+        window.click(id.clone(), cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).toasts.len(),
+            1,
+            "the warm-up click posts one toast"
+        );
+        dismiss(cx);
+        window.render_frame(cx);
+
+        // The kit's `click` helper renders before dispatching, so it must not
+        // be timed; this dispatch is the production path without that render.
+        let press = |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
+            let position = window.find(id.clone()).bounds().center();
+            let _ = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                    button: gpui_kit::MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            let _ = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                    button: gpui_kit::MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+        };
+        let mut samples = Vec::new();
+        for sample in 0..9 {
+            let start = std::time::Instant::now();
+            press(window, cx);
+            window.render_frame(cx);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(
+                content.read(cx).state_for_test().read(cx).toasts.len(),
+                1,
+                "sample {sample} posts one toast"
+            );
+            dismiss(cx);
+            window.render_frame(cx);
+        }
+        let mut sorted = samples.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "S060_TOAST_MS samples={samples:?} p50={:.3} p95={:.3}",
+            sorted[4], sorted[8]
+        );
+        assert!(
+            sorted[8] <= 33.3,
+            "toast click p95 {:.3} ms exceeds the 33.3 ms budget",
+            sorted[8]
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn live_toasts_cap_at_three_and_dismiss_by_id(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            for index in 0..4 {
+                app.show_toast(
+                    format!("toast {index}"),
+                    crate::state::ToastSeverity::Info,
+                    cx,
+                );
+            }
+        });
+        window.render_frame(cx);
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert_eq!(state.toasts.len(), 3, "the queue keeps the last three");
+            assert_eq!(
+                state.toasts[0].message, "toast 1",
+                "the oldest toast is dropped"
+            );
+            assert_eq!(state.next_toast_id, 5);
+        }
+        assert!(
+            window.try_find("toast-1").is_none(),
+            "the dropped row is gone"
+        );
+        assert!(
+            window.try_find("toast-4").is_some(),
+            "the newest row paints"
+        );
+
+        content.update(cx, |app, cx| app.dismiss_toast(3, cx));
+        window.render_frame(cx);
+        assert!(
+            window.try_find("toast-3").is_none(),
+            "dismiss removes the row by id"
+        );
+        assert!(window.try_find("toast-2").is_some(), "siblings survive");
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn footer_actions_disable_on_the_background_and_last_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with_background(),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let bottom = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("bottom"))
+            .expect("bottom row")
+            .id;
+        select_layer(&content, cx, bottom);
+        window.render_frame(cx);
+
+        window.click("layer-action-4", cx);
+        window.render_frame(cx);
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert!(
+                state.status_error.is_none(),
+                "the Background delete is disabled, not a rejected command"
+            );
+            assert_eq!(state.layers.len(), 2, "the disabled delete removes nothing");
+        }
+
+        window.click("layer-action-2", cx);
+        window.render_frame(cx);
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert!(
+                state.status_error.is_none(),
+                "merge-down is disabled with no layer below"
+            );
+            assert_eq!(state.layers.len(), 2, "the disabled merge changes nothing");
+        }
+
+        assert!(
+            window.try_find("layer-action-0-tooltip").is_none(),
+            "the footer tooltip is absent at rest"
+        );
+        window.hover("layer-action-0", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("layer-action-0-tooltip").is_some(),
+            "hovering a footer action shows its tooltip"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn header_lock_toggles_drive_core_and_disable_the_partial_locks(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let top = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("top"))
+            .expect("top row")
+            .id;
+        select_layer(&content, cx, top);
+        window.render_frame(cx);
+
+        window.click("layer-lock-header-base", cx);
+        window.render_frame(cx);
+        assert!(
+            flags(&content, cx)[0].locked,
+            "the header's base toggle locks the selected layer"
+        );
+
+        window.click("layer-lock-header-transparency", cx);
+        window.render_frame(cx);
+        assert!(
+            !flags(&content, cx)[0].lock_transparency,
+            "a base lock disables the partial toggles"
+        );
+
+        window.click("layer-lock-header-base", cx);
+        window.render_frame(cx);
+        assert!(!flags(&content, cx)[0].locked, "the base toggle unlocks");
+        window.click("layer-lock-header-transparency", cx);
+        window.render_frame(cx);
+        assert!(
+            flags(&content, cx)[0].lock_transparency,
+            "the transparency toggle flips its own flag"
+        );
+
+        content.update(cx, |app, cx| {
+            app.step_history(true, cx).expect("undo succeeds");
+        });
+        assert!(
+            !flags(&content, cx)[0].lock_transparency,
+            "undo restores the transparency flag"
+        );
+
+        window.render_frame(cx);
+        assert!(
+            window.try_find("layer-lock-header-base-tooltip").is_none(),
+            "the lock tooltip is absent at rest"
+        );
+        window.hover("layer-lock-header-base", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("layer-lock-header-base-tooltip").is_some(),
+            "hovering the base toggle shows its tooltip"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn row_chevrons_reorder_through_core_and_stop_at_the_ends(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    // Row ids are projection positions and are reassigned on every
+    // reprojection, so order is asserted through `core_id`, which is stable.
+    let core_ids = |content: &Entity<App>, cx: &mut gpui_kit::App| -> Vec<String> {
+        super::input::layer_rows(content, cx)
+            .0
+            .into_iter()
+            .map(|row| row.core_id.expect("the fixture layers have core ids"))
+            .collect()
+    };
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        assert_eq!(rows.len(), 2, "the fixture opens two layers");
+        assert_eq!(
+            rows[0].core_id.as_deref(),
+            Some("top"),
+            "the projection lists the top layer first"
+        );
+        let top = rows[0].id;
+        let bottom = rows[1].id;
+
+        window.click(format!("layer-up-{bottom}"), cx);
+        window.render_frame(cx);
+        assert_eq!(
+            core_ids(&content, cx),
+            ["bottom", "top"],
+            "the second row moves above the first"
+        );
+
+        content.update(cx, |app, cx| {
+            app.step_history(true, cx).expect("undo succeeds");
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            core_ids(&content, cx),
+            ["top", "bottom"],
+            "undo restores the core order"
+        );
+
+        window.click(format!("layer-up-{top}"), cx);
+        window.click(format!("layer-down-{bottom}"), cx);
+        window.render_frame(cx);
+        assert_eq!(
+            core_ids(&content, cx),
+            ["top", "bottom"],
+            "the end chevrons cannot reorder"
+        );
+
+        assert!(
+            window
+                .try_find(format!("layer-up-{bottom}-tooltip"))
+                .is_none(),
+            "the chevron is tooltip-free until hovered"
+        );
+        window.hover(format!("layer-up-{bottom}"), cx);
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find(format!("layer-up-{bottom}-tooltip"))
+                .is_some(),
+            "hovering the chevron shows the move-layer tooltip"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn adjustments_indicator_follows_the_core_flag(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with_adjusted_top(),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        assert_eq!(rows.len(), 2);
+        assert!(
+            window
+                .try_find(format!("layer-adjustments-{}", rows[0].id))
+                .is_some(),
+            "the adjusted top layer shows the indicator"
+        );
+        assert!(
+            window
+                .try_find(format!("layer-adjustments-{}", rows[1].id))
+                .is_none(),
+            "a layer with no adjustments shows nothing"
+        );
+        assert!(
+            window
+                .try_find(format!("layer-adjustments-{}-tooltip", rows[0].id))
+                .is_none(),
+            "the indicator is tooltip-free until hovered"
+        );
+        window.hover(format!("layer-adjustments-{}", rows[0].id), cx);
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find(format!("layer-adjustments-{}-tooltip", rows[0].id))
+                .is_some(),
+            "hovering the indicator explains what it marks"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn opacity_and_blend_controls_write_through_core(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -150,6 +782,114 @@ fn opacity_and_blend_controls_write_through_core(cx: &mut gpui_kit::TestAppConte
         let state = content.read(cx).state_for_test().read(cx);
         assert_eq!(state.layer_blend, "Normal");
         assert_eq!(state.layer_opacity, 1.0);
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn blend_cycle_reaches_difference_and_undoes_stepwise(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).layer_blend,
+            "Normal"
+        );
+        let expected = [
+            "Multiply",
+            "Screen",
+            "Overlay",
+            "Darken",
+            "Lighten",
+            "Color Dodge",
+            "Color Burn",
+            "Soft Light",
+            "Hard Light",
+            "Difference",
+        ];
+        for (step, mode) in expected.iter().enumerate() {
+            window.click("layer-blend-cycle", cx);
+            window.render_frame(cx);
+            assert_eq!(
+                content.read(cx).state_for_test().read(cx).layer_blend,
+                *mode,
+                "click {} advances the cycle",
+                step + 1
+            );
+        }
+        for _ in 0..10 {
+            content.update(cx, |app, cx| {
+                app.step_history(true, cx).expect("undo blend");
+            });
+        }
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).layer_blend,
+            "Normal",
+            "each cycle click is its own undo step"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The blend control's click -> composited frame budget: one press/release on
+/// the Layers select plus the frame that repaints the canvas with the new
+/// blend mode.
+#[gpui_kit::test]
+#[ignore = "performance measurement; run explicitly"]
+fn blend_cycle_latency(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let bounds = window.find("layer-blend-cycle").bounds();
+        let center =
+            bounds.origin + gpui_kit::point(bounds.size.width / 2.0, bounds.size.height / 2.0);
+        let mut samples = Vec::new();
+        for _ in 0..9 {
+            let start = std::time::Instant::now();
+            let _ = window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button: MouseButton::Left,
+                    position: center,
+                    click_count: 1,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            let _ = window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position: center,
+                    click_count: 1,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        samples.sort_by(f64::total_cmp);
+        let p50 = samples[samples.len() / 2];
+        let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
+        let listed: Vec<String> = samples.iter().map(|s| format!("{s:.4}")).collect();
+        println!(
+            "blend_cycle p50={p50:.3} p95={p95:.3} ms n={} samples=[{}]",
+            samples.len(),
+            listed.join(",")
+        );
+        assert!(
+            p95 <= 33.3,
+            "blend cycle p95 {p95:.3} ms over the 33.3 ms budget"
+        );
     })
     .expect("test window remains open");
 }

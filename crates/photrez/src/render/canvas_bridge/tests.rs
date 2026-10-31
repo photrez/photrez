@@ -65,6 +65,40 @@ fn scaled_preview_patch_is_display_only_until_discarded() {
         .is_ok());
 }
 
+#[test]
+fn exact_preview_replacement_retires_old_overlay_and_keeps_full_resolution() {
+    let mut image = CanvasImage::from_rgba(2, 1, vec![0; 2 * 4]).expect("valid");
+    image
+        .push_scaled_patch(0, 0, 2, 1, 1, 1, &solid(1, 1, [255, 0, 0, 255]))
+        .expect("initial preview");
+    let old_texture = Arc::clone(&image.preview_patches[0].image);
+
+    let replacement = [255, 0, 0, 255, 0, 0, 255, 255];
+    let retired = image
+        .replace_preview_patch(0, 0, 2, 1, &replacement)
+        .expect("exact replacement");
+
+    assert_eq!(retired.len(), 1);
+    assert!(Arc::ptr_eq(&retired[0], &old_texture));
+    assert_eq!(image.preview_patches.len(), 1);
+    assert_eq!(
+        image.preview_patches[0].rect,
+        TileRect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+        }
+    );
+    assert_eq!(
+        image.preview_patches[0]
+            .image
+            .as_bytes(0)
+            .expect("one frame"),
+        &[0, 0, 255, 255, 255, 0, 0, 255]
+    );
+}
+
 fn solid(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
     for _ in 0..(width as usize * height as usize) {
@@ -576,4 +610,35 @@ fn progressive_tile_limit_keeps_covered_pixels_equal_to_the_full_build() {
     for (x, y) in [(0, 0), (511, 511), (512, 0), (599, 511)] {
         assert_eq!(pixel_at(&first, x, y), pixel_at(&full, x, y), "({x},{y})");
     }
+}
+
+#[test]
+fn read_region_rgba_returns_the_display_pixels_as_rgba() {
+    let mut rgba = Vec::with_capacity(4 * 4 * 4);
+    for y in 0..4u8 {
+        for x in 0..4u8 {
+            rgba.extend_from_slice(&[x * 10, y * 10, 7, 200]);
+        }
+    }
+    let image = CanvasImage::from_rgba(4, 4, rgba).expect("valid");
+    let region = image.read_region_rgba(1, 1, 2, 2).expect("region reads");
+    assert_eq!(region.len(), 2 * 2 * 4);
+    assert_eq!(&region[0..4], &[10, 10, 7, 200]);
+    assert_eq!(&region[4..8], &[20, 10, 7, 200]);
+    assert_eq!(&region[8..12], &[10, 20, 7, 200]);
+    assert_eq!(&region[12..16], &[20, 20, 7, 200]);
+}
+
+#[test]
+fn read_region_rgba_refuses_a_surface_with_pending_previews() {
+    let mut image = CanvasImage::from_rgba(8, 8, solid(8, 8, [255, 255, 255, 255])).expect("valid");
+    image
+        .push_scaled_patch(0, 0, 4, 4, 4, 4, &solid(4, 4, [255, 0, 0, 255]))
+        .expect("scaled preview");
+    assert!(matches!(
+        image.read_region_rgba(0, 0, 4, 4),
+        Err(FrameError::PendingPreviews)
+    ));
+    let _ = image.discard_preview_patches();
+    assert!(image.read_region_rgba(0, 0, 4, 4).is_ok());
 }

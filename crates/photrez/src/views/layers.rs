@@ -57,11 +57,13 @@
 //!
 //! `.on_click` selects; `.on_drag` starts a reorder with [`rows::LayerDragGhost`]
 //! visible only during drag; `.on_drop::<u64>` moves the row to the target index
-//! and selects it. Reordering is UI state only: no history or document mutation,
-//! not undoable yet.
+//! and selects it. Drops and the row's up/down chevrons both go through
+//! `App::reorder_layer_rows`, which records the move in core history.
 //!
 //! The reorder chevrons are `opacity-0 group-hover:opacity-100`
-//! (`LayerItem.tsx:296`), invisible at rest and absent from the baseline and port.
+//! (`LayerItem.tsx:280`): invisible at rest but occupying their row slots,
+//! revealed by hovering the row, carrying the `layers.moveLayerUp/Down`
+//! tooltips and dimmed (`opacity-20`) at the two ends of the stack.
 //!
 //! # Gaps
 //!
@@ -69,17 +71,26 @@
 //!   pixels are unreproducible, but its 34x34 frame, border, and checkerboard
 //!   are. `properties_panel.rs` uses the same flat-colour `checkerboard()`.
 //! * Native blend-mode `<select>`: resting chrome drawn, popup not captured open.
-//! * `Tooltip` wrappers on four lock buttons and the eye toggle, plus
-//!   `transition-all duration-75`, are interaction-only.
+//! * The header's four lock toggles carry their oracle tooltips, accent tint
+//!   and disabled states; only `transition-all duration-75` and the hover
+//!   text tint are left out. The row eye toggle carries its Hide/Show Layer
+//!   tooltip; the oracle row lock exposes an `aria-label` instead of a
+//!   tooltip, and the oracle has no row rename button at all (renaming starts
+//!   from the name), so the native pen is an addition.
 //! * `disabled:opacity-50` / `opacity-30` / `opacity-35` are indistinguishable
 //!   from enabled resting pixels.
-//! * Reference `eye_toggle` is unported and unreachable; no row wires it.
+//! * The adjustments indicator (`LayerItem.tsx:301`) draws from
+//!   `PtzLayer::has_adjustments`; the projection reads the serialized flag and
+//!   does not derive it from adjustment values itself.
 
 use crate::components::ui;
 use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, LayerRow};
 use crate::tokens::color;
+use crate::views::option_bar::controls::tooltip;
+
+use photrez_core::protocol::LockKind;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
@@ -90,6 +101,8 @@ use gpui_kit::{
 
 /// LayerDock's column width: `shell-navigator` is 260 wide at x=1106 and the
 /// dock runs to the window edge.
+/// The drag ghost keeps the pre-fill width; the panel itself fills its dock
+/// column (298 px at 2xl) instead of pinning this value.
 const PANEL_W: f32 = 260.0;
 
 /// Height above the Navigator at the baseline window: 611 - 84.
@@ -173,13 +186,6 @@ const FOOT_ICON: f32 = 17.0;
 /// first used, so the footer asks for this one by name.
 const STROKE: f32 = 1.75;
 
-pub const LOCK_BUTTONS: &[&[u8]] = &[
-    icons::UNLOCK,
-    icons::PAINT_BUCKET,
-    icons::MAXIMIZE,
-    icons::ROTATE,
-];
-
 // `trailing` marks Delete, the only button the source pushes right with
 // `ml-auto` (`LayersPanel.tsx:790`): measured at x 1333..1349 = 1366 - 16
 // (`px-4`) - 17, with the four on the left at 1122, 1159, 1196, 1233
@@ -231,14 +237,20 @@ pub fn render(
             s.layer_flags.clone(),
         )
     };
+    // The Lock header acts on the selected row's core layer, if it has one.
+    let active = layers
+        .iter()
+        .zip(flags.iter())
+        .find(|(row, _)| row.id == selected)
+        .and_then(|(row, flags)| row.core_id.clone().map(|id| (id, *flags)));
     v_flex()
-        .w(px(PANEL_W))
+        .w_full()
         .flex_1()
         .min_h(px(0.0))
         .overflow_hidden()
         .bg(color::PANEL)
         .child(blend_header(state, cx))
-        .child(lock_header())
+        .child(lock_header(active.as_ref(), state, cx))
         .child(layer_list(
             &layers,
             &flags,
@@ -248,7 +260,7 @@ pub fn render(
             state,
             cx,
         ))
-        .child(actions_footer(cx))
+        .child(actions_footer(state, cx))
 }
 
 /// `flex items-center gap-2 px-3.5 pt-3` — the blend select and the opacity
@@ -361,14 +373,113 @@ fn blend_select(label: String, cx: &Context<crate::app::App>) -> impl IntoElemen
         ))
 }
 
+/// One header lock toggle: which flag it flips, its glyph, and whether the
+/// oracle disables it (`LayersPanel.tsx:477-531`).
+struct LockToggle {
+    id: &'static str,
+    svg: &'static [u8],
+    kind: LockKind,
+    locked: bool,
+    /// `disabled` on the oracle button: the base toggle is off for a missing
+    /// or background layer; the three partial locks also need an unlocked base.
+    disabled: bool,
+    /// `disabled:opacity-30` — only the three partial toggles carry it.
+    dimmed: bool,
+    text: String,
+}
+
+/// The four toggles in source order: base, transparency, position, rotation.
+///
+/// `None` means no active layer, which disables every toggle just as a missing
+/// `activeLayer()` does in the oracle.
+fn lock_toggles(flags: Option<crate::state::LayerFlags>) -> Vec<LockToggle> {
+    let background = flags.is_some_and(|flags| flags.is_background);
+    let base_locked = flags.is_some_and(|flags| flags.locked);
+    let toggle = |id: &'static str,
+                  svg: &'static [u8],
+                  kind: LockKind,
+                  locked: bool,
+                  blocked: bool,
+                  dimmed: bool,
+                  locked_key: &str,
+                  unlocked_key: &str| {
+        LockToggle {
+            id,
+            svg,
+            kind,
+            locked,
+            disabled: flags.is_none() || background || blocked,
+            dimmed: dimmed && (flags.is_none() || background || blocked),
+            text: if background {
+                t("layers.renameToUnlock")
+            } else if locked {
+                t(locked_key)
+            } else {
+                t(unlocked_key)
+            },
+        }
+    };
+    vec![
+        toggle(
+            "base",
+            if base_locked {
+                icons::LOCK
+            } else {
+                icons::UNLOCK
+            },
+            LockKind::Base,
+            base_locked,
+            false,
+            false,
+            "layers.unlockLayer",
+            "layers.lockLayer",
+        ),
+        toggle(
+            "transparency",
+            icons::PAINT_BUCKET,
+            LockKind::Transparency,
+            flags.is_some_and(|flags| flags.lock_transparency),
+            base_locked,
+            true,
+            "layers.unlockTransparency",
+            "layers.lockTransparency",
+        ),
+        toggle(
+            "position",
+            icons::MAXIMIZE,
+            LockKind::Position,
+            flags.is_some_and(|flags| flags.lock_position),
+            base_locked,
+            true,
+            "layers.unlockPosition",
+            "layers.lockPosition",
+        ),
+        toggle(
+            "rotation",
+            icons::ROTATE,
+            LockKind::Rotation,
+            flags.is_some_and(|flags| flags.lock_rotation),
+            base_locked,
+            true,
+            "layers.unlockRotation",
+            "layers.lockRotation",
+        ),
+    ]
+}
+
 /// `flex items-center gap-4 px-3.5 py-3` — the "Lock:" label and four
 /// `size-4` icon buttons.
 ///
-/// All four carry a `Tooltip` wrapper, which a static port cannot show, so the
-/// icons stand alone. Their resting colour is `text-editor-text-dim`; the
-/// locked variants tint ACCENT, and none of them is captured in the baseline's
-/// resting state, so they are drawn unlocked.
-fn lock_header() -> Div {
+/// Each button carries its `Tooltip`; the locked variants tint ACCENT and the
+/// three partial locks dim while the base lock is on. The background layer
+/// cannot be locked at all — its tooltips say to rename it first.
+fn lock_header(
+    active: Option<&(String, crate::state::LayerFlags)>,
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let flags = active.map(|(_, flags)| *flags);
+    let toggles = lock_toggles(flags);
     h_flex()
         .w_full()
         .flex_shrink_0()
@@ -387,12 +498,22 @@ fn lock_header() -> Div {
             h_flex()
                 .items_center()
                 .gap(px(GAP_4))
-                .children(LOCK_BUTTONS.iter().map(|&svg| lock_button(svg))),
+                .children(toggles.into_iter().map(|spec| {
+                    let core_id = active.map(|(id, _)| id.clone());
+                    lock_button(spec, core_id, state, cx).into_any_element()
+                })),
         )
 }
 
-fn lock_button(icon: &'static [u8]) -> Div {
-    div()
+fn lock_button(
+    spec: LockToggle,
+    core_id: Option<String>,
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let mut button = div()
+        .id(format!("layer-lock-header-{}", spec.id))
+        .test_support()
         .w(px(LOCK_BOX))
         .h(px(LOCK_BOX))
         .flex()
@@ -401,19 +522,78 @@ fn lock_button(icon: &'static [u8]) -> Div {
         .flex_shrink_0()
         .child(
             Icon::default()
-                .data(icon)
+                .data(spec.svg)
                 .size(px(LOCK_ICON))
-                .text_color(color::TEXT_DIM),
-        )
+                .text_color(if spec.locked {
+                    color::ACCENT
+                } else {
+                    color::TEXT_DIM
+                }),
+        );
+    if spec.disabled {
+        if spec.dimmed {
+            button = button.opacity(0.3);
+        }
+    } else {
+        let kind = spec.kind;
+        button = button.cursor_pointer().on_click(cx.listener(
+            move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                if let Some(core_id) = core_id.clone() {
+                    app.toggle_layer_lock(core_id, kind.clone(), cx);
+                }
+            },
+        ));
+    }
+    tooltip(
+        state,
+        format!("layer-lock-header-{}", spec.id),
+        spec.text,
+        None,
+        cx,
+        button,
+    )
 }
 
 /// `flex shrink-0 items-center gap-5 border-t border-editor-divider
 /// bg-editor-panel px-4 py-2.5 text-editor-icon` — the Layer Actions footer
 /// (`LayersPanel.tsx:746-796`).
 ///
-/// Tooltips, hover tint and `disabled:opacity-30` are interaction-only; resting
-/// captures show all five glyphs at measured `#868686`.
-fn actions_footer(cx: &Context<crate::app::App>) -> Div {
+/// Each button carries its `Tooltip` and the oracle's `disabled:opacity-30`
+/// gate: duplicate and merge-down need an active layer, merge-down also needs
+/// one beneath it, flatten needs more than one layer, and delete refuses the
+/// last layer and the Background. Resting captures show all five glyphs at
+/// measured `#868686`.
+fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
+    let (layers, selected, flags) = {
+        let s = state.read(cx);
+        (s.layers.clone(), s.selected_layer, s.layer_flags.clone())
+    };
+    let position = layers.iter().position(|row| row.id == selected);
+    let background = position
+        .and_then(|index| flags.get(index).copied())
+        .is_some_and(|flags| flags.is_background);
+    let has_active = position.is_some();
+    let at_bottom = position.is_none_or(|index| index + 1 >= layers.len());
+    let single = layers.len() <= 1;
+    let disabled = [
+        false,
+        !has_active,
+        !has_active || at_bottom,
+        single,
+        single || background,
+    ];
+    let texts = [
+        t("layers.newLayer"),
+        t("layers.duplicateLayer"),
+        t("layers.mergeDown"),
+        t("layers.flattenAll"),
+        if background {
+            t("layers.cannotDeleteBackground")
+        } else {
+            t("layers.deleteLayer")
+        },
+    ];
+
     h_flex()
         .w_full()
         .flex_shrink_0()
@@ -425,11 +605,13 @@ fn actions_footer(cx: &Context<crate::app::App>) -> Div {
         .border_color(color::BORDER)
         .bg(color::PANEL)
         .children(FOOTER_ICONS.iter().enumerate().map(|(index, fi)| {
-            let button = footer_icon(fi.svg)
+            let mut button = footer_icon(fi.svg)
                 .id(format!("layer-action-{index}"))
-                .test_support()
-                .cursor_pointer()
-                .on_click(cx.listener(
+                .test_support();
+            if disabled[index] {
+                button = button.opacity(0.3);
+            } else {
+                button = button.cursor_pointer().on_click(cx.listener(
                     move |app: &mut crate::app::App, _: &gpui_kit::ClickEvent, _window, cx| {
                         match index {
                             0 => app.add_empty_layer(cx),
@@ -453,10 +635,19 @@ fn actions_footer(cx: &Context<crate::app::App>) -> Div {
                         }
                     },
                 ));
+            }
+            let tagged = tooltip(
+                state,
+                format!("layer-action-{index}"),
+                texts[index].clone(),
+                None,
+                cx,
+                button,
+            );
             if fi.trailing {
-                div().ml_auto().child(button).into_any_element()
+                div().ml_auto().child(tagged).into_any_element()
             } else {
-                button.into_any_element()
+                tagged.into_any_element()
             }
         }))
 }
@@ -503,13 +694,74 @@ mod tests {
         assert!(FOOTER_ICONS[4].trailing);
     }
 
+    fn flags() -> crate::state::LayerFlags {
+        crate::state::LayerFlags {
+            visible: true,
+            locked: false,
+            has_adjustments: false,
+            lock_transparency: false,
+            lock_position: false,
+            lock_rotation: false,
+            is_background: false,
+        }
+    }
+
     #[test]
-    fn lock_buttons_match_reference() {
-        assert_eq!(LOCK_BUTTONS.len(), 4);
-        assert_eq!(LOCK_BUTTONS[0], icons::UNLOCK);
-        assert_eq!(LOCK_BUTTONS[1], icons::PAINT_BUCKET);
-        assert_eq!(LOCK_BUTTONS[2], icons::MAXIMIZE);
-        assert_eq!(LOCK_BUTTONS[3], icons::ROTATE);
+    fn lock_toggles_match_the_oracle_order_and_glyphs() {
+        let toggles = lock_toggles(Some(flags()));
+        let glyphs: Vec<&[u8]> = toggles.iter().map(|toggle| toggle.svg).collect();
+        assert_eq!(
+            glyphs,
+            vec![
+                icons::UNLOCK,
+                icons::PAINT_BUCKET,
+                icons::MAXIMIZE,
+                icons::ROTATE
+            ]
+        );
+        let ids: Vec<&str> = toggles.iter().map(|toggle| toggle.id).collect();
+        assert_eq!(ids, vec!["base", "transparency", "position", "rotation"]);
+        assert!(toggles.iter().all(|toggle| !toggle.disabled));
+        assert!(toggles.iter().all(|toggle| !toggle.locked));
+        assert_eq!(toggles[0].text, t("layers.lockLayer"));
+        assert_eq!(toggles[1].text, t("layers.lockTransparency"));
+        assert_eq!(toggles[2].text, t("layers.lockPosition"));
+        assert_eq!(toggles[3].text, t("layers.lockRotation"));
+    }
+
+    #[test]
+    fn lock_toggles_follow_the_lock_state_and_disable_partials() {
+        let unlocked = lock_toggles(Some(crate::state::LayerFlags {
+            lock_transparency: true,
+            ..flags()
+        }));
+        assert_eq!(unlocked[1].text, t("layers.unlockTransparency"));
+        assert!(unlocked[1].locked);
+        assert!(!unlocked[1].disabled);
+
+        let locked = lock_toggles(Some(crate::state::LayerFlags {
+            locked: true,
+            ..flags()
+        }));
+        assert_eq!(locked[0].svg, icons::LOCK);
+        assert_eq!(locked[0].text, t("layers.unlockLayer"));
+        for toggle in &locked[1..] {
+            assert!(toggle.disabled, "a base lock disables the partial toggles");
+            assert!(toggle.dimmed, "the partial toggles dim while disabled");
+        }
+
+        let background = lock_toggles(Some(crate::state::LayerFlags {
+            is_background: true,
+            ..flags()
+        }));
+        assert!(background.iter().all(|toggle| toggle.disabled));
+        assert!(background
+            .iter()
+            .all(|toggle| toggle.text == t("layers.renameToUnlock")));
+
+        let absent = lock_toggles(None);
+        assert!(absent.iter().all(|toggle| toggle.disabled));
+        assert_eq!(absent[0].text, t("layers.lockLayer"));
     }
 }
 

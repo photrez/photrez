@@ -8,11 +8,15 @@
 //! painting (`render/`), or document truth (`photrez-core`).
 
 pub mod adjustments_panel;
+pub mod brush_menu;
 pub mod canvas_surface;
+pub mod color_picker;
 pub mod context_menus;
 pub mod dialogs;
 pub mod document_tabs;
 pub mod empty_state;
+mod file_drop_surface;
+mod gradient_badge;
 pub mod history;
 pub mod layers;
 pub mod loading;

@@ -74,6 +74,31 @@ impl LoadedDocument {
         height: u32,
         rgba: Vec<u8>,
     ) -> Result<Self, ServiceError> {
+        Self::single_layer_document(document_id, name, width, height, rgba, None)
+    }
+
+    /// The new-document Background: one white raster layer that owns the
+    /// document's layer identity and carries the oracle's locked position and
+    /// rotation, so the Layers row and the Properties banner read real core
+    /// state instead of seeded display flags.
+    pub(crate) fn seeded_background(
+        document_id: String,
+        name: String,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<Self, ServiceError> {
+        Self::single_layer_document(document_id, name, width, height, rgba, Some(true))
+    }
+
+    fn single_layer_document(
+        document_id: String,
+        name: String,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+        locked_transform: Option<bool>,
+    ) -> Result<Self, ServiceError> {
         ptz_limits::validate_layer_id(&document_id)?;
         if width == 0 || height == 0 {
             return Err(validation("imported image dimensions must be positive"));
@@ -96,8 +121,8 @@ impl LoadedDocument {
             locked: false,
             is_background: Some(true),
             lock_transparency: None,
-            lock_position: None,
-            lock_rotation: None,
+            lock_position: locked_transform,
+            lock_rotation: locked_transform,
             has_adjustments: None,
             basic_adjustment: None,
             resource_id: None,

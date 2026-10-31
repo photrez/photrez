@@ -1,5 +1,25 @@
 use super::*;
 
+use crate::views::option_bar::controls::tooltip;
+
+/// `size-[22px]` — one reorder chevron (`LayerItem.tsx:285`).
+const MOVE_BTN: f32 = 22.0;
+
+/// `size-3.5` — the glyph inside it.
+const MOVE_ICON: f32 = 14.0;
+
+/// `gap-1` between the chevrons and `pr-1` on the strip.
+const MOVE_GAP: f32 = 4.0;
+
+/// `size-6` — the adjustments indicator's box (`LayerItem.tsx:304`).
+const ADJUST_BOX: f32 = 24.0;
+/// `size-3.5` — the sliders glyph inside it.
+const ADJUST_ICON: f32 = 14.0;
+/// `mr-1` — the indicator's trailing gap before the lock button.
+const ADJUST_GAP: f32 = 4.0;
+/// `strokeWidth={1.75}` on the oracle's icon.
+const ADJUST_STROKE: f32 = 1.75;
+
 /// `flex-1 overflow-y-auto border-y border-editor-divider` — the layer stack.
 ///
 /// The `pr` is the reserved scrollbar gutter; see the module docs on why 254
@@ -64,14 +84,27 @@ pub(super) fn layer_list(
         .children(layers.iter().enumerate().map(|(index, layer)| {
             layer_row(
                 layer,
-                flags.get(index).copied(),
-                layer.id == selected,
-                selected_layers.contains(&layer.id),
-                thumbs.get(index).and_then(|thumb| thumb.as_ref()),
+                RowView {
+                    flags: flags.get(index).copied(),
+                    active: layer.id == selected,
+                    selected: selected_layers.contains(&layer.id),
+                    up_target: index.checked_sub(1).map(|up| layers[up].id),
+                    down_target: layers.get(index + 1).map(|down| down.id),
+                    thumb: thumbs.get(index).and_then(|thumb| thumb.as_ref()),
+                },
                 state,
                 cx,
             )
         }))
+}
+
+struct RowView<'a> {
+    flags: Option<crate::state::LayerFlags>,
+    active: bool,
+    selected: bool,
+    up_target: Option<u64>,
+    down_target: Option<u64>,
+    thumb: Option<&'a std::sync::Arc<gpui_kit::RenderImage>>,
 }
 
 /// `flex h-[50px] items-center gap-2.5 px-3.5 border-b border-editor-divider/10`
@@ -87,17 +120,24 @@ pub(super) fn layer_list(
 /// that string.
 fn layer_row(
     layer: &LayerRow,
-    flags: Option<crate::state::LayerFlags>,
-    active: bool,
-    selected: bool,
-    thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>,
+    view: RowView<'_>,
     state: &Entity<AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
+    let RowView {
+        flags,
+        active,
+        selected,
+        up_target,
+        down_target,
+        thumb,
+    } = view;
     let id = layer.id;
     let name = layer.name.clone();
     let visible = flags.map(|flags| flags.visible).unwrap_or(true);
     let locked = flags.map(|flags| flags.locked).unwrap_or(false);
+    let background = flags.is_some_and(|flags| flags.is_background);
+    let has_adjustments = flags.map(|flags| flags.has_adjustments).unwrap_or(false);
 
     let state_for_click = state.clone();
     let on_click = cx.listener(
@@ -160,25 +200,39 @@ fn layer_row(
     );
 
     let ghost_name = layer.name.clone();
-    let on_drag =
-        move |_: &u64, _: Point<gpui_kit::Pixels>, _: &mut Window, cx: &mut gpui_kit::App| {
-            // The ghost is a fixed row-sized chip and does not track the pointer
-            // offset; anchor it to the grab point if the drag ever needs to feel
-            // attached to the cursor.
-            cx.new(|_| LayerDragGhost {
-                name: ghost_name.clone(),
-            })
-        };
+    let drag_payload = {
+        let source_doc_id = state.read(cx).document_id.clone().unwrap_or_default();
+        crate::app::cross_doc::LayerDragPayload {
+            source_doc_id,
+            core_id: layer.core_id.clone(),
+            row_id: id,
+        }
+    };
+    let on_drag = move |_: &crate::app::cross_doc::LayerDragPayload,
+                        _: Point<gpui_kit::Pixels>,
+                        _: &mut Window,
+                        cx: &mut gpui_kit::App| {
+        // The ghost is a fixed row-sized chip and does not track the pointer
+        // offset; anchor it to the grab point if the drag ever needs to feel
+        // attached to the cursor.
+        cx.new(|_| LayerDragGhost {
+            name: ghost_name.clone(),
+        })
+    };
 
     let on_drop = cx.listener(
-        move |app, dragged: &u64, _, cx: &mut Context<crate::app::App>| {
-            app.reorder_layer_rows(*dragged, id, cx);
+        move |app,
+              payload: &crate::app::cross_doc::LayerDragPayload,
+              window,
+              cx: &mut Context<crate::app::App>| {
+            app.drop_layer_on_row(payload, id, window.modifiers().alt, cx);
         },
     );
 
     h_flex()
         .id(format!("layer-row-{id}"))
         .test_support()
+        .group(format!("layer-row-{id}"))
         .w_full()
         .h(px(ROW_H))
         .flex_shrink_0()
@@ -196,8 +250,8 @@ fn layer_row(
         })
         .cursor_pointer()
         .on_click(on_click)
-        .on_drag(id, on_drag)
-        .on_drop::<u64>(on_drop)
+        .on_drag(drag_payload, on_drag)
+        .on_drop::<crate::app::cross_doc::LayerDragPayload>(on_drop)
         .child(layer_thumb(thumb))
         .child(
             div()
@@ -208,10 +262,70 @@ fn layer_row(
                 .text_color(if locked { color::TEXT_DIM } else { color::TEXT })
                 .child(name),
         )
+        .child(
+            h_flex()
+                .items_center()
+                .gap(px(MOVE_GAP))
+                .pr(px(MOVE_GAP))
+                .opacity(0.0)
+                .group_hover(format!("layer-row-{id}"), |style| style.opacity(1.0))
+                .child(move_button(
+                    id,
+                    "up",
+                    icons::CHEVRON_UP,
+                    "layers.moveLayerUp",
+                    up_target,
+                    state,
+                    cx,
+                ))
+                .child(move_button(
+                    id,
+                    "down",
+                    icons::CHEVRON_DOWN,
+                    "layers.moveLayerDown",
+                    down_target,
+                    state,
+                    cx,
+                )),
+        )
+        .when(has_adjustments, |el| {
+            el.child(tooltip(
+                state,
+                format!("layer-adjustments-{id}"),
+                t("layers.layerAdjustmentsApplied"),
+                None,
+                cx,
+                div()
+                    .id(format!("layer-adjustments-{id}"))
+                    .test_support()
+                    .w(px(ADJUST_BOX))
+                    .h(px(ADJUST_BOX))
+                    .mr(px(ADJUST_GAP))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .flex_shrink_0()
+                    .child(
+                        Icon::default()
+                            .data(icons::with_stroke(icons::SLIDERS, ADJUST_STROKE))
+                            .size(px(ADJUST_ICON))
+                            .text_color(color::ACCENT),
+                    ),
+            ))
+        })
         .when_some(layer.core_id.clone(), |el, core_id| {
             let lock_id = core_id.clone();
             let rename_id = core_id.clone();
-            el.child(
+            el.child(tooltip(
+                state,
+                format!("layer-eye-{id}"),
+                if visible {
+                    t("layers.hideLayer")
+                } else {
+                    t("layers.showLayer")
+                },
+                None,
+                cx,
                 div()
                     .id(format!("layer-eye-{id}"))
                     .test_support()
@@ -235,7 +349,7 @@ fn layer_row(
                             color::TEXT_DIM
                         },
                     )),
-            )
+            ))
             .child(
                 div()
                     .id(format!("layer-lock-{id}"))
@@ -250,12 +364,27 @@ fn layer_row(
                     .on_click(
                         cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
+                            if background {
+                                // Background layers never toggle their lock; the
+                                // oracle only unlocks one by renaming it
+                                // (`LayerItem.tsx:312-336`).
+                                app.show_toast(
+                                    "Rename the layer to unlock",
+                                    crate::state::ToastSeverity::Warn,
+                                    cx,
+                                );
+                                return;
+                            }
                             app.toggle_layer_locked(lock_id.clone(), cx);
                         }),
                     )
                     .child(
                         Icon::default()
-                            .data(if locked { icons::LOCK } else { icons::UNLOCK })
+                            .data(if locked || background {
+                                icons::LOCK
+                            } else {
+                                icons::UNLOCK
+                            })
                             .size(px(13.0))
                             .text_color(if locked { color::ICON } else { color::TEXT_DIM }),
                     ),
@@ -285,6 +414,58 @@ fn layer_row(
                     ),
             )
         })
+}
+
+/// One reorder chevron: hover-revealed by the row's group, and disabled with
+/// `opacity-20` when the row already sits at that end of the stack.
+///
+/// The disabled button keeps its paint but gets no handler, which is what
+/// `disabled` does in the source as well (`LayerItem.tsx:283/292`).
+fn move_button(
+    row_id: u64,
+    direction: &'static str,
+    icon: &'static [u8],
+    tooltip_key: &'static str,
+    target: Option<u64>,
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let button = div()
+        .id(format!("layer-{direction}-{row_id}"))
+        .test_support()
+        .w(px(MOVE_BTN))
+        .h(px(MOVE_BTN))
+        .flex()
+        .items_center()
+        .justify_center()
+        .flex_shrink_0()
+        .rounded(px(R3))
+        .child(
+            Icon::default()
+                .data(icon)
+                .size(px(MOVE_ICON))
+                .text_color(color::ICON),
+        );
+    let button = match target {
+        Some(target) => button
+            .cursor_pointer()
+            .hover(|style| style.bg(color::WHITE_10))
+            .on_click(
+                cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                    cx.stop_propagation();
+                    app.reorder_layer_rows(row_id, target, cx);
+                }),
+            ),
+        None => button.opacity(0.2),
+    };
+    tooltip(
+        state,
+        format!("layer-{direction}-{row_id}"),
+        t(tooltip_key),
+        None,
+        cx,
+        button,
+    )
 }
 
 /// The chip GPUI paints under the pointer while a row is dragged.
@@ -327,6 +508,9 @@ impl Render for LayerDragGhost {
 /// The canvas bitmap is a *layer preview*, which a static port cannot have —
 /// so this is the empty chrome, exactly as in `properties_panel.rs`.
 fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
+    // A row without a core layer is the seeded display-only Background, whose
+    // document image is the white 800x600 canvas; that is the swatch the
+    // oracle paints. Anything with pixels keeps the checkerboard frame.
     let mut frame = div()
         .relative()
         .w(px(THUMB))
@@ -334,7 +518,11 @@ fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
         .rounded(px(R3))
         .border(px(1.0))
         .border_color(color::DIVIDER)
-        .bg(CHECKER_MEAN)
+        .bg(if thumb.is_some() {
+            CHECKER_MEAN
+        } else {
+            color::WHITE
+        })
         .flex_shrink_0();
     if let Some(image) = thumb.cloned() {
         frame = frame.child(

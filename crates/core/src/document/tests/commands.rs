@@ -99,6 +99,40 @@ fn set_locked_transparency_maps_to_named_field() {
 }
 
 #[test]
+fn partial_lock_undo_clears_the_shadow_value() {
+    // The host projects the layer panel from the shadow, so an undo that lands
+    // on the pre-toggle (unlocked) side must clear the shadow too - a shadow
+    // that keeps Some(true) reports a lock the engine no longer holds and
+    // would save it.
+    let mut e = DocumentCore::new();
+    e.seed_ptz(canonical_doc());
+    e.seed_layers(vec![layer()], 0);
+    let shadow_lock = |e: &DocumentCore| {
+        e.ptz_content()
+            .expect("shadow seeded")
+            .layers
+            .iter()
+            .find(|l| l.id == "L1")
+            .expect("layer in shadow")
+            .lock_transparency
+    };
+    e.apply(env(Command::SetLocked {
+        id: "L1".into(),
+        kind: LockKind::Transparency,
+        locked: true,
+    }))
+    .unwrap();
+    assert_eq!(shadow_lock(&e), Some(true));
+    e.apply(env(Command::Undo)).unwrap();
+    assert_eq!(find(&e, "L1").lock_transparency, Some(false));
+    assert_eq!(
+        shadow_lock(&e),
+        Some(false),
+        "undo must clear the shadow's partial lock"
+    );
+}
+
+#[test]
 fn rename_changes_only_name() {
     let mut e = engine();
     e.apply(env(Command::Rename {

@@ -222,9 +222,10 @@ fn validate(opts: &SurfaceOpts) -> i32 {
         }
     };
 
-    // Files named across all surfaces.
+    // Files named across all surfaces, keyed by each row's stable id.
     let mut surface_files: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (index, row) in sur_records.iter().enumerate() {
+    for row in sur_records.iter() {
+        let id = row.get("id").cloned().unwrap_or_default();
         let refs: Vec<String> = row
             .get("frozen_refs")
             .map(|r| r.split(';').map(|s| s.trim().to_string()).collect())
@@ -233,10 +234,7 @@ fn validate(opts: &SurfaceOpts) -> i32 {
             if file.is_empty() {
                 continue;
             }
-            surface_files
-                .entry(file)
-                .or_default()
-                .push(format!("S{:03}", index + 1));
+            surface_files.entry(file).or_default().push(id.clone());
         }
     }
 
@@ -253,9 +251,20 @@ fn validate(opts: &SurfaceOpts) -> i32 {
         }
     }
     // Direction 2: every surface names real inventory files, has dimensions,
-    // and VERIFIED rows carry a complete evidence bundle.
-    for (index, row) in sur_records.iter().enumerate() {
-        let id = format!("S{:03}", index + 1);
+    // and VERIFIED rows carry a complete evidence bundle. IDs come from the
+    // CSV, never from row position.
+    let mut seen_ids: BTreeMap<String, ()> = BTreeMap::new();
+    for row in sur_records.iter() {
+        let id = row.get("id").cloned().unwrap_or_default();
+        if !is_stable_id(&id) {
+            errors.push(format!(
+                "surface id `{id}` is empty or not S<digits> (stable ids are required)"
+            ));
+            continue;
+        }
+        if seen_ids.insert(id.clone(), ()).is_some() {
+            errors.push(format!("{id}: duplicate surface id"));
+        }
         let refs: Vec<String> = row
             .get("frozen_refs")
             .map(|r| r.split(';').map(|s| s.trim().to_string()).collect())
@@ -273,59 +282,49 @@ fn validate(opts: &SurfaceOpts) -> i32 {
             errors.push(format!("{id}: frozen ref is not an inventory row: {file}"));
         }
         let overall = row.get("overall").map(String::as_str).unwrap_or("");
+        if !matches!(overall, "WIRED" | "MISSING" | "VERIFIED" | "NA") {
+            errors.push(format!(
+                "{id}: overall `{overall}` is not one of WIRED, MISSING, VERIFIED, NA"
+            ));
+        }
         let dimensions = ["layout", "data", "states", "input", "perf"];
         for dim in dimensions {
             let value = row.get(dim).map(String::as_str).unwrap_or("");
-            if value.is_empty() {
-                errors.push(format!("{id}: dimension `{dim}` is empty"));
+            if !matches!(value, "TODO" | "PASS" | "FAIL") {
+                errors.push(format!(
+                    "{id}: dimension `{dim}` is `{value}`; expected TODO, PASS or FAIL"
+                ));
+            }
+        }
+        if overall == "NA" {
+            if row
+                .get("notes")
+                .map(|notes| notes.trim().is_empty())
+                .unwrap_or(true)
+            {
+                errors.push(format!("{id}: NA without a written reason"));
+            }
+            if row
+                .get("evidence")
+                .map(|evidence| evidence.trim().is_empty())
+                .unwrap_or(true)
+            {
+                errors.push(format!("{id}: NA without an owner-decision reference"));
             }
         }
         if overall == "VERIFIED" {
             for dim in dimensions {
                 let value = row.get(dim).map(String::as_str).unwrap_or("");
-                if value == "TODO" {
-                    errors.push(format!("{id}: VERIFIED with `{dim}` still TODO"));
+                if value != "PASS" {
+                    errors.push(format!("{id}: VERIFIED with `{dim}` = `{value}`"));
                 }
             }
-            let bundle = opts.bundles.join(&id);
-            if !bundle.is_dir() {
-                errors.push(format!(
-                    "{id}: VERIFIED without an evidence bundle at {}",
-                    bundle.display()
-                ));
-            } else {
-                for artifact in ["oracle-capture", "native-capture", "diff", "state", "perf"] {
-                    let has = std::fs::read_dir(&bundle)
-                        .map(|entries| {
-                            entries
-                                .flatten()
-                                .any(|e| e.file_name().to_string_lossy().starts_with(artifact))
-                        })
-                        .unwrap_or(false);
-                    if !has {
-                        errors.push(format!(
-                            "{id}: evidence bundle lacks a `{artifact}` artifact"
-                        ));
-                    }
-                }
-                let provenance = bundle.join("provenance.txt");
-                let prov = std::fs::read_to_string(&provenance).unwrap_or_default();
-                if !opts.oracle_commit.is_empty()
-                    && !prov.contains(&format!("oracle: {}", opts.oracle_commit))
-                {
-                    errors.push(format!(
-                        "{id}: bundle provenance does not record oracle commit {}",
-                        opts.oracle_commit
-                    ));
-                }
-                if !opts.build_id.is_empty() && !prov.contains(&format!("build: {}", opts.build_id))
-                {
-                    errors.push(format!(
-                        "{id}: bundle provenance does not record build id {}",
-                        opts.build_id
-                    ));
-                }
-            }
+            errors.extend(bundle_errors(
+                &id,
+                &opts.bundles.join(&id),
+                &opts.oracle_commit,
+                &opts.build_id,
+            ));
         }
     }
 
@@ -346,5 +345,851 @@ fn validate(opts: &SurfaceOpts) -> i32 {
             sur_records.len()
         );
         1
+    }
+}
+
+fn is_stable_id(id: &str) -> bool {
+    let Some(number) = id.strip_prefix('S') else {
+        return false;
+    };
+    number.len() >= 3 && number.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Strict bundle contract (T5, G20). This validator is the specification:
+///
+/// `manifest.json`: `surface`, `oracle_commit`, `build_id`, `fixture`,
+/// `locale`, `dpi` (> 0), `physical_size` ([w, h]), `oracle_capture`,
+/// `native_capture`.
+/// `diff.json`: `surface`, `pass` (true), `thresholds` {`max_changed_pixels`,
+/// `mask`}, `inputs` {`oracle`, `native`} content labels, `metrics`
+/// {`changed_pixels`}, `states` [{`id`, `pass`}] (nonempty, all true).
+/// `states.json`: `surface`, `states` [{`id`, `result` ("PASS"), `capture`,
+/// `test`}] (nonempty; TODO/FAIL/MISSING rejected).
+/// `interaction.txt`: receipts naming every `states[].test` plus `RED` and
+/// `GREEN` lines.
+/// `perf.json`: `surface`, `build_id`, `profile`, `cold_warm`, `samples`
+/// (>= 3), `n` == samples.len(), `p50` <= `p95`, `budget` > 0,
+/// `p95` <= `budget`, `pass` true.
+/// `provenance.txt`: `key: value` lines for `oracle`, `build`, `fixture`,
+/// `catalog`, `input`, `native-rev` and `tool`.
+///
+/// Cross-checks link the files: every JSON names this surface; provenance
+/// identity equals the manifest and the expected identities; the diff's
+/// state id set equals `states.json`; capture files exist and are PNGs of
+/// `physical_size`; diff input labels equal FNV-1a-64 content labels of the
+/// captures; every state capture/test reference resolves.
+fn bundle_errors(id: &str, bundle: &Path, oracle_commit: &str, build_id: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    if !bundle.is_dir() {
+        return vec![format!(
+            "{id}: VERIFIED without an evidence bundle at {}",
+            bundle.display()
+        )];
+    }
+    if oracle_commit.is_empty() || build_id.is_empty() {
+        errors.push(format!(
+            "{id}: VERIFIED requires pinned --oracle-commit and --build-id"
+        ));
+    }
+
+    if let Ok(entries) = std::fs::read_dir(bundle) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".json")
+                && !matches!(
+                    name.as_str(),
+                    "manifest.json" | "diff.json" | "states.json" | "perf.json"
+                )
+            {
+                errors.push(format!("{id}: unexpected evidence schema `{name}`"));
+            }
+        }
+    }
+
+    let manifest = read_json(bundle, "manifest.json", id, &mut errors);
+    let diff = read_json(bundle, "diff.json", id, &mut errors);
+    let states = read_json(bundle, "states.json", id, &mut errors);
+    let perf = read_json(bundle, "perf.json", id, &mut errors);
+
+    for (name, value) in [
+        ("manifest.json", manifest.as_ref()),
+        ("diff.json", diff.as_ref()),
+        ("states.json", states.as_ref()),
+        ("perf.json", perf.as_ref()),
+    ] {
+        if let Some(value) = value {
+            match str_at(value, "surface") {
+                Some(surface) if surface == id => {}
+                Some(surface) => errors.push(format!("{id}: `{name}` names surface `{surface}`")),
+                None => errors.push(format!("{id}: `{name}` lacks a non-empty `surface`")),
+            }
+        }
+    }
+
+    let mut captures: Vec<(&'static str, String)> = Vec::new();
+    if let Some(manifest) = &manifest {
+        for key in ["oracle_commit", "build_id", "fixture", "locale"] {
+            if str_at(manifest, key).is_none() {
+                errors.push(format!("{id}: manifest `{key}` is empty or missing"));
+            }
+        }
+        if !num_at(manifest, "dpi").is_some_and(|dpi| dpi > 0.0) {
+            errors.push(format!("{id}: manifest `dpi` must be a positive number"));
+        }
+        let physical = array_at(manifest, "physical_size")
+            .map(|size| {
+                size.iter()
+                    .map(|v| v.as_f64())
+                    .collect::<Option<Vec<f64>>>()
+            })
+            .flatten()
+            .filter(|size| size.len() == 2 && size.iter().all(|v| *v > 0.0 && v.fract() == 0.0));
+        if physical.is_none() {
+            errors.push(format!(
+                "{id}: manifest `physical_size` must be [width, height]"
+            ));
+        }
+        for key in ["oracle_capture", "native_capture"] {
+            match str_at(manifest, key) {
+                Some(name) => captures.push((key, name.to_string())),
+                None => errors.push(format!("{id}: manifest `{key}` is empty or missing")),
+            }
+        }
+        if str_at(manifest, "oracle_commit") != Some(oracle_commit) {
+            errors.push(format!(
+                "{id}: manifest oracle commit is not `{oracle_commit}`"
+            ));
+        }
+        if str_at(manifest, "build_id") != Some(build_id) {
+            errors.push(format!("{id}: manifest build is not `{build_id}`"));
+        }
+        if let Some(size) = physical {
+            for (key, name) in &captures {
+                let path = bundle.join(name);
+                match png_dims(&path) {
+                    Some((width, height))
+                        if f64::from(width) == size[0] && f64::from(height) == size[1] => {}
+                    Some((width, height)) => errors.push(format!(
+                        "{id}: `{key}` is {width}x{height}, manifest says {}x{}",
+                        size[0], size[1]
+                    )),
+                    None => errors.push(format!(
+                        "{id}: `{key}` is missing, empty or not a valid PNG"
+                    )),
+                }
+            }
+        }
+    }
+
+    let mut state_ids: Vec<String> = Vec::new();
+    if let Some(states) = &states {
+        let list = array_at(states, "states").cloned().unwrap_or_default();
+        if list.is_empty() {
+            errors.push(format!("{id}: `states.json` has no state entries"));
+        }
+        for entry in &list {
+            let state = str_at(entry, "id").unwrap_or("");
+            if state.is_empty() {
+                errors.push(format!("{id}: `states.json` entry lacks an `id`"));
+                continue;
+            }
+            state_ids.push(state.to_string());
+            match str_at(entry, "result") {
+                Some("PASS") => {}
+                Some(other) => {
+                    errors.push(format!("{id}: state `{state}` is `{other}`, expected PASS"))
+                }
+                None => errors.push(format!("{id}: state `{state}` lacks a `result`")),
+            }
+            match str_at(entry, "capture") {
+                Some(capture) if bundle.join(capture).is_file() => {}
+                Some(capture) => errors.push(format!(
+                    "{id}: state `{state}` capture `{capture}` does not exist"
+                )),
+                None => errors.push(format!("{id}: state `{state}` lacks a `capture`")),
+            }
+            match str_at(entry, "test") {
+                Some(test) if interaction_mentions(bundle, test) => {}
+                Some(test) => errors.push(format!(
+                    "{id}: state `{state}` test `{test}` has no interaction receipt"
+                )),
+                None => errors.push(format!("{id}: state `{state}` lacks a `test`")),
+            }
+        }
+    }
+    match std::fs::read_to_string(bundle.join("interaction.txt")) {
+        Ok(text) if text.trim().is_empty() => {
+            errors.push(format!("{id}: `interaction.txt` is empty"))
+        }
+        Ok(text) => {
+            for token in ["RED", "GREEN"] {
+                if !text.contains(token) {
+                    errors.push(format!(
+                        "{id}: `interaction.txt` lacks the `{token}` receipt"
+                    ));
+                }
+            }
+        }
+        Err(_) => errors.push(format!("{id}: `interaction.txt` is missing")),
+    }
+
+    if let Some(diff) = &diff {
+        if bool_at(diff, "pass") != Some(true) {
+            errors.push(format!("{id}: `diff.json` does not record `pass: true`"));
+        }
+        let thresholds = diff.get("thresholds");
+        if !thresholds.is_some_and(|t| {
+            num_at(t, "max_changed_pixels").is_some_and(|v| v >= 0.0) && str_at(t, "mask").is_some()
+        }) {
+            errors.push(format!(
+                "{id}: `diff.json` thresholds need max_changed_pixels and mask"
+            ));
+        }
+        if !diff
+            .get("metrics")
+            .and_then(|m| num_at(m, "changed_pixels"))
+            .is_some_and(|v| v >= 0.0)
+        {
+            errors.push(format!("{id}: `diff.json` metrics.changed_pixels missing"));
+        }
+        if let (Some(inputs), Some(manifest)) = (diff.get("inputs"), manifest.as_ref()) {
+            for (key, capture_key) in [("oracle", "oracle_capture"), ("native", "native_capture")] {
+                let expected = str_at(manifest, capture_key)
+                    .and_then(|name| content_label(&bundle.join(name)));
+                if str_at(inputs, key) != expected.as_deref() {
+                    errors.push(format!(
+                        "{id}: `diff.json` input `{key}` does not match the capture content"
+                    ));
+                }
+            }
+        } else {
+            errors.push(format!("{id}: `diff.json` inputs or manifest missing"));
+        }
+        let diff_states = array_at(diff, "states").cloned().unwrap_or_default();
+        if diff_states.is_empty() {
+            errors.push(format!("{id}: `diff.json` has no state results"));
+        }
+        let mut diff_ids: Vec<String> = Vec::new();
+        for entry in &diff_states {
+            let state = str_at(entry, "id").unwrap_or("");
+            if state.is_empty() {
+                errors.push(format!("{id}: `diff.json` state lacks an `id`"));
+                continue;
+            }
+            diff_ids.push(state.to_string());
+            if bool_at(entry, "pass") != Some(true) {
+                errors.push(format!("{id}: diff state `{state}` does not pass"));
+            }
+        }
+        if !state_ids.is_empty() && !diff_ids.is_empty() {
+            diff_ids.sort();
+            let mut states_sorted = state_ids.clone();
+            states_sorted.sort();
+            if diff_ids != states_sorted {
+                errors.push(format!(
+                    "{id}: diff state ids do not match states.json (`{}` vs `{}`)",
+                    diff_ids.join(","),
+                    states_sorted.join(",")
+                ));
+            }
+        }
+    }
+
+    if let Some(perf) = &perf {
+        if str_at(perf, "build_id") != Some(build_id) {
+            errors.push(format!("{id}: perf build is not `{build_id}`"));
+        }
+        for key in ["profile", "cold_warm"] {
+            if str_at(perf, key).is_none() {
+                errors.push(format!("{id}: perf `{key}` is empty or missing"));
+            }
+        }
+        let samples = array_at(perf, "samples")
+            .map(|samples| {
+                samples
+                    .iter()
+                    .map(|v| v.as_f64())
+                    .collect::<Option<Vec<f64>>>()
+            })
+            .flatten()
+            .unwrap_or_default();
+        if samples.len() < 3 {
+            errors.push(format!("{id}: perf needs at least 3 numeric samples"));
+        }
+        if num_at(perf, "n") != Some(samples.len() as f64) {
+            errors.push(format!("{id}: perf `n` must equal the sample count"));
+        }
+        let (p50, p95, budget) = (
+            num_at(perf, "p50"),
+            num_at(perf, "p95"),
+            num_at(perf, "budget"),
+        );
+        match (p50, p95, budget) {
+            (Some(p50), Some(p95), Some(budget)) if budget > 0.0 => {
+                if p50 > p95 {
+                    errors.push(format!("{id}: perf p50 is above p95"));
+                }
+                if p95 > budget {
+                    errors.push(format!("{id}: perf p95 exceeds the adopted budget"));
+                }
+            }
+            _ => errors.push(format!(
+                "{id}: perf needs numeric p50, p95 and a positive budget"
+            )),
+        }
+        if bool_at(perf, "pass") != Some(true) {
+            errors.push(format!("{id}: perf does not record `pass: true`"));
+        }
+    }
+
+    let provenance_path = bundle.join("provenance.txt");
+    match provenance_map(&provenance_path) {
+        Ok(provenance) => {
+            for key in [
+                "oracle",
+                "build",
+                "fixture",
+                "catalog",
+                "input",
+                "native-rev",
+                "tool",
+            ] {
+                if !provenance.contains_key(key) {
+                    errors.push(format!("{id}: provenance lacks `{key}`"));
+                }
+            }
+            if provenance.get("oracle").map(String::as_str) != Some(oracle_commit) {
+                errors.push(format!(
+                    "{id}: bundle provenance does not record exactly `oracle: {oracle_commit}`"
+                ));
+            }
+            if provenance.get("build").map(String::as_str) != Some(build_id) {
+                errors.push(format!(
+                    "{id}: bundle provenance does not record exactly `build: {build_id}`"
+                ));
+            }
+            if let Some(manifest) = &manifest {
+                for (manifest_key, provenance_key) in [
+                    ("oracle_commit", "oracle"),
+                    ("build_id", "build"),
+                    ("fixture", "fixture"),
+                ] {
+                    if str_at(manifest, manifest_key)
+                        != provenance.get(provenance_key).map(String::as_str)
+                    {
+                        errors.push(format!(
+                            "{id}: manifest `{manifest_key}` disagrees with provenance `{provenance_key}`"
+                        ));
+                    }
+                }
+            }
+        }
+        Err(error) => errors.push(format!("{id}: {error}")),
+    }
+
+    errors
+}
+
+fn read_json(
+    bundle: &Path,
+    name: &str,
+    id: &str,
+    errors: &mut Vec<String>,
+) -> Option<serde_json::Value> {
+    let path = bundle.join(name);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(_) => {
+            errors.push(format!("{id}: `{name}` is missing or unreadable"));
+            return None;
+        }
+    };
+    if text.trim().is_empty() {
+        errors.push(format!("{id}: `{name}` is empty"));
+        return None;
+    }
+    match serde_json::from_str(&text) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            errors.push(format!("{id}: `{name}` is not valid JSON: {error}"));
+            None
+        }
+    }
+}
+
+fn str_at<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+}
+
+fn num_at(value: &serde_json::Value, key: &str) -> Option<f64> {
+    value.get(key).and_then(serde_json::Value::as_f64)
+}
+
+fn bool_at(value: &serde_json::Value, key: &str) -> Option<bool> {
+    value.get(key).and_then(serde_json::Value::as_bool)
+}
+
+fn array_at<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a Vec<serde_json::Value>> {
+    value.get(key).and_then(serde_json::Value::as_array)
+}
+
+fn interaction_mentions(bundle: &Path, test: &str) -> bool {
+    std::fs::read_to_string(bundle.join("interaction.txt"))
+        .map(|text| text.contains(test))
+        .unwrap_or(false)
+}
+
+fn provenance_map(path: &Path) -> Result<BTreeMap<String, String>, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|_| "`provenance.txt` is missing or unreadable".to_string())?;
+    let mut map: BTreeMap<String, String> = BTreeMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (key, value) = line
+            .split_once(':')
+            .ok_or_else(|| format!("provenance line is not `key: value`: {line}"))?;
+        let (key, value) = (key.trim().to_string(), value.trim().to_string());
+        if key.is_empty() || value.is_empty() {
+            return Err(format!(
+                "provenance line `{line}` has an empty key or value"
+            ));
+        }
+        if let Some(previous) = map.insert(key.clone(), value.clone()) {
+            if previous != value {
+                return Err(format!(
+                    "provenance `{key}` is recorded twice with different values"
+                ));
+            }
+        }
+    }
+    Ok(map)
+}
+
+fn content_label(path: &Path) -> Option<String> {
+    std::fs::read(path)
+        .ok()
+        .map(|bytes| content_label_bytes(&bytes))
+}
+
+fn content_label_bytes(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("fnv64:{hash:016x}")
+}
+
+fn png_dims(path: &Path) -> Option<(u32, u32)> {
+    let bytes = std::fs::read(path).ok()?;
+    const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    if bytes.len() < 24 || bytes[..8] != SIGNATURE || &bytes[12..16] != b"IHDR" {
+        return None;
+    }
+    let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn temp_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "xtask-t5-{}-{}-{}",
+            std::process::id(),
+            name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn write(path: &Path, bytes: &[u8]) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        let mut file = std::fs::File::create(path).unwrap();
+        file.write_all(bytes).unwrap();
+    }
+
+    fn write_json(path: &Path, value: serde_json::Value) {
+        write(
+            path,
+            serde_json::to_string_pretty(&value).unwrap().as_bytes(),
+        );
+    }
+
+    fn read_json(path: &Path) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn png_bytes(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        bytes.extend_from_slice(&13u32.to_be_bytes());
+        bytes.extend_from_slice(b"IHDR");
+        bytes.extend_from_slice(&width.to_be_bytes());
+        bytes.extend_from_slice(&height.to_be_bytes());
+        bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
+        bytes
+    }
+
+    fn valid_bundle(dir: &Path, id: &str) {
+        let oracle = png_bytes(2, 2);
+        let native = png_bytes(2, 2);
+        write(&dir.join("oracle-capture.png"), &oracle);
+        write(&dir.join("native-capture.png"), &native);
+        write_json(
+            &dir.join("manifest.json"),
+            serde_json::json!({
+                "surface": id,
+                "oracle_commit": "abc123",
+                "build_id": "build-1",
+                "fixture": "fixture.psd",
+                "locale": "en",
+                "dpi": 120,
+                "physical_size": [2, 2],
+                "oracle_capture": "oracle-capture.png",
+                "native_capture": "native-capture.png",
+            }),
+        );
+        write_json(
+            &dir.join("diff.json"),
+            serde_json::json!({
+                "surface": id,
+                "pass": true,
+                "thresholds": { "max_changed_pixels": 4, "mask": "class-map" },
+                "inputs": {
+                    "oracle": content_label_bytes(&oracle),
+                    "native": content_label_bytes(&native),
+                },
+                "metrics": { "changed_pixels": 0 },
+                "states": [{ "id": "resting", "pass": true }],
+            }),
+        );
+        write_json(
+            &dir.join("states.json"),
+            serde_json::json!({
+                "surface": id,
+                "states": [{
+                    "id": "resting",
+                    "result": "PASS",
+                    "capture": "oracle-capture.png",
+                    "test": "menu_test",
+                }],
+            }),
+        );
+        write(
+            &dir.join("interaction.txt"),
+            b"menu_test: cargo test --lib menu_test -> ok\nRED: mutated (exit 101)\nGREEN: restored (exit 0)\n",
+        );
+        write_json(
+            &dir.join("perf.json"),
+            serde_json::json!({
+                "surface": id,
+                "build_id": "build-1",
+                "profile": "dev",
+                "cold_warm": "warm",
+                "samples": [12.1, 12.4, 12.2],
+                "n": 3,
+                "p50": 12.2,
+                "p95": 12.4,
+                "budget": 33.3,
+                "pass": true,
+            }),
+        );
+        write(
+            &dir.join("provenance.txt"),
+            b"oracle: abc123\nbuild: build-1\nfixture: fixture.psd\ncatalog: en.json\ninput: oracle.png\nnative-rev: 8032417e\ntool: xtask 0.1.0\n",
+        );
+    }
+
+    fn run(root: &Path, rows: &[&str], bundle: Option<&str>) -> i32 {
+        let inventory = root.join("inventory.csv");
+        let surfaces = root.join("surfaces.csv");
+        write(
+            &inventory,
+            b"path,status,native_target,family\na.tsx,WIRED,-,fam\nb.tsx,WIRED,-,fam\n",
+        );
+        let mut csv = String::from(
+            "id,surface,frozen_refs,native_refs,layout,data,states,input,perf,overall,evidence,notes\n",
+        );
+        for row in rows {
+            csv.push_str(row);
+            csv.push('\n');
+        }
+        write(&surfaces, csv.as_bytes());
+        let bundles = root.join("bundles");
+        if let Some(bundle) = bundle {
+            let dir = bundles.join(bundle);
+            std::fs::create_dir_all(&dir).unwrap();
+            valid_bundle(&dir, bundle);
+        }
+        cmd(&[
+            "--inventory".into(),
+            inventory.to_string_lossy().into_owned(),
+            "--surfaces".into(),
+            surfaces.to_string_lossy().into_owned(),
+            "--bundles".into(),
+            bundles.to_string_lossy().into_owned(),
+            "--oracle-commit".into(),
+            "abc123".into(),
+            "--build-id".into(),
+            "build-1".into(),
+        ])
+    }
+
+    /// Isolated fixture per RED case: a fresh root whose `bundles/S001` holds
+    /// one valid bundle, mutated in exactly one way. Asserts the validator
+    /// names the reason and that the CLI exits nonzero for the same tree.
+    fn case(name: &str, expect: &str, mutate: impl FnOnce(&Path)) {
+        let root = temp_root(&format!("case-{name}"));
+        let dir = root.join("bundles").join("S001");
+        std::fs::create_dir_all(&dir).unwrap();
+        valid_bundle(&dir, "S001");
+        mutate(&dir);
+        let errors = bundle_errors("S001", &dir, "abc123", "build-1");
+        assert!(
+            errors.iter().any(|error| error.contains(expect)),
+            "{name}: expected `{expect}` in {errors:?}"
+        );
+        assert_eq!(run(&root, &[ROW], None), 1, "{name}: CLI must exit 1");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    const ROW: &str = "S001,test,a.tsx; b.tsx,,PASS,PASS,PASS,PASS,PASS,VERIFIED,,";
+
+    #[test]
+    fn verified_bundle_passes_and_stable_ids_are_position_independent() {
+        let root = temp_root("green");
+        assert_eq!(run(&root, &[ROW], Some("S001")), 0);
+        let rows = [
+            "S002,second,a.tsx,,PASS,PASS,PASS,PASS,PASS,WIRED,,",
+            "S001,test,b.tsx,,PASS,PASS,PASS,PASS,PASS,VERIFIED,,",
+        ];
+        let root2 = temp_root("order");
+        assert_eq!(run(&root2, &rows, Some("S001")), 0);
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(root2).unwrap();
+    }
+
+    #[test]
+    fn na_needs_a_reason_and_an_owner_reference() {
+        let root = temp_root("na-ok");
+        let good = "S001,test,a.tsx; b.tsx,,TODO,TODO,TODO,TODO,TODO,NA,owner-decision-2026-10-31,a-module-level-surface";
+        assert_eq!(run(&root, &[good], None), 0);
+        std::fs::remove_dir_all(root).unwrap();
+
+        let root = temp_root("na-no-reason");
+        let bare = "S001,test,a.tsx; b.tsx,,TODO,TODO,TODO,TODO,TODO,NA,,";
+        assert_eq!(run(&root, &[bare], None), 1, "NA without reason must fail");
+        std::fs::remove_dir_all(root).unwrap();
+
+        let root = temp_root("na-no-owner");
+        let no_owner = "S001,test,a.tsx; b.tsx,,TODO,TODO,TODO,TODO,TODO,NA,,a-reason";
+        assert_eq!(
+            run(&root, &[no_owner], None),
+            1,
+            "NA without an owner reference must fail"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_bundle_fails() {
+        let root = temp_root("missing");
+        assert_eq!(run(&root, &[ROW], None), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn empty_corrupt_and_wrong_provenance_fail() {
+        let cases: Vec<(&str, &str, Box<dyn FnOnce(&Path)>)> = vec![
+            (
+                "empty-perf",
+                "`perf.json` is empty",
+                Box::new(|dir: &Path| write(&dir.join("perf.json"), b"")),
+            ),
+            (
+                "corrupt-png",
+                "not a valid PNG",
+                Box::new(|dir: &Path| write(&dir.join("oracle-capture.png"), b"not a png")),
+            ),
+            (
+                "wrong-size",
+                "manifest says 2x2",
+                Box::new(|dir: &Path| write(&dir.join("native-capture.png"), &png_bytes(3, 2))),
+            ),
+            (
+                "wrong-build",
+                "does not record exactly `build: build-1`",
+                Box::new(|dir: &Path| {
+                    write(
+                        &dir.join("provenance.txt"),
+                        b"oracle: abc123\nbuild: other\nfixture: fixture.psd\ncatalog: en.json\ninput: oracle.png\nnative-rev: 8032417e\ntool: xtask\n",
+                    );
+                }),
+            ),
+            (
+                "missing-key",
+                "provenance lacks `catalog`",
+                Box::new(|dir: &Path| {
+                    write(
+                        &dir.join("provenance.txt"),
+                        b"oracle: abc123\nbuild: build-1\nfixture: fixture.psd\ninput: oracle.png\nnative-rev: 8032417e\ntool: xtask\n",
+                    );
+                }),
+            ),
+            (
+                "duplicate-key",
+                "recorded twice with different values",
+                Box::new(|dir: &Path| {
+                    let mut text = std::fs::read_to_string(dir.join("provenance.txt")).unwrap();
+                    text.push_str("tool: another\n");
+                    write(&dir.join("provenance.txt"), text.as_bytes());
+                }),
+            ),
+            (
+                "extra-schema",
+                "unexpected evidence schema `notes.json`",
+                Box::new(|dir: &Path| {
+                    write_json(&dir.join("notes.json"), serde_json::json!({ "pass": true }))
+                }),
+            ),
+        ];
+        for (name, expect, mutate) in cases {
+            case(name, expect, mutate);
+        }
+    }
+
+    #[test]
+    fn schema_and_cross_reference_violations_fail() {
+        let cases: Vec<(&str, &str, Box<dyn FnOnce(&Path)>)> = vec![
+            (
+                "corrupt-json",
+                "is not valid JSON",
+                Box::new(|dir: &Path| write(&dir.join("diff.json"), b"{not json")),
+            ),
+            (
+                "diff-false",
+                "does not record `pass: true`",
+                Box::new(|dir: &Path| {
+                    let mut diff = read_json(&dir.join("diff.json"));
+                    diff["pass"] = serde_json::json!(false);
+                    write_json(&dir.join("diff.json"), diff);
+                }),
+            ),
+            (
+                "diff-input",
+                "input `oracle` does not match the capture content",
+                Box::new(|dir: &Path| {
+                    let mut diff = read_json(&dir.join("diff.json"));
+                    diff["inputs"]["oracle"] = serde_json::json!("fnv64:0000000000000000");
+                    write_json(&dir.join("diff.json"), diff);
+                }),
+            ),
+            (
+                "diff-surface",
+                "names surface `S999`",
+                Box::new(|dir: &Path| {
+                    let mut diff = read_json(&dir.join("diff.json"));
+                    diff["surface"] = serde_json::json!("S999");
+                    write_json(&dir.join("diff.json"), diff);
+                }),
+            ),
+            (
+                "state-fail",
+                "expected PASS",
+                Box::new(|dir: &Path| {
+                    let mut states = read_json(&dir.join("states.json"));
+                    states["states"][0]["result"] = serde_json::json!("FAIL");
+                    write_json(&dir.join("states.json"), states);
+                }),
+            ),
+            (
+                "dangling-capture",
+                "capture `missing.png` does not exist",
+                Box::new(|dir: &Path| {
+                    let mut states = read_json(&dir.join("states.json"));
+                    states["states"][0]["capture"] = serde_json::json!("missing.png");
+                    write_json(&dir.join("states.json"), states);
+                }),
+            ),
+            (
+                "dangling-test",
+                "has no interaction receipt",
+                Box::new(|dir: &Path| {
+                    let mut states = read_json(&dir.join("states.json"));
+                    states["states"][0]["test"] = serde_json::json!("unknown_test");
+                    write_json(&dir.join("states.json"), states);
+                }),
+            ),
+            (
+                "id-mismatch",
+                "diff state ids do not match states.json",
+                Box::new(|dir: &Path| {
+                    let mut diff = read_json(&dir.join("diff.json"));
+                    diff["states"] = serde_json::json!([{ "id": "hover", "pass": true }]);
+                    write_json(&dir.join("diff.json"), diff);
+                }),
+            ),
+            (
+                "perf-n",
+                "at least 3 numeric samples",
+                Box::new(|dir: &Path| {
+                    let mut perf = read_json(&dir.join("perf.json"));
+                    perf["samples"] = serde_json::json!([1.0, 2.0]);
+                    perf["n"] = serde_json::json!(2);
+                    write_json(&dir.join("perf.json"), perf);
+                }),
+            ),
+            (
+                "perf-budget",
+                "p95 exceeds the adopted budget",
+                Box::new(|dir: &Path| {
+                    let mut perf = read_json(&dir.join("perf.json"));
+                    perf["p95"] = serde_json::json!(99.0);
+                    write_json(&dir.join("perf.json"), perf);
+                }),
+            ),
+            (
+                "manifest-surface",
+                "names surface `S002`",
+                Box::new(|dir: &Path| {
+                    let mut manifest = read_json(&dir.join("manifest.json"));
+                    manifest["surface"] = serde_json::json!("S002");
+                    write_json(&dir.join("manifest.json"), manifest);
+                }),
+            ),
+        ];
+        for (name, expect, mutate) in cases {
+            case(name, expect, mutate);
+        }
+    }
+
+    #[test]
+    fn invalid_reference_incomplete_dimension_and_duplicate_id_fail() {
+        let root = temp_root("rows");
+        let invalid_ref = "S001,test,z.tsx,,PASS,PASS,PASS,PASS,PASS,VERIFIED,,";
+        assert_eq!(run(&root, &[invalid_ref], Some("S001")), 1);
+        let todo = "S001,test,a.tsx,,TODO,PASS,PASS,PASS,PASS,VERIFIED,,";
+        assert_eq!(run(&root, &[todo], Some("S001")), 1);
+        let duplicate = [ROW, ROW];
+        assert_eq!(run(&root, &duplicate, Some("S001")), 1);
+        let bad_format = "X001,test,a.tsx,,PASS,PASS,PASS,PASS,PASS,VERIFIED,,";
+        assert_eq!(run(&root, &[bad_format], Some("S001")), 1);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

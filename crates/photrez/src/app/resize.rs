@@ -1,10 +1,13 @@
-//! Resize Canvas dialog: digit fields with Tab switching, Enter applies the
-//! core `ResizeCanvas` command (document size only), Escape cancels.
+//! Resize Canvas dialog: unit-aware digit fields with Tab switching, an aspect
+//! lock, and Enter applying the core `ResizeCanvas` command (document size
+//! only). Escape closes an open unit list first, then cancels.
 
 use gpui_kit::{Context, KeyDownEvent, Window};
 use photrez_core::protocol::Command;
 
-use crate::state::ResizeSession;
+use crate::render::canvas_bridge::MAX_CANVAS_DIM;
+use crate::state::{ResizeSession, ToastSeverity};
+use crate::units::DimensionUnit;
 
 use super::App;
 
@@ -15,12 +18,22 @@ impl App {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let (width, height) = self.active_document_size()?;
+        let width_px = width as u32;
+        let height_px = height as u32;
         self.state.update(cx, |state, _| {
+            state.resize_unit_open = false;
             state.resize_canvas = Some(ResizeSession {
-                width: format!("{}", width as u32),
-                height: format!("{}", height as u32),
+                width_px,
+                height_px,
+                width: DimensionUnit::Px.format(width_px),
+                height: DimensionUnit::Px.format(height_px),
                 field: 0,
+                unit: DimensionUnit::Px,
+                aspect: f64::from(width_px) / f64::from(height_px.max(1)),
+                aspect_locked: true,
+                edited: None,
             });
+            state.open_select = None;
             state.active_dialog = Some(crate::state::DialogId::ResizeCanvas);
         });
         window.focus(&self.resize_focus, cx);
@@ -37,10 +50,49 @@ impl App {
         cx.notify();
     }
 
+    /// Expands/collapses the unit list (`ResizeCanvasModal.tsx:165-173`).
+    pub(crate) fn toggle_resize_unit(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.resize_unit_open = !state.resize_unit_open;
+        });
+        cx.notify();
+    }
+
+    /// Re-displays both fields in `unit`, keeping the pixel values authoritative.
+    pub(crate) fn set_resize_unit(&mut self, unit: DimensionUnit, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            if let Some(session) = state.resize_canvas.as_mut() {
+                if session.unit == unit {
+                    return;
+                }
+                session.width_px =
+                    text_to_px(&session.width, session.unit).unwrap_or(session.width_px);
+                session.height_px =
+                    text_to_px(&session.height, session.unit).unwrap_or(session.height_px);
+                session.unit = unit;
+                session.width = unit.format(session.width_px);
+                session.height = unit.format(session.height_px);
+            }
+            state.resize_unit_open = false;
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_resize_aspect_lock(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            if let Some(session) = state.resize_canvas.as_mut() {
+                session.aspect_locked = !session.aspect_locked;
+            }
+        });
+        cx.notify();
+    }
+
     pub(crate) fn cancel_resize_canvas(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.resize_canvas = None;
             state.active_dialog = None;
+            state.open_select = None;
+            state.resize_unit_open = false;
         });
         cx.notify();
     }
@@ -49,7 +101,13 @@ impl App {
         let key = event.keystroke.key.as_str();
         match key {
             "escape" => {
-                self.cancel_resize_canvas(cx);
+                if self.state.read(cx).resize_unit_open {
+                    self.state
+                        .update(cx, |state, _| state.resize_unit_open = false);
+                    cx.notify();
+                } else {
+                    self.cancel_resize_canvas(cx);
+                }
                 true
             }
             "enter" => {
@@ -77,6 +135,7 @@ impl App {
                         } else {
                             session.height.pop();
                         }
+                        session.edited = Some(session.field);
                     }
                 });
                 cx.notify();
@@ -88,24 +147,35 @@ impl App {
                     .key_char
                     .clone()
                     .unwrap_or_else(|| event.keystroke.key.clone());
-                if text.chars().count() == 1 && text.chars().any(|c| c.is_ascii_digit()) {
-                    self.state.update(cx, |state, _| {
-                        if let Some(session) = state.resize_canvas.as_mut() {
-                            let field = if session.field == 0 {
-                                &mut session.width
-                            } else {
-                                &mut session.height
-                            };
-                            if field.len() < 5 {
-                                field.push_str(&text);
-                            }
-                        }
-                    });
-                    cx.notify();
-                    true
-                } else {
-                    false
+                let decimal = text == ".";
+                let accepted = text.chars().count() == 1
+                    && (text.chars().all(|c| c.is_ascii_digit())
+                        || (decimal
+                            && self
+                                .state
+                                .read(cx)
+                                .resize_canvas
+                                .as_ref()
+                                .is_some_and(|session| session.unit.accepts_decimal())));
+                if !accepted {
+                    return false;
                 }
+                self.state.update(cx, |state, _| {
+                    if let Some(session) = state.resize_canvas.as_mut() {
+                        let field = if session.field == 0 {
+                            &mut session.width
+                        } else {
+                            &mut session.height
+                        };
+                        let limit = if session.unit.accepts_decimal() { 8 } else { 5 };
+                        if field.len() < limit {
+                            field.push_str(&text);
+                        }
+                        session.edited = Some(session.field);
+                    }
+                });
+                cx.notify();
+                true
             }
         }
     }
@@ -114,24 +184,42 @@ impl App {
         let Some(session) = self.state.read(cx).resize_canvas.clone() else {
             return Ok(());
         };
-        let width: u32 = session
-            .width
-            .parse()
-            .map_err(|_| "the width is not a valid number".to_string())?;
-        let height: u32 = session
-            .height
-            .parse()
-            .map_err(|_| "the height is not a valid number".to_string())?;
+        let mut width = text_to_px(&session.width, session.unit).unwrap_or(session.width_px);
+        let mut height = text_to_px(&session.height, session.unit).unwrap_or(session.height_px);
+        let mut clamped = width > MAX_CANVAS_DIM || height > MAX_CANVAS_DIM;
+        width = width.min(MAX_CANVAS_DIM);
+        height = height.min(MAX_CANVAS_DIM);
+        if session.aspect_locked {
+            // The field the user last typed into drives the linked dimension,
+            // like the oracle's per-field commit.
+            let linked = if session.edited == Some(1) {
+                (f64::from(height) * session.aspect).round().max(1.0) as u32
+            } else {
+                (f64::from(width) / session.aspect).round().max(1.0) as u32
+            };
+            clamped |= linked > MAX_CANVAS_DIM;
+            if session.edited == Some(1) {
+                width = linked.clamp(1, MAX_CANVAS_DIM);
+            } else {
+                height = linked.clamp(1, MAX_CANVAS_DIM);
+            }
+        }
         if width == 0 || height == 0 {
             return Err("the dimensions must be positive".to_string());
         }
-        if width > 16_384 || height > 16_384 {
-            return Err("the dimensions must be 16384 or less".to_string());
+        if clamped {
+            self.show_toast(
+                format!("Maximum dimension is {MAX_CANVAS_DIM}px"),
+                ToastSeverity::Warn,
+                cx,
+            );
         }
         let doc_id = self.active_doc_id()?;
         self.state.update(cx, |state, _| {
             state.resize_canvas = None;
             state.active_dialog = None;
+            state.open_select = None;
+            state.resize_unit_open = false;
         });
         self.apply_core_command(
             &doc_id,
@@ -157,4 +245,13 @@ impl App {
             .as_ref()
             .map(|session| (session.width.clone(), session.height.clone()))
     }
+}
+
+/// Parses a field buffer in the session's current unit to whole pixels.
+fn text_to_px(text: &str, unit: DimensionUnit) -> Option<u32> {
+    let value: f64 = text.trim().parse().ok()?;
+    if !value.is_finite() || value <= 0.0 {
+        return None;
+    }
+    Some(unit.to_px(value))
 }

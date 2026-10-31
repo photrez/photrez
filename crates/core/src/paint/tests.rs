@@ -3,5 +3,6 @@
 //! experiments that attribute pipeline cost. Neither is part of the public
 //! surface.
 
+mod exactness;
 mod experiments;
 mod parity;

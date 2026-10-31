@@ -11,15 +11,15 @@ use crate::shot;
 use crate::state::AppState;
 use crate::tokens::color;
 use crate::views::{
-    context_menus, dialogs, document_tabs, empty_state, loading, menus, option_bar, right_dock,
-    status_bar, title_bar, toasts, tool_rail, tooltips,
+    brush_menu, color_picker, context_menus, dialogs, document_tabs, empty_state, loading, menus,
+    option_bar, right_dock, status_bar, title_bar, toasts, tool_rail, tooltips,
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Bounds, BoxShadow, Context, Entity, Pixels, TestSupportExt, Window};
+use gpui_kit::{div, px, Bounds, Context, Entity, Pixels, TestSupportExt, Window};
 
 /// Title bar height: 46px.
 const TITLEBAR_H: f32 = 46.0;
@@ -35,6 +35,8 @@ const DOCK_W_2XL: f32 = 598.0;
 const TABBAR_H: f32 = 38.0;
 /// Option bar height: 44px.
 const OPTIONBAR_H: f32 = 44.0;
+/// Text overlay hint strip width (the frozen badge is 270 physical px).
+const HINT_W: f32 = 216.0;
 
 /// Render the full shell for one frame.
 ///
@@ -70,8 +72,17 @@ pub(crate) fn render(
     focus_handle: &gpui_kit::FocusHandle,
     rename_focus: &gpui_kit::FocusHandle,
     resize_focus: &gpui_kit::FocusHandle,
+    new_document_focus: &gpui_kit::FocusHandle,
+    dialog_focus: &gpui_kit::FocusHandle,
+    picker_focus: &gpui_kit::FocusHandle,
     capture: Rc<Cell<Option<gpui_kit::HitboxId>>>,
     cursor: crate::input::CursorPolicy,
+    has_pixel_selection: bool,
+    has_copyable_selection: bool,
+    has_selection_clipboard: bool,
+    can_undo: bool,
+    can_redo: bool,
+    committed_selection: Option<photrez_core::ptz::content::SelectionState>,
     cx: &mut Context<crate::app::App>,
 ) -> impl IntoElement {
     // One read of the live state; every field the shell branches on is `Copy`.
@@ -86,11 +97,14 @@ pub(crate) fn render(
         selection_shape,
         open_menu,
         context_menu,
+        brush_menu,
         active_dialog,
+        color_picker_open,
         autosave_status,
         text_edit,
         text_editing,
         hud,
+        gradient_badge,
     ) = {
         let s = state.read(cx);
         (
@@ -104,11 +118,14 @@ pub(crate) fn render(
             s.selection_shape,
             s.open_menu,
             s.context_menu,
+            s.brush_menu,
             s.active_dialog,
+            s.color_picker.is_some(),
             s.autosave_status,
             s.text_edit.clone(),
             s.text_edit.is_some(),
             s.hud,
+            s.gradient_badge,
         )
     };
     // The frozen shell is responsive at the same breakpoints as the source:
@@ -198,9 +215,14 @@ pub(crate) fn render(
                                 .when(has_document && chrome_visible, |el| {
                                     el.child(
                                         // OptionBar — 44px
-                                        div()
-                                            .h(px(OPTIONBAR_H))
-                                            .child(option_bar::render(state, cx)),
+                                        div().h(px(OPTIONBAR_H)).child(option_bar::render(
+                                            state,
+                                            f32::from(window.viewport_size().width)
+                                                - RAIL_W
+                                                - if dock_open { dock_w } else { 0.0 },
+                                            committed_selection,
+                                            cx,
+                                        )),
                                     )
                                 })
                                 .child(
@@ -256,14 +278,27 @@ pub(crate) fn render(
                                                         hud, origin,
                                                     ))
                                                 })
+                                                .when_some(gradient_badge, |el, badge| {
+                                                    let origin = canvas_bounds
+                                                        .get()
+                                                        .map(|bounds| {
+                                                            (
+                                                                f32::from(bounds.origin.x),
+                                                                f32::from(bounds.origin.y),
+                                                            )
+                                                        })
+                                                        .unwrap_or((0.0, 0.0));
+                                                    el.child(super::gradient_badge::render(
+                                                        badge, origin,
+                                                    ))
+                                                })
                                                 .into_any_element()
                                         }
-                                        _ => div()
-                                            .flex_1()
-                                            .min_h(px(0.0))
-                                            .w_full()
-                                            .bg(color::CANVAS)
-                                            .into_any_element(),
+                                        _ => super::file_drop_surface::FileDropSurface::new(
+                                            empty_state::render_live(cx),
+                                            cx.weak_entity(),
+                                        )
+                                        .into_any_element(),
                                     },
                                 ),
                         )
@@ -308,19 +343,44 @@ pub(crate) fn render(
             el.child(tool_rail::render_flyout(state, selection_shape, cx))
         })
         .when_some(open_menu, |el, menu| {
-            el.child(menus::render_open(state, menu, cx))
+            el.child(menus::render_open(
+                state,
+                menu,
+                has_pixel_selection,
+                has_copyable_selection,
+                has_selection_clipboard,
+                can_undo,
+                can_redo,
+                cx,
+            ))
         })
         .when_some(context_menu, |el, position| {
-            el.child(menus::render_context(state, position, cx))
+            el.child(menus::render_context(
+                state,
+                position,
+                has_pixel_selection,
+                has_copyable_selection,
+                has_selection_clipboard,
+                cx,
+            ))
+        })
+        .when_some(brush_menu, |el, _| {
+            el.child(brush_menu::render(state, window, cx))
         })
         .when_some(active_dialog, |el, dialog| {
             el.child(dialogs::render_dialog(
                 state,
                 dialog,
+                document_size,
                 rename_focus,
                 resize_focus,
+                new_document_focus,
+                dialog_focus,
                 cx,
             ))
+        })
+        .when(color_picker_open, |el| {
+            el.child(color_picker::render(state, picker_focus, cx))
         })
         .when(shot::starts_with("ctx-"), |el| {
             el.child(context_menus::render())
@@ -334,7 +394,6 @@ pub(crate) fn render(
             let col_w = f32::from(window.viewport_size().width) - RAIL_W - dock_w;
             el.child(empty_state::render(col_left, col_w))
         })
-        .when(shot::starts_with("toast-"), |el| el.child(toasts::render()))
         .when(shot::starts_with("tooltip-"), |el| {
             el.child(tooltips::render())
         })
@@ -347,6 +406,14 @@ pub(crate) fn render(
         .when(shot::starts_with("loading-"), |el| {
             el.child(loading::render())
         })
+        // Last child in the window-sized root: the host is `z-50`, and GPUI
+        // paints in tree order, so anything appended earlier sits under the
+        // dock (`views::toasts` module docs).
+        .child(if shot::starts_with("toast-") {
+            toasts::render().into_any_element()
+        } else {
+            toasts::render_live(state, cx).into_any_element()
+        })
 }
 
 /// Transparent pointer surface over the canvas slot.
@@ -354,6 +421,8 @@ pub(crate) fn render(
 /// Its bounds are the same element bounds the display seam publishes, so the
 /// handler maps through the exact fit placement that was painted.
 /// The in-place text editor: a panel anchored at the layer's document origin.
+/// The overlay draws the live buffer on the layer's own metrics so typing is
+/// WYSIWYG, and the hint strip mirrors `TextEditOverlay.tsx`'s key legend.
 fn text_editor_overlay(
     session: &crate::state::TextEditSession,
     canvas: &CanvasImage,
@@ -362,6 +431,7 @@ fn text_editor_overlay(
 ) -> impl IntoElement {
     let mut left = 0.0f32;
     let mut top = 0.0f32;
+    let mut zoom = 1.0f32;
     if let Some(bounds) = bounds.get() {
         let (doc_w, doc_h) = canvas.dimensions();
         if let Some((page_x, page_y, page_w, _)) = canvas_bridge::camera_placement(
@@ -371,28 +441,93 @@ fn text_editor_overlay(
             doc_h as f32,
             camera,
         ) {
-            let zoom = page_w / doc_w as f32;
+            zoom = page_w / doc_w as f32;
             left = page_x + session.doc_x as f32 * zoom;
             top = page_y + session.doc_y as f32 * zoom;
         }
     }
+    let font_size = (session.data.font_size as f32) * zoom;
+    let box_w = (session.preview.0 as f32) * zoom;
+    let box_h = (session.preview.1 as f32) * zoom;
+    let _ = font_size;
     div()
         .id("text-editor")
         .test_support()
         .absolute()
         .left(px(left))
         .top(px(top))
-        .min_w(px(120.0))
-        .min_h(px(28.0))
-        .px(px(6.0))
-        .py(px(4.0))
-        .rounded(px(3.0))
-        .border_1()
-        .border_color(color::ACCENT)
-        .bg(color::PANEL)
-        .text_size(px(13.0))
-        .text_color(color::TEXT)
-        .child(format!("{}|", session.content))
+        .flex()
+        .flex_col()
+        .items_start()
+        .child(
+            div()
+                .w(px(box_w.max(24.0)))
+                .h(px(box_h.max(font_size + 12.0)))
+                .rounded(px(3.0))
+                .border_1()
+                .border_color(color::ACCENT),
+        )
+        .child(
+            h_flex()
+                .id("text-editor-hint")
+                .test_support()
+                .mt(px(12.0))
+                .ml(px((font_size
+                    * 0.5
+                    * session.content.chars().count() as f32
+                    + 12.0
+                    - HINT_W)
+                    / 2.0))
+                .w(px(HINT_W))
+                .justify_center()
+                .items_center()
+                .gap(px(6.0))
+                .rounded(px(3.0))
+                .border_1()
+                .border_color(color::FIELD_BORDER)
+                .bg(color::PANEL)
+                .px(px(8.0))
+                .py(px(2.0))
+                .font_family(crate::components::ui::FONT_UI)
+                .text_size(px(10.0))
+                .text_color(color::TEXT_DIM)
+                .child(
+                    h_flex()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .font_weight(gpui_kit::FontWeight(600.))
+                                .text_color(color::TEXT)
+                                .child("\u{21b5}"), // i18n-exempt: keyboard glyph in the frozen overlay legend
+                        )
+                        .child("Newline"), // i18n-exempt: frozen overlay legend
+                )
+                .child(div().text_color(color::TEXT_DIM).child("\u{00b7}")) // i18n-exempt: legend separator glyph
+                .child(
+                    h_flex()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .font_weight(gpui_kit::FontWeight(600.))
+                                .text_color(color::ACCENT)
+                                .child("Ctrl+Enter"), // i18n-exempt: keyboard token in the frozen overlay legend
+                        )
+                        .child("Commit"), // i18n-exempt: frozen overlay legend
+                )
+                // i18n-exempt: legend separator glyph
+                .child(div().text_color(color::TEXT_DIM).child("\u{00b7}")) // i18n-exempt: legend separator glyph
+                .child(
+                    h_flex()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .font_weight(gpui_kit::FontWeight(600.))
+                                .text_color(color::TEXT)
+                                .child("Esc"), // i18n-exempt: keyboard token in the frozen overlay legend
+                        )
+                        .child("Cancel"), // i18n-exempt: frozen overlay legend
+                ),
+        )
 }
 
 fn canvas_hitbox(
@@ -424,16 +559,42 @@ fn canvas_hitbox(
                 app.canvas_scroll(event, cx)
             }),
         )
+        .on_hover(
+            cx.listener(|app: &mut crate::app::App, hovered: &bool, _window, cx| {
+                app.set_canvas_hovered(*hovered, cx);
+            }),
+        )
+        .on_drop::<crate::app::cross_doc::LayerDragPayload>({
+            let drop_bounds = Rc::clone(&bounds);
+            cx.listener(
+                move |app: &mut crate::app::App,
+                      payload: &crate::app::cross_doc::LayerDragPayload,
+                      window,
+                      cx| {
+                    let at = crate::app::canvas_doc_coords_free(
+                        window.mouse_position(),
+                        &drop_bounds,
+                        doc_size,
+                        app.active_camera(),
+                    )
+                    .unwrap_or((doc_size.0 as f64 / 2.0, doc_size.1 as f64 / 2.0));
+                    if let Ok(doc_id) = app.active_doc_id() {
+                        app.apply_layer_drag(
+                            payload,
+                            crate::app::cross_doc::LayerDropTarget::Canvas { doc_id, at },
+                            window.modifiers().alt,
+                            cx,
+                        );
+                    }
+                },
+            )
+        })
         .absolute()
         .inset(px(0.0))
-        .focus_visible(|style| {
-            style
-                .border_1()
-                .border_color(color::ACCENT)
-                .shadow(vec![
-                    BoxShadow::new(px(0.0), px(0.0), color::BLACK_55).spread_radius(px(1.0))
-                ])
-        });
+        // The focus ring is the 1px border only. A zero-blur spread shadow is
+        // painted across the element's interior as a tint, which covered the
+        // whole page in 55% black after any keyboard shortcut.
+        .focus_visible(|style| style.border_1().border_color(color::ACCENT));
     let hitbox = match cursor {
         crate::input::CursorPolicy::SystemDefault => hitbox,
         crate::input::CursorPolicy::Crosshair => hitbox.cursor(gpui_kit::CursorStyle::Crosshair),

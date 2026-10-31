@@ -10,6 +10,8 @@ use crate::pixel::layer::PixelLayer;
 use crate::pixel::state_node::{LayerState, RegionChange, StateNode};
 use crate::pixel::tile::TilePatch;
 
+use crate::document::history::PixelDelta;
+
 /// Re-export of the document snapshot DTO so `pixel::store` reaches it through
 /// this module only: the pixel -> document edge stays one-way.
 pub(crate) use crate::document::DocumentSnapshot;
@@ -190,31 +192,176 @@ impl DocumentPixelStore {
         envelope: crate::wire::command::CommandEnvelope,
     ) -> Result<crate::wire::command::CommandResult, crate::protocol::ProtocolError> {
         let mut result = self.history.apply(envelope)?;
-        let Some((layer_id, tiles, node)) = self.history.pending_pixel.take() else {
+        if let Some(plan) = self.history.pending_crop_bake.take() {
+            self.apply_crop_bake(plan);
+        }
+        if let Some(plan) = self.history.pending_rasterize.take() {
+            self.apply_rasterize_pixels(plan);
+        }
+        let pending = std::mem::take(&mut self.history.pending_pixels);
+        if pending.is_empty() {
             return Ok(result);
-        };
-        // A layer with no canonical buffer in this store has nothing to restore
-        // into. Report the step with no tiles rather than undoing the cursor
-        // move the engine already made - the cursor is the authority.
-        let epoch = match self.layers.get_mut(&layer_id) {
+        }
+        let mut handoffs = Vec::with_capacity(pending.len());
+        for (layer_id, tiles, node) in pending {
+            let epoch = self.write_restored_tiles(&layer_id, &tiles, &node);
+            if let Some(ls) = self.state_nodes.get_mut(&layer_id) {
+                ls.set_current(node);
+            }
+            handoffs.push(crate::wire::command::PixelPatchHandoff {
+                layer_id,
+                tiles,
+                epoch,
+                version: self.history.version(),
+            });
+        }
+        result.pixel_patches = Some(handoffs);
+        Ok(result)
+    }
+
+    /// Write replayed tiles into the canonical buffer and bump its epoch.
+    /// A layer with no buffer here has nothing to restore into, so it reports
+    /// epoch 0 (the cursor move stays authoritative - see `apply_command`).
+    /// Execute the pixel half of a parametric rasterize: materialize the
+    /// host-rendered bitmap as the rasterized layer's canonical buffer. The
+    /// buffer rides no pixel-history entry — the rasterize's own metadata
+    /// entry is the undo unit, and undoing it returns the layer to its
+    /// parametric form (the materialized buffer then sits unused until a
+    /// re-rasterize replaces it).
+    fn apply_rasterize_pixels(&mut self, plan: crate::document::rasterize_bake::RasterizePlan) {
+        self.init_layer(&plan.layer_id, plan.width, plan.height, plan.rgba);
+    }
+
+    /// Execute the pixel half of a destructive crop: discard every pixel that
+    /// fell outside the new document, then fold the resulting before/after
+    /// states into the crop's metadata entry. One command, one history step.
+    fn apply_crop_bake(&mut self, plan: crate::document::crop_bake::CropBakePlan) {
+        let mut deltas = Vec::new();
+        if let Some(fill) = &plan.fill {
+            // Bake the colour UNDER the Background and replace its bitmap with
+            // the document-sized result (the oracle's "fill canvas, draw the
+            // cropped Background over it", baked into the Background layer).
+            let doc_w = plan.doc_width.max(0.0) as u32;
+            let doc_h = plan.doc_height.max(0.0) as u32;
+            let before = self
+                .layer_state(&fill.layer_id)
+                .map(|ls| ls.current_state().clone());
+            let source = self.layers.get(&fill.layer_id).map(|px| px.pixels.clone());
+            if let (Some(before), Some(source)) = (before, source) {
+                let bytes = crate::document::crop_bake::composite_layer_over_fill(
+                    &source,
+                    fill.width,
+                    fill.height,
+                    &fill.placement,
+                    doc_w,
+                    doc_h,
+                    fill.color,
+                );
+                self.state_nodes.remove(&fill.layer_id);
+                if let Some(layer) = self.layers.get_mut(&fill.layer_id) {
+                    layer.width = doc_w;
+                    layer.height = doc_h;
+                    layer.pixels = bytes;
+                    layer.epoch += 1;
+                }
+                if let Some(ls) = self.layer_state(&fill.layer_id) {
+                    let after = ls.current_state().clone();
+                    deltas.push(PixelDelta {
+                        layer_id: fill.layer_id.clone(),
+                        before,
+                        after,
+                    });
+                }
+            }
+        }
+        for layer in &plan.layers {
+            let Some(px) = self.layers.get(&layer.layer_id) else {
+                continue;
+            };
+            let (w, h, epoch) = (px.width, px.height, px.epoch);
+            if w == 0 || h == 0 {
+                continue;
+            }
+            let mut bytes = px.pixels.clone();
+            let discarded = crate::document::crop_bake::discard_outside_document(
+                &mut bytes,
+                w,
+                h,
+                &layer.placement,
+                plan.doc_width,
+                plan.doc_height,
+            );
+            if discarded == 0 {
+                continue;
+            }
+            let patch = TilePatch {
+                x: 0,
+                y: 0,
+                w: w as usize,
+                h: h as usize,
+                data: bytes,
+            };
+            let Some((before, after)) =
+                self.cow_tiles(&layer.layer_id, std::slice::from_ref(&patch), epoch)
+            else {
+                continue;
+            };
+            if let Some(px) = self.layers.get_mut(&layer.layer_id) {
+                px.write_tile(&patch);
+                px.epoch += 1;
+            }
+            deltas.push(PixelDelta {
+                layer_id: layer.layer_id.clone(),
+                before,
+                after,
+            });
+        }
+        if !deltas.is_empty() {
+            self.history.attach_pixel_deltas(plan.entry_index, deltas);
+        }
+    }
+
+    fn write_restored_tiles(
+        &mut self,
+        layer_id: &str,
+        tiles: &[TilePatch],
+        node: &Arc<StateNode>,
+    ) -> u64 {
+        let (node_w, node_h) = (node.meta.width, node.meta.height);
+        let needs_resize = self
+            .layers
+            .get(layer_id)
+            .is_some_and(|layer| layer.width != node_w || layer.height != node_h);
+        if needs_resize {
+            // A destructive step may change a layer's bitmap size (a baked
+            // Background). Tiles are meaningless across sizes, so replay the
+            // whole state and re-seed the canon from those bytes.
+            let bytes = node.to_row_major();
+            self.state_nodes.remove(layer_id);
+            let epoch = match self.layers.get_mut(layer_id) {
+                Some(layer) => {
+                    *layer = PixelLayer::new(node_w, node_h, bytes);
+                    layer.epoch += 1;
+                    layer.epoch
+                }
+                None => 0,
+            };
+            if self.layer_state(layer_id).is_some() {
+                if let Some(ls) = self.state_nodes.get_mut(layer_id) {
+                    ls.set_current(node.clone());
+                }
+            }
+            return epoch;
+        }
+        match self.layers.get_mut(layer_id) {
             Some(layer) => {
-                for t in &tiles {
+                for t in tiles {
                     layer.write_tile(t);
                 }
                 layer.epoch += 1;
                 layer.epoch
             }
             None => 0,
-        };
-        if let Some(ls) = self.state_nodes.get_mut(&layer_id) {
-            ls.set_current(node);
         }
-        result.pixel_patches = Some(crate::wire::command::PixelPatchHandoff {
-            layer_id,
-            tiles,
-            epoch,
-            version: self.history.version(),
-        });
-        Ok(result)
     }
 }

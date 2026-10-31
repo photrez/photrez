@@ -3,8 +3,9 @@
 //! and the offline golden comparison against captured browser bytes.
 
 use crate::brush::tip::{
-    bilinear_resize_premul, build_brush_tip, get_brush_profile_support_norm,
-    premul_to_straight_in_place, TipSpec,
+    bilinear_resize_premul, build_brush_tip, get_brush_cursor_radius_scale,
+    get_brush_profile_support_norm, premul_to_straight_in_place, TipSpec,
+    BRUSH_CURSOR_ALPHA_CONTOUR,
 };
 
 #[test]
@@ -48,6 +49,43 @@ fn c1_identity_resize_is_copy() {
 fn c1_support_norm_08_value() {
     let n = get_brush_profile_support_norm(0.8);
     assert!((n - 1.0615857181654722).abs() < 1e-12, "norm={n}");
+}
+
+#[test]
+fn c1_cursor_radius_scale_matches_the_20pct_contour() {
+    let contour = -BRUSH_CURSOR_ALPHA_CONTOUR.ln();
+    assert_eq!(BRUSH_CURSOR_ALPHA_CONTOUR, 0.2);
+    let zero = get_brush_cursor_radius_scale(0.0);
+    let expected_zero = 0.661 * contour.powf(1.0 / 2.0);
+    assert!(
+        (zero - expected_zero).abs() < 1e-12,
+        "scale(0)={zero} expected={expected_zero}"
+    );
+    let mid = get_brush_cursor_radius_scale(0.5);
+    let expected_mid = 0.935 * contour.powf(1.0 / 8.23);
+    assert!(
+        (mid - expected_mid).abs() < 1e-12,
+        "scale(0.5)={mid} expected={expected_mid}"
+    );
+}
+
+#[test]
+fn c1_cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
+    assert_eq!(
+        get_brush_cursor_radius_scale(-1.0),
+        get_brush_cursor_radius_scale(0.0)
+    );
+    assert_eq!(get_brush_cursor_radius_scale(0.97), 1.0);
+    assert_eq!(get_brush_cursor_radius_scale(2.0), 1.0);
+    let mut previous = get_brush_cursor_radius_scale(0.0);
+    for step in 1..=100 {
+        let current = get_brush_cursor_radius_scale(f64::from(step) / 100.0);
+        assert!(
+            current >= previous,
+            "cursor contour must grow monotonically at {step}%"
+        );
+        previous = current;
+    }
 }
 
 /// Offline golden validation vs captured browser bytes.

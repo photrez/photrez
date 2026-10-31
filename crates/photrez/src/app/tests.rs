@@ -173,6 +173,16 @@ fn mount_app(
     open_path: Option<PathBuf>,
     file_io: Option<Arc<dyn FileIo>>,
 ) -> (gpui_kit::WindowHandle<gpui_kit::base::Root>, Entity<App>) {
+    mount_app_sized(cx, open_path, file_io, 1366.0)
+}
+
+/// Mount the production root at an explicit window width.
+fn mount_app_sized(
+    cx: &mut gpui_kit::TestAppContext,
+    open_path: Option<PathBuf>,
+    file_io: Option<Arc<dyn FileIo>>,
+    width: f32,
+) -> (gpui_kit::WindowHandle<gpui_kit::base::Root>, Entity<App>) {
     use gpui_kit::base::Root;
     use gpui_kit::{px, size, AppContext, Bounds, Point, WindowBounds, WindowOptions};
 
@@ -185,7 +195,7 @@ fn mount_app(
     cx.update(|cx| {
         let bounds = Bounds {
             origin: Point::default(),
-            size: size(px(1366.), px(820.)),
+            size: size(px(width), px(820.)),
         };
         let (window, content) = gpui_kit::open_window(
             WindowOptions {
@@ -218,6 +228,20 @@ fn mount_fixture_app(
     Entity<App>,
     PathBuf,
 ) {
+    mount_fixture_app_sized(cx, directory, 1366.0)
+}
+
+/// Mount the bounded fixture at the target viewport width (1536 CSS px, the
+/// 1920x1080 client area at 125% scaling).
+fn mount_fixture_app_sized(
+    cx: &mut gpui_kit::TestAppContext,
+    directory: &TestDirectory,
+    width: f32,
+) -> (
+    gpui_kit::WindowHandle<gpui_kit::base::Root>,
+    Entity<App>,
+    PathBuf,
+) {
     let source = directory.path().join("source.ptz");
     std::fs::write(&source, BOUNDED_RASTER).expect("fixture is copied");
     let file_io = Arc::new(
@@ -226,7 +250,7 @@ fn mount_fixture_app(
     );
     file_io.approve_path(&source).expect("fixture is approved");
 
-    let (window, content) = mount_app(cx, Some(source.clone()), Some(file_io));
+    let (window, content) = mount_app_sized(cx, Some(source.clone()), Some(file_io), width);
     (window, content, source)
 }
 
@@ -290,6 +314,9 @@ fn mount_app_with_settings(
 /// RED proof: remove the key binding or the root `on_action` and the
 /// pressed shortcut leaves the session at revision 1 / saved 0 and the
 /// deleted archive is not recreated.
+#[path = "tests/color_picker.rs"]
+mod color_picker;
+
 #[path = "tests/commands.rs"]
 mod commands;
 
@@ -298,6 +325,15 @@ mod save_as_cancel;
 
 #[path = "tests/crop.rs"]
 mod crop;
+
+#[path = "tests/adjustments.rs"]
+mod adjustments;
+
+#[path = "tests/empty_state.rs"]
+mod empty_state;
+
+#[path = "tests/brush_menu.rs"]
+mod brush_menu;
 
 #[path = "tests/documents.rs"]
 mod documents;
@@ -308,6 +344,12 @@ mod input;
 #[path = "tests/layers_panel.rs"]
 mod layers_panel;
 
+#[path = "tests/menus.rs"]
+mod menus;
+
+#[path = "tests/rail.rs"]
+mod rail;
+
 #[path = "tests/selection.rs"]
 mod selection;
 
@@ -317,5 +359,11 @@ mod tools;
 #[path = "tests/transform.rs"]
 mod transform;
 
+#[path = "tests/history.rs"]
+mod history;
+
 #[path = "tests/viewport.rs"]
 mod viewport;
+
+#[path = "tests/cross_doc.rs"]
+mod cross_doc;

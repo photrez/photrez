@@ -11,7 +11,7 @@
 // The replica in `ptz::replica` depends on this module; this module never
 // depends on the replica (see `crates/core/CONTEXT.md`).
 
-use crate::ptz::content::{PtzLayer, Transform2D};
+use crate::ptz::content::{LayerType, PtzLayer, Transform2D};
 use crate::render::layer::RenderLayer;
 use crate::wire::command::ResourceId;
 
@@ -76,9 +76,12 @@ fn project_fields(c: &PtzLayer) -> RenderLayer {
         layer_type: Some(c.layer_type.clone()),
         blend_mode: Some(c.blend_mode.clone()),
         locked: Some(c.locked),
-        lock_transparency: c.lock_transparency,
-        lock_position: c.lock_position,
-        lock_rotation: c.lock_rotation,
+        // Explicit like `locked`: only the SetLocked arm writes these, so an
+        // engine `None` would make an undo back to "unlocked" indistinguishable
+        // from "no opinion" and the shadow would keep the stale lock.
+        lock_transparency: Some(c.lock_transparency.unwrap_or(false)),
+        lock_position: Some(c.lock_position.unwrap_or(false)),
+        lock_rotation: Some(c.lock_rotation.unwrap_or(false)),
         is_background: c.is_background,
         // Always explicit: an omitted flag (`None`) in the persisted layer is
         // still a definite "unadjusted" fact, and leaving it None would make a
@@ -127,11 +130,26 @@ fn base_was_never_adjusted(base: &PtzLayer) -> bool {
     base.basic_adjustment.is_none() && base.has_adjustments != Some(true)
 }
 
+/// Merge one partial-lock flag. The engine carries an explicit opinion for
+/// these fields after projection, so an explicit `false` is a real unlock (the
+/// undo walker restoring the pre-toggle side) and must reach the shadow. A
+/// persisted layer that never carried the key keeps it absent, so an unlock
+/// does not invent a `false` the file never had.
+fn merge_lock(r: Option<bool>, base: Option<bool>) -> Option<bool> {
+    match (r, base) {
+        (Some(false), None) => None,
+        (Some(v), _) => Some(v),
+        (None, base) => base,
+    }
+}
+
 /// Project renderer-driven edits from a RenderLayer back onto a PtzLayer
 /// without touching any persisted-only content. Returns a NEW layer (COW: the
 /// base is never mutated in place). The renderer cannot express the 14
-/// persisted-only fields (layer type, blend mode, locks, dimensions, shapes,
-/// text, adjustments), so those are preserved verbatim from `base`. A
+/// persisted-only fields (layer type, blend mode, dimensions, shapes, text,
+/// adjustments), so those are preserved verbatim from `base`. The lock flags
+/// are the exception: only the SetLocked arm writes them, so their merge rule
+/// carries the engine's explicit opinion (see `merge_lock`). A
 /// `resource_id` of 0 on the render layer maps back to `None` (no pixel
 /// resource); every other field is taken from the render layer.
 ///
@@ -139,23 +157,33 @@ fn base_was_never_adjusted(base: &PtzLayer) -> bool {
 /// would force fabricating defaults for the 14 persisted-only fields, which is
 /// a silent-data-loss trap. Build a full model seed when real data exists.
 pub fn merge_into_layer(base: &PtzLayer, r: &RenderLayer) -> PtzLayer {
+    let layer_type = r
+        .layer_type
+        .clone()
+        .unwrap_or_else(|| base.layer_type.clone());
+    // A raster layer's engine opinion is always "no parametric payload" (the
+    // compositor ignores them there), and the None-preserves merge below
+    // cannot express `apply_rasterize`'s payload drop (None means "unchanged"
+    // there). So a Raster projection whose render layer carries neither
+    // payload drops both for good (U10); a render layer that explicitly
+    // carries one (SetLayerParams on a raster layer) still takes (D6).
+    let parametric = !matches!(layer_type, LayerType::Raster)
+        || r.shape_params.is_some()
+        || r.text_data.is_some();
     PtzLayer {
         id: r.id.clone(),
         name: r.name.clone(),
         // Extended fields: a Some on the render layer (set by an add/upsert op)
         // overrides the persisted base; None preserves it. Enums use the
         // match-and-clone pattern so a missing value falls back to `base`.
-        layer_type: r
-            .layer_type
-            .clone()
-            .unwrap_or_else(|| base.layer_type.clone()),
+        layer_type,
         visible: r.visible,
         opacity: r.opacity,
         locked: r.locked.unwrap_or(base.locked),
         is_background: r.is_background.or(base.is_background),
-        lock_transparency: r.lock_transparency.or(base.lock_transparency),
-        lock_position: r.lock_position.or(base.lock_position),
-        lock_rotation: r.lock_rotation.or(base.lock_rotation),
+        lock_transparency: merge_lock(r.lock_transparency, base.lock_transparency),
+        lock_position: merge_lock(r.lock_position, base.lock_position),
+        lock_rotation: merge_lock(r.lock_rotation, base.lock_rotation),
         // Nested parametric payloads: a Some on the render layer (set by the typed
         // AddLayer / SetLayerParams / SetAdjustment arm) overrides the persisted
         // base; None preserves it (D-b: Some(v) takes, None preserves).
@@ -197,7 +225,15 @@ pub fn merge_into_layer(base: &PtzLayer, r: &RenderLayer) -> PtzLayer {
         },
         width: r.width.unwrap_or(base.width),
         height: r.height.unwrap_or(base.height),
-        shape_params: r.shape_params.clone().or_else(|| base.shape_params.clone()),
-        text_data: r.text_data.clone().or_else(|| base.text_data.clone()),
+        shape_params: if parametric {
+            r.shape_params.clone().or_else(|| base.shape_params.clone())
+        } else {
+            None
+        },
+        text_data: if parametric {
+            r.text_data.clone().or_else(|| base.text_data.clone())
+        } else {
+            None
+        },
     }
 }

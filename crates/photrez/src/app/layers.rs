@@ -20,6 +20,14 @@ pub(crate) struct DuplicateLayerAction;
 
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]
+pub(crate) struct NewLayerAction;
+
+#[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
+#[action(namespace = photrez, no_json)]
+pub(crate) struct SelectAllLayersAction;
+
+#[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
+#[action(namespace = photrez, no_json)]
 pub(crate) struct MergeLayerDownAction;
 
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
@@ -52,6 +60,18 @@ impl App {
     pub(crate) fn stamp_visible_action(&mut self, _: &StampVisibleAction, cx: &mut Context<Self>) {
         let result = self.stamp_visible(cx);
         self.report_layer_op(result, cx);
+    }
+
+    pub(crate) fn new_layer_action(&mut self, _: &NewLayerAction, cx: &mut Context<Self>) {
+        self.add_empty_layer(cx);
+    }
+
+    pub(crate) fn select_all_layers_action(
+        &mut self,
+        _: &SelectAllLayersAction,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_all_layers(cx);
     }
 
     /// Composite every visible layer into a new raster layer at the top while
@@ -221,12 +241,49 @@ impl App {
     /// text-layer typography row in Properties (`prop-rasterize`), where the
     /// mounted behaviour contract pins it. The frozen panel has no such
     /// button; the improvement is recorded in the ledger.
+    ///
+    /// Parametric layers are metadata-only in the store, so the host renders
+    /// the layer's bitmap first and hands it to `RasterizeLayer` — the
+    /// command materializes it as the rasterized layer's canonical buffer
+    /// (the oracle's text layers always carry their bitmap, which is why its
+    /// rasterize composites).
     pub(crate) fn rasterize_selected_layer(
         &mut self,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        use photrez_core::protocol::RasterizePixels;
         let (doc_id, layer) = self.selected_layer(cx)?;
-        self.apply_core_command(&doc_id, Command::RasterizeLayer { id: layer.id }, true, cx)
+        let rendered = match layer.layer_type {
+            LayerType::Text => layer.text_data.as_ref().and_then(|data| {
+                photrez_core::render::rasterize_text_preview(data, Some(crate::INTER))
+            }),
+            LayerType::Shape => layer
+                .shape_params
+                .as_ref()
+                .and_then(photrez_core::render::rasterize_shape_preview),
+            _ => None,
+        };
+        // A parametric layer whose features the rasterizer cannot render
+        // (decorated/styled text outside the core subset) refuses the
+        // rasterize with a typed error instead of producing a Raster layer
+        // the compositor cannot paint.
+        if rendered.is_none() {
+            return Err("rasterize: the layer's content cannot be rendered to pixels".to_string());
+        }
+        let (width, height, rgba) = rendered.expect("rendered above");
+        self.apply_core_command(
+            &doc_id,
+            Command::RasterizeLayer {
+                id: layer.id,
+                pixels: Some(RasterizePixels {
+                    width: f64::from(width),
+                    height: f64::from(height),
+                    rgba,
+                }),
+            },
+            true,
+            cx,
+        )
     }
 
     pub(crate) fn selected_layer_count(&self, cx: &Context<Self>) -> usize {
@@ -380,7 +437,7 @@ impl App {
             .map_err(|error| error.to_string())
     }
 
-    fn seed_layer(
+    pub(crate) fn seed_layer(
         &mut self,
         doc_id: &str,
         layer_id: &str,
@@ -465,14 +522,30 @@ impl App {
     }
 
     pub(crate) fn toggle_layer_locked(&mut self, core_id: String, cx: &mut Context<Self>) {
+        self.toggle_layer_lock(core_id, LockKind::Base, cx);
+    }
+
+    /// Flip one of the four lock flags on a layer (`LayersPanel.tsx:474-533`).
+    pub(crate) fn toggle_layer_lock(
+        &mut self,
+        core_id: String,
+        kind: LockKind,
+        cx: &mut Context<Self>,
+    ) {
         let result = (|| {
             let (doc_id, layer) = self.layer_by_core_id(&core_id)?;
+            let locked = match kind {
+                LockKind::Base => !layer.locked,
+                LockKind::Transparency => !layer.lock_transparency.unwrap_or(false),
+                LockKind::Position => !layer.lock_position.unwrap_or(false),
+                LockKind::Rotation => !layer.lock_rotation.unwrap_or(false),
+            };
             self.apply_core_command(
                 &doc_id,
                 Command::SetLocked {
                     id: layer.id,
-                    kind: LockKind::Base,
-                    locked: !layer.locked,
+                    kind,
+                    locked,
                 },
                 true,
                 cx,

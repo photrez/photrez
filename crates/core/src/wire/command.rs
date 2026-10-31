@@ -3,7 +3,7 @@
 // host/engine boundary and must not change their serialized shape.
 
 use crate::ptz::content::{
-    BasicAdjustment, BlendMode, LayerType, SelectionState, ShapeParams, TextData,
+    BasicAdjustment, BlendMode, LayerType, SelectionState, ShapeParams, TextData, Transform2D,
 };
 use crate::wire::projection::RenderDelta;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,18 @@ pub struct BrushSettings {
     pub opacity: f64,
     pub flow: f64,
 }
+
+/// The host-rendered bitmap that materializes a parametric layer's pixels at
+/// rasterize time (`RasterizeLayer`). The host owns rendering (the same
+/// rasterizers the compositor uses); the engine owns the metadata flip and
+/// the pixel store consumes the buffer right after the command applies.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RasterizePixels {
+    pub width: f64,
+    pub height: f64,
+    pub rgba: Vec<u8>,
+}
 /// The four TS layer-lock kinds (document.ts setLayerLocked +
 /// setLayerLock{Transparency,Position,Rotation}). `base` maps to
 /// `RenderLayer.locked`; the other three map to their named lock fields.
@@ -80,6 +92,29 @@ pub enum Command {
         x: Option<f64>,
         #[serde(default)]
         y: Option<f64>,
+        #[serde(default)]
+        layer_type: Option<LayerType>,
+        #[serde(default)]
+        shape_params: Option<ShapeParams>,
+        #[serde(default)]
+        text_data: Option<TextData>,
+    },
+    // Create a layer with the full initial state a cross-document copy carries:
+    // full transform, opacity, blend mode, visibility, and lock. Mirrors the
+    // oracle's drag-drop path, which adds the layer and then assigns those
+    // properties inside ONE history entry. Pixel seeding stays host-side, like
+    // DuplicateLayer: the host writes the copied bitmap before sending this.
+    AddLayerWithState {
+        id: String,
+        name: String,
+        width: f64,
+        height: f64,
+        index: usize,
+        transform: Transform2D,
+        opacity: f64,
+        blend_mode: BlendMode,
+        visible: bool,
+        locked: bool,
         #[serde(default)]
         layer_type: Option<LayerType>,
         #[serde(default)]
@@ -180,8 +215,16 @@ pub enum Command {
     // Rasterize a parametric (shape/text) layer to a plain raster layer: drop the
     // shape/text params, keep bitmap/dims/transform/adjustments. A non-parametric
     // layer is a silent no-op (mirrors shapeLayerToRaster/textLayerToRaster guard).
+    // `pixels` carries the host-rendered bitmap that materializes the layer's
+    // canonical buffer (parametric layers are metadata-only), and the layer's
+    // dimensions become the bitmap's — the oracle keeps a text layer's bitmap
+    // and bitmap-sized dims at all times, so its rasterize works. serde-defaulted
+    // so a v2 envelope without it still parses (and reproduces the metadata-only
+    // historical behaviour).
     RasterizeLayer {
         id: String,
+        #[serde(default)]
+        pixels: Option<RasterizePixels>,
     },
     // Crop the canvas: offset every unlocked layer by (-x, -y) and set the document
     // size to (width, height). Mirror of DocumentEngine.cropCanvas / performCropCanvas
@@ -233,6 +276,16 @@ pub enum Command {
         target_width: Option<f64>,
         #[serde(default)]
         target_height: Option<f64>,
+        /// Destructive crop: discard every layer pixel that no longer falls
+        /// inside the cropped document, in the same history step as the
+        /// metadata crop. Defaults to false (non-destructive), so older
+        /// envelopes keep their exact behaviour.
+        #[serde(default)]
+        delete_cropped_pixels: bool,
+        /// `fillBackgroundColor`: an opaque RGBA colour baked UNDER the
+        /// Background layer, so the cropped canvas never shows through.
+        #[serde(default)]
+        fill_background: Option<[u8; 4]>,
     },
     // Resize the canvas to (width, height). Mirror of DocumentEngine.resizeCanvas:
     // only the document size changes, no layer is touched. Non-positive dims are a
@@ -324,7 +377,7 @@ pub struct CommandResult {
     // derived cache against it instead of guessing. Absent for every other
     // step, so no existing producer's serialized shape changes.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pixel_patches: Option<PixelPatchHandoff>,
+    pub pixel_patches: Option<Vec<PixelPatchHandoff>>,
     /// Present iff this step landed on an `External` entry. The host's
     /// `token` for that entry, handed back verbatim.
     ///

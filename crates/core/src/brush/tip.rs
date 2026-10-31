@@ -7,6 +7,8 @@
 //! bytes via the env-gated test in `brush/tests/tip.rs`.
 
 pub const BRUSH_HARD_EDGE_THRESHOLD: f64 = 0.97;
+/// Alpha contour the paint cursor ring marks (brushHardnessProfile.ts).
+pub const BRUSH_CURSOR_ALPHA_CONTOUR: f64 = 0.2;
 pub const MIN_RELIABLE_BRUSH_DIAMETER_PX: f64 = 22.0;
 pub const MIN_VISIBLE_ALPHA_8BIT: f64 = 0.5 / 255.0;
 const HARDNESS_POINTS: [f64; 7] = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0];
@@ -120,6 +122,17 @@ pub fn brush_alpha(r_norm: f64, hardness: f64) -> f64 {
     let p = get_brush_profile_parameters(h);
     let x = r_norm.max(0.0) / p.sigma;
     (-x.powf(p.n)).exp()
+}
+
+/// Radius multiplier that maps the nominal brush radius to the 20% alpha
+/// contour — mirrors getBrushCursorRadiusScale().
+pub fn get_brush_cursor_radius_scale(hardness: f64) -> f64 {
+    let h = clamp_hardness(hardness);
+    if h >= BRUSH_HARD_EDGE_THRESHOLD {
+        return 1.0;
+    }
+    let p = get_brush_profile_parameters(h);
+    (p.sigma * (-BRUSH_CURSOR_ALPHA_CONTOUR.ln()).powf(1.0 / p.n)).min(1.0)
 }
 
 pub fn get_brush_profile_support_norm(hardness: f64) -> f64 {

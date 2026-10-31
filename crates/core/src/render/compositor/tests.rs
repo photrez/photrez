@@ -115,6 +115,18 @@ fn document(layers: Vec<PtzLayer>) -> PtzDocumentContent {
     }
 }
 
+fn identity_transform() -> Transform2D {
+    Transform2D {
+        x: 0.0,
+        y: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        rotation: 0.0,
+        flip_h: false,
+        flip_v: false,
+    }
+}
+
 fn seed(
     registry: &mut PixelStoreRegistry,
     doc_id: &str,
@@ -132,6 +144,243 @@ fn seed(
     registry
         .add_layer(doc_id, id, width, height, pixels)
         .expect("test layer seeds");
+}
+
+#[test]
+fn region_composite_matches_full_output_across_transform_paths() {
+    let mut registry = PixelStoreRegistry::new();
+    registry.open_document("composite-order");
+    registry
+        .add_layer(
+            "composite-order",
+            "top-pattern",
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 180, 0, 0, 255, 128, 255, 255, 0, 220,
+            ],
+        )
+        .expect("pattern layer seeds");
+    seed(
+        &mut registry,
+        "composite-order",
+        "bottom",
+        4,
+        4,
+        [30, 80, 150, 192],
+    );
+
+    let transforms = [
+        Transform2D {
+            x: 1.0,
+            y: 1.0,
+            flip_h: true,
+            ..identity_transform()
+        },
+        Transform2D {
+            x: 0.5,
+            y: -0.25,
+            scale_x: 1.25,
+            scale_y: 0.75,
+            flip_v: true,
+            ..identity_transform()
+        },
+        Transform2D {
+            x: 1.0,
+            y: 0.5,
+            scale_x: 1.5,
+            scale_y: 0.8,
+            rotation: 37.0,
+            flip_h: true,
+            ..identity_transform()
+        },
+    ];
+    let requests = [
+        CompositeRegion {
+            x: 1,
+            y: 1,
+            width: 2,
+            height: 2,
+        },
+        CompositeRegion {
+            x: 3,
+            y: 2,
+            width: 5,
+            height: 4,
+        },
+        CompositeRegion {
+            x: 7,
+            y: 1,
+            width: 2,
+            height: 2,
+        },
+    ];
+
+    for transform in transforms {
+        let mut top = raster_layer("top-pattern", 2.0, 2.0, 0.7, true);
+        top.transform = transform.clone();
+        top.blend_mode = BlendMode::Multiply;
+        let content = document(vec![top, raster_layer("bottom", 4.0, 4.0, 1.0, true)]);
+        let full = composite_layers(&content, &registry).expect("full composite succeeds");
+
+        for request in requests {
+            let actual =
+                composite_layers_in_region_with_font_data(&content, &registry, None, request)
+                    .expect("region composite succeeds");
+            let x = request.x.min(full.width);
+            let y = request.y.min(full.height);
+            let right = request.x.saturating_add(request.width).min(full.width);
+            let bottom = request.y.saturating_add(request.height).min(full.height);
+            let expected_region = CompositeRegion {
+                x,
+                y,
+                width: right.saturating_sub(x),
+                height: bottom.saturating_sub(y),
+            };
+            assert_eq!(actual.region, expected_region);
+
+            let mut expected = Vec::new();
+            for row in expected_region.y..expected_region.y + expected_region.height {
+                let start = ((row as usize * full.width as usize) + expected_region.x as usize) * 4;
+                let end = start + expected_region.width as usize * 4;
+                expected.extend_from_slice(&full.pixels[start..end]);
+            }
+            assert_eq!(
+                actual.pixels, expected,
+                "transform {transform:?}, request {request:?}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "manual Move preview composition measurement"]
+fn move_preview_full_composite_perf_probe() {
+    use std::time::Instant;
+
+    const WIDTH: u32 = 4096;
+    const HEIGHT: u32 = 1024;
+    let doc_id = "move-preview-perf";
+    let mut registry = PixelStoreRegistry::new();
+    registry.open_document(doc_id);
+    seed(
+        &mut registry,
+        doc_id,
+        "selected",
+        512,
+        512,
+        [220, 120, 40, 192],
+    );
+    seed(
+        &mut registry,
+        doc_id,
+        "middle",
+        WIDTH,
+        HEIGHT,
+        [30, 80, 150, 160],
+    );
+    seed(
+        &mut registry,
+        doc_id,
+        "bottom",
+        WIDTH,
+        HEIGHT,
+        [20, 40, 60, 255],
+    );
+
+    let mut selected = raster_layer("selected", 512.0, 512.0, 1.0, true);
+    selected.transform.x = 768.0;
+    selected.transform.y = 256.0;
+    let mut content = document(vec![
+        selected,
+        raster_layer("middle", WIDTH as f64, HEIGHT as f64, 1.0, true),
+        raster_layer("bottom", WIDTH as f64, HEIGHT as f64, 1.0, true),
+    ]);
+    content.id = doc_id.to_owned();
+    content.width = WIDTH as f64;
+    content.height = HEIGHT as f64;
+
+    let mut preview_content = content.clone();
+    preview_content.layers[0].transform.x = 832.0;
+    preview_content.layers[0].transform.y = 320.0;
+    let region = CompositeRegion {
+        x: 760,
+        y: 248,
+        width: 640,
+        height: 640,
+    };
+    let full = composite_layers(&preview_content, &registry).expect("full composite succeeds");
+    let partial =
+        composite_layers_in_region_with_font_data(&preview_content, &registry, None, region)
+            .expect("region composite succeeds");
+    assert_eq!(
+        (partial.document_width, partial.document_height),
+        (WIDTH, HEIGHT)
+    );
+    assert_eq!(partial.region, region);
+    let mut expected = Vec::with_capacity(region.width as usize * region.height as usize * 4);
+    for row in region.y..region.y + region.height {
+        let start = ((row as usize * WIDTH as usize) + region.x as usize) * 4;
+        let end = start + region.width as usize * 4;
+        expected.extend_from_slice(&full.pixels[start..end]);
+    }
+    assert_eq!(partial.pixels, expected);
+
+    for _ in 0..2 {
+        let output =
+            composite_layers(&preview_content, &registry).expect("full composite succeeds");
+        std::hint::black_box(output.pixels.len());
+        let output =
+            composite_layers_in_region_with_font_data(&preview_content, &registry, None, region)
+                .expect("region composite succeeds");
+        std::hint::black_box(output.pixels.len());
+    }
+    let measure_full = || {
+        let started = Instant::now();
+        let output =
+            composite_layers(&preview_content, &registry).expect("full composite succeeds");
+        std::hint::black_box(output.pixels.len());
+        started.elapsed()
+    };
+    let measure_region = || {
+        let started = Instant::now();
+        let output =
+            composite_layers_in_region_with_font_data(&preview_content, &registry, None, region)
+                .expect("region composite succeeds");
+        std::hint::black_box(output.pixels.len());
+        started.elapsed()
+    };
+    let mut full_samples = Vec::with_capacity(9);
+    let mut region_samples = Vec::with_capacity(9);
+    for sample in 0..9 {
+        if sample % 2 == 0 {
+            full_samples.push(measure_full());
+            region_samples.push(measure_region());
+        } else {
+            region_samples.push(measure_region());
+            full_samples.push(measure_full());
+        }
+    }
+    full_samples.sort_unstable();
+    region_samples.sort_unstable();
+    let full_sample_ms: Vec<_> = full_samples
+        .iter()
+        .map(|sample| (sample.as_secs_f64() * 1_000_000.0).round() / 1_000.0)
+        .collect();
+    let region_sample_ms: Vec<_> = region_samples
+        .iter()
+        .map(|sample| (sample.as_secs_f64() * 1_000_000.0).round() / 1_000.0)
+        .collect();
+    eprintln!("MOVE_COMPOSITE_SAMPLES full_ms={full_sample_ms:?} region_ms={region_sample_ms:?}");
+    let full_median = full_samples[full_samples.len() / 2];
+    let region_median = region_samples[region_samples.len() / 2];
+    eprintln!(
+        "MOVE_COMPOSITE_COMPARE width={WIDTH} height={HEIGHT} layers=3 region=640x640 n={} full_median_ms={:.3} region_median_ms={:.3} speedup={:.2}x",
+        full_samples.len(),
+        full_median.as_secs_f64() * 1000.0,
+        region_median.as_secs_f64() * 1000.0,
+        full_median.as_secs_f64() / region_median.as_secs_f64(),
+    );
 }
 
 #[test]

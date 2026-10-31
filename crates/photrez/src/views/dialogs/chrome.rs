@@ -1,7 +1,7 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla, Stateful, TestSupportExt};
 
 use crate::components::ui;
 use crate::icons;
@@ -19,6 +19,32 @@ use super::{
 /// when its body is filled in would make every before/after comparison lie.
 pub(super) fn dialog_shell(title: &str, w: f32, h: f32, body: Div) -> Div {
     dialog_shell_with_actions(title, w, h, body, Vec::new())
+}
+
+/// Content-sized shell with live footer buttons and a live titlebar close.
+pub(super) fn dialog_shell_auto_actions(
+    title: &str,
+    w: f32,
+    body: Div,
+    buttons: Vec<gpui_kit::AnyElement>,
+    close: impl IntoElement,
+) -> Div {
+    v_flex()
+        .w(px(w))
+        .rounded(px(SHELL_R))
+        .border_1()
+        .border_color(color::FIELD_BORDER)
+        .bg(color::PANEL)
+        .overflow_hidden()
+        .shadow(vec![BoxShadow::new(
+            px(0.0),
+            px(18.0),
+            hsla(0.0, 0.0, 0.0, 0.55),
+        )
+        .blur_radius(px(50.0))])
+        .child(titlebar_with(title, close))
+        .child(div().w_full().px(px(BODY_PX)).py(px(BODY_PY)).child(body))
+        .child(actions(buttons))
 }
 
 /// The shell with live footer buttons for a production dialog.
@@ -59,7 +85,14 @@ pub(super) fn dialog_shell_with_actions(
 
 /// `flex h-9 items-center justify-between border-b border-editor-divider
 /// bg-editor-topbar px-3` \u{2014} brand mark, title, close button.
-fn titlebar(title: &str) -> Div {
+pub(super) fn titlebar(title: &str) -> Div {
+    titlebar_with(title, close_box())
+}
+
+/// The titlebar with a caller-supplied close button. Static previews use the
+/// inert affordance; a live dialog passes `dialog_close_button` so the same
+/// 20x20 hit area dismisses it.
+fn titlebar_with(title: &str, close: impl IntoElement) -> Div {
     h_flex()
         .w_full()
         .h(px(TITLEBAR_H))
@@ -97,22 +130,43 @@ fn titlebar(title: &str) -> Div {
                         .child(title.to_string()),
                 ),
         )
+        .child(close)
+}
+
+/// `<button class="flex size-5 items-center justify-center rounded-[4px]
+/// text-editor-icon hover:bg-white/[0.08] hover:text-editor-text
+/// cursor-pointer">` (`DesktopDialog.tsx:140`). The 20 px box is the whole
+/// hit area, not just the 10 px glyph.
+///
+/// Inert by itself so a static preview draws the same chrome without a
+/// handler; `dialog_close_button` adds the dismissal.
+fn close_box() -> Stateful<Div> {
+    div()
+        .id("dialog-close")
+        .w(px(CLOSE_BOX))
+        .h(px(CLOSE_BOX))
+        .flex()
+        .items_center()
+        .justify_center()
+        .flex_shrink_0()
+        .rounded(px(4.0))
+        .cursor_pointer()
+        // No token holds 8 % white; the alpha blends over TOPBAR as the CSS does.
+        .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.08)))
         .child(
-            div()
-                .w(px(CLOSE_BOX))
-                .h(px(CLOSE_BOX))
-                .flex()
-                .items_center()
-                .justify_center()
-                .flex_shrink_0()
-                .rounded(px(4.0))
-                .child(
-                    Icon::default()
-                        .data(icons::X)
-                        .size(px(CLOSE_ICON))
-                        .text_color(color::ICON),
-                ),
+            Icon::default()
+                .data(icons::X)
+                .size(px(CLOSE_ICON))
+                .text_color(color::ICON),
         )
+}
+
+/// The titlebar close for a live dialog: the source calls the dialog's
+/// `onDismiss` from here, which is the same path Escape and the backdrop take.
+pub(super) fn dialog_close_button(
+    listener: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+) -> impl IntoElement {
+    close_box().test_support().on_click(listener)
 }
 
 /// `flex min-h-11 items-center justify-end gap-2 border-t border-editor-divider

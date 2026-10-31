@@ -1,17 +1,30 @@
+use super::tabs::tab_label_for;
 use super::*;
 
-/// `tab_label` capitalises the first character of a tab id and leaves the
-/// rest untouched. Empty input yields an empty string.
+/// `tab_label_for` reads the `panels.<id>` catalog entry for the locale it is
+/// given and falls back to capitalizing the id when the catalog has no entry.
+/// The locale is a parameter so this holds while other tests mount apps that
+/// write the process-wide locale.
 ///
-/// RED proof: remove the `to_uppercase()` call and every assertion flips.
+/// RED proof: drop the catalog lookup and every Indonesian assertion fails;
+/// remove the `to_uppercase()` fallback and `tab_label_for(_, "unknown-tab")`
+/// fails.
 #[test]
-fn tab_label_capitalizes_first_char() {
-    assert_eq!(tab_label("properties"), "Properties");
-    assert_eq!(tab_label("adjustments"), "Adjustments");
-    assert_eq!(tab_label("presets"), "Presets");
-    assert_eq!(tab_label("layers"), "Layers");
-    assert_eq!(tab_label("history"), "History");
-    assert_eq!(tab_label(""), "");
+fn tab_label_reads_the_catalog_per_locale() {
+    use crate::i18n::Locale;
+    assert_eq!(tab_label_for(Locale::En, "properties"), "Properties");
+    assert_eq!(tab_label_for(Locale::En, "adjustments"), "Adjustments");
+    assert_eq!(tab_label_for(Locale::En, "presets"), "Presets");
+    assert_eq!(tab_label_for(Locale::En, "layers"), "Layers");
+    assert_eq!(tab_label_for(Locale::En, "history"), "History");
+    assert_eq!(tab_label_for(Locale::En, ""), "");
+    assert_eq!(tab_label_for(Locale::En, "unknown-tab"), "Unknown-tab");
+
+    assert_eq!(tab_label_for(Locale::Id, "properties"), "Properti");
+    assert_eq!(tab_label_for(Locale::Id, "adjustments"), "Penyesuaian");
+    assert_eq!(tab_label_for(Locale::Id, "presets"), "Prasetel");
+    assert_eq!(tab_label_for(Locale::Id, "layers"), "Lapisan");
+    assert_eq!(tab_label_for(Locale::Id, "history"), "Riwayat");
 }
 
 /// `inspector_tab_id` maps each `InspectorTab` variant to the string id
@@ -42,16 +55,17 @@ fn layer_tab_id_maps_each_variant() {
 /// RED proof: change `tab_label` to lowercase the rest and this fails.
 #[test]
 fn inspector_tab_label_round_trips() {
+    use crate::i18n::Locale;
     assert_eq!(
-        tab_label(inspector_tab_id(&InspectorTab::Properties)),
+        tab_label_for(Locale::En, inspector_tab_id(&InspectorTab::Properties)),
         "Properties"
     );
     assert_eq!(
-        tab_label(inspector_tab_id(&InspectorTab::Adjustments)),
+        tab_label_for(Locale::En, inspector_tab_id(&InspectorTab::Adjustments)),
         "Adjustments"
     );
     assert_eq!(
-        tab_label(inspector_tab_id(&InspectorTab::Presets)),
+        tab_label_for(Locale::En, inspector_tab_id(&InspectorTab::Presets)),
         "Presets"
     );
 }

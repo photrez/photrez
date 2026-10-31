@@ -1,7 +1,7 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla};
+use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla, TestSupportExt};
 
 use crate::components::ui;
 use crate::i18n::t;
@@ -25,6 +25,16 @@ use super::{
 /// is exactly 350 tall - but it keeps a stray flex rounding step from painting
 /// past the 6px corners.
 pub(super) fn card() -> Div {
+    card_shell(actions(), presets())
+}
+
+/// The production card: same shell, with each control wired to the action the
+/// oracle's `EmptyWorkspace.tsx` attaches to it.
+pub(super) fn card_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    card_shell(actions_live(cx), presets_live(cx))
+}
+
+fn card_shell(actions: impl IntoElement, presets: impl IntoElement) -> Div {
     v_flex()
         .items_stretch()
         .w(px(CARD_W))
@@ -36,8 +46,8 @@ pub(super) fn card() -> Div {
         .overflow_hidden()
         .shadow(card_shadow())
         .child(header())
-        .child(actions())
-        .child(presets())
+        .child(actions)
+        .child(presets)
         .child(footer())
 }
 
@@ -146,6 +156,59 @@ fn actions() -> Div {
         ))
 }
 
+/// The two action buttons, wired: Open Image runs the production open action
+/// (the same one `Ctrl+O` and the File menu run) and New Document raises the
+/// dialog. `EmptyWorkspace.tsx` binds them to `openImage` and
+/// `handleNewCanvas`.
+fn actions_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    h_flex()
+        .w_full()
+        .h(px(ACTIONS_H))
+        .flex_shrink_0()
+        .items_stretch()
+        .px(px(PAD_X))
+        .py(px(ACTIONS_PAD_Y))
+        .gap(px(ACTIONS_GAP))
+        .child(
+            action_button(
+                icons::FOLDER_PLUS,
+                &t("welcome.openImage"),
+                color::ACCENT,
+                color::WHITE,
+                false,
+            )
+            .id("empty-open-image")
+            .test_support()
+            .on_click(cx.listener(
+                |app,
+                 _: &gpui_kit::ClickEvent,
+                 _window,
+                 cx: &mut gpui_kit::Context<crate::app::App>| {
+                    app.open_document_action(&crate::app::OpenDocument, cx);
+                },
+            )),
+        )
+        .child(
+            action_button(
+                icons::PLUS,
+                &t("welcome.newDocument"),
+                color::FIELD,
+                color::TEXT,
+                true,
+            )
+            .id("empty-new-document")
+            .test_support()
+            .on_click(cx.listener(
+                |app,
+                 _: &gpui_kit::ClickEvent,
+                 _window,
+                 cx: &mut gpui_kit::Context<crate::app::App>| {
+                    app.open_new_document(cx);
+                },
+            )),
+        )
+}
+
 /// One action button.
 ///
 /// The first is `bg-editor-accent text-white` with no border; the second is
@@ -228,6 +291,36 @@ fn presets() -> Div {
         )
 }
 
+/// The Quick Presets block, wired: each tile creates its blank white document
+/// (`EmptyWorkspace.tsx` `handleCreatePreset`).
+fn presets_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    v_flex()
+        .w_full()
+        .h(px(PRESETS_H))
+        .flex_shrink_0()
+        .px(px(PAD_X))
+        .py(px(PRESETS_PAD_Y))
+        .border_t(px(1.0))
+        .border_color(color::BORDER)
+        .child(
+            text_line(
+                &t("welcome.quickPresets"),
+                HEADING_TEXT,
+                HEADING_LINE_H,
+                FontWeight(600.),
+                color::TEXT,
+            )
+            .mb(px(PRESETS_HEADING_MB)),
+        )
+        .child(
+            v_flex()
+                .w_full()
+                .gap(px(PRESET_ROW_GAP))
+                .child(preset_row_live(0, 1, cx))
+                .child(preset_row_live(2, 3, cx)),
+        )
+}
+
 /// One row of the `grid-cols-2` presets grid - two 235px tiles 8px apart.
 fn preset_row(first: usize, second: usize) -> Div {
     h_flex()
@@ -240,6 +333,17 @@ fn preset_row(first: usize, second: usize) -> Div {
         .child(preset_tile(second))
 }
 
+fn preset_row_live(first: usize, second: usize, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    h_flex()
+        .w_full()
+        .h(px(TILE_H))
+        .flex_shrink_0()
+        .items_stretch()
+        .gap(px(PRESET_ROW_GAP))
+        .child(preset_tile_live(first, cx))
+        .child(preset_tile_live(second, cx))
+}
+
 /// One preset: `flex items-center gap-2.5 rounded-[4px] border
 /// border-editor-field-border bg-editor-field p-2`.
 ///
@@ -248,7 +352,25 @@ fn preset_row(first: usize, second: usize) -> Div {
 /// which GPUI rounds the same way the capture does - so unlike the header's
 /// icon box, this one is left to `items_center`.
 fn preset_tile(index: usize) -> Div {
-    let (label, tag) = PRESETS[index];
+    preset_tile_shell(index)
+}
+
+fn preset_tile_live(index: usize, cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {
+    preset_tile_shell(index)
+        .id(format!("empty-preset-{index}"))
+        .test_support()
+        .on_click(cx.listener(
+            move |app,
+                  _: &gpui_kit::ClickEvent,
+                  _window,
+                  cx: &mut gpui_kit::Context<crate::app::App>| {
+                app.create_preset_document(index, cx);
+            },
+        ))
+}
+
+fn preset_tile_shell(index: usize) -> Div {
+    let (label, tag, _width, _height) = PRESETS[index];
 
     h_flex()
         .w(px(TILE_W))

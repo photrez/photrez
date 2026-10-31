@@ -641,8 +641,11 @@ fn rasterize_shape_drops_params_and_becomes_raster() {
     s.layer_type = Some(LayerType::Shape);
     s.shape_params = Some(shape_params());
     e.seed_layers(vec![s], 0);
-    e.apply(env(Command::RasterizeLayer { id: "A".into() }))
-        .unwrap();
+    e.apply(env(Command::RasterizeLayer {
+        id: "A".into(),
+        pixels: None,
+    }))
+    .unwrap();
     let r = layer_by(&e, "A");
     assert_eq!(r.layer_type, Some(LayerType::Raster));
     assert_eq!(r.shape_params, None);
@@ -655,8 +658,11 @@ fn rasterize_text_drops_text_data() {
     t.layer_type = Some(LayerType::Text);
     t.text_data = Some(text_data());
     e.seed_layers(vec![t], 0);
-    e.apply(env(Command::RasterizeLayer { id: "A".into() }))
-        .unwrap();
+    e.apply(env(Command::RasterizeLayer {
+        id: "A".into(),
+        pixels: None,
+    }))
+    .unwrap();
     let r = layer_by(&e, "A");
     assert_eq!(r.layer_type, Some(LayerType::Raster));
     assert_eq!(r.text_data, None);
@@ -671,11 +677,174 @@ fn rasterize_noop_for_non_parametric_layer() {
     s.layer_type = Some(LayerType::Raster);
     e.seed_layers(vec![s], 0);
     let result = e
-        .apply(env(Command::RasterizeLayer { id: "A".into() }))
+        .apply(env(Command::RasterizeLayer {
+            id: "A".into(),
+            pixels: None,
+        }))
         .unwrap();
     assert_eq!(ids_of(&e), vec!["A"]);
     assert_eq!(layer_by(&e, "A").layer_type, Some(LayerType::Raster));
     assert!(result.delta.changes.is_empty());
+}
+
+// -- U10/U11 resolving check: rasterize through the production registry path
+// and composite the result ---------------------------------------------------
+
+/// Seed the production registry the way the app's documents start (one
+/// canonical Background raster) and rasterize the two parametric kinds
+/// through `PixelStoreRegistry::apply_command`.
+fn rasterize_check_registry() -> crate::pixel::PixelStoreRegistry {
+    let mut registry = crate::pixel::PixelStoreRegistry::new();
+    registry.open_document("rasterize-check");
+    registry
+        .add_layer("rasterize-check", "bg", 64, 64, vec![0; 64 * 64 * 4])
+        .expect("background seeds");
+    let content = PtzDocumentContent {
+        id: "rasterize-check".into(),
+        name: "Rasterize check".into(),
+        width: 64.0,
+        height: 64.0,
+        layers: vec![PtzLayer {
+            id: "bg".into(),
+            name: "Background".into(),
+            layer_type: LayerType::Raster,
+            visible: true,
+            opacity: 1.0,
+            locked: false,
+            is_background: Some(true),
+            lock_transparency: None,
+            lock_position: None,
+            lock_rotation: None,
+            has_adjustments: None,
+            basic_adjustment: None,
+            resource_id: None,
+            blend_mode: BlendMode::Normal,
+            transform: Transform2D {
+                x: 0.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                flip_h: false,
+                flip_v: false,
+            },
+            width: 64.0,
+            height: 64.0,
+            shape_params: None,
+            text_data: None,
+        }],
+        selection: None,
+    };
+    registry
+        .seed_document("rasterize-check", content)
+        .expect("content seeds");
+    for (id, kind) in [
+        (
+            "t",
+            Command::AddLayer {
+                id: "t".into(),
+                name: "Text".into(),
+                width: 64.0,
+                height: 64.0,
+                index: 0,
+                x: Some(0.0),
+                y: Some(0.0),
+                layer_type: Some(LayerType::Text),
+                shape_params: None,
+                text_data: Some(text_data()),
+            },
+        ),
+        (
+            "s",
+            Command::AddLayer {
+                id: "s".into(),
+                name: "Shape".into(),
+                width: 64.0,
+                height: 64.0,
+                index: 0,
+                x: Some(0.0),
+                y: Some(0.0),
+                layer_type: Some(LayerType::Shape),
+                shape_params: Some(shape_params()),
+                text_data: None,
+            },
+        ),
+    ] {
+        registry
+            .apply_command("rasterize-check", env(kind))
+            .expect("parametric layer seeds");
+        // The host renders the bitmap before the command (the same core
+        // rasterizers the compositor uses) and hands it to the command; the
+        // store materializes it right after the apply.
+        let pixels = match id {
+            "t" => crate::render::rasterize_text_preview(&text_data(), None),
+            "s" => crate::render::rasterize_shape_preview(&shape_params()),
+            _ => None,
+        }
+        .expect("the parametric layer renders");
+        let (width, height) = (f64::from(pixels.0), f64::from(pixels.1));
+        registry
+            .apply_command(
+                "rasterize-check",
+                env(Command::RasterizeLayer {
+                    id: id.into(),
+                    pixels: Some(crate::wire::command::RasterizePixels {
+                        width,
+                        height,
+                        rgba: pixels.2,
+                    }),
+                }),
+            )
+            .expect("rasterize applies");
+    }
+    registry
+}
+
+/// U10: the content snapshot must drop the parametric payloads on the flip.
+/// Pre-fix the replica projection merged optional payloads with
+/// `r.text_data.clone().or_else(|| base.text_data.clone())`
+/// (`ptz/projection.rs:219`), which cannot express "cleared", so the snapshot
+/// kept the payload of a rasterized layer forever while the layer_type flip
+/// itself did reach the snapshot. The projection now drops the payloads once
+/// the type is Raster. RED receipt:
+/// The pre-fix RED receipts live in the internal parity ledger.
+#[test]
+fn rasterized_layers_drop_their_payload_in_the_snapshot() {
+    let registry = rasterize_check_registry();
+    let content = registry
+        .document_content("rasterize-check")
+        .expect("document content is seeded");
+    for id in ["t", "s"] {
+        let layer = content.layers.iter().find(|l| l.id == id).expect("layer");
+        assert_eq!(layer.layer_type, LayerType::Raster, "U10 flip for {id}");
+        assert!(
+            layer.text_data.is_none() && layer.shape_params.is_none(),
+            "U10: {id} must carry no parametric payload after the flip"
+        );
+    }
+}
+
+/// U11: a rasterized parametric layer must composite from the canonical
+/// store. The host-rendered bitmap rides the command and the store
+/// materializes it with the bitmap-sized dims the layer now carries.
+/// Pre-fix the layer stayed metadata-only and the composite failed with
+/// `MissingPixels`. RED receipt:
+/// The pre-fix RED receipts live in the internal parity ledger.
+#[test]
+fn rasterized_layers_composite_from_the_store() {
+    use crate::render::compositor::{composite_layers, CompositeError};
+
+    let registry = rasterize_check_registry();
+    let content = registry
+        .document_content("rasterize-check")
+        .expect("document content is seeded");
+    match composite_layers(content, &registry) {
+        Ok(_) => {}
+        Err(CompositeError::MissingPixels { layer_id }) => {
+            panic!("U11: the rasterized layer has no canonical pixels to composite: {layer_id}")
+        }
+        Err(other) => panic!("U11: unexpected composite error: {other}"),
+    }
 }
 
 // Canonical shadow with a single layer "A" so duplicate-reconciliation can be

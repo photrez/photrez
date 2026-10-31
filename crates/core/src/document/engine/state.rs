@@ -37,7 +37,16 @@ pub struct DocumentCore {
     // `DocumentPixelStore` drains this right after `apply()` (see
     // `DocumentPixelStore::apply_command`). This is the seam that lets the Rust
     // stream own the pixel step without the engine owning the pixels.
-    pub(crate) pending_pixel: Option<(String, Vec<TilePatch>, Arc<StateNode>)>,
+    pub(crate) pending_pixels: Vec<(String, Vec<TilePatch>, Arc<StateNode>)>,
+    /// Pixel half of a destructive crop, drained by `DocumentPixelStore`
+    /// immediately after the command is applied. The engine owns no pixel
+    /// buffer, so it can only describe what to bake.
+    pub(crate) pending_crop_bake: Option<crate::document::crop_bake::CropBakePlan>,
+    /// Pixel half of a parametric rasterize, drained by `DocumentPixelStore`
+    /// immediately after the command is applied (same seam as
+    /// `pending_crop_bake`): the host-rendered bitmap that materializes the
+    /// rasterized layer's canonical buffer.
+    pub(crate) pending_rasterize: Option<crate::document::rasterize_bake::RasterizePlan>,
     // Engine-local selection state (selection is core document state). Selection is NOT an
     // undoable transition in the command stream; it rides Model-A snapshots and is
     // reconciled onto the canonical shadow when one is seeded.
@@ -75,7 +84,9 @@ impl Default for DocumentCore {
             max_depth: 50,
             adapters: Vec::new(),
             pending_external: None,
-            pending_pixel: None,
+            pending_pixels: Vec::new(),
+            pending_crop_bake: None,
+            pending_rasterize: None,
             replica: None,
             selection: None,
             doc_size: None,

@@ -10,14 +10,20 @@ use crate::tokens::color;
 
 use super::title_bar;
 use super::{GAP_2, R4, R6};
-/// The About dialog's own measurements. `AboutDialog.tsx:44-128` carries the
-/// class names most of these come from; the departures \u{2014} the brand mark
-/// drawn at 44px instead of a 32px glyph inside a 48px tile, and the 12px
-/// rhythm between the three blocks \u{2014} are the rebuild's, not the source's.
-const ABOUT_MARK: f32 = 44.0;
+/// The About dialog's own measurements, from `AboutDialog.tsx:44-128`:
+/// `size-8` mark inside the `size-12 p-2` tile, and `gap-4 px` between the
+/// three blocks with the source's `py-1` body padding.
+const ABOUT_MARK: f32 = 32.0;
 
-/// The body column's rhythm between hero, spec panel and link row.
-const ABOUT_GAP: f32 = 12.0;
+/// `size-12 rounded-[8px] border border-editor-divider bg-[#151516] p-2`.
+const ABOUT_TILE: f32 = 48.0;
+const ABOUT_TILE_RADIUS: f32 = 8.0;
+const ABOUT_TILE_PAD: f32 = 8.0;
+
+/// The body column's rhythm between hero, spec panel and link row, plus the
+/// source's `py-1`.
+const ABOUT_GAP: f32 = 16.0;
+const ABOUT_BODY_PY: f32 = 4.0;
 
 /// `gap-3.5` \u{2014} mark to identity block.
 const ABOUT_HERO_GAP: f32 = 14.0;
@@ -86,7 +92,6 @@ pub(super) const ABOUT_SPEC_VALUES: [&str; 4] = [
 /// same under either locale. Comma-separated rather than a middle dot: the
 /// embedded face has no U+00B7, and the coverage gate reviews catalogue text,
 /// not native literals.
-pub(super) const ABOUT_LANGUAGES: &str = "English, Bahasa Indonesia"; // i18n-exempt: endonyms, not in catalog
 
 /// The link row's labels \u{2014} literals in the web dialog
 /// (`AboutDialog.tsx:114,126`), not catalogue keys.
@@ -106,10 +111,10 @@ pub(super) fn about_version() -> String {
 
 /// `AboutDialog`, rebuilt for the native shell rather than transcribed from
 /// `dialog-about.png`: the web dialog's hero, spec grid and link row survive
-/// as the structure, and three things change with the shell. The mark is the
-/// real brand raster at 44px instead of a glyph in a tile; the version comes
-/// from `CARGO_PKG_VERSION` instead of a runtime round-trip; and the locale
-/// line plus the two corrected stack rows state what ships here rather than
+/// as the structure and geometry, and three things change with the shell. The
+/// mark is the real brand raster rather than the web tile's inline SVG; the
+/// version comes from `CARGO_PKG_VERSION` instead of a runtime round-trip;
+/// and the locale line plus two stack rows state what ships here rather than
 /// what the replaced shell ran. The chrome above and below is shared and
 /// untouched, and the capture difference is a recorded decision, not drift.
 pub(super) fn about_body() -> Div {
@@ -118,18 +123,37 @@ pub(super) fn about_body() -> Div {
         .h_full()
         .justify_center()
         .gap(px(ABOUT_GAP))
+        .py(px(ABOUT_BODY_PY))
         .child(about_hero())
         .child(about_specs())
         .child(about_links())
 }
 
-/// `flex items-center gap-3.5` \u{2014} brand mark beside the identity block.
+/// `flex size-12 shrink-0 items-center justify-center rounded-[8px] border
+/// border-editor-divider bg-[#151516] p-2` around the `size-8` mark.
+fn about_brand_tile() -> Div {
+    div()
+        .w(px(ABOUT_TILE))
+        .h(px(ABOUT_TILE))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(ABOUT_TILE_RADIUS))
+        .border_1()
+        .border_color(color::DIVIDER)
+        .bg(ABOUT_PANEL_BG)
+        .p(px(ABOUT_TILE_PAD))
+        .child(title_bar::logo(ABOUT_MARK))
+}
+
+/// `flex items-center gap-3.5` \u{2014} brand tile beside the identity block.
 fn about_hero() -> Div {
     h_flex()
         .w_full()
         .items_center()
         .gap(px(ABOUT_HERO_GAP))
-        .child(title_bar::logo(ABOUT_MARK))
+        .child(about_brand_tile())
         .child(
             v_flex()
                 .flex_1()
@@ -157,16 +181,7 @@ fn about_hero() -> Div {
                         .line_height(relative(1.35))
                         .text_color(color::TEXT_DIM)
                         .child(t("dialogs.about.tagline")),
-                ))
-                .child(
-                    div()
-                        .mt(px(2.0))
-                        .text_size(px(10.0))
-                        .font_family(ui::FONT_UI)
-                        .line_height(relative(1.35))
-                        .text_color(color::TEXT_DIM)
-                        .child(ABOUT_LANGUAGES.to_string()),
-                ),
+                )),
         )
 }
 
@@ -224,7 +239,7 @@ fn about_spec_cell(i: usize) -> Div {
             div()
                 .text_size(px(11.0))
                 .font_family(ui::FONT_UI)
-                .line_height(relative(1.35))
+                .line_height(px(18.0))
                 .text_color(color::TEXT_DIM)
                 .child(format!("{}:", t(ABOUT_SPEC_LABELS[i]))),
         ))
@@ -233,7 +248,7 @@ fn about_spec_cell(i: usize) -> Div {
                 .text_size(px(11.0))
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(500.))
-                .line_height(relative(1.35))
+                .line_height(px(18.0))
                 .text_color(color::TEXT)
                 .child(ABOUT_SPEC_VALUES[i].to_string()),
         )

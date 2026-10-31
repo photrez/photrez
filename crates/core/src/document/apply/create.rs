@@ -150,6 +150,94 @@ impl DocumentCore {
                 self.finish_forward(_e);
                 Ok(vec![RenderLayerChange::Upsert { layer }])
             }
+            Command::AddLayerWithState {
+                id,
+                name,
+                width,
+                height,
+                index,
+                transform,
+                opacity,
+                blend_mode,
+                visible,
+                locked,
+                layer_type,
+                shape_params,
+                text_data,
+            } => {
+                if id.is_empty() || self.layers.position_by_id(&id).is_some() {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: format!("addLayerWithState id is empty or present: {}", id),
+                    });
+                }
+                if !transform.x.is_finite()
+                    || !transform.y.is_finite()
+                    || !transform.scale_x.is_finite()
+                    || !transform.scale_y.is_finite()
+                    || !transform.rotation.is_finite()
+                    || !opacity.is_finite()
+                {
+                    return Err(ProtocolError {
+                        code: "E_INVALID".to_string(),
+                        message: "addLayerWithState state must be finite".to_string(),
+                    });
+                }
+                let _e = self.begin_forward("Add Layer", std::slice::from_ref(&id));
+                let mut layer = RenderLayer {
+                    id: id.clone(),
+                    name: name.clone(),
+                    visible,
+                    opacity,
+                    resource_id: self.next_resource,
+                    x: transform.x,
+                    y: transform.y,
+                    scale_x: transform.scale_x,
+                    scale_y: transform.scale_y,
+                    rotation: transform.rotation,
+                    dirty_rect: Some(Rect {
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1,
+                    }),
+                    layer_type: Some(LayerType::Raster),
+                    blend_mode: Some(blend_mode),
+                    locked: Some(locked),
+                    lock_transparency: None,
+                    lock_position: None,
+                    lock_rotation: None,
+                    is_background: None,
+                    has_adjustments: Some(false),
+                    width: Some(width),
+                    height: Some(height),
+                    flip_h: Some(transform.flip_h),
+                    flip_v: Some(transform.flip_v),
+                    shape_params: None,
+                    text_data: None,
+                    basic_adjustment: None,
+                };
+                if let Some(lt) = layer_type {
+                    layer.layer_type = Some(lt.clone());
+                    match lt {
+                        LayerType::Shape => {
+                            if let Some(p) = shape_params {
+                                layer.shape_params = Some(p);
+                            }
+                        }
+                        LayerType::Text => {
+                            if let Some(t) = text_data {
+                                layer.text_data = Some(t);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                self.next_resource += 1;
+                self.layers = self.layers.insert_at(layer.clone(), index);
+                self.finish_forward(_e);
+                Ok(vec![RenderLayerChange::Upsert { layer }])
+            }
             Command::DeleteLayer { id } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
                     let _e = self.begin_forward("Delete Layer", std::slice::from_ref(&id));

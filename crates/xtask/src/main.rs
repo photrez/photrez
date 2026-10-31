@@ -47,6 +47,12 @@ fn main() {
                 parity::surfaces::cmd(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("strings") {
                 parity::strings::cmd(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("coverage") {
+                cmd_parity_coverage(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("diff") {
+                cmd_parity_diff(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("perceptual-diff") {
+                cmd_parity_perceptual_diff(&args[2..])
             } else {
                 cmd_parity(&args[1..])
             }
@@ -74,6 +80,7 @@ fn print_help() {
          \x20 xtask parity [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]\n\
          \x20              [--report <dir>] [--mask-metrics] [--accept-ink-residual]\n\
          \x20 xtask parity cross-check --case shape|diff|zoom|measure --a <png> --b <png>\n\
+         \x20 xtask parity diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]\n\
          \n\
          Defaults: --baseline crates/photrez/tests/baseline, --report target/xtask-parity."
     );
@@ -124,6 +131,183 @@ fn cmd_parity_inventory(args: &[String]) -> i32 {
             .unwrap_or(default_out),
     };
     parity::inventory::run(&opts)
+}
+
+/// `xtask parity perceptual-diff --a <png> --b <png> [--threshold <t>] [--ignore-aa] [--out <json>]`
+///
+/// pixelmatch-style YIQ distance with optional anti-aliasing exclusion. The
+/// threshold is explicit (default 0.1, pixelmatch's default); nothing here
+/// ratifies a tolerance.
+fn cmd_parity_perceptual_diff(args: &[String]) -> i32 {
+    let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
+        eprintln!("xtask parity perceptual-diff: --a <png> and --b <png> are required");
+        return 2;
+    };
+    let threshold: f64 = match flag(args, "--threshold") {
+        None => parity::perceptual::DEFAULT_THRESHOLD,
+        Some(v) => match v.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                eprintln!("xtask parity perceptual-diff: --threshold must be a number, got `{v}`");
+                return 2;
+            }
+        },
+    };
+    let ignore_aa = args.iter().any(|arg| arg == "--ignore-aa");
+    let max_diff: Option<f64> = match flag(args, "--max") {
+        None => None,
+        Some(v) => match v.parse() {
+            Ok(n) => Some(n),
+            Err(_) => {
+                eprintln!("xtask parity perceptual-diff: --max must be a number, got `{v}`");
+                return 2;
+            }
+        },
+    };
+    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity perceptual-diff: {e}");
+            return 2;
+        }
+    };
+    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity perceptual-diff: {e}");
+            return 2;
+        }
+    };
+    let report = match parity::perceptual::compare(&img_a, &img_b, threshold, ignore_aa) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("xtask parity perceptual-diff: {e}");
+            return 1;
+        }
+    };
+    println!(
+        "perceptual diff: {:.4}% ({} px of {}, {} AA px ignored, threshold {})",
+        report.changed_pct,
+        report.changed_pixels,
+        report.total_pixels,
+        report.ignored_aa_pixels,
+        report.threshold
+    );
+    if let Some(max) = max_diff {
+        if report.changed_pct > max {
+            eprintln!(
+                "xtask parity perceptual-diff: FAIL {:.4}% > {max:.4}%",
+                report.changed_pct
+            );
+            return 1;
+        }
+    }
+    if let Some(out) = flag(args, "--out") {
+        let payload = serde_json::json!({
+            "a": a,
+            "b": b,
+            "rule": "pixelmatch YIQ distance with anti-aliasing exclusion (industry-standard screenshot comparator)",
+            "report": report,
+            "max": max_diff,
+        });
+        if let Err(e) = std::fs::write(out, serde_json::to_string_pretty(&payload).unwrap()) {
+            eprintln!("xtask parity perceptual-diff: writing {out}: {e}");
+            return 2;
+        }
+    }
+    0
+}
+
+/// `xtask parity diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]`
+///
+/// Whole-image pixel diff over the same class-map the shot comparison uses.
+/// The threshold is explicit and printed: nothing here ratifies a tolerance,
+/// and the default (0.000%) is the strictest possible verdict.
+fn cmd_parity_diff(args: &[String]) -> i32 {
+    let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
+        eprintln!("xtask parity diff: --a <png> and --b <png> are required");
+        return 2;
+    };
+    let max_diff: f64 = match flag(args, "--max-diff") {
+        None => 0.0,
+        Some(v) => match v.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                eprintln!("xtask parity diff: --max-diff must be a number, got `{v}`");
+                return 2;
+            }
+        },
+    };
+    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity diff: {e}");
+            return 2;
+        }
+    };
+    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity diff: {e}");
+            return 2;
+        }
+    };
+    if img_a.width != img_b.width || img_a.height != img_b.height {
+        eprintln!(
+            "parity diff: size mismatch: {}x{} vs {}x{} - a layout comparison needs both captures at the same size",
+            img_a.width, img_a.height, img_b.width, img_b.height
+        );
+        return 1;
+    }
+    let region = parity::RegionSpec {
+        name: "full".to_string(),
+        anchor: parity::Anchor::Top,
+        rows: img_a.height,
+    };
+    let report = match parity::rawdiff::compare_anchored(&img_a, &img_b, &[region]) {
+        Ok(mut v) => v.remove(0),
+        Err(e) => {
+            eprintln!("parity diff: {e}");
+            return 2;
+        }
+    };
+    println!(
+        "diff: {:.4}% ({} px of {}), max channel delta {} at {},{}",
+        report.diff_pct,
+        report.diff_pixels,
+        u64::from(img_a.width) * u64::from(img_a.height),
+        report.max_channel_delta,
+        report.max_at[0],
+        report.max_at[1]
+    );
+    if let Some(out) = flag(args, "--out") {
+        let payload = serde_json::json!({
+            "a": a,
+            "b": b,
+            "max_diff": max_diff,
+            "region": report,
+        });
+        if let Err(e) = std::fs::write(
+            out,
+            serde_json::to_string_pretty(&payload).unwrap_or_default(),
+        ) {
+            eprintln!("xtask parity diff: write {out}: {e}");
+            return 2;
+        }
+    }
+    if report.diff_pct > max_diff {
+        println!(
+            "parity diff: FAIL ({:.4}% > max-diff {:.4}%)",
+            report.diff_pct, max_diff
+        );
+        1
+    } else {
+        println!(
+            "parity diff: PASS ({:.4}% <= max-diff {:.4}%)",
+            report.diff_pct, max_diff
+        );
+        0
+    }
 }
 
 fn cmd_capture(args: &[String]) -> i32 {
@@ -205,6 +389,20 @@ fn cmd_parity(args: &[String]) -> i32 {
         Ok(code) => code,
         Err(e) => {
             eprintln!("parity failed: {e}");
+            1
+        }
+    }
+}
+
+fn cmd_parity_coverage(args: &[String]) -> i32 {
+    let inventory =
+        Path::new(flag(args, "--inventory").unwrap_or(".slim/deepwork/parity-inventory.csv"));
+    let surfaces =
+        Path::new(flag(args, "--surfaces").unwrap_or(".slim/deepwork/parity-surfaces.csv"));
+    match parity::coverage::run(inventory, surfaces) {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("parity coverage: {error}");
             1
         }
     }

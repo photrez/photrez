@@ -7,200 +7,320 @@
 
 use gpui_kit::Context;
 use photrez_core::protocol::{Command, TransformPatch};
-use photrez_core::ptz::layer_params::BasicAdjustment;
-
-use crate::state::ShapeTool;
+use photrez_core::ptz::layer_params::{BasicAdjustment, ShapeFillKind, ShapeKind, ShapeParams};
 
 use super::App;
 
+/// The weight dropdown's values, in the oracle's smallest-to-largest order.
+pub(crate) const TEXT_WEIGHTS: [f64; 7] = [100.0, 300.0, 400.0, 500.0, 600.0, 700.0, 900.0];
+
+/// View → Snap (`Shift+Ctrl+;`), the shortcut the View menu advertises.
+#[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
+#[action(namespace = photrez, no_json)]
+pub(crate) struct ToggleSnapAction;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ToolSetting {
-    BrushSize,
-    BrushHardness,
-    BrushOpacity,
-    BrushFlow,
-    BrushSmoothing,
-    EraserSize,
-    EraserHardness,
-    EraserOpacity,
-    EraserFlow,
-    EraserSmoothing,
-    FillTolerance,
-    ShapeRadius,
-    TextSize,
-    MoveX,
-    MoveY,
-    MoveScaleX,
-    MoveScaleY,
-    MoveRotation,
+pub(crate) enum BrushField {
+    Size,
+    Hardness,
+    Opacity,
+    Flow,
+    Smoothing,
 }
+
+/// `(size, hardness, opacity, flow, smoothing, eraser_only?)`, matching the
+/// oracle's `BRUSH_PRESETS`.
+pub(crate) const BRUSH_PRESETS: [(f64, f64, f64, f64, f64, bool); 6] = [
+    (20.0, 1.0, 1.0, 1.0, 0.0, false),
+    (40.0, 0.15, 1.0, 1.0, 0.0, false),
+    (5.0, 0.8, 1.0, 1.0, 10.0, false),
+    (100.0, 0.0, 0.85, 0.65, 0.0, false),
+    (30.0, 1.0, 1.0, 1.0, 0.0, true),
+    (50.0, 0.15, 1.0, 0.85, 0.0, true),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolFlag {
     FillContiguous,
-    GradientRadial,
     GradientReverse,
-    ShapeFill,
-    ShapeStroke,
     AutoCopyHex,
     ShapeArrowHead,
-    GradientFgTransparent,
-    TextBold,
-    TextItalic,
+}
+
+/// The core shape enum a bar preset maps to, for write-through edits.
+pub(crate) fn shape_kind_for_tool(tool: crate::state::ShapeTool) -> ShapeKind {
+    use crate::state::ShapeTool;
+    match tool {
+        ShapeTool::Rect => ShapeKind::Rect,
+        ShapeTool::Ellipse => ShapeKind::Ellipse,
+        ShapeTool::Line => ShapeKind::Line,
+        ShapeTool::Triangle => ShapeKind::Triangle,
+        ShapeTool::Star => ShapeKind::Star,
+        ShapeTool::BlockArrow => ShapeKind::BlockArrow,
+        ShapeTool::Heart => ShapeKind::Heart,
+        ShapeTool::Diamond => ShapeKind::Diamond,
+        ShapeTool::SpeechBubble => ShapeKind::SpeechBubble,
+        ShapeTool::Hexagon => ShapeKind::Hexagon,
+    }
+}
+
+/// The bar preset a selected layer's kind shows, for the projected read.
+pub(crate) fn shape_tool_for_kind(kind: &ShapeKind) -> crate::state::ShapeTool {
+    use crate::state::ShapeTool;
+    match kind {
+        ShapeKind::Rect => ShapeTool::Rect,
+        ShapeKind::Ellipse => ShapeTool::Ellipse,
+        ShapeKind::Line => ShapeTool::Line,
+        ShapeKind::Triangle => ShapeTool::Triangle,
+        ShapeKind::Star => ShapeTool::Star,
+        ShapeKind::BlockArrow => ShapeTool::BlockArrow,
+        ShapeKind::Heart => ShapeTool::Heart,
+        ShapeKind::Diamond => ShapeTool::Diamond,
+        ShapeKind::SpeechBubble => ShapeTool::SpeechBubble,
+        ShapeKind::Hexagon => ShapeTool::Hexagon,
+    }
 }
 
 impl App {
-    pub(crate) fn adjust_tool_setting(
-        &mut self,
-        setting: ToolSetting,
-        direction: f64,
-        cx: &mut Context<Self>,
-    ) {
-        if matches!(
-            setting,
-            ToolSetting::MoveX
-                | ToolSetting::MoveY
-                | ToolSetting::MoveScaleX
-                | ToolSetting::MoveScaleY
-                | ToolSetting::MoveRotation
-        ) {
-            let result = self.adjust_selected_transform(setting, direction, cx);
-            match result {
-                Ok(()) => self.set_status_error(None, cx),
-                Err(error) => self.set_status_error(Some(format!("Transform: {error}")), cx),
-            }
-            return;
-        }
-        self.state.update(cx, |state, _| {
-            let step_size = |current: f64| (current * 0.1).round().max(1.0);
-            match setting {
-                ToolSetting::BrushSize => {
-                    let step = step_size(state.brush_size);
-                    state.brush_size = (state.brush_size + direction * step).clamp(1.0, 2000.0);
-                }
-                ToolSetting::EraserSize => {
-                    let step = step_size(state.eraser_size);
-                    state.eraser_size = (state.eraser_size + direction * step).clamp(1.0, 2000.0);
-                }
-                ToolSetting::BrushHardness => {
-                    state.brush_hardness = (state.brush_hardness + direction * 0.1).clamp(0.0, 1.0);
-                }
-                ToolSetting::EraserHardness => {
-                    state.eraser_hardness =
-                        (state.eraser_hardness + direction * 0.1).clamp(0.0, 1.0);
-                }
-                ToolSetting::BrushOpacity => {
-                    state.brush_opacity = (state.brush_opacity + direction * 0.1).clamp(0.0, 1.0);
-                }
-                ToolSetting::EraserOpacity => {
-                    state.eraser_opacity = (state.eraser_opacity + direction * 0.1).clamp(0.0, 1.0);
-                }
-                ToolSetting::BrushFlow => {
-                    state.brush_flow = (state.brush_flow + direction * 0.1).clamp(0.0, 1.0);
-                }
-                ToolSetting::EraserFlow => {
-                    state.eraser_flow = (state.eraser_flow + direction * 0.1).clamp(0.0, 1.0);
-                }
-                ToolSetting::BrushSmoothing => {
-                    state.brush_smoothing =
-                        (state.brush_smoothing + direction * 5.0).clamp(0.0, 100.0);
-                }
-                ToolSetting::EraserSmoothing => {
-                    state.eraser_smoothing =
-                        (state.eraser_smoothing + direction * 5.0).clamp(0.0, 100.0);
-                }
-                ToolSetting::FillTolerance => {
-                    let next = state.fill_tolerance as i64 + direction as i64 * 4;
-                    state.fill_tolerance = next.clamp(0, 255) as u32;
-                }
-                ToolSetting::ShapeRadius => {
-                    state.shape_radius = (state.shape_radius + direction).clamp(0.0, 256.0);
-                }
-                ToolSetting::TextSize => {
-                    state.text_font_size =
-                        (state.text_font_size + direction * 2.0).clamp(8.0, 400.0);
-                }
-                ToolSetting::MoveX
-                | ToolSetting::MoveY
-                | ToolSetting::MoveScaleX
-                | ToolSetting::MoveScaleY
-                | ToolSetting::MoveRotation => {}
-            }
-        });
-        cx.notify();
-    }
-
     pub(crate) fn toggle_tool_flag(&mut self, flag: ToolFlag, cx: &mut Context<Self>) {
+        let mut arrow = None;
         self.state.update(cx, |state, _| match flag {
             ToolFlag::FillContiguous => state.fill_contiguous = !state.fill_contiguous,
-            ToolFlag::GradientRadial => state.gradient_radial = !state.gradient_radial,
             ToolFlag::GradientReverse => state.gradient_reverse = !state.gradient_reverse,
-            ToolFlag::ShapeFill => state.shape_fill = !state.shape_fill,
-            ToolFlag::ShapeStroke => state.shape_stroke = !state.shape_stroke,
             ToolFlag::AutoCopyHex => state.auto_copy_hex = !state.auto_copy_hex,
-            ToolFlag::ShapeArrowHead => state.shape_arrow_head = !state.shape_arrow_head,
-            ToolFlag::GradientFgTransparent => {
-                state.gradient_fg_transparent = !state.gradient_fg_transparent
+            ToolFlag::ShapeArrowHead => {
+                state.shape_arrow_head = !state.shape_arrow_head;
+                arrow = Some(state.shape_arrow_head);
             }
-            ToolFlag::TextBold => {
-                state.text_font_weight = if state.text_font_weight >= 700.0 {
-                    400.0
-                } else {
-                    700.0
-                };
-            }
-            ToolFlag::TextItalic => state.text_italic = !state.text_italic,
         });
+        if let Some(value) = arrow {
+            self.apply_shape_edit(cx, |params| params.arrow_head = value);
+        }
         cx.notify();
     }
 
-    pub(crate) fn cycle_shape_kind(&mut self, cx: &mut Context<Self>) {
+    /// Absolute tolerance edit from the Paint Bucket bar (0..255).
+    pub(crate) fn set_fill_tolerance(
+        &mut self,
+        value: f64,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let value = value.round().clamp(0.0, 255.0) as u32;
+        self.state
+            .update(cx, |state, _| state.fill_tolerance = value);
+        cx.notify();
+        Ok(())
+    }
+
+    /// The frozen shape bar's edit mode: a shape layer is selected, so the
+    /// controls read and write that layer instead of the next-shape defaults.
+    fn is_shape_layer_selected(&self, cx: &Context<Self>) -> bool {
+        self.state.read(cx).selected_shape.is_some()
+    }
+
+    /// Edits the selected shape layer after syncing the next-shape defaults,
+    /// which is the frozen bar's edit-mode contract. Repeating an edit at its
+    /// current value is a no-op so pointer ticks never stack history entries
+    /// (`ShapeOptionBar.tsx:shallowEqualParams`).
+    pub(crate) fn edit_selected_shape(
+        &mut self,
+        cx: &mut Context<Self>,
+        mutate: impl FnOnce(&mut ShapeParams),
+    ) -> Result<(), String> {
+        let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
+        let mut params = layer
+            .shape_params
+            .clone()
+            .ok_or_else(|| "the selected layer is not a shape".to_string())?;
+        let before = params.clone();
+        mutate(&mut params);
+        self.sync_shape_defaults(&params, cx);
+        if params == before {
+            return Ok(());
+        }
+        self.apply_core_command(
+            &doc_id,
+            Command::SetLayerParams {
+                id: layer.id,
+                shape_params: Some(params),
+                text_data: None,
+            },
+            true,
+            cx,
+        )
+    }
+
+    /// Routes a bar edit to the selected shape layer when one is selected; in
+    /// draw mode the caller has already updated the next-shape defaults.
+    fn apply_shape_edit(&mut self, cx: &mut Context<Self>, mutate: impl FnOnce(&mut ShapeParams)) {
+        if !self.is_shape_layer_selected(cx) {
+            return;
+        }
+        if let Err(error) = self.edit_selected_shape(cx, mutate) {
+            self.set_status_error(Some(format!("Shape: {error}")), cx);
+        }
+    }
+
+    fn sync_shape_defaults(&mut self, params: &ShapeParams, cx: &mut Context<Self>) {
+        let color = crate::palette::parse_hex(&params.stroke.color);
         self.state.update(cx, |state, _| {
-            state.shape_kind = match state.shape_kind {
-                ShapeTool::Rect => ShapeTool::Ellipse,
-                ShapeTool::Ellipse => ShapeTool::Line,
-                ShapeTool::Line => ShapeTool::Triangle,
-                ShapeTool::Triangle => ShapeTool::Star,
-                ShapeTool::Star => ShapeTool::BlockArrow,
-                ShapeTool::BlockArrow => ShapeTool::Heart,
-                ShapeTool::Heart => ShapeTool::Diamond,
-                ShapeTool::Diamond => ShapeTool::SpeechBubble,
-                ShapeTool::SpeechBubble => ShapeTool::Hexagon,
-                ShapeTool::Hexagon => ShapeTool::Rect,
+            state.shape_kind = shape_tool_for_kind(&params.kind);
+            state.shape_fill = params.fill.kind == ShapeFillKind::Solid;
+            state.shape_stroke = params.stroke.enabled;
+            state.shape_stroke_width = params.stroke.width;
+            if let Some(color) = color {
+                state.shape_stroke_color = color;
+            }
+            state.shape_radius = params.radius;
+            state.shape_arrow_head = params.arrow_head;
+        });
+    }
+
+    /// Fill toggle (`ShapeOptionBar.tsx:setFill`): the oracle refuses to turn
+    /// fill off while stroke is already off, so a shape never becomes
+    /// invisible and still hittable.
+    pub(crate) fn toggle_shape_fill(&mut self, cx: &mut Context<Self>) {
+        let (fill, stroke) = self.effective_shape_paint(cx);
+        if fill && !stroke {
+            return;
+        }
+        let next = !fill;
+        self.state.update(cx, |state, _| state.shape_fill = next);
+        self.apply_shape_edit(cx, |params| {
+            params.fill.kind = if next {
+                ShapeFillKind::Solid
+            } else {
+                ShapeFillKind::None
             };
         });
         cx.notify();
     }
 
-    /// Cycle the frozen brush presets (`brushToolState.ts`).
-    pub(crate) fn cycle_brush_preset(&mut self, cx: &mut Context<Self>) {
-        // (id, size, hardness, opacity, flow, smoothing, eraser_only?)
-        const PRESETS: &[(&str, f64, f64, f64, f64, f64, bool)] = &[
-            ("hard-round", 20.0, 1.0, 1.0, 1.0, 0.0, false),
-            ("soft-round", 40.0, 0.15, 1.0, 1.0, 0.0, false),
-            ("detail", 5.0, 0.8, 1.0, 1.0, 10.0, false),
-            ("large-soft", 100.0, 0.0, 0.85, 0.65, 0.0, false),
-            ("hard-eraser", 30.0, 1.0, 1.0, 1.0, 0.0, true),
-            ("soft-eraser", 50.0, 0.15, 1.0, 0.85, 0.0, true),
-        ];
-        let eraser = self.state.read(cx).active_tool == crate::state::ToolId::Eraser;
+    /// Stroke toggle (`ShapeOptionBar.tsx:setStroke`), same last-paint guard.
+    pub(crate) fn toggle_shape_stroke(&mut self, cx: &mut Context<Self>) {
+        let (fill, stroke) = self.effective_shape_paint(cx);
+        if stroke && !fill {
+            return;
+        }
+        let next = !stroke;
+        self.state.update(cx, |state, _| state.shape_stroke = next);
+        self.apply_shape_edit(cx, |params| params.stroke.enabled = next);
+        cx.notify();
+    }
+
+    /// `(fill, stroke)` as the bar shows them: the selected layer's values in
+    /// edit mode, the next-shape defaults otherwise.
+    fn effective_shape_paint(&self, cx: &Context<Self>) -> (bool, bool) {
+        let state = self.state.read(cx);
+        match state.selected_shape.as_ref() {
+            Some(params) => (
+                params.fill.kind == ShapeFillKind::Solid,
+                params.stroke.enabled,
+            ),
+            None => (state.shape_fill, state.shape_stroke),
+        }
+    }
+
+    /// Absolute corner radius from the bar's field; the oracle clamps 0..100
+    /// (`ShapeOptionBar.tsx:setRadius`).
+    pub(crate) fn set_shape_radius(
+        &mut self,
+        value: f64,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let value = value.clamp(0.0, 100.0);
+        self.state.update(cx, |state, _| state.shape_radius = value);
+        self.apply_shape_edit(cx, |params| params.radius = value);
+        cx.notify();
+        Ok(())
+    }
+
+    /// Outline width from the stroke popover; the oracle's input is `min 1`,
+    /// `max 200` (`ShapeOptionBar.tsx`).
+    pub(crate) fn set_shape_stroke_width(
+        &mut self,
+        value: f64,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let value = value.clamp(1.0, 200.0);
+        self.state
+            .update(cx, |state, _| state.shape_stroke_width = value);
+        self.apply_shape_edit(cx, |params| params.stroke.width = value);
+        cx.notify();
+        Ok(())
+    }
+
+    /// A stroke-colour pick in edit mode writes the layer as well and keeps
+    /// the outline on, matching the oracle's `setColor`.
+    pub(crate) fn set_shape_stroke_color(&mut self, color: [u8; 4], cx: &mut Context<Self>) {
+        let hex = crate::palette::to_hex(color);
         self.state.update(cx, |state, _| {
-            let applicable: Vec<usize> = PRESETS
-                .iter()
-                .enumerate()
-                .filter(|(_, preset)| preset.6 == eraser)
-                .map(|(index, _)| index)
-                .collect();
-            if applicable.is_empty() {
-                return;
-            }
-            let position = applicable
-                .iter()
-                .position(|index| *index == state.brush_preset_index)
-                .map(|position| (position + 1) % applicable.len())
-                .unwrap_or(0);
-            let index = applicable[position];
-            let (_, size, hardness, opacity, flow, smoothing, _) = PRESETS[index];
+            state.shape_stroke_color = color;
+            state.shape_stroke = true;
+        });
+        self.apply_shape_edit(cx, |params| {
+            params.stroke.color = hex;
+            params.stroke.enabled = true;
+        });
+        cx.notify();
+    }
+
+    /// The shape bar's fill swatch in edit mode (`ShapeOptionBar.tsx:setFillColor`):
+    /// the paint foreground follows and the chosen colour forces a solid fill.
+    pub(crate) fn set_shape_fill_color(&mut self, color: [u8; 4], cx: &mut Context<Self>) {
+        let hex = crate::palette::to_hex(color);
+        self.state.update(cx, |state, _| {
+            state.fg_color = color;
+            state.shape_fill = true;
+        });
+        self.apply_shape_edit(cx, |params| {
+            params.fill.color = hex;
+            params.fill.kind = ShapeFillKind::Solid;
+        });
+        cx.notify();
+    }
+
+    /// The stroke pill toggles the popover, not the outline
+    /// (`ShapeOptionBar.tsx:strokePopoverOpen`).
+    pub(crate) fn toggle_stroke_popover(
+        &mut self,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        let open = self.state.read(cx).stroke_popover_open;
+        self.state
+            .update(cx, |state, _| state.stroke_popover_open = !open);
+        if !open {
+            // Escape is bound in the Canvas context, so keep it active.
+            window.focus(&self.canvas_focus_handle, cx);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn close_stroke_popover(&mut self, cx: &mut Context<Self>) {
+        if !self.state.read(cx).stroke_popover_open {
+            return;
+        }
+        self.state
+            .update(cx, |state, _| state.stroke_popover_open = false);
+        cx.notify();
+    }
+
+    /// Cycle the frozen brush presets (`brushToolState.ts`).
+    /// Applies one brush preset by its global index. Presets marked
+    /// eraser-only are ignored while the brush is active, matching the
+    /// oracle's filtered preset list.
+    pub(crate) fn apply_brush_preset(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(&(size, hardness, opacity, flow, smoothing, eraser_only)) =
+            BRUSH_PRESETS.get(index)
+        else {
+            return;
+        };
+        let eraser = self.state.read(cx).active_tool == crate::state::ToolId::Eraser;
+        if eraser_only && !eraser {
+            return;
+        }
+        self.state.update(cx, |state, _| {
             state.brush_preset_index = index;
             if eraser {
                 state.eraser_size = size;
@@ -219,64 +339,23 @@ impl App {
         cx.notify();
     }
 
-    /// Numeric transform edits from the Move option bar.
-    pub(crate) fn adjust_selected_transform(
-        &mut self,
-        setting: ToolSetting,
-        direction: f64,
-        cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
-        let mut transform = layer.transform.clone();
-        match setting {
-            ToolSetting::MoveX => transform.x += direction,
-            ToolSetting::MoveY => transform.y += direction,
-            ToolSetting::MoveScaleX => {
-                transform.scale_x = (transform.scale_x + direction * 0.1).max(0.01);
-            }
-            ToolSetting::MoveScaleY => {
-                transform.scale_y = (transform.scale_y + direction * 0.1).max(0.01);
-            }
-            ToolSetting::MoveRotation => {
-                transform.rotation = crate::app::transform_geometry::normalize_rotation(
-                    transform.rotation + direction * 15.0,
-                );
-            }
-            _ => {}
-        }
-        self.apply_core_command(
-            &doc_id,
-            Command::TransformLayer {
-                id: layer.id.clone(),
-                transform: TransformPatch {
-                    x: transform.x,
-                    y: transform.y,
-                    scale_x: transform.scale_x,
-                    scale_y: transform.scale_y,
-                    rotation: transform.rotation,
-                    flip_h: Some(transform.flip_h),
-                    flip_v: Some(transform.flip_v),
-                },
-            },
-            true,
-            cx,
-        )
-    }
-
     /// Flip the selected layer horizontally/vertically (option bar).
-    /// Step one basic-adjustment channel of the selected layer.
-    pub(crate) fn adjust_selected_adjustment(
+    /// Set one basic-adjustment channel to an absolute value (the
+    /// Adjustments panel's sliders), clamped to the -100..=100 range the
+    /// oracle's range inputs use.
+    pub(crate) fn set_selected_adjustment(
         &mut self,
         channel: u8,
-        delta: f64,
+        value: f64,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
         let mut adjustment = layer.basic_adjustment.clone().unwrap_or_default();
+        let value = value.clamp(-100.0, 100.0);
         match channel {
-            0 => adjustment.brightness = (adjustment.brightness + delta).clamp(-100.0, 100.0),
-            1 => adjustment.contrast = (adjustment.contrast + delta).clamp(-100.0, 100.0),
-            _ => adjustment.saturation = (adjustment.saturation + delta).clamp(-100.0, 100.0),
+            0 => adjustment.brightness = value,
+            1 => adjustment.contrast = value,
+            _ => adjustment.saturation = value,
         }
         self.apply_core_command(
             &doc_id,
@@ -315,6 +394,24 @@ impl App {
         cx.notify();
     }
 
+    pub(crate) fn toggle_snap_action(&mut self, _: &ToggleSnapAction, cx: &mut Context<Self>) {
+        self.toggle_snap(cx);
+    }
+
+    pub(crate) fn toggle_move_auto_select(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.move_auto_select = !state.move_auto_select
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_transform_controls(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.show_transform_controls = !state.show_transform_controls
+        });
+        cx.notify();
+    }
+
     pub(crate) fn flip_selected_layer(
         &mut self,
         horizontal: bool,
@@ -346,23 +443,30 @@ impl App {
         )
     }
 
-    /// Edit the selected text layer's typography (properties panel).
-    pub(crate) fn adjust_selected_text(
+    /// The frozen text bar's edit mode: a text layer is selected.
+    fn is_text_layer_selected(&self, cx: &Context<Self>) -> bool {
+        self.state.read(cx).selected_layer_type.as_deref() == Some("text")
+    }
+
+    /// Edits the selected text layer and syncs the next-text defaults, which
+    /// is the frozen bar's edit-mode contract.
+    pub(crate) fn edit_selected_text(
         &mut self,
-        field: u8,
-        delta: f64,
         cx: &mut Context<Self>,
+        mutate: impl FnOnce(&mut photrez_core::ptz::layer_params::TextData),
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
         let mut data = layer
             .text_data
             .clone()
             .ok_or_else(|| "the selected layer is not text".to_string())?;
-        match field {
-            0 => data.font_size = (data.font_size + delta * 2.0).clamp(8.0, 400.0),
-            1 => data.line_height = (data.line_height + delta * 0.1).clamp(0.5, 4.0),
-            2 => data.letter_spacing = (data.letter_spacing + delta).clamp(-20.0, 100.0),
-            _ => {}
+        let before = data.clone();
+        mutate(&mut data);
+        self.sync_text_defaults(&data, cx);
+        // Repeating an edit at its current value is a no-op so pointer ticks
+        // never stack history entries (`applyEdit`'s shallow guard).
+        if data == before {
+            return Ok(());
         }
         self.apply_core_command(
             &doc_id,
@@ -376,20 +480,109 @@ impl App {
         )
     }
 
-    pub(crate) fn toggle_selected_text_bold(
+    fn sync_text_defaults(
         &mut self,
+        data: &photrez_core::ptz::layer_params::TextData,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.update(cx, |state, _| {
+            state.text_font_size = data.font_size;
+            state.text_font_weight = data.font_weight;
+            state.text_italic =
+                data.font_style == photrez_core::ptz::layer_params::TextFontStyle::Italic;
+            state.text_align = match data.align {
+                photrez_core::ptz::layer_params::TextAlign::Left => {
+                    crate::state::TextAlignTool::Left
+                }
+                photrez_core::ptz::layer_params::TextAlign::Center => {
+                    crate::state::TextAlignTool::Center
+                }
+                photrez_core::ptz::layer_params::TextAlign::Right => {
+                    crate::state::TextAlignTool::Right
+                }
+            };
+            state.text_underline = data.underline.unwrap_or(false);
+            state.text_strikethrough = data.strikethrough.unwrap_or(false);
+            state.text_uppercase = data.uppercase.unwrap_or(false);
+            state.text_stroke_width = data.stroke.width;
+            state.text_stroke_align = data
+                .stroke
+                .align
+                .unwrap_or(photrez_core::ptz::layer_params::TextStrokeAlign::Outside);
+            if let Some(color) = crate::palette::parse_hex(&data.stroke.color) {
+                state.text_stroke_color = color;
+            }
+        });
+    }
+
+    /// The eraser bar's `Hard 100` helper: hardness, strength and flow to
+    /// 100 %, preset cleared to Custom, matching `BrushOptionBar.tsx`.
+    pub(crate) fn eraser_full_strength(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.eraser_hardness = 1.0;
+            state.eraser_opacity = 1.0;
+            state.eraser_flow = 1.0;
+            state.brush_preset_index = usize::MAX;
+        });
+        cx.notify();
+    }
+
+    /// Absolute edits from the brush bar's number fields. Percent fields
+    /// arrive as 0..100 and are stored as 0..1, matching the oracle.
+    pub(crate) fn set_brush_value(
+        &mut self,
+        field: BrushField,
+        value: f64,
+        cx: &mut Context<Self>,
+    ) {
+        let eraser = self.state.read(cx).active_tool == crate::state::ToolId::Eraser;
+        self.state.update(cx, |state, _| {
+            state.brush_preset_index = usize::MAX;
+            match (field, eraser) {
+                (BrushField::Size, false) => state.brush_size = value.clamp(1.0, 2000.0),
+                (BrushField::Size, true) => state.eraser_size = value.clamp(1.0, 2000.0),
+                (BrushField::Hardness, false) => {
+                    state.brush_hardness = (value / 100.0).clamp(0.0, 1.0)
+                }
+                (BrushField::Hardness, true) => {
+                    state.eraser_hardness = (value / 100.0).clamp(0.0, 1.0)
+                }
+                (BrushField::Opacity, false) => {
+                    state.brush_opacity = (value / 100.0).clamp(0.0, 1.0)
+                }
+                (BrushField::Opacity, true) => {
+                    state.eraser_opacity = (value / 100.0).clamp(0.0, 1.0)
+                }
+                (BrushField::Flow, false) => state.brush_flow = (value / 100.0).clamp(0.0, 1.0),
+                (BrushField::Flow, true) => state.eraser_flow = (value / 100.0).clamp(0.0, 1.0),
+                (BrushField::Smoothing, false) => state.brush_smoothing = value.clamp(0.0, 100.0),
+                (BrushField::Smoothing, true) => state.eraser_smoothing = value.clamp(0.0, 100.0),
+            }
+        });
+        cx.notify();
+    }
+
+    /// Absolute size edit from the inline field (the oracle clamps 1..2000).
+    pub(crate) fn set_text_font_size(
+        &mut self,
+        value: f64,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let value = value.clamp(1.0, 2000.0);
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_font_size = value);
+            cx.notify();
+            return Ok(());
+        }
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
         let mut data = layer
             .text_data
             .clone()
             .ok_or_else(|| "the selected layer is not text".to_string())?;
-        data.font_weight = if data.font_weight >= 700.0 {
-            400.0
-        } else {
-            700.0
-        };
+        data.font_size = value;
+        self.state
+            .update(cx, |state, _| state.text_font_size = value);
         self.apply_core_command(
             &doc_id,
             Command::SetLayerParams {
@@ -402,10 +595,28 @@ impl App {
         )
     }
 
-    pub(crate) fn toggle_selected_text_italic(
+    pub(crate) fn set_text_font_weight(
         &mut self,
+        value: f64,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let value = value.clamp(100.0, 900.0);
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_font_weight = value);
+            cx.notify();
+            return Ok(());
+        }
+        self.edit_selected_text(cx, |data| data.font_weight = value)
+    }
+
+    pub(crate) fn toggle_text_italic(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_italic = !state.text_italic);
+            cx.notify();
+            return Ok(());
+        }
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
         let mut data = layer
             .text_data
@@ -417,6 +628,10 @@ impl App {
             }
             _ => photrez_core::ptz::layer_params::TextFontStyle::Italic,
         };
+        self.state.update(cx, |state, _| {
+            state.text_italic =
+                data.font_style == photrez_core::ptz::layer_params::TextFontStyle::Italic;
+        });
         self.apply_core_command(
             &doc_id,
             Command::SetLayerParams {
@@ -429,64 +644,177 @@ impl App {
         )
     }
 
-    pub(crate) fn cycle_selected_text_align(
+    pub(crate) fn set_text_align(
+        &mut self,
+        align: crate::state::TextAlignTool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if !self.is_text_layer_selected(cx) {
+            self.state.update(cx, |state, _| state.text_align = align);
+            cx.notify();
+            return Ok(());
+        }
+        self.edit_selected_text(cx, |data| {
+            data.align = match align {
+                crate::state::TextAlignTool::Left => {
+                    photrez_core::ptz::layer_params::TextAlign::Left
+                }
+                crate::state::TextAlignTool::Center => {
+                    photrez_core::ptz::layer_params::TextAlign::Center
+                }
+                crate::state::TextAlignTool::Right => {
+                    photrez_core::ptz::layer_params::TextAlign::Right
+                }
+            };
+        })
+    }
+
+    pub(crate) fn toggle_text_underline(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_underline = !state.text_underline);
+            cx.notify();
+            return Ok(());
+        }
+        self.edit_selected_text(cx, |data| {
+            data.underline = Some(!data.underline.unwrap_or(false));
+        })
+    }
+
+    pub(crate) fn toggle_text_strikethrough(
         &mut self,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
-        let mut data = layer
-            .text_data
-            .clone()
-            .ok_or_else(|| "the selected layer is not text".to_string())?;
-        data.align = match data.align {
-            photrez_core::ptz::layer_params::TextAlign::Left => {
-                photrez_core::ptz::layer_params::TextAlign::Center
-            }
-            photrez_core::ptz::layer_params::TextAlign::Center => {
-                photrez_core::ptz::layer_params::TextAlign::Right
-            }
-            photrez_core::ptz::layer_params::TextAlign::Right => {
-                photrez_core::ptz::layer_params::TextAlign::Left
-            }
-        };
-        self.apply_core_command(
-            &doc_id,
-            Command::SetLayerParams {
-                id: layer.id,
-                shape_params: None,
-                text_data: Some(data),
-            },
-            true,
-            cx,
-        )
-    }
-
-    pub(crate) fn cycle_text_align(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| {
-            state.text_align = match state.text_align {
-                crate::state::TextAlignTool::Left => crate::state::TextAlignTool::Center,
-                crate::state::TextAlignTool::Center => crate::state::TextAlignTool::Right,
-                crate::state::TextAlignTool::Right => crate::state::TextAlignTool::Left,
-            };
-        });
-        cx.notify();
-    }
-
-    pub(crate) fn toggle_selection_shape(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| {
-            state.selection_shape = match state.selection_shape {
-                crate::state::SelectionShape::Rect => crate::state::SelectionShape::Ellipse,
-                crate::state::SelectionShape::Ellipse => crate::state::SelectionShape::Rect,
-            };
-        });
-        cx.notify();
-    }
-
-    pub(crate) fn deselect_pixels(&mut self, cx: &mut Context<Self>) {
-        let result = self.deselect(cx);
-        match result {
-            Ok(()) => self.set_status_error(None, cx),
-            Err(error) => self.set_status_error(Some(error), cx),
+        if !self.is_text_layer_selected(cx) {
+            self.state.update(cx, |state, _| {
+                state.text_strikethrough = !state.text_strikethrough;
+            });
+            cx.notify();
+            return Ok(());
         }
+        self.edit_selected_text(cx, |data| {
+            data.strikethrough = Some(!data.strikethrough.unwrap_or(false));
+        })
+    }
+
+    pub(crate) fn toggle_text_uppercase(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_uppercase = !state.text_uppercase);
+            cx.notify();
+            return Ok(());
+        }
+        self.edit_selected_text(cx, |data| {
+            data.uppercase = Some(!data.uppercase.unwrap_or(false));
+        })
+    }
+
+    /// The stroke width the bar shows: the selected text layer's value in edit
+    /// mode, the next-text default otherwise.
+    pub(crate) fn effective_text_stroke_width(&self, cx: &Context<Self>) -> f64 {
+        let state = self.state.read(cx);
+        if self.is_text_layer_selected(cx) {
+            state.selected_text_stroke_width
+        } else {
+            state.text_stroke_width
+        }
+    }
+
+    /// Stroke width from the popover's slider and toggle; the oracle's
+    /// `setStrokeWidth` clamps 0..100 (`TextOptionBar.tsx`).
+    pub(crate) fn set_text_stroke_width(
+        &mut self,
+        value: f64,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let value = value.clamp(0.0, 100.0);
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_stroke_width = value);
+            cx.notify();
+            return Ok(());
+        }
+        self.edit_selected_text(cx, |data| data.stroke.width = value)
+    }
+
+    /// The number input clamps 1..100: clearing the box must not disable the
+    /// stroke, and the switch is the explicit off control.
+    pub(crate) fn set_text_stroke_width_field(
+        &mut self,
+        value: f64,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.set_text_stroke_width(value.clamp(1.0, 100.0), cx)
+    }
+
+    /// The stepper never disables the stroke; 1 is its floor.
+    pub(crate) fn step_text_stroke(&mut self, delta: f64, cx: &mut Context<Self>) {
+        let current = self.effective_text_stroke_width(cx);
+        let _ = self.set_text_stroke_width((current + delta).clamp(1.0, 100.0), cx);
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_text_stroke(&mut self, cx: &mut Context<Self>) {
+        let next = if self.effective_text_stroke_width(cx) > 0.0 {
+            0.0
+        } else {
+            4.0
+        };
+        let _ = self.set_text_stroke_width(next, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn set_text_stroke_color(&mut self, color: [u8; 4], cx: &mut Context<Self>) {
+        let hex = crate::palette::to_hex(color);
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_stroke_color = color);
+            cx.notify();
+            return;
+        }
+        if let Err(error) = self.edit_selected_text(cx, |data| data.stroke.color = hex) {
+            self.set_status_error(Some(format!("Text: {error}")), cx);
+        }
+    }
+
+    pub(crate) fn set_text_stroke_align(
+        &mut self,
+        align: photrez_core::ptz::layer_params::TextStrokeAlign,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.is_text_layer_selected(cx) {
+            self.state
+                .update(cx, |state, _| state.text_stroke_align = align);
+            cx.notify();
+            return;
+        }
+        if let Err(error) = self.edit_selected_text(cx, |data| data.stroke.align = Some(align)) {
+            self.set_status_error(Some(format!("Text: {error}")), cx);
+        }
+    }
+
+    /// The text stroke pill toggles the popover, not the outline
+    /// (`TextOptionBar.tsx:strokePopoverOpen`).
+    pub(crate) fn toggle_text_stroke_popover(
+        &mut self,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        let open = self.state.read(cx).text_stroke_popover_open;
+        self.state
+            .update(cx, |state, _| state.text_stroke_popover_open = !open);
+        if !open {
+            window.focus(&self.canvas_focus_handle, cx);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn close_text_stroke_popover(&mut self, cx: &mut Context<Self>) {
+        if !self.state.read(cx).text_stroke_popover_open {
+            return;
+        }
+        self.state
+            .update(cx, |state, _| state.text_stroke_popover_open = false);
+        cx.notify();
     }
 }

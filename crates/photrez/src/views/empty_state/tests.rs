@@ -45,7 +45,18 @@ fn presets_table_has_four_entries() {
     assert_eq!(PRESETS[0].0, "Instagram Post");
     assert_eq!(PRESETS[3].1, "2480 \u{00d7} 3508 px");
     // The multiplication sign is the measured glyph, not a stray '*'.
-    assert!(PRESETS.iter().all(|(_l, t)| t.contains("\u{00d7}")));
+    assert!(PRESETS.iter().all(|(_l, t, _w, _h)| t.contains("\u{00d7}")));
+}
+
+#[test]
+fn preset_document_carries_the_tile_label_and_size() {
+    // The oracle's `handleCreatePreset` names the document after the preset
+    // label and creates it at the preset's pixel size.
+    assert_eq!(preset_document(0), Some(("Instagram Post", 1080, 1080)));
+    assert_eq!(preset_document(1), Some(("Story / Reels", 1080, 1920)));
+    assert_eq!(preset_document(2), Some(("Full HD Canvas", 1920, 1080)));
+    assert_eq!(preset_document(3), Some(("A4 Print (300 DPI)", 2480, 3508)));
+    assert_eq!(preset_document(4), None);
 }
 
 #[test]

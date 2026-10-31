@@ -300,6 +300,24 @@ fn tab(
                 app.move_document_tab(from, &drop_id, cx);
             },
         ))
+        .on_drop::<crate::app::cross_doc::LayerDragPayload>({
+            let target_doc = tab_row.doc_id.clone();
+            cx.listener(
+                move |app,
+                      payload: &crate::app::cross_doc::LayerDragPayload,
+                      window,
+                      cx: &mut Context<crate::app::App>| {
+                    app.apply_layer_drag(
+                        payload,
+                        crate::app::cross_doc::LayerDropTarget::Tab {
+                            doc_id: target_doc.clone(),
+                        },
+                        window.modifiers().alt,
+                        cx,
+                    );
+                },
+            )
+        })
         .child(tab_label(&tab_row.name, tab_row.dirty))
         .child(close_tab_button(close_id, cx))
         .when(active, |el| el.child(active_underline()))

@@ -18,14 +18,18 @@
 
 pub mod app;
 pub mod components;
+pub(crate) mod crop_aspect;
 pub mod i18n;
 pub mod icons;
 pub mod input;
+pub mod palette;
+pub(crate) mod platform;
 pub mod render;
 pub mod services;
 pub mod shot;
 pub mod state;
 pub mod tokens;
+pub mod units;
 pub mod views;
 
 #[cfg(test)]

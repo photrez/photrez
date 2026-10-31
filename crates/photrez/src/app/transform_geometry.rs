@@ -4,11 +4,28 @@
 //! degrees, positive = clockwise in screen space (Y-down), exactly the frozen
 //! convention.
 
-use photrez_core::ptz::content::Transform2D;
+use photrez_core::ptz::content::{LayerType, PtzLayer, Transform2D};
 
 pub(crate) const DEG: f64 = std::f64::consts::PI / 180.0;
 pub(crate) const HANDLE_HIT_PX: f64 = 16.0;
 pub(crate) const ROTATE_THRESHOLD_PX: f64 = 250.0;
+
+/// The size the selection frame uses for a layer.
+///
+/// A shape layer's bitmap is document-sized while the drawn rectangle lives in
+/// `shape_params`, so the frame (corners, handles, resize math, rotation
+/// centre) must come from the shape rectangle. Raster, text and group layers
+/// carry their frame size in `width`/`height`.
+pub(crate) fn layer_frame_size(layer: &PtzLayer) -> (f64, f64) {
+    match layer.layer_type {
+        LayerType::Shape => layer
+            .shape_params
+            .as_ref()
+            .map(|params| (params.width, params.height))
+            .unwrap_or((layer.width, layer.height)),
+        _ => (layer.width, layer.height),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Point {
@@ -125,7 +142,6 @@ pub(crate) fn point_to_layer_local(
     rotate_point(point, center, -transform.rotation)
 }
 
-#[allow(dead_code)]
 pub(crate) fn document_to_layer_local(
     doc_x: f64,
     doc_y: f64,
@@ -185,6 +201,46 @@ pub(crate) fn detect_handle(
     height: f64,
     zoom: f64,
 ) -> Option<Handle> {
+    detect_handle_with_rotate(point, transform, width, height, zoom, ROTATE_THRESHOLD_PX)
+}
+
+/// Press hit test. The oracle's interactive rotate region is the adaptive
+/// 32..60 px ring around the frame (`rotateBand.ts:getAdaptiveRotateBandPx`),
+/// while the 250 px threshold only drives the hover cursor. A press outside
+/// that ring belongs to the active tool instead (the Shape tool draws again).
+pub(crate) fn detect_press_handle(
+    point: Point,
+    transform: &Transform2D,
+    width: f64,
+    height: f64,
+    zoom: f64,
+) -> Option<Handle> {
+    let screen_w = width * transform.scale_x.abs() * zoom;
+    let screen_h = height * transform.scale_y.abs() * zoom;
+    detect_handle_with_rotate(
+        point,
+        transform,
+        width,
+        height,
+        zoom,
+        adaptive_rotate_band_px(screen_w, screen_h),
+    )
+}
+
+pub(crate) fn adaptive_rotate_band_px(width: f64, height: f64) -> f64 {
+    (width.abs().min(height.abs()) * 0.15 + 20.0)
+        .round()
+        .clamp(32.0, 60.0)
+}
+
+fn detect_handle_with_rotate(
+    point: Point,
+    transform: &Transform2D,
+    width: f64,
+    height: f64,
+    zoom: f64,
+    rotate_screen_px: f64,
+) -> Option<Handle> {
     let center = layer_center(transform, width, height);
     let local = rotate_point(point, center, -transform.rotation);
     let effective_w = width * transform.scale_x.abs();
@@ -192,7 +248,7 @@ pub(crate) fn detect_handle(
     let rect_x = transform.x;
     let rect_y = transform.y;
     let handle_hit = HANDLE_HIT_PX / zoom.max(f64::EPSILON);
-    let rotate_threshold = ROTATE_THRESHOLD_PX / zoom.max(f64::EPSILON);
+    let rotate_threshold = rotate_screen_px / zoom.max(f64::EPSILON);
 
     let corners = [
         (Handle::Nw, rect_x, rect_y),
@@ -586,4 +642,155 @@ mod tests {
             normalize_rotation(179.0 + (1.0f64).atan2(10.0) * 180.0 / std::f64::consts::PI),
         );
     }
+}
+
+/// Corners of an axis-aligned rectangle rotated clockwise about its centre.
+/// Order is top-left, top-right, bottom-right, bottom-left before rotation.
+pub(crate) fn rotated_rect_corners(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    angle_deg: f64,
+) -> [Point; 4] {
+    let center = Point {
+        x: x + width / 2.0,
+        y: y + height / 2.0,
+    };
+    [
+        Point { x, y },
+        Point { x: x + width, y },
+        Point {
+            x: x + width,
+            y: y + height,
+        },
+        Point { x, y: y + height },
+    ]
+    .map(|corner| rotate_point(corner, center, angle_deg))
+}
+
+/// The selection rotation pin: the top-edge midpoint plus the outward unit
+/// normal of that edge, both in document space. The display pushes the pin
+/// 24 screen pixels along the normal (`SelectionRenderer.tsx`).
+pub(crate) fn selection_pin(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    angle_deg: f64,
+) -> (Point, Point) {
+    let corners = rotated_rect_corners(x, y, width, height, angle_deg);
+    let top_mid = Point {
+        x: (corners[0].x + corners[1].x) / 2.0,
+        y: (corners[0].y + corners[1].y) / 2.0,
+    };
+    let center = Point {
+        x: x + width / 2.0,
+        y: y + height / 2.0,
+    };
+    let mut normal = Point {
+        x: corners[1].y - corners[0].y,
+        y: -(corners[1].x - corners[0].x),
+    };
+    let length = (normal.x * normal.x + normal.y * normal.y).sqrt();
+    if length > f64::EPSILON {
+        normal = Point {
+            x: normal.x / length,
+            y: normal.y / length,
+        };
+    }
+    if normal.x * (top_mid.x - center.x) + normal.y * (top_mid.y - center.y) < 0.0 {
+        normal = Point {
+            x: -normal.x,
+            y: -normal.y,
+        };
+    }
+    (top_mid, normal)
+}
+
+/// Angle of a document point about a centre, in degrees (screen convention:
+/// positive is clockwise because Y grows downward).
+pub(crate) fn angle_about(center: Point, point: Point) -> f64 {
+    (point.y - center.y).atan2(point.x - center.x) / DEG
+}
+
+/// The `cursorRotate.ts` rotate-cursor sprite: the oracle's 32-unit SVG path
+/// (`M 1 7 L 10 1 L 10 5 A 16 16 ... Z`) flattened to a polygon and rotated
+/// by `angle_deg` about the sprite centre, with the pointer angle offset the
+/// source applies (`+45` because the base glyph tilts 45 degrees). Arcs are
+/// sampled finely enough that a 24 px sprite shows no faceting.
+pub(crate) fn rotate_cursor_polygon(angle_deg: f64) -> Vec<(f32, f32)> {
+    fn arc_points(
+        from: (f64, f64),
+        to: (f64, f64),
+        radius: f64,
+        sweep: bool,
+        out: &mut Vec<(f32, f32)>,
+    ) {
+        // SVG arc-to-centre (endpoint parameterization, phi = 0, y-down
+        // screen space, large_arc = 0): nu = +1 when sweep differs from
+        // large_arc, else -1.
+        let (x1, y1) = from;
+        let (x2, y2) = to;
+        let dx2 = (x1 - x2) / 2.0;
+        let dy2 = (y1 - y2) / 2.0;
+        let d2 = dx2 * dx2 + dy2 * dy2;
+        let num = radius * radius - d2;
+        let nu = if sweep { 1.0 } else { -1.0 };
+        let coef = if num > 0.0 && d2 > 0.0 {
+            nu * (num / d2).sqrt()
+        } else {
+            0.0
+        };
+        let cx = coef * dy2 + (x1 + x2) / 2.0;
+        let cy = -coef * dx2 + (y1 + y2) / 2.0;
+        let a0 = (y1 - cy).atan2(x1 - cx);
+        let a1 = (y2 - cy).atan2(x2 - cx);
+        let mut delta = a1 - a0;
+        if sweep && delta < 0.0 {
+            delta += std::f64::consts::TAU;
+        }
+        if !sweep && delta > 0.0 {
+            delta -= std::f64::consts::TAU;
+        }
+        let steps = ((delta.abs() / DEG).ceil() as usize).clamp(2, 32);
+        for step in 1..steps {
+            let t = a0 + delta * step as f64 / steps as f64;
+            out.push((
+                (cx + radius * t.cos()) as f32,
+                (cy + radius * t.sin()) as f32,
+            ));
+        }
+    }
+
+    let mut points: Vec<(f32, f32)> = Vec::new();
+    let mut current = (1.0_f64, 7.0_f64);
+    points.push((1.0, 7.0));
+    for (x, y) in [(10.0, 1.0), (10.0, 5.0)] {
+        points.push((x as f32, y as f32));
+        current = (x, y);
+    }
+    arc_points(current, (26.0, 21.0), 16.0, true, &mut points);
+    current = (26.0, 21.0);
+    for (x, y) in [(30.0, 21.0), (24.0, 30.0), (18.0, 21.0), (22.0, 21.0)] {
+        points.push((x as f32, y as f32));
+        current = (x, y);
+    }
+    arc_points(current, (10.0, 9.0), 12.0, false, &mut points);
+    for (x, y) in [(10.0, 13.0)] {
+        points.push((x as f32, y as f32));
+    }
+    let rad = (angle_deg + 45.0) * DEG;
+    let (sin, cos) = rad.sin_cos();
+    points
+        .into_iter()
+        .map(|(x, y)| {
+            let px = f64::from(x) - 16.0;
+            let py = f64::from(y) - 16.0;
+            (
+                (16.0 + px * cos - py * sin) as f32,
+                (16.0 + px * sin + py * cos) as f32,
+            )
+        })
+        .collect()
 }

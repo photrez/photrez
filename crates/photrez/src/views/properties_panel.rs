@@ -80,7 +80,7 @@ use crate::tokens::color;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, relative, Div, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{div, px, relative, Div, FontWeight, TestSupportExt};
 
 /// InspectorDock's width: `lg:w-[272px]` (`RightDock.tsx:80`).
 ///
@@ -120,20 +120,6 @@ const THUMB: f32 = 34.0;
 
 /// `gap-1.5` — the slot's internal gap (`primitives.tsx:62`).
 const SLOT_GAP: f32 = 6.0;
-
-/// The mean of `LayerThumb`'s two checkerboard tones, as a solid colour.
-///
-/// `rgba(255,255,255,0.05)` and `rgba(255,255,255,0.1)` over FIELD (`#252525`)
-/// compute to `#292929` / `#353535`; the scan reads ~48/59, and GPUI's
-/// `checkerboard()` is not a `Styled` method and takes one colour anyway, so
-/// the port paints the 7.5% mean (`l:0.208`) and the two-tone alternation is
-/// a documented gap — see the module docs.
-const CHECKER_MEAN: Hsla = Hsla {
-    h: 0.0,
-    s: 0.0,
-    l: 0.208,
-    a: 1.0,
-};
 
 /// `size-[26px]` — the Actions and Quick rows' buttons.
 const BTN: f32 = 26.0;
@@ -209,23 +195,11 @@ pub fn render(
     } else if multi {
         v_flex().child(multi_layers_section(state, cx))
     } else {
-        // The additive flip/reset/raster strip is gone: the Actions row in the
-        // Transform section carries those actions (wired), which is where the
-        // frozen panel puts them. Only the text-layer typography steppers
-        // remain until the frozen text section is ported (they carry the only
-        // reachable `prop-text-*` controls).
-        let text_layer = {
-            let s = state.read(cx);
-            s.selected_layer_type.as_deref() == Some("text")
-        };
-        let body = v_flex()
+        let text_selected = state.read(cx).selected_layer_type.as_deref() == Some("text");
+        v_flex()
             .child(selected_layer_section())
-            .child(transform_section(cx));
-        if text_layer {
-            body.child(live_text_rows(state, cx))
-        } else {
-            body
-        }
+            .when(text_selected, |el| el.child(typography_section(state, cx)))
+            .child(transform_section(state, cx))
     };
     v_flex()
         .w_full()
@@ -566,8 +540,9 @@ fn section_header(icon: &'static [u8], label: &str) -> Div {
 }
 
 /// `LayerThumb`'s frame: 34x34, 1px divider border, `rounded-[3px]`, checker
-/// inside. The canvas bitmap the source draws is a *layer preview*, which a
-/// static port cannot have — so this is the empty chrome, not the thumb.
+/// inside. The seeded Background layer is the port's only single-layer branch
+/// and its image is the white 800x600 document, so the frame paints that
+/// swatch; checkerboard stays the fallback for a layer without pixels.
 fn layer_thumb() -> Div {
     div()
         .w(px(THUMB))
@@ -575,8 +550,7 @@ fn layer_thumb() -> Div {
         .rounded(px(R3))
         .border(px(1.0))
         .border_color(color::DIVIDER)
-        // One flat colour where the source draws two alternating tones.
-        .bg(CHECKER_MEAN)
+        .bg(color::WHITE)
         .flex_shrink_0()
 }
 
@@ -632,7 +606,365 @@ fn selected_layer_section() -> Div {
 }
 
 /// One labelled row: 50px caption, then the slot beside it.
-fn transform_section(cx: &Context<crate::app::App>) -> Div {
+/// `<StatusHint>` (`PropertiesPanel.tsx:1116-1123`): the dim lock hint above
+/// the transform rows.
+fn status_hint(id: &'static str, message: String) -> impl IntoElement {
+    h_flex()
+        .id(id)
+        .test_support()
+        .w_full()
+        .mt(px(HEADER_GAP))
+        .items_start()
+        .gap(px(8.0))
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(color::DIVIDER)
+        .bg(color::FIELD)
+        .px(px(10.0))
+        .py(px(8.0))
+        .child(
+            div().mt(px(2.0)).flex_shrink_0().child(
+                Icon::default()
+                    .data(icons::SLIDERS)
+                    .size(px(14.0))
+                    .text_color(color::TEXT_DIM),
+            ),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .line_height(px(15.0))
+                .text_color(color::TEXT_DIM)
+                .child(message),
+        )
+}
+
+/// The typography branch of the single-layer inspector: font, size/weight,
+/// style/align, box mode, spacing and colour/stroke, in the frozen order
+/// (`PropertiesPanel.tsx:468-690`). Values come from the projected text layer;
+/// the inline actions edit that layer through the same app handlers the option
+/// bar uses.
+fn typography_section(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    use crate::state::TextAlignTool;
+
+    let (
+        font_size,
+        font_weight,
+        italic,
+        underline,
+        align,
+        line_height,
+        letter_spacing,
+        color,
+        stroke_on,
+    ) = {
+        let s = state.read(cx);
+        (
+            s.selected_text_font_size,
+            s.selected_text_font_weight,
+            s.selected_text_italic,
+            s.selected_text_underline,
+            s.selected_text_align,
+            s.selected_text_line_height,
+            s.selected_text_letter_spacing,
+            s.selected_text_color.unwrap_or(s.fg_color),
+            s.selected_text_stroke_width > 0.0,
+        )
+    };
+    let weight_label = if font_weight >= 700.0 {
+        "Bold"
+    } else if font_weight >= 600.0 {
+        "Semibold"
+    } else if font_weight >= 500.0 {
+        "Medium"
+    } else {
+        "Regular"
+    };
+    let align_button = |id: &'static str,
+                        icon: &'static [u8],
+                        target: TextAlignTool,
+                        active: bool,
+                        cx: &Context<crate::app::App>| {
+        div()
+            .id(id)
+            .test_support()
+            .h(px(24.0))
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(R3))
+            .border(px(1.0))
+            .border_color(if active {
+                color::ACCENT
+            } else {
+                color::FIELD_BORDER
+            })
+            .bg(color::FIELD)
+            .cursor_pointer()
+            .on_click(
+                cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                    let _ = app.set_text_align(target, cx);
+                }),
+            )
+            .child(
+                Icon::default()
+                    .data(icon)
+                    .size(px(14.0))
+                    .text_color(if active {
+                        color::ACCENT
+                    } else {
+                        color::TEXT_DIM
+                    }),
+            )
+    };
+    v_flex()
+        .id("properties-typography")
+        .test_support()
+        .w_full()
+        .flex_shrink_0()
+        .px(px(PAD_X))
+        .py(px(PAD_Y))
+        .border_b(px(1.0))
+        .border_color(color::DIVIDER)
+        .child(section_header(icons::TYPE, &t("properties.typography")))
+        .child(
+            v_flex().mt(px(HEADER_GAP)).gap(px(8.0)).w_full().children([
+                ui::prop_row(
+                    &t("properties.font"),
+                    ui::select_field("Arial", None), // i18n-exempt: technical token
+                )
+                .into_any_element(),
+                ui::prop_row(
+                    &t("properties.sizeAndWeight"),
+                    h_flex()
+                        .flex_1()
+                        .gap(px(SLOT_GAP))
+                        .child(ui::num_field(
+                            None,
+                            Some(70.0),
+                            &format!("{font_size:.0}"),
+                            Some("px"),
+                        ))
+                        .child(ui::select_field(weight_label, None)),
+                )
+                .into_any_element(),
+                ui::prop_row(
+                    &t("properties.styleAndAlign"),
+                    h_flex()
+                        .flex_1()
+                        .gap(px(SLOT_GAP))
+                        .child(
+                            div()
+                                .id("prop-text-italic")
+                                .test_support()
+                                .h(px(24.0))
+                                .w(px(28.0))
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(R3))
+                                .border(px(1.0))
+                                .border_color(if italic {
+                                    color::ACCENT
+                                } else {
+                                    color::FIELD_BORDER
+                                })
+                                .bg(color::FIELD)
+                                .cursor_pointer()
+                                .on_click(cx.listener(
+                                    |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                                        let _ = app.toggle_text_italic(cx);
+                                    },
+                                ))
+                                .child(
+                                    div()
+                                        .italic()
+                                        .font_family("Georgia")
+                                        .text_size(px(11.0))
+                                        .text_color(color::TEXT)
+                                        .child("I"), // i18n-exempt: style glyph
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id("prop-text-underline")
+                                .test_support()
+                                .h(px(24.0))
+                                .w(px(28.0))
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(R3))
+                                .border(px(1.0))
+                                .border_color(if underline {
+                                    color::ACCENT
+                                } else {
+                                    color::FIELD_BORDER
+                                })
+                                .bg(color::FIELD)
+                                .cursor_pointer()
+                                .on_click(cx.listener(
+                                    |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                                        let _ = app.toggle_text_underline(cx);
+                                    },
+                                ))
+                                .child(
+                                    div()
+                                        .underline()
+                                        .font_family(ui::FONT_UI)
+                                        .text_size(px(11.0))
+                                        .text_color(color::TEXT)
+                                        .child("U"), // i18n-exempt: style glyph
+                                ),
+                        )
+                        .child(align_button(
+                            "prop-text-align-left",
+                            icons::ALIGN_TEXT_LEFT,
+                            TextAlignTool::Left,
+                            align == TextAlignTool::Left,
+                            cx,
+                        ))
+                        .child(align_button(
+                            "prop-text-align-center",
+                            icons::ALIGN_TEXT_CENTER,
+                            TextAlignTool::Center,
+                            align == TextAlignTool::Center,
+                            cx,
+                        ))
+                        .child(align_button(
+                            "prop-text-align-right",
+                            icons::ALIGN_TEXT_RIGHT,
+                            TextAlignTool::Right,
+                            align == TextAlignTool::Right,
+                            cx,
+                        )),
+                )
+                .into_any_element(),
+                ui::prop_row(
+                    &t("properties.boxMode"),
+                    ui::select_field("Auto Width (Point)", None), // i18n-exempt: technical token
+                )
+                .into_any_element(),
+                ui::prop_row(
+                    &t("properties.spacing"),
+                    h_flex()
+                        .flex_1()
+                        .gap(px(SLOT_GAP))
+                        .child(ui::num_field(
+                            Some("Line H"),
+                            None,
+                            &format!("{line_height:.1}"),
+                            None,
+                        ))
+                        .child(ui::num_field(
+                            Some("Letter"),
+                            None,
+                            &format!("{letter_spacing:.0}"),
+                            Some("px"),
+                        )),
+                )
+                .into_any_element(),
+                ui::prop_row(
+                    &t("properties.colorAndStroke"),
+                    h_flex()
+                        .flex_1()
+                        .gap(px(SLOT_GAP))
+                        .child(
+                            div()
+                                .id("prop-text-color")
+                                .test_support()
+                                .size(px(24.0))
+                                .flex_shrink_0()
+                                .rounded(px(R3))
+                                .border(px(1.0))
+                                .border_color(color::FIELD_BORDER)
+                                .bg(crate::palette::hsla(color))
+                                .cursor_pointer()
+                                .on_click(cx.listener(
+                                    |app, _: &gpui_kit::ClickEvent, window, cx| {
+                                        app.open_color_picker(
+                                            crate::state::ColorTarget::Text,
+                                            window,
+                                            cx,
+                                        );
+                                    },
+                                )),
+                        )
+                        .child(
+                            div()
+                                .id("prop-text-stroke")
+                                .test_support()
+                                .h(px(24.0))
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(R3))
+                                .border(px(1.0))
+                                .border_color(if stroke_on {
+                                    color::ACCENT
+                                } else {
+                                    color::FIELD_BORDER
+                                })
+                                .bg(color::FIELD)
+                                .cursor_pointer()
+                                .on_click(cx.listener(
+                                    |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                                        app.toggle_text_stroke(cx);
+                                    },
+                                ))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .font_weight(FontWeight(700.))
+                                        .text_color(if stroke_on {
+                                            color::TEXT
+                                        } else {
+                                            color::TEXT_DIM
+                                        })
+                                        .child(t("properties.stroke")),
+                                ),
+                        ),
+                )
+                .into_any_element(),
+            ]),
+        )
+}
+
+fn transform_section(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    // `transformStatusText()` in `PropertiesPanel.tsx:414-421`: the layer's
+    // lock flags decide which hint, if any, sits above the rows.
+    let status = {
+        let s = state.read(cx);
+        s.layer_flags
+            .get(s.selected_layer as usize)
+            .copied()
+            .and_then(|flags| {
+                if flags.locked {
+                    Some((
+                        "properties-status-layer-locked",
+                        t("properties.layerLockedTransform"),
+                    ))
+                } else if flags.lock_position && flags.lock_rotation {
+                    Some(("properties-status-pos-rot", t("properties.posRotLocked")))
+                } else if flags.lock_position {
+                    Some(("properties-status-pos", t("properties.posLocked")))
+                } else if flags.lock_rotation {
+                    Some(("properties-status-rot", t("properties.rotLocked")))
+                } else {
+                    None
+                }
+            })
+    };
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -641,6 +973,10 @@ fn transform_section(cx: &Context<crate::app::App>) -> Div {
         .border_b(px(1.0))
         .border_color(color::DIVIDER)
         .child(section_header(icons::MOVE, &t("properties.transform")))
+        .when(status.is_some(), |el| {
+            let (id, message) = status.unwrap();
+            el.child(status_hint(id, message))
+        })
         .child(
             v_flex().mt(px(HEADER_GAP)).gap(px(8.0)).w_full().children([
                 // Position — X / Y, each taking half the slot.
@@ -811,126 +1147,6 @@ fn wired_action_button(
                 .text_color(color::TEXT)
                 .child(label.to_string()),
         )
-}
-
-/// The text-layer typography steppers (`prop-text-*`). These carry the only
-/// reachable text controls until the frozen text section is ported; the
-/// additive flip/reset/raster row of the old strip is gone — those actions
-/// live in the wired Actions row of the Transform section.
-fn live_text_rows(
-    state: &gpui_kit::Entity<crate::state::AppState>,
-    cx: &Context<crate::app::App>,
-) -> Div {
-    let text = {
-        let s = state.read(cx);
-        Some((
-            s.selected_text_font_size,
-            s.selected_text_line_height,
-            s.selected_text_letter_spacing,
-            s.selected_text_font_weight >= 700.0,
-            s.selected_text_italic,
-            s.selected_text_align,
-        ))
-    };
-
-    let align_label = text
-        .map(|(_, _, _, _, _, align)| match align {
-            crate::state::TextAlignTool::Left => "L",
-            crate::state::TextAlignTool::Center => "C",
-            crate::state::TextAlignTool::Right => "R",
-        })
-        .unwrap_or("L");
-
-    let mut strip = v_flex()
-        .w_full()
-        .flex_shrink_0()
-        .px(px(PAD_X))
-        .py(px(PAD_Y))
-        .gap(px(4.0))
-        .border_b(px(1.0))
-        .border_color(color::DIVIDER);
-
-    if let Some((size, line, tracking, bold, italic, _)) = text {
-        strip = strip
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap(px(4.0))
-                    .child(live_label(format!("Size {size:.0}")).flex_1())
-                    .child(live_action_button(
-                        "prop-text-size-dec",
-                        "-",
-                        cx,
-                        |app, cx| app.adjust_selected_text(0, -1.0, cx),
-                    ))
-                    .child(live_action_button(
-                        "prop-text-size-inc",
-                        "+",
-                        cx,
-                        |app, cx| app.adjust_selected_text(0, 1.0, cx),
-                    ))
-                    .child(live_label(format!("Line {line:.1}")))
-                    .child(live_action_button(
-                        "prop-line-height-dec",
-                        "-",
-                        cx,
-                        |app, cx| app.adjust_selected_text(1, -1.0, cx),
-                    ))
-                    .child(live_action_button(
-                        "prop-line-height-inc",
-                        "+",
-                        cx,
-                        |app, cx| app.adjust_selected_text(1, 1.0, cx),
-                    )),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap(px(4.0))
-                    .child(live_label(format!("Track {tracking:+.1}")).flex_1())
-                    .child(live_action_button(
-                        "prop-letter-spacing-dec",
-                        "-",
-                        cx,
-                        |app, cx| app.adjust_selected_text(2, -0.5, cx),
-                    ))
-                    .child(live_action_button(
-                        "prop-letter-spacing-inc",
-                        "+",
-                        cx,
-                        |app, cx| app.adjust_selected_text(2, 0.5, cx),
-                    ))
-                    .child(live_button("prop-text-bold", "B", bold, cx, |app, cx| {
-                        app.toggle_selected_text_bold(cx)
-                    }))
-                    .child(live_button(
-                        "prop-text-italic",
-                        "I",
-                        italic,
-                        cx,
-                        |app, cx| app.toggle_selected_text_italic(cx),
-                    ))
-                    .child(live_action_button(
-                        "prop-text-align",
-                        align_label,
-                        cx,
-                        |app, cx| app.cycle_selected_text_align(cx),
-                    ))
-                    // Native-only improvement, recorded as such: the frozen
-                    // panel has no reachable rasterize for text layers, but the
-                    // ported behaviour contract (the mounted test) covers it.
-                    // It lives in the text branch only, so the raster-layer
-                    // captures still match the oracle.
-                    .child(live_action_button(
-                        "prop-rasterize",
-                        "Raster",
-                        cx,
-                        |app, cx| app.rasterize_selected_layer(cx),
-                    )),
-            );
-    }
-
-    strip
 }
 
 /// The multi-selection branch: header card, combined bounds, align/distribute
@@ -1228,61 +1444,6 @@ fn multi_text_button(
                 .text_color(color::TEXT_DIM),
         )
         .child(label.to_string())
-}
-
-fn live_label(text: String) -> Div {
-    div()
-        .min_w(px(0.0))
-        .overflow_hidden()
-        .text_size(px(10.5))
-        .font_family(ui::FONT_UI)
-        .text_color(color::TEXT_DIM)
-        .child(text)
-}
-
-fn live_action_button(
-    id: &'static str,
-    label: &'static str,
-    cx: &Context<crate::app::App>,
-    action: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) -> Result<(), String> + 'static,
-) -> impl IntoElement {
-    live_button(id, label, false, cx, action)
-}
-
-/// The strip's button chrome. `active` marks a toggle that is currently on.
-fn live_button(
-    id: &'static str,
-    label: &'static str,
-    active: bool,
-    cx: &Context<crate::app::App>,
-    action: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) -> Result<(), String> + 'static,
-) -> impl IntoElement {
-    div()
-        .id(id)
-        .test_support()
-        .h(px(22.0))
-        .px(px(6.0))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(3.0))
-        .border_1()
-        .border_color(if active { color::ACCENT } else { color::BORDER })
-        .text_size(px(10.0))
-        .font_family(ui::FONT_UI)
-        .text_color(if active { color::ACCENT } else { color::TEXT })
-        .cursor_pointer()
-        .on_click(
-            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                let result = action(app, cx);
-                match result {
-                    Ok(()) => app.set_status_error(None, cx),
-                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
-                }
-            }),
-        )
-        .child(label)
 }
 
 /// Same chrome, icon only — `size-3.5`, no label.

@@ -220,6 +220,14 @@ impl App {
         self.state.update(cx, |state, _| state.brush_size = size);
         cx.notify();
     }
+
+    /// Undoes a finished measurement run so the next run starts from the same
+    /// pixels; measurement-only.
+    pub fn input_measurement_undo(&mut self, steps: usize, cx: &mut Context<Self>) {
+        for _ in 0..steps {
+            self.undo_document_action(&super::history::UndoDocument, cx);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -447,7 +455,7 @@ mod tests {
         );
         assert!(receipt.version > history_before);
         assert_eq!(receipt.refresh, RefreshOutcome::Succeeded);
-        assert_eq!(receipts.borrow().as_slice(), &[receipt.clone()]);
+        assert_eq!(receipts.borrow().as_slice(), std::slice::from_ref(&receipt));
 
         let render = snapshot
             .render

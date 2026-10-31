@@ -38,7 +38,7 @@ pub(super) const OVERRIDES: &[(&str, &str, &str, &str, &str, &str)] = &[
     ("components/editor/Tooltip.tsx", "tooltips", "views/tooltips.rs", "STATIC", "tooltip_height_is_pinned", "hover/focus tooltip behaviour absent"),
     ("components/editor/TransformHud.tsx", "transform-hud", "views/transform_hud.rs", "WIRED", "transform_drag_publishes_and_clears_the_hud", "move/rotate values unasserted"),
     ("components/editor/TransformOptionBar.tsx", "optionbar-move", "views/option_bar.rs", "WIRED", "", "same surface as MoveOptionBar"),
-    ("components/editor/TransformationHUD.tsx", "transform-hud", "views/transform_hud.rs", "WIRED", "", "legacy/duplicate HUD file; map to the same native surface"),
+    ("components/editor/TransformationHUD.tsx", "transform-hud", "-", "DEAD", "grep -rn \"TransformationHUD\" --include=*.ts --include=*.tsx oracle/src => no importer outside its own file", "unreachable duplicate HUD; TransformHud.tsx is the live one"),
     ("components/editor/autoSave.ts", "documents", "app/autosave.rs, services/autosave.rs", "WIRED", "", ""),
     ("components/editor/brushDabProducer.ts", "brush", "input.rs, app/input.rs", "WIRED", "brush_drag_mutates_core_pixels_and_history", ""),
     ("components/editor/brushHardnessProfile.ts", "brush", "input.rs", "WIRED", "brush_opacity_scales_the_stroke_alpha", ""),

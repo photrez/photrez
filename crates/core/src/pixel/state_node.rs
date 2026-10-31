@@ -156,6 +156,30 @@ impl StateNode {
         LIVE_STATE_NODES.fetch_add(1, Ordering::SeqCst);
         StateNode { id, tiles, meta }
     }
+
+    /// Materialize this state as row-major RGBA.
+    ///
+    /// Used when a step changes a layer's bitmap SIZE: tile patches are
+    /// meaningless across sizes, so the restore path replays the whole state
+    /// instead. Every other path keeps using per-tile deltas.
+    pub fn to_row_major(&self) -> Vec<u8> {
+        let width = self.meta.width as usize;
+        let height = self.meta.height as usize;
+        let mut out = vec![0u8; width * height * 4];
+        for tile in &self.tiles {
+            let origin_x = tile.grid_x as usize * TILE as usize;
+            let origin_y = tile.grid_y as usize * TILE as usize;
+            let tile_w = tile.w as usize;
+            let tile_h = tile.h as usize;
+            let bytes = tile.bytes();
+            for row in 0..tile_h {
+                let src = row * tile_w * 4;
+                let dst = ((origin_y + row) * width + origin_x) * 4;
+                out[dst..dst + tile_w * 4].copy_from_slice(&bytes[src..src + tile_w * 4]);
+            }
+        }
+        out
+    }
 }
 
 impl Drop for StateNode {

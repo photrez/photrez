@@ -258,44 +258,79 @@ pub(crate) struct ScaledPreviewPatch {
     pub data: Vec<u8>,
 }
 
-/// Render the whole current stroke at display scale over the canonical layer
-/// crop. The preview stays display-sized (bounded by `max_edge`) while the
-/// pointer-up commit remains the exact full-resolution authority.
-///
-/// The tip is resampled to the preview stamp size first, so the preview
-/// rasterizer reads a stamp-sized bitmap instead of the full-resolution tip.
-#[allow(clippy::too_many_arguments)] // the brush record is flat; a struct would only rename it
-pub(crate) fn scaled_preview_patches(
-    layer_pixels: &[u8],
+/// Document-space rectangle a preview paints over.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PreviewRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Pixels a preview is rendered on top of: the whole composited document or a
+/// crop read back from the display.
+pub(crate) struct PreviewBase<'a> {
+    pixels: &'a [u8],
+    x: u32,
+    y: u32,
     width: u32,
     height: u32,
-    dabs: &[ParityDab],
-    tip: &BrushTip,
-    eraser: bool,
-    display_scale: f64,
-    max_edge: u32,
-) -> Result<Vec<ScaledPreviewPatch>, String> {
-    if width == 0 || height == 0 {
-        return Err("preview layer dimensions are zero".to_owned());
-    }
-    let source_width = width as usize;
-    let source_height = height as usize;
-    let expected = source_width
-        .checked_mul(source_height)
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| "preview layer size overflow".to_owned())?;
-    if layer_pixels.len() != expected {
-        return Err("preview layer buffer length mismatch".to_owned());
-    }
-    if dabs.is_empty() {
-        return Ok(Vec::new());
-    }
-    if !display_scale.is_finite() || display_scale <= 0.0 {
-        return Err("preview display scale is invalid".to_owned());
+    doc_width: u32,
+    doc_height: u32,
+}
+
+impl<'a> PreviewBase<'a> {
+    /// Document-sized base pixels, used by the generator tests.
+    #[cfg(test)]
+    pub(crate) fn document(pixels: &'a [u8], width: u32, height: u32) -> Self {
+        Self {
+            pixels,
+            x: 0,
+            y: 0,
+            width,
+            height,
+            doc_width: width,
+            doc_height: height,
+        }
     }
 
-    let doc_w = width as i64;
-    let doc_h = height as i64;
+    /// Crop-sized base pixels read from the display composite. Rendering the
+    /// stroke over the composite is what makes a preview correct on documents
+    /// with more than one layer.
+    pub(crate) fn region(
+        pixels: &'a [u8],
+        rect: PreviewRect,
+        doc_width: u32,
+        doc_height: u32,
+    ) -> Self {
+        Self {
+            pixels,
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            doc_width,
+            doc_height,
+        }
+    }
+}
+
+/// The document rectangle a stroke's dabs can touch, including the stamp
+/// margin. `None` means the stroke has no dabs yet.
+pub(crate) fn preview_rect(
+    dabs: &[ParityDab],
+    tip: &BrushTip,
+    doc_width: u32,
+    doc_height: u32,
+) -> Result<Option<PreviewRect>, String> {
+    if doc_width == 0 || doc_height == 0 {
+        return Err("preview layer dimensions are zero".to_owned());
+    }
+    if dabs.is_empty() {
+        return Ok(None);
+    }
+    let doc_w = i64::from(doc_width);
+    let doc_h = i64::from(doc_height);
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
@@ -317,11 +352,56 @@ pub(crate) fn scaled_preview_patches(
     let y0 = ((min_y.floor() as i64) - margin).clamp(0, doc_h - 1);
     let x1 = ((max_x.ceil() as i64) + margin).clamp(x0 + 1, doc_w);
     let y1 = ((max_y.ceil() as i64) + margin).clamp(y0 + 1, doc_h);
-    let crop_w = (x1 - x0) as usize;
-    let crop_h = (y1 - y0) as usize;
-    if crop_w == 0 || crop_h == 0 {
-        return Err("preview crop is empty".to_owned());
+    Ok(Some(PreviewRect {
+        x: x0 as u32,
+        y: y0 as u32,
+        width: (x1 - x0) as u32,
+        height: (y1 - y0) as u32,
+    }))
+}
+
+/// Render the whole current stroke at display scale over the composite crop.
+/// The preview stays display-sized (bounded by `max_edge`) while the
+/// pointer-up commit remains the exact full-resolution authority.
+///
+/// The tip is resampled to the preview stamp size first, so the preview
+/// rasterizer reads a stamp-sized bitmap instead of the full-resolution tip.
+pub(crate) fn scaled_preview_patches(
+    base: PreviewBase<'_>,
+    dabs: &[ParityDab],
+    tip: &BrushTip,
+    eraser: bool,
+    display_scale: f64,
+    max_edge: u32,
+) -> Result<Vec<ScaledPreviewPatch>, String> {
+    if !display_scale.is_finite() || display_scale <= 0.0 {
+        return Err("preview display scale is invalid".to_owned());
     }
+    let expected = (base.width as usize)
+        .checked_mul(base.height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "preview base size overflow".to_owned())?;
+    if base.pixels.len() != expected {
+        return Err("preview base buffer length mismatch".to_owned());
+    }
+    let Some(rect) = preview_rect(dabs, tip, base.doc_width, base.doc_height)? else {
+        return Ok(Vec::new());
+    };
+    if rect.x < base.x
+        || rect.y < base.y
+        || rect.x + rect.width > base.x + base.width
+        || rect.y + rect.height > base.y + base.height
+    {
+        return Err("preview base does not cover the stroke crop".to_owned());
+    }
+    let x0 = i64::from(rect.x);
+    let y0 = i64::from(rect.y);
+    let crop_w = rect.width as usize;
+    let crop_h = rect.height as usize;
+    let source_width = base.width as usize;
+    let source_height = base.height as usize;
+    let local_x0 = i64::from(rect.x - base.x);
+    let local_y0 = i64::from(rect.y - base.y);
 
     let base_scale = display_scale.clamp(0.0, 1.0);
     let cap = max_edge.max(1) as f64;
@@ -331,12 +411,12 @@ pub(crate) fn scaled_preview_patches(
         .clamp(1e-4, 1.0);
     let preview_w = ((crop_w as f64 * scale).ceil() as usize).max(1);
     let preview_h = ((crop_h as f64 * scale).ceil() as usize).max(1);
-    let base = downsample_premultiplied(
-        layer_pixels,
+    let preview_base = downsample_premultiplied(
+        base.pixels,
         source_width,
         source_height,
-        x0,
-        y0,
+        local_x0,
+        local_y0,
         crop_w,
         crop_h,
         preview_w,
@@ -364,7 +444,7 @@ pub(crate) fn scaled_preview_patches(
         preview_w,
         preview_h,
         true,
-        Some(base),
+        Some(preview_base),
         eraser,
         preview_brush,
         &shifted,
@@ -376,16 +456,16 @@ pub(crate) fn scaled_preview_patches(
     for patch in patches {
         let doc_x = (x0 as f64 + patch.x as f64 / scale)
             .round()
-            .clamp(0.0, width as f64 - 1.0) as u32;
+            .clamp(0.0, base.doc_width as f64 - 1.0) as u32;
         let doc_y = (y0 as f64 + patch.y as f64 / scale)
             .round()
-            .clamp(0.0, height as f64 - 1.0) as u32;
+            .clamp(0.0, base.doc_height as f64 - 1.0) as u32;
         let doc_right = (x0 as f64 + (patch.x + patch.w as i64) as f64 / scale)
             .round()
-            .clamp(doc_x as f64 + 1.0, width as f64) as u32;
+            .clamp(doc_x as f64 + 1.0, base.doc_width as f64) as u32;
         let doc_bottom = (y0 as f64 + (patch.y + patch.h as i64) as f64 / scale)
             .round()
-            .clamp(doc_y as f64 + 1.0, height as f64) as u32;
+            .clamp(doc_y as f64 + 1.0, base.doc_height as f64) as u32;
         let image_width =
             u32::try_from(patch.w).map_err(|_| "preview image width overflow".to_owned())?;
         let image_height =

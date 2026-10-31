@@ -313,6 +313,9 @@ fn random_command(rng: &mut u32, ids: &[String], next_id: &mut u32) -> (Command,
         },
         12 => Command::RasterizeLayer {
             id: rand_existing_id(rng, ids),
+            // Metadata-only fuzz: no materialized bitmap (the historical
+            // behaviour the U11 defect receipt pins).
+            pixels: None,
         },
         13 => Command::DuplicateLayer {
             id: rand_existing_id(rng, ids),
@@ -359,6 +362,8 @@ fn random_command(rng: &mut u32, ids: &[String], next_id: &mut u32) -> (Command,
             } else {
                 None
             },
+            delete_cropped_pixels: chance(rng, 50),
+            fill_background: None,
         },
         19 => Command::ResizeCanvas {
             width: rand_f64(rng),

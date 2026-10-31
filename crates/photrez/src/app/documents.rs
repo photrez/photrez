@@ -211,12 +211,33 @@ impl App {
         self.document_tabs.clone()
     }
 
-    /// Create a white-backed document in a new tab (the New Document dialog's
-    /// Create action) and mark it dirty so closing prompts for a save path.
+    /// Test-fixture convenience: a white "Untitled" document in a new tab.
+    #[cfg(test)]
     pub(crate) fn create_document(
         &mut self,
         width: u32,
         height: u32,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.create_new_named_document(
+            "Untitled".to_string(),
+            width,
+            height,
+            crate::state::NewDocBackground::White,
+            cx,
+        )
+    }
+
+    /// The New Document dialog's Create action: one Background layer named
+    /// exactly as the form says, filled white or left transparent
+    /// (`workspace.ts:203-221`). The document is marked dirty so closing it
+    /// prompts for a save path.
+    pub(crate) fn create_new_named_document(
+        &mut self,
+        name: String,
+        width: u32,
+        height: u32,
+        background: crate::state::NewDocBackground,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -225,16 +246,16 @@ impl App {
             return Err("document dimensions must be 1..=16384".to_string());
         }
         let id = format!("native-doc-{}", NEXT.fetch_add(1, Ordering::Relaxed));
-        let rgba = vec![255u8; width as usize * height as usize * 4];
+        let fill = match background {
+            crate::state::NewDocBackground::White => 255u8,
+            crate::state::NewDocBackground::Transparent => 0u8,
+        };
+        let rgba = vec![fill; width as usize * height as usize * 4];
         let loaded =
-            LoadedDocument::imported_image(id.clone(), "Untitled".to_string(), width, height, rgba)
+            LoadedDocument::seeded_background(id.clone(), name, width, height, rgba.clone())
                 .map_err(|error| format!("cannot create the document: {error}"))?;
-        let canvas = CanvasImage::from_rgba(
-            width,
-            height,
-            vec![255; width as usize * height as usize * 4],
-        )
-        .map_err(|error| format!("{error:?}"))?;
+        let canvas =
+            CanvasImage::from_rgba(width, height, rgba).map_err(|error| format!("{error:?}"))?;
         self.install_document(loaded, canvas, None, cx)?;
         self.sessions
             .mark_dirty(&id)
@@ -243,6 +264,54 @@ impl App {
         self.state.update(cx, |state, _| state.active_dialog = None);
         cx.notify();
         Ok(())
+    }
+
+    /// A Quick Preset on the empty workspace card: a blank white document
+    /// named after the preset and sized from the same table the card draws
+    /// (`EmptyWorkspace.tsx` `handleCreatePreset`).
+    pub(crate) fn create_preset_document(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some((name, width, height)) = crate::views::empty_state::preset_document(index) else {
+            return;
+        };
+        if let Err(error) = self.create_new_named_document(
+            name.to_string(),
+            width,
+            height,
+            crate::state::NewDocBackground::White,
+            cx,
+        ) {
+            self.state
+                .update(cx, |state, _| state.status_error = Some(error));
+            cx.notify();
+        }
+    }
+
+    /// A `--shot` launch renders the captured shell without a session. Install
+    /// the same one-layer Background document a New Document creates, so the
+    /// Layers row, its eye/lock controls and the Properties banner read core
+    /// state exactly as the oracle does. The document starts clean.
+    pub(crate) fn install_shot_document(&mut self, cx: &mut Context<Self>) {
+        let (width, height, rgba) = crate::services::document::blank_white_document();
+        let name = self.state.read(cx).document_name.clone();
+        let Ok(loaded) = LoadedDocument::seeded_background(
+            "shot-document".to_owned(),
+            name,
+            width,
+            height,
+            rgba,
+        ) else {
+            return;
+        };
+        let Ok(canvas) = CanvasImage::from_rgba(
+            width,
+            height,
+            vec![255; width as usize * height as usize * 4],
+        ) else {
+            return;
+        };
+        if let Err(error) = self.install_document(loaded, canvas, None, cx) {
+            eprintln!("photrez: the shot document was not installed: {error}");
+        }
     }
 
     #[cfg(test)]

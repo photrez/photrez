@@ -482,5 +482,5 @@ mod tabs;
 mod tests;
 
 #[cfg(test)]
-use tabs::{inspector_tab_from_id, layer_tab_from_id, tab_label};
+use tabs::{inspector_tab_from_id, layer_tab_from_id};
 use tabs::{inspector_tab_id, layer_tab_id, tab_bar, write_inspector_tab, write_layer_tab};

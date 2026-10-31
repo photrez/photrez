@@ -129,10 +129,10 @@ fn undo_command_steps_the_pixel_cursor_and_returns_the_before_tiles() {
         "Command::Undo must step the pixel cursor by exactly 1"
     );
 
-    let handoff = res
+    let handoff = &res
         .pixel_patches
         .as_ref()
-        .expect("Command::Undo must hand the pixel tiles back to the host");
+        .expect("Command::Undo must hand the pixel tiles back to the host")[0];
     assert_eq!(handoff.layer_id, "L1");
     assert_eq!(handoff.tiles.len(), 1, "one dirty tile for an 8x8 layer");
     let t = &handoff.tiles[0];
@@ -160,7 +160,7 @@ fn undo_command_steps_the_pixel_cursor_and_returns_the_before_tiles() {
         .apply_command(envelope(Command::Redo))
         .expect("redo onto a pixel entry");
     assert_eq!(reg.get_history_cursor("d"), Some(1), "redo steps forward");
-    let handoff = res.pixel_patches.as_ref().expect("redo hands tiles back");
+    let handoff = &res.pixel_patches.as_ref().expect("redo hands tiles back")[0];
     assert_eq!(handoff.tiles.len(), 1);
     assert!(
         handoff.tiles[0].data.iter().all(|b| *b == 10),
@@ -191,6 +191,10 @@ fn pixel_handoff_serializes_to_the_keys_the_host_parses() {
     let v: serde_json::Value = serde_json::to_value(&res).expect("serialize");
     let p = &v["pixelPatches"];
     assert!(!p.is_null(), "pixelPatches must be present on the wire");
+    // One handoff per restored layer: a destructive crop restores several
+    // layers in a single step, so the field is a list.
+    assert!(p.is_array(), "pixelPatches is a list of per-layer handoffs");
+    let p = &p[0];
     assert!(p["layerId"].is_string(), "camelCase layerId");
     assert!(p["tiles"].is_array(), "tiles array");
     // TilePatch keeps its Rust field names - the host already parses this

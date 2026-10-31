@@ -114,22 +114,9 @@ const TOOLS: &[Tool] = &[
     },
 ];
 
-/// `editorState.ts:37` - `createSignal("#E15A17")`.
-/// sRGB (225, 90, 23) -> HSL (19.9 deg, 81.45%, 48.63%).
-const FG_COLOR: Hsla = Hsla {
-    h: 0.0553,
-    s: 0.8145,
-    l: 0.4863,
-    a: 1.0,
-};
-
-/// `editorState.ts:38` - `createSignal("#FFFFFF")`.
-const BG_COLOR: Hsla = Hsla {
-    h: 0.0,
-    s: 0.0,
-    l: 1.0,
-    a: 1.0,
-};
+/// `editorState.ts:37-38` defaults (`#E15A17` foreground, `#FFFFFF`
+/// background). `AppState::default` carries the same pair and is the live
+/// source the swatches paint from, so no constant is needed here.
 
 /// The sub-variant triangle, from the inline `<svg>` in the JSX. It is not a
 /// lucide icon - it's a raw `<polygon points="6,6 0,6 6,0">` on a 6x6 viewBox.
@@ -159,8 +146,11 @@ fn shadow_md_layers() -> Vec<BoxShadow> {
 /// each button can light itself. No arguments otherwise: the reference's
 /// hardcoded resting state has been replaced by this parameter.
 pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
-    // `Copy` the single field we branch on; the borrow of the state ends here.
-    let active_tool = state.read(cx).active_tool;
+    // `Copy` the fields we branch on; the borrow of the state ends here.
+    let (active_tool, fg_color, bg_color) = {
+        let s = state.read(cx);
+        (s.active_tool, s.fg_color, s.bg_color)
+    };
     // `flex_none()` so the rail keeps its 52px at any window width; the port's
     // shells were all captured at 1366 and a shrunken rail misplaces every
     // button by a different amount.
@@ -174,7 +164,11 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
         .py(px(dim::RAIL_PY))
         .children(TOOLS.iter().map(|t| tool_button(t, active_tool, state, cx)))
         .child(divider())
-        .child(swatch_stack())
+        .child(swatch_stack(
+            crate::palette::hsla(fg_color),
+            crate::palette::hsla(bg_color),
+            cx,
+        ))
 }
 
 /// A tool row: a 36px rounded square centring an 18px icon, plus the optional
@@ -370,7 +364,7 @@ fn divider() -> impl IntoElement {
 /// `.group("swatch")` is the direct equivalent of Tailwind's `group`, and the
 /// swap button below consumes it with `.group_hover("swatch", ..)` - i.e. the
 /// same parent-hover relationship, with no state on this view.
-fn swatch_stack() -> impl IntoElement {
+fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("swatch-stack")
         .group("swatch")
@@ -378,9 +372,9 @@ fn swatch_stack() -> impl IntoElement {
         .size(px(dim::SWATCH_BOX))
         .flex_shrink_0()
         .my(px(dim::SWATCH_MY))
-        .child(background_swatch())
-        .child(foreground_swatch())
-        .child(swap_button())
+        .child(background_swatch(bg, cx))
+        .child(foreground_swatch(fg, cx))
+        .child(swap_button(cx))
 }
 
 /// `absolute bottom-0 right-0 size-[28px] rounded-full border border-white/20
@@ -388,8 +382,10 @@ fn swatch_stack() -> impl IntoElement {
 ///
 /// Rendered first so the foreground swatch overlaps it - which is what the
 /// original achieves with `z-10` on the foreground swatch.
-fn background_swatch() -> impl IntoElement {
+fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
+        .id("bg-swatch")
+        .test_support()
         .absolute()
         .bottom(px(0.))
         .right(px(0.))
@@ -402,8 +398,13 @@ fn background_swatch() -> impl IntoElement {
         // raw diff is 2.377% while its hard count is near zero: `classify()`
         // buckets #333333 and #484848 as the same `active` class.
         .border_color(color::BORDER)
-        .bg(BG_COLOR)
+        .bg(fill)
         .shadow_md()
+        .cursor_pointer()
+        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+            cx.stop_propagation();
+            app.open_color_picker(crate::state::ColorTarget::Background, window, cx);
+        }))
 }
 
 /// `absolute top-0 left-0 size-[28px] rounded-full border border-white/30
@@ -417,7 +418,7 @@ fn background_swatch() -> impl IntoElement {
 /// reproduces an outline's geometry exactly (outside the border, no layout
 /// effect), so the `outline` is composited into the same `.shadow()` call as
 /// `shadow-md` rather than using the `.shadow_md()` shorthand.
-fn foreground_swatch() -> impl IntoElement {
+fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     let mut shadows = vec![
         // `outline outline-1 outline-black/40`
         BoxShadow::new(px(0.), px(0.), color::BLACK_40).spread_radius(px(1.)),
@@ -425,6 +426,8 @@ fn foreground_swatch() -> impl IntoElement {
     shadows.extend(shadow_md_layers());
 
     div()
+        .id("fg-swatch")
+        .test_support()
         .absolute()
         .top(px(0.))
         .left(px(0.))
@@ -432,8 +435,13 @@ fn foreground_swatch() -> impl IntoElement {
         .rounded_full()
         .border_1()
         .border_color(color::BORDER)
-        .bg(FG_COLOR)
+        .bg(fill)
         .shadow(shadows)
+        .cursor_pointer()
+        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+            cx.stop_propagation();
+            app.open_color_picker(crate::state::ColorTarget::Foreground, window, cx);
+        }))
 }
 
 /// `absolute -top-1.5 -right-1.5 z-20 size-4 bg-editor-toolbar
@@ -448,9 +456,10 @@ fn foreground_swatch() -> impl IntoElement {
 ///
 /// Note this icon keeps `stroke-width` 2: line 282 of the JSX passes no
 /// `strokeWidth`, unlike the tool buttons.
-fn swap_button() -> impl IntoElement {
+fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("swap-colors")
+        .test_support()
         .absolute()
         .top(px(dim::SWAP_OFFSET))
         .right(px(dim::SWAP_OFFSET))
@@ -467,6 +476,11 @@ fn swap_button() -> impl IntoElement {
         .opacity(0.)
         .group_hover("swatch", |s| s.opacity(1.))
         .hover(|s| s.text_color(color::TEXT))
+        .cursor_pointer()
+        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _, cx| {
+            cx.stop_propagation();
+            app.swap_colors(cx);
+        }))
         .child(
             // LeftToolRail.tsx:282 renders `<Icon name="rotate" />` with no
             // `strokeWidth`, i.e. lucide's default 2. `rotate` and `rotate-cw`

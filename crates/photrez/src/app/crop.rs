@@ -46,6 +46,10 @@ macro_rules! nudge_action {
 
         impl App {
             pub(crate) fn $method(&mut self, _: &$name, cx: &mut Context<Self>) {
+                if self.state.read(cx).open_select.is_some() {
+                    self.select_arrow(if $dy > 0.0 { 1 } else { -1 }, cx);
+                    return;
+                }
                 self.nudge_crop($dx, $dy, cx);
             }
         }
@@ -62,7 +66,27 @@ nudge_action!(NudgeCropUpLarge, nudge_crop_up_large, 0.0, -10.0);
 nudge_action!(NudgeCropDownLarge, nudge_crop_down_large, 0.0, 10.0);
 
 impl App {
+    /// Crop bar `Delete`: discard cropped-away pixels on Apply.
+    pub(crate) fn toggle_crop_delete(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.crop_delete_pixels = !state.crop_delete_pixels;
+        });
+        cx.notify();
+    }
+
+    /// Crop bar `Fill BG`: bake the background colour under the crop on Apply.
+    pub(crate) fn toggle_crop_fill(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.crop_fill_background = !state.crop_fill_background;
+        });
+        cx.notify();
+    }
+
     pub(crate) fn apply_crop_action(&mut self, _: &ApplyCropAction, cx: &mut Context<Self>) {
+        if self.state.read(cx).open_select.is_some() {
+            self.select_confirm(cx);
+            return;
+        }
         let result = self.apply_crop(cx);
         match result {
             Ok(()) => self.set_status_error(None, cx),
@@ -89,6 +113,21 @@ impl App {
             return Err("the crop rectangle is empty".to_string());
         }
         let doc_id = self.active_doc_id()?;
+        let (delete_pixels, fill_background) = {
+            let state = self.state.read(cx);
+            (
+                state.crop_delete_pixels,
+                if state.crop_fill_background {
+                    Some(state.bg_color)
+                } else {
+                    None
+                },
+            )
+        };
+        #[cfg(test)]
+        self.state.update(cx, |state, _| {
+            state.last_crop_flags = Some((delete_pixels, fill_background));
+        });
         self.apply_core_command(
             &doc_id,
             Command::ApplyCrop {
@@ -99,6 +138,8 @@ impl App {
                 rotation: None,
                 target_width: None,
                 target_height: None,
+                delete_cropped_pixels: delete_pixels,
+                fill_background,
             },
             true,
             cx,
@@ -116,6 +157,17 @@ impl App {
         }
         cx.notify();
         Ok(())
+    }
+
+    /// Crop-tool Cancel: discard the frame and its step history.
+    pub(crate) fn cancel_crop(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.crop_rect = None;
+            state.crop_history.clear();
+            state.crop_redo.clear();
+            state.selection_drag = None;
+        });
+        cx.notify();
     }
 
     /// Crop-tool Ctrl+Z: restore the previous frame, keeping a redo step.
@@ -263,5 +315,330 @@ impl App {
             state.crop_rect = Some(next);
         });
         cx.notify();
+    }
+}
+
+impl App {
+    /// Crop bar ratio trigger: the list expands inline, like the language list
+    /// (a deferred popup inside a canvas overlay never receives hits).
+    pub(crate) fn toggle_crop_ratio(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.crop_ratio_open = !state.crop_ratio_open;
+        });
+        cx.notify();
+    }
+
+    /// `handleFreeClick`: the frame stops following a ratio; its rect stays.
+    pub(crate) fn crop_choose_free(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.crop_mode = crate::crop_aspect::CropMode::Free;
+            state.crop_aspect = None;
+            state.crop_ratio_open = false;
+        });
+        cx.notify();
+    }
+
+    /// A preset, a recent, or `Lock Current Shape`: refit the pending frame to
+    /// this aspect inside the document and remember it in the recents.
+    pub(crate) fn crop_choose_ratio(&mut self, aspect: (u32, u32), cx: &mut Context<Self>) {
+        if aspect.0 == 0 || aspect.1 == 0 {
+            return;
+        }
+        let fitted = self.active_document_size().ok().map(|(doc_w, doc_h)| {
+            crate::crop_aspect::fit_crop_rect_to_aspect(aspect, doc_w, doc_h, 0.0)
+        });
+        self.state.update(cx, |state, _| {
+            state.crop_mode = crate::crop_aspect::CropMode::Ratio;
+            state.crop_aspect = Some(aspect);
+            state.crop_ratio_open = false;
+            push_recent(&mut state.recent_crop_ratios, aspect);
+            if let Some(rect) = fitted {
+                if let Some(previous) = state.crop_rect.replace(rect) {
+                    state.crop_history.push(previous);
+                }
+                state.crop_redo.clear();
+            }
+        });
+        cx.notify();
+    }
+
+    /// `handleSizeModeClick`: the Size fields drive a pixel target.
+    pub(crate) fn crop_choose_size(&mut self, cx: &mut Context<Self>) {
+        let (target, unit) = {
+            let state = self.state.read(cx);
+            (
+                state.crop_size_target.unwrap_or((800, 600)),
+                state.crop_size_unit,
+            )
+        };
+        let fitted = self.active_document_size().ok().map(|(doc_w, doc_h)| {
+            crate::crop_aspect::fit_crop_rect_to_aspect(target, doc_w, doc_h, 0.0)
+        });
+        self.state.update(cx, |state, _| {
+            state.crop_mode = crate::crop_aspect::CropMode::Size;
+            state.crop_size_target = Some(target);
+            state.crop_size_w = format_unit(target.0, unit);
+            state.crop_size_h = format_unit(target.1, unit);
+            state.crop_ratio_open = false;
+            if let Some(rect) = fitted {
+                if let Some(previous) = state.crop_rect.replace(rect) {
+                    state.crop_history.push(previous);
+                }
+                state.crop_redo.clear();
+            }
+        });
+        cx.notify();
+    }
+
+    /// `onLockShape`: keep the pending frame's own proportions as a custom ratio.
+    pub(crate) fn crop_lock_shape(&mut self, cx: &mut Context<Self>) {
+        let (rect, mode) = {
+            let state = self.state.read(cx);
+            (state.crop_rect, state.crop_mode)
+        };
+        if mode != crate::crop_aspect::CropMode::Free {
+            return;
+        }
+        let Some(rect) = rect else { return };
+        let w = rect[2].round() as u32;
+        let h = rect[3].round() as u32;
+        if w == 0 || h == 0 {
+            return;
+        }
+        self.crop_choose_ratio((w, h), cx);
+    }
+
+    /// The Size units re-format the display buffers from the pixel target; the
+    /// pixel value stays authoritative (`unitConversion.ts`).
+    pub(crate) fn crop_set_size_unit(
+        &mut self,
+        unit: crate::crop_aspect::CropSizeUnit,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.update(cx, |state, _| {
+            state.crop_size_unit = unit;
+            if let Some((w, h)) = state.crop_size_target {
+                state.crop_size_w = format_unit(w, unit);
+                state.crop_size_h = format_unit(h, unit);
+            }
+        });
+        cx.notify();
+    }
+
+    /// Commit one Size field: `fromUnit` at 300 PPI, then refit the frame.
+    pub(crate) fn crop_set_size_value(&mut self, field: usize, text: &str, cx: &mut Context<Self>) {
+        let parsed: f64 = match text.trim().parse() {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        if !parsed.is_finite() || parsed <= 0.0 {
+            return;
+        }
+        let (unit, mut target) = {
+            let state = self.state.read(cx);
+            (
+                state.crop_size_unit,
+                state.crop_size_target.unwrap_or((800, 600)),
+            )
+        };
+        let px = unit.from_unit(parsed).round().max(1.0) as u32;
+        if field == 0 {
+            target.0 = px;
+        } else {
+            target.1 = px;
+        }
+        let fitted = self.active_document_size().ok().map(|(doc_w, doc_h)| {
+            crate::crop_aspect::fit_crop_rect_to_aspect(target, doc_w, doc_h, 0.0)
+        });
+        self.state.update(cx, |state, _| {
+            state.crop_size_target = Some(target);
+            state.crop_size_field = field.min(1);
+            if field == 0 {
+                state.crop_size_w = text.trim().to_string();
+            } else {
+                state.crop_size_h = text.trim().to_string();
+            }
+            if let Some(rect) = fitted {
+                if let Some(previous) = state.crop_rect.replace(rect) {
+                    state.crop_history.push(previous);
+                }
+                state.crop_redo.clear();
+            }
+        });
+        cx.notify();
+    }
+
+    /// `handleSwap` in Size mode: exchange the two target dimensions.
+    pub(crate) fn crop_swap_size(&mut self, cx: &mut Context<Self>) {
+        let (mut target, w_text, h_text) = {
+            let state = self.state.read(cx);
+            (
+                state.crop_size_target.unwrap_or((800, 600)),
+                state.crop_size_w.clone(),
+                state.crop_size_h.clone(),
+            )
+        };
+        target = (target.1, target.0);
+        let fitted = self.active_document_size().ok().map(|(doc_w, doc_h)| {
+            crate::crop_aspect::fit_crop_rect_to_aspect(target, doc_w, doc_h, 0.0)
+        });
+        self.state.update(cx, |state, _| {
+            state.crop_size_target = Some(target);
+            state.crop_size_w = h_text;
+            state.crop_size_h = w_text;
+            if let Some(rect) = fitted {
+                if let Some(previous) = state.crop_rect.replace(rect) {
+                    state.crop_history.push(previous);
+                }
+                state.crop_redo.clear();
+            }
+        });
+        cx.notify();
+    }
+}
+
+impl App {
+    /// Start editing one of the Size or Custom fields (click on the field).
+    pub(crate) fn crop_begin_edit(&mut self, field: usize, custom: bool, cx: &mut Context<Self>) {
+        // The source's EditableNumField selects its text on focus, so the first
+        // digit replaces the shown value; the buffer therefore starts empty.
+        let _ = (field, custom);
+        self.state.update(cx, |state, _| {
+            state.crop_edit = Some(String::new());
+            state.crop_edit_custom = custom;
+            state.crop_size_field = field.min(1);
+        });
+        cx.notify();
+    }
+
+    /// Keys while a Size/Custom buffer is open: digits, one decimal point for
+    /// physical units, Backspace, Enter to commit, Escape to cancel.
+    pub(crate) fn crop_edit_key(
+        &mut self,
+        event: &gpui_kit::KeyDownEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let key = event.keystroke.key.as_str();
+        let (unit, custom) = {
+            let state = self.state.read(cx);
+            (state.crop_size_unit, state.crop_edit_custom)
+        };
+        let Some(mut buffer) = self.state.read(cx).crop_edit.clone() else {
+            return false;
+        };
+        match key {
+            "enter" => {
+                self.state.update(cx, |state, _| state.crop_edit = None);
+                cx.notify();
+                true
+            }
+            "escape" => {
+                self.state.update(cx, |state, _| state.crop_edit = None);
+                cx.notify();
+                true
+            }
+            "backspace" => {
+                buffer.pop();
+                self.state
+                    .update(cx, |state, _| state.crop_edit = Some(buffer));
+                cx.notify();
+                true
+            }
+            "tab" => {
+                let next = 1 - self.state.read(cx).crop_size_field.min(1);
+                self.crop_begin_edit(next, custom, cx);
+                true
+            }
+            _ => {
+                let text = event
+                    .keystroke
+                    .key_char
+                    .clone()
+                    .unwrap_or_else(|| event.keystroke.key.clone());
+                let decimal = text == "." && (custom || unit.accepts_decimal());
+                if !text.chars().all(|c| c.is_ascii_digit()) && !decimal {
+                    return true;
+                }
+                if decimal && buffer.contains('.') {
+                    return true;
+                }
+                buffer.push_str(&text);
+                self.state
+                    .update(cx, |state, _| state.crop_edit = Some(buffer.clone()));
+                let field = self.state.read(cx).crop_size_field;
+                if custom {
+                    self.crop_set_custom_value(field, &buffer, cx);
+                } else {
+                    self.crop_set_size_value(field, &buffer, cx);
+                }
+                cx.notify();
+                true
+            }
+        }
+    }
+
+    /// Commit one Custom W/H value: it becomes the ratio and the frame refits.
+    pub(crate) fn crop_set_custom_value(
+        &mut self,
+        field: usize,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(value) = text.trim().parse::<u32>() else {
+            return;
+        };
+        if value == 0 {
+            return;
+        }
+        let current = self.state.read(cx).crop_aspect.unwrap_or((1, 1));
+        let aspect = if field == 0 {
+            (value, current.1)
+        } else {
+            (current.0, value)
+        };
+        self.crop_choose_ratio(aspect, cx);
+    }
+}
+
+impl App {
+    /// `Custom...` row: stay in Ratio mode and open the W:H field pair.
+    pub(crate) fn crop_choose_custom(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.crop_mode = crate::crop_aspect::CropMode::Ratio;
+            state.crop_aspect = state.crop_aspect.or(Some((1, 1)));
+            state.crop_ratio_open = false;
+            state.crop_edit = Some(
+                state
+                    .crop_aspect
+                    .map(|(w, _)| w.to_string())
+                    .unwrap_or_else(|| "1".to_string()),
+            );
+            state.crop_edit_custom = true;
+            state.crop_size_field = 0;
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_crop_unit(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.crop_unit_open = !state.crop_unit_open;
+        });
+        cx.notify();
+    }
+}
+
+/// `pushRecentRatio`: newest first, de-duplicated, at most three.
+fn push_recent(recents: &mut Vec<(u32, u32)>, aspect: (u32, u32)) {
+    recents.retain(|existing| *existing != aspect);
+    recents.insert(0, aspect);
+    recents.truncate(3);
+}
+
+fn format_unit(px: u32, unit: crate::crop_aspect::CropSizeUnit) -> String {
+    let value = unit.to_unit(f64::from(px));
+    if unit.accepts_decimal() {
+        format!("{value:.2}")
+    } else {
+        format!("{}", value.round() as i64)
     }
 }

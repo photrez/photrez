@@ -24,7 +24,8 @@ use gpui_kit::{
 use photrez_core::ptz::content::LayerType;
 
 use crate::render::canvas_bridge::{
-    thumbnail_image, Camera, CanvasImage, CanvasOverlay, CheckerCache, TransformFrame,
+    thumbnail_image, BrushCursor, Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine,
+    TransformFrame,
 };
 use crate::services;
 use crate::services::autosave::AutosaveStore;
@@ -40,31 +41,43 @@ use crate::state::{AppState, ToolId};
 use crate::views::workspace;
 
 mod autosave;
+pub(crate) mod brush_menu;
+mod color_picker;
 mod commands;
 mod crop;
+pub(crate) mod cross_doc;
 mod documents;
+pub(crate) use input::canvas_doc_coords_free;
 mod drop;
 mod edge_scroll;
 mod history;
 mod input;
+mod layer_marquee;
 mod layers;
 mod locale;
 #[cfg(feature = "input-measurement")]
 pub mod measurement;
+mod new_document;
+mod num_field;
 mod recents;
 mod rename;
 mod resize;
+mod select;
 mod selection;
+mod slider;
 mod text;
+mod toasts;
 pub(crate) mod tool_settings;
-mod transform_geometry;
+mod tooltips;
+pub(crate) mod transform_geometry;
 mod transform_move;
 mod viewport;
 
 pub(crate) use commands::PRINT_PAPERS;
 pub(crate) use history::{RedoDocument, UndoDocument};
 pub(crate) use layers::{
-    DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, StampVisibleAction,
+    DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, NewLayerAction,
+    SelectAllLayersAction, StampVisibleAction,
 };
 pub(crate) use selection::{
     CopySelectionAction, CutSelectionAction, DeselectAction, InvertSelectionAction,
@@ -105,6 +118,18 @@ pub(crate) struct ExportDocument;
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]
 pub(crate) struct CloseDocument;
+
+/// Open the New Document dialog. Bound to `ctrl-n`, the shortcut the File
+/// menu advertises for the same row.
+#[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
+#[action(namespace = photrez, no_json)]
+pub(crate) struct NewDocumentAction;
+
+/// View > Toggle Side Panels (`view.toggle-side-panels`), bound to
+/// Ctrl+Shift+P like the oracle's menu row.
+#[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
+#[action(namespace = photrez, no_json)]
+pub(crate) struct ToggleSidePanelsAction;
 
 /// A drag-resize produces a bounds change per pixel of movement; the geometry
 /// file is rewritten at most this often while that is happening. The settle
@@ -187,6 +212,16 @@ pub struct App {
     rename_focus: gpui_kit::FocusHandle,
     /// Focus target for the Resize Canvas prompt.
     resize_focus: gpui_kit::FocusHandle,
+    /// Focus target for the New Document dialog's form keys.
+    new_document_focus: gpui_kit::FocusHandle,
+    /// Focus target for the generic dialog chrome (Escape dismisses a dialog
+    /// that has no field of its own to focus).
+    pub(crate) dialog_focus: gpui_kit::FocusHandle,
+    /// A New Document dialog opened by a shortcut; the next render focuses it
+    /// because a window-global action has no `Window` to focus with.
+    pending_new_document_focus: bool,
+    /// Focus target for the colour picker's hex field and keys.
+    pub(crate) picker_focus: gpui_kit::FocusHandle,
     /// The display snapshot of the demo document, built once at startup
     /// through `photrez-core` (`services::document`). The seam only converts
     /// and paints it; document truth stays in core. `None` is defined
@@ -203,11 +238,24 @@ pub struct App {
     recent_files: Vec<PathBuf>,
     /// Paths from the current OS file drag, between Entered and Submit.
     dropped_paths: Vec<PathBuf>,
+    /// Window position of the current OS file drag, so a drop onto the canvas
+    /// can center the imported layers on the cursor.
+    dropped_position: Option<Point<Pixels>>,
     /// The live crop frame move/resize drag.
     crop_drag: Option<crop::CropDrag>,
+    /// The live Move-tool empty-canvas layer marquee.
+    move_marquee: Option<layer_marquee::MoveMarquee>,
     /// The live Move-tool transform drag.
     transform_drag: Option<transform_move::TransformDrag>,
+    /// The live Selection-tool rotation of the committed selection.
+    selection_rotation_drag: Option<input::SelectionRotationDrag>,
+    /// Selection transform mode (`selectionTool.ts` Ctrl+T): paints the eight
+    /// resize handles and the rotate pin, and arms the pin drag.
+    selection_edit_mode: bool,
     group_transform_drag: Option<transform_move::GroupTransformDrag>,
+    pending_transform_drag_update: Option<transform_move::TransformDragUpdate>,
+    transform_drag_frame_pending: bool,
+    transform_drag_frame_generation: u64,
     /// Active smart-guide lines while a transform snaps.
     snap_guides: Vec<(bool, f64)>,
     /// Last hovered canvas position (window coords) for crop cursors.
@@ -286,12 +334,20 @@ pub struct App {
     space_pressed: bool,
     /// The live space/middle-button pan drag.
     pan: Option<viewport::PanDrag>,
+    /// An option-bar slider drag is in flight.
+    slider_dragging: bool,
     #[cfg(feature = "input-measurement")]
     measurement: measurement::InputMeasurement,
     /// A non-brush pointer drag waiting for pointer-up.
     pending_gesture: Option<crate::input::PendingGesture>,
     /// Held for the window's lifetime: dropping a subscription cancels it.
     _window_watch: Vec<Subscription>,
+    /// Full-document composites performed for this window (G9 proof).
+    #[cfg(test)]
+    full_composites: Cell<usize>,
+    /// Accepted brush previews for this window (multi-layer proof).
+    #[cfg(test)]
+    preview_pushes: Cell<usize>,
     /// The 60 s auto-save loop; dropping the task cancels it.
     autosave_task: Option<gpui_kit::Task<()>>,
 }
@@ -322,6 +378,7 @@ impl App {
     fn canvas_overlay(&self, cx: &Context<Self>) -> CanvasOverlay {
         use photrez_core::ptz::content::SelectionShape as CoreSelectionShape;
         let mut overlay = CanvasOverlay::default();
+        let mut selection_inverted = false;
         if let Some(doc_id) = self.active_document.as_ref().map(|doc| doc.doc_id.clone()) {
             if let Some(selection) = self
                 .sessions
@@ -329,30 +386,150 @@ impl App {
                 .and_then(|session| session.loaded_document().content_snapshot())
                 .and_then(|content| content.selection.clone())
             {
-                overlay.selection = Some((
-                    selection.x,
-                    selection.y,
-                    selection.width,
-                    selection.height,
-                    matches!(selection.shape, Some(CoreSelectionShape::Ellipse)),
-                ));
+                overlay.selection = Some(crate::render::canvas_bridge::SelectionOverlay {
+                    x: selection.x,
+                    y: selection.y,
+                    w: selection.width,
+                    h: selection.height,
+                    ellipse: matches!(selection.shape, Some(CoreSelectionShape::Ellipse)),
+                    angle: selection.angle,
+                    edit_mode: false,
+                });
+                selection_inverted = selection.inverted.unwrap_or(false);
             }
         }
         let state = self.state.read(cx);
         if let Some(drag) = state.selection_drag {
-            overlay.selection = Some((
-                drag[0],
-                drag[1],
-                drag[2],
-                drag[3],
-                state.selection_shape == crate::state::SelectionShape::Ellipse,
-            ));
+            overlay.selection = Some(crate::render::canvas_bridge::SelectionOverlay {
+                x: drag[0],
+                y: drag[1],
+                w: drag[2],
+                h: drag[3],
+                ellipse: state.selection_shape == crate::state::SelectionShape::Ellipse,
+                angle: 0.0,
+                edit_mode: false,
+            });
+        }
+        if let Some(rotation) = self.selection_rotation_drag.as_ref() {
+            if let Some(selection) = overlay.selection.as_mut() {
+                selection.angle = rotation.preview_angle;
+            }
+        }
+        if let Some(selection) = overlay.selection.as_mut() {
+            selection.edit_mode = self.selection_edit_mode
+                && state.active_tool == crate::state::ToolId::Selection
+                && state.selection_drag.is_none()
+                && !selection_inverted;
+        }
+        // `cursorRotate.ts`: the rotate sprite follows the pointer angle about
+        // the selection centre while a pin drag rotates, and on the pin hover
+        // in edit mode.
+        if state.active_tool == crate::state::ToolId::Selection {
+            let mut sprite_point = None;
+            if self.selection_rotation_drag.is_some() {
+                sprite_point = self.hover_pos;
+            } else if overlay
+                .selection
+                .as_ref()
+                .is_some_and(|selection| selection.edit_mode)
+            {
+                if let (Some(position), Some(doc_size)) = (
+                    self.hover_pos,
+                    self.active_document
+                        .as_ref()
+                        .map(|document| document.canvas.dimensions()),
+                ) {
+                    if let Some(selection) = overlay.selection.as_ref() {
+                        let zoom = self
+                            .effective_camera()
+                            .map(|camera| camera.zoom as f64)
+                            .unwrap_or(1.0);
+                        let (top_mid, normal) = crate::app::transform_geometry::selection_pin(
+                            selection.x,
+                            selection.y,
+                            selection.w,
+                            selection.h,
+                            selection.angle,
+                        );
+                        let pin = (
+                            top_mid.x + normal.x * 24.0 / zoom,
+                            top_mid.y + normal.y * 24.0 / zoom,
+                        );
+                        if let Some((x, y)) = crate::app::input::canvas_doc_coords(
+                            position,
+                            &self.canvas_bounds,
+                            doc_size,
+                            self.active_camera(),
+                        ) {
+                            let distance =
+                                ((x - pin.0).powi(2) + (y - pin.1).powi(2)).sqrt() * zoom;
+                            if distance < 12.0 {
+                                sprite_point = Some(position);
+                            }
+                        }
+                    }
+                }
+            }
+            if let (Some(position), Some(selection)) = (sprite_point, overlay.selection.as_ref()) {
+                if let Some(doc_size) = self
+                    .active_document
+                    .as_ref()
+                    .map(|document| document.canvas.dimensions())
+                {
+                    if let Some((x, y)) = crate::app::input::canvas_doc_coords(
+                        position,
+                        &self.canvas_bounds,
+                        doc_size,
+                        self.active_camera(),
+                    ) {
+                        let centre = crate::app::transform_geometry::Point {
+                            x: selection.x + selection.w / 2.0,
+                            y: selection.y + selection.h / 2.0,
+                        };
+                        let angle = crate::app::transform_geometry::angle_about(
+                            centre,
+                            crate::app::transform_geometry::Point { x, y },
+                        ) + 45.0;
+                        overlay.rotate_cursor =
+                            Some(crate::render::canvas_bridge::RotateCursorOverlay {
+                                position: [f32::from(position.x), f32::from(position.y)],
+                                angle: angle as f32,
+                            });
+                    }
+                }
+            }
         }
         if let Some(crop) = state.crop_rect {
             overlay.crop = Some((crop[0], crop[1], crop[2], crop[3]));
         }
         overlay.guides = self.snap_guides.clone();
-        if state.active_tool == crate::state::ToolId::Move {
+        if let Some(pending) = self
+            .pending_gesture
+            .as_ref()
+            .filter(|gesture| gesture.tool == crate::state::ToolId::Gradient)
+        {
+            overlay.gradient_line = Some(GradientLine {
+                start: [pending.start.0, pending.start.1],
+                end: [pending.last.0, pending.last.1],
+                radial: state.gradient_radial,
+            });
+        }
+        overlay.move_marquee = self
+            .move_marquee
+            .as_ref()
+            .and_then(|marquee| marquee.rect());
+        // A cleared selection keeps row 0 as the native primary; it must not
+        // paint a transform frame for a layer the user no longer selected.
+        // `CanvasViewport.tsx:1083` paints the frame for the Shape tool too, so
+        // a shape drawn and auto-selected keeps its handles until the tool
+        // changes; the frame bounds come from `layer_frame_size`, which reads
+        // the shape rectangle rather than the document-sized bitmap.
+        if matches!(
+            state.active_tool,
+            crate::state::ToolId::Move | crate::state::ToolId::Shape
+        ) && state.selected_layers.contains(&state.selected_layer)
+        {
+            overlay.transform_controls = state.show_transform_controls;
             if state.selected_layers.len() > 1 {
                 if let Some(frame) = self.group_overlay_frame(cx) {
                     overlay.transform = Some(frame);
@@ -364,11 +541,9 @@ impl App {
                     .filter(|drag| drag.layer_id == layer.id)
                     .map(|drag| drag.preview.clone())
                     .unwrap_or_else(|| layer.transform.clone());
-                let corners = crate::app::transform_geometry::layer_corners(
-                    &transform,
-                    layer.width,
-                    layer.height,
-                );
+                let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+                let corners =
+                    crate::app::transform_geometry::layer_corners(&transform, frame_w, frame_h);
                 let mid = |a: crate::app::transform_geometry::Point,
                            b: crate::app::transform_geometry::Point| {
                     crate::app::transform_geometry::Point {
@@ -392,8 +567,159 @@ impl App {
                 });
             }
         }
+        // `HoverHighlight.tsx`: a non-active layer under the Move pointer gets a
+        // 1 px accent outline. No drag, marquee or transform session may own the
+        // pointer while it paints.
+        if state.active_tool == crate::state::ToolId::Move
+            && self.pending_gesture.is_none()
+            && self.transform_drag.is_none()
+            && self.move_marquee.is_none()
+        {
+            if let (Some(position), Some(_)) = (self.hover_pos, self.canvas_bounds.get()) {
+                let doc_size = self
+                    .active_document
+                    .as_ref()
+                    .map(|document| document.canvas.dimensions())
+                    .or_else(|| self.demo_canvas.as_ref().map(CanvasImage::dimensions));
+                if let Some(doc_size) = doc_size {
+                    if let Some((x, y)) = crate::app::input::canvas_doc_coords(
+                        position,
+                        &self.canvas_bounds,
+                        doc_size,
+                        self.active_camera(),
+                    ) {
+                        if let Some(core_id) = self.layer_hit_at(x, y) {
+                            let active_core = state
+                                .layers
+                                .iter()
+                                .find(|row| row.id == state.selected_layer)
+                                .and_then(|row| row.core_id.as_deref());
+                            if active_core != Some(core_id.as_str()) {
+                                if let Some(doc_id) = self
+                                    .active_document
+                                    .as_ref()
+                                    .map(|document| document.doc_id.clone())
+                                {
+                                    overlay.hover_highlight = self
+                                        .sessions
+                                        .get(&doc_id)
+                                        .and_then(|session| {
+                                            session.loaded_document().content_snapshot()
+                                        })
+                                        .and_then(|content| {
+                                            content
+                                                .layers
+                                                .iter()
+                                                .find(|layer| layer.id == core_id)
+                                                .map(|layer| {
+                                                    (
+                                                        layer.transform.x,
+                                                        layer.transform.y,
+                                                        layer.width * layer.transform.scale_x.abs(),
+                                                        layer.height
+                                                            * layer.transform.scale_y.abs(),
+                                                    )
+                                                })
+                                        });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // `BrushCursorOverlay.tsx`: brush/eraser hide the system cursor and
+        // paint the 20% alpha ring at the pointer. Alt/space take over the
+        // pointer for sampling and panning, and the oracle hides the ring then.
+        if matches!(
+            state.active_tool,
+            crate::state::ToolId::Brush | crate::state::ToolId::Eraser
+        ) && self.pan.is_none()
+            && !self.space_pressed
+        {
+            if let (Some(position), Some(bounds)) = (self.hover_pos, self.canvas_bounds.get()) {
+                let px_x: f32 = position.x.into();
+                let px_y: f32 = position.y.into();
+                let origin_x = f32::from(bounds.origin.x);
+                let origin_y = f32::from(bounds.origin.y);
+                let width: f32 = bounds.size.width.into();
+                let height: f32 = bounds.size.height.into();
+                let inside = px_x >= origin_x
+                    && px_y >= origin_y
+                    && px_x < origin_x + width
+                    && px_y < origin_y + height;
+                if inside {
+                    let doc_size = self
+                        .active_document
+                        .as_ref()
+                        .map(|document| document.canvas.dimensions())
+                        .or_else(|| self.demo_canvas.as_ref().map(CanvasImage::dimensions));
+                    if let Some(doc_size) = doc_size {
+                        if let Some(center) = crate::app::input::canvas_doc_position(
+                            position,
+                            &self.canvas_bounds,
+                            doc_size,
+                            self.active_camera(),
+                        ) {
+                            let is_eraser = state.active_tool == crate::state::ToolId::Eraser;
+                            let (size, hardness) = if is_eraser {
+                                (state.eraser_size, state.eraser_hardness)
+                            } else {
+                                (state.brush_size, state.brush_hardness)
+                            };
+                            let scale =
+                                photrez_core::brush::tip::get_brush_cursor_radius_scale(hardness);
+                            let base = (size / 2.0) * scale;
+                            let (scale_x, scale_y, rotation) = self
+                                .selected_layer_for_cursor(cx)
+                                .map(|(_, layer)| {
+                                    (
+                                        layer.transform.scale_x,
+                                        layer.transform.scale_y,
+                                        layer.transform.rotation,
+                                    )
+                                })
+                                .unwrap_or((1.0, 1.0, 0.0));
+                            overlay.brush_cursor = Some(BrushCursor {
+                                center: [center.0, center.1],
+                                radii: [base * scale_x.abs(), base * scale_y.abs()],
+                                rotation,
+                                crosshair: !is_eraser,
+                            });
+                        }
+                    }
+                }
+            }
+        }
         overlay
     }
+    #[cfg(test)]
+    pub(crate) fn hover_highlight_for_test(
+        &self,
+        cx: &Context<Self>,
+    ) -> Option<(f64, f64, f64, f64)> {
+        self.canvas_overlay(cx).hover_highlight
+    }
+    #[cfg(test)]
+    pub(crate) fn rotate_cursor_for_test(
+        &self,
+        cx: &Context<Self>,
+    ) -> Option<crate::render::canvas_bridge::RotateCursorOverlay> {
+        self.canvas_overlay(cx).rotate_cursor
+    }
+    #[cfg(test)]
+    pub(crate) fn brush_cursor_for_test(&self, cx: &Context<Self>) -> Option<BrushCursor> {
+        self.canvas_overlay(cx).brush_cursor
+    }
+    #[cfg(test)]
+    pub(crate) fn gradient_line_for_test(&self, cx: &Context<Self>) -> Option<GradientLine> {
+        self.canvas_overlay(cx).gradient_line
+    }
+    #[cfg(test)]
+    pub(crate) fn transform_frame_for_test(&self, cx: &Context<Self>) -> Option<TransformFrame> {
+        self.canvas_overlay(cx).transform
+    }
+
     /// Creates a new `App`, seeding `AppState` from the active shot id,
     /// building the demo document's display snapshot through core, and
     /// subscribing to the window geometry it will persist.
@@ -424,7 +750,15 @@ impl App {
         file_io: Option<Arc<dyn FileIo>>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let state = AppState::seeded(crate::shot::active());
+        let shot_id = crate::shot::active();
+        let mut state = AppState::seeded(shot_id);
+        // A `--shot` launch seeds the demo document without a session, so the
+        // tab strip's projection from real sessions would be empty while the
+        // document is on screen. The captured shell has one open document, so
+        // seed its display-only tab row to match.
+        if shot_id.is_some() {
+            state.seed_shot_tab();
+        }
         // The demo document display snapshot belongs to the demo state: an
         // empty-* launch renders no document, so its chrome (navigator
         // thumbnail, canvas area, status-bar stats) must not show one.
@@ -444,6 +778,8 @@ impl App {
         };
 
         cx.bind_keys([
+            KeyBinding::new("ctrl-n", NewDocumentAction, None),
+            KeyBinding::new("ctrl-shift-p", ToggleSidePanelsAction, None),
             KeyBinding::new("ctrl-s", SaveDocument, None),
             KeyBinding::new("ctrl-shift-s", SaveDocumentAs, None),
             KeyBinding::new("ctrl-o", OpenDocument, None),
@@ -489,6 +825,7 @@ impl App {
             KeyBinding::new("ctrl-=", viewport::ZoomInAction, Some("Canvas")),
             KeyBinding::new("ctrl-shift-=", viewport::ZoomInAction, Some("Canvas")),
             KeyBinding::new("ctrl--", viewport::ZoomOutAction, Some("Canvas")),
+            KeyBinding::new("ctrl-shift--", viewport::ZoomOutAction, Some("Canvas")),
             KeyBinding::new("enter", crop::ApplyCropAction, Some("Canvas")),
             KeyBinding::new("left", crop::NudgeCropLeft, Some("Canvas")),
             KeyBinding::new("right", crop::NudgeCropRight, Some("Canvas")),
@@ -499,6 +836,14 @@ impl App {
             KeyBinding::new("shift-up", crop::NudgeCropUpLarge, Some("Canvas")),
             KeyBinding::new("shift-down", crop::NudgeCropDownLarge, Some("Canvas")),
             KeyBinding::new("ctrl-j", layers::DuplicateLayerAction, Some("Canvas")),
+            KeyBinding::new("ctrl-shift-n", NewLayerAction, Some("Canvas")),
+            KeyBinding::new("ctrl-alt-a", SelectAllLayersAction, Some("Canvas")),
+            KeyBinding::new("ctrl-shift-alt-e", StampVisibleAction, Some("Canvas")),
+            KeyBinding::new(
+                "ctrl-shift-;",
+                tool_settings::ToggleSnapAction,
+                Some("Canvas"),
+            ),
             KeyBinding::new("ctrl-e", layers::MergeLayerDownAction, Some("Canvas")),
             KeyBinding::new(
                 "ctrl-shift-e",
@@ -507,6 +852,11 @@ impl App {
             ),
             KeyBinding::new("ctrl-a", selection::SelectAllAction, Some("Canvas")),
             KeyBinding::new("ctrl-d", selection::DeselectAction, Some("Canvas")),
+            KeyBinding::new(
+                "ctrl-t",
+                selection::ToggleSelectionEditModeAction,
+                Some("Canvas"),
+            ),
             KeyBinding::new(
                 "ctrl-shift-i",
                 selection::InvertSelectionAction,
@@ -566,11 +916,28 @@ impl App {
                 .unwrap_or(true)
         });
 
+        let field_focus = cx.focus_handle();
+        let slider_focus = cx.focus_handle();
+        let move_snap_focus = cx.focus_handle().tab_stop(true);
+        let move_auto_select_focus = cx.focus_handle().tab_stop(true);
+        let move_transform_focus = cx.focus_handle().tab_stop(true);
         let mut app = Self {
-            state: cx.new(|_| state),
+            state: cx.new(|_| {
+                let mut state = state;
+                state.num_field_focus = Some(field_focus);
+                state.slider_focus = Some(slider_focus);
+                state.move_snap_focus = Some(move_snap_focus);
+                state.move_auto_select_focus = Some(move_auto_select_focus);
+                state.move_transform_focus = Some(move_transform_focus);
+                state
+            }),
             canvas_focus_handle: cx.focus_handle().tab_stop(true),
             rename_focus: cx.focus_handle(),
             resize_focus: cx.focus_handle(),
+            new_document_focus: cx.focus_handle(),
+            dialog_focus: cx.focus_handle(),
+            pending_new_document_focus: false,
+            picker_focus: cx.focus_handle(),
             demo_canvas,
             active_document: None,
             document_tabs: Vec::new(),
@@ -578,9 +945,16 @@ impl App {
             layer_thumbs: Vec::new(),
             recent_files: Vec::new(),
             dropped_paths: Vec::new(),
+            dropped_position: None,
             crop_drag: None,
+            move_marquee: None,
             transform_drag: None,
+            selection_rotation_drag: None,
+            selection_edit_mode: false,
             group_transform_drag: None,
+            pending_transform_drag_update: None,
+            transform_drag_frame_pending: false,
+            transform_drag_frame_generation: 0,
             snap_guides: Vec::new(),
             hover_pos: None,
             last_cursor: crate::input::CursorPolicy::SystemDefault,
@@ -615,10 +989,15 @@ impl App {
             navigator_bounds: Rc::new(Cell::new(None)),
             space_pressed: false,
             pan: None,
+            slider_dragging: false,
             #[cfg(feature = "input-measurement")]
             measurement: measurement::InputMeasurement::default(),
             pending_gesture: None,
             _window_watch: window_watch,
+            #[cfg(test)]
+            full_composites: Cell::new(0),
+            #[cfg(test)]
+            preview_pushes: Cell::new(0),
             autosave_task: None,
         };
         #[cfg(feature = "input-measurement")]
@@ -634,6 +1013,8 @@ impl App {
         // The shortcuts are window-global: they must fire wherever focus sits,
         // so they are registered on the app rather than on a focusable element.
         register_global_action::<SaveDocument>(cx, App::save_document_action);
+        register_global_action::<NewDocumentAction>(cx, App::new_document_action);
+        register_global_action::<ToggleSidePanelsAction>(cx, App::toggle_side_panels_action);
         register_global_action::<SaveDocumentAs>(cx, App::save_document_as_action);
         register_global_action::<OpenDocument>(cx, App::open_document_action);
         register_global_action::<ExportDocument>(cx, App::export_document_action);
@@ -675,11 +1056,19 @@ impl App {
         register_global_action::<crop::NudgeCropUpLarge>(cx, App::nudge_crop_up_large);
         register_global_action::<crop::NudgeCropDownLarge>(cx, App::nudge_crop_down_large);
         register_global_action::<layers::DuplicateLayerAction>(cx, App::duplicate_layer_action);
+        register_global_action::<layers::NewLayerAction>(cx, App::new_layer_action);
+        register_global_action::<layers::SelectAllLayersAction>(cx, App::select_all_layers_action);
+        register_global_action::<layers::StampVisibleAction>(cx, App::stamp_visible_action);
+        register_global_action::<tool_settings::ToggleSnapAction>(cx, App::toggle_snap_action);
         register_global_action::<layers::MergeLayerDownAction>(cx, App::merge_layer_down_action);
         register_global_action::<layers::FlattenDocumentAction>(cx, App::flatten_document_action);
         register_global_action::<layers::StampVisibleAction>(cx, App::stamp_visible_action);
         register_global_action::<selection::SelectAllAction>(cx, App::select_all_action);
         register_global_action::<selection::DeselectAction>(cx, App::deselect_action);
+        register_global_action::<selection::ToggleSelectionEditModeAction>(
+            cx,
+            App::toggle_selection_edit_mode_action,
+        );
         register_global_action::<selection::InvertSelectionAction>(
             cx,
             App::invert_selection_action,
@@ -699,6 +1088,9 @@ impl App {
             if let Err(error) = result {
                 eprintln!("photrez: startup document was not opened: {error}");
             }
+        }
+        if shot_id.is_some() && app.state.read(cx).has_document && app.active_document.is_none() {
+            app.install_shot_document(cx);
         }
         app
     }
@@ -982,6 +1374,11 @@ impl App {
                 .map(|layer| crate::state::LayerFlags {
                     visible: layer.visible,
                     locked: layer.locked,
+                    has_adjustments: layer.has_adjustments.unwrap_or(false),
+                    lock_transparency: layer.lock_transparency.unwrap_or(false),
+                    lock_position: layer.lock_position.unwrap_or(false),
+                    lock_rotation: layer.lock_rotation.unwrap_or(false),
+                    is_background: layer.is_background.unwrap_or(false),
                 })
                 .collect();
             let selected_core_for_props = selected_core.clone();
@@ -1026,11 +1423,9 @@ impl App {
                     let Some(layer) = layers.iter().find(|layer| layer.id == core_id) else {
                         continue;
                     };
-                    let (x, y, w, h) = self::transform_geometry::layer_aabb(
-                        &layer.transform,
-                        layer.width,
-                        layer.height,
-                    );
+                    let (frame_w, frame_h) = self::transform_geometry::layer_frame_size(layer);
+                    let (x, y, w, h) =
+                        self::transform_geometry::layer_aabb(&layer.transform, frame_w, frame_h);
                     bounds = Some(match bounds {
                         None => (x, y, w, h),
                         Some((bx, by, bw, bh)) => {
@@ -1057,6 +1452,10 @@ impl App {
                 state.adjustment_brightness = adjustment.brightness;
                 state.adjustment_contrast = adjustment.contrast;
                 state.adjustment_saturation = adjustment.saturation;
+                state.active_layer_name = layer.name.clone();
+                state.active_layer_width = layer.width.round() as u32;
+                state.active_layer_height = layer.height.round() as u32;
+                state.active_layer_has_pixels = layer.resource_id.is_some();
                 state.selected_layer_type = Some(
                     match layer.layer_type {
                         LayerType::Raster => "raster",
@@ -1066,6 +1465,11 @@ impl App {
                     }
                     .to_string(),
                 );
+                state.selected_text_color = layer
+                    .text_data
+                    .as_ref()
+                    .and_then(|data| crate::palette::parse_hex(&data.color));
+                state.selected_shape = layer.shape_params.clone();
                 if let Some(data) = layer.text_data.as_ref() {
                     state.selected_text_font_size = data.font_size;
                     state.selected_text_line_height = data.line_height;
@@ -1086,6 +1490,16 @@ impl App {
                             crate::state::TextAlignTool::Right
                         }
                     };
+                    state.selected_text_underline = data.underline.unwrap_or(false);
+                    state.selected_text_strikethrough = data.strikethrough.unwrap_or(false);
+                    state.selected_text_uppercase = data.uppercase.unwrap_or(false);
+                    state.selected_text_stroke_width = data.stroke.width;
+                    state.selected_text_stroke_align = data
+                        .stroke
+                        .align
+                        .unwrap_or(photrez_core::ptz::layer_params::TextStrokeAlign::Outside);
+                    state.selected_text_stroke_color =
+                        crate::palette::parse_hex(&data.stroke.color);
                 }
             }
         });
@@ -1140,8 +1554,9 @@ impl App {
                 .find(|(preview_id, _)| preview_id == id)
                 .map(|(_, transform)| transform.clone())
                 .unwrap_or_else(|| layer.transform.clone());
+            let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(layer);
             let (x, y, w, h) =
-                crate::app::transform_geometry::layer_aabb(&transform, layer.width, layer.height);
+                crate::app::transform_geometry::layer_aabb(&transform, frame_w, frame_h);
             min_x = min_x.min(x);
             min_y = min_y.min(y);
             max_x = max_x.max(x + w);
@@ -1300,6 +1715,9 @@ impl Render for App {
         // The geometry is sampled here because this is the only place the root
         // is handed a live window every frame.
         self.remember_bounds(window);
+        if std::mem::take(&mut self.pending_new_document_focus) {
+            window.focus(&self.new_document_focus, cx);
+        }
         for texture in self.retired_textures.drain(..) {
             let _ = window.drop_image(texture);
         }
@@ -1307,11 +1725,27 @@ impl Render for App {
         let cursor = self.canvas_cursor_policy(cx);
         let camera = self.active_camera();
         let overlay = self.canvas_overlay(cx);
+        let has_pixel_selection = self.pixel_selection_present();
+        let has_copyable_selection = has_pixel_selection && self.active_layer_has_bitmap(cx);
+        let has_selection_clipboard = self.selection_clipboard_present();
+        let can_undo = self.can_undo_document(cx);
+        let can_redo = self.can_redo_document(cx);
+        let committed_selection = self.committed_selection();
+        // The demo canvas paints only while a document is on screen; after
+        // the last tab closes the workspace is empty, so no canvas may leak
+        // into the navigator, status bar or canvas slot.
+        let has_document = self.state.read(cx).has_document;
         let canvas = self
             .active_document
             .as_ref()
             .map(|document| &document.canvas)
-            .or(self.demo_canvas.as_ref());
+            .or_else(|| {
+                if has_document {
+                    self.demo_canvas.as_ref()
+                } else {
+                    None
+                }
+            });
         workspace::render(
             &self.state,
             window,
@@ -1325,8 +1759,17 @@ impl Render for App {
             &self.canvas_focus_handle,
             &self.rename_focus,
             &self.resize_focus,
+            &self.new_document_focus,
+            &self.dialog_focus,
+            &self.picker_focus,
             Rc::clone(&self.canvas_capture),
             cursor,
+            has_pixel_selection,
+            has_copyable_selection,
+            has_selection_clipboard,
+            can_undo,
+            can_redo,
+            committed_selection,
             cx,
         )
     }

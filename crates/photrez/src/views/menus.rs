@@ -167,7 +167,11 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
             "menu-file-popup",
             file_menu(Some(HOVER_ROW_FILL), state, cx),
         ),
-        "menu-edit" => positioned(X_EDIT, "menu-edit-popup", edit_menu(state, cx)),
+        "menu-edit" => positioned(
+            X_EDIT,
+            "menu-edit-popup",
+            edit_menu(state, true, true, true, true, true, cx),
+        ),
         "menu-image" => positioned(X_IMAGE, "menu-image-popup", image_menu(state, cx)),
         "menu-layer" => positioned(X_LAYER, "menu-layer-popup", layer_menu(state, cx)),
         "menu-view" => positioned(X_VIEW, "menu-view-popup", view_menu(state, cx)),
@@ -215,11 +219,28 @@ fn positioned(x: f32, id: &'static str, menu: Div) -> impl IntoElement {
 pub fn render_open(
     state: &Entity<AppState>,
     menu: MenuId,
+    has_selection: bool,
+    has_copyable_selection: bool,
+    has_clipboard: bool,
+    can_undo: bool,
+    can_redo: bool,
     cx: &gpui_kit::Context<crate::app::App>,
 ) -> impl IntoElement {
     let (x, id, popup) = match menu {
         MenuId::File => (X_FILE, "menu-file-popup", file_menu(None, state, cx)),
-        MenuId::Edit => (X_EDIT, "menu-edit-popup", edit_menu(state, cx)),
+        MenuId::Edit => (
+            X_EDIT,
+            "menu-edit-popup",
+            edit_menu(
+                state,
+                has_selection,
+                has_copyable_selection,
+                has_clipboard,
+                can_undo,
+                can_redo,
+                cx,
+            ),
+        ),
         MenuId::Image => (X_IMAGE, "menu-image-popup", image_menu(state, cx)),
         MenuId::Layer => (X_LAYER, "menu-layer-popup", layer_menu(state, cx)),
         MenuId::View => (X_VIEW, "menu-view-popup", view_menu(state, cx)),
@@ -415,12 +436,26 @@ fn command_row(
     cx: &Context<crate::app::App>,
     run: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) + 'static,
 ) -> gpui_kit::AnyElement {
+    command_row_enabled(state, label, shortcut, id, true, cx, run)
+}
+
+/// [`command_row`] with the reference's disabled state: dimmed (`opacity-35`)
+/// and inert, but still painted with its id.
+fn command_row_enabled(
+    state: &Entity<AppState>,
+    label: &str,
+    shortcut: Option<&str>,
+    id: &'static str,
+    enabled: bool,
+    cx: &Context<crate::app::App>,
+    run: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) + 'static,
+) -> gpui_kit::AnyElement {
     let state = state.clone();
-    ui::menu_row_action(
-        label,
-        shortcut,
-        id,
-        cx.listener(
+    let row = ui::menu_row(label, shortcut, !enabled, None)
+        .id(id)
+        .test_support();
+    if enabled {
+        row.on_click(cx.listener(
             move |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
                 state.update(cx, |state, _| {
                     state.open_menu = None;
@@ -428,55 +463,77 @@ fn command_row(
                 });
                 run(app, cx);
             },
-        ),
-    )
-    .into_any_element()
+        ))
+        .into_any_element()
+    } else {
+        // A disabled row is inert but still part of the menu: the press must
+        // not bubble to the overlay's click-away (`disabled:pointer-events-none`).
+        row.on_click(cx.listener(
+            |_, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                cx.stop_propagation();
+            },
+        ))
+        .into_any_element()
+    }
 }
 
-fn edit_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
+fn edit_menu(
+    state: &Entity<AppState>,
+    has_selection: bool,
+    has_copyable_selection: bool,
+    has_clipboard: bool,
+    can_undo: bool,
+    can_redo: bool,
+    cx: &Context<crate::app::App>,
+) -> Div {
     use crate::app::{
         CopySelectionAction, CutSelectionAction, DeselectAction, InvertSelectionAction,
         PasteSelectionAction, RedoDocument, SelectAllAction, UndoDocument,
     };
     menu_shell(menu_entries(vec![
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.undo"),
             Some("Ctrl+Z"),
             "menu-edit-undo",
+            can_undo,
             cx,
             |app, cx| app.undo_document_action(&UndoDocument, cx),
         ),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.redo"),
             Some("Ctrl+Shift+Z"),
             "menu-edit-redo",
+            can_redo,
             cx,
             |app, cx| app.redo_document_action(&RedoDocument, cx),
         ),
         ui::menu_separator().into_any_element(),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.cut"),
             Some("Ctrl+X"),
             "menu-edit-cut",
+            has_copyable_selection,
             cx,
             |app, cx| app.cut_selection_action(&CutSelectionAction, cx),
         ),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.copy"),
             Some("Ctrl+C"),
             "menu-edit-copy",
+            has_copyable_selection,
             cx,
             |app, cx| app.copy_selection_action(&CopySelectionAction, cx),
         ),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.paste"),
             Some("Ctrl+V"),
             "menu-edit-paste",
+            has_clipboard,
             cx,
             |app, cx| app.paste_selection_action(&PasteSelectionAction, cx),
         ),
@@ -489,11 +546,12 @@ fn edit_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
             cx,
             |app, cx| app.select_all_action(&SelectAllAction, cx),
         ),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.deselect"),
             Some("Ctrl+D"),
             "menu-edit-deselect",
+            has_selection,
             cx,
             |app, cx| app.deselect_action(&DeselectAction, cx),
         ),
@@ -647,13 +705,16 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ui::menu_row(&t("menus.items.snapToLayers"), None, false, None).into_any_element(),
         ui::menu_row(&t("menus.items.snapToCanvas"), None, false, None).into_any_element(),
         ui::menu_separator().into_any_element(),
-        ui::menu_row(
+        command_row(
+            state,
             &t("menus.items.toggleSidePanels"),
             Some("Ctrl+Shift+P"),
-            false,
-            None,
-        )
-        .into_any_element(),
+            "menu-view-side-panels",
+            cx,
+            |app, cx| {
+                app.toggle_side_panels_action(&crate::app::ToggleSidePanelsAction, cx);
+            },
+        ),
         ui::menu_row(&t("menus.items.useStackedSideDock"), None, false, None).into_any_element(),
     ]))
 }
@@ -715,11 +776,14 @@ fn dialog_row(
     cx: &Context<crate::app::App>,
 ) -> gpui_kit::AnyElement {
     let state = state.clone();
-    let listener = cx.listener(move |_, _, _, cx: &mut Context<crate::app::App>| {
+    let listener = cx.listener(move |app, _, window, cx: &mut Context<crate::app::App>| {
         state.update(cx, |state, _| {
             state.open_menu = None;
             state.active_dialog = Some(dialog);
         });
+        // The dialog chrome owns Escape; focus it as `DesktopDialog`'s
+        // managed focus does on mount.
+        window.focus(&app.dialog_focus, cx);
         cx.notify();
     });
     ui::menu_row_action(label, shortcut, id, listener).into_any_element()
@@ -730,52 +794,44 @@ fn dialog_row(
 pub fn render_context(
     state: &Entity<AppState>,
     position: (f32, f32),
+    has_selection: bool,
+    has_copyable_selection: bool,
+    has_clipboard: bool,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
+    use crate::app::{ActualSizeAction, FitToScreenAction, ZoomToSelectionAction};
     use crate::app::{
-        CopySelectionAction, CutSelectionAction, DeselectAction, DuplicateLayerAction,
-        InvertSelectionAction, PasteSelectionAction, SelectAllAction,
+        CopySelectionAction, CutSelectionAction, DeselectAction, InvertSelectionAction,
+        PasteSelectionAction, SelectAllAction,
     };
     let close_state = state.clone();
-    let popup = menu_shell(menu_entries(vec![
-        command_row(
-            state,
-            &t("menus.items.undo"),
-            Some("Ctrl+Z"),
-            "ctx-undo",
-            cx,
-            |app, cx| app.undo_document_action(&crate::app::UndoDocument, cx),
-        ),
-        command_row(
-            state,
-            &t("menus.items.redo"),
-            Some("Ctrl+Shift+Z"),
-            "ctx-redo",
-            cx,
-            |app, cx| app.redo_document_action(&crate::app::RedoDocument, cx),
-        ),
-        ui::menu_separator().into_any_element(),
-        command_row(
+    // The oracle's canvas menu is 210 px wide with the context-menu shadow;
+    // the menubar shell is 224 px, so the live menu uses the specimen shell.
+    let popup = crate::views::context_menus::shell(menu_entries(vec![
+        command_row_enabled(
             state,
             &t("menus.items.cut"),
             Some("Ctrl+X"),
             "ctx-cut",
+            has_copyable_selection,
             cx,
             |app, cx| app.cut_selection_action(&CutSelectionAction, cx),
         ),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.copy"),
             Some("Ctrl+C"),
             "ctx-copy",
+            has_copyable_selection,
             cx,
             |app, cx| app.copy_selection_action(&CopySelectionAction, cx),
         ),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.paste"),
             Some("Ctrl+V"),
             "ctx-paste",
+            has_clipboard,
             cx,
             |app, cx| app.paste_selection_action(&PasteSelectionAction, cx),
         ),
@@ -788,11 +844,12 @@ pub fn render_context(
             cx,
             |app, cx| app.select_all_action(&SelectAllAction, cx),
         ),
-        command_row(
+        command_row_enabled(
             state,
             &t("menus.items.deselect"),
             Some("Ctrl+D"),
             "ctx-deselect",
+            has_selection,
             cx,
             |app, cx| app.deselect_action(&DeselectAction, cx),
         ),
@@ -807,19 +864,28 @@ pub fn render_context(
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.duplicateLayer"),
-            Some("Ctrl+J"),
-            "ctx-duplicate",
+            &t("menus.items.actualSize"),
+            Some("Ctrl+1"),
+            "ctx-actual-size",
             cx,
-            |app, cx| app.duplicate_layer_action(&DuplicateLayerAction, cx),
+            |app, cx| app.actual_size_action(&ActualSizeAction, cx),
         ),
         command_row(
             state,
-            &t("menus.items.flattenImage"),
-            Some("Ctrl+Shift+E"),
-            "ctx-flatten",
+            &t("menus.items.fitCanvas"),
+            Some("Ctrl+0"),
+            "ctx-fit-canvas",
             cx,
-            |app, cx| app.flatten_document_action(&crate::app::FlattenDocumentAction, cx),
+            |app, cx| app.fit_to_screen_action(&FitToScreenAction, cx),
+        ),
+        command_row_enabled(
+            state,
+            &t("menus.items.zoomToSelection"),
+            Some("Ctrl+Alt+0"),
+            "ctx-zoom-selection",
+            has_selection,
+            cx,
+            |app, cx| app.zoom_to_selection_action(&ZoomToSelectionAction, cx),
         ),
     ]))
     .absolute()

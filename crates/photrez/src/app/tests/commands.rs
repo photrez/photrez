@@ -1,6 +1,123 @@
 use super::*;
 
 #[gpui_kit::test]
+fn ctrl_n_opens_the_new_document_dialog(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+
+        content.update(cx, |app, cx| {
+            assert_eq!(
+                app.state_for_test().read(cx).active_dialog,
+                Some(crate::state::DialogId::NewDocument),
+                "ctrl-n must open the dialog the File menu advertises"
+            );
+        });
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn menu_shortcut_bindings_drive_their_commands(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        crate::app::tests::input::tab_to_canvas(window, cx);
+        let (rows, selected, snap) = content.update(cx, |app, cx| {
+            let state = app.state_for_test().read(cx);
+            (
+                state.layers.len(),
+                state.selected_layers.len(),
+                state.snap_enabled,
+            )
+        });
+
+        window.press("ctrl-shift-n", cx);
+        window.render_frame(cx);
+        let after_new = content.update(cx, |app, cx| app.state_for_test().read(cx).layers.len());
+        assert_eq!(after_new, rows + 1, "Ctrl+Shift+N adds a layer");
+
+        window.press("ctrl-alt-a", cx);
+        window.render_frame(cx);
+        let after_select = content.update(cx, |app, cx| {
+            app.state_for_test().read(cx).selected_layers.len()
+        });
+        assert_eq!(after_select, after_new, "Ctrl+Alt+A selects every row");
+
+        window.press("ctrl-shift-;", cx);
+        window.render_frame(cx);
+        let after_snap = content.update(cx, |app, cx| app.state_for_test().read(cx).snap_enabled);
+        assert_eq!(after_snap, !snap, "Shift+Ctrl+; toggles snapping");
+
+        window.press("ctrl-shift-alt-e", cx);
+        window.render_frame(cx);
+        let after_stamp = content.update(cx, |app, cx| app.state_for_test().read(cx).layers.len());
+        assert_eq!(
+            after_stamp,
+            after_new + 1,
+            "Ctrl+Shift+Alt+E stamps visible"
+        );
+        assert!(selected >= 1, "the fixture starts with a selected row");
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn ctrl_shift_p_toggles_the_side_panels(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        assert!(
+            content.read(cx).state_for_test().read(cx).dock_open,
+            "the dock starts open"
+        );
+        window.press("ctrl-shift-p", cx);
+        window.render_frame(cx);
+        assert!(
+            !content.read(cx).state_for_test().read(cx).dock_open,
+            "Ctrl+Shift+P hides the side panels"
+        );
+        window.press("ctrl-shift-p", cx);
+        window.render_frame(cx);
+        assert!(
+            content.read(cx).state_for_test().read(cx).dock_open,
+            "Ctrl+Shift+P shows them again"
+        );
+
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.open_menu = Some(crate::state::MenuId::View);
+            });
+        });
+        window.render_frame(cx);
+        window.click("menu-view-side-panels", cx);
+        window.render_frame(cx);
+        assert!(
+            !content.read(cx).state_for_test().read(cx).dock_open,
+            "the View menu row toggles the panels"
+        );
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).open_menu,
+            None,
+            "the command closes the menu"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
 fn ctrl_s_rewrites_the_source_archive_and_clears_dirty(cx: &mut gpui_kit::TestAppContext) {
     use gpui_kit::test::TestWindowExt as _;
 
@@ -260,6 +377,26 @@ fn multi_layer_archive() -> Vec<u8> {
 /// Same two-layer project with the top layer optionally locked, for the
 /// selected-layer paint tests.
 pub(super) fn multi_layer_archive_with(top_locked: bool) -> Vec<u8> {
+    multi_layer_archive_layers(top_locked, false, false)
+}
+
+/// Same two-layer project with the top layer carrying a basic adjustment, for
+/// the layer row's adjustments indicator.
+pub(super) fn multi_layer_archive_with_adjusted_top() -> Vec<u8> {
+    multi_layer_archive_layers(false, true, false)
+}
+
+/// Same two-layer project with the bottom layer marked as the document's
+/// Background, for the row lock's background rule.
+pub(super) fn multi_layer_archive_with_background() -> Vec<u8> {
+    multi_layer_archive_layers(false, false, true)
+}
+
+fn multi_layer_archive_layers(
+    top_locked: bool,
+    top_adjusted: bool,
+    bottom_background: bool,
+) -> Vec<u8> {
     use std::io::Write as _;
 
     let png = |width: u32, height: u32, pixels: &[u8]| {
@@ -267,7 +404,7 @@ pub(super) fn multi_layer_archive_with(top_locked: bool) -> Vec<u8> {
             .expect("test PNG encodes")
     };
     let layer = |id: &str, width: u32, height: u32, locked: bool| {
-        serde_json::json!({
+        let mut layer = serde_json::json!({
             "id": id,
             "name": id,
             "type": "raster",
@@ -286,7 +423,14 @@ pub(super) fn multi_layer_archive_with(top_locked: bool) -> Vec<u8> {
             },
             "width": width,
             "height": height
-        })
+        });
+        if id == "top" && top_adjusted {
+            layer["hasAdjustments"] = serde_json::json!(true);
+        }
+        if id == "bottom" && bottom_background {
+            layer["isBackground"] = serde_json::json!(true);
+        }
+        layer
     };
     let metadata = serde_json::to_vec(&serde_json::json!({
         "format": "photrez-ptz",

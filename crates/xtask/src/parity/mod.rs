@@ -13,12 +13,14 @@
 //! capped at 40 per region.
 
 pub mod classify;
+pub mod coverage;
 pub mod crosscheck;
 pub mod csv;
 pub mod inventory;
 mod inventory_rules;
 pub mod manifest;
 pub mod measure;
+pub mod perceptual;
 pub mod pngio;
 pub mod rawdiff;
 pub mod run;

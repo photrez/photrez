@@ -12,6 +12,20 @@ use crate::wire::command::DocumentVersion;
 use crate::wire::history::{Origin, PayloadKind};
 use std::sync::Arc;
 
+/// One layer's pixel state change carried inside a metadata entry.
+///
+/// A destructive operation (crop with pixel baking) changes both layer
+/// metadata and pixels. The stream stores singleton entries only, so the pixel
+/// half is folded into the metadata entry itself: one command, one history
+/// step, one undo. `before` is the state the entry returns to on undo, `after`
+/// the state it moves to on redo.
+#[derive(Debug)]
+pub(crate) struct PixelDelta {
+    pub layer_id: String,
+    pub before: Arc<StateNode>,
+    pub after: Arc<StateNode>,
+}
+
 // `EntryPayload`/`HistoryEntry` intentionally do NOT derive Clone.
 // `Pixel` payloads hold `Arc<StateNode>` (sharing is via `Arc`, never a value
 // clone). They DO derive Debug (DocumentCore derives Debug, which requires it).
@@ -37,6 +51,12 @@ pub(crate) enum EntryPayload {
         // a special case.
         doc_size_before: Option<(f64, f64)>,
         doc_size_after: Option<(f64, f64)>,
+        // Pixel half of the same step, for destructive arms that bake pixels
+        // (Apply Crop with `delete_cropped_pixels`). Empty for every metadata-
+        // only arm, which keeps the existing behaviour byte-identical. Filled
+        // by `attach_pixel_deltas` right after the arm runs, because the pixel
+        // buffers live in `DocumentPixelStore`, not in the engine.
+        pixel_deltas: Vec<PixelDelta>,
     },
     /// TS (adapter) logical transition recorded as a host handoff. `token` is
     /// the opaque host payload reference. `before` is the engine's layer set as
