@@ -1,7 +1,8 @@
 # Automated releases for Photrez.
-# Triggered by pushing a version tag (e.g. v0.1.0, v1.2.3).
-# Builds native installers on all three platforms and attaches them to the
-# GitHub Release that is created from the tag.
+# Triggered by pushing a version tag (e.g. v0.2.0). Builds the native app on
+# all three platforms with plain `cargo build --release`, packages a per-OS
+# archive (LICENSE, NOTICE, THIRD_PARTY.md included), and attaches the
+# archives to the GitHub Release draft created from the tag.
 
 name: Release
 
@@ -13,96 +14,108 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   release:
-    name: Build & release (${{ matrix.os }})
+    name: Build & package (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             platform: windows
-            # MSI bundling requires a numeric-only product version; pre-release
-            # versions like 0.1.0-alpha.2 are rejected by the msi target. Ship
-            # NSIS only until the version is numeric (stable releases).
-            args: --bundles nsis
+            archive: Photrez-${{ github.ref_name }}-windows-x64.zip
           - os: macos-latest
             platform: macos
-            args: ""
+            archive: Photrez-${{ github.ref_name }}-macos-arm64.tar.gz
           - os: ubuntu-latest
             platform: linux
-            args: ""
+            archive: Photrez-${{ github.ref_name }}-linux-x64.tar.gz
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            librsvg2-dev libssl-dev libayatana-appindicator3-dev \
-            libcups2-dev patchelf xdg-utils
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.0"
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+          # GPUI's Linux stack: X11/wayland client libs, fontconfig, and the
+          # Vulkan loader (blade renders through Vulkan). The Tauri-era
+          # webkit2gtk/appindicator/cups packages are gone with the shell.
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libx11-dev libfontconfig1-dev libfreetype6-dev \
+            libvulkan-dev patchelf
 
       - name: Cache Rust build artifacts
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/src-tauri -> target
+          workspaces: . -> target
 
-      # NOTE 2026-10-17: this job packaged the v0.1.0 desktop app, whose
-      # bundled browser engine this tree no longer builds. Tag-triggered
-      # releases resume once the native build pipeline lands; until then this
-      # job cannot produce installers.
-      - name: Build & publish with tauri-action
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No TAURI_SIGNING_* secrets: this project ships installers without
-          # an auto-updater, so release artifacts are not signed for updates.
-        with:
-          projectPath: apps/desktop
-          args: ${{ matrix.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: "Photrez ${{ github.ref_name }}"
-          releaseBody: "See CHANGELOG.md for details."
-          releaseDraft: true
-          prerelease: false
+      - name: Build the app
+        run: cargo build --release -p photrez
 
-      # Smoke test: verify the build actually produced non-empty installers.
-      # tauri-action fails the job when the binary build fails, but an empty
-      # bundle (misconfigured artifact glob, disk issues) would otherwise
-      # attach 0-byte files to the release unnoticed.
-      # Cargo workspace root is the repo root, so the target dir (and the
-      # bundle output) lives at <repo>/target/release/bundle.
+      - name: Package (windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/photrez.exe dist/
+          Copy-Item LICENSE, NOTICE, THIRD_PARTY.md dist/
+          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.archive }}"
+
+      - name: Package (macos / linux)
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/photrez dist/
+          cp LICENSE NOTICE THIRD_PARTY.md dist/
+          tar -czf "${{ matrix.archive }}" -C dist .
+
+      # Smoke test: the archive must be non-trivial (> 1 MB — the release
+      # binary alone is an order of magnitude larger) and must carry the
+      # licence set. Re-points the tauri-era bundle smoke test.
       - name: Verify release artifacts (smoke test)
         shell: bash
         run: |
           set -euo pipefail
-          bundle_dir="target/release/bundle"
-          if [ ! -d "$bundle_dir" ]; then
-            echo "::error::No bundle directory produced: $bundle_dir"
+          ls -la "${{ matrix.archive }}"
+          if [ "$(stat -c%s "${{ matrix.archive }}" 2>/dev/null || wc -c < "${{ matrix.archive }}")" -lt 1000000 ]; then
+            echo "::error::Archive is missing or smaller than 1 MB: ${{ matrix.archive }}"
             exit 1
           fi
-          # Installers/binaries must be non-trivial (> 1 MB). macOS .app and
-          # Linux bundle dirs contain the real binary inside a directory tree,
-          # so this find walks the whole bundle.
-          find "$bundle_dir" -type f -size +1M -print | tee /tmp/photrez-artifacts.txt
-          if [ ! -s /tmp/photrez-artifacts.txt ]; then
-            echo "::error::No installer/binary larger than 1 MB found under $bundle_dir"
-            exit 1
-          fi
+          case "${{ matrix.archive }}" in
+            *.zip) unzip -l "${{ matrix.archive }}" | tee /tmp/contents.txt ;;
+            *.tar.gz) tar -tzf "${{ matrix.archive }}" | tee /tmp/contents.txt ;;
+          esac
+          for required in LICENSE NOTICE THIRD_PARTY.md photrez photrez.exe; do
+            if grep -q "$required" /tmp/contents.txt; then
+              :
+            else
+              # windows archives carry photrez.exe; the others photrez
+              if [ "$required" = "photrez.exe" ] && grep -q "photrez" /tmp/contents.txt; then
+                continue
+              fi
+              echo "::error::Archive is missing required entry: $required"
+              exit 1
+            fi
+          done
+
+      - name: Upload the archive to the draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: false
+          files: ${{ matrix.archive }}
 
   # Finalize the draft release once every platform job has attached its
-  # installers: generate SHA-256 checksums (Photrez is not code-signed, so
+  # archive: generate SHA-256 checksums (Photrez is not code-signed, so
   # checksums are the only integrity verification users can do) and replace
   # the placeholder body with CHANGELOG.md.
   finalize:

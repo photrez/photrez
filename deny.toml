@@ -47,6 +47,12 @@ yanked = "warn"
 ignore = [
     # Tauri desktop shell dependency tree
     "RUSTSEC-2024-0370", # proc-macro-error - transitive via gtk3 stack
+    # gpui Linux accessibility stack: accesskit_unix -> zbus (all
+    # "unmaintained", no active vulnerability; Linux-only, inside the pinned
+    # gpui-pre 0.3.9 — revisit when the framework bumps accesskit_unix)
+    "RUSTSEC-2026-0370", # zvariant - via accesskit_unix -> zbus
+    "RUSTSEC-2026-0371", # zbus_names - via accesskit_unix -> zbus
+    "RUSTSEC-2026-0372", # zvariant_derive - via accesskit_unix -> zbus
     "RUSTSEC-2025-0075", # unic-char-range
     "RUSTSEC-2025-0080", # unic-common
     "RUSTSEC-2025-0081", # unic-char-property

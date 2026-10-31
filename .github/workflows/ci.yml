@@ -17,35 +17,13 @@ permissions:
   contents: read
 
 jobs:
-  # ─── FRONTEND: unit tests (node) ───
-  # Narrowed 2026-10-17 alongside the browser build pipeline: type-check, lint,
-  # build and e2e all exercised the bundled browser engine this tree no longer
-  # builds; the multi-OS matrix existed for e2e's per-platform rendering. What
-  # remains is the OS-independent unit suite.
-  frontend:
-    name: Frontend
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.0"
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Unit tests (node — fast)
-        run: bun run --filter photrez-desktop test:unit
-
-  # ─── RUST: one workspace, three OSes ───
+  # ─── RUST: one workspace, three OSes, the full crate set ───
   # After the workspace consolidation the root workspace owns every crate:
   # `cargo test --workspace` is the whole Rust suite. The frozen Tauri app
   # (`apps/desktop/src-tauri`) is an excluded non-member and is not built or
-  # tested here. gpui has only ever been proven on Windows, so ubuntu/macos
-  # gate everything except the `photrez` UI crate; enabling gpui on those
-  # runners belongs to the packaging plan.
+  # tested here. gpui now builds on all three runners; Linux needs the X11/
+  # wayland/fontconfig/Vulkan stack named below (the Tauri-era webkit2gtk
+  # packages are gone with the shell).
   rust:
     name: Rust tests (${{ matrix.os }})
     strategy:
@@ -60,6 +38,14 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libx11-dev libfontconfig1-dev libfreetype6-dev \
+            libvulkan-dev
 
       - uses: actions/cache@v5
         with:
@@ -76,38 +62,24 @@ jobs:
 
       # Lint gate: `-D warnings` keeps new code clippy-clean; fmt --check
       # keeps the tree rustfmt-stable (run `cargo fmt` locally when this fails).
-      # gpui is only proven on Windows, so the non-Windows runners exclude the
-      # `photrez` UI crate until the packaging plan enables it there.
       - name: Clippy (deny warnings)
-        if: runner.os == 'Windows'
         run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Clippy (deny warnings, without the gpui UI crate)
-        if: runner.os != 'Windows'
-        run: cargo clippy --workspace --exclude photrez --all-targets -- -D warnings
 
       - name: Format check
         run: cargo fmt --check
 
       - name: Tests (workspace)
-        if: runner.os == 'Windows'
         run: cargo test --workspace
 
       - name: Docs (deny warnings)
-        shell: bash
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
-          else
-            RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --exclude photrez
-          fi
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
 
       - name: Install cargo-deny
-        if: runner.os == 'Ubuntu'
+        if: runner.os == 'Linux'
         run: cargo install cargo-deny --locked
 
       - name: Licence and advisory policy
-        if: runner.os == 'Ubuntu'
+        if: runner.os == 'Linux'
         run: cargo deny check
 
       - name: File-size ratchet
@@ -116,8 +88,11 @@ jobs:
 
   # ─── SECURITY: dependency audit (informational, non-blocking) ───
   # For a small OSS project the audit runs as a warning, not a hard gate: a
-  # transitive RUSTSEC advisory shouldn't paint every push red. Fixes still
-  # land via Dependabot PRs.
+  # transitive RUSTSEC advisory shouldn't paint every push red. The known
+  # unmaintained transitives (zbus stack via accesskit_unix, inside the
+  # pinned gpui-pre 0.3.9) are dispositioned in deny.toml's ignore list with
+  # their proofs; fixes still land via Dependabot PRs. The Bun-side audit is
+  # retired with the JS toolchain automation.
   security:
     name: Security audit
     runs-on: ubuntu-latest
@@ -133,28 +108,6 @@ jobs:
 
       - name: Cargo audit
         run: cargo audit
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.0"
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Bun audit (high/critical)
-        # Ignored advisories (pre-existing, transitive-only; last reviewed 2026-10-15):
-        #   GHSA-r28c-9q8g-f849, GHSA-2pvr-wf23-7pc7, GHSA-8hv8-536x-4wqp
-        #   GHSA-vfj7-8cjw-p6xm (braces), GHSA-ch52-4w7c-c8xp (http-cache-semantics)
-        #   Both have NO patched version published — braces' latest is 3.0.3 and
-        #   http-cache-semantics' latest is 4.2.0, which are the vulnerable ones.
-        # Remove the --ignore flags once a patched version is published or the
-        # offending dependency is dropped from the lockfile. Keep this list and
-        # the one in .husky/pre-push identical.
-        run: bun audit --prod --audit-level=high --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-2pvr-wf23-7pc7 --ignore GHSA-8hv8-536x-4wqp --ignore GHSA-vfj7-8cjw-p6xm --ignore GHSA-ch52-4w7c-c8xp
-
-  # ─── COMPONENT TESTS: cannot run in this tree (removed 2026-10-17) ───
-  # The jsdom component suite boots the bundled browser engine, which this
-  # tree no longer builds; it returns when a native component harness exists.
 
   # ─── CONTRIBUTIONS: public-artifact terminology guard ───
   # Machine-enforced rule: public artifacts (commit/PR messages and source) must

@@ -26,6 +26,7 @@
 mod capture;
 mod dev;
 mod parity;
+mod version;
 
 use std::path::{Path, PathBuf};
 
@@ -38,6 +39,7 @@ fn main() {
         }
         Some("capture") => cmd_capture(&args[1..]),
         Some("dev") => dev::run(&args[1..]),
+        Some("set-version") => version::cmd_set_version(&args[1..]),
         Some("parity") => {
             if args.get(1).map(String::as_str) == Some("cross-check") {
                 cmd_cross_check(&args[2..])
