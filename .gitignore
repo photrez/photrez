@@ -61,6 +61,7 @@ test-results/
 # Core golden fixtures: compiled into tests via include_bytes!
 !crates/core/src/render/goldens/*.png
 !crates/core/src/render/shape/goldens/*.png
+!crates/core/src/render/text/goldens/*.png
 *.jpg
 *.jpeg
 !apps/desktop/src/assets/**/*
