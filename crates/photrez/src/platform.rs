@@ -10,8 +10,10 @@
 //! cursor and the restore is explicit; no global `ShowCursor` counter is
 //! touched.
 
+#[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(windows)]
 static HIDDEN: AtomicBool = AtomicBool::new(false);
 
 #[cfg(windows)]
