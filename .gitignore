@@ -58,6 +58,9 @@ test-results/
 !crates/photrez/tests/baseline/**/*.png
 !crates/xtask/tests/fixtures/*.png
 !crates/photrez/tests/fixtures/*.png
+# Core golden fixtures: compiled into tests via include_bytes!
+!crates/core/src/render/goldens/*.png
+!crates/core/src/render/shape/goldens/*.png
 *.jpg
 *.jpeg
 !apps/desktop/src/assets/**/*
