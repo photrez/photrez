@@ -51,7 +51,7 @@
 //! * `LayerThumb` alternates `rgba(255,255,255,0.05)` and
 //!   `rgba(255,255,255,0.1)` in 6px cells over FIELD (`#252525`), yielding
 //!   `#303030` / `#3b3b3b`. GPUI's one-colour `checkerboard()` uses their
-//!   50/50 mean (`#353535`, [`CHECKER_MEAN`]); this layer has no pixels.
+//!   50/50 mean (`#353535`, `CHECKER_MEAN`); this layer has no pixels.
 //! * At rest (no pending adjustment), reset is disabled;
 //!   `disabled:opacity-40` paints at 40%. Omitted interaction styles:
 //!   `hover:bg-white/[0.045]`, `hover:text-editor-text`,

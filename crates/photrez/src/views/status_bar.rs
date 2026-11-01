@@ -48,7 +48,7 @@
 //!   paints exactly 15 rows (y=5..19 of the 24px bar) — a 15px box centred in
 //!   the border-box content area `y=1..24` lands on precisely those rows, with
 //!   no dependence on how either renderer snaps a fractional edge. GPUI's own
-//!   default line box (phi x font-size) is neither number, so [`LINE_H`] pins
+//!   default line box (phi x font-size) is neither number, so `LINE_H` pins
 //!   it to 15px. The glyph baseline does not move as a result: centring a line
 //!   box inside a centred flex item cancels the box's height out of the
 //!   baseline calculation, so 15 and 15.75 put every glyph in the same place.

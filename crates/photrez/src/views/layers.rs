@@ -59,7 +59,7 @@
 //!
 //! # Interactions
 //!
-//! `.on_click` selects; `.on_drag` starts a reorder with [`rows::LayerDragGhost`]
+//! `.on_click` selects; `.on_drag` starts a reorder with `rows::LayerDragGhost`
 //! visible only during drag; `.on_drop::<u64>` moves the row to the target index
 //! and selects it. Drops and the row's up/down chevrons both go through
 //! `App::reorder_layer_rows`, which records the move in core history.

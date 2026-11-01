@@ -15,7 +15,7 @@
 //! tooltip-rail-swatch       104x26 @  42,743  "Foreground Color"          (none)
 //! ```
 //!
-//! So there is one [`tooltip`] function and three `(label, shortcut)` pairs,
+//! So there is one `tooltip` function and three `(label, shortcut)` pairs,
 //! and every number below was read out of `baseline/shots/tooltip-*.png` with
 //! the throwaway `baseline/probe-tooltips.ts` / `probe-tooltips2.ts` (crops —
 //! crop 0,0 is the tooltip's own top-left corner, offset by the manifest
@@ -35,7 +35,7 @@
 //! row ~1. The one thing that *was* measured rather than assumed inside that
 //! box is the kbd chip: the probe reads it 15px tall (crop rows 7..21,
 //! border to border) — `9px text at leading-none + py-0.5 (2+2) + border
-//! (1+1)` — so [`KBD_H`] is pinned to that and centred like everything else.
+//! (1+1)` — so `KBD_H` is pinned to that and centred like everything else.
 //!
 //! # Colours, all measured
 //!
@@ -46,7 +46,7 @@
 //! * label `text-editor-text` → peak ink #cacaca, [`color::TEXT`].
 //! * kbd `bg-white/10` → #353535 flat fill, which is [`color::WHITE_10`]
 //!   composited over the panel; kbd text `text-white/50` → glyph plateaus at
-//!   #9a9a9a = white at 50% over that fill (local [`WHITE_50`], no token
+//!   #9a9a9a = white at 50% over that fill (local `WHITE_50`, no token
 //!   exists); kbd `border-white/5` → #333333 again, same override.
 //! * shadow `0 4px 12px rgba(0,0,0,0.5)` → one [`BoxShadow`], transcribed
 //!   stop for stop, the same way `tool_rail.rs` spells `shadow-md` out.
@@ -84,10 +84,10 @@
 //! 10px/500 in the caption grey, [`ui::value_sans`] is 11px but **600 white**,
 //! [`ui::value_mono`] adds `font-mono`, [`ui::field_chrome`] is the 24px
 //! field box. The tooltip label is 11px Inter *regular* in `text-editor-text`
-//! — no existing run matches it, so [`label_run`] and [`kbd`] are local. If a
+//! — no existing run matches it, so `label_run` and `kbd` are local. If a
 //! second component turns up wanting an 11px regular `#cacaca` run, those two
 //! are the consolidation candidates (into `ui.rs` here, `tokens.rs` for
-//! [`WHITE_50`]).
+//! `WHITE_50`).
 //!
 //! # i18n
 //!

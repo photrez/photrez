@@ -5,7 +5,7 @@
 //!
 //! The bar is laid out against container-width breakpoints. The captured bar
 //! is 781px wide, so the three gates resolve to constants here:
-//! [`MAIN_CONTROLS`], [`MORE_DROPDOWN`] and [`FIELD_LABELS`].
+//! `MAIN_CONTROLS`, `MORE_DROPDOWN` and `FIELD_LABELS`.
 //!
 //! # Dispatch
 //!
@@ -356,13 +356,13 @@ pub(super) fn show_paint_size_slider() -> bool {
 
 // ── Brush params ───────────────────────────────────────────────────────────────
 
-/// Pure dispatch for [`brush_items`]: selects the icon, label, resting size
+/// Pure dispatch for `brush_items`: selects the icon, label, resting size
 /// string, slider percent and hardness string for the brush/eraser pair.
 ///
 /// Extracted so the branch logic is unit-testable without a GPUI context.
 ///
 /// RED proof: swap the `size`/`hardness` assignments and
-/// [`brush_params_brush_defaults`] fails.
+/// `brush_params_brush_defaults` fails.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct BrushParams {
     pub icon: &'static [u8],
@@ -421,12 +421,12 @@ pub fn render(
 
 // ── Crop ─────────────────────────────────────────────────────────────────────
 
-/// Pure dispatch for [`variants::crop_items`]: the resting-state strings/flags of the
+/// Pure dispatch for `variants::crop_items`: the resting-state strings/flags of the
 /// crop bar, extracted so the defaults are unit-testable without a GPUI
 /// context.
 ///
 /// RED proof: set [`CropParams::ratio_value`] to `"Size"` (or
-/// [`CropParams::delete_checked`] to `false`) and [`crop_bar_resting_state`]
+/// [`CropParams::delete_checked`] to `false`) and `crop_bar_resting_state`
 /// fails — proving the branch default is read, not just hard-coded at the call
 /// site.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -487,7 +487,7 @@ mod tests {
     }
 
     /// Pins the resting data of the Crop bar. These
-    /// constants are the source of truth that [`variants::crop_items`] composes, so every
+    /// constants are the source of truth that `variants::crop_items` composes, so every
     /// label, checkbox default and dropdown value the baseline shot encodes is
     /// asserted here.
     ///

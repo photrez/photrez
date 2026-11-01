@@ -180,11 +180,11 @@
 //!
 //! # Interaction with other modules
 //!
-//! `empty-new-document` hands off to [`crate::dialogs`]. Nothing else here is
+//! `empty-new-document` hands off to `crate::dialogs`. Nothing else here is
 //! shared: the card has no analogue in [`crate::components::ui`] (those are the five
 //! primitive controls), and `properties_panel.rs` / `layers_panel.rs`
 //! own panel chrome rather than overlay chrome, which is `context_menus.rs`'s
-//! territory. The one helper worth hoisting later is [`text_line`] - a text
+//! territory. The one helper worth hoisting later is `text_line` - a text
 //! run pinned to an explicit line-box height - which four other modules
 //! re-implement inline; it is left local, as they are.
 
@@ -415,7 +415,7 @@ fn select(shot: Option<&str>) -> EmptyVariant {
 ///
 /// * `empty-card` (and `empty-full`, and any unset id) draw the card.
 /// * `empty-new-document` is **the New Document dialog**, not the card, and
-///   [`crate::dialogs`] owns it - see the module docs for the measured
+///   `crate::dialogs` owns it - see the module docs for the measured
 ///   comparison of the two baselines. Delegating means the dialog is drawn
 ///   once; drawing a second copy here would guarantee the two drift.
 ///

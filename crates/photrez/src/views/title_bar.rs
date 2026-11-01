@@ -70,8 +70,8 @@
 //! The native title bar is hidden, so this bar owns the controls using each
 //! platform's convention: AppKit traffic lights on macOS, no controls on
 //! server-decorated Linux, and Windows `WindowControlArea` hit regions.
-//! [`window_controls::window_controls`] implements the branch;
-//! [`title_bar::render`] passes `&mut Window` so it can query decorations.
+//! `window_controls::window_controls` implements the branch;
+//! `title_bar::render` passes `&mut Window` so it can query decorations.
 
 use std::sync::{Arc, OnceLock};
 

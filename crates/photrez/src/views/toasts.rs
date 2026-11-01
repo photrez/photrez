@@ -110,7 +110,7 @@
 //! shots reads `#333333` (`probe-toast.ts`: `edges: top/bottom/left/right`).
 //! Severity is therefore **invisible in the chrome** in this build: fill,
 //! border, radius and text colour are identical across the three, and the
-//! label is the only difference. [`Severity::border`] still spells out the
+//! label is the only difference. `Severity::border` still spells out the
 //! class each variant asks for, so if the cascade is ever fixed the three
 //! arms are where the real colours go.
 //!
@@ -135,7 +135,7 @@
 //! darkens — `#1E1E1E -> #1A1A1A` in the first row of gap 1, directly under
 //! toast 1, and a `#333333` rule of the dock showing through gap 2 at
 //! `#2E2E2E`, which is exactly 10% black over it. So the two layers of
-//! Tailwind v4's `--shadow-lg` are painted ([`shadow_lg`]), matching
+//! Tailwind v4's `--shadow-lg` are painted (`shadow_lg`), matching
 //! `tool_rail.rs`'s treatment of `--shadow-md`.
 //!
 //! # State: `shot::active()`, nothing else

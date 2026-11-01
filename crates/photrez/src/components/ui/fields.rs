@@ -100,7 +100,7 @@ pub fn num_field(
 /// | Move                  v |
 /// ```
 ///
-/// The hover border (#4B515D) is a real difference from [`NumField`], which
+/// The hover border (#4B515D) is a real difference from `NumField`, which
 /// has no hover at all, so it is recorded on [`color::HOVER_BORDER`] rather
 /// than applied here: see the module docs on why hover colours are omitted
 /// from a resting render.
@@ -143,7 +143,7 @@ pub fn select_field(value: &str, width: Option<f32>) -> Div {
 /// shape.
 ///
 /// Takes `impl IntoElement` rather than a concrete child type because the slot
-/// is *any* element — whichever control the caller wants: a [`Slider`], a
+/// is *any* element — whichever control the caller wants: a `Slider`, a
 /// [`num_field`], a row of checkboxes.
 pub fn prop_row(label: &str, slot: impl IntoElement) -> Div {
     h_flex()
@@ -184,7 +184,7 @@ pub fn prop_row(label: &str, slot: impl IntoElement) -> Div {
 
 // ── EditableNumField ─────────────────────────────────────────────────────────
 
-/// The editable form of [`NumField`].
+/// The editable form of `NumField`.
 ///
 /// ```text
 /// | label | 800 | px |          <- at rest

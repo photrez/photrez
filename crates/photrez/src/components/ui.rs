@@ -20,7 +20,7 @@
 //! * the box geometry, borders, fills and radii;
 //! * every colour, resolved through [`crate::tokens`] rather than restated;
 //! * the value/caption typography, including the `font-mono` face;
-//! * [`Slider`]'s per-kind track — the gradients, the checkerboard, the
+//! * `Slider`'s per-kind track — the gradients, the checkerboard, the
 //!   centre-origin fills, the thumb.
 //!
 //! And what is not, with the reason at each site:
@@ -68,9 +68,9 @@ const FIELD_H: f32 = 24.0;
 const RADIUS: f32 = 4.0;
 /// `gap-1` between a field's label, value and suffix.
 const INNER_GAP: f32 = 4.0;
-/// `px-1.5` on [`NumField`] and [`EditableNumField`].
+/// `px-1.5` on `NumField` and `EditableNumField`.
 const PAD_X: f32 = 6.0;
-/// `px-2` on [`SelectField`] — wider, because it justifies content to both
+/// `px-2` on `SelectField` — wider, because it justifies content to both
 /// edges instead of packing it.
 const SELECT_PAD_X: f32 = 8.0;
 /// `w-[50px]` on a [`PropRow`] label, `shrink-0`.
@@ -79,7 +79,7 @@ const LABEL_W: f32 = 50.0;
 const ROW_GAP: f32 = 8.0;
 /// `gap-1.5` inside a [`PropRow`]'s content slot.
 const SLOT_GAP: f32 = 6.0;
-/// `size-3` — the [`SelectField`] chevron.
+/// `size-3` — the `SelectField` chevron.
 const ICON_SM: f32 = 12.0;
 /// `text-[10px]` — captions.
 const TEXT_XS: f32 = 10.0;
@@ -88,8 +88,8 @@ const TEXT_SM: f32 = 11.0;
 
 // ── Faces ────────────────────────────────────────────────────────────────────
 
-/// `font-mono`, i.e. Consolas — values in [`NumField`] and
-/// [`EditableNumField`].
+/// `font-mono`, i.e. Consolas — values in `NumField` and
+/// `EditableNumField`.
 ///
 /// The numeric field values use a monospace face (`font-mono`). On this
 /// Windows build the face that resolves is Consolas. It stands in for the
@@ -285,7 +285,7 @@ pub fn value_mono(text: &str) -> Div {
         .child(text.to_string())
 }
 
-/// [`SelectField`]'s value run — 11px, semibold, set in Inter (not mono),
+/// `SelectField`'s value run — 11px, semibold, set in Inter (not mono),
 /// white.
 ///
 /// Deliberately *not* [`value_mono`]: this one carries no `font-mono`, so it
