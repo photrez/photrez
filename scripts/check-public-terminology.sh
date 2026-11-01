@@ -45,6 +45,12 @@
 # never duplicated). "--simulate-absent <stack>" pretends the stack is gone and
 # is how the check is proven red on a live tree.
 #
+# The same --files scan also blocks the vocabulary of a runtime this repository
+# no longer contains, but only where it is prose: Rust comment lines and public
+# markdown. Serialised identifiers - format keys, catalog keys, fixture contents -
+# are outside that rule because renaming them changes data, not wording. Each
+# surviving word of that kind is listed with its reason in the gate record.
+#
 # "Phase A:" / "Phase B:" used as in-method step labels (e.g. useBrushOverlay
 # readback steps) are ALLOWED - the plan-phase reference form is what's blocked.
 # Extended 2026-09-07: also blocks internal decision labels (SD-1..), "fork A/B/C",
@@ -60,7 +66,18 @@ PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transf
 # not contain. The reference web app and the internal evidence directories are
 # both outside this repository, so naming them in a public artifact is a broken
 # promise, not a citation.
-DANGLING_SRC='\.slim/|deepwork|-evidence/|frozen-[a-z0-9._-]*\.sha256|test-disposition\.csv|apps/desktop|\.tsx\b|docs/archive/|\]\(archive/'
+# The last three alternatives are machine-local absolute paths (2026-11-02): a
+# build, test or document that names one cannot be reproduced or read on any
+# other machine, and it publishes this workstation's layout.
+DANGLING_SRC='\.slim/|deepwork|-evidence/|frozen-[a-z0-9._-]*\.sha256|test-disposition\.csv|apps/desktop|\.tsx\b|docs/archive/|\]\(archive/|[A-Za-z]:[\\/][Uu]sers[\\/]|[\\/]Users[\\/]|[\\/]home[\\/][A-Za-z0-9._-]'
+# Runtime-vocabulary set (2026-11-02): words that only meant something in the
+# build this source replaced. They cannot be resolved from a fresh clone, so
+# they read as noise to the next reader and leak the product's history into it.
+# Measured against this line, they are checked in comment and prose surfaces
+# only: serialised identifiers (format keys, catalog keys, fixture contents)
+# are contracts, and renaming them would break the data, not the prose. A line
+# that must keep such a word carries `trace-exempt: <reason>`.
+TRACE_SRC='frozen|Frozen|oracle|Oracle|[Pp]arity|TypeScript|\bTS\b|Chromium|webkit|Tauri|Wry|Canvas2D|OffscreenCanvas|editorFacade|DocumentEngine|bridge\.ts|editorData|MENU_ITEMS|textRasterizer|applyDeltaToSnapshot|lastHistoryDeltaWasEmpty|setLayerLocked|textTool|capture-baseline'
 # Milestone vocabulary that is internal-only when it appears in PUBLIC markdown:
 # workstream codenames, named-review labels and phase-numbered work labels are
 # internal bookkeeping. Public docs describe what the product does instead.
@@ -138,6 +155,23 @@ staleness() {
 }
 
 # --- files (terminology scan) --------------------------------------------------
+# Reference-tooling paths: their subject is the build being compared against, so
+# naming it is the job, not a leak. Plan vocabulary is still checked there.
+is_reference_tooling() {
+  case "$1" in
+    crates/xtask/*|crates/photrez/tests/baseline/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Comment/prose surface only: a hit must carry a word that cannot be resolved
+# from a fresh clone. Serialised identifiers are matched on code lines and are
+# deliberately outside this rule.
+trace_check() { # $1 = grep of the surface lines
+  [ -n "$1" ] || return 0
+  printf '%s\n' "$1" | grep -E "$TRACE_SRC" | grep -v 'trace-exempt:' || true
+}
+
 files_check() {
   for f in $FILES; do
     [ -f "$f" ] || continue
@@ -152,6 +186,10 @@ files_check() {
           crates/xtask/*) ;;
           *) grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f" ;;
         esac
+        if ! is_reference_tooling "$f"; then
+          hits=$(trace_check "$(grep -n -E "//" "$f" || true)")
+          [ -z "$hits" ] || { printf '%s\n' "$hits"; fail "vocabulary of a runtime this repository no longer contains, in a comment in $f (describe the behaviour, or mark the line trace-exempt: <reason>)"; }
+        fi
         ;;
       *.md)
         case "$f" in
@@ -163,6 +201,13 @@ files_check() {
             case "$f" in
               CHANGELOG.md|docs/archive/*) ;;
               *) grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f" ;;
+            esac
+            case "$f" in
+              CHANGELOG.md|docs/archive/*) ;;
+              *) if ! is_reference_tooling "$f"; then
+                   hits=$(trace_check "$(grep -n '' "$f")")
+                   [ -z "$hits" ] || { printf '%s\n' "$hits"; fail "vocabulary of a runtime this repository no longer contains, in public doc $f (describe what the product does, or mark the line trace-exempt: <reason>)"; }
+                 fi ;;
             esac
             ;;
         esac
