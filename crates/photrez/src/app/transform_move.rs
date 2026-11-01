@@ -835,7 +835,7 @@ impl App {
                 continue;
             }
             // Align keeps the document-sized layer box; shape-rect alignment is
-            // a separate, unported behaviour.
+            // a separate, not-yet-implemented behaviour.
             let layer_w = (layer.width * layer.transform.scale_x).round();
             let layer_h = (layer.height * layer.transform.scale_y).round();
             let (mut x, mut y) = (layer.transform.x, layer.transform.y);

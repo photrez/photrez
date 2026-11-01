@@ -24,7 +24,7 @@ fn ctx_export_height_is_131px() {
 /// `ctx-layer` manifest box: 210 x 345. Height: 4 + 11x28 + 3x9 + 4 + 2.
 /// This arithmetic was the correction that dropped the reference's
 /// stale `layer_menu` row list (10 rows, 2 separators, no Delete Layer)
-/// and restored the full `layerContextItems` order from the TSX.
+/// and restored the full `layerContextItems` order from the reference markup.
 #[test]
 fn ctx_layer_height_is_345px() {
     let row = 28.0;

@@ -113,10 +113,11 @@ pub(super) fn layer_tab_id(tab: &LayerTab) -> &'static str {
 /// button, with the 2px ACCENT underline under it when active.
 ///
 /// The underline is the button's *last child* rather than an absolutely
-/// positioned pseudo-element: `after:absolute after:bottom-0 after:inset-x-0`
-/// needs a positioned ancestor, which this port has no way to declare, and
-/// `z_index` is unavailable besides. Stacking the label in a `flex_1` row
-/// above a full-width 2px bar gets the same pixels without either.
+/// positioned pseudo-element: there is no `after:absolute after:bottom-0
+/// after:inset-x-0` equivalent, since GPUI has no pseudo-elements and no
+/// `z_index` to order an `absolute()` overlay against its siblings.
+/// Stacking the label in a `flex_1` row above a full-width 2px bar gets the
+/// same pixels without either.
 ///
 /// The click handler writes the clicked tab id back onto the live state
 /// through `write` and notifies the owning root, so the next frame lights the

@@ -284,14 +284,15 @@ pub fn crop_params() -> CropParams {
 /// `cropMode` rests on `"free"`, the ratio dropdown is closed, `fillEnabled()`
 /// is true, and the `@min-[880px]` inline advanced group (straighten / rotate /
 /// guide / classic toggle) is hidden — so none of those paint. Element order
-/// follows the TSX fragment line-for-line:
+/// follows the reference markup fragment line-for-line:
 ///
 /// `pill` ⟵ `Divider` ⟵ `Aspect Ratio: Free` ⟵ `Divider` ⟵ `Delete` ⟵
 /// `Fill BG` ⟵ `white swatch + Use BG` ⟵ `Divider` ⟵ `…` ⟵ `Divider` ⟵
 /// `Cancel` ⟵ `Apply`.
 ///
 /// The `<Divider/>` between `MoreDropdown` (…) and `Cancel` is present in the
-/// TSX (line 640) and therefore in the baseline shot - it is not compressed out.
+/// reference markup and therefore in the baseline shot - it is not compressed
+/// out.
 pub(super) fn crop_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,

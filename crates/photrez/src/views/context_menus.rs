@@ -18,7 +18,7 @@
 //! ctx-brush        200x245 @  420,323   (panel; the shot itself is 1366x820)
 //! ```
 //!
-//! Every figure was read back out of `baseline/shots/ctx-*.png` with a
+//! Every figure was read back out of `tests/baseline/ctx-*.png` with a
 //! throwaway crop-analysis script (crop-relative coordinates — the three
 //! small PNGs are element crops, so crop 0,0 is the menu's own top-left; only
 //! `ctx-brush` is a viewport shot). The row arithmetic then checks itself:
@@ -345,8 +345,9 @@ fn export_menu() -> Div {
 /// fresh background-only layer). That 10-row list does not square against
 /// the `ctx-layer` manifest box height of 345 (which requires 11 rows +
 /// 3 separators), so this view restores the full 14-entry list at the
-/// 11-row / 3-separator layout, matching the TSX order and state. The
-/// `FocusBg` trace and the two top-group row orders follow the TSX.
+/// 11-row / 3-separator layout, matching the reference markup's order and
+/// state. The `FocusBg` trace and the two top-group row orders follow that
+/// markup.
 fn layer_menu() -> Div {
     menu_shell(vec![
         ui::menu_row(

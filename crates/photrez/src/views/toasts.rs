@@ -107,7 +107,7 @@
 //! All three lose to the unlayered `* { border-color: var(--color-border) }`
 //! rule that [`color::BORDER`] documents at length — and the PNGs agree
 //! rather than merely being predicted: every edge pixel of all four toast
-//! shots reads `#333333` (`probe-toast.ts`: `edges: top/bottom/left/right`).
+//! shots reads `#333333` — the scan covered `edges: top/bottom/left/right`.
 //! Severity is therefore **invisible in the chrome** in this build: fill,
 //! border, radius and text colour are identical across the three, and the
 //! label is the only difference. `Severity::border` still spells out the
@@ -148,7 +148,7 @@
 //! unset / anything else      toast-info
 //! ```
 //!
-//! The four messages are `capture-baseline.ts:698-704`'s literals, in the
+//! The four messages are the capture tooling's own literals, in the
 //! order it fires them (info, warn, error) for the stack — so the stack reads
 //! top-to-bottom info/warn/error, as the shot does.
 //!
@@ -181,9 +181,10 @@
 //!   child is laid out at exactly its own max-content width, so a fractional
 //!   rounding could otherwise push it to two lines. The source never wraps
 //!   (a toast is a single line), so this is parity, not a workaround.
-//! * The 6px `scrollbar-gutter` reservation (`styles.css:321/:326`) does **not**
-//!   apply: the host has no `overflow-y-auto`, and adding the reservation here
-//!   would move the left edge of every toast by 6px for nothing.
+//! * The 6px `scrollbar-gutter` reservation in the previous renderer's
+//!   stylesheet does **not** apply: the host has no `overflow-y-auto`, and
+//!   adding the reservation here would move the left edge of every toast by
+//!   6px for nothing.
 //! * In the stacked crop the corner notches and the area left of the stack are
 //!   warm `#291E19`/`#723719` pixels — that is the right dock's own content
 //!   showing through the transparent host, verified against `shell-right-dock`.
@@ -193,9 +194,9 @@
 //!   them, so each is a non-event here rather than an approximation.
 //! * Padding is already whole (8/16), so the "padding rounds to whole px"
 //!   gap is inert. The 18.75px line box is *not* whole: GPUI snaps a half
-//!   pixel down where Chromium rounds up, so the glyphs may land 1px off
-//!   vertically while the box (1 + 8 + 18.75 + 8 + 1) stays put. First thing
-//!   to check if a capture shows the text a row high.
+//!   pixel down where the previous renderer rounds up, so the glyphs may land
+//!   1px off vertically while the box (1 + 8 + 18.75 + 8 + 1) stays put. First
+//!   thing to check if a capture shows the text a row high.
 
 use gpui_kit::base::v_flex;
 use gpui_kit::prelude::*;
@@ -252,11 +253,11 @@ const TEXT_SIZE: f32 = 12.5;
 ///
 /// The 1.5 is Tailwind preflight's inherited `line-height`, the same way
 /// `status_bar.rs` derives its own `LINE_H` — GPUI's default is neither that
-/// nor anything else the browser would use, and the box height (36.75) hangs
-/// off this number, so it has to be exact rather than stylistic.
+/// nor anything else the previous renderer would use, and the box height
+/// (36.75) hangs off this number, so it has to be exact rather than stylistic.
 const LINE_H: f32 = 18.75;
 
-// `--font-sans` — Inter, the same family every other port uses.
+// `--font-sans` — Inter, the same family every other view uses.
 
 /// `rgb(0 0 0 / 0.1)`, the alpha both `--shadow-lg` layers are painted at.
 ///
@@ -273,17 +274,17 @@ const SHADOW_10: Hsla = Hsla {
 
 // ── The captured labels ──
 //
-// `capture-baseline.ts:698-704` decides what each shot says; these are its
-// literals, not invented copy. In the real component they are whatever the
-// operation passed to `showToast`, and this port has no engine to ask.
+// The capture tooling decides what each shot says; these are its
+// literals, not invented copy. In the live component they are whatever the
+// operation hands to the toast queue, and this view has no engine to ask.
 
-/// `ed.showToast("Layer merged","info")`.
+/// The capture fires "Layer merged" at severity `info`.
 const MSG_INFO: &str = "Layer merged"; // i18n-exempt: not in catalog
 
-/// `ed.showToast("Could not write the file","warn")`.
+/// The capture fires "Could not write the file" at severity `warn`.
 const MSG_WARN: &str = "Could not write the file"; // i18n-exempt: not in catalog
 
-/// `ed.showToast("Export failed","error")`.
+/// The capture fires "Export failed" at severity `error`.
 const MSG_ERROR: &str = "Export failed"; // i18n-exempt: not in catalog
 
 /// The stack's three, in the order the capture fires them.
@@ -453,7 +454,7 @@ fn render_toast(severity: Severity, message: &str) -> Div {
 /// ```
 ///
 /// Same approach as `tool_rail::shadow_md_layers` for `--shadow-md`: CSS blur
-/// radii passed through unchanged, so the two ports cannot drift from the
+/// radii passed through unchanged, so the two spellings cannot drift from the
 /// theme or from each other. Measured against the baseline at gap 2, where a
 /// `#333333` rule of the dock under a toast reads `#2E2E2E` = exactly 10%
 /// black over it.

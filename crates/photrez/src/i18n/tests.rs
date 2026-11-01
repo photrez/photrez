@@ -391,8 +391,8 @@ fn collect_catalog_chars(value: &serde_json::Value, out: &mut std::collections::
 /// `gpui_pre::TextSystem` defaults to `.ZedMono, .ZedSans, Helvetica,
 /// Segoe UI, ...` and this app never overrides it; `Segoe UI` was measured
 /// to carry all five, which is also how the reference's Latin subsets
-/// resolved them in the browser. Each entry is a reviewed decision: a new
-/// code point either gains a glyph in the face or is added here with its
+/// resolved them in the previous renderer. Each entry is a reviewed decision:
+/// a new code point either gains a glyph in the face or is added here with its
 /// covering fallback named.
 const FALLBACK_RENDERED: &[char] = &[
     '\u{00B0}', // degree sign - rotation labels and tooltips

@@ -28,10 +28,10 @@ pub use loader::{load_document_candidate, LoadedDocument};
 #[cfg(test)]
 mod tests;
 
-/// Width of the frozen captures' document (the New Document dialog's
-/// defaults, as driven by `capture-baseline.ts` `createBlankCanvas`).
+/// The document size the reference captures were taken at: the New Document
+/// dialog's defaults, which is what the capture tooling opened.
 pub const DEFAULT_DOC_WIDTH: u32 = 800;
-/// Height of the frozen captures' document.
+/// Height of that same document.
 pub const DEFAULT_DOC_HEIGHT: u32 = 600;
 
 /// The blank white document the frozen captures were taken with: one opaque

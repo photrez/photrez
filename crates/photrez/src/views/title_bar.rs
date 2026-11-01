@@ -9,7 +9,7 @@
 //! * the reference shell's drag-region attribute and double-click-to-maximize
 //! * window state (`isMaximized()` swaps the maximize icon)
 //!
-//! Hover states are ported as part of the component contract.
+//! Hover states are included as part of the component contract.
 //!
 //! # Three fidelity gaps
 //!
@@ -19,12 +19,12 @@
 //! = 0.3px after every glyph, including the last. GPUI has no tracking field:
 //! `LineLayout`/`ShapedGlyph` carry none, and `Styled` exposes no `tracking`.
 //!
-//! Inline triggers accumulate width deficits. Original origins are the
-//! `menu-*` boxes in `baseline/shots/manifest.json` (dropdown x equals trigger x);
-//! port origins are in `probe-menus.ts`.
+//! Inline triggers accumulate width deficits. The reference origins are the
+//! `menu-*` boxes in `tests/baseline/manifest.json` (dropdown x equals trigger
+//! x); the native column below is this bar's own rendered origins.
 //!
 //! ```text
-//! trigger    original    port    delta   glyphs
+//! trigger    original  native    delta   glyphs
 //! File         58.00      58    0.00       4
 //! Edit         99.88      99   -0.88       4
 //! Image       144.00     142   -2.00       5
@@ -39,7 +39,7 @@
 //! at x=58 with delta 0 rules out an earlier offset.
 //!
 //! Before Settings, 32 glyphs show 0.194px/glyph drift. `tracking-wide` adds
-//! 0.3px/glyph (−9.6px total); GPUI's shaper adds +0.106px/glyph vs Chromium,
+//! 0.3px/glyph (−9.6px total); GPUI's shaper adds +0.106px/glyph vs the previous renderer,
 //! character-dependent (Window/Help level; Image/Layer differ). Net drift is
 //! −0.19px, not −0.3px; restoring tracking overshoots by roughly +3px.
 //!
@@ -95,7 +95,7 @@ use crate::icons;
 use crate::state::{AppState, MenuId};
 use crate::tokens::{color, title};
 
-/// The eight top-level menus, in `MENU_ITEMS` order from `editorData.ts`,
+/// The eight top-level menus, in the order the reference bar lists them,
 /// as catalog keys resolved with [`t`] at the trigger.
 const MENUS: &[&str] = &[
     "menus.file",
@@ -153,8 +153,8 @@ pub fn render(
         // the cross-axis alignment unless a child opts into `.self_stretch()`.
         .items_center()
         .border_b_1()
-        // `border-editor-divider` names #2e2e2e, but the unlayered `*` in
-        // styles.css outranks it and paints #333333 — see `color::BORDER`,
+        // `border-editor-divider` names #2e2e2e, but the unlayered `*` rule
+        // outranks it and paints #333333 — see `color::BORDER`,
         // which records the four baselines proving it.
         .border_color(color::BORDER)
         .bg(color::TOPBAR)

@@ -70,7 +70,7 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
             // that is *visible* at rest rather than only under interaction: a
             // `brush-size` slider in the original is a wedge that grows to
             // the right, and here it is a rectangle. Worth knowing before the
-            // brush panel is ported — the shape would have to be a filled
+            // brush panel lands — the shape would have to be a filled
             // path, not a clipped box, and `gpui_kit` exposes no such helper
             // today.
             track = track.bg(color::FIELD_BORDER);

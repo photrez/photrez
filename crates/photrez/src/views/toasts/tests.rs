@@ -12,7 +12,7 @@ fn severity_border_map_is_border() {
     assert_eq!(Severity::Error.border(), color::BORDER);
 }
 
-/// The six captured labels match `capture-baseline.ts:698-704` verbatim.
+/// The six captured labels are the capture tooling's own literals, verbatim.
 ///
 /// RED proof: change any `MSG_*` constant to a different string and this
 /// fails. GREEN: every label matches the baseline spec.

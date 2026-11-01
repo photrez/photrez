@@ -53,13 +53,13 @@ fn card_shell(actions: impl IntoElement, presets: impl IntoElement) -> Div {
 
 /// `shadow-[0_12px_32px_rgba(0,0,0,0.8)]`.
 ///
-/// The parameters are exact; the *curve* is not. Chromium's coverage at the
-/// card's own edge reads about 0.4 (`#090909` over a `#0f0f0f` canvas, 3px out,
-/// symmetric on both sides), because a finite blurred rect offset 12px down
-/// never reaches full coverage at its edge - and GPUI approximates the blur
-/// differently again. `empty-card.png` is cropped to the card, so it contains
-/// no shadow at all; only `empty-full.png` shows this, 12px below and 30px
-/// either side of it.
+/// The parameters are exact; the *curve* is not. The reference capture's
+/// coverage at the card's own edge reads about 0.4 (`#090909` over a `#0f0f0f`
+/// canvas, 3px out, symmetric on both sides), because a finite blurred rect
+/// offset 12px down never reaches full coverage at its edge - and GPUI
+/// approximates the blur differently again. `empty-card.png` is cropped to the
+/// card, so it contains no shadow at all; only `empty-full.png` shows this, 12px
+/// below and 30px either side of it.
 fn card_shadow() -> Vec<BoxShadow> {
     vec![BoxShadow::new(px(0.0), px(12.0), hsla(0.0, 0.0, 0.0, 0.8)).blur_radius(px(32.0))]
 }
@@ -496,8 +496,8 @@ fn kbd() -> Div {
 /// it. Centring is enough rather than a computed baseline offset: a glyph's
 /// baseline lands at `box_centre + (ascent - descent) / 2` whatever the
 /// line-height, because half-leading is symmetric - which is also why the
-/// button labels need no explicit height even though Chromium gave them a
-/// 19.5px line box inside a 36px button.
+/// button labels need no explicit height even though the previous renderer gave
+/// them a 19.5px line box inside a 36px button.
 ///
 /// Four other modules spell this out inline at the call site
 /// (`text_size` + `font_family` + `font_weight` + `text_color` on a fixed-height

@@ -34,18 +34,18 @@
 //!   border pixels         183 .. 702       x   245 .. 596
 //! ```
 //!
-//! Chromium snaps a border edge outward to whole device pixels, and the
-//! capture agrees: in `empty-card.png` the left border column is crop x=1 and
-//! the right is crop x=520, with crop (0,0) = viewport (182,245) - a crop
-//! origin confirmed by cross-correlating the card PNG against `empty-full.png`
-//! (mean luma delta 0.0000). The comparison crops the
-//! view at `Math.trunc(182.5) = 182` and compares 521 columns, so a card
+//! The previous renderer snaps a border edge outward to whole device pixels,
+//! and the capture agrees: in `empty-card.png` the left border column is crop
+//! x=1 and the right is crop x=520, with crop (0,0) = viewport (182,245) - a
+//! crop origin confirmed by cross-correlating the card PNG against
+//! `empty-full.png` (mean luma delta 0.0000). The comparison crops the
+//! view at 182.5 truncated to 182 and compares 521 columns, so a card
 //! placed at 182 would sit one pixel left of the baseline for its whole
 //! width; `CARD_X = 183` lines the borders up.
 //!
 //! **Why the number is stated rather than computed.** Nothing here can
-//! re-derive 183 from the layout the way a browser would: this view has no
-//! `p-6` viewport box to centre inside, only a frame. Recomputing
+//! re-derive 183 from the layout the way the previous renderer did: this view
+//! has no `p-6` viewport box to centre inside, only a frame. Recomputing
 //! `(781-520)/2 + 52` here would give 182.5 again and lose the snap, which is
 //! exactly the mistake the constant exists to prevent.
 //!
@@ -57,7 +57,7 @@
 //! the same 780x498 at (293,161).
 //!
 //! The two PNGs are **not** byte-identical, and the difference is worth
-//! writing down before anyone ports the dialog twice. Measured over the
+//! writing down before anyone reproduces the dialog twice. Measured over the
 //! 780x498 crop:
 //!
 //! | where | how much |
@@ -112,11 +112,12 @@
 //!   (`text-[10px]` tag). Its 28px icon box is centred in the inner 33, i.e.
 //!   +2.5 - and the baseline puts it at **+2** (`#1e1e1e` rows 192..219).
 //!
-//! The two are the same half-pixel and Chromium rounds them **differently**,
-//! so both offsets are written as literals. A line-height of 1.5 is what makes
-//! 21 / 18 / 15 integers at all; the one exception is `text-[11px]`'s 16.5,
-//! which Chromium spends as **17** (the "Quick Presets" line box is crop
-//! 154..170, and 17 + 10 `mb-2.5` puts the first tile on crop row 181 exactly).
+//! The two are the same half-pixel and the previous renderer rounds them
+//! **differently**, so both offsets are written as literals. A line-height of
+//! 1.5 is what makes 21 / 18 / 15 integers at all; the one exception is
+//! `text-[11px]`'s 16.5, which the previous renderer spends as **17** (the
+//! "Quick Presets" line box is crop 154..170, and 17 + 10 `mb-2.5` puts the
+//! first tile on crop row 181 exactly).
 //!
 //! Columns: `px-5` is 20 either side of the 518px content box, so 478 of
 //! usable width. The actions grid is `gap-2.5` (10) -> 234 + 234; the presets
@@ -150,13 +151,13 @@
 //!
 //! * **The drop shadow is close but not the same curve.**
 //!   `shadow-[0_12px_32px_rgba(0,0,0,0.8)]` is transcribed as a `BoxShadow`
-//!   with the same offset and blur radius, but Chromium's shadow coverage at
-//!   the box edge is about 0.4 (measured: `#090909` against a `#0f0f0f`
-//!   canvas, 3px out, on both sides), not the 0.8 the alpha says - a blurred
-//!   shadow whose rect is offset and finite never reaches full coverage at its
-//!   own edge. GPUI's falloff will differ again. This is visible in
-//!   `empty-full.png` and **outside** `empty-card.png`, which is cropped tight
-//!   to the card and so contains no shadow at all.
+//!   with the same offset and blur radius, but the previous renderer's shadow
+//!   coverage at the box edge is about 0.4 (measured: `#090909` against a
+//!   `#0f0f0f` canvas, 3px out, on both sides), not the 0.8 the alpha says - a
+//!   blurred shadow whose rect is offset and finite never reaches full
+//!   coverage at its own edge. GPUI's falloff will differ again. This is
+//!   visible in `empty-full.png` and **outside** `empty-card.png`, which is
+//!   cropped tight to the card and so contains no shadow at all.
 //! * **`armed()` is never true.** The `fileDragOver` branch adds
 //!   `ring-2 ring-editor-accent ring-offset-2 -translate-y-0.5` and swaps the
 //!   header icon's fill to the accent; rings and `translate` are both gaps, and
@@ -169,8 +170,8 @@
 //! * **`truncate`** on the preset labels is `overflow:hidden` +
 //!   `text-overflow:ellipsis` + `white-space:nowrap`. Nothing clips at these
 //!   widths, so this view uses `whitespace_nowrap()` and lets GPUI size the run.
-//! * **Text rasterisation.** ClearType subpixel fringes and the browser's
-//!   font-smoothing hint are the rasteriser's, not the markup's; every
+//! * **Text rasterisation.** ClearType subpixel fringes and the previous
+//!   renderer's font-smoothing hint are the rasteriser's, not the markup's; every
 //!   measured ink profile here carries the same LCD colour splits (`7a7a7a`
 //!   reads as `627a7a` / `6f5232` on adjacent channels) that GPUI cannot
 //!   produce.

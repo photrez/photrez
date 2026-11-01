@@ -34,13 +34,13 @@ use crate::icons;
 use crate::state::{AppState, SelectionShape, ToolId};
 use crate::tokens::{color, dim};
 
-/// Mirrors `ToolItem` in `editorData.ts`. `has_variants` drives the
-/// bottom-right micro-indicator; only `selection` has variants there.
+/// One rail entry, shaped like the reference tool list's item. `has_variants`
+/// drives the bottom-right micro-indicator; only `selection` has variants.
 struct Tool {
     /// `ToolId` - the typed tool the button represents. Compared against
     /// `active_tool` in `tool_button`.
     tool_id: ToolId,
-    /// `id` - the web `ToolId` string, reused as the GPUI `ElementId` so
+    /// `id` - the tool's reference id string, reused as the GPUI `ElementId` so
     /// buttons are hit-testable (gpui only hit-tests an element that has an
     /// id).
     id: &'static str,
@@ -48,7 +48,7 @@ struct Tool {
     has_variants: bool,
 }
 
-/// `TOOL_ITEMS` from `editorData.ts`, in rail order.
+/// The tool list, in rail order - the same order the reference tool list uses.
 const TOOLS: &[Tool] = &[
     Tool {
         tool_id: ToolId::Move,
@@ -112,12 +112,13 @@ const TOOLS: &[Tool] = &[
     },
 ];
 
-// `editorState.ts:37-38` defaults (`#E15A17` foreground, `#FFFFFF`
+// The reference tool defaults (`#E15A17` foreground, `#FFFFFF`
 // background). `AppState::default` carries the same pair and is the live
 // source the swatches paint from, so no constant is needed here.
 
-/// The sub-variant triangle, from the inline `<svg>` in the JSX. It is not a
-/// lucide icon - it's a raw `<polygon points="6,6 0,6 6,0">` on a 6x6 viewBox.
+/// The sub-variant triangle, from the inline `<svg>` in the reference markup.
+/// It is not a lucide icon - it's a raw `<polygon points="6,6 0,6 6,0">` on a
+/// 6x6 viewBox.
 /// `currentColor` becomes `#ffffff` because GPUI tints by alpha (see icons.rs).
 const VARIANT_INDICATOR: &[u8] =
     b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"5\" height=\"5\" viewBox=\"0 0 6 6\" fill=\"#ffffff\"><polygon points=\"6,6 0,6 6,0\" /></svg>";
@@ -173,7 +174,7 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
 /// sub-variant triangle.
 ///
 /// The original wraps the button in `<div class="relative">` purely to anchor
-/// the fly-out popover, which this port omits - so the `relative` moves onto
+/// the fly-out popover, which this build omits - so the `relative` moves onto
 /// the button itself, where it is needed for the absolute triangle.
 ///
 /// The click handler writes this button's `ToolId` back into the live
@@ -452,7 +453,7 @@ fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
 /// indistinguishable - invisible at rest, fully visible on hover. The missing
 /// piece is only the 150ms scale-*animation*.
 ///
-/// Note this icon keeps `stroke-width` 2: line 282 of the JSX passes no
+/// Note this icon keeps `stroke-width` 2: the reference markup passes no
 /// `strokeWidth`, unlike the tool buttons.
 fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
@@ -499,10 +500,10 @@ mod tests {
     /// Pin the `ToolId -> (id, icon, has_variants)` table.
     ///
     /// RED proof: swap any `tool_id` arm (e.g. `Crop` -> `Brush`) and this
-    /// fails. GREEN: every variant maps to its web id + its rail icon, in
+    /// fails. GREEN: every variant maps to its reference id + its rail icon, in
     /// rail order, and only `Selection` carries the sub-variant indicator.
     #[test]
-    fn tool_table_maps_each_toolid_its_web_id_and_icon() {
+    fn tool_table_maps_each_toolid_its_reference_id_and_icon() {
         assert_eq!(TOOLS.len(), 10);
 
         let expected: &[(&str, ToolId)] = &[

@@ -16,8 +16,8 @@
 //! ```
 //!
 //! So there is one `tooltip` function and three `(label, shortcut)` pairs,
-//! and every number below was read out of `baseline/shots/tooltip-*.png` with
-//! the throwaway `baseline/probe-tooltips.ts` / `probe-tooltips2.ts` (crops —
+//! and every number below was read out of `tests/baseline/tooltip-*.png` with
+//! throwaway scan passes (crops —
 //! crop 0,0 is the tooltip's own top-left corner, offset by the manifest
 //! `box`, which is fractional: `y=58.75` etc.; this view renders the rounded
 //! origins from the table above and GPUI cannot place a border on a half
@@ -26,7 +26,8 @@
 //! # The 26px height is *not* content-driven here
 //!
 //! The source has no height: `px-2 py-1` + a border + the 11px label's line
-//! box give 26.5 in Chromium (that is the manifest's 26.5). GPUI computes its
+//! box give 26.5 in the previous renderer (that is the manifest's 26.5). GPUI
+//! computes its
 //! own line box for Inter 11px, so leaving the height to the text would put
 //! the border row wherever DirectWrite's metrics say — one engine-derivation
 //! away from the baseline. The height is therefore pinned at 26 ([`TOOLTIP_H`])
@@ -115,9 +116,9 @@ use crate::tokens::color;
 const FRAME_W: f32 = 1366.0;
 const FRAME_H: f32 = 820.0;
 
-/// The rendered tooltip height. The source's is content-driven (26.5 in
-/// Chromium); pinned here because GPUI's Inter line box is not Chromium's —
-/// see the module docs.
+/// The rendered tooltip height. The source's is content-driven (26.5 in the
+/// previous renderer); pinned here because GPUI's Inter line box is not that
+/// renderer's — see the module docs.
 pub const TOOLTIP_H: f32 = 26.0;
 
 /// `px-2` — horizontal padding; label ink starts at crop x=10, i.e. 1 border
@@ -152,7 +153,7 @@ const KBD_TEXT: f32 = 9.0;
 const KBD_WEIGHT: f32 = 600.0;
 
 // `--font-sans` — Inter, the same face `main.rs` registers and every other
-// port uses.
+// view uses.
 
 // ── Colours ─────────────────────────────────────────────────────────────────
 
@@ -228,7 +229,7 @@ fn spec_for(id: Option<&str>) -> Spec {
 
 /// A transparent client-area frame with the requested tooltip pinned inside
 /// it — the `context_menus.rs` convention for a `position: fixed` + portal
-/// source. Mount late in the tree: that is this port's only `z-[100]`.
+/// source. Mount late in the tree: that is this view's only `z-[100]`.
 pub fn render() -> impl IntoElement {
     let spec = spec();
     let tip: Div = tooltip(&spec.label, spec.shortcut)
@@ -360,8 +361,8 @@ mod tests {
         assert_eq!(unknown, none, "unknown shots fall through to default");
     }
 
-    /// The tooltip's pinned height is 26px (the source's 26.5 in Chromium,
-    /// rounded for GPUI's line-box handling).
+    /// The tooltip's pinned height is 26px (the source's 26.5 in the previous
+    /// renderer, rounded for GPUI's line-box handling).
     #[test]
     fn tooltip_height_is_pinned() {
         assert!((TOOLTIP_H - 26.0).abs() < 0.001, "TOOLTIP_H = {TOOLTIP_H}");

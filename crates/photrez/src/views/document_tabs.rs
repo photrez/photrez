@@ -80,7 +80,7 @@
 
 // `gpui-kit` re-exports all of GPUI at its root, so every import below goes
 // through it; `h_flex` is the free function from `gpui-base`, which builds the
-// `flex-row + items-center` row that the JSX's `class="flex items-center"`
+// `flex-row + items-center` row that the reference markup's `class="flex items-center"`
 // expresses.
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
@@ -96,7 +96,7 @@ use gpui_kit::Div;
 
 // ---------------------------------------------------------------------------
 // Dimensions. Tailwind's 16px root: every value below is already resolved to
-// pixels, and each const names the class (with its JSX line) it comes from.
+// pixels, and each const names the class (with its markup line) it comes from.
 // ---------------------------------------------------------------------------
 
 /// 38px — strip height. `manifest.json`
@@ -176,8 +176,8 @@ const EXPORT_LABEL_KEY: &str = "menus.items.export";
 /// `select-none` has no GPUI equivalent and nothing here is selectable; the
 /// `data-tab-bar-empty` marker and the drop handlers are behaviour, not
 /// pixels. Width is not set: `main.rs` puts this in a `v_flex().items_stretch()`,
-/// so it spans the editor column (781px) exactly as the block-level div does
-/// in the browser.
+/// so it spans the editor column (781px) exactly as the block-level div did in
+/// the previous renderer.
 pub fn render(
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
@@ -214,7 +214,7 @@ pub fn render(
 /// The reference's overlay-overflow and scrollbar rules only style a scrollbar
 /// that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
-/// reserve or overlay a scrollbar the web render does not paint here.
+/// reserve or overlay a scrollbar the reference capture does not show here.
 fn tab_list(
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,

@@ -623,7 +623,7 @@ impl App {
     }
 
     /// Whether the active layer owns a pixel store (`edit.cut`/`edit.copy`
-    /// also need `engine.getLayerImageBitmap(activeId)`).
+    /// also need the layer's own bitmap).
     pub(crate) fn active_layer_has_bitmap(&self, cx: &Context<Self>) -> bool {
         let Some(doc_id) = self.active_document.as_ref().map(|doc| doc.doc_id.clone()) else {
             return false;

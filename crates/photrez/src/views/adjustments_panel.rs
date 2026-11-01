@@ -58,7 +58,7 @@
 //!   `hover:bg-white/[0.03]`, `hover:scale-110`, and status
 //!   `transition-colors`.
 //! * GPUI lacks `font-variant-numeric`; Inter defaults replace
-//!   `tabular-nums`. Static ports cannot reproduce icon `Tooltip` wrappers.
+//!   `tabular-nums`. Static views cannot reproduce icon `Tooltip` wrappers.
 //! * Standard gaps: no letter-spacing, clip-path, translate/z-index/scale;
 //!   two-stop gradients only (five-stop saturation uses
 //!   `ui::gradient_segments`); padding rounds to whole px; odd-height

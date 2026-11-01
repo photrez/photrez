@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-// shared control vocabulary for panel ports that land after the shell; nothing imports this module yet
+// shared control vocabulary for the panels that land after the shell; nothing imports this module yet
 
 //! The five shared field controls the panels are built on.
 //!

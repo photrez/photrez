@@ -44,8 +44,9 @@ fn png() -> Vec<u8> {
     encode_image(1, 1, &[255, 0, 0, 255], "png", 100).expect("1x1 PNG encodes")
 }
 
-// Chromium 155: ImageBitmap -> OffscreenCanvas.drawImage -> convertToBlob("image/png").
-const BROWSER_CANVAS_PNG: [u8; 88] = [
+// Captured from the previous renderer: a 1x1 bitmap drawn through its own
+// canvas and encoded as an "image/png" blob.
+const REFERENCE_CANVAS_PNG: [u8; 88] = [
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
     0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 1, 98, 58, 81, 161, 241, 31, 0, 0, 0,
     255, 255, 195, 173, 177, 143, 0, 0, 0, 6, 73, 68, 65, 84, 3, 0, 5, 230, 2, 106, 179, 130, 221,
@@ -104,26 +105,26 @@ fn approved_target_roundtrips_document_and_layer_bytes() {
 }
 
 #[test]
-fn browser_png_bytes_roundtrip_exactly_and_decode_to_one_pixel() {
-    let directory = TestDir::new("browser-png");
-    let final_path = directory.path().join("browser-png.ptz");
+fn reference_png_bytes_roundtrip_exactly_and_decode_to_one_pixel() {
+    let directory = TestDir::new("reference-png");
+    let final_path = directory.path().join("reference-png.ptz");
     let stream = SaveStream;
     let handle = stream
-        .begin(target(directory.path(), "browser-png.ptz"), b"{}")
+        .begin(target(directory.path(), "reference-png.ptz"), b"{}")
         .expect("save starts");
     stream
-        .write_layer(handle, "browser", &BROWSER_CANVAS_PNG)
-        .expect("browser PNG writes");
+        .write_layer(handle, "reference", &REFERENCE_CANVAS_PNG)
+        .expect("reference PNG writes");
     stream.end(handle).expect("archive commits");
 
     let mut archive = zip::ZipArchive::new(File::open(final_path).expect("target exists"))
         .expect("target is a ZIP archive");
-    let saved_png = read_entry(&mut archive, "layers/browser.png");
-    assert_eq!(saved_png, BROWSER_CANVAS_PNG);
+    let saved_png = read_entry(&mut archive, "layers/reference.png");
+    assert_eq!(saved_png, REFERENCE_CANVAS_PNG);
 
     let mut rgba = [0_u8; 4];
     let dimensions = photrez_core::pixel::export::decode_png_into(&saved_png, &mut rgba)
-        .expect("saved browser PNG decodes");
+        .expect("saved reference PNG decodes");
     assert_eq!((dimensions.width(), dimensions.height()), (1, 1));
     assert_eq!(
         rgba.len(),

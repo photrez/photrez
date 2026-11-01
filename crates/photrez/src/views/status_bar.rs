@@ -54,7 +54,7 @@
 //!   baseline calculation, so 15 and 15.75 put every glyph in the same place.
 //! * **Mixed weight on one line.** `Canvas: ` (dim, 400) and `800 x 600 px`
 //!   (text, 700 — Tailwind's preflight renders `<strong>` `bolder`) are inline
-//!   siblings in JSX. GPUI stacks plain text children, so each cell is one
+//!   siblings in the markup. GPUI stacks plain text children, so each cell is one
 //!   [`StyledText`] carrying two [`TextRun`]s: one shaped line, one line box,
 //!   and no invented inter-word gap. Runs spell out `Inter` themselves because
 //!   an ambient `.font_family` reaches the element, not the run.
@@ -89,7 +89,7 @@ const BAR_PX: f32 = 12.0;
 const TEXT_SIZE: f32 = 10.5;
 
 /// Line box height for every run in the bar; see the module docs for why it is
-/// 15 rather than the browser's 15.75 or GPUI's default.
+/// 15 rather than the previous renderer's 15.75 or GPUI's default.
 const LINE_H: f32 = 15.0;
 
 /// 0.75rem (12px) between the cells of the left group.
@@ -212,7 +212,7 @@ impl FrameMetrics {
 ///  text-editor-text-dim select-none">`
 ///
 /// `relative` only exists in the source to anchor the tiling-progress hairline
-/// (omitted above); it is kept so the element tree still mirrors the JSX.
+/// (omitted above); it is kept so the element tree still mirrors the markup.
 ///
 /// `status_error` is production state, not a baseline value: the resting captures
 /// pass `None`, so the default bar is pixel-identical to the golden master. A
@@ -258,7 +258,7 @@ pub fn render(
 /// `<div class="flex items-center gap-3">` — the readout cells, in order.
 ///
 /// Six cells: Canvas, Zoom, Active, tool-hint, Selected Layer, and the dev-mode
-/// Frame timing. The Frame cell is gated in the web build on
+/// Frame timing. The Frame cell is gated as the previous build gated it:
 /// `devFrameStats() && devFrameStats()!.frames > 0`; the dev-mode capture
 /// always has frames > 0, so the cell is always present in the golden master.
 fn left_group(
@@ -363,7 +363,7 @@ fn frame_run_specs(metrics: &FrameMetrics, status_color: Hsla) -> Vec<FrameRun> 
             bold: true,
         },
         FrameRun {
-            // One run, not two: the JSX wraps ` max {max}ms` in a single
+            // One run, not two: the markup wraps ` max {max}ms` in a single
             // `text-editor-text/40` span, and the golden master measures one
             // flat ~94 level across the whole tail - `max 1.9ms` is NOT bold.
             text: format!(" max {max}ms"),
@@ -404,7 +404,7 @@ fn frame_text(metrics: &FrameMetrics, status_color: Hsla) -> StyledText {
 ///  <span class="text-editor-text/60">...</span></span>` — the tool hint.
 ///
 /// The inner span carries the colour and the outer the rule; nesting them
-/// rather than colouring the ruled div keeps the two JSX layers apart, which
+/// rather than colouring the ruled div keeps the two markup layers apart, which
 /// matters if either ever grows a second child.
 fn divided_tip(tool: crate::state::ToolId) -> impl IntoElement {
     ruled(div().text_color(STATUS_COLOR).child(t(tip_key(tool))))

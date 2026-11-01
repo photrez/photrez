@@ -7,7 +7,7 @@
 //! # Why a module-level static rather than GPUI state
 //!
 //! The idiomatic answer would be a `Global` in the app context, but every
-//! component's `render()` here takes no `cx` - the ports are plain
+//! component's `render()` here takes no `cx` - the render functions are plain
 //! `fn render() -> impl IntoElement`. Threading a context through all of them
 //! to carry one startup-once value would cost that, and the value is fixed for
 //! the process's lifetime. A `OnceLock` costs one lookup and no allocation

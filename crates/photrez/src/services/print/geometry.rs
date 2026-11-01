@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(unit_to_mm(42.0, "unknown"), 42.0);
     }
 
-    /// The frozen `print_geometry.rs` expectations, ported as an independent
+    /// The reference print-geometry expectations, reproduced as an independent
     /// parity table: exact conversion anchors, zero/negative identity, and the
     /// large-value case.
     #[test]
