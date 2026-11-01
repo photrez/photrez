@@ -211,8 +211,8 @@ pub fn render(
 /// `<div role="tablist" class="flex items-stretch overflow-x-auto
 ///  tab-scrollbar flex-1 h-full min-w-0">`
 ///
-/// `overflow-x: overlay` + the `tab-scrollbar` rules only style a
-/// `::-webkit-scrollbar` that a single tab never produces, so the scroll
+/// The reference's overlay-overflow and scrollbar rules only style a scrollbar
+/// that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
 /// reserve or overlay a scrollbar the web render does not paint here.
 fn tab_list(

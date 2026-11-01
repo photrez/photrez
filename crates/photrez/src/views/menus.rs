@@ -89,7 +89,7 @@
 //!   menus ask for the divider value, which does resolve,
 //!   so `color::DIVIDER` is correct here rather than a fallback.
 //! * Icon edges carry LCD subpixel colour GPUI cannot reproduce (it tints an
-//!   alpha mask), and `-webkit-font-smoothing: antialiased` covers type only,
+//!   alpha mask), and the browser's font-smoothing hint covers type only,
 //!   not SVG. Position will be right, colour will differ.
 //! * No letter-spacing: GPUI's shaper runs +/-0.2px per glyph off Chromium, as
 //!   two. Shortcuts are right-aligned, which hides this at the label end.

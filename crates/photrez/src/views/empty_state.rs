@@ -169,8 +169,8 @@
 //! * **`truncate`** on the preset labels is `overflow:hidden` +
 //!   `text-overflow:ellipsis` + `white-space:nowrap`. Nothing clips at these
 //!   widths, so this view uses `whitespace_nowrap()` and lets GPUI size the run.
-//! * **Text rasterisation.** ClearType subpixel fringes and `-webkit-font-
-//!   smoothing: antialiased` are the rasteriser's, not the markup's; every
+//! * **Text rasterisation.** ClearType subpixel fringes and the browser's
+//!   font-smoothing hint are the rasteriser's, not the markup's; every
 //!   measured ink profile here carries the same LCD colour splits (`7a7a7a`
 //!   reads as `627a7a` / `6f5232` on adjacent channels) that GPUI cannot
 //!   produce.

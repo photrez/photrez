@@ -13,8 +13,8 @@ use crate::tokens::{color, title};
 /// Each 46px button overhangs the 45px content box by 0.5px; `overflow-hidden`
 /// clips it. `manifest.json`: Minimize at `y = -0.5`, height 46.
 ///
-/// The original paints the same buttons everywhere because Tauri's
-/// `decorations: false` removes window chrome; native toolkits own controls
+/// The reference paints the same buttons everywhere because its shell set
+/// `decorations: false`, removing window chrome; native toolkits own controls
 /// differently, so this follows each platform's convention:
 ///
 /// | platform | what owns the controls |

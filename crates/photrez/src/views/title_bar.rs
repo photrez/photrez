@@ -6,7 +6,7 @@
 //! Static captures omit:
 //! * menu popups (Portal, `z-[100]`, keyboard navigation)
 //! * the system menu on Alt+Space
-//! * `data-tauri-drag-region` and double-click-to-maximize
+//! * the reference shell's drag-region attribute and double-click-to-maximize
 //! * window state (`isMaximized()` swaps the maximize icon)
 //!
 //! Hover states are ported as part of the component contract.
@@ -308,7 +308,7 @@ fn pad_x(_label: &str) -> f32 {
 
 /// `<div class="flex min-w-4 flex-1 items-center justify-center self-stretch">`
 ///
-/// The `data-tauri-drag-region` attribute and its double-click handler have no
+/// The reference shell's drag-region attribute and its double-click handler have no
 /// native equivalent here; the cell is still a plain centred flex child.
 fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     let document_name = state.read(cx).document_name.clone();

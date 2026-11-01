@@ -100,7 +100,7 @@ fn an_empty_shape_params_is_accepted_as_all_defaults() {
 /// be written as 0 and then mutated to 1 on the next load, so the value would
 /// change across one save/reload cycle for no user action.
 #[test]
-fn box_dimensions_follow_box_mode_like_the_typescript_normaliser() {
+fn box_dimensions_follow_box_mode_and_round_like_the_reference() {
     // Absent boxWidth in AREA mode floors to 1, not 0.
     let area = r##"{"content":"x","boxMode":"area"}"##;
     let td: TextData = serde_json::from_str(area).expect("area-mode TextData");

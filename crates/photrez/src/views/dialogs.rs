@@ -73,7 +73,7 @@
 //!   the canvas behind stays live. A static view cannot express "this overlay
 //!   does not block the thing under it", because it has no pointer routing.
 //! * Icon edges carry LCD subpixel colour GPUI cannot reproduce: it tints an
-//!   alpha mask, and `-webkit-font-smoothing: antialiased` covers type only,
+//!   alpha mask, and the browser's font-smoothing hint covers type only,
 //!   not SVG.
 
 use gpui_kit::base::{h_flex, v_flex};
