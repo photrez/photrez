@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -24,75 +23,17 @@ use super::{
     InputMeasurementReceipt, InputMeasurementRender, InputMeasurementSnapshot, RefreshOutcome,
 };
 
-const USAGE: &str = "measure-input [options]\n  --samples N       independent runs (default 1; max 10)\n  --strokes N       strokes per run (default 1; max 100)\n  --moves N         pointer moves per stroke (default 1; max 1000)\n  --canvas N        canvas width (2 = bounded fixture; default 2; max 4096)\n  --canvas-height N canvas height (default: same as --canvas)\n  --layers N        raster layers in the generated fixture (default 1; max 4)\n  --brush-sizes A,B brush sizes in document px (default 2)\n  --base blank|opaque base layer for a generated canvas (default opaque)\n  --help            show this help\n\nG8 example: --samples 3 --strokes 12 --moves 40 --canvas 4096 --canvas-height 1024 --layers 3 --brush-sizes 800,40 --base blank";
-const MAX_SAMPLES: usize = 10;
-const MAX_STROKES: usize = 100;
-const MAX_MOVES: usize = 1_000;
-const MAX_CANVAS: u32 = 4_096;
-const MAX_BRUSH: u32 = 4_096;
-const MAX_LAYERS: usize = 4;
+mod args;
+mod fixture;
+
+use args::{parse_args, Case, Config, USAGE};
+use fixture::stage_fixture;
+
 const WAIT_LIMIT: Duration = Duration::from_secs(60);
+/// A click or hover that paints nothing produces no frame; this is how long a
+/// sample waits before it is recorded as `no_frame` instead of blocking a run.
+const EVENT_WAIT_LIMIT: Duration = Duration::from_millis(2_000);
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
-const BOUNDED_FIXTURE: &[u8] = include_bytes!("../../../tests/fixtures/bounded-raster.ptz");
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Base {
-    Blank,
-    Opaque,
-}
-
-impl Base {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Blank => "blank",
-            Self::Opaque => "opaque",
-        }
-    }
-
-    fn pixel(self) -> [u8; 4] {
-        match self {
-            Self::Blank => [0, 0, 0, 0],
-            Self::Opaque => [255, 255, 255, 255],
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Config {
-    samples: usize,
-    strokes: usize,
-    moves: usize,
-    canvas: u32,
-    canvas_height: u32,
-    layers: usize,
-    brush_sizes: Vec<u32>,
-    base: Base,
-}
-
-impl Config {
-    fn height(&self) -> u32 {
-        if self.canvas_height == 0 {
-            self.canvas
-        } else {
-            self.canvas_height
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            samples: 1,
-            strokes: 1,
-            moves: 1,
-            canvas: 2,
-            canvas_height: 0,
-            layers: 1,
-            brush_sizes: vec![2],
-            base: Base::Opaque,
-        }
-    }
-}
 
 #[derive(Clone)]
 struct CanonicalState {
@@ -151,308 +92,6 @@ struct SampleReport<W> {
     expected_window: W,
 }
 
-fn parse_args(args: &[String]) -> Result<Option<Config>, String> {
-    let mut config = Config::default();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--help" => return Ok(None),
-            "--samples" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--samples requires a value".to_owned())?;
-                config.samples = value
-                    .parse::<usize>()
-                    .map_err(|_| format!("invalid sample count: {value}"))?;
-                if !(1..=MAX_SAMPLES).contains(&config.samples) {
-                    return Err(format!("--samples must be in 1..={MAX_SAMPLES}"));
-                }
-            }
-            "--strokes" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--strokes requires a value".to_owned())?;
-                config.strokes = value
-                    .parse::<usize>()
-                    .map_err(|_| format!("invalid stroke count: {value}"))?;
-                if !(1..=MAX_STROKES).contains(&config.strokes) {
-                    return Err(format!("--strokes must be in 1..={MAX_STROKES}"));
-                }
-            }
-            "--moves" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--moves requires a value".to_owned())?;
-                config.moves = value
-                    .parse::<usize>()
-                    .map_err(|_| format!("invalid move count: {value}"))?;
-                if !(1..=MAX_MOVES).contains(&config.moves) {
-                    return Err(format!("--moves must be in 1..={MAX_MOVES}"));
-                }
-            }
-            "--canvas" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--canvas requires a value".to_owned())?;
-                config.canvas = value
-                    .parse::<u32>()
-                    .map_err(|_| format!("invalid canvas size: {value}"))?;
-                if !(2..=MAX_CANVAS).contains(&config.canvas) {
-                    return Err(format!("--canvas must be in 2..={MAX_CANVAS}"));
-                }
-            }
-            "--canvas-height" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--canvas-height requires a value".to_owned())?;
-                config.canvas_height = value
-                    .parse::<u32>()
-                    .map_err(|_| format!("invalid canvas height: {value}"))?;
-                if !(2..=MAX_CANVAS).contains(&config.canvas_height) {
-                    return Err(format!("--canvas-height must be in 2..={MAX_CANVAS}"));
-                }
-            }
-            "--layers" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--layers requires a value".to_owned())?;
-                config.layers = value
-                    .parse::<usize>()
-                    .map_err(|_| format!("invalid layer count: {value}"))?;
-                if !(1..=MAX_LAYERS).contains(&config.layers) {
-                    return Err(format!("--layers must be in 1..={MAX_LAYERS}"));
-                }
-            }
-            "--brush-sizes" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--brush-sizes requires a value".to_owned())?;
-                let mut sizes = Vec::new();
-                for part in value.split(',') {
-                    let size = part
-                        .parse::<u32>()
-                        .map_err(|_| format!("invalid brush size: {part}"))?;
-                    if !(1..=MAX_BRUSH).contains(&size) {
-                        return Err(format!("brush sizes must be in 1..={MAX_BRUSH}"));
-                    }
-                    sizes.push(size);
-                }
-                if sizes.is_empty() {
-                    return Err("--brush-sizes requires at least one value".to_owned());
-                }
-                config.brush_sizes = sizes;
-            }
-            "--base" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--base requires a value".to_owned())?;
-                config.base = match value.as_str() {
-                    "blank" => Base::Blank,
-                    "opaque" => Base::Opaque,
-                    other => return Err(format!("unknown base: {other}")),
-                };
-            }
-            other => return Err(format!("unknown option: {other}")),
-        }
-        index += 1;
-    }
-    Ok(Some(config))
-}
-
-fn stage_fixture(root: &std::path::Path, config: &Config) -> Result<(PathBuf, String), String> {
-    if config.canvas == 2 {
-        let path = root.join("bounded-raster.ptz");
-        std::fs::write(&path, BOUNDED_FIXTURE)
-            .map_err(|error| format!("cannot stage bounded fixture: {error}"))?;
-        return Ok((path, "bounded-raster.ptz".into()));
-    }
-    let label = format!(
-        "generated-{}x{}-{}l-{}.ptz",
-        config.canvas,
-        config.height(),
-        config.layers,
-        config.base.label()
-    );
-    let path = root.join(&label);
-    let bytes = build_ptz(config.canvas, config.height(), config.layers, config.base)?;
-    std::fs::write(&path, &bytes)
-        .map_err(|error| format!("cannot stage generated fixture: {error}"))?;
-    Ok((path, label))
-}
-
-fn build_ptz(width: u32, height: u32, layers: usize, base: Base) -> Result<Vec<u8>, String> {
-    if layers == 0 {
-        return Err("a fixture needs at least one raster layer".to_owned());
-    }
-    let raster_layers: Vec<Value> = (0..layers)
-        .map(|index| {
-            serde_json::json!({
-                "id": format!("raster-{}", index + 1),
-                "name": format!("Raster {}", index + 1),
-                "type": "raster",
-                "visible": true,
-                "opacity": 1.0,
-                "locked": false,
-                "blendMode": "normal",
-                "transform": {
-                    "x": 0.0, "y": 0.0, "scaleX": 1.0, "scaleY": 1.0,
-                    "rotation": 0.0, "flipH": false, "flipV": false
-                },
-                "width": width,
-                "height": height
-            })
-        })
-        .collect();
-    let document = serde_json::json!({
-        "format": "photrez-ptz",
-        "version": 3,
-        "id": "parity-doc",
-        "name": format!("Generated {width}x{height} {}", base.label()),
-        "width": width,
-        "height": height,
-        "layers": raster_layers
-    });
-    let document = serde_json::to_vec(&document)
-        .map_err(|error| format!("cannot encode fixture document: {error}"))?;
-    let png = encode_png(width, height, base.pixel())?;
-    let cursor = std::io::Cursor::new(Vec::new());
-    let mut writer = zip::write::ZipWriter::new(cursor);
-    writer
-        .start_file("document.json", fixture_file_options())
-        .map_err(|error| format!("cannot start fixture document entry: {error}"))?;
-    writer
-        .write_all(&document)
-        .map_err(|error| format!("cannot write fixture document: {error}"))?;
-    for index in 1..=layers {
-        writer
-            .start_file(format!("layers/raster-{index}.png"), fixture_file_options())
-            .map_err(|error| format!("cannot start fixture layer entry: {error}"))?;
-        writer
-            .write_all(&png)
-            .map_err(|error| format!("cannot write fixture layer: {error}"))?;
-    }
-    let cursor = writer
-        .finish()
-        .map_err(|error| format!("cannot finish fixture archive: {error}"))?;
-    Ok(cursor.into_inner())
-}
-
-fn fixture_file_options() -> zip::write::SimpleFileOptions {
-    zip::write::SimpleFileOptions::DEFAULT
-        .compression_method(zip::CompressionMethod::Deflated)
-        .compression_level(Some(6))
-        .system(zip::System::Dos)
-        .external_attributes(0o600 << 16)
-}
-
-fn encode_png(width: u32, height: u32, pixel: [u8; 4]) -> Result<Vec<u8>, String> {
-    if width == 0 || height == 0 {
-        return Err("PNG dimensions must be non-zero".to_owned());
-    }
-    let row = (width as usize)
-        .checked_mul(4)
-        .and_then(|value| value.checked_add(1))
-        .ok_or_else(|| "PNG row size overflow".to_owned())?;
-    let raw_len = (height as usize)
-        .checked_mul(row)
-        .ok_or_else(|| "PNG data size overflow".to_owned())?;
-    let mut row_bytes = Vec::with_capacity(row);
-    row_bytes.push(0);
-    for _ in 0..width {
-        row_bytes.extend_from_slice(&pixel);
-    }
-    let mut raw = Vec::with_capacity(raw_len);
-    for _ in 0..height {
-        raw.extend_from_slice(&row_bytes);
-    }
-    let zlib = zlib_store(&raw);
-    let mut png = Vec::with_capacity(zlib.len() + 64);
-    png.extend_from_slice(b"\x89PNG\r\n\x1a\n");
-    let mut ihdr = Vec::with_capacity(13);
-    ihdr.extend_from_slice(&width.to_be_bytes());
-    ihdr.extend_from_slice(&height.to_be_bytes());
-    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
-    push_png_chunk(&mut png, b"IHDR", &ihdr)?;
-    push_png_chunk(&mut png, b"IDAT", &zlib)?;
-    push_png_chunk(&mut png, b"IEND", &[])?;
-    Ok(png)
-}
-
-fn push_png_chunk(out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]) -> Result<(), String> {
-    let length = u32::try_from(data.len()).map_err(|_| "PNG chunk is too large".to_owned())?;
-    out.extend_from_slice(&length.to_be_bytes());
-    out.extend_from_slice(tag);
-    out.extend_from_slice(data);
-    out.extend_from_slice(&crc32_chunks(&[tag, data]).to_be_bytes());
-    Ok(())
-}
-
-fn zlib_store(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len() + data.len() / 65_535 * 5 + 16);
-    out.extend_from_slice(&[0x78, 0x01]);
-    let mut offset = 0;
-    loop {
-        let remaining = data.len().saturating_sub(offset);
-        let take = remaining.min(65_535);
-        let end = offset + take;
-        let final_block = end == data.len();
-        out.push(u8::from(final_block));
-        let length = take as u16;
-        out.extend_from_slice(&length.to_le_bytes());
-        out.extend_from_slice(&(!length).to_le_bytes());
-        if let Some(chunk) = data.get(offset..end) {
-            out.extend_from_slice(chunk);
-        }
-        offset = end;
-        if final_block {
-            break;
-        }
-    }
-    out.extend_from_slice(&adler32(data).to_be_bytes());
-    out
-}
-
-fn adler32(data: &[u8]) -> u32 {
-    const MOD_ADLER: u32 = 65_521;
-    let mut first = 1u32;
-    let mut second = 0u32;
-    for &byte in data {
-        first = (first + byte as u32) % MOD_ADLER;
-        second = (second + first) % MOD_ADLER;
-    }
-    (second << 16) | first
-}
-
-fn crc32_chunks(chunks: &[&[u8]]) -> u32 {
-    let mut table = [0u32; 256];
-    for (index, entry) in table.iter_mut().enumerate() {
-        let mut value = index as u32;
-        for _ in 0..8 {
-            value = if value & 1 != 0 {
-                0xEDB8_8320 ^ (value >> 1)
-            } else {
-                value >> 1
-            };
-        }
-        *entry = value;
-    }
-    let mut crc = 0xFFFF_FFFFu32;
-    for chunk in chunks {
-        for &byte in *chunk {
-            crc = table[((crc ^ byte as u32) & 0xFF) as usize] ^ (crc >> 8);
-        }
-    }
-    crc ^ 0xFFFF_FFFF
-}
-
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let config = match parse_args(&args) {
@@ -474,6 +113,17 @@ pub fn run() {
             emit(failure_json(error), 2);
         }
     };
+    // The sandbox is deleted when the run ends, so a receipt that has to hash
+    // the measured fixture needs a copy that outlives the process.
+    if let Some(path) = config.fixture_out.as_deref() {
+        if let Err(error) = std::fs::copy(&fixture_path, path) {
+            sandbox.cleanup();
+            emit(
+                failure_json(format!("cannot copy the fixture to {path}: {error}")),
+                2,
+            );
+        }
+    }
     let file_io: Arc<dyn FileIo> =
         match LocalFileIo::new(sandbox.root.clone(), sandbox.root.join("approvals.json")) {
             Ok(file_io) => Arc::new(file_io),
@@ -583,7 +233,7 @@ impl Runner {
         if let Err(error) = self.wait_for_canvas_bounds(cx).await {
             self.finish(failure_json(error), 1);
         }
-        if let Err(error) = self.select_brush(cx) {
+        if let Err(error) = self.select_tool(cx) {
             self.finish(failure_json(error), 1);
         }
         let baseline = match self.canonical(cx) {
@@ -591,9 +241,42 @@ impl Runner {
             Err(error) => self.finish(failure_json(error), 1),
         };
 
+        if self.config.case != Case::Stroke {
+            let runs = self.run_event_case(cx).await;
+            match runs {
+                Ok(runs) => {
+                    let summary =
+                        summary_json(&self.config, &self.fixture_label, runs, "ok", &baseline);
+                    self.finish(summary, 0);
+                }
+                Err(error) => self.finish(failure_json(error), 1),
+            }
+        }
+
         let samples = self.config.samples;
         let strokes_per_run = self.config.strokes;
         let brush_sizes = self.config.brush_sizes.clone();
+        let first_brush = brush_sizes.first().copied().unwrap_or(2);
+        if let Err(error) = self.set_brush_size(first_brush, cx) {
+            self.finish(failure_json(error), 1);
+        }
+        // A warm run does not charge first-use texture costs to the measured
+        // samples; the warm-up strokes are undone like any run.
+        if self.config.warmup > 0 {
+            for stroke in 0..self.config.warmup {
+                let request = StrokeRequest {
+                    sample_index: 0,
+                    stroke_index: stroke,
+                    brush_size: first_brush,
+                };
+                if let Err(error) = self.run_sample(request, cx).await {
+                    self.finish(failure_json(error), 1);
+                }
+            }
+            if let Err(error) = self.reset_run(self.config.warmup, &baseline, cx) {
+                self.finish(failure_json(error), 1);
+            }
+        }
         let mut runs = Vec::with_capacity(samples.saturating_mul(brush_sizes.len()));
         for sample in 1..=samples {
             for &brush_size in &brush_sizes {
@@ -624,7 +307,7 @@ impl Runner {
                 }));
             }
         }
-        let summary = summary_json(&self.config, &self.fixture_label, runs, "ok");
+        let summary = summary_json(&self.config, &self.fixture_label, runs, "ok", &baseline);
         self.finish(summary, 0);
     }
 
@@ -679,7 +362,13 @@ impl Runner {
         }
     }
 
-    fn select_brush(&self, cx: &mut gpui_kit::AsyncApp) -> Result<(), String> {
+    /// Selects the tool the case drives through the production Canvas key
+    /// binding: Move for a metadata click, Brush for a stroke or a hover.
+    fn select_tool(&self, cx: &mut gpui_kit::AsyncApp) -> Result<(), String> {
+        let (key, expected, label) = match self.config.case {
+            Case::Click => ("v", ToolId::Move, "Move"),
+            Case::Hover | Case::Stroke => ("b", ToolId::Brush, "Brush"),
+        };
         let focus_handle = self
             .app
             .update(cx, |app, _| app.canvas_focus_handle.clone())
@@ -689,8 +378,8 @@ impl Runner {
             if !focus_handle.is_focused(window) {
                 return Err("production Canvas focus was not acquired".to_owned());
             }
-            let keystroke = Keystroke::parse("b")
-                .map_err(|error| format!("cannot build Brush keystroke: {error}"))?;
+            let keystroke = Keystroke::parse(key)
+                .map_err(|error| format!("cannot build {label} keystroke: {error}"))?;
             let _ = window.dispatch_event(
                 PlatformInput::KeyDown(KeyDownEvent {
                     keystroke,
@@ -701,17 +390,132 @@ impl Runner {
             );
             Ok(())
         })
-        .map_err(|error| format!("window closed while selecting Brush: {error:?}"))??;
+        .map_err(|error| format!("window closed while selecting {label}: {error:?}"))??;
         let selected = self
             .app
-            .update(cx, |app, app_cx| {
-                app.state.read(app_cx).active_tool == ToolId::Brush
+            .update(cx, move |app, app_cx| {
+                app.state.read(app_cx).active_tool == expected
             })
-            .map_err(|error| format!("App closed during Brush key dispatch: {error:?}"))?;
+            .map_err(|error| format!("App closed during {label} key dispatch: {error:?}"))?;
         if selected {
             Ok(())
         } else {
-            Err("focused Canvas key dispatch did not select Brush".into())
+            Err(format!(
+                "focused Canvas key dispatch did not select {label}"
+            ))
+        }
+    }
+
+    /// Click and hover cases: dispatch one production interaction, then time
+    /// the first same-window frame that starts after the dispatch and its
+    /// following Present. No document commit is involved, so the App render
+    /// marker is not the endpoint; the profiler events are.
+    async fn run_event_case(&self, cx: &mut gpui_kit::AsyncApp) -> Result<Vec<Value>, String> {
+        let events_per_run = self.config.strokes.max(1);
+        let mut runs = Vec::with_capacity(self.config.samples);
+        for sample in 1..=self.config.samples {
+            if self.config.warmup > 0 {
+                for index in 0..self.config.warmup {
+                    self.event_sample(index, cx).await?;
+                }
+            }
+            let mut events = Vec::with_capacity(events_per_run);
+            for index in 0..events_per_run {
+                match self.event_sample(index, cx).await {
+                    Ok(value) => events.push(value),
+                    Err(error) => return Err(format!("sample {sample}: {error}")),
+                }
+            }
+            let matched = events
+                .iter()
+                .filter(|event| event.get("present").and_then(Value::as_f64).is_some())
+                .count();
+            let aggregate = aggregate_events(&events);
+            runs.push(json!({
+                "sample": sample,
+                "brush_size": Value::Null,
+                "strokes": events,
+                "matched_present_count": matched,
+                "aggregate": aggregate,
+            }));
+        }
+        Ok(runs)
+    }
+
+    async fn event_sample(
+        &self,
+        index: usize,
+        cx: &mut gpui_kit::AsyncApp,
+    ) -> Result<Value, String> {
+        let bounds = self
+            .app
+            .update(cx, |app, _| app.input_measurement_bounds().get())
+            .map_err(|error| format!("App closed while reading canvas bounds: {error:?}"))?
+            .ok_or_else(|| "production canvas bounds are missing".to_owned())?;
+        let state = self.canonical(cx)?;
+        // Two page points that land on different layers of the canonical
+        // fixture, so each click changes the selection and forces a repaint.
+        let pixel = match index % 2 {
+            0 => (state.width / 3, state.height / 2),
+            _ => (state.width * 2 / 3, state.height / 2),
+        };
+        let position = point_for_pixel(bounds, &state, pixel)?;
+        let input = match self.config.case {
+            Case::Hover => PlatformInput::MouseMove(MouseMoveEvent {
+                position,
+                pressed_button: None,
+                ..Default::default()
+            }),
+            Case::Click | Case::Stroke => PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position,
+                ..Default::default()
+            }),
+        };
+        let mut collector = FrameTimingCollector::new();
+        let mut frames: Vec<FrameRecord<WindowId>> = Vec::new();
+        let window_id = self.window_identity.window_id();
+        let start = Instant::now();
+        self.dispatch_input(input, cx, index)?;
+        if self.config.case == Case::Click {
+            self.dispatch_input(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button: MouseButton::Left,
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+                index,
+            )?;
+        }
+        let handler_ms = millis(start.elapsed());
+
+        let deadline = Instant::now() + EVENT_WAIT_LIMIT;
+        loop {
+            self.collect_frames(&mut collector, &mut frames);
+            if let Some(outcome) = first_frame_after(&frames, window_id, start) {
+                return Ok(json!({
+                    "sample": index,
+                    "case": self.config.case.label(),
+                    "status": "present",
+                    "handler_ms": round4(handler_ms),
+                    "draw_start_offset_ms": round4(outcome.draw_start_offset_ms),
+                    "draw_duration_ms": round4(outcome.draw_duration_ms),
+                    "present": round4(outcome.present_ms),
+                    "point": [pixel.0, pixel.1],
+                }));
+            }
+            if Instant::now() >= deadline {
+                return Ok(json!({
+                    "sample": index,
+                    "case": self.config.case.label(),
+                    "status": "no_frame",
+                    "handler_ms": round4(handler_ms),
+                    "present": Value::Null,
+                    "point": [pixel.0, pixel.1],
+                }));
+            }
+            cx.background_executor().timer(POLL_INTERVAL).await;
         }
     }
 
@@ -1239,6 +1043,28 @@ fn aggregate_strokes(strokes: &[Value]) -> Value {
     })
 }
 
+fn aggregate_events(events: &[Value]) -> Value {
+    let present = collect_metric(events, "present");
+    let handler = collect_metric(events, "handler_ms");
+    let draw = collect_metric(events, "draw_duration_ms");
+    let raw: Vec<Value> = events
+        .iter()
+        .map(|event| event.get("present").cloned().unwrap_or(Value::Null))
+        .collect();
+    json!({
+        "event_count": events.len(),
+        "present_count": present.len(),
+        "dispatch_to_present_ms": if present.is_empty() {
+            Value::Null
+        } else {
+            metric_summary(&present)
+        },
+        "handler_dispatch_ms": metric_summary(&handler),
+        "draw_duration_ms": metric_summary(&draw),
+        "dispatch_to_present_samples_ms": raw,
+    })
+}
+
 fn collect_metric(strokes: &[Value], key: &str) -> Vec<f64> {
     strokes
         .iter()
@@ -1524,6 +1350,46 @@ fn millis(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }
 
+fn round4(value: f64) -> f64 {
+    (value * 10_000.0).round() / 10_000.0
+}
+
+/// The first frame that starts after an event, and the Present that follows it.
+struct FrameOutcome {
+    draw_start_offset_ms: f64,
+    draw_duration_ms: f64,
+    present_ms: f64,
+}
+
+fn first_frame_after<W: Copy + PartialEq>(
+    events: &[FrameRecord<W>],
+    expected_window: W,
+    after: Instant,
+) -> Option<FrameOutcome> {
+    let draw_index = events.iter().position(|event| {
+        matches!(
+            event,
+            FrameRecord::Draw { window_id, start, .. }
+                if *window_id == expected_window && *start >= after
+        )
+    })?;
+    let FrameRecord::Draw { start, end, .. } = events[draw_index] else {
+        return None;
+    };
+    let present = events
+        .iter()
+        .skip(draw_index + 1)
+        .find_map(|event| match event {
+            FrameRecord::Present { window_id, end } if *window_id == expected_window => Some(*end),
+            _ => None,
+        })?;
+    Some(FrameOutcome {
+        draw_start_offset_ms: millis(start.saturating_duration_since(after)),
+        draw_duration_ms: millis(end.saturating_duration_since(start)),
+        present_ms: millis(present.saturating_duration_since(after)),
+    })
+}
+
 fn signed_millis(at: Instant, origin: Instant) -> f64 {
     if at >= origin {
         millis(at.duration_since(origin))
@@ -1532,14 +1398,32 @@ fn signed_millis(at: Instant, origin: Instant) -> f64 {
     }
 }
 
-fn summary_json(config: &Config, fixture: &str, runs: Vec<Value>, status: &str) -> Value {
+fn summary_json(
+    config: &Config,
+    fixture: &str,
+    runs: Vec<Value>,
+    status: &str,
+    baseline: &CanonicalState,
+) -> Value {
     json!({
         "benchmark": "measure-input",
         "status": status,
-        "claim": "synthetic_input_to_commit_only",
+        "claim": match config.case {
+            Case::Stroke => "synthetic_input_to_commit_only",
+            _ => "event_dispatch_to_first_frame_present",
+        },
         "input_path": "Window::dispatch_event -> production canvas hitbox",
         "fixture": fixture,
+        "fixture_identity": {
+            "width": baseline.width,
+            "height": baseline.height,
+            "active_layer_id": baseline.layer_id,
+            "baseline_digest_fnv64": format!("{:016x}", digest64(&baseline.pixels)),
+        },
         "workload": {
+            "case": config.case.label(),
+            "mode": config.mode.as_str(),
+            "warmup": config.warmup,
             "samples": config.samples,
             "strokes": config.strokes,
             "moves": config.moves,
@@ -1548,15 +1432,20 @@ fn summary_json(config: &Config, fixture: &str, runs: Vec<Value>, status: &str) 
             "layers": if config.canvas == 2 { 1 } else { config.layers },
             "brush_sizes": config.brush_sizes,
             "base": if config.canvas == 2 { "bounded" } else { config.base.label() },
+            "content": if config.canvas == 2 { "bounded" } else { config.content.label() },
             "reset_between_runs": "undo to the run baseline, pixels verified",
         },
+        "clock": "monotonic Instant; start = the dispatch call, endpoint = profiler present_end",
+        "present_tier": "platform submission completion, not measured display latency",
         "profile": if cfg!(debug_assertions) { "dev" } else { "release" },
         "runs": runs,
         "metric_mapping": {
             "pointer_to_brush_ms": "first preview present after pointerdown (Q6 overlay path); null when no preview",
             "dispatch_to_commit_ms": "down dispatch to successful core commit (record-only)",
             "brush_commit_ms": "handler_entry_to_commit_ms",
-            "brush_mouseup_ms": "up_to_commit_ms"
+            "brush_mouseup_ms": "up_to_commit_ms",
+            "dispatch_to_present_ms": "event dispatch to the first Present of the frame it caused",
+            "handler_dispatch_ms": "synchronous cost of dispatching the event pair"
         },
         "display_observation": "same-window GPUI draw followed by platform submission completion",
         "rss_bytes": null,
@@ -1597,106 +1486,6 @@ mod tests {
             version: 1,
             rendered_at: at,
         }
-    }
-
-    #[test]
-    fn parser_bounds_workload() {
-        assert_eq!(parse_args(&[]), Ok(Some(Config::default())));
-        assert!(parse_args(&["--samples".into(), "2".into()]).is_ok());
-        assert!(parse_args(&["--samples".into(), "0".into()]).is_err());
-        assert!(parse_args(&["--samples".into(), "11".into()]).is_err());
-        assert!(parse_args(&["--strokes".into(), "0".into()]).is_err());
-        assert!(parse_args(&["--moves".into(), "1001".into()]).is_err());
-        assert!(parse_args(&["--canvas".into(), "1".into()]).is_err());
-        assert!(parse_args(&["--canvas".into(), "4097".into()]).is_err());
-        assert!(parse_args(&["--canvas-height".into(), "1".into()]).is_err());
-        assert!(parse_args(&["--canvas-height".into(), "4097".into()]).is_err());
-        assert!(parse_args(&["--layers".into(), "0".into()]).is_err());
-        assert!(parse_args(&["--layers".into(), "5".into()]).is_err());
-        assert!(parse_args(&["--brush-sizes".into(), "0".into()]).is_err());
-        assert!(parse_args(&["--base".into(), "both".into()]).is_err());
-        assert_eq!(parse_args(&["--help".into()]), Ok(None));
-    }
-
-    #[test]
-    fn parser_accepts_g8_workload() {
-        let args: Vec<String> = [
-            "--samples",
-            "3",
-            "--strokes",
-            "12",
-            "--moves",
-            "40",
-            "--canvas",
-            "4096",
-            "--canvas-height",
-            "1024",
-            "--layers",
-            "3",
-            "--brush-sizes",
-            "800,40",
-            "--base",
-            "blank",
-        ]
-        .iter()
-        .map(|value| (*value).to_owned())
-        .collect();
-        let config = parse_args(&args)
-            .expect("G8 arguments parse")
-            .expect("G8 arguments are not help");
-        assert_eq!(config.samples, 3);
-        assert_eq!(config.strokes, 12);
-        assert_eq!(config.moves, 40);
-        assert_eq!(config.canvas, 4096);
-        assert_eq!(config.height(), 1024);
-        assert_eq!(config.layers, 3);
-        assert_eq!(config.brush_sizes, vec![800, 40]);
-        assert_eq!(config.base, Base::Blank);
-    }
-
-    #[test]
-    fn canvas_height_defaults_to_width() {
-        let args: Vec<String> = ["--canvas", "4096"]
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect();
-        let config = parse_args(&args).expect("width parses").expect("not help");
-        assert_eq!(config.canvas, 4096);
-        assert_eq!(config.height(), 4096);
-        assert_eq!(config.layers, 1);
-    }
-
-    #[test]
-    fn crc_and_adler_match_known_vectors() {
-        assert_eq!(crc32_chunks(&[b"123456789"]), 0xCBF4_3926);
-        assert_eq!(adler32(b"Wikipedia"), 0x11E6_0398);
-    }
-
-    #[test]
-    fn png_encoder_emits_signature_and_idat() {
-        let png = encode_png(2, 1, [12, 34, 56, 255]).expect("small PNG encodes");
-        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
-        assert!(png.windows(4).any(|window| window == b"IDAT"));
-    }
-
-    #[test]
-    fn generated_fixture_is_a_zip_archive() {
-        let bytes = build_ptz(2, 2, 1, Base::Blank).expect("generated fixture builds");
-        assert!(bytes.starts_with(b"PK\x03\x04"));
-        assert!(bytes.len() > 100);
-    }
-
-    #[test]
-    fn generated_fixture_carries_every_requested_layer() {
-        let bytes = build_ptz(8, 4, 3, Base::Opaque).expect("three-layer fixture builds");
-        let text = String::from_utf8_lossy(&bytes);
-        for index in 1..=3 {
-            assert!(
-                text.contains(&format!("layers/raster-{index}.png")),
-                "layer {index} entry is present"
-            );
-        }
-        assert!(!text.contains("layers/raster-4.png"));
     }
 
     #[test]
