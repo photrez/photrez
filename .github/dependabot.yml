@@ -6,15 +6,8 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
 
-  - package-ecosystem: "npm"
-    # Bun reads package.json + bun.lock; Dependabot's npm ecosystem covers it.
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-
   - package-ecosystem: "github-actions"
-    # Keeps workflow actions (checkout, setup-bun, tauri-action, caches) current.
+    # Keeps configured workflow actions current.
     directory: "/"
     schedule:
       interval: "weekly"

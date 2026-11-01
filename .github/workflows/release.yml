@@ -39,15 +39,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/pinned-toolchain
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           # GPUI's Linux stack: X11/wayland client libs, fontconfig, and the
-          # Vulkan loader (blade renders through Vulkan). The Tauri-era
-          # webkit2gtk/appindicator/cups packages are gone with the shell.
+          # Vulkan loader (blade renders through Vulkan).
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev \
             libwayland-dev libx11-dev libfontconfig1-dev libfreetype6-dev \
             libvulkan-dev patchelf
@@ -78,34 +77,12 @@ jobs:
           cp LICENSE NOTICE THIRD_PARTY.md dist/
           tar -czf "${{ matrix.archive }}" -C dist .
 
-      # Smoke test: the archive must be non-trivial (> 1 MB — the release
-      # binary alone is an order of magnitude larger) and must carry the
-      # licence set. Re-points the tauri-era bundle smoke test.
+      # Smoke test: the archive must be a real build (size floor) and must carry
+      # the licence set plus the binary. The rule lives in one script so a
+      # developer can prove it fails locally before a runner ever does.
       - name: Verify release artifacts (smoke test)
         shell: bash
-        run: |
-          set -euo pipefail
-          ls -la "${{ matrix.archive }}"
-          if [ "$(stat -c%s "${{ matrix.archive }}" 2>/dev/null || wc -c < "${{ matrix.archive }}")" -lt 1000000 ]; then
-            echo "::error::Archive is missing or smaller than 1 MB: ${{ matrix.archive }}"
-            exit 1
-          fi
-          case "${{ matrix.archive }}" in
-            *.zip) unzip -l "${{ matrix.archive }}" | tee /tmp/contents.txt ;;
-            *.tar.gz) tar -tzf "${{ matrix.archive }}" | tee /tmp/contents.txt ;;
-          esac
-          for required in LICENSE NOTICE THIRD_PARTY.md photrez photrez.exe; do
-            if grep -q "$required" /tmp/contents.txt; then
-              :
-            else
-              # windows archives carry photrez.exe; the others photrez
-              if [ "$required" = "photrez.exe" ] && grep -q "photrez" /tmp/contents.txt; then
-                continue
-              fi
-              echo "::error::Archive is missing required entry: $required"
-              exit 1
-            fi
-          done
+        run: sh scripts/check-release-archive.sh "${{ matrix.archive }}" "${{ matrix.platform }}"
 
       - name: Upload the archive to the draft release
         uses: softprops/action-gh-release@v2

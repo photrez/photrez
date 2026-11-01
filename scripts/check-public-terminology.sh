@@ -55,6 +55,12 @@ set -u
 
 PLAN_MSG='Phase [A-H]|phase [a-h]|flip-on|Option A[^A-Za-z]|Option B[^A-Za-z]|SD-[0-9]|fork [ABC]|prove-dead|Keranjang|North Star'
 PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transfer|adapter))|SD-[0-9]|fork [ABC]|prove-dead|Keranjang|North Star|RESPONSE\.md|AI_HISTORY|AI_CURRENT_TASK|AI_CONTEXT|docs/plans|photrez-(counter|coder|reviewer|verifier|orchestrator)|pre-Wave|Wave [0-9]'
+# Dangling-reference set (2026-11-01, after the reference app left the tree):
+# a tracked artifact must not point a reader at a file that a fresh clone does
+# not contain. The reference web app and the internal evidence directories are
+# both outside this repository, so naming them in a public artifact is a broken
+# promise, not a citation.
+DANGLING_SRC='\.slim/|deepwork|78-evidence|parity-frozen|test-disposition\.csv|apps/desktop|\.tsx\b'
 # Milestone vocabulary that is internal-only when it appears in PUBLIC markdown:
 # workstream codenames, named-review labels and phase-numbered work labels are
 # internal bookkeeping. Public docs describe what the product does instead.
@@ -138,12 +144,19 @@ files_check() {
     case "$f" in
       *.ts|*.tsx|*.rs)
         grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
+        grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f"
         ;;
       *.md)
         case "$f" in
           README.md|CHANGELOG.md|CONTRIBUTING.md|SECURITY.md|docs/*|.github/*)
             grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
             grep -niE "$PLAN_MD" "$f" && fail "internal milestone vocabulary in public doc $f"
+            # Dated history keeps its original words: the release log and the
+            # retired records describe the tree as it was when they were written.
+            case "$f" in
+              CHANGELOG.md|docs/archive/*) ;;
+              *) grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f" ;;
+            esac
             ;;
         esac
         ;;

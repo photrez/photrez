@@ -19,11 +19,8 @@ permissions:
 jobs:
   # ─── RUST: one workspace, three OSes, the full crate set ───
   # After the workspace consolidation the root workspace owns every crate:
-  # `cargo test --workspace` is the whole Rust suite. The frozen Tauri app
-  # (`apps/desktop/src-tauri`) is an excluded non-member and is not built or
-  # tested here. gpui now builds on all three runners; Linux needs the X11/
-  # wayland/fontconfig/Vulkan stack named below (the Tauri-era webkit2gtk
-  # packages are gone with the shell).
+  # `cargo test --workspace` is the whole Rust suite. gpui builds on all three
+  # runners; Linux needs the X11/wayland/fontconfig/Vulkan stack named below.
   rust:
     name: Rust tests (${{ matrix.os }})
     strategy:
@@ -31,13 +28,13 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    # 60: the first cold run includes the ~850-crate gpui build (Windows) and
-    # a `cargo install cargo-deny` compile (Ubuntu).
+    # The first cold run builds the ~850-crate gpui tree (Windows) and compiles
+    # `cargo-deny` from source (Ubuntu).
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/pinned-toolchain
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -91,8 +88,7 @@ jobs:
   # transitive RUSTSEC advisory shouldn't paint every push red. The known
   # unmaintained transitives (zbus stack via accesskit_unix, inside the
   # pinned gpui-pre 0.3.9) are dispositioned in deny.toml's ignore list with
-  # their proofs; fixes still land via Dependabot PRs. The Bun-side audit is
-  # retired with the JS toolchain automation.
+  # their proofs; fixes still land via Dependabot PRs.
   security:
     name: Security audit
     runs-on: ubuntu-latest
@@ -101,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/pinned-toolchain
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
@@ -134,7 +130,7 @@ jobs:
           # bash -o pipefail turns into a failed step before the skip branch
           # below can run. Docs-only and config-only commits must pass.
           # The script itself decides which `.md` paths are public set vs internal.
-          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(ts|tsx|rs|md)$' | tr '\n' ' ' || true)
+          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(rs|md)$' | tr '\n' ' ' || true)
           if [ -n "$FILES" ]; then
             sh scripts/check-public-terminology.sh --files "$FILES"
           else

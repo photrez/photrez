@@ -1,5 +1,19 @@
-# Golden fixtures are compared byte-for-byte by tests. Without a rule here, a
-# checkout with core.autocrlf=true (the Windows CI runner uses that default)
-# rewrites their line endings to CRLF and every such comparison fails there
-# while passing on machines that check out LF. Pin them to LF everywhere.
-apps/desktop/src/components/editor/__tests__/ptzWriterGolden.json text eol=lf
+# Test fixtures are compared byte-for-byte by the suites that embed or load
+# them. Without a rule here, a checkout with core.autocrlf=true (the Windows CI
+# runner uses that default) rewrites their line endings to CRLF and every such
+# comparison fails there while passing on machines that check out LF. Pin them
+# to LF everywhere, and mark the opaque formats as binary so no filter touches
+# them at all.
+crates/core/src/ptz/tests/fixtures/*.json text eol=lf
+crates/photrez/tests/fixtures/*.json text eol=lf
+crates/photrez/tests/baseline/manifest.json text eol=lf
+crates/photrez/assets/i18n/*.json text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.ttf binary
+*.ptz binary
+*.rgba binary

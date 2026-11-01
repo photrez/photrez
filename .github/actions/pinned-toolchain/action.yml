@@ -1,0 +1,27 @@
+name: Pinned Rust toolchain
+description: >-
+  Install exactly the toolchain that rust-toolchain.toml names, so a runner and
+  a developer machine evaluate the same rustc, clippy and rustfmt. Installing
+  `stable` here would let the lint set drift under a pinned repository and make
+  a green local gate red on the runner for reasons no one can reproduce.
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the pinned channel
+      id: channel
+      shell: bash
+      run: |
+        channel=$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml | head -n 1)
+        if [ -z "$channel" ]; then
+          echo "::error::rust-toolchain.toml declares no channel"
+          exit 1
+        fi
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+        echo "Using the pinned toolchain $channel"
+
+    - name: Install the pinned toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ steps.channel.outputs.channel }}
+        components: rustfmt, clippy

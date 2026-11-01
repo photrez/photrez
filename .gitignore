@@ -1,28 +1,7 @@
-# Dependencies
-node_modules/
-.pnpm-store/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
-pnpm-debug.log
-
 # Build output
-dist/
-dist-ssr/
-build/
-.vite/
-.astro/
-apps/desktop/test-results/
-apps/desktop/playwright-report/
-apps/desktop/blob-report/
-apps/desktop/playwright/.cache/
-src-tauri/target/
-src-tauri/Cargo.lock
 target/
 target_test/
 **/*.rs.bk
-**/src-tauri/gen/
-src-tauri/wix/
 
 # Environment
 .env
@@ -54,6 +33,8 @@ test-results/
 
 # Images / binaries (README media excluded)
 *.png
+!crates/photrez/assets/icons/*.png
+!crates/photrez/assets/icons/*.ico
 !media/*.png
 !crates/photrez/tests/baseline/**/*.png
 !crates/xtask/tests/fixtures/*.png
@@ -64,7 +45,6 @@ test-results/
 !crates/core/src/render/text/goldens/*.png
 *.jpg
 *.jpeg
-!apps/desktop/src/assets/**/*
 *.py
 !crates/photrez/tests/fixtures/*.py
 *.zip
@@ -90,11 +70,12 @@ docs/*AUDIT_REPORT.md
 docs/DEEP_PROJECT_REVIEW.md
 docs/photrez-brush-*.md
 
+# Internal work evidence (not for distribution)
+.slim/
+docs/test-disposition.csv
+
 # Git worktrees
 worktrees/
 
 # Reserved Windows device name
 nul
-
-# Tauri/NSIS build output
-$out/

@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
-exclude = ["apps/desktop/src-tauri"]
 
 [workspace.dependencies]
 # We will define shared dependencies here as we proceed.

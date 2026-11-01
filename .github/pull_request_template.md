@@ -17,8 +17,9 @@ Closes #(issue)
 
 <!-- Run the verification pipeline before marking ready. -->
 
-- [ ] `bun run build` passes
-- [ ] `bun run --filter photrez-desktop test --run` passes (full suite)
+- [ ] `cargo fmt --check` passes
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
+- [ ] `cargo test --workspace` passes
 - [ ] `cargo test -p photrez-core` passes
 - [ ] New behavior has **wiring tests** (user-event simulation) where applicable
 - [ ] New behavior has **state contract tests** where applicable
@@ -27,7 +28,7 @@ Closes #(issue)
 
 ## Checklist
 
-- [ ] My code follows the project's TypeScript strict style and SolidJS conventions
+- [ ] My code follows the project's current Rust and GPUI conventions
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] I have not introduced new dependencies without explaining why the existing stack is insufficient
 - [ ] I have kept unrelated refactors out of this PR

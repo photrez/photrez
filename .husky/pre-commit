@@ -10,13 +10,6 @@ if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs)$' | 
   exit 1
 fi
 
-# 0b. Block internal workflow labels in commit message
-if [ -f ".git/COMMIT_EDITMSG" ] && grep -q 'ponytail:' .git/COMMIT_EDITMSG 2>/dev/null; then
-  echo ""
-  echo "ERROR: Internal label pattern detected in commit message."
-  exit 1
-fi
-
 # 0c. Block internal references from local blocklist (gitignored, internal only)
 if [ -f ".husky/internal-blocklist" ]; then
   if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs)$' | xargs grep -nFf .husky/internal-blocklist 2>/dev/null | grep -q .; then
@@ -25,12 +18,6 @@ if [ -f ".husky/internal-blocklist" ]; then
     exit 1
   fi
 fi
-
-# 0d. Commit-message terminology check lives in .husky/commit-msg, not here:
-# git runs pre-commit BEFORE it writes .git/COMMIT_EDITMSG, so at this point
-# that file still holds the PREVIOUS commit's message (it blocked every commit
-# whenever the last message contained a banned term). The commit-msg hook gets
-# the new message file as $1 and runs the same shared check on it.
 
 # 0e. Public-artifact terminology guard — staged source + public markdown
 if git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(ts|tsx|rs|md)$'; then
@@ -51,21 +38,9 @@ if [ -n "$I18N_FILES" ]; then
   sh scripts/check-public-terminology.sh --i18n --files "$I18N_FILES" || exit 1
 fi
 
-# (Type-check was removed with the browser build pipeline: tsc can no longer
-# resolve the removed browser module. It returns with the native build.)
-
-# 1. Frontend unit tests (node-only — fast, ~10s)
+# Rust core unit tests
 echo ""
-echo "[1/2] Running Frontend Unit Tests..."
-bun run --filter photrez-desktop test:unit || {
-  echo ""
-  echo "ERROR: Frontend unit tests failed!"
-  exit 1
-}
-
-# 2. Rust core unit tests
-echo ""
-echo "[2/2] Running Rust Core Tests..."
+echo "Running Rust Core Tests..."
 cargo test -p photrez-core || {
   echo ""
   echo "ERROR: Rust core tests failed!"
@@ -73,4 +48,4 @@ cargo test -p photrez-core || {
 }
 
 echo ""
-echo "Pre-commit checks passed. (Rust gates + audit run on pre-push.)"
+echo "Pre-commit checks passed. (Format, lint, and workspace tests run on pre-push.)"
