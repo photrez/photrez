@@ -204,7 +204,7 @@ fn new_document_dialog_creates_a_dirty_tab_with_the_chosen_preset(
         assert_eq!(
             content.read(cx).active_core_layer_count_for_test(),
             Some(1),
-            "the oracle's new document is one Background layer"
+            "the app's new document is one Background layer"
         );
         assert!(content
             .read(cx)
@@ -326,7 +326,7 @@ fn a_second_press_on_a_preset_creates_the_document(cx: &mut gpui_kit::TestAppCon
         let state = content.read(cx).state_for_test().read(cx);
         assert_eq!(
             state.active_dialog, None,
-            "the oracle's double-click creates immediately"
+            "a double-click creates the document immediately"
         );
         assert_eq!(state.tabs.len(), 2);
         assert_eq!(
@@ -619,7 +619,7 @@ fn print_dialog_controls_paper_orientation_and_copies(cx: &mut gpui_kit::TestApp
             );
         });
         window.render_frame(cx);
-        // The paper list is inline behind its select, like the oracle's.
+        // The paper list is inline behind its select, like the dialog's.
         window.click("print-paper", cx);
         window.render_frame(cx);
         window.click("print-paper-1", cx);
@@ -659,7 +659,7 @@ fn print_dialog_controls_paper_orientation_and_copies(cx: &mut gpui_kit::TestApp
 }
 
 /// The Print dialog's Scale track writes the percentage (10..=400) and drops
-/// Scale to Fit, matching `PrintInspector.tsx`'s range input.
+/// Scale to Fit, matching the dialog's range input (min 10, max 400).
 #[gpui_kit::test]
 fn print_scale_track_writes_the_percentage(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -883,7 +883,7 @@ fn settings_dialog_switches_the_locale(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S026: the stored `photrez.locale` preference decides the startup locale.
+/// The stored `photrez.locale` preference decides the startup locale.
 /// The app resolves it while it is constructed, so the first frame already
 /// renders the translated shell with no interaction.
 #[gpui_kit::test]
@@ -925,7 +925,7 @@ fn startup_locale_comes_from_the_stored_preference(cx: &mut gpui_kit::TestAppCon
     );
 }
 
-/// S026 perf: choosing a locale switches the process-wide catalog, persists
+/// Perf: choosing a locale switches the process-wide catalog, persists
 /// the preference, and repaints the whole shell. Re-opening the list between
 /// samples is host-side state, outside the measured span.
 #[gpui_kit::test]
@@ -1008,7 +1008,7 @@ fn language_switch_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S016: the Export dialog follows `ExportDialog.tsx`: the format list swaps
+/// The Export dialog's behaviour: the format list swaps
 /// PNG/JPEG/WebP, JPEG reveals the quality track, PNG hides it, and a press on
 /// the track writes the quality.
 #[gpui_kit::test]
@@ -1048,12 +1048,11 @@ fn export_dialog_switches_format_and_quality(cx: &mut gpui_kit::TestAppContext) 
             ExportFormat::Jpeg
         );
         assert!(
-            content
+            !content
                 .read(cx)
                 .state_for_test()
                 .read(cx)
-                .export_format_open
-                == false,
+                .export_format_open,
             "picking a format closes the list"
         );
         assert!(
@@ -1099,7 +1098,7 @@ fn export_dialog_switches_format_and_quality(cx: &mut gpui_kit::TestAppContext) 
     .expect("test window remains open");
 }
 
-/// S021: the Settings dialog opens through the oracle's Settings menu and
+/// The Settings dialog opens through the Settings menu and
 /// closes with its primary OK button; the language list expands inline.
 #[gpui_kit::test]
 fn settings_dialog_opens_from_the_menu_and_ok_closes_it(cx: &mut gpui_kit::TestAppContext) {
@@ -1137,7 +1136,7 @@ fn settings_dialog_opens_from_the_menu_and_ok_closes_it(cx: &mut gpui_kit::TestA
     .expect("test window remains open");
 }
 
-/// S014: the titlebar close is a real 20 px button, not decoration. It
+/// The titlebar close is a real 20 px button, not decoration. It
 /// dismisses Settings the same way OK does, and it is hit-testable for hover.
 #[gpui_kit::test]
 fn settings_titlebar_close_dismisses_the_dialog(cx: &mut gpui_kit::TestAppContext) {
@@ -1165,7 +1164,7 @@ fn settings_titlebar_close_dismisses_the_dialog(cx: &mut gpui_kit::TestAppContex
     .expect("test window remains open");
 }
 
-/// S014: `DesktopDialog` routes Escape to `onDismiss` for a managed-focus
+/// Escape routes to the dismissal handler for a managed-focus
 /// dialog. Settings and About have no field of their own, so the chrome's
 /// focus target owns the key.
 #[gpui_kit::test]
@@ -1216,7 +1215,7 @@ fn escape_dismisses_settings_and_about(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S015: the About dialog mounts through the Help menu with its two link
+/// The About dialog mounts through the Help menu with its two link
 /// buttons and the crate version, and its footer/inline close both dismiss it.
 #[gpui_kit::test]
 fn about_dialog_mounts_its_links_and_closes(cx: &mut gpui_kit::TestAppContext) {
@@ -1264,7 +1263,7 @@ fn about_dialog_mounts_its_links_and_closes(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S015 perf: opening the About dialog and painting its body. The menu row's
+/// Perf: opening the About dialog and painting its body. The menu row's
 /// handler installs `active_dialog` and notifies, so the timer covers that
 /// state change plus one frame, the same protocol as the other dialog
 /// surfaces.
@@ -1314,7 +1313,7 @@ fn about_dialog_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S014: each dialog supplies its own dismissal, so the close X on Resize
+/// Each dialog supplies its own dismissal, so the close X on Resize
 /// Cancel-paths (no pending resize session survives).
 #[gpui_kit::test]
 fn resize_titlebar_close_cancels_the_pending_session(cx: &mut gpui_kit::TestAppContext) {
@@ -1347,7 +1346,7 @@ fn resize_titlebar_close_cancels_the_pending_session(cx: &mut gpui_kit::TestAppC
     .expect("test window remains open");
 }
 
-/// S014 perf: the titlebar close dismisses the dialog and repaints the shell.
+/// Perf: the titlebar close dismisses the dialog and repaints the shell.
 /// Re-opening between samples is host-side state, outside the measured span.
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
@@ -1411,7 +1410,7 @@ fn dialog_close_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S016 perf: opening the export dialog and painting its body.
+/// Perf: opening the export dialog and painting its body.
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
 fn export_dialog_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -1455,7 +1454,7 @@ fn export_dialog_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S021 perf: toggling the language list repaints the dialog.
+/// Perf: toggling the language list repaints the dialog.
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
 fn settings_language_toggle_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -1576,7 +1575,7 @@ fn resize_canvas_menu_opens_the_dialog_and_enter_resizes(cx: &mut gpui_kit::Test
             content.read(cx).resize_fields_for_test(cx),
             Some(("2".to_string(), "1".to_string()))
         );
-        // The oracle opens with `Keep proportions` on; unlock it so the two
+        // The dialog opens with `Keep proportions` on; unlock it so the two
         // fields stay independent for this case.
         window.click("resize-aspect", cx);
         window.render_frame(cx);
@@ -1620,9 +1619,9 @@ fn resize_canvas_menu_opens_the_dialog_and_enter_resizes(cx: &mut gpui_kit::Test
     .expect("test window remains open");
 }
 
-/// S064: the unit list converts the display buffers with the oracle's 96 DPI
+/// The unit list converts the display buffers with the dialog's own 96 DPI
 /// base, the pixel value stays authoritative, and the aspect lock derives the
-/// linked field from the one the user typed (default on, like the oracle).
+/// linked field from the one the user typed (default on, like the dialog).
 #[gpui_kit::test]
 fn resize_canvas_units_convert_and_the_aspect_lock_links_the_fields(
     cx: &mut gpui_kit::TestAppContext,
@@ -1727,7 +1726,7 @@ fn resize_canvas_units_offer_points_and_unlocked_fields_stay_independent(
     .expect("test window remains open");
 }
 
-/// S064 perf: switching the unit re-displays both fields and repaints the
+/// Perf: switching the unit re-displays both fields and repaints the
 /// dialog. Measured with the same down+up dispatch as the other surfaces so
 /// the click helper's extra render does not inflate the samples.
 #[gpui_kit::test]
@@ -1798,7 +1797,7 @@ fn resize_unit_switch_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S055: the shot shell shows its one document tab (37 px content height,
+/// The shot shell shows its one document tab (37 px content height,
 /// active underline), and a click on it stays on the same document. The
 /// timed path is the same dispatch protocol as the menu surfaces.
 #[gpui_kit::test]

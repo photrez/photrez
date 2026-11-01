@@ -391,7 +391,7 @@ fn click_sv_and_check_text_layer(
 }
 
 /// Without a text layer the same swatch follows the capture: it shows the
-/// paint foreground, carries the oracle tooltip, and paints that colour.
+/// paint foreground, carries its tooltip, and paints that colour.
 #[gpui_kit::test]
 fn text_swatch_paints_the_foreground_in_draw_mode(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -411,7 +411,7 @@ fn text_swatch_paints_the_foreground_in_draw_mode(cx: &mut gpui_kit::TestAppCont
         window.render_frame(cx);
         assert!(
             window.try_find("opt-text-color-tooltip").is_some(),
-            "the text swatch carries the oracle text-color tooltip"
+            "the text swatch carries its text-color tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);

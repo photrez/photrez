@@ -1,8 +1,8 @@
 //! The text tool's in-place editor: typed characters live in UI state and are
 //! committed to the layer's `TextData` as one core command when the editor
 //! closes (Ctrl+Enter, a canvas click, or a tool switch). Escape cancels and
-//! removes the temporary layer, and an empty buffer is discarded on commit, as
-//! `TextEditOverlay.tsx` and `textTool.ts` specify. The canvas key context
+//! removes the temporary layer, and an empty buffer is discarded on commit.
+//! The canvas key context
 //! becomes `TextEdit` while the editor is open so tool letter shortcuts do not
 //! fire.
 
@@ -38,7 +38,7 @@ impl App {
     }
 
     /// Append/delete text. Returns true when the key was consumed by the
-    /// editor. The session contract matches the frozen overlay: Ctrl+Enter
+    /// editor. The session contract matches the text overlay: Ctrl+Enter
     /// commits, Escape cancels, and a bare Enter inserts a newline.
     pub(crate) fn text_edit_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
         let key = event.keystroke.key.as_str();

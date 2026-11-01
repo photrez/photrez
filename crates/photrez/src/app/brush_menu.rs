@@ -1,10 +1,9 @@
-//! The brush/eraser right-click menu (`BrushContextMenu.tsx`).
+//! The brush/eraser right-click menu.
 //!
-//! The oracle attaches a `contextmenu` listener to the canvas container that
-//! only answers while the brush or eraser is active; this port routes the same
-//! right-click through the canvas pointer path and stores the anchor in
-//! `AppState::brush_menu`. The panel reads and writes the same brush/eraser
-//! settings the option bar owns; nothing here belongs in core.
+//! The menu only answers while the brush or eraser is active; this module
+//! routes the same right-click through the canvas pointer path and stores the
+//! anchor in `AppState::brush_menu`. The panel reads and writes the same
+//! brush/eraser settings the option bar owns; nothing here belongs in core.
 
 use gpui_kit::Context;
 
@@ -12,7 +11,7 @@ use crate::state::ToolId;
 
 use super::App;
 
-/// `paintSizeToSizeSlider` (`brushToolState.ts:35-48`).
+/// Maps a paint size in pixels to the menu's 0..100 slider position.
 pub(crate) fn paint_size_to_slider(size: f64) -> f64 {
     let clamped = size.clamp(1.0, 2000.0);
     if clamped <= 500.0 {
@@ -22,7 +21,7 @@ pub(crate) fn paint_size_to_slider(size: f64) -> f64 {
     (75.0 + t * 25.0).round()
 }
 
-/// `sizeSliderToPaintSize` (`brushToolState.ts:23-33`).
+/// Inverse of [`paint_size_to_slider`]: slider position back to pixels.
 pub(crate) fn slider_to_paint_size(slider: f64) -> f64 {
     let clamped = slider.clamp(0.0, 100.0);
     if clamped <= 75.0 {
@@ -33,8 +32,8 @@ pub(crate) fn slider_to_paint_size(slider: f64) -> f64 {
 }
 
 impl App {
-    /// `handleContextMenu`: the anchor is the pointer; the view clamps it to
-    /// the window (the oracle clamps to `innerWidth - 220`, `innerHeight - 260`).
+    /// The anchor is the pointer; the view clamps it to
+    /// the window, leaving 220 px of width and 260 px of height clear.
     pub(crate) fn open_brush_menu(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.context_menu = None;
@@ -52,8 +51,7 @@ impl App {
     }
 
     /// The menu writes the active tool's settings and clears the preset id,
-    /// exactly like the oracle's `setSizeValue`/`setHardnessValue`/
-    /// `setOpacityValue`.
+    /// the same way the size, hardness and opacity controls do.
     pub(crate) fn brush_menu_set_from_fraction(
         &mut self,
         slot: crate::state::SliderTarget,
@@ -109,8 +107,8 @@ impl App {
         cx.notify();
     }
 
-    /// The oracle's Reset: tool defaults with flow 1, smoothing 0 and no
-    /// preset, then close (`BrushContextMenu.tsx:258-280`).
+    /// Reset: tool defaults with flow 1, smoothing 0 and no
+    /// preset, then close.
     pub(crate) fn brush_menu_reset(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.brush_preset_index = usize::MAX;

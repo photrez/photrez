@@ -61,8 +61,8 @@ impl App {
         self.begin_num_field("opt-stroke-width", width, window, cx);
     }
 
-    /// Opens one of the selection bar's five fields
-    /// (`SelectionOptionBar.tsx`). The fields only exist while a pixel
+    /// Opens one of the selection bar's five fields.
+    /// The fields only exist while a pixel
     /// selection is committed, so the seed value reads the committed state.
     pub(crate) fn begin_selection_field(
         &mut self,

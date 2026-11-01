@@ -1,6 +1,6 @@
 //! Edge auto-scroll: while a drag is live and the pointer sits within 40 px of
 //! a canvas edge, pan the camera with a smoothstep ramp at 45% of the axis per
-//! second (`edgeScroll.ts`). Screen-space speed, so it is zoom-independent.
+//! second. Screen-space speed, so it is zoom-independent.
 
 use std::time::{Duration, Instant};
 

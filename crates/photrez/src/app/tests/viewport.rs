@@ -97,7 +97,7 @@ fn ctrl_wheel_zooms_around_the_cursor_and_plain_wheel_pans(cx: &mut gpui_kit::Te
     .expect("test window remains open");
 }
 
-/// S054: zoom shortcut -> status bar readout refresh (press + one render).
+/// Zoom shortcut -> status bar readout refresh (press + one render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn status_zoom_readout_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -173,7 +173,7 @@ fn zoom_shortcuts_fit_actual_size_and_selection(cx: &mut gpui_kit::TestAppContex
         window.render_frame(cx);
         assert!((camera(&content, cx).zoom - 10.).abs() < 1e-4);
 
-        // The oracle accepts both "-" and "_" for zoom out; "_" is
+        // Both "-" and "_" zoom out; "_" is
         // Ctrl+Shift+- on a US layout.
         window.press("ctrl-shift--", cx);
         window.render_frame(cx);
@@ -344,7 +344,7 @@ fn navigator_click_centres_the_camera_on_the_clicked_document_point(
     .expect("test window remains open");
 }
 
-/// S029: navigator click recentre latency (dispatch + one render).
+/// Navigator click recentre latency (dispatch + one render).
 /// Measured explicitly: concurrent suite load inflates this click path.
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]

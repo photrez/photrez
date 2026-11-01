@@ -151,7 +151,7 @@ impl App {
             state.selection_drag = None;
             state.active_tool = ToolId::Move;
         });
-        // The frozen apply refits the viewport and leaves no active selection.
+        // Applying the crop refits the viewport and leaves no active selection.
         if let Some(document) = self.active_document.as_mut() {
             document.camera = None;
         }
@@ -281,7 +281,7 @@ impl App {
     }
 
     /// Arrow keys move the pending crop frame, clamped to the document
-    /// (`cropTool.ts` step 1, Shift step 10). Other tools ignore the keys.
+    /// (step 1, Shift step 10). Other tools ignore the keys.
     fn nudge_crop(&mut self, dx: f64, dy: f64, cx: &mut Context<Self>) {
         let tool = self.state.read(cx).active_tool;
         if tool == ToolId::Move {
@@ -409,7 +409,7 @@ impl App {
     }
 
     /// The Size units re-format the display buffers from the pixel target; the
-    /// pixel value stays authoritative (`unitConversion.ts`).
+    /// pixel value stays authoritative.
     pub(crate) fn crop_set_size_unit(
         &mut self,
         unit: crate::crop_aspect::CropSizeUnit,
@@ -441,7 +441,7 @@ impl App {
                 state.crop_size_target.unwrap_or((800, 600)),
             )
         };
-        let px = unit.from_unit(parsed).round().max(1.0) as u32;
+        let px = unit.to_pixels(parsed).round().max(1.0) as u32;
         if field == 0 {
             target.0 = px;
         } else {

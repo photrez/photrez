@@ -44,8 +44,7 @@ fn undo_restores_the_page_and_redo_restores_the_shape(cx: &mut gpui_kit::TestApp
             "undo keeps the remaining layer selected"
         );
         let (width, height, rgba) = pixels(&content, cx);
-        let center =
-            ((u32::from(height) / 2 * u32::from(width) + u32::from(width) / 2) as usize) * 4;
+        let center = ((height / 2 * width + width / 2) as usize) * 4;
         assert_eq!(
             &rgba[center..center + 4],
             [255, 255, 255, 255],

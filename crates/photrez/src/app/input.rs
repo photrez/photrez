@@ -39,8 +39,8 @@ pub(crate) struct SetCanvasTool(pub ToolId);
 pub(crate) struct CancelCanvasGesture;
 
 /// Alt+Right brush adjustment: the size/hardness and screen origin captured
-/// when the drag starts. Live deltas follow the frozen 0.5%/px size and
-/// 0.004/px hardness curves.
+/// when the drag starts. Live deltas follow the 0.5%/px size and
+/// 0.004/px hardness curves the paint tools are specified with.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct BrushAdjust {
     pub eraser: bool,
@@ -83,10 +83,71 @@ impl App {
         _: &CancelCanvasGesture,
         cx: &mut Context<Self>,
     ) {
-        self.close_select(cx);
-        self.close_stroke_popover(cx);
-        self.close_text_stroke_popover(cx);
-        self.close_brush_menu(cx);
+        let (
+            brush_menu,
+            context_menu,
+            open_select,
+            more_open,
+            active_tool,
+            stroke_popover,
+            text_stroke_popover,
+        ) = {
+            let state = self.state.read(cx);
+            (
+                state.brush_menu.is_some(),
+                state.context_menu.is_some(),
+                state.open_select.is_some(),
+                state.more_open,
+                state.active_tool,
+                state.stroke_popover_open,
+                state.text_stroke_popover_open,
+            )
+        };
+        if brush_menu {
+            self.close_brush_menu(cx);
+            return;
+        }
+        if context_menu {
+            self.close_context_menu(cx);
+            return;
+        }
+        if active_tool == ToolId::Text && text_stroke_popover {
+            self.close_text_stroke_popover(cx);
+            return;
+        }
+        if active_tool == ToolId::Shape && stroke_popover {
+            self.close_stroke_popover(cx);
+            return;
+        }
+        if open_select {
+            self.state.update(cx, |state, _| state.open_select = None);
+            cx.notify();
+            return;
+        }
+        if more_open {
+            self.state.update(cx, |state, _| state.more_open = false);
+            cx.notify();
+            return;
+        }
+
+        let move_idle = self.state.read(cx).active_tool == ToolId::Move
+            && self.transform_drag.is_none()
+            && self.group_transform_drag.is_none()
+            && self.move_marquee.is_none()
+            && !self.selection_edit_mode;
+        if move_idle {
+            let has_selection = !self.state.read(cx).selected_layers.is_empty();
+            if has_selection {
+                self.state.update(cx, |state, _| {
+                    state.selected_layers.clear();
+                    state.selected_layer = 0;
+                    state.multi_bounds = None;
+                });
+                cx.notify();
+            }
+            return;
+        }
+
         self.cancel_canvas_gesture(cx);
         self.selection_edit_mode = false;
     }
@@ -137,7 +198,7 @@ impl App {
         self.step_brush(cx, 0.0, 1.0);
     }
 
-    /// Bracket steps from the frozen brush chain: size moves by ~10% of the
+    /// Bracket steps from the paint-tool chain: size moves by ~10% of the
     /// current size (at least 1 px) and hardness by 0.1, only for the paint
     /// tools. The native eraser shares `brush_size`.
     fn step_brush(&mut self, cx: &mut Context<Self>, size_direction: f64, hardness_direction: f64) {
@@ -177,8 +238,8 @@ impl App {
     fn select_canvas_tool(&mut self, tool: ToolId, cx: &mut Context<Self>) {
         self.cancel_canvas_gesture(cx);
         self.selection_edit_mode = false;
-        // Entering Crop with no pending frame opens the oracle's default frame
-        // over the whole page (`CropOverlay` renders as soon as the tool arms).
+        // Entering Crop with no pending frame opens the default frame
+        // over the whole page (the crop overlay renders as soon as the tool arms).
         let seed_crop = if tool == ToolId::Crop && self.state.read(cx).crop_rect.is_none() {
             self.active_document_size().ok()
         } else {
@@ -194,7 +255,7 @@ impl App {
                 state.crop_history.clear();
                 state.crop_redo.clear();
             } else if let Some((doc_w, doc_h)) = seed_crop {
-                state.crop_rect = Some([0.0, 0.0, f64::from(doc_w), f64::from(doc_h)]);
+                state.crop_rect = Some([0.0, 0.0, doc_w, doc_h]);
                 state.crop_history.clear();
                 state.crop_redo.clear();
             }
@@ -204,7 +265,7 @@ impl App {
         cx.notify();
     }
 
-    /// Apply the paint-tool cursor policy to the OS cursor: the frozen canvas
+    /// Apply the paint-tool cursor policy to the OS cursor: the canvas
     /// hides the pointer under the brush/eraser ring and restores it elsewhere.
     fn sync_canvas_cursor(&self, cx: &Context<Self>) {
         let (hovered, tool) = {
@@ -343,8 +404,8 @@ impl App {
             return;
         }
         if event.button == gpui_kit::MouseButton::Right {
-            // `BrushContextMenu.tsx:132-137` owns the paint tools' right-click;
-            // `CanvasContextMenu.tsx:44-49` skips brush and eraser.
+            // The brush menu owns the paint tools' right-click;
+            // the canvas context menu skips brush and eraser.
             if matches!(
                 self.state.read(cx).active_tool,
                 ToolId::Brush | ToolId::Eraser
@@ -394,7 +455,7 @@ impl App {
         }
         match tool {
             ToolId::Brush | ToolId::Eraser => {
-                // The frozen brush samples the composite under a held Alt
+                // The brush and eraser sample the composite under a held Alt
                 // instead of painting; the stroke never starts.
                 if event.modifiers.alt {
                     self.alt_sampling = true;
@@ -1290,8 +1351,8 @@ impl App {
         ))
     }
 
-    /// One live rotation of the committed pixel selection about its centre
-    /// (`selectionRotation.ts`). The rectangle stays fixed; only the angle moves
+    /// One live rotation of the committed pixel selection about its centre.
+    /// The rectangle stays fixed; only the angle moves
     /// until the pointer is released, which commits one `SetSelection`.
     pub(crate) fn committed_selection(&self) -> Option<SelectionState> {
         let doc_id = self
@@ -1509,7 +1570,7 @@ impl App {
             &doc_id,
             Command::AddLayer {
                 id: id.clone(),
-                name: "Shape".to_string(), // i18n-exempt: layer name from shapeTool.ts
+                name: "Shape".to_string(), // i18n-exempt: layer name set by the shape tool
                 width: doc_w,
                 height: doc_h,
                 index: 0,
@@ -1523,7 +1584,7 @@ impl App {
             cx,
         );
         if result.is_ok() {
-            // shapeTool.ts selects the layer it just created; reproject with the
+            // The shape tool selects the layer it just created; reproject with the
             // new core id so the Properties/Inspector fields follow it too.
             self.project_layers_with_selection(Some(id.as_str()), cx);
         }
@@ -1864,6 +1925,10 @@ impl App {
             .content_snapshot()
             .ok_or_else(|| "loaded content is missing".to_string())?;
         let state = self.state.read(cx);
+        if state.selected_layers.is_empty() && state.layers.iter().any(|row| row.core_id.is_some())
+        {
+            return Err("no layer is selected".to_string());
+        }
         let selected_core = state
             .layers
             .iter()
@@ -2331,7 +2396,7 @@ impl App {
 /// The zoom the display currently applies to the document, clamped to the
 /// native-resolution ceiling. The live preview renders at this scale; the
 /// pointer-up commit stays full-resolution.
-/// Weighted ring-buffer smoothing (`paintSmoothing.ts` `PaintSmoother`): each
+/// Weighted ring-buffer smoothing: each
 /// move is averaged with recent points, newest weighted heaviest.
 pub(crate) struct PaintSmoother {
     xs: [f64; 10],
@@ -2486,7 +2551,8 @@ pub(crate) fn canvas_doc_coords(
 
 /// Window position to document coordinates without the page containment test.
 /// Pointer-following chrome (the paint cursor ring) stays visible over the
-/// pasteboard, matching BrushCursorOverlay.tsx's camera.screenToDocument.
+/// pasteboard because it maps through the camera's screen-to-document transform
+/// without the page containment test.
 pub(crate) fn canvas_doc_position(
     position: Point<Pixels>,
     bounds: &Rc<Cell<Option<Bounds<Pixels>>>>,

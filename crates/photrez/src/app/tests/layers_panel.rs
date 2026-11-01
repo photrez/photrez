@@ -843,7 +843,7 @@ fn blend_cycle_reaches_difference_and_undoes_stepwise(cx: &mut gpui_kit::TestApp
 #[ignore = "performance measurement; run explicitly"]
 fn blend_cycle_latency(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
-    let (window, content, _source) = mount_archive_app(
+    let (window, _content, _source) = mount_archive_app(
         cx,
         &directory,
         super::commands::multi_layer_archive_with(false),

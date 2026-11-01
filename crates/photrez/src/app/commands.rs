@@ -80,13 +80,13 @@ impl App {
         false
     }
 
-    /// `file.new` from the oracle: open the New Document dialog and close any
+    /// File > New: open the New Document dialog and close any
     /// open menu surface first.
     pub(crate) fn new_document_action(&mut self, _: &NewDocumentAction, cx: &mut Context<Self>) {
         self.open_new_document(cx);
     }
 
-    /// View > Toggle Side Panels: hide or show the right dock. The oracle's
+    /// View > Toggle Side Panels: hide or show the right dock. The menu
     /// row label flips between Hide/Show; the value drives `dock_open`.
     pub(crate) fn toggle_side_panels_action(
         &mut self,

@@ -1,4 +1,4 @@
-//! The Move tool's empty-canvas layer marquee (`useCanvasMarqueeSelect.ts`).
+//! The Move tool's empty-canvas layer marquee.
 //!
 //! A press that misses every layer opens a session; the drag paints a rect and
 //! selects each visible, unlocked, non-background layer whose axis-aligned box
@@ -15,7 +15,9 @@ use gpui_kit::Context;
 use crate::app::transform_geometry::layer_aabb;
 use crate::app::App;
 
-/// The screen-space drag threshold, squared: 3 px (`useCanvasMarqueeSelect.ts`).
+type MarqueeSelection = (Vec<u64>, Option<(f64, f64, f64, f64)>);
+
+/// The screen-space drag threshold, squared: 3 px.
 const DRAG_THRESHOLD_SQ: f32 = 9.0;
 
 #[derive(Clone, Debug)]
@@ -94,7 +96,7 @@ impl App {
         cx.notify();
     }
 
-    /// Release handler: a sub-threshold, non-additive press is the oracle's
+    /// Release handler: a sub-threshold, non-additive press counts as a
     /// "click on empty canvas" and deselects every layer row.
     pub(crate) fn finish_move_marquee(&mut self, cx: &mut Context<Self>) {
         let Some(session) = self.move_marquee.take() else {
@@ -111,7 +113,7 @@ impl App {
     }
 
     /// Cancel handler: a drag that exceeded the threshold put its selection on
-    /// screen, so the oracle restores the pre-drag selection.
+    /// screen, so the cancelled drag restores the pre-drag selection.
     pub(crate) fn cancel_move_marquee(&mut self, cx: &mut Context<Self>) {
         let Some(session) = self.move_marquee.take() else {
             return;
@@ -135,7 +137,7 @@ impl App {
         additive: bool,
         initial: &[u64],
         cx: &Context<Self>,
-    ) -> (Vec<u64>, Option<(f64, f64, f64, f64)>) {
+    ) -> MarqueeSelection {
         let Some(doc_id) = self.active_document.as_ref().map(|doc| doc.doc_id.clone()) else {
             return (initial.to_vec(), None);
         };

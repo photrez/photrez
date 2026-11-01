@@ -163,7 +163,7 @@ fn edit_menu_disables_rows_until_their_state_exists(cx: &mut gpui_kit::TestAppCo
     .expect("test window remains open");
 }
 
-/// The oracle gates Cut/Copy on `getLayerImageBitmap(activeId)`: a pixel
+/// Cut/Copy are gated on the active layer carrying a pixel bitmap: a pixel
 /// selection alone is not enough when the active layer has no pixels of its
 /// own (a shape layer renders from parameters). Selecting the raster layer
 /// with the same selection makes Copy live again.
@@ -268,7 +268,7 @@ fn canvas_menu_gates_cut_and_copy_on_the_active_layer_bitmap(cx: &mut gpui_kit::
     .expect("test window remains open");
 }
 
-/// The oracle dispatches keyboard chords through the same enabled commands as
+/// Keyboard chords dispatch through the same enabled commands as
 /// the menus; the native shortcut path used to bypass the disabled rows.
 #[gpui_kit::test]
 fn keyboard_cut_copy_paste_follow_the_menu_enablement(cx: &mut gpui_kit::TestAppContext) {
@@ -353,7 +353,7 @@ fn keyboard_cut_copy_paste_follow_the_menu_enablement(cx: &mut gpui_kit::TestApp
     .expect("test window remains open");
 }
 
-/// The remaining chords with menu-side enablement must match the oracle's
+/// The remaining chords with menu-side enablement must match the observable
 /// observable behaviour: at the history boundary and without a selection the
 /// command is a silent no-op, not an error in the status bar. The Selection
 /// drag establishes canvas focus, the same route the other chord tests use.
@@ -453,9 +453,9 @@ fn keyboard_undo_redo_and_deselect_no_op_silently_at_their_boundaries(
     .expect("test window remains open");
 }
 
-/// The live canvas menu uses the oracle's 210 px context shell: a row is
+/// The live canvas menu uses the 210 px context shell: a row is
 /// 208 px wide (210 minus the two 1 px borders) and 28 px tall, matching the
-/// live oracle menu box (442,462 210x280) and its 28 px rows.
+/// captured menu box (442,462 210x280) and its 28 px rows.
 #[gpui_kit::test]
 fn canvas_context_menu_uses_the_oracle_210_shell(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -475,7 +475,7 @@ fn canvas_context_menu_uses_the_oracle_210_shell(cx: &mut gpui_kit::TestAppConte
         );
         assert!(
             (height - 28.0).abs() <= 1.0,
-            "context row height is {height}, expected 28 (oracle row metric)"
+            "context row height is {height}, expected 28 (captured row metric)"
         );
     })
     .expect("test window remains open");
@@ -502,7 +502,7 @@ fn canvas_menu_row_set_matches_the_oracle(cx: &mut gpui_kit::TestAppContext) {
             "ctx-fit-canvas",
             "ctx-zoom-selection",
         ] {
-            assert!(window.try_find(id).is_some(), "missing oracle row {id}");
+            assert!(window.try_find(id).is_some(), "missing context row {id}");
         }
         for id in ["ctx-undo", "ctx-redo", "ctx-duplicate", "ctx-flatten"] {
             assert!(window.try_find(id).is_none(), "stale row {id}");
@@ -511,7 +511,7 @@ fn canvas_menu_row_set_matches_the_oracle(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S010 performance evidence: right-click dispatch through the rendered frame
+/// Performance evidence: right-click dispatch through the rendered frame
 /// that mounts the menu, five alternating closed/open cycles.
 #[gpui_kit::test]
 fn canvas_menu_open_frame_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -554,7 +554,7 @@ fn canvas_menu_open_frame_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S052 performance evidence: click on the menubar Edit item through the
+/// Performance evidence: click on the menubar Edit item through the
 /// rendered frame that mounts its menu, five alternating closed/open cycles.
 #[gpui_kit::test]
 fn edit_menu_open_frame_latency(cx: &mut gpui_kit::TestAppContext) {

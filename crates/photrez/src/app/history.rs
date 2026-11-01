@@ -46,7 +46,7 @@ impl App {
         state.active_tool == crate::state::ToolId::Crop && state.crop_rect.is_some()
     }
 
-    /// `edit.undo` enablement (`useEditorCommands.ts:137-151`): a live
+    /// Undo enablement: a live
     /// transform session, the crop tool's mini undo, or core history.
     pub(crate) fn can_undo_document(&self, cx: &Context<Self>) -> bool {
         let state = self.state.read(cx);

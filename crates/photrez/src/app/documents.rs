@@ -229,8 +229,8 @@ impl App {
     }
 
     /// The New Document dialog's Create action: one Background layer named
-    /// exactly as the form says, filled white or left transparent
-    /// (`workspace.ts:203-221`). The document is marked dirty so closing it
+    /// exactly as the form says, filled white or left transparent.
+    /// The document is marked dirty so closing it
     /// prompts for a save path.
     pub(crate) fn create_new_named_document(
         &mut self,
@@ -267,8 +267,7 @@ impl App {
     }
 
     /// A Quick Preset on the empty workspace card: a blank white document
-    /// named after the preset and sized from the same table the card draws
-    /// (`EmptyWorkspace.tsx` `handleCreatePreset`).
+    /// named after the preset and sized from the same table the card draws.
     pub(crate) fn create_preset_document(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some((name, width, height)) = crate::views::empty_state::preset_document(index) else {
             return;
@@ -289,7 +288,7 @@ impl App {
     /// A `--shot` launch renders the captured shell without a session. Install
     /// the same one-layer Background document a New Document creates, so the
     /// Layers row, its eye/lock controls and the Properties banner read core
-    /// state exactly as the oracle does. The document starts clean.
+    /// state exactly as the mounted panels read it. The document starts clean.
     pub(crate) fn install_shot_document(&mut self, cx: &mut Context<Self>) {
         let (width, height, rgba) = crate::services::document::blank_white_document();
         let name = self.state.read(cx).document_name.clone();

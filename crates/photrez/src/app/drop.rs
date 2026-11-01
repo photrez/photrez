@@ -55,7 +55,7 @@ impl App {
                     });
                     // Canvas drops center on the cursor (the user aimed there);
                     // drops elsewhere cascade from the layer origin, matching
-                    // the oracle's layers-panel path.
+                    // the layers-panel drop path.
                     let (base, center) = match over_canvas {
                         Some(at) => (at, true),
                         None => ((0.0, 0.0), false),

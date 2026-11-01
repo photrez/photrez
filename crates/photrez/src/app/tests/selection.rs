@@ -792,7 +792,7 @@ fn canvas_click_selection_covers_the_clicked_point(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
-/// S047 `selectionRotation.ts`: the Selection tool rotates the committed
+/// The Selection tool rotates the committed
 /// marquee from its pin. The drag previews without touching core, and the
 /// release commits one `SetSelection` carrying the angle.
 #[gpui_kit::test]
@@ -956,7 +956,7 @@ fn selection_rotation_applies_the_mouse_up_coordinate(cx: &mut gpui_kit::TestApp
     .expect("test window remains open");
 }
 
-/// S013: the cross-document paste's event-to-frame latency.
+/// The cross-document paste's event-to-frame latency.
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn cross_document_paste_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -998,7 +998,7 @@ fn cross_document_paste_latency(cx: &mut gpui_kit::TestAppContext) {
         tab_to_canvas(window, cx);
         window.render_frame(cx);
 
-        // One untimed warm-up paste (the S050 measurement protocol).
+        // One untimed warm-up paste (the shared measurement protocol).
         window.press("ctrl-v", cx);
         window.render_frame(cx);
         window.press("ctrl-z", cx);
@@ -1028,7 +1028,7 @@ fn cross_document_paste_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// `cursorRotate.ts`: the rotate sprite paints at the pointer on the pin
+/// The rotate sprite paints at the pointer on the pin
 /// hover in edit mode and follows the pointer during a pin rotation; away
 /// from the pin nothing paints.
 #[gpui_kit::test]
@@ -1147,7 +1147,7 @@ fn rotate_cursor_sprite_follows_the_pointer(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S046: the marquee release commit's event-to-frame latency. Each sample
+/// The marquee release commit's event-to-frame latency. Each sample
 /// dispatches down/move/up through the production canvas path and times one
 /// render, then verifies the selection actually committed.
 #[gpui_kit::test]
@@ -1166,7 +1166,7 @@ fn selection_marquee_commit_latency(cx: &mut gpui_kit::TestAppContext) {
         let end_at = window_point(bounds, page, (400, 200), 320.0, 160.0);
 
         // One untimed warm-up commit so the first timed sample is not the
-        // cold shader/allocator path (the S050 measurement protocol).
+        // cold shader/allocator path (the shared measurement protocol).
         dispatch(
             window,
             PlatformInput::MouseDown(MouseDownEvent {
@@ -1248,7 +1248,7 @@ fn selection_marquee_commit_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S047: the rotate-pin release commit's event-to-frame latency.
+/// The rotate-pin release commit's event-to-frame latency.
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn selection_rotation_commit_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -1280,7 +1280,7 @@ fn selection_rotation_commit_latency(cx: &mut gpui_kit::TestAppContext) {
             (centre.1 + radius * target.sin()) as f32,
         );
 
-        // One untimed warm-up rotation (the S050 measurement protocol).
+        // One untimed warm-up rotation (the shared measurement protocol).
         set_selection(&content, cx, 100.0, 80.0, 200.0, 80.0);
         window.render_frame(cx);
         dispatch(
@@ -1363,16 +1363,17 @@ fn selection_rotation_commit_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// `SelectionOptionBar.tsx`: the X/Y/W/H/R fields read the committed
+/// The selection bar's X/Y/W/H/R fields read the committed
 /// selection, their commits rewrite one dimension through core history, and
-/// without a selection the bar keeps the oracle's disabled state.
+/// without a selection the bar stays disabled.
 #[gpui_kit::test]
 fn selection_bar_fields_read_and_rewrite_the_committed_selection(
     cx: &mut gpui_kit::TestAppContext,
 ) {
     let directory = TestDirectory::new();
-    // The bar needs the full comparison width: at 1536 CSS px the 2xl dock
-    // (598 px) leaves 886 px and clips the R field the oracle shows at 1920.
+    // The bar needs the full comparison width: at a 1536 px layout width the
+    // 2xl dock (598 px) leaves 886 px and clips the R field the 1920 capture
+    // shows.
     let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1920.0);
     cx.update_window(window.into(), |_, window, cx| {
         content.update(cx, |app, cx| {
@@ -1448,7 +1449,7 @@ fn selection_bar_fields_read_and_rewrite_the_committed_selection(
             "the X field moves the selection"
         );
 
-        // The oracle's n > 0 guard: a non-positive width edit is ignored.
+        // The width field's `n > 0` guard: a non-positive edit is ignored.
         window.click("sel-w", cx);
         window.press("0", cx);
         window.press("enter", cx);

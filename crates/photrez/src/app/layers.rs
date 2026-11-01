@@ -237,16 +237,16 @@ impl App {
 
     /// Rasterize a parametric layer to a plain raster (`RasterizeLayer`).
     ///
-    /// Native-only improvement over the frozen panel: reachable from the
-    /// text-layer typography row in Properties (`prop-rasterize`), where the
-    /// mounted behaviour contract pins it. The frozen panel has no such
-    /// button; the improvement is recorded in the ledger.
+    /// Native-only addition over the panel's baseline geometry: reachable from
+    /// the text-layer typography row in Properties (`prop-rasterize`), where
+    /// the mounted behaviour contract pins it. That row is the only entry
+    /// point; the panel itself offers no rasterize button.
     ///
     /// Parametric layers are metadata-only in the store, so the host renders
     /// the layer's bitmap first and hands it to `RasterizeLayer` — the
-    /// command materializes it as the rasterized layer's canonical buffer
-    /// (the oracle's text layers always carry their bitmap, which is why its
-    /// rasterize composites).
+    /// command materializes it as the rasterized layer's canonical buffer.
+    /// Text layers always carry their bitmap, which is why rasterizing one
+    /// composites it.
     pub(crate) fn rasterize_selected_layer(
         &mut self,
         cx: &mut Context<Self>,
@@ -267,10 +267,9 @@ impl App {
         // (decorated/styled text outside the core subset) refuses the
         // rasterize with a typed error instead of producing a Raster layer
         // the compositor cannot paint.
-        if rendered.is_none() {
+        let Some((width, height, rgba)) = rendered else {
             return Err("rasterize: the layer's content cannot be rendered to pixels".to_string());
-        }
-        let (width, height, rgba) = rendered.expect("rendered above");
+        };
         self.apply_core_command(
             &doc_id,
             Command::RasterizeLayer {
@@ -525,7 +524,7 @@ impl App {
         self.toggle_layer_lock(core_id, LockKind::Base, cx);
     }
 
-    /// Flip one of the four lock flags on a layer (`LayersPanel.tsx:474-533`).
+    /// Flip one of the four lock flags on a layer.
     pub(crate) fn toggle_layer_lock(
         &mut self,
         core_id: String,

@@ -17,7 +17,7 @@ fn show_empty_workspace(app: &Entity<App>, cx: &mut gpui_kit::App) {
 }
 
 /// The card's Quick Preset tiles create the document the tile names, at the
-/// size printed under its label (`EmptyWorkspace.tsx` `handleCreatePreset`).
+/// size printed under its label.
 #[gpui_kit::test]
 fn empty_workspace_preset_creates_the_named_document(cx: &mut gpui_kit::TestAppContext) {
     let (window, content) = mount_app(cx, None, None);

@@ -2,8 +2,8 @@
 //!
 //! The core owns the selection rectangle/ellipse and the canonical pixels.
 //! These actions only read/write through core commands and the pixel store;
-//! they never keep a second document state. The clipboard is the frozen app's
-//! in-memory image buffer, not the OS clipboard.
+//! they never keep a second document state. The clipboard is an in-memory
+//! image buffer owned by the app, not the OS clipboard.
 
 use gpui_kit::Context;
 use photrez_core::protocol::{Command, CommandEnvelope, CONTRACT_VERSION};
@@ -118,7 +118,7 @@ impl App {
         self.run_selection_action(result, cx);
     }
 
-    /// `selectionTool.ts` Ctrl+T: toggle the handles/rotate-pin transform
+    /// Ctrl+T: toggle the handles/rotate-pin transform
     /// mode. It needs the Selection tool and a committed selection, and it is
     /// cleared by deselect, invert, Escape and a tool switch.
     pub(crate) fn toggle_selection_edit_mode_action(
@@ -135,7 +135,7 @@ impl App {
         cx.notify();
     }
 
-    /// The oracle's `edit.cut`/`edit.copy` enablement: a committed pixel
+    /// Cut/copy enablement: a committed pixel
     /// selection and an active layer that owns pixels. Enforced at the command
     /// entry so keyboard shortcuts cannot bypass the menus' disabled rows.
     fn copy_cut_enabled(&self, cx: &Context<Self>) -> bool {
@@ -241,9 +241,10 @@ impl App {
         Ok((doc_id, selection))
     }
 
-    /// `SelectionOptionBar.tsx`'s submitX/Y/W/H/R: one `SetSelection` that
+    /// The selection bar's X/Y/W/H/R fields submit one `SetSelection` that
     /// replaces a single dimension of the committed selection. Width and
-    /// height ignore non-positive input like the oracle's `n > 0` guard, and
+    /// height ignore non-positive input, the same `n > 0` guard the fields
+    /// use, and
     /// the rewritten selection takes the tool's current marquee shape. The
     /// committed state itself is read through `App::committed_selection`.
     pub(crate) fn set_selection_field(
@@ -313,10 +314,10 @@ impl App {
     }
 
     /// Resolve a document-space selection onto the layer-local pixel grid the
-    /// pixel commands write to, port of the frozen `selectionToLayerAabb`.
+    /// pixel commands write to.
     ///
     /// A rotated selection addresses the axis-aligned bounding box of its
-    /// rotated corners (the frozen editor clears the box, not the rotated
+    /// rotated corners (the selection clears the box, not the rotated
     /// quad); an ellipse marquee addresses the ellipse inscribed in the same
     /// box; an inverted selection addresses the layer minus that box. The
     /// mapping runs through the layer transform because the selection is
@@ -428,7 +429,7 @@ impl App {
         if !any {
             return Err("the selection contains no pixels".to_string());
         }
-        // The frozen copy trims transparent edges for a plain marquee only:
+        // Copying trims transparent edges for a plain marquee only:
         // an inverted copy is the whole layer minus the marquee, and an
         // ellipse copy keeps its box so the mask survives the paste.
         let (clip_w, clip_h, pixels) = if mask.inverted || mask.ellipse {
@@ -605,8 +606,8 @@ impl App {
         self.apply_selection_command(Command::SetSelection { selection }, cx)
     }
 
-    /// Whether the active document carries a committed pixel selection
-    /// (`CanvasContextMenu.tsx`'s `hasCopyableSelection`/`selection() !== null`).
+    /// Whether the active document carries a committed pixel selection.
+    /// The canvas context menu enables its copy entries on exactly this test.
     pub(crate) fn pixel_selection_present(&self) -> bool {
         self.active_document
             .as_ref()
@@ -652,6 +653,39 @@ impl App {
             .as_ref()
             .map(|clip| (clip.width, clip.height, clip.pixels.clone()))
     }
+}
+
+/// Crop transparent padding from a straight-RGBA crop. The selection
+/// copy trims to the non-transparent bounds before placing the clipboard.
+fn trim_transparent(width: usize, height: usize, pixels: &[u8]) -> (u32, u32, Vec<u8>) {
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    let mut found = false;
+    for y in 0..height {
+        for x in 0..width {
+            if pixels[(y * width + x) * 4 + 3] != 0 {
+                found = true;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    if !found {
+        return (1, 1, vec![0; 4]);
+    }
+    let crop_w = max_x - min_x + 1;
+    let crop_h = max_y - min_y + 1;
+    let mut out = vec![0u8; crop_w * crop_h * 4];
+    for y in 0..crop_h {
+        let src = ((min_y + y) * width + min_x) * 4;
+        let dst = y * crop_w * 4;
+        out[dst..dst + crop_w * 4].copy_from_slice(&pixels[src..src + crop_w * 4]);
+    }
+    (crop_w as u32, crop_h as u32, out)
 }
 
 #[cfg(test)]
@@ -794,37 +828,4 @@ mod tests {
         .expect_err("a selection beyond the layer has no pixels");
         assert!(error.contains("empty"), "{error}");
     }
-}
-
-/// Crop transparent padding from a straight-RGBA crop. The frozen selection
-/// copy trims to the non-transparent bounds before placing the clipboard.
-fn trim_transparent(width: usize, height: usize, pixels: &[u8]) -> (u32, u32, Vec<u8>) {
-    let mut min_x = width;
-    let mut min_y = height;
-    let mut max_x = 0usize;
-    let mut max_y = 0usize;
-    let mut found = false;
-    for y in 0..height {
-        for x in 0..width {
-            if pixels[(y * width + x) * 4 + 3] != 0 {
-                found = true;
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(x);
-                max_y = max_y.max(y);
-            }
-        }
-    }
-    if !found {
-        return (1, 1, vec![0; 4]);
-    }
-    let crop_w = max_x - min_x + 1;
-    let crop_h = max_y - min_y + 1;
-    let mut out = vec![0u8; crop_w * crop_h * 4];
-    for y in 0..crop_h {
-        let src = ((min_y + y) * width + min_x) * 4;
-        let dst = y * crop_w * 4;
-        out[dst..dst + crop_w * 4].copy_from_slice(&pixels[src..src + crop_w * 4]);
-    }
-    (crop_w as u32, crop_h as u32, out)
 }

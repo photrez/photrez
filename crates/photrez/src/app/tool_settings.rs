@@ -1,9 +1,9 @@
 //! Live tool settings behind the option bar's compact controls.
 //!
-//! The frozen option bars expose these as sliders, number fields and
+//! The option bars expose these as sliders, number fields and
 //! checkboxes; the native bar keeps the captured chrome and adds a compact
 //! stepper strip so every setting below is user-reachable. The values and
-//! clamps match `tools/editorState.ts` defaults.
+//! clamps match the tool defaults the bars are built on.
 
 use gpui_kit::Context;
 use photrez_core::protocol::{Command, TransformPatch};
@@ -11,7 +11,7 @@ use photrez_core::ptz::layer_params::{BasicAdjustment, ShapeFillKind, ShapeKind,
 
 use super::App;
 
-/// The weight dropdown's values, in the oracle's smallest-to-largest order.
+/// The weight dropdown's values, ordered smallest to largest.
 pub(crate) const TEXT_WEIGHTS: [f64; 7] = [100.0, 300.0, 400.0, 500.0, 600.0, 700.0, 900.0];
 
 /// View → Snap (`Shift+Ctrl+;`), the shortcut the View menu advertises.
@@ -28,8 +28,8 @@ pub(crate) enum BrushField {
     Smoothing,
 }
 
-/// `(size, hardness, opacity, flow, smoothing, eraser_only?)`, matching the
-/// oracle's `BRUSH_PRESETS`.
+/// `(size, hardness, opacity, flow, smoothing, eraser_only?)`, the
+/// six built-in brush presets.
 pub(crate) const BRUSH_PRESETS: [(f64, f64, f64, f64, f64, bool); 6] = [
     (20.0, 1.0, 1.0, 1.0, 0.0, false),
     (40.0, 0.15, 1.0, 1.0, 0.0, false),
@@ -112,16 +112,16 @@ impl App {
         Ok(())
     }
 
-    /// The frozen shape bar's edit mode: a shape layer is selected, so the
+    /// The shape bar's edit mode: a shape layer is selected, so the
     /// controls read and write that layer instead of the next-shape defaults.
     fn is_shape_layer_selected(&self, cx: &Context<Self>) -> bool {
         self.state.read(cx).selected_shape.is_some()
     }
 
     /// Edits the selected shape layer after syncing the next-shape defaults,
-    /// which is the frozen bar's edit-mode contract. Repeating an edit at its
+    /// which is the shape bar's edit-mode contract. Repeating an edit at its
     /// current value is a no-op so pointer ticks never stack history entries
-    /// (`ShapeOptionBar.tsx:shallowEqualParams`).
+    /// (the bar compares the params before writing).
     pub(crate) fn edit_selected_shape(
         &mut self,
         cx: &mut Context<Self>,
@@ -176,7 +176,7 @@ impl App {
         });
     }
 
-    /// Fill toggle (`ShapeOptionBar.tsx:setFill`): the oracle refuses to turn
+    /// Fill toggle: the bar refuses to turn
     /// fill off while stroke is already off, so a shape never becomes
     /// invisible and still hittable.
     pub(crate) fn toggle_shape_fill(&mut self, cx: &mut Context<Self>) {
@@ -196,7 +196,7 @@ impl App {
         cx.notify();
     }
 
-    /// Stroke toggle (`ShapeOptionBar.tsx:setStroke`), same last-paint guard.
+    /// Stroke toggle, same last-paint guard.
     pub(crate) fn toggle_shape_stroke(&mut self, cx: &mut Context<Self>) {
         let (fill, stroke) = self.effective_shape_paint(cx);
         if stroke && !fill {
@@ -221,8 +221,7 @@ impl App {
         }
     }
 
-    /// Absolute corner radius from the bar's field; the oracle clamps 0..100
-    /// (`ShapeOptionBar.tsx:setRadius`).
+    /// Absolute corner radius from the bar's field, clamped 0..100.
     pub(crate) fn set_shape_radius(
         &mut self,
         value: f64,
@@ -235,8 +234,8 @@ impl App {
         Ok(())
     }
 
-    /// Outline width from the stroke popover; the oracle's input is `min 1`,
-    /// `max 200` (`ShapeOptionBar.tsx`).
+    /// Outline width from the stroke popover, whose input is `min 1`,
+    /// `max 200`.
     pub(crate) fn set_shape_stroke_width(
         &mut self,
         value: f64,
@@ -251,7 +250,7 @@ impl App {
     }
 
     /// A stroke-colour pick in edit mode writes the layer as well and keeps
-    /// the outline on, matching the oracle's `setColor`.
+    /// the outline on when the colour is chosen.
     pub(crate) fn set_shape_stroke_color(&mut self, color: [u8; 4], cx: &mut Context<Self>) {
         let hex = crate::palette::to_hex(color);
         self.state.update(cx, |state, _| {
@@ -265,7 +264,7 @@ impl App {
         cx.notify();
     }
 
-    /// The shape bar's fill swatch in edit mode (`ShapeOptionBar.tsx:setFillColor`):
+    /// The shape bar's fill swatch in edit mode:
     /// the paint foreground follows and the chosen colour forces a solid fill.
     pub(crate) fn set_shape_fill_color(&mut self, color: [u8; 4], cx: &mut Context<Self>) {
         let hex = crate::palette::to_hex(color);
@@ -280,8 +279,7 @@ impl App {
         cx.notify();
     }
 
-    /// The stroke pill toggles the popover, not the outline
-    /// (`ShapeOptionBar.tsx:strokePopoverOpen`).
+    /// The stroke pill toggles the popover, not the outline.
     pub(crate) fn toggle_stroke_popover(
         &mut self,
         window: &mut gpui_kit::Window,
@@ -306,10 +304,10 @@ impl App {
         cx.notify();
     }
 
-    /// Cycle the frozen brush presets (`brushToolState.ts`).
-    /// Applies one brush preset by its global index. Presets marked
+    /// Cycle the built-in brush presets. Applies one brush preset by its
+    /// global index. Presets marked
     /// eraser-only are ignored while the brush is active, matching the
-    /// oracle's filtered preset list.
+    /// filtered preset list the bar shows.
     pub(crate) fn apply_brush_preset(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(&(size, hardness, opacity, flow, smoothing, eraser_only)) =
             BRUSH_PRESETS.get(index)
@@ -341,8 +339,8 @@ impl App {
 
     /// Flip the selected layer horizontally/vertically (option bar).
     /// Set one basic-adjustment channel to an absolute value (the
-    /// Adjustments panel's sliders), clamped to the -100..=100 range the
-    /// oracle's range inputs use.
+    /// Adjustments panel's sliders), clamped to the -100..=100 range those
+    /// inputs use.
     pub(crate) fn set_selected_adjustment(
         &mut self,
         channel: u8,
@@ -443,13 +441,13 @@ impl App {
         )
     }
 
-    /// The frozen text bar's edit mode: a text layer is selected.
+    /// The text bar's edit mode: a text layer is selected.
     fn is_text_layer_selected(&self, cx: &Context<Self>) -> bool {
         self.state.read(cx).selected_layer_type.as_deref() == Some("text")
     }
 
     /// Edits the selected text layer and syncs the next-text defaults, which
-    /// is the frozen bar's edit-mode contract.
+    /// is the text bar's edit-mode contract.
     pub(crate) fn edit_selected_text(
         &mut self,
         cx: &mut Context<Self>,
@@ -516,7 +514,7 @@ impl App {
     }
 
     /// The eraser bar's `Hard 100` helper: hardness, strength and flow to
-    /// 100 %, preset cleared to Custom, matching `BrushOptionBar.tsx`.
+    /// 100 %, preset cleared to Custom, as the brush bar's own helper does.
     pub(crate) fn eraser_full_strength(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.eraser_hardness = 1.0;
@@ -528,7 +526,8 @@ impl App {
     }
 
     /// Absolute edits from the brush bar's number fields. Percent fields
-    /// arrive as 0..100 and are stored as 0..1, matching the oracle.
+    /// arrive as 0..100 and are stored as 0..1, the same convention the bar
+    /// uses.
     pub(crate) fn set_brush_value(
         &mut self,
         field: BrushField,
@@ -562,7 +561,7 @@ impl App {
         cx.notify();
     }
 
-    /// Absolute size edit from the inline field (the oracle clamps 1..2000).
+    /// Absolute size edit from the inline field, clamped 1..2000.
     pub(crate) fn set_text_font_size(
         &mut self,
         value: f64,
@@ -720,8 +719,7 @@ impl App {
         }
     }
 
-    /// Stroke width from the popover's slider and toggle; the oracle's
-    /// `setStrokeWidth` clamps 0..100 (`TextOptionBar.tsx`).
+    /// Stroke width from the popover's slider and toggle, clamped 0..100.
     pub(crate) fn set_text_stroke_width(
         &mut self,
         value: f64,
@@ -793,8 +791,7 @@ impl App {
         }
     }
 
-    /// The text stroke pill toggles the popover, not the outline
-    /// (`TextOptionBar.tsx:strokePopoverOpen`).
+    /// The text stroke pill toggles the popover, not the outline.
     pub(crate) fn toggle_text_stroke_popover(
         &mut self,
         window: &mut gpui_kit::Window,

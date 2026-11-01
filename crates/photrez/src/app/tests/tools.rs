@@ -126,7 +126,7 @@ fn a_new_shape_layer_becomes_the_active_layer(cx: &mut gpui_kit::TestAppContext)
         assert_eq!(
             selected_name.as_deref(),
             Some("Shape"),
-            "shapeTool.ts selects the layer it creates"
+            "the shape tool selects the layer it creates"
         );
     })
     .expect("test window remains open");
@@ -385,7 +385,7 @@ fn eyedropper_samples_the_composite_not_the_selected_layer(cx: &mut gpui_kit::Te
     .expect("test window remains open");
 }
 
-/// S030: the Move bar's toggle response (dispatch + one render).
+/// The Move bar's toggle response (dispatch + one render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn move_bar_toggle_click_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -431,7 +431,7 @@ fn move_bar_toggle_click_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S050: the inspector dock tab switch (dispatch + one render).
+/// The inspector dock tab switch (dispatch + one render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn dock_tab_switch_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -489,7 +489,7 @@ fn dock_tab_switch_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S031: opening the brush preset menu from the overflow (dispatch + render).
+/// Opening the brush preset menu from the overflow (dispatch + render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn brush_overflow_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -552,7 +552,7 @@ fn brush_overflow_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S038: opening the shape kind menu (dispatch + render).
+/// Opening the shape kind menu (dispatch + render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn shape_kind_menu_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -619,7 +619,7 @@ fn shape_kind_menu_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S048: the shape tool's release -> committed rectangle frame. The drag's
+/// The shape tool's release -> committed rectangle frame. The drag's
 /// move frames are warm-up: the measured event is the one that commits the
 /// layer and paints the result, like the other tool-commit budgets.
 #[gpui_kit::test]
@@ -696,7 +696,7 @@ fn shape_draw_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S006: one pointer move over the page with the brush armed, from the event
+/// One pointer move over the page with the brush armed, from the event
 /// dispatch through the frame that paints the cursor ring. Measured on a
 /// fresh 800x600 document per sample, like the other overlay latencies.
 #[gpui_kit::test]
@@ -748,7 +748,7 @@ fn brush_cursor_hover_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S023: the gradient tool's release -> committed gradient frame, measured on
+/// The gradient tool's release -> committed gradient frame, measured on
 /// a fresh 800x600 document like the shape commit above.
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
@@ -831,7 +831,7 @@ fn gradient_draw_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S032: picking a bucket tolerance preset (dispatch + render).
+/// Picking a bucket tolerance preset (dispatch + render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn bucket_tolerance_preset_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -893,7 +893,7 @@ fn bucket_tolerance_preset_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S034: hovering the eyedropper HEX badge (hover -> tooltip paint).
+/// Hovering the eyedropper HEX badge (hover -> tooltip paint).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn eyedropper_hex_tooltip_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -937,7 +937,7 @@ fn eyedropper_hex_tooltip_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S035: opening the gradient type menu (dispatch + render).
+/// Opening the gradient type menu (dispatch + render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn gradient_type_menu_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -1004,7 +1004,7 @@ fn gradient_type_menu_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S037: opening the selection shape menu (dispatch + render).
+/// Opening the selection shape menu (dispatch + render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn selection_shape_menu_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -1119,7 +1119,7 @@ fn text_click_opens_an_editor_and_typing_commits_to_the_layer(cx: &mut gpui_kit:
         assert_eq!(
             content.read(cx).text_edit_content_for_test(cx).as_deref(),
             Some(""),
-            "the text click opens an empty editor, as textTool.ts does"
+            "the text click opens an empty editor"
         );
         assert!(
             window.try_find("text-editor").is_some(),
@@ -1526,11 +1526,33 @@ fn transform_controls_toggle_gates_direct_manipulation(cx: &mut gpui_kit::TestAp
                 .read(cx)
                 .show_transform_controls
         );
+        // Direct manipulation acts on the selected layer. The drag above was a
+        // layer marquee over a canvas whose only layer is the Background,
+        // which the marquee deliberately skips, so it cleared the projected
+        // selection. Re-select through the layers panel row - the user-visible
+        // path - so the two phases vary only the transform-controls toggle:
+        // with no layer selected, an on-toggle drag transforms nothing either.
+        let (rows, _) = layer_rows(&content, cx);
+        let background = rows
+            .iter()
+            .find(|row| row.core_id.is_some())
+            .expect("the blank document projects a Background row");
+        window.click(format!("layer-row-{}", background.id), cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .selected_layers
+                .contains(&background.id),
+            "the row click selects the layer the gate-on drag will manipulate"
+        );
         drag_doc(window, (400, 300), center, moved, cx);
         let after_on = content.read(cx).selected_transform_for_test(cx);
         assert_ne!(
             after_on, before,
-            "transform controls on restores drag-to-move"
+            "transform controls on restores drag-to-move on the selected layer"
         );
     })
     .expect("test window remains open");
@@ -1662,7 +1684,7 @@ fn shape_fill_stroke_radius_and_arrow_are_live(cx: &mut gpui_kit::TestAppContext
         window.render_frame(cx);
 
         // The pill opens the popover; its header checkbox toggles the outline,
-        // and the oracle's last-paint guard keeps fill or stroke on.
+        // and the last-paint guard keeps fill or stroke on.
         window.click("opt-fill", cx);
         window.render_frame(cx);
         assert!(
@@ -1716,7 +1738,7 @@ fn shape_fill_stroke_radius_and_arrow_are_live(cx: &mut gpui_kit::TestAppContext
         assert_eq!(
             content.read(cx).state_for_test().read(cx).shape_radius,
             100.0,
-            "radius clamps to the oracle ceiling"
+            "radius clamps to the 100 ceiling"
         );
 
         window.click("opt-shape-kind", cx);
@@ -1943,7 +1965,7 @@ fn shape_stroke_popover_edits_color_and_width(cx: &mut gpui_kit::TestAppContext)
                 .read(cx)
                 .shape_stroke_width,
             200.0,
-            "width clamps to the oracle ceiling"
+            "width clamps to the 200 ceiling"
         );
 
         window.click("opt-stroke-color", cx);
@@ -2179,7 +2201,7 @@ fn eyedropper_hex_badge_shows_copy_tooltip(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-copy-hex-tooltip").is_some(),
-            "the HEX badge carries the oracle click-to-copy tooltip"
+            "the HEX badge carries its click-to-copy tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -2513,9 +2535,8 @@ fn text_option_bar_edits_the_selected_layer_and_syncs_defaults(cx: &mut gpui_kit
         // A layer whose features the core rasterizer cannot render (the
         // decorated case: underline/strikethrough/uppercase/weight) refuses
         // the rasterize with a typed error instead of producing a Raster
-        // layer the compositor cannot paint. (Pre-fix RED receipt: both
-        // kinds rasterized metadata-only and failed with MissingPixels —
-        // .slim/deepwork/78-evidence/gates-u10-u11/defect-receipts.log.)
+        // layer the compositor cannot paint. The pre-fix failure was that both
+        // kinds rasterized metadata-only and failed with MissingPixels.)
         content.update(cx, |app, cx| {
             let error = app
                 .rasterize_selected_layer(cx)
@@ -2592,7 +2613,7 @@ fn text_rasterize_materializes_pixels_and_composites(cx: &mut gpui_kit::TestAppC
                         .and_then(|l| {
                             loaded
                                 .registry
-                                .get_layer(&loaded.document_id(), &l.id)
+                                .get_layer(loaded.document_id(), &l.id)
                                 .map(|px| (px.width, px.height, px.pixels.len(), l.width, l.height))
                         })
                 });
@@ -2628,7 +2649,7 @@ fn text_rasterize_materializes_pixels_and_composites(cx: &mut gpui_kit::TestAppC
     .expect("test window remains open");
 }
 
-/// S039 perf: one keystroke in the Text bar's size field commits live and
+/// Perf: one keystroke in the Text bar's size field commits live and
 /// paints a frame. The key is dispatched directly; gpui-kit's press helper
 /// renders a frame before and after and would charge three frames.
 #[gpui_kit::test]
@@ -2703,8 +2724,9 @@ fn text_stroke_popover_edits_the_layer_and_the_next_text_defaults(
     use photrez_core::ptz::layer_params::TextStrokeAlign;
 
     let directory = TestDirectory::new();
-    // The 1920x1080 client at 125% scaling is 1536 CSS px: the only width at
-    // which the frozen option-bar geometry lays every text control in reach.
+    // The 1920x1080 client at 125% scaling gives a 1536 px layout width: the
+    // only width at which the option-bar geometry lays every text control in
+    // reach.
     let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1536.0);
     cx.update_window(window.into(), |_, window, cx| {
         set_tool(&content, cx, ToolId::Text, 1.0);
@@ -3193,7 +3215,7 @@ fn select_supports_arrow_navigation_and_click_away(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
-/// Below the oracle's 880 px container breakpoint the brush bar folds Flow,
+/// Below the 880 px container breakpoint the brush bar folds Flow,
 /// Smoothing, Presets and the eraser's full-strength helper into `MoreDropdown`;
 /// at 1366x820 the bar resolves to 781 px, so this is the live layout.
 #[gpui_kit::test]
@@ -3273,7 +3295,7 @@ fn brush_overflow_folds_into_the_more_dropdown_below_880(cx: &mut gpui_kit::Test
     .expect("test window remains open");
 }
 
-/// S061: the Snap toggle's tooltip (hover -> panel paint).
+/// The Snap toggle's tooltip (hover -> panel paint).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn snap_tooltip_hover_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -3347,7 +3369,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-fill-color-tooltip").is_some(),
-            "the fill swatch carries the oracle fill-color tooltip"
+            "the fill swatch carries its fill-color tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -3359,7 +3381,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-fill-color").is_none(),
-            "the oracle unmounts the fill swatch once Fill is off"
+            "the fill swatch unmounts once Fill is off"
         );
         window.click("opt-fill", cx);
         window.render_frame(cx);
@@ -3371,7 +3393,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-shape-stroke-tooltip").is_some(),
-            "the stroke pill carries the oracle stroke-options tooltip"
+            "the stroke pill carries its stroke-options tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -3390,7 +3412,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-italic-tooltip").is_some(),
-            "the italic button carries the oracle tooltip"
+            "the italic button carries its tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -3398,7 +3420,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-align-left-tooltip").is_some(),
-            "the align-left button carries the oracle tooltip"
+            "the align-left button carries its tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -3411,7 +3433,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-brush-preset-tooltip").is_some(),
-            "the brush preset control carries the oracle tooltip"
+            "the brush preset control carries its tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -3426,7 +3448,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-auto-select-tooltip").is_some(),
-            "the auto-select toggle carries the oracle tooltip"
+            "the auto-select toggle carries its tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -3438,7 +3460,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-snap-tooltip").is_some(),
-            "the snap toggle carries the oracle tooltip"
+            "the snap toggle carries its tooltip"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
@@ -3446,7 +3468,7 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-transform-tooltip").is_some(),
-            "the transform toggle carries the oracle tooltip"
+            "the transform toggle carries its tooltip"
         );
     })
     .expect("test window remains open");

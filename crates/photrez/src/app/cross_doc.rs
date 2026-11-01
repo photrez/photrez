@@ -1,11 +1,11 @@
 //! Layer drag across documents and file drops into a document.
 //!
-//! Mirrors the oracle's `crossDocLayerOps.ts`: a layer dragged from the Layers
+//! Cross-document layer drag and OS file drop: a layer dragged from the Layers
 //! panel lands on a tab, the panel, the canvas, or the empty workspace; a file
 //! dropped on a document becomes a new raster layer: a tab or panel drop centers
 //! the layer in the target document, a canvas drop centers it on the cursor,
 //! and multiple files fan out by [`CASCADE_OFFSET_PX`]. ALT moves instead of
-//! copying. All guards keep the same messages as the oracle so the status bar
+//! copying. All guards keep the same messages as the drop path's own wording,
 //! and toasts read the same thing.
 
 use std::path::PathBuf;
@@ -18,11 +18,11 @@ use super::input::next_layer_id;
 use super::App;
 use crate::state::{NewDocBackground, ToastSeverity};
 
-/// `MAX_LAYERS` in `engine/types.ts`.
+/// The document's layer ceiling.
 pub(crate) const MAX_LAYERS: usize = 200;
-/// `CASCADE_OFFSET_PX` in `crossDocLayerOps.ts`.
+/// Offset each further layer in a multi-file fan-out gets.
 pub(crate) const CASCADE_OFFSET_PX: f64 = 24.0;
-/// `WorkspaceManager` maximum open documents.
+/// Ceiling on simultaneously open documents.
 pub(crate) const MAX_DOCUMENTS: usize = 16;
 
 /// The value carried by a layer-row drag. The row id is UI state; the core id
@@ -50,7 +50,7 @@ pub(crate) enum LayerDropTarget {
 
 impl App {
     /// Production entry point: run the drop and surface guard failures the way
-    /// the oracle does (error toast), clearing the status bar on success.
+    /// the drop path does (error toast), clearing the status bar on success.
     pub(crate) fn apply_layer_drag(
         &mut self,
         payload: &LayerDragPayload,
@@ -118,7 +118,7 @@ impl App {
         };
 
         if target_doc_id == payload.source_doc_id {
-            // No insertion hint reached this path, so the oracle moves the
+            // No insertion hint reached this path, so the drop moves the
             // layer to the end of its own stack (never a silent no-op drop).
             let count = self.doc_layer_count(&target_doc_id)?;
             let source_index = self

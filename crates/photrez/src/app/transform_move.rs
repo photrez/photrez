@@ -1,5 +1,5 @@
 //! Move-tool transform session: frame move, eight-handle resize and rotation
-//! around the layer centre. Geometry is the exact `transformGeometry.ts` port;
+//! around the layer centre. Geometry comes from `transform_geometry`;
 //! the live preview recomposites the document with the dragged transform and
 //! commits one `TransformLayer` history entry on pointer-up.
 
@@ -856,7 +856,7 @@ impl App {
     }
 
     /// Evenly distribute the selected layers' spacing along one axis. Keeps
-    /// the outermost members fixed, as the frozen `distributeTransformEdits`.
+    /// the outermost members fixed.
     pub(crate) fn distribute_selected_layers(
         &mut self,
         horizontal: bool,
@@ -1205,6 +1205,10 @@ impl App {
             .content_snapshot()
             .ok_or_else(|| "loaded content is missing".to_string())?;
         let state = self.state.read(cx);
+        if state.selected_layers.is_empty() && state.layers.iter().any(|row| row.core_id.is_some())
+        {
+            return Err("no layer is selected".to_string());
+        }
         let selected = state
             .layers
             .iter()
@@ -1220,7 +1224,7 @@ impl App {
     }
 
     /// Topmost visible, non-background layer under a document-space point.
-    /// Mirrors `viewport/layerHitTest.ts`: text/shape layers are hit by their
+    /// The layer hit test: text/shape layers are hit by their
     /// whole box, raster layers by in-box alpha above 10%.
     pub(crate) fn layer_hit_at(&self, doc_x: f64, doc_y: f64) -> Option<String> {
         let doc_id = self.active_document.as_ref()?.doc_id.clone();
@@ -1264,7 +1268,7 @@ impl App {
         None
     }
 
-    /// Move-tool auto-select click (`useCanvasPointerTools.ts:495`). Returns
+    /// Move-tool auto-select click. Returns
     /// true when the click changed the selection, in which case no transform
     /// drag starts; clicking the already-active layer keeps the native
     /// drag-to-move interaction.
@@ -1321,7 +1325,7 @@ impl App {
     }
 }
 
-/// Even-odd containment test used by the layer hit test (`layerHitTest.ts`).
+/// Even-odd containment test used by the layer hit test.
 fn point_in_polygon(x: f64, y: f64, corners: &[Point; 4]) -> bool {
     let mut inside = false;
     let mut j = corners.len() - 1;

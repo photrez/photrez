@@ -54,7 +54,7 @@ impl App {
     }
 
     /// Dismisses the picker. `commit == false` puts the opening colour back:
-    /// the oracle's picker applies live and reverts on cancel.
+    /// the picker applies live and reverts on cancel.
     pub(crate) fn close_color_picker(
         &mut self,
         commit: bool,
@@ -186,7 +186,7 @@ impl App {
         if target == ColorTarget::Text {
             // Edit mode edits the layer; draw mode is the paint foreground.
             // Repeated pointer events over one spot must not stack history
-            // entries, which is the oracle's no-op guard in `applyEdit`.
+            // entries, which is the no-op guard on an unchanged colour.
             if self.state.read(cx).selected_text_color.is_some() {
                 if self.state.read(cx).selected_text_color == Some(color) {
                     return;
@@ -239,7 +239,7 @@ impl App {
         self.state.update(cx, |state, _| match target {
             ColorTarget::Foreground => state.fg_color = color,
             ColorTarget::Background => state.bg_color = color,
-            // The oracle's `setColor` also enables the outline so a new
+            // Choosing a stroke colour also enables the outline so a new
             // stroke colour is never invisible.
             ColorTarget::ShapeStroke => {
                 state.shape_stroke_color = color;

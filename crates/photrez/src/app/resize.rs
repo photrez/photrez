@@ -50,7 +50,7 @@ impl App {
         cx.notify();
     }
 
-    /// Expands/collapses the unit list (`ResizeCanvasModal.tsx:165-173`).
+    /// Expands/collapses the unit list.
     pub(crate) fn toggle_resize_unit(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.resize_unit_open = !state.resize_unit_open;
@@ -191,7 +191,7 @@ impl App {
         height = height.min(MAX_CANVAS_DIM);
         if session.aspect_locked {
             // The field the user last typed into drives the linked dimension,
-            // like the oracle's per-field commit.
+            // like a per-field commit.
             let linked = if session.edited == Some(1) {
                 (f64::from(height) * session.aspect).round().max(1.0) as u32
             } else {

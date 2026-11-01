@@ -59,7 +59,7 @@ fn crop_drag_shows_a_preview_and_escape_clears_it(cx: &mut gpui_kit::TestAppCont
     .expect("test window remains open");
 }
 
-/// S012: arming Crop opens the oracle's default frame over the whole page, and
+/// Arming Crop opens the default frame over the whole page, and
 /// leaving the tool drops it.
 #[gpui_kit::test]
 fn selecting_crop_opens_the_frame_over_the_whole_page(cx: &mut gpui_kit::TestAppContext) {
@@ -81,7 +81,7 @@ fn selecting_crop_opens_the_frame_over_the_whole_page(cx: &mut gpui_kit::TestApp
         window.render_frame(cx);
         assert_eq!(
             content.read(cx).crop_rect_for_test(cx),
-            Some([0.0, 0.0, f64::from(doc_w), f64::from(doc_h)]),
+            Some([0.0, 0.0, doc_w, doc_h]),
             "arming Crop frames the whole page"
         );
         content.update(cx, |app, cx| {
@@ -96,7 +96,7 @@ fn selecting_crop_opens_the_frame_over_the_whole_page(cx: &mut gpui_kit::TestApp
     .expect("test window remains open");
 }
 
-/// S012 perf: arming Crop seeds the full-page frame and repaints. The reset to
+/// Perf: arming Crop seeds the full-page frame and repaints. The reset to
 /// Move between samples is host-side and outside the measured span.
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
@@ -557,7 +557,7 @@ fn crop_toggle_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S011: the ratio dropdown is live. Choosing 1:1 (inside the list's 300 px
+/// The ratio dropdown is live. Choosing 1:1 (inside the list's 300 px
 /// viewport) refits the pending frame to the largest square inside the
 /// document and records the recent.
 #[gpui_kit::test]
@@ -593,8 +593,8 @@ fn crop_ratio_dropdown_refits_the_pending_frame(cx: &mut gpui_kit::TestAppContex
     .expect("test window remains open");
 }
 
-/// S011: `Lock Current Shape` is inert outside Free, mirroring the oracle's
-/// `disabled={cropMode() !== "free"}`; the Size mode keeps its mode.
+/// `Lock Current Shape` is inert outside Free: the control is disabled unless
+/// the mode is Free; the Size mode keeps its mode.
 #[gpui_kit::test]
 fn crop_lock_shape_is_inert_outside_free_mode(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -631,7 +631,7 @@ fn crop_lock_shape_is_inert_outside_free_mode(cx: &mut gpui_kit::TestAppContext)
     .expect("test window remains open");
 }
 
-/// S011/S064: the Size mode converts entry at the crop bar's 300 PPI base,
+/// The Size mode converts entry at the crop bar's 300 PPI base,
 /// keeps the pixel target authoritative across unit changes and swap.
 #[gpui_kit::test]
 fn crop_size_mode_converts_at_300_ppi_and_swaps(cx: &mut gpui_kit::TestAppContext) {
@@ -707,7 +707,7 @@ fn crop_size_mode_converts_at_300_ppi_and_swaps(cx: &mut gpui_kit::TestAppContex
     .expect("test window remains open");
 }
 
-/// S064 perf: choosing the Size mode (`crop-ratio` -> `crop-ratio-size`)
+/// Perf: choosing the Size mode (`crop-ratio` -> `crop-ratio-size`)
 /// repaints the bar with the W/H fields and the unit trigger.
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
@@ -776,7 +776,7 @@ fn crop_size_mode_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// S011 perf: opening/closing the Aspect Ratio dropdown rebuilds the list and
+/// Perf: opening/closing the Aspect Ratio dropdown rebuilds the list and
 /// repaints the option bar.
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]

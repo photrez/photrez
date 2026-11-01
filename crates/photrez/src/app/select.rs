@@ -21,7 +21,7 @@ impl App {
             } else {
                 state.open_select = Some(id);
                 // No current value (the brush default is `usize::MAX`) opens
-                // on the first row, like the oracle's unset select.
+                // on the first row, as an unset selection does.
                 state.select_cursor = if active < count { active } else { 0 };
                 state.select_count = count;
                 // The brush preset list lives inside the overflow panel; any
@@ -113,7 +113,7 @@ impl App {
                         9 => crate::state::ShapeTool::Hexagon,
                         _ => crate::state::ShapeTool::Rect,
                     };
-                    // The oracle's `selectKind` clears the arrow head for every
+                    // Choosing a kind clears the arrow head for every
                     // preset except the dedicated Arrow entry.
                     state.shape_arrow_head = false;
                 }

@@ -1,11 +1,12 @@
-//! New Document dialog: the oracle's category tabs, preset grid and
-//! name/size/unit/background form (`NewDocumentDialog.tsx:67-282`).
+//! New Document dialog: category tabs, preset grid and
+//! the name/size/unit/background form.
 //!
-//! The form keeps its size in pixels, exactly like the oracle: the width and
+//! The form keeps its size in pixels, the same way the document store counts:
+//! the width and
 //! height fields only carry display text in the chosen unit, and a unit switch
 //! reformats the stored pixel value. A preset copies its name and size into
 //! the form; a second press within the double-click window creates the
-//! document immediately, which is the oracle's `onDblClick` path.
+//! document immediately.
 
 use std::time::{Duration, Instant};
 
@@ -16,7 +17,7 @@ use crate::units::DimensionUnit;
 
 use super::App;
 
-/// The oracle waits for a browser double click; native clicks carry no
+/// A browser double click reports a click count; native clicks carry no
 /// reliable count, so the second press inside this window counts as one.
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
@@ -98,7 +99,8 @@ impl App {
         cx.notify();
     }
 
-    /// `applyPreset` plus the oracle's double-click create. Returns `true`
+    /// Apply a preset to the form, creating the document on the second
+    /// press. Returns `true`
     /// when the press created a document.
     pub(crate) fn click_new_document_preset(
         &mut self,
@@ -188,9 +190,7 @@ impl App {
             }
             "tab" => {
                 let next = self.state.update(cx, |state, _| {
-                    let Some(session) = state.new_document.as_mut() else {
-                        return None;
-                    };
+                    let session = state.new_document.as_mut()?;
                     let committed = session.field;
                     if let Some(field) = committed {
                         session.commit_dimension(field);
@@ -247,21 +247,21 @@ impl App {
                     };
                     match session.field {
                         Some(NewDocField::Name) => session.name.push(character),
-                        Some(NewDocField::Width) => {
+                        Some(NewDocField::Width)
                             if character.is_ascii_digit()
-                                || (character == '.' && session.unit != DimensionUnit::Px)
-                            {
-                                session.width_text.push(character);
-                            }
+                                || (character == '.' && session.unit != DimensionUnit::Px) =>
+                        {
+                            session.width_text.push(character);
                         }
-                        Some(NewDocField::Height) => {
+                        Some(NewDocField::Width) => {}
+                        Some(NewDocField::Height)
                             if character.is_ascii_digit()
-                                || (character == '.' && session.unit != DimensionUnit::Px)
-                            {
-                                session.height_text.push(character);
-                            }
+                                || (character == '.' && session.unit != DimensionUnit::Px) =>
+                        {
+                            session.height_text.push(character);
                         }
-                        None => return,
+                        Some(NewDocField::Height) => {}
+                        None => {}
                     }
                 });
                 cx.notify();

@@ -68,9 +68,10 @@
 //! * **`Image`, `Help` and `Settings` are 38px tall** — a header and one item,
 //!   not a full menu. Their popups are a single row, so this view renders them
 //!   from the same builder rather than special-casing an "empty" menu.
-//! The trigger-to-ink padding was measured at exactly
-//!   10px, matching `title::MENU_PX`, so the popup's y=36 origin is the same
-//!   constant rather than a coincidence.
+//!
+//! The trigger-to-ink padding was measured at exactly 10px, matching
+//! `title::MENU_PX`, so the popup's y=36 origin is the same constant rather
+//! than a coincidence.
 //!
 //! # Gaps
 //!

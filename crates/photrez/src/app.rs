@@ -126,7 +126,7 @@ pub(crate) struct CloseDocument;
 pub(crate) struct NewDocumentAction;
 
 /// View > Toggle Side Panels (`view.toggle-side-panels`), bound to
-/// Ctrl+Shift+P like the oracle's menu row.
+/// Ctrl+Shift+P, the same chord as its menu row.
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]
 pub(crate) struct ToggleSidePanelsAction;
@@ -140,7 +140,7 @@ struct ActiveDocument {
     doc_id: String,
     canvas: CanvasImage,
     /// `None` means the view still follows the live fit (first open), exactly
-    /// the frozen first-open refit; a concrete camera survives resize and is
+    /// the first-open refit; a concrete camera survives resize and is
     /// what the session writes back into the `.ptz` viewport.
     camera: Option<Camera>,
 }
@@ -175,7 +175,7 @@ pub fn probe_document_size() -> (f64, f64) {
 /// This is load-bearing rather than cosmetic: every measurement in the parity
 /// baselines was taken from a window rendering Inter. If this silently falls
 /// back to a system font, glyph advances differ and diffs fail for reasons
-/// that have nothing to do with the port.
+/// that have nothing to do with the layout being measured.
 pub fn load_fonts(cx: &gpui_kit::App) {
     match cx
         .text_system()
@@ -249,7 +249,7 @@ pub struct App {
     transform_drag: Option<transform_move::TransformDrag>,
     /// The live Selection-tool rotation of the committed selection.
     selection_rotation_drag: Option<input::SelectionRotationDrag>,
-    /// Selection transform mode (`selectionTool.ts` Ctrl+T): paints the eight
+    /// Selection transform mode (Ctrl+T): paints the eight
     /// resize handles and the rotate pin, and arms the pin drag.
     selection_edit_mode: bool,
     group_transform_drag: Option<transform_move::GroupTransformDrag>,
@@ -261,7 +261,8 @@ pub struct App {
     /// Last hovered canvas position (window coords) for crop cursors.
     hover_pos: Option<Point<Pixels>>,
     last_cursor: crate::input::CursorPolicy,
-    /// Edge auto-scroll state (`edgeScroll.ts`).
+    /// Edge auto-scroll state: holding the pointer near a canvas edge pans
+    /// the view while a drag is in flight.
     edge_pointer: Option<Point<Pixels>>,
     edge_scroll_active: bool,
     edge_scroll_generation: u64,
@@ -302,7 +303,7 @@ pub struct App {
     pending_tab_close: Option<String>,
     /// In-flight canvas gesture state (brush chain; later tools join here).
     input: crate::input::InputState,
-    /// App-local pixel clipboard (the frozen app's in-memory selection buffer).
+    /// App-local pixel clipboard (the in-memory selection buffer).
     clipboard: Option<selection::ClipboardImage>,
     /// Brush tip keyed by size/hardness/colour; see `BrushTipCache`.
     brush_tips: crate::input::BrushTipCache,
@@ -421,7 +422,7 @@ impl App {
                 && state.selection_drag.is_none()
                 && !selection_inverted;
         }
-        // `cursorRotate.ts`: the rotate sprite follows the pointer angle about
+        // The rotate sprite follows the pointer angle about
         // the selection centre while a pin drag rotates, and on the pin hover
         // in edit mode.
         if state.active_tool == crate::state::ToolId::Selection {
@@ -520,7 +521,7 @@ impl App {
             .and_then(|marquee| marquee.rect());
         // A cleared selection keeps row 0 as the native primary; it must not
         // paint a transform frame for a layer the user no longer selected.
-        // `CanvasViewport.tsx:1083` paints the frame for the Shape tool too, so
+        // The canvas viewport paints the frame for the Shape tool too, so
         // a shape drawn and auto-selected keeps its handles until the tool
         // changes; the frame bounds come from `layer_frame_size`, which reads
         // the shape rectangle rather than the document-sized bitmap.
@@ -567,7 +568,7 @@ impl App {
                 });
             }
         }
-        // `HoverHighlight.tsx`: a non-active layer under the Move pointer gets a
+        // A non-active layer under the Move pointer gets a
         // 1 px accent outline. No drag, marquee or transform session may own the
         // pointer while it paints.
         if state.active_tool == crate::state::ToolId::Move
@@ -628,9 +629,9 @@ impl App {
                 }
             }
         }
-        // `BrushCursorOverlay.tsx`: brush/eraser hide the system cursor and
+        // Brush and eraser hide the system cursor and
         // paint the 20% alpha ring at the pointer. Alt/space take over the
-        // pointer for sampling and panning, and the oracle hides the ring then.
+        // pointer for sampling and panning, and the ring is hidden then.
         if matches!(
             state.active_tool,
             crate::state::ToolId::Brush | crate::state::ToolId::Eraser
@@ -1347,6 +1348,13 @@ impl App {
             .map(|content| content.layers.clone())
             .unwrap_or_default();
         self.state.update(cx, |state, _| {
+            let preserve_empty_selection = selected.is_none()
+                && state.selected_layers.is_empty()
+                && state.layers.iter().any(|row| {
+                    row.core_id
+                        .as_ref()
+                        .is_some_and(|core_id| layers.iter().any(|layer| layer.id == *core_id))
+                });
             let previous_selected: Vec<String> = state
                 .layers
                 .iter()
@@ -1406,7 +1414,7 @@ impl App {
                     .map(|row| row.id)
                     .collect()
             };
-            if !mapped.contains(&state.selected_layer) {
+            if !preserve_empty_selection && !mapped.contains(&state.selected_layer) {
                 mapped.push(state.selected_layer);
             }
             state.selected_layers = mapped;
@@ -1739,12 +1747,10 @@ impl Render for App {
             .active_document
             .as_ref()
             .map(|document| &document.canvas)
-            .or_else(|| {
-                if has_document {
-                    self.demo_canvas.as_ref()
-                } else {
-                    None
-                }
+            .or(if has_document {
+                self.demo_canvas.as_ref()
+            } else {
+                None
             });
         workspace::render(
             &self.state,

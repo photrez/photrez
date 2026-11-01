@@ -1,5 +1,5 @@
 //! The auto-save timer: every 60 s every dirty session is written to the
-//! app-cache autosave store (`autoSave.ts` cadence). The status is surfaced in
+//! app-cache autosave store. The status is surfaced in
 //! the footer; failure never closes or mutates a document.
 
 use std::path::{Path, PathBuf};

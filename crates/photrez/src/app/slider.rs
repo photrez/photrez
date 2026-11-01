@@ -82,7 +82,7 @@ impl App {
                     Err(error) => self.set_status_error(Some(format!("Text: {error}")), cx),
                 }
             }
-            // The oracle's range inputs take pointer input only here.
+            // Range inputs of this kind take pointer input only here.
             SliderTarget::BrushMenuSize
             | SliderTarget::BrushMenuHardness
             | SliderTarget::BrushMenuStrength
@@ -143,7 +143,7 @@ impl App {
                 cx.notify();
             }
             SliderTarget::PrintScale => {
-                // `PrintInspector.tsx`: type="range" min 10 max 400.
+                // The print scale field: min 10, max 400.
                 let pct = (10.0 + fraction * 390.0).round().clamp(10.0, 400.0) as u32;
                 self.state.update(cx, |state, _| {
                     state.print_scale_percent = pct;
