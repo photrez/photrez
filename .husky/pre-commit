@@ -4,7 +4,7 @@ echo "   Running Pre-Commit Verification Pipeline  "
 echo "============================================="
 
 # 0a. Block internal workflow labels in staged source files
-if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs)$' | xargs grep -ln 'ponytail:' 2>/dev/null | grep -q .; then
+if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs|sh)$' | xargs grep -ln 'ponytail:' 2>/dev/null | grep -q .; then
   echo ""
   echo "ERROR: Internal label pattern detected in staged source files."
   exit 1
@@ -12,7 +12,7 @@ fi
 
 # 0c. Block internal references from local blocklist (gitignored, internal only)
 if [ -f ".husky/internal-blocklist" ]; then
-  if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs)$' | xargs grep -nFf .husky/internal-blocklist 2>/dev/null | grep -q .; then
+  if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs|sh)$' | xargs grep -nFf .husky/internal-blocklist 2>/dev/null | grep -q .; then
     echo ""
     echo "ERROR: Internal reference pattern detected in staged source files."
     exit 1
