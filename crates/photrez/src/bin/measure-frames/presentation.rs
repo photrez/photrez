@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use crate::timing;
-use crate::timing::Pacing;
+use super::timing;
+use super::timing::Pacing;
 use photrez::render::canvas_bridge::CanvasImage;
 
 use super::{emit, fail, machine_line, probe, round2, round6, Runner, WaitMode};

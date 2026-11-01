@@ -50,10 +50,10 @@ futures = "0.3"
 # fetches no new package - and no default features, matching gpui-pre's own
 # edge, so the feature union does not move either.
 image = { version = "0.25", default-features = false }
-# GDI capture + own-window lookup for the measurement binary's paint-prove
-# (cold/warm protocol). windows-sys 0.52 is already in this crate's lock via the
-# gpui-kit dependency tree; the direct edge fetches no new package and is used
-# only by `src/bin/measure-frames/`, never by a product module.
+[target.'cfg(windows)'.dependencies]
+# GDI capture for the measure-frames paint-prove and the Windows print adapter.
+# windows-sys 0.52 is already in this crate's lock via the gpui-kit dependency
+# tree; the direct edge fetches no new package. Both modules are cfg(windows).
 windows-sys = { version = "0.52", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

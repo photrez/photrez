@@ -1,13 +1,15 @@
+use crate::common::{copy_region, disc_bounds};
+use crate::presentmon;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::timing::Pacing;
-use crate::{presentmon, probe, timing};
+use super::timing::Pacing;
+use super::{probe, timing};
 use photrez::render::canvas_bridge::union_rect;
 
 use super::{
-    clone_rgba, copy_region, disc_bounds, dot_position, emit, fail, machine_line, paint_disc,
-    round2, round6, since, Runner, WaitMode, STROKE,
+    clone_rgba, dot_position, emit, fail, machine_line, paint_disc, round2, round6, since, Runner,
+    WaitMode, STROKE,
 };
 
 impl Runner {
