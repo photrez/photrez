@@ -122,7 +122,7 @@ fn rewrite_manifest_version(manifest: &Path, new_version: &str) -> Result<bool, 
 }
 
 /// The semver shape the retired `scripts/bump-version.ts` enforced
-/// (MAJOR.MINOR.PATCH[-stage.N][+build]); hand-rolled to keep the regex
+/// (`MAJOR.MINOR.PATCH[-stage.N][+build]`); hand-rolled to keep the regex
 /// crate out of xtask's dependency list.
 fn semver_valid(version: &str) -> bool {
     let (core, build) = match version.split_once('+') {

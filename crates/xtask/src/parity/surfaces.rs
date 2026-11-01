@@ -378,6 +378,41 @@ fn is_stable_id(id: &str) -> bool {
 /// state id set equals `states.json`; capture files exist and are PNGs of
 /// `physical_size`; diff input labels equal FNV-1a-64 content labels of the
 /// captures; every state capture/test reference resolves.
+/// True when both spellings identify the same git commit.
+///
+/// Evidence bundles record the canonical abbreviation (`390f7358`) while the
+/// pin is the full 40-hex SHA, so comparing the two strings byte-for-byte
+/// rejected correct provenance. A shared prefix of at least git's seven-character
+/// minimum still identifies one commit; a divergent or over-shortened value does
+/// not, so a genuinely different commit still fails.
+fn same_commit(recorded: Option<&str>, expected: &str) -> bool {
+    let Some(recorded) = recorded else {
+        return false;
+    };
+    if recorded == expected {
+        return true;
+    }
+    if !is_commit_token(expected) || !is_commit_token(recorded) {
+        return false;
+    }
+    let (short, long) = if recorded.len() <= expected.len() {
+        (recorded, expected)
+    } else {
+        (expected, recorded)
+    };
+    long.starts_with(short)
+}
+
+/// A hex string git could resolve: at least its seven-character minimum
+/// abbreviation and no longer than a full SHA.
+fn is_commit_token(value: &str) -> bool {
+    (MIN_COMMIT_ABBREV..=FULL_COMMIT_LEN).contains(&value.len())
+        && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+const MIN_COMMIT_ABBREV: usize = 7;
+const FULL_COMMIT_LEN: usize = 40;
+
 fn bundle_errors(id: &str, bundle: &Path, oracle_commit: &str, build_id: &str) -> Vec<String> {
     let mut errors = Vec::new();
     if !bundle.is_dir() {
@@ -437,12 +472,11 @@ fn bundle_errors(id: &str, bundle: &Path, oracle_commit: &str, build_id: &str) -
             errors.push(format!("{id}: manifest `dpi` must be a positive number"));
         }
         let physical = array_at(manifest, "physical_size")
-            .map(|size| {
+            .and_then(|size| {
                 size.iter()
                     .map(|v| v.as_f64())
                     .collect::<Option<Vec<f64>>>()
             })
-            .flatten()
             .filter(|size| size.len() == 2 && size.iter().all(|v| *v > 0.0 && v.fract() == 0.0));
         if physical.is_none() {
             errors.push(format!(
@@ -455,9 +489,9 @@ fn bundle_errors(id: &str, bundle: &Path, oracle_commit: &str, build_id: &str) -
                 None => errors.push(format!("{id}: manifest `{key}` is empty or missing")),
             }
         }
-        if str_at(manifest, "oracle_commit") != Some(oracle_commit) {
+        if !same_commit(str_at(manifest, "oracle_commit"), oracle_commit) {
             errors.push(format!(
-                "{id}: manifest oracle commit is not `{oracle_commit}`"
+                "{id}: manifest oracle commit does not identify `{oracle_commit}`"
             ));
         }
         if str_at(manifest, "build_id") != Some(build_id) {
@@ -605,13 +639,12 @@ fn bundle_errors(id: &str, bundle: &Path, oracle_commit: &str, build_id: &str) -
             }
         }
         let samples = array_at(perf, "samples")
-            .map(|samples| {
+            .and_then(|samples| {
                 samples
                     .iter()
                     .map(|v| v.as_f64())
                     .collect::<Option<Vec<f64>>>()
             })
-            .flatten()
             .unwrap_or_default();
         if samples.len() < 3 {
             errors.push(format!("{id}: perf needs at least 3 numeric samples"));
@@ -658,9 +691,9 @@ fn bundle_errors(id: &str, bundle: &Path, oracle_commit: &str, build_id: &str) -
                     errors.push(format!("{id}: provenance lacks `{key}`"));
                 }
             }
-            if provenance.get("oracle").map(String::as_str) != Some(oracle_commit) {
+            if !same_commit(provenance.get("oracle").map(String::as_str), oracle_commit) {
                 errors.push(format!(
-                    "{id}: bundle provenance does not record exactly `oracle: {oracle_commit}`"
+                    "{id}: bundle provenance does not identify oracle commit `{oracle_commit}`"
                 ));
             }
             if provenance.get("build").map(String::as_str) != Some(build_id) {
@@ -802,6 +835,8 @@ fn png_dims(path: &Path) -> Option<(u32, u32)> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    type FailureCase = (&'static str, &'static str, Box<dyn FnOnce(&Path)>);
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
@@ -1008,6 +1043,38 @@ mod tests {
     }
 
     #[test]
+    fn a_commit_abbreviation_identifies_the_same_commit() {
+        let full = "390f73581037bcfe92c70af6cb03d070754a792d";
+        assert!(same_commit(Some(full), full), "the exact spelling");
+        assert!(
+            same_commit(Some("390f7358"), full),
+            "the canonical abbreviation"
+        );
+        assert!(
+            same_commit(Some(full), "390f7358"),
+            "the pin abbreviated against a full record"
+        );
+        assert!(
+            !same_commit(Some("390f73581037bcfe92c70af6cb03d070754a792e"), full),
+            "a differing commit"
+        );
+        assert!(
+            !same_commit(Some("390f73"), full),
+            "shorter than git's seven-character minimum"
+        );
+        assert!(!same_commit(Some("notacommit"), full), "a non-hex value");
+        assert!(
+            !same_commit(Some("0"), full),
+            "a one-character prefix match"
+        );
+        assert!(!same_commit(None, full), "a missing record");
+        assert!(
+            !same_commit(Some("390f7358"), ""),
+            "an empty pin is not an identity"
+        );
+    }
+
+    #[test]
     fn missing_bundle_fails() {
         let root = temp_root("missing");
         assert_eq!(run(&root, &[ROW], None), 1);
@@ -1016,7 +1083,7 @@ mod tests {
 
     #[test]
     fn empty_corrupt_and_wrong_provenance_fail() {
-        let cases: Vec<(&str, &str, Box<dyn FnOnce(&Path)>)> = vec![
+        let cases: Vec<FailureCase> = vec![
             (
                 "empty-perf",
                 "`perf.json` is empty",
@@ -1039,6 +1106,16 @@ mod tests {
                     write(
                         &dir.join("provenance.txt"),
                         b"oracle: abc123\nbuild: other\nfixture: fixture.psd\ncatalog: en.json\ninput: oracle.png\nnative-rev: 8032417e\ntool: xtask\n",
+                    );
+                }),
+            ),
+            (
+                "wrong-oracle",
+                "does not identify oracle commit",
+                Box::new(|dir: &Path| {
+                    write(
+                        &dir.join("provenance.txt"),
+                        b"oracle: 1e4f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5\nbuild: build-1\nfixture: fixture.psd\ncatalog: en.json\ninput: oracle.png\nnative-rev: 8032417e\ntool: xtask\n",
                     );
                 }),
             ),
@@ -1076,7 +1153,7 @@ mod tests {
 
     #[test]
     fn schema_and_cross_reference_violations_fail() {
-        let cases: Vec<(&str, &str, Box<dyn FnOnce(&Path)>)> = vec![
+        let cases: Vec<FailureCase> = vec![
             (
                 "corrupt-json",
                 "is not valid JSON",

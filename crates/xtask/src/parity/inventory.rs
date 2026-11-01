@@ -370,11 +370,14 @@ fn test_manifest(test_files: &[String]) -> String {
 }
 
 pub struct InventoryOpts {
-    /// Tree whose `src/` defines the parity target (the oracle worktree's
-    /// `apps/desktop`). Defaults to the repository's own `apps/desktop`.
+    /// Tree whose `src/` defines the parity target - a checkout of the
+    /// archived reference application, whose sources no longer live in this
+    /// repository. An empty value falls back to a legacy in-repo location
+    /// that a fresh clone does not contain, so pass `--oracle-root` at an
+    /// archived checkout.
     pub oracle_root: PathBuf,
-    /// Tree scanned for out-of-target files. Defaults to the repository's
-    /// own `apps/desktop`.
+    /// Tree scanned for out-of-target files; same fallback rule as
+    /// `oracle_root`.
     pub head_root: PathBuf,
     /// Output CSV path.
     pub out: PathBuf,
@@ -430,7 +433,7 @@ fn run_with_snapshot(
     oracle_snapshot: &OracleSnapshot,
     head_snapshot: &OracleSnapshot,
 ) -> i32 {
-    let oracle_scan = match production_files(&oracle_root) {
+    let oracle_scan = match production_files(oracle_root) {
         Ok(files) => files,
         Err(error) => {
             eprintln!("inventory: oracle source scan failed: {error}");
@@ -449,7 +452,7 @@ fn run_with_snapshot(
         );
         return 1;
     }
-    let head_files = match production_files(&head_root) {
+    let head_files = match production_files(head_root) {
         Ok(files) => files,
         Err(error) => {
             eprintln!("inventory: HEAD source scan failed: {error}");

@@ -14,7 +14,8 @@ use super::csv;
 
 pub struct StringsOpts {
     /// Tree whose `src/i18n/locales/{en,id}/translation.json` are the catalogs
-    /// and whose components use the keys (the oracle worktree's apps/desktop).
+    /// and whose components use the keys - a checkout of the archived
+    /// reference application, not this repository.
     pub root: PathBuf,
     pub surfaces: PathBuf,
     /// Optional complete key -> stable surface ID map. Columns: key,surface,note.
@@ -160,10 +161,10 @@ fn collect_files(dir: &Path, base: &Path, f: &mut dyn FnMut(&str, &str)) -> Resu
     Ok(())
 }
 
+type FileSurfaceIndex = (BTreeMap<String, BTreeSet<String>>, BTreeSet<String>);
+
 /// Build file -> stable surface ID and the set of IDs in the surfaces CSV.
-fn file_to_surface(
-    surfaces: &Path,
-) -> Result<(BTreeMap<String, BTreeSet<String>>, BTreeSet<String>), String> {
+fn file_to_surface(surfaces: &Path) -> Result<FileSurfaceIndex, String> {
     let text = std::fs::read_to_string(surfaces)
         .map_err(|e| format!("cannot read {}: {e}", surfaces.display()))?;
     let (header, rows) = csv::parse(&text)?;
@@ -235,14 +236,8 @@ fn has_dead_text_evidence(note: &str) -> bool {
 }
 
 fn validate(opts: &StringsOpts) -> Result<Validation, String> {
-    let en = match read_catalog(&opts.root.join("src/i18n/locales/en/translation.json")) {
-        Ok(c) => c,
-        Err(e) => return Err(e),
-    };
-    let id = match read_catalog(&opts.root.join("src/i18n/locales/id/translation.json")) {
-        Ok(c) => c,
-        Err(e) => return Err(e),
-    };
+    let en = read_catalog(&opts.root.join("src/i18n/locales/en/translation.json"))?;
+    let id = read_catalog(&opts.root.join("src/i18n/locales/id/translation.json"))?;
 
     let mut errors: Vec<String> = Vec::new();
     for key in en.keys() {
