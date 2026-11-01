@@ -5,7 +5,7 @@
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
-1163 crates/core/src/render/compositor/tests.rs
+1168 crates/core/src/render/compositor/tests.rs
 2663 crates/photrez/src/app/input.rs
 1872 crates/photrez/src/app/measurement/driver.rs
 1136 crates/photrez/src/app/tests/commands.rs
@@ -13,7 +13,7 @@
 3331 crates/photrez/src/app/tests/input.rs
 1153 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs
-3566 crates/photrez/src/app/tests/tools.rs
+3588 crates/photrez/src/app/tests/tools.rs
 1344 crates/photrez/src/app/transform_move.rs
 1786 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
