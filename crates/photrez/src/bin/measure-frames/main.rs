@@ -1,4 +1,9 @@
 #![recursion_limit = "256"]
+// The harness parses its arguments, formats a summary and keeps a result
+// envelope in shared modules that are compiled for the unit tests on every
+// platform; only the Windows driver calls them, so off Windows those call sites
+// are absent by design rather than by neglect.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 #[cfg(any(windows, test))]
 const USAGE: &str = "\
@@ -53,7 +58,6 @@ struct Config {
 #[cfg(any(windows, test))]
 #[path = "args.rs"]
 mod args;
-
 #[cfg(any(windows, test))]
 #[path = "presentmon.rs"]
 mod presentmon;
