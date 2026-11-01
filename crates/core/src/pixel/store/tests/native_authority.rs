@@ -44,7 +44,7 @@ fn native_apply_add_layer_records_entry_and_bumps_version_and_snapshot() {
             shape_params: None,
             text_data: None,
         }))
-        .expect("apply addLayer");
+        .expect("apply AddLayer");
 
     assert_eq!(res.document_version, 1, "version advanced on apply");
     assert_eq!(res.delta.changes.len(), 1, "one layer upsert in delta");
@@ -226,7 +226,7 @@ fn pixel_handoff_serializes_to_the_keys_the_host_parses() {
             shape_params: None,
             text_data: None,
         }))
-        .expect("addLayer");
+        .expect("AddLayer");
     let meta: serde_json::Value = serde_json::to_value(
         reg.docs
             .get_mut("d")
@@ -280,7 +280,7 @@ fn undo_command_writes_the_before_pixels_into_the_canonical_buffer() {
     assert_eq!(
         reg.get_epoch("d", "L1").unwrap(),
         epoch_after_undo + 1,
-        "each pixel step bumps the layer epoch so the TS cache re-reads"
+        "each pixel step bumps the layer epoch so the host cache re-reads"
     );
     assert_eq!(reg.get_layer("d", "L1").unwrap().pixels[0], 11);
 }
@@ -304,7 +304,7 @@ fn undo_command_on_a_metadata_entry_returns_no_pixel_handoff() {
         shape_params: None,
         text_data: None,
     }))
-    .expect("apply addLayer");
+    .expect("apply AddLayer");
 
     let res: CommandResult = reg
         .docs
@@ -323,7 +323,7 @@ fn native_cursor_commit_clears_pending_external_barrier() {
     let mut reg = PixelStoreRegistry::new();
     let eng = engine_for(&mut reg, "d");
 
-    // Record an external (TS) transition -> External entry, cursor 1, v1.
+    // Record an external (host) transition -> External entry, cursor 1, v1.
     eng.apply(envelope(Command::RecordExternalTransition {
         label: "ts-op".to_string(),
         affected_layer_ids: vec!["L".to_string()],
@@ -416,11 +416,11 @@ fn native_engines_are_isolated_per_document() {
 
 #[test]
 fn native_authority_command_path_uses_global_registry_and_json_envelope() {
-    // Mirrors the EXACT production path of the protocol facade's apply command:
+    // Mirrors the EXACT production path of the protocol module's apply command:
     // the REAL global `pixel_store::registry()` (NOT a local
     // `PixelStoreRegistry::new()`), a serde JSON in/out envelope, the
     // missing-doc error contract, and the "CODE: message" apply-error
-    // formatting the facade returns to its caller.
+    // formatting that command returns to its caller.
 
     // Open the doc exactly as production does: `PixelStoreRegistry::open_document`
     // precedes the protocol command, so the command's get_mut finds an

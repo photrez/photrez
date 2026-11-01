@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Canonical pixel owner, namespaced by document id. This is the long-term owner
 //! (replacing the flat process-global `PIXEL_STORE`). Lifecycle is driven from
-//! TS via the `rust_pixels_*` commands: open/close/add/remove/resize manage
+//! the host's pixel commands: open/close/add/remove/resize manage
 //! entries; a missing document namespace is created lazily on first layer init.
 //!
 //! The registry owns one `DocumentPixelStore` per document. That store owns the
@@ -21,7 +21,7 @@ use std::sync::{Mutex, MutexGuard};
 use super::document_store::DocumentPixelStore;
 
 /// Migration flag. OFF (default): the row-major `PixelLayer` is the ACTIVE
-/// production canonical and the TS-facing behavior is unchanged. The
+/// production canonical and the host-facing behavior is unchanged. The
 /// `LayerState`/`StateNode` path is AVAILABLE (history entries always store
 /// `Arc<StateNode>`) but NOT activated as the byte source.
 /// ON: the per-layer `LayerState` becomes the canonical reader for the pixel
@@ -37,13 +37,13 @@ const STATE_NODE_CANONICAL: bool = false;
 /// source). ON: the packed tile-major `TileStore` becomes the canonical byte
 /// source. A single runtime const (analogous to `STATE_NODE_CANONICAL`); the
 /// row-major `PixelLayer` remains the rollback path. Flipping to `true` requires
-/// the TS mirror wiring + tests first.
+/// the host mirror wiring + tests first.
 #[allow(dead_code)]
 const TILE_MAJOR: bool = false;
 
 /// Canonical pixel owner, namespaced by document id. This is the long-term owner
 /// (replacing the flat process-global `PIXEL_STORE`). Lifecycle is driven from
-/// TS via the `rust_pixels_*` commands: open/close/add/remove/resize manage
+/// the host's pixel commands: open/close/add/remove/resize manage
 /// entries; a missing document namespace is created lazily on first layer init.
 #[cfg_attr(
     not(feature = "legacy-host"),

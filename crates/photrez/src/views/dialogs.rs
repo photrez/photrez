@@ -2025,7 +2025,7 @@ pub fn render_dialog(
 /// The dirty-close prompt: Save, Discard, or Cancel.
 ///
 /// The document-close confirm offers Discard/Cancel only; the
-/// native prompt adds Save because G17 requires the save path to be reachable
+/// native prompt adds Save because the save path must stay reachable
 /// from the close decision. Geometry follows the settings dialog's measured
 /// frame (420x171 at 473,324).
 fn dirty_close_shell(

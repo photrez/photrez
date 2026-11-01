@@ -133,7 +133,7 @@ mod tests {
     }
 
     /// The reference print-geometry expectations, reproduced as an independent
-    /// parity table: exact conversion anchors, zero/negative identity, and the
+    /// comparison table: exact conversion anchors, zero/negative identity, and the
     /// large-value case.
     #[test]
     fn legacy_unit_conversion_cases_match() {

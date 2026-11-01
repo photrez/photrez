@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Structural-command-arm parity tests: Duplicate / MergeDown / MergeSelected /
+// Structural-command-arm tests: Duplicate / MergeDown / MergeSelected /
 // Flatten / RasterizeLayer. These pin the reference layer-operation contract
-// and the document graph mirror (document.rs). Each arm is a native undoable graph transition
+// and the document graph (document.rs). Each arm is a native undoable graph transition
 // (begin_forward / finish_forward) that emits Removes for vanished ids followed by
 // an Upsert of every surviving / new layer in final engine order. The implementation
 // lives in document/structural.rs; this file is the ratchet that pins the
@@ -816,10 +816,10 @@ fn rasterized_layers_drop_their_payload_in_the_snapshot() {
         .expect("document content is seeded");
     for id in ["t", "s"] {
         let layer = content.layers.iter().find(|l| l.id == id).expect("layer");
-        assert_eq!(layer.layer_type, LayerType::Raster, "U10 flip for {id}");
+        assert_eq!(layer.layer_type, LayerType::Raster, "rasterize flip {id}");
         assert!(
             layer.text_data.is_none() && layer.shape_params.is_none(),
-            "U10: {id} must carry no parametric payload after the flip"
+            "the rasterize flip leaves {id} with no parametric payload"
         );
     }
 }
@@ -840,9 +840,9 @@ fn rasterized_layers_composite_from_the_store() {
     match composite_layers(content, &registry) {
         Ok(_) => {}
         Err(CompositeError::MissingPixels { layer_id }) => {
-            panic!("U11: the rasterized layer has no canonical pixels to composite: {layer_id}")
+            panic!("the rasterized layer has no canonical pixels to composite: {layer_id}")
         }
-        Err(other) => panic!("U11: unexpected composite error: {other}"),
+        Err(other) => panic!("unexpected composite error: {other}"),
     }
 }
 

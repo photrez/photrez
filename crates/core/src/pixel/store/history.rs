@@ -92,11 +92,11 @@ impl PixelStoreRegistry {
         })
     }
 
-    /// Route a TS (non-pixel) logical mutation into the SAME unified
-    /// `DocumentCore` cursor so mixed TS/Rust operations share one history
+    /// Route a host (non-pixel) logical mutation into the SAME unified
+    /// `DocumentCore` cursor so mixed host/Rust operations share one history
     /// position. Creates an `External` entry (no pixel delta) that advances the
     /// cursor + bumps `DocumentVersion` exactly once. The actual metadata revert
-    /// on undo/redo remains TS-side; this entry only keeps the ordering unified.
+    /// on undo/redo remains host-side; this entry only keeps the ordering unified.
     // External-entry contract: the host size halves ship together (see the doc
     // above); allow the 10-arg bag rather than a struct every caller must build.
     #[allow(clippy::too_many_arguments)]
@@ -116,7 +116,7 @@ impl PixelStoreRegistry {
             .docs
             .get_mut(doc_id)
             .ok_or_else(|| format!("document not open: {doc_id}"))?;
-        // TS ops are external to the Rust engine; register the adapter once so
+        // Host ops are external to the Rust engine; register the adapter once so
         // record_external's adapter check passes.
         doc.history.register_adapter(adapter_id);
         doc.history
@@ -143,7 +143,7 @@ impl PixelStoreRegistry {
     /// Boundary rules: an unopen/unknown document -> `Err`; a `before`/`after`
     /// `doc_id` that mismatches `doc_id` -> `Err` (never mutate the wrong doc);
     /// layers that have no canonical buffer in the store are left untouched
-    /// (no-op) — the snapshot's pixel restore happens TS-side via the token, so
+    /// (no-op) — the snapshot's pixel restore happens host-side via the token, so
     /// Rust does not need a PixelLayer for every referenced layer.
     pub fn record_snapshot(
         &mut self,

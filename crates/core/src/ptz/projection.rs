@@ -55,7 +55,7 @@ pub fn to_render_layer(c: &PtzLayer) -> RenderLayer {
 
 /// Project a `PtzLayer` into a `RenderLayer` carrying EVERY shared
 /// metadata field (typed enums, locks, dims, flips, nested params). The
-/// persisted push is the TS-authority truth at mirrored moments, so the
+/// persisted push is the authoritative document state at restore time, so the
 /// projection must not silently drop fields the engine's arms can hold -
 /// dropping them would make the NEXT delta restatement reset consumer-side
 /// state to defaults. `resource_id` and `dirty_rect` are NOT set here: they
@@ -112,7 +112,7 @@ pub fn project_known_layer(c: &PtzLayer, engine: &RenderLayer) -> RenderLayer {
 }
 
 /// Project a `PtzLayer` for a layer the engine does NOT yet know about
-/// (a TS-originated layer arriving via a persisted re-push). Mints a fresh,
+/// (a document-side layer arriving via a persisted re-push). Mints a fresh,
 /// non-zero `resource_id` supplied by the caller (the engine's `next_resource`),
 /// and starts the layer with no dirty hint. Every other shared field carries
 /// the full persisted metadata.
@@ -165,8 +165,8 @@ pub fn merge_into_layer(base: &PtzLayer, r: &RenderLayer) -> PtzLayer {
     // compositor ignores them there), and the None-preserves merge below
     // cannot express `apply_rasterize`'s payload drop (None means "unchanged"
     // there). So a Raster projection whose render layer carries neither
-    // payload drops both for good (U10); a render layer that explicitly
-    // carries one (SetLayerParams on a raster layer) still takes (D6).
+    // payload drops both for good; a render layer that explicitly
+    // carries one (SetLayerParams on a raster layer) still keeps it.
     let parametric = !matches!(layer_type, LayerType::Raster)
         || r.shape_params.is_some()
         || r.text_data.is_some();

@@ -72,13 +72,13 @@ impl DocumentCore {
                 if id.is_empty() {
                     return Err(ProtocolError {
                         code: "E_INVALID".to_string(),
-                        message: "addLayer id must not be empty".to_string(),
+                        message: "a new layer needs a non-empty id".to_string(),
                     });
                 }
                 if self.layers.position_by_id(&id).is_some() {
                     return Err(ProtocolError {
                         code: "E_INVALID".to_string(),
-                        message: format!("addLayer id already present: {}", id),
+                        message: format!("new layer id already present: {}", id),
                     });
                 }
                 let layer_x = x.unwrap_or(0.0);
@@ -125,7 +125,7 @@ impl DocumentCore {
                 };
                 // Typed add (metadata only; rasterization stays host-side): when the
                 // envelope carries a layer type, project the true value. The typed
-                // create defaults: type is taken from the command, blendMode stays
+                // create defaults: type is taken from the command, blend mode stays
                 // Normal, and the matching
                 // nested payload (shape_params / text_data) is carried verbatim.
                 if let Some(lt) = layer_type {

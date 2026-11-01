@@ -16,7 +16,7 @@ fn flags(content: &Entity<App>, cx: &mut gpui_kit::App) -> Vec<crate::state::Lay
         .clone()
 }
 
-/// S028: the layer row eye toggle response (dispatch + one render).
+/// The layer row eye toggle response (dispatch + one render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn layer_eye_toggle_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -141,7 +141,7 @@ fn row_lock_toggle_round_trips_and_blocks_painting(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
-/// S044: the Properties status refresh after a Layers lock toggle.
+/// The Properties status refresh after a Layers lock toggle.
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn properties_status_refresh_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -333,7 +333,7 @@ fn background_lock_click_shows_the_warn_toast(cx: &mut gpui_kit::TestAppContext)
     .expect("test window remains open");
 }
 
-/// S060: the guarded row-lock click plus the toast paint (dispatch + render).
+/// The guarded row-lock click plus the toast paint (dispatch + render).
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn background_lock_toast_latency(cx: &mut gpui_kit::TestAppContext) {

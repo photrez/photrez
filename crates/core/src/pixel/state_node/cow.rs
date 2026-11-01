@@ -143,7 +143,7 @@ impl LayerState {
     }
 
     /// Transient tile-major materialization of the current state. Never stored.
-    /// (Test-only: depends on the test-only `parity_oracle::PackedView`.)
+    /// (Test-only: returns the test-only reference module's `PackedView`.)
     #[cfg(test)]
     pub fn to_packed(&self) -> PackedView {
         let state = self.current();

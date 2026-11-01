@@ -1,4 +1,4 @@
-//! Brush rasterizer for the pixel-parity harness and the live paint path.
+//! Brush rasterizer for the reference-comparison harness and live paint path.
 //! It owns no document state: callers keep the pixel store, this module only
 //! turns dabs into tile patches and digests.
 //!
@@ -37,14 +37,14 @@ fn mul_div_255(c: u64, a: u64) -> u8 {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ParityDab {
+pub struct RasterDab {
     pub x: f64,
     pub y: f64,
     pub alpha: f64,
 }
 
 /// Straight (non-premultiplied) RGBA tip bitmap — produced by the brush-tip cache.
-pub struct ParityTip<'a> {
+pub struct RasterTip<'a> {
     pub width: usize,
     pub height: usize,
     pub data: &'a [u8],
@@ -84,7 +84,7 @@ pub struct TileRef {
 }
 
 pub fn tiles_in_rect(x0: i64, y0: i64, x1: i64, y1: i64, w: i64, h: i64) -> Vec<TileRef> {
-    // Mirrors tilesInRect(): cx0..cx1 inclusive, edge tiles clamped.
+    // Contract: cx0..cx1 inclusive, edge tiles clamped.
     let cx0 = 0i64.max(x0.div_euclid(TILE));
     let cy0 = 0i64.max(y0.div_euclid(TILE));
     let max_tx = (((w as f64) / TILE as f64).ceil() as i64 - 1).max(0);
@@ -130,7 +130,7 @@ fn unpremul(buf: &[u8], i: usize) -> [u8; 4] {
 /// `include_tiles` ships full bytes (diagnostics / small cases only).
 /// `base`: when `Some`, the raster composites the dab batch onto these EXISTING
 /// pixels (the canonical-commit path). When `None`, the buffer is initialized from
-/// `prep_white` (white) or the blue sentinel (diagnostic parity shadow).
+/// `prep_white` (white) or the blue sentinel (diagnostic shadow raster).
 #[allow(clippy::too_many_arguments)] // flat args mirror the shadow-raster command struct
 pub fn raster_shadow(
     w: usize,
@@ -139,8 +139,8 @@ pub fn raster_shadow(
     base: Option<Vec<u8>>,
     eraser: bool,
     brush: f64,
-    dabs: &[ParityDab],
-    tip: &ParityTip,
+    dabs: &[RasterDab],
+    tip: &RasterTip,
     include_tiles: bool,
 ) -> (ShadowMeta, Vec<TilePatchOut>) {
     let t0 = std::time::Instant::now();
@@ -312,8 +312,8 @@ pub fn tiles_for_keys(
     prep_white: bool,
     eraser: bool,
     brush: f64,
-    dabs: &[ParityDab],
-    tip: &ParityTip,
+    dabs: &[RasterDab],
+    tip: &RasterTip,
     keys: &[String],
 ) -> Vec<TilePatchOut> {
     let (_, all) = raster_shadow(w, h, prep_white, None, eraser, brush, dabs, tip, true);

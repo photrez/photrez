@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Seed-payload validation tests: the parse contract the TS builder must meet.
+// Seed-payload validation tests: the parse contract every canonical push must
+// meet.
 use crate::ptz::validate::validate_payload;
 
 const VALID_DOC: &str = r##"{
@@ -20,7 +21,7 @@ const VALID_DOC: &str = r##"{
 
 #[test]
 fn valid_payload_returns_empty_string() {
-    // Returns "" (ok) - the contract the TS builder must satisfy.
+    // Returns "" (ok) - the contract every canonical push must satisfy.
     assert_eq!(validate_payload(VALID_DOC), "");
 }
 

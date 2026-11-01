@@ -3,7 +3,7 @@
 //! pixel undo/redo replay.
 
 use super::PixelStoreRegistry;
-use crate::paint::parity::{raster_shadow, ParityDab, ParityTip};
+use crate::paint::raster::{raster_shadow, RasterDab, RasterTip};
 use crate::pixel::tile::TilePatch;
 use std::time::Instant;
 
@@ -64,7 +64,7 @@ impl PixelStoreRegistry {
         // Build the before/after `Arc<StateNode>` pair by COW-ing the change
         // regions into the maintained per-layer canon. The `before`/`after`
         // tile-patch args are the caller's pre/post image; they stay unchanged
-        // (row-major + TS surface byte-identical).
+        // (row-major + host surface byte-identical).
         let (before_arc, after_arc) = doc.cow_tiles(layer_id, &after, epoch)?;
         let version = doc
             .history
@@ -81,8 +81,8 @@ impl PixelStoreRegistry {
     /// `Pixel` history entry (mirrors the brush's single-step contract).
     /// Returns `(before_tiles, after_tiles, epoch, version)`. Bumps epoch+version
     /// exactly once; the unified history cursor advances one step. The Rust entry
-    /// is subordinate to the TS `history.commit` that drives undo/redo — there is
-    /// NO separate TS-visible step, so an undo is exactly ONE user action.
+    /// is subordinate to the document history stream that drives undo/redo — there
+    /// is NO separate host-visible step, so an undo is exactly ONE user action.
     #[allow(clippy::too_many_arguments)] // flat args mirror the pixel-write command struct
     pub fn write_region(
         &mut self,
@@ -197,8 +197,8 @@ impl PixelStoreRegistry {
         h: usize,
         eraser: bool,
         brush: f64,
-        dabs: &[ParityDab],
-        tip: &ParityTip,
+        dabs: &[RasterDab],
+        tip: &RasterTip,
         include_tiles: bool,
     ) -> Option<(Vec<TilePatch>, Vec<TilePatch>)> {
         let mut phases = CommitPhases::default();
@@ -225,8 +225,8 @@ impl PixelStoreRegistry {
         h: usize,
         eraser: bool,
         brush: f64,
-        dabs: &[ParityDab],
-        tip: &ParityTip,
+        dabs: &[RasterDab],
+        tip: &RasterTip,
         include_tiles: bool,
         phases: &mut CommitPhases,
     ) -> Option<(Vec<TilePatch>, Vec<TilePatch>)> {
@@ -259,9 +259,9 @@ impl PixelStoreRegistry {
             }
         }
         phases.premultiply_us = micros(started);
-        let shifted: Vec<ParityDab> = dabs
+        let shifted: Vec<RasterDab> = dabs
             .iter()
-            .map(|dab| ParityDab {
+            .map(|dab| RasterDab {
                 x: dab.x - crop_x as f64,
                 y: dab.y - crop_y as f64,
                 alpha: dab.alpha,
@@ -326,8 +326,8 @@ impl PixelStoreRegistry {
         h: usize,
         eraser: bool,
         brush: f64,
-        dabs: &[ParityDab],
-        tip: &ParityTip,
+        dabs: &[RasterDab],
+        tip: &RasterTip,
         include_tiles: bool,
     ) -> Option<(Vec<TilePatch>, Vec<TilePatch>)> {
         let layer = self.docs.get(doc_id)?.layers.get(layer_id)?;
@@ -397,8 +397,8 @@ impl PixelStoreRegistry {
         h: usize,
         eraser: bool,
         brush: f64,
-        dabs: &[ParityDab],
-        tip: &ParityTip,
+        dabs: &[RasterDab],
+        tip: &RasterTip,
         include_tiles: bool,
     ) -> Option<(Vec<TilePatch>, Vec<TilePatch>, u64, u64)> {
         self.commit_pixels_with_phases(
@@ -429,13 +429,13 @@ impl PixelStoreRegistry {
         h: usize,
         eraser: bool,
         brush: f64,
-        dabs: &[ParityDab],
-        tip: &ParityTip,
+        dabs: &[RasterDab],
+        tip: &RasterTip,
         include_tiles: bool,
         phases: Option<&mut CommitPhases>,
     ) -> Option<(Vec<TilePatch>, Vec<TilePatch>, u64, u64)> {
-        // Bug 2 fix: ensure-if-absent (idempotent). No TS-side seeded flag needed;
-        // Rust is the single source of truth for whether the layer exists.
+        // Bug 2 fix: ensure-if-absent (idempotent). No host-side seeded flag
+        // needed; Rust is the single source of truth for whether the layer exists.
         if self.get_layer(doc_id, layer_id).is_none() {
             self.add_layer(doc_id, layer_id, w as u32, h as u32, bytes)
                 .ok()?;
@@ -523,7 +523,7 @@ fn commit_crop_rect(
     w: usize,
     h: usize,
     brush: f64,
-    dabs: &[ParityDab],
+    dabs: &[RasterDab],
 ) -> Option<(usize, usize, usize, usize)> {
     if w == 0 || h == 0 || dabs.is_empty() {
         return None;

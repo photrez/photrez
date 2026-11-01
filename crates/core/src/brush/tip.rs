@@ -114,7 +114,7 @@ pub fn get_brush_profile_parameters(hardness: f64) -> ProfileParams {
     }
 }
 
-/// Super-gaussian soft profile — mirrors brushAlpha().
+/// Super-gaussian soft profile — the reference brush-alpha curve.
 pub fn brush_alpha(r_norm: f64, hardness: f64) -> f64 {
     let h = clamp_hardness(hardness);
     if h >= BRUSH_HARD_EDGE_THRESHOLD {
@@ -126,7 +126,7 @@ pub fn brush_alpha(r_norm: f64, hardness: f64) -> f64 {
 }
 
 /// Radius multiplier that maps the nominal brush radius to the 20% alpha
-/// contour — mirrors getBrushCursorRadiusScale().
+/// contour.
 pub fn get_brush_cursor_radius_scale(hardness: f64) -> f64 {
     let h = clamp_hardness(hardness);
     if h >= BRUSH_HARD_EDGE_THRESHOLD {
@@ -162,7 +162,7 @@ pub enum Curve {
 pub struct BrushTip {
     /// Nominal diameter-space stamp size (the space production commits in).
     pub diameter: u32,
-    /// Mask/data resolution (dataCap policy), matches production rawTip bitmap.
+    /// Mask/data resolution (the `data_cap` policy); the production tip raster size.
     pub width: u32,
     pub height: u32,
     /// Straight-RGBA at width×height (mask colorized) — the pre-upscale bitmap.
@@ -206,9 +206,9 @@ fn outer_radius(radius: f64, hardness: f64, curve: Curve) -> f64 {
     }
 }
 
-/// Mirrors rasterizeBrushTipWithCurve(): f32 mask storage, half-pixel offsets,
-/// scale=diameter/dataSize, distance=sqrt, soft ⇒ brushAlpha(dist/R_nominal,h),
-/// small/hard branches preserved.
+/// Rasterizes the tip mask to match the reference curve: f32 mask storage,
+/// half-pixel offsets, scale=diameter/data_size, distance=sqrt, soft ⇒
+/// `brush_alpha(dist/R_nominal,h)`, small/hard branches preserved.
 fn rasterize_mask(
     diameter_nominal: f64,
     hardness: f64,

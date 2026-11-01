@@ -34,7 +34,7 @@ pub const DEFAULT_DOC_WIDTH: u32 = 800;
 /// Height of that same document.
 pub const DEFAULT_DOC_HEIGHT: u32 = 600;
 
-/// The blank white document the frozen captures were taken with: one opaque
+/// The blank white document the reference captures were taken with: one opaque
 /// white layer at 800x600, the dialog's defaults.
 ///
 /// Returns `(width, height, rgba)` with `rgba.len() == width * height * 4`,
@@ -108,7 +108,7 @@ impl LoadedDocument {
         }
         let original = self.document_snapshot();
         let mut layers = content.layers.clone();
-        // `resourceId` is a live store token, not file metadata: the frozen
+        // `resourceId` is a live store token, not file metadata: the reference
         // envelope has no such field, and writing it would change every
         // unmodified round-trip.
         for layer in &mut layers {

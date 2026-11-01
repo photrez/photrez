@@ -10,9 +10,9 @@
 // EVERY remaining / new layer in final engine order. The delta is therefore a
 // complete, ordered restatement of the surviving stack: any consumer that applies
 // structural deltas must rebuild stacking from this upsert sequence (or refresh the
-// full snapshot). The production in-place consumer (editorFacade applyDeltaToSnapshot)
-// replaces found ids in place and tail-appends unknown ids, so it cannot reconstruct
-// mid-stack inserts today; that consumer does NOT process these structural deltas
+// full snapshot). An in-place consumer that replaces found ids and tail-appends
+// unknown ids cannot reconstruct mid-stack inserts, so the host does NOT process
+// these structural deltas in place
 // (the host refreshes the full snapshot instead). The document version is bumped via
 // the apply() tail.
 use super::*;
@@ -46,8 +46,8 @@ impl DocumentCore {
     /// The clone inherits every field (type/visible/opacity/blend/transform incl.
     /// flip, width/height, adjustments, shape/text params) but gets a fresh
     /// resource id (it owns an independent bitmap) and drops the background flag
-    /// and all bottom/locks (mirrors duplicate_layer:260-266 / duplicateLayerNode).
-    /// Name follows the numeric-suffix rule shared with the document graph mirror.
+    /// and all bottom/locks.
+    /// Name follows the numeric-suffix rule of the duplicate-name planner.
     pub(crate) fn apply_duplicate(
         &mut self,
         id: &str,
@@ -55,16 +55,16 @@ impl DocumentCore {
     ) -> Result<Vec<RenderLayerChange>, ProtocolError> {
         // Host owns identity: a non-empty, unique new_id is required.
         if new_id.is_empty() {
-            return Err(e_invalid("duplicateLayer newId must not be empty"));
+            return Err(e_invalid("a duplicated layer needs a non-empty id"));
         }
         if self.layers.position_by_id(new_id).is_some() {
             return Err(e_invalid(&format!(
-                "duplicateLayer newId already present: {}",
+                "duplicate layer id already present: {}",
                 new_id
             )));
         }
-        // Unknown source id is a silent no-op (same as DeleteLayer). The reference
-        // engine's duplicate threw on an unknown id - a documented divergence.
+        // Unknown source id is a silent no-op (same as DeleteLayer). The host-side
+        // duplicate throws on an unknown id - a documented divergence.
         // The host owns identity checks before sending, so this is safe).
         let pos = match self.layers.position_by_id(id) {
             Some(p) => p,
@@ -109,11 +109,11 @@ impl DocumentCore {
         merged_id: &str,
     ) -> Result<Vec<RenderLayerChange>, ProtocolError> {
         if merged_id.is_empty() {
-            return Err(e_invalid("mergeDown mergedId must not be empty"));
+            return Err(e_invalid("a merged layer needs a non-empty id"));
         }
         if self.layers.position_by_id(merged_id).is_some() {
             return Err(e_invalid(&format!(
-                "mergeDown mergedId already present: {}",
+                "merged layer id already present: {}",
                 merged_id
             )));
         }
@@ -394,8 +394,8 @@ impl DocumentCore {
 
     /// Rasterize a parametric (shape/text) layer to a plain raster layer: drop the
     /// shape/text params, keep bitmap/dims/transform/adjustments intact. A
-    /// non-parametric layer is a silent no-op (mirrors shapeLayerToRaster /
-    /// textLayerToRaster's type guard, which returns silently).
+    /// non-parametric layer is a silent no-op (the shape and text rasterize
+    /// guards return silently).
     ///
     /// `pixels` carries the host-rendered bitmap that materializes the layer's
     /// canonical buffer (parametric layers are metadata-only — "typed add;

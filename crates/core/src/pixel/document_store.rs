@@ -44,7 +44,7 @@ impl DocumentPixelStore {
     }
 
     /// Seed (or replace) the canonical buffer for `layer_id`. Replacement is
-    /// intentional: it is how a failed commit recovers (re-seed from TS). A
+    /// intentional: it is how a failed commit recovers (re-seed from the host). A
     /// wholesale re-seed invalidates the layer's StateNode canon AND drops its
     /// pixel history entries (the cached before/after `Arc<StateNode>`s are
     /// stale against the new bytes; replaying them would corrupt the layer).
@@ -125,11 +125,11 @@ impl DocumentPixelStore {
     /// contain full-tile OR sub-tile (dirty-rect) patches — the touched tiles
     /// are re-tiled copy-on-touch (no full-layer ingest).
     ///
-    /// Trust boundary: this is the seam a caller (TS via `apply_pixel_patch`
-    /// / `write_region`) feeds patch geometry into. Malformed input — zero
-    /// w/h, OOB, or len != w*h*4 — is validated HERE and returns `None` so the
-    /// commit is gracefully skipped (no cursor move, no history entry) instead
-    /// of panicking on `cow_batch`'s internal asserts.
+    /// Trust boundary: this is the seam a caller (the host via
+    /// `apply_pixel_patch` / `write_region`) feeds patch geometry into. Malformed
+    /// input — zero w/h, OOB, or len != w*h*4 — is validated HERE and returns
+    /// `None` so the commit is gracefully skipped (no cursor move, no history
+    /// entry) instead of panicking on `cow_batch`'s internal asserts.
     pub(crate) fn cow_tiles(
         &mut self,
         layer_id: &str,

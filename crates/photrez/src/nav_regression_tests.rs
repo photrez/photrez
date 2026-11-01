@@ -6,13 +6,13 @@
 //! bodies, dock-column geometry, layer-row selection and reorder, the dock state
 //! path, and startup rejection of an unpresentable document.
 //!
-//! Partial coverage, not a closed L row: the right dock follows
+//! Partial coverage, not a closed surface: the right dock follows
 //! `AppState.dock_open`, but no title-bar toggle is mounted.
 //!
-//! Explicit gaps: interactive document tabs (L1), the tool-variant fly-out (L6),
-//! interactive top-level menus (L8), a title-bar dock toggle (L9), and
-//! command-bus dialog entry points (L10). L11 needs no test because the frozen
-//! source has no delete-layer confirmation. The document-tab strip and the top-level
+//! Explicit gaps: interactive document tabs, the tool-variant fly-out,
+//! interactive top-level menus, a title-bar dock toggle, and command-bus
+//! dialog entry points. A delete-layer confirmation has no test because the
+//! reference build offers none. The document-tab strip and the top-level
 //! menu triggers are also absent from the test access tree because their views
 //! do not call `.test_support()`; asserting them would require a production
 //! edit outside this lane. The native views remain visual-only or shot-gated,

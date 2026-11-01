@@ -84,7 +84,7 @@ impl DocumentCore {
             return Ok((Some(layer_id), Some(tiles), Some(node)));
         }
         match &self.entries[idx].payload {
-            // External (TS host-handoff) entries still step the unified cursor
+            // External (host-handoff) entries still step the unified cursor
             // so the ordering stays unified (the host executes + commits later);
             // no tiles are produced.
             EntryPayload::External { .. } => {
@@ -188,7 +188,7 @@ impl DocumentCore {
             },
         });
         self.cursor = self.entries.len();
-        // An external (TS) op is a committed logical mutation, so the
+        // An external (host-executed) op is a committed logical mutation, so the
         // DocumentVersion must advance exactly once — matching apply_pixel_patch.
         self.version += 1;
         Ok(())
@@ -200,7 +200,7 @@ impl DocumentCore {
     /// restores the `before` and a redo re-applies the `after` — restoring BOTH
     /// the metadata and (via the per-layer opaque `bitmap_token`) the pixel
     /// state from ONE entry. `missing layers no-op` and `invalid doc Err` are
-    /// enforced by the registry/TS caller; here the snapshots are stored as
+    /// enforced by the registry/host caller; here the snapshots are stored as
     /// given.
     pub fn record_snapshot(
         &mut self,

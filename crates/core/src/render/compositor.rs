@@ -680,7 +680,7 @@ fn opacity_alpha(opacity: f64) -> u32 {
 
 /// Straight-alpha source-over with the reference compositor's premultiplied 8-bit rounding.
 ///
-/// The reference oracle returns 127/128 for 50% blue over opaque red; keeping the
+/// The reference capture returns 127/128 for 50% blue over opaque red; keeping the
 /// premultiplied intermediate and rounding at each step reproduces that split.
 fn source_over(dst: &mut [u8; 4], src: [u8; 4], opacity: u32, mode: &BlendMode) {
     let sa = div255(src[3] as u32 * opacity);

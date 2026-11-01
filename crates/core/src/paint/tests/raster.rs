@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Tests for the paint parity candidate rasterizer.
+//! Tests for the paint reference rasterizer's digest and patch shape.
 
-use crate::paint::parity::{fnv1a, raster_shadow, ParityDab, ParityTip};
+use crate::paint::raster::{fnv1a, raster_shadow, RasterDab, RasterTip};
 
 struct TipBuf {
     data: Vec<u8>,
 }
 
-fn tip_owned(buf: &mut TipBuf, size: usize, rgba: [u8; 4]) -> ParityTip<'_> {
+fn tip_owned(buf: &mut TipBuf, size: usize, rgba: [u8; 4]) -> RasterTip<'_> {
     buf.data = vec![0u8; size * size * 4];
     for i in 0..(size * size) {
         buf.data[i * 4..i * 4 + 4].copy_from_slice(&rgba);
     }
-    ParityTip {
+    RasterTip {
         width: size,
         height: size,
         data: &buf.data,
@@ -22,7 +22,7 @@ fn tip_owned(buf: &mut TipBuf, size: usize, rgba: [u8; 4]) -> ParityTip<'_> {
 /// Soft round stamp (diameter `size`) — a solid disk of stamp color so the
 /// raster inner loop does the full `size*size` work per dab (a shrinking
 /// tip would short-circuit via `txx >= iw || tyy >= ih` and under-report).
-fn soft_tip(buf: &mut TipBuf, size: usize) -> ParityTip<'_> {
+fn soft_tip(buf: &mut TipBuf, size: usize) -> RasterTip<'_> {
     buf.data = vec![0u8; size * size * 4];
     let r = size as f64 / 2.0;
     for y in 0..size {
@@ -35,7 +35,7 @@ fn soft_tip(buf: &mut TipBuf, size: usize) -> ParityTip<'_> {
             buf.data[i..i + 4].copy_from_slice(&[225, 90, 23, a]);
         }
     }
-    ParityTip {
+    RasterTip {
         width: size,
         height: size,
         data: &buf.data,
@@ -66,10 +66,10 @@ fn raster_shadow_bench_scale() {
         let mut tb = TipBuf { data: Vec::new() };
         let tip = soft_tip(&mut tb, bs);
         for &ncnt in &dab_counts {
-            let dabs: Vec<ParityDab> = (0..ncnt)
+            let dabs: Vec<RasterDab> = (0..ncnt)
                 .map(|i| {
                     let t = i as f64 / (ncnt.max(1) as f64);
-                    ParityDab {
+                    RasterDab {
                         x: 100.0 + t * (w as f64 - 200.0),
                         y: 512.0,
                         alpha: 0.75,
@@ -129,8 +129,8 @@ fn raster_shadow_bench_scale() {
 fn determinism_same_inputs_same_digest() {
     let mut tb = TipBuf { data: Vec::new() };
     let tip = tip_owned(&mut tb, 16, [200, 50, 50, 255]);
-    let dabs: Vec<ParityDab> = (0..20)
-        .map(|i| ParityDab {
+    let dabs: Vec<RasterDab> = (0..20)
+        .map(|i| RasterDab {
             x: ((i * 37) % 512) as f64,
             y: ((i * 91) % 512) as f64,
             alpha: 0.75,
@@ -209,7 +209,7 @@ fn undo_redo_rebuilt_digest_byte_identical() {
 fn painted_vs_white_bases_differ() {
     let mut tb = TipBuf { data: Vec::new() };
     let tip = tip_owned(&mut tb, 8, [200, 50, 50, 200]);
-    let dabs = vec![ParityDab {
+    let dabs = vec![RasterDab {
         x: 100.0,
         y: 100.0,
         alpha: 1.0,
@@ -223,7 +223,7 @@ fn painted_vs_white_bases_differ() {
 fn eraser_clears_alpha_on_painted_base() {
     let mut tb = TipBuf { data: Vec::new() };
     let tip = tip_owned(&mut tb, 32, [0, 0, 0, 255]);
-    let dabs = vec![ParityDab {
+    let dabs = vec![RasterDab {
         x: 128.0,
         y: 128.0,
         alpha: 1.0,
@@ -238,8 +238,8 @@ fn eraser_clears_alpha_on_painted_base() {
 fn boundary_strokes_split_into_multiple_tiles_and_clipping_is_safe() {
     let mut tb = TipBuf { data: Vec::new() };
     let tip = tip_owned(&mut tb, 16, [200, 50, 50, 255]);
-    let boundary: Vec<ParityDab> = (0..12)
-        .map(|i| ParityDab {
+    let boundary: Vec<RasterDab> = (0..12)
+        .map(|i| RasterDab {
             x: (256.0 * (1 + i % 3) as f64),
             y: (256.0 * (1 + (i * 7) % 3) as f64),
             alpha: 0.9,
@@ -249,18 +249,18 @@ fn boundary_strokes_split_into_multiple_tiles_and_clipping_is_safe() {
     assert!(m.tile_count > 1);
     assert_eq!(tiles.len(), m.tile_count);
 
-    let clip: Vec<ParityDab> = vec![
-        ParityDab {
+    let clip: Vec<RasterDab> = vec![
+        RasterDab {
             x: -48.0,
             y: 10.0,
             alpha: 0.9,
         },
-        ParityDab {
+        RasterDab {
             x: 1072.0,
             y: 500.0,
             alpha: 0.9,
         },
-        ParityDab {
+        RasterDab {
             x: 500.0,
             y: -48.0,
             alpha: 0.9,
@@ -278,12 +278,12 @@ fn one_pixel_brush_samples_the_tip_center() {
     let mut tip_data = vec![0u8; 4 * 4 * 4];
     let centre = (2 * 4 + 2) * 4;
     tip_data[centre..centre + 4].copy_from_slice(&[255, 0, 0, 255]);
-    let tip = ParityTip {
+    let tip = RasterTip {
         width: 4,
         height: 4,
         data: &tip_data,
     };
-    let dabs = [ParityDab {
+    let dabs = [RasterDab {
         x: 2.5,
         y: 2.5,
         alpha: 1.0,
@@ -306,7 +306,7 @@ fn large_brush_samples_the_whole_tip_not_its_corner() {
     // A brush wider than the tip data must stretch the tip across the stamp.
     let mut tb = TipBuf { data: Vec::new() };
     let tip = tip_owned(&mut tb, 4, [255, 0, 0, 255]);
-    let dabs = [ParityDab {
+    let dabs = [RasterDab {
         x: 4.0,
         y: 4.0,
         alpha: 1.0,
@@ -331,10 +331,10 @@ fn large_brush_samples_the_whole_tip_not_its_corner() {
 }
 
 #[test]
-fn digest_matches_ts_pipeline_shape() {
+fn digest_matches_reference_pipeline_shape() {
     let mut tb = TipBuf { data: Vec::new() };
     let tip = tip_owned(&mut tb, 8, [10, 20, 30, 255]);
-    let dabs = vec![ParityDab {
+    let dabs = vec![RasterDab {
         x: 5.0,
         y: 5.0,
         alpha: 1.0,

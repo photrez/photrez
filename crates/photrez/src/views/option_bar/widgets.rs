@@ -1273,7 +1273,7 @@ const STROKE_POPOVER_W: f32 = 224.0;
 /// The text stroke popover's width (`w-60`).
 const TEXT_STROKE_POPOVER_W: f32 = 240.0;
 
-// ── Group labels ─�─────────────────────────────────────────────────────────────
+// ── Group labels ───────────────────────────────────────────────────────────────
 
 /// The selection bar's caps captions ("Position", "Size", "Rotation").
 pub(super) fn caps_label(text: &str) -> Div {
@@ -1288,9 +1288,9 @@ pub(super) fn caps_label(text: &str) -> Div {
 // ── Crop ───────────────────────────────────────────────────────────────────────
 
 /// The crop fill controls: the white colour swatch + "Use BG"
-/// button, shown when `fillEnabled()` is true. At the capture's rest state the
-/// fill source resolves to the white background default (see
-/// `resolvedCropFillColor`), so the swatch paints [`color::WHITE`].
+/// button, shown when `fill_enabled` is true. At the capture's rest state the
+/// fill source resolves to the white background default (the crop's
+/// resolved fill colour), so the swatch paints [`color::WHITE`].
 ///
 /// The swatch is a 22x18 rounded rect (`h-[18px] w-[22px] rounded-[2px]`), not
 /// the circular `round_swatch` - it is flat (no ring) to match the baseline.

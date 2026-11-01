@@ -25,7 +25,7 @@ pub const LOCALE_KEY: &str = "photrez.locale";
 
 /// The embedded catalogs, paired with their locale, in the order the catalog
 /// files live under `assets/i18n/`. Adding a locale buys a catalog file and
-/// a row here; the parity test and the lookup both read this table.
+/// a row here; the catalog tests and the lookup both read this table.
 const CATALOGS: &[(Locale, &str)] = &[
     (Locale::En, include_str!("../assets/i18n/en.json")),
     (Locale::Id, include_str!("../assets/i18n/id.json")),
@@ -238,7 +238,7 @@ pub fn render(value: &str, args: &[(&str, &str)]) -> Result<String, RenderError>
 // ── text lookup ──────────────────────────────────────────────────────────────
 
 /// The active locale's text for `key`. A missing key comes back as the key
-/// itself: the parity test gates the catalogs, and a key rendered in a
+/// itself: the catalog tests gate the catalogs, and a key rendered in a
 /// capture says exactly which lookup failed.
 pub fn t(key: &str) -> String {
     lookup(key)
@@ -284,7 +284,7 @@ pub fn t_plural(base: &str, count: u32) -> String {
 // ── startup detection ────────────────────────────────────────────────────────
 
 /// The environment override the capture driver pins (`PHOTREZ_LOCALE=en`; see
-/// the `xtask` capture runner). It outranks the stored preference so a parity
+/// the `xtask` capture runner). It outranks the stored preference so a reference
 /// capture resolves `en` on any machine.
 const ENV_LOCALE: &str = "PHOTREZ_LOCALE";
 

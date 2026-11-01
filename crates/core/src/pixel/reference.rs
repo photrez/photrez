@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Test-only independent-copy parity oracle.
+//! Test-only independent reference copy.
 //!
 //! This is the REFERENCE TRUTH model: plain row-major `Vec<u8>`, no structural
 //! sharing, no `Arc`. The tile-major `TileStore` / `StateNode` model must
-//! byte-match it exactly. NEVER use the new tile-major store as its own oracle.
-//! Compiled ONLY under `#[cfg(test)]`; zero production dependency.
+//! byte-match it exactly. NEVER use the new tile-major store as its own
+//! reference. Compiled ONLY under `#[cfg(test)]`; zero production dependency.
 
 /// Canonical tile edge in pixels. Must match the engine value (256).
 pub const TILE: u32 = 256;
@@ -49,7 +49,7 @@ impl PackedView {
     }
 }
 
-/// Independent read-only row-major oracle. No structural sharing, no Arc.
+/// Independent read-only row-major reference copy. No structural sharing, no Arc.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PixelReader {
     pub w: u32,
@@ -160,7 +160,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn oracle_roundtrip_tile_major_matches_row_major() {
+    fn reference_roundtrip_tile_major_matches_row_major() {
         let w = 300u32;
         let h = 257u32;
         let bytes: Vec<u8> = (0..(w * h * 4)).map(|i| (i % 251) as u8).collect();
@@ -169,11 +169,11 @@ mod tests {
         assert_eq!(packed.w, w);
         assert_eq!(packed.h, h);
         let row = packed.to_row_major(TILE);
-        assert_byte_eq(&row, &bytes, "oracle roundtrip");
+        assert_byte_eq(&row, &bytes, "reference copy roundtrip");
     }
 
     #[test]
-    fn oracle_tile_bounds_edge_clipped() {
+    fn reference_tile_bounds_edge_clipped() {
         let pr = PixelReader::new(100, 100, vec![0u8; 100 * 100 * 4]);
         let (x0, y0, tw, th) = pr.tile_bounds(0, 0);
         assert_eq!((x0, y0, tw, th), (0, 0, 100, 100));

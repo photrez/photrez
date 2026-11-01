@@ -1258,7 +1258,7 @@ fn mounted_shape_renders_into_the_exported_png(cx: &mut gpui_kit::TestAppContext
 }
 
 #[gpui_kit::test]
-fn brush_preset_button_cycles_the_frozen_presets(cx: &mut gpui_kit::TestAppContext) {
+fn brush_preset_button_cycles_the_reference_presets(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
@@ -2493,7 +2493,7 @@ fn text_option_bar_edits_the_selected_layer_and_syncs_defaults(cx: &mut gpui_kit
             assert!(state.text_uppercase);
         }
 
-        // U11: the host renders the text bitmap and hands it to RasterizeLayer,
+        // The host renders the text bitmap and hands it to RasterizeLayer,
         // which materializes it as the rasterized layer's canonical buffer.
         // A layer whose features the core rasterizer cannot render (the
         // decorated case: underline/strikethrough/uppercase/weight) refuses
@@ -2538,7 +2538,7 @@ fn text_option_bar_edits_the_selected_layer_and_syncs_defaults(cx: &mut gpui_kit
     .expect("test window remains open");
 }
 
-/// U11 fixed: a supported text layer rasterizes with its host-rendered
+/// A supported text layer rasterizes with its host-rendered
 /// bitmap materialized as the canonical buffer, and the document composites.
 #[gpui_kit::test]
 fn text_rasterize_materializes_pixels_and_composites(cx: &mut gpui_kit::TestAppContext) {

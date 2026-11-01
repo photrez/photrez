@@ -40,8 +40,8 @@ fn section_header(icon: &'static [u8], label: &str, trailing: Option<gpui_kit::A
 }
 
 /// Layer thumbnail frame: 34x34, 1px border, 3px corners. This static
-/// view has no preview bitmap, and the captured layer has no
-/// `imageBitmap`, so the empty chrome is the resting content.
+/// view has no preview bitmap, and the captured layer stores no
+/// bitmap entry, so the empty chrome is the resting content.
 ///
 /// The design asks for an accent border here,
 /// but the global border colour resets it to `#333333` (see module docs).

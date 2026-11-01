@@ -7,7 +7,7 @@
 //! a future edit that changes sampling semantics fails here rather than in a
 //! screenshot.
 
-use crate::paint::parity::{raster_shadow, ParityDab, ParityTip};
+use crate::paint::raster::{raster_shadow, RasterDab, RasterTip};
 
 fn mul_div_255(c: u64, a: u64) -> u8 {
     ((c * a + 127) / 255) as u8
@@ -33,8 +33,8 @@ fn reference_raster(
     w: usize,
     h: usize,
     brush: f64,
-    dabs: &[ParityDab],
-    tip: &ParityTip<'_>,
+    dabs: &[RasterDab],
+    tip: &RasterTip<'_>,
 ) -> Vec<u8> {
     let mut buf = vec![0u8; w * h * 4];
     for i in 0..(w * h) {
@@ -107,28 +107,28 @@ fn hoisted_tip_mapping_is_byte_identical() {
     let (w, h) = (96usize, 80usize);
     let brush = 37.5f64;
     let tip_data = fixture_tip();
-    let tip = ParityTip {
+    let tip = RasterTip {
         width: 23,
         height: 17,
         data: &tip_data,
     };
     let dabs = [
-        ParityDab {
+        RasterDab {
             x: 20.3,
             y: 21.7,
             alpha: 0.8,
         },
-        ParityDab {
+        RasterDab {
             x: 47.2,
             y: 33.1,
             alpha: 0.55,
         },
-        ParityDab {
+        RasterDab {
             x: 63.9,
             y: 44.4,
             alpha: 1.0,
         },
-        ParityDab {
+        RasterDab {
             x: 12.0,
             y: 70.5,
             alpha: 0.25,
@@ -182,14 +182,14 @@ fn raster_kernel_ab_on_identical_input() {
     let (w, h) = (1024usize, 1024usize);
     let brush = 800.0f64;
     let tip_data = fixture_tip();
-    let tip = ParityTip {
+    let tip = RasterTip {
         width: 23,
         height: 17,
         data: &tip_data,
     };
     let mut dabs = Vec::new();
     for i in 0..8 {
-        dabs.push(ParityDab {
+        dabs.push(RasterDab {
             x: 200.0 + i as f64 * 40.0,
             y: 300.0 + (i as f64 * 23.0),
             alpha: 0.6,

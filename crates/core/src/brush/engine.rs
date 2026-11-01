@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Brush dab producer: the stroke spacing/carry state machine behind the brush
-// tip mask. It implements the reference dab interpolation and spacing rules
-// (interpolateDabs + getBrushDabSpacing): f64 internals match that producer's
-// double-precision arithmetic, so both emit identical dab sequences.
+// tip mask. It implements the reference dab-interpolation and spacing rules
+// (`BrushStrokeEngine::update` + `brush_dab_spacing`): f64 internals match that
+// reference's double-precision arithmetic, so both emit identical dab sequences.
 // Dabs are accumulated into an internal Vec<f64> (x0,y0,x1,y1,...) and cleared
 // on each update() call. update()/update_batch() return the count of x,y
 // pairs produced; the raw buffer is readable in-crate via `dab_slice`.

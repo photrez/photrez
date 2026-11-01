@@ -312,8 +312,8 @@ fn transform_layer_flip_projects_onto_render_layer() {
 
 #[test]
 fn unknown_id_is_noop_for_metadata_arms() {
-    // Mirrors DeleteLayer: a missing id is a silent no-op (no error), so the
-    // native-authority path stays bug-compatible with the TS engine's guarded apply ops.
+    // Mirrors DeleteLayer: a missing id is a silent no-op (no error). The pinned
+    // reference's apply ops were guarded the same way; that behavior is kept.
     let mut e = engine();
     let before = e.snapshot().layers.len();
     for cmd in [
@@ -486,7 +486,7 @@ fn shadow_reconcile_follows_engine_order_after_reorder() {
     );
 }
 
-// typed-add / setLayerParams / SetAdjustment arms
+// typed-add / SetLayerParams / SetAdjustment arms
 
 pub(crate) fn shape_params() -> ShapeParams {
     ShapeParams {
@@ -551,7 +551,7 @@ fn add_layer_typed_shape_projects_type_and_params() {
     let l = find(&e, "S");
     assert_eq!(l.layer_type, Some(LayerType::Shape));
     assert_eq!(l.shape_params, Some(shape_params()));
-    // TS createShapeLayerNode keeps blendMode Normal, visible true, opacity 1.0.
+    // Previous build kept blend mode Normal, visible true, opacity 1.0 on create.
     assert_eq!(l.blend_mode, Some(BlendMode::Normal));
     assert!(l.visible);
     assert_eq!(l.opacity, 1.0);
@@ -685,7 +685,7 @@ fn set_adjustment_sets_adjustment_and_derives_has_adjustments() {
             saturation: 0.0,
         })
     );
-    // has_adjustments mirrors TS: true only when a channel is non-zero.
+    // has_adjustments is exact: true only when a channel is non-zero.
     assert_eq!(l.has_adjustments, Some(true));
 }
 
@@ -1014,8 +1014,8 @@ fn set_selection_rejects_nonfinite_or_negative_dims_with_e_invalid() {
         shape: None,
         inverted: None,
     });
-    // The arm rejects NaN angle too - it is stricter than the TS host createSelection,
-    // which validates none of the five numeric fields.
+    // The arm rejects NaN angle too - it is stricter than the previous build's
+    // selection creation, which validates none of the five numeric fields.
     bad(SelectionState {
         x: 0.0,
         y: 0.0,

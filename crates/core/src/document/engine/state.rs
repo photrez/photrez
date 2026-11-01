@@ -7,9 +7,9 @@ use super::*;
 
 // ── Engine ───────────────────────────────────────────────────────────────
 // HISTORY BOUNDARY: history/future store Vec<RenderLayer> METADATA snapshots only
-// (id/name/resourceId/transform/opacity). They do NOT store pixel buffers and must NOT be
-// interpreted as pixel history. The underlying `HistoryEntry` schema {command, affectedResources,
-// patch/inverse, memoryCost, transaction} is the target; this Vec is transitional and will be
+// (id/name/resource_id/transform/opacity). They do NOT store pixel buffers and must NOT be
+// interpreted as pixel history. The underlying `HistoryEntry` schema {command, affected
+// resources, patch/inverse, memory cost, transaction} is the target; this Vec is transitional and will be
 // replaced before pixel ownership moves to Rust. Storing full pixel snapshots at 2048²/4K would be GBs.
 #[derive(Debug)]
 pub struct DocumentCore {
@@ -48,7 +48,7 @@ pub struct DocumentCore {
     /// rasterized layer's canonical buffer.
     pub(crate) pending_rasterize: Option<crate::document::rasterize_bake::RasterizePlan>,
     // Engine-local selection state (selection is core document state). Selection is NOT an
-    // undoable transition in the command stream; it rides Model-A snapshots and is
+    // undoable transition in the command stream; it rides whole-document snapshots and is
     // reconciled onto the canonical shadow when one is seeded.
     pub(crate) selection: Option<SelectionState>,
     // Engine document size (canvas width/height). The native DocumentCore keeps
@@ -203,9 +203,9 @@ impl DocumentCore {
     /// `doc_size` rule UNCHANGED: it has exactly three native owners (the baseline
     /// set here ONLY when `doc_size` is `None` at document open, the canvas arms,
     /// and the undo/redo walker) - this method still never mutates an existing
-    /// `doc_size`. There is NO history entry: this is the TS-authority assertion
-    /// path (mirrors the facade's snapshot-seed semantics - an external step, not a
-    /// native transition), so external steps stay TS-executed and heal at the next
+    /// `doc_size`. There is NO history entry: this is the host-authority assertion
+    /// path (snapshot-seed semantics - an external step, not a
+    /// native transition), so external steps stay host-executed and heal at the next
     /// forward commit. Single-owner contract still pinned by
     /// `repush_never_mutates_native_doc_size` / `audit_sequence_repush_preserves_history_and_dims`.
     pub fn seed_ptz(&mut self, doc: PtzDocumentContent) {
@@ -262,7 +262,7 @@ impl DocumentCore {
 
     /// Whether the shadow is missing layers the engine has minted and cannot yet
     /// reconstruct (engine-side `AddLayer`). Sticky until the next full push.
-    /// Test-only today; a future TS-side consumer will read it.
+    /// Test-only today; a future host-side consumer will read it.
     #[cfg(test)]
     pub(crate) fn replica_incomplete(&self) -> bool {
         self.replica.as_ref().map(|s| s.incomplete).unwrap_or(false)

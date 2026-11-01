@@ -7,7 +7,7 @@
 //! * menu popups (Portal, `z-[100]`, keyboard navigation)
 //! * the system menu on Alt+Space
 //! * the reference shell's drag-region attribute and double-click-to-maximize
-//! * window state (`isMaximized()` swaps the maximize icon)
+//! * window state (a maximized window swaps the maximize icon)
 //!
 //! Hover states are included as part of the component contract.
 //!
@@ -357,7 +357,7 @@ fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl
 ///
 /// The side-panel toggle is hidden at large widths: it exists below
 /// 1024px and is absent from the 1366px baseline. The branch is decided from
-/// the live window width so the 74-shot parity is unchanged.
+/// the live window width so the 74-shot reference comparison is unchanged.
 fn right_group(
     window: &mut Window,
     state: &Entity<AppState>,
@@ -477,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn menus_array_is_frozen_order() {
+    fn menus_array_is_reference_order() {
         assert_eq!(
             MENUS,
             &[

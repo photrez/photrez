@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Production canonical persistent-pixel-ownership data model:
 //! `StateNode -> TileRef -> Arc<[u8]>` (packed, tile-major) + an ARENA index
-//! (Weak, not strong), plus a byte-free `LayerAccess`-style seam (COW).
+//! (Weak, not strong), plus a byte-free copy-on-write seam over the layer's
+//! current state.
 //!
 //! PACKED-STORE MODEL: the base/live layer is ONE packed `Arc<[u8]>`
 //! (tile-major, contiguous, edge tiles clipped) — a single allocation, not N
@@ -21,12 +22,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
-// `state_node` is now a PRODUCTION module. The independent-copy parity
-// oracle (test-only) is referenced ONLY by the `#[cfg(test)]` helpers below
-// (`to_packed` / `to_row_major`) — production code keeps zero
-// parity-oracle dependency.
+// `state_node` is now a PRODUCTION module. The independent reference copy
+// (test-only) is referenced ONLY by the `#[cfg(test)]` helpers below
+// (`to_packed` / `to_row_major`) — production code keeps zero dependency on
+// that test helper.
 #[cfg(test)]
-use crate::pixel::parity_oracle::{assert_byte_eq, PackedView, PixelReader};
+use crate::pixel::reference::{assert_byte_eq, PackedView, PixelReader};
 
 /// Canonical tile edge in pixels. Must match the engine value (256).
 pub const TILE: u32 = 256;

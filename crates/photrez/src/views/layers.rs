@@ -710,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn lock_toggles_match_the_oracle_order_and_glyphs() {
+    fn lock_toggles_match_the_reference_order_and_glyphs() {
         let toggles = lock_toggles(Some(flags()));
         let glyphs: Vec<&[u8]> = toggles.iter().map(|toggle| toggle.svg).collect();
         assert_eq!(

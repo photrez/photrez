@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::reg;
-use crate::paint::parity::{ParityDab, ParityTip};
+use crate::paint::raster::{RasterDab, RasterTip};
 use crate::pixel::tile::TilePatch;
 
 const W: usize = 4;
@@ -40,12 +40,12 @@ fn non_white_brush_and_eraser_round_trip_through_history() {
         .expect("non-white base layer seeds");
 
     let brush_tip_data: Vec<u8> = BRUSH.iter().copied().cycle().take(2 * 2 * 4).collect();
-    let brush_tip = ParityTip {
+    let brush_tip = RasterTip {
         width: 2,
         height: 2,
         data: &brush_tip_data,
     };
-    let brush_dabs = [ParityDab {
+    let brush_dabs = [RasterDab {
         x: 1.0,
         y: 1.0,
         alpha: 1.0,
@@ -93,12 +93,12 @@ fn non_white_brush_and_eraser_round_trip_through_history() {
     assert_eq!(r.get_history_version("g14"), Some(3));
 
     let eraser_tip_data = [0u8, 0, 0, 255];
-    let eraser_tip = ParityTip {
+    let eraser_tip = RasterTip {
         width: 1,
         height: 1,
         data: &eraser_tip_data,
     };
-    let eraser_dabs = [ParityDab {
+    let eraser_dabs = [RasterDab {
         x: 1.5,
         y: 1.5,
         alpha: 1.0,

@@ -41,10 +41,10 @@
 //! The dock selects this view unless the inspector tab is "presets";
 //! the capture has Adjustments active (underline at crop y35..36, x79..168).
 //!
-//! "Background" is selected: a 100×100 raster without `imageBitmap`; thumb
-//! empty, no-pixels hint from `basicStatusText()`, sliders at 0, reset
-//! disabled. Five closed `CollapsibleSection`s render only 42px headers;
-//! `COMING_SOON_SECTIONS` descriptions do not render.
+//! "Background" is selected: a 100×100 raster with no stored bitmap; thumb
+//! empty, no-pixels hint from the basic-adjustment status line, sliders at 0, reset
+//! disabled. Five closed collapsible sections render only 42px headers;
+//! the five not-yet-available sections' descriptions do not render.
 //!
 //! # Known gaps
 //!
@@ -275,7 +275,7 @@ pub fn render(
                     layer_h,
                 ))
                 .child(basic_section(state, cx))
-                // All five `COMING_SOON_SECTIONS` are collapsed in the
+                // All five not-yet-available sections are collapsed in the
                 // capture, so only their header rows render.
                 .child(coming_soon_section(
                     icons::with_stroke(icons::SPLINE, 1.75),

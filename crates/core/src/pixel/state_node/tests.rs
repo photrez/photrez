@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! State-node model tests (logical / parity / refcount / COW identity).
+//! State-node model tests (logical / reference bytes / refcount / COW identity).
 
 use super::*;
 
@@ -43,17 +43,17 @@ fn immutability_published_shared_cannot_mutate() {
     drop(clone);
 }
 
-// (9) tile-major extract vs independent-copy oracle (state side).
+// (9) tile-major extract vs the independent reference copy (state side).
 #[test]
-fn state_tile_major_matches_oracle_at_sizes() {
+fn state_tile_major_matches_reference_at_sizes() {
     for (w, h) in [(100u32, 100u32), (257, 300), (512, 513)] {
         let bytes = row_major(w, h, 17u8);
         let ls = LayerState::new("L", w, h, &bytes, 0);
         let packed = ls.to_packed();
-        let oracle = PixelReader::new(w, h, bytes.clone());
+        let reference = PixelReader::new(w, h, bytes.clone());
         assert_byte_eq(
             &packed.bytes,
-            &oracle.to_tile_major().bytes,
+            &reference.to_tile_major().bytes,
             &format!("{w}x{h}"),
         );
         // reconstructed row-major == original.
@@ -156,18 +156,18 @@ fn extract_zero_copy_slice_shares_packed() {
     }
 }
 
-// Full-byte parity vs the independent `parity_oracle` at the
+// Full-byte comparison against the independent reference copy at the
 // canonical non-multiple-of-256 sizes 100x100 / 300x300 / 513x513.
 #[test]
-fn edge_partial_byte_parity_oracle() {
+fn edge_partial_byte_matches_reference() {
     for (w, h) in [(100u32, 100u32), (300u32, 300u32), (513u32, 513u32)] {
         let bytes = row_major(w, h, 31u8);
         let ls = LayerState::new("L", w, h, &bytes, 0);
         let packed = ls.to_packed();
-        let oracle = PixelReader::new(w, h, bytes.clone());
+        let reference = PixelReader::new(w, h, bytes.clone());
         assert_byte_eq(
             &packed.bytes,
-            &oracle.to_tile_major().bytes,
+            &reference.to_tile_major().bytes,
             &format!("{w}x{h} packed"),
         );
         assert_byte_eq(&ls.to_row_major(), &bytes, &format!("{w}x{h} row"));
@@ -178,7 +178,7 @@ fn edge_partial_byte_parity_oracle() {
 // must produce ONE transition whose delta tiles are exactly the tiles BOTH
 // regions intersect, with correct bytes and preserved identity for untouched.
 #[test]
-fn cow_batch_multi_region_single_commit_delta_and_parity() {
+fn cow_batch_multi_region_single_commit_delta_and_bytes() {
     let w = 512u32;
     let h = 512u32;
     let mut ls = LayerState::new("L", w, h, &row_major(w, h, 1), 0);
@@ -188,19 +188,23 @@ fn cow_batch_multi_region_single_commit_delta_and_parity() {
     let r2 = RegionChange::new(300, 300, 8, 8, vec![5u8; 8 * 8 * 4]);
     let (before, after) = ls.cow_batch(&[r1, r2], 0);
 
-    // Byte parity: splice both rects into a row-major oracle and compare to the
-    // post-commit current state.
-    let mut oracle_bytes = row_major(w, h, 1);
+    // Byte check: splice both rects into a row-major reference buffer and
+    // compare to the post-commit current state.
+    let mut reference_bytes = row_major(w, h, 1);
     for (x, y, ww, hh, v) in [(4u32, 4u32, 8u32, 8u32, 9u8), (300, 300, 8, 8, 5)] {
         let fill = vec![v; (ww * hh * 4) as usize];
         for row in 0..hh {
             let dst = ((y + row) * w + x) as usize * 4;
             let len = (ww * 4) as usize;
             let src = (row * ww * 4) as usize;
-            oracle_bytes[dst..dst + len].copy_from_slice(&fill[src..src + len]);
+            reference_bytes[dst..dst + len].copy_from_slice(&fill[src..src + len]);
         }
     }
-    assert_byte_eq(&ls.to_row_major(), &oracle_bytes, "multi-region row parity");
+    assert_byte_eq(
+        &ls.to_row_major(),
+        &reference_bytes,
+        "multi-region row bytes",
+    );
 
     // Delta = exactly the two intersecting tiles get a fresh block; untouched
     // tiles share the packed identity (I3/I4/I9).

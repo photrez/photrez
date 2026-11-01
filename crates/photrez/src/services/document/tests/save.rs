@@ -267,7 +267,7 @@ fn save_stream_cancel_after_layer_failure_removes_temporary_archive() {
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
-/// W8 seam oracle: a multi-layer document with a shape and a text layer must
+/// Save-seam check: a multi-layer document with a shape and a text layer must
 /// save and reload to the same canonical composite and the same typed
 /// parameters. The expected composite is the live first load, so this pins
 /// the save/read seam rather than the renderer alone.

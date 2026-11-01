@@ -36,7 +36,7 @@
 //! * **`transition-colors` / `hover:scale-110`** — GPUI has no declarative
 //!   per-element transition, so the *hover* colours are also absent rather
 //!   than painted permanently. Painting them would be worse than omitting
-//!   them: a hover state frozen into the resting screenshot is a pixel the
+//!   them: a hover state baked into the resting screenshot is a pixel the
 //!   diff would then have to explain away.
 //!
 //! # Two conventions inherited from the option bar

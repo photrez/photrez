@@ -1,7 +1,7 @@
 #![allow(unsafe_code)] // SAFETY: user32 cursor handles only; no memory crosses the boundary.
 //! Canvas cursor policy.
 //!
-//! The frozen canvas hides the OS pointer under the brush/eraser ring
+//! The reference canvas hides the OS pointer under the brush/eraser ring
 //! (`cursor: none`). GPUI's `CursorStyle` has no hidden variant and its
 //! platform hide hook is not reachable from the host, so the native shell
 //! installs a custom fully transparent cursor and sets it while a paint tool

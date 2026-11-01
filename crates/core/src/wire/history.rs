@@ -25,7 +25,7 @@ pub enum PayloadKind {
     /// Atomic metadata+pixel snapshot entry (handled by
     /// `undo_snapshot`/`redo_snapshot`).
     Snapshot,
-    /// TS (adapter) logical transition (host-handoff: the host steps the cursor).
+    /// A host-adapter logical transition (host-handoff: the host steps the cursor).
     External,
     /// Native metadata (`RenderLayer`) payload (handled by the walker).
     Metadata,
@@ -51,7 +51,7 @@ pub struct HistoryEntryView {
 pub struct HistoryQuery {
     pub cursor: u64,
     pub last_seq: u64,
-    pub degraded_hint: bool, // always false engine-side; TS projection merges markers
+    pub degraded_hint: bool, // always false engine-side; the host projection merges markers
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_external: Option<PendingExternalView>,
     pub entries: Vec<HistoryEntryView>,

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Duplicate-name planning for the Rust graph mirror. Parity with the TS
-// layerOps.nextDuplicateName / layerFactory.duplicateLayerNode contract.
+// Duplicate-name planning for the engine's layer graph: the numeric-suffix
+// next-free-name contract used by the DuplicateLayer arm and structural clone.
 
 /// Strip a trailing numeric suffix so "Layer 1" -> "Layer", "Background 2"
-/// -> "Background", and a pure number "123" -> "". Mirrors layerOps.baseName.
+/// -> "Background", and a pure number "123" -> "". Feeds next_duplicate_name.
 pub(crate) fn base_name(name: &str) -> String {
     let t = name.trim_end();
-    // JS \s (in the TS baseline) treats NBSP (U+00A0) as whitespace. We widen
+    // JS \s (in the previous build) treats NBSP (U+00A0) as whitespace. We widen
     // the trailing strip to ASCII whitespace + NBSP; exotic Unicode spaces
     // beyond NBSP are a deliberate ceiling (full JS \s set not matched).
     let is_ws = |c: char| c.is_ascii_whitespace() || c == '\u{00A0}';
@@ -67,8 +67,8 @@ fn js_parse_int(s: &str) -> Option<i128> {
 }
 
 /// Next duplicate name: increment a numeric suffix past any existing sibling.
-/// "Layer 1" -> "Layer 2" -> "Layer 3". Mirrors layerOps.nextDuplicateName.
-// Accepts borrowed name slices so BOTH the document graph mirror (document.rs)
+/// "Layer 1" -> "Layer 2" -> "Layer 3".
+// Accepts borrowed name slices so BOTH the document graph (document.rs)
 // and the engine structural arms (document/structural.rs) share one
 // algorithm - no fork of the numeric-suffix rule.
 pub(crate) fn next_duplicate_name(layers: &[&str], layer_name: &str) -> String {

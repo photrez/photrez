@@ -154,7 +154,7 @@ impl DocumentCore {
         let final_h = target_height.unwrap_or(height);
         // A target size that collapses to zero or below is a silent no-op (same
         // convention as the non-positive crop rect above) so a zero-target
-        // applyCrop can never collapse the document size to 0x0.
+        // apply_apply_crop can never collapse the document size to 0x0.
         if final_w <= 0.0 || final_h <= 0.0 {
             return Ok(Vec::new());
         }
@@ -200,7 +200,7 @@ impl DocumentCore {
             let layer = self.layers.get(i).expect("layer present").clone();
             if layer.locked != Some(true) {
                 // NOTE: layer dims are Option<f64> on the render layer (absent
-                // for engine-minted layers); None is an unreachable-in-parity case
+                // for engine-minted layers); None is unreachable in this engine
                 // (the native shadow always seeds width/height), so 0.0 keeps the
                 // center math finite rather than panicking on an unwrap.
                 let lw = layer.width.unwrap_or(0.0);
@@ -330,7 +330,7 @@ impl DocumentCore {
         height: f64,
     ) -> Result<Vec<RenderLayerChange>, ProtocolError> {
         if !width.is_finite() || !height.is_finite() {
-            return Err(e_invalid("resizeCanvas requires finite width/height"));
+            return Err(e_invalid("Resizing requires finite width and height"));
         }
         // Silent no-op on non-positive dims: no entry, snapshot unchanged, DV +1.
         if width <= 0.0 || height <= 0.0 {

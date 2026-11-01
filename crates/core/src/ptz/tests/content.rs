@@ -8,12 +8,12 @@ fn assert_enum_json<T: Serialize>(value: &T, expected: &str) {
     assert_eq!(
         json,
         Value::String(expected.to_string()),
-        "enum variant did not serialize to exact TS string"
+        "enum variant did not serialize to the exact document-format string"
     );
 }
 
 #[test]
-fn blend_mode_round_trips_to_exact_ts_strings() {
+fn blend_mode_round_trips_to_exact_document_strings() {
     assert_enum_json(&BlendMode::Normal, "normal");
     assert_enum_json(&BlendMode::Multiply, "multiply");
     assert_enum_json(&BlendMode::Screen, "screen");
@@ -51,7 +51,7 @@ fn blend_mode_round_trips_to_exact_ts_strings() {
 }
 
 #[test]
-fn layer_type_round_trips_to_exact_ts_strings() {
+fn layer_type_round_trips_to_exact_document_strings() {
     assert_enum_json(&LayerType::Raster, "raster");
     assert_enum_json(&LayerType::Adjustment, "adjustment");
     assert_enum_json(&LayerType::Group, "group");
@@ -60,7 +60,7 @@ fn layer_type_round_trips_to_exact_ts_strings() {
 }
 
 #[test]
-fn shape_kind_round_trips_to_exact_ts_strings() {
+fn shape_kind_round_trips_to_exact_document_strings() {
     assert_enum_json(&ShapeKind::Rect, "rect");
     assert_enum_json(&ShapeKind::Ellipse, "ellipse");
     assert_enum_json(&ShapeKind::Line, "line");
@@ -240,7 +240,7 @@ fn document_round_trip_preserves_all_layers() {
 /// has a counterpart in PtzLayer. We fully populate one layer and
 /// assert the exact serialized key set, so no field is silently dropped.
 #[test]
-fn canonical_layer_is_superset_of_ts_layernode() {
+fn canonical_layer_carries_every_persisted_field() {
     let layer = PtzLayer {
         id: "x".to_string(),
         name: "x".to_string(),

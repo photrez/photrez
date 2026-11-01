@@ -181,7 +181,7 @@ fn trim_bbox_finds_bounds_and_handles_empty() {
 
 #[test]
 fn brush_stamp_accumulates_toward_saturation() {
-    // uniform tip (alpha 1 everywhere), dataScale = 1 (dataSize == diameter)
+    // uniform tip (alpha 1 everywhere), scale = 1 (data_size == diameter)
     let ds = 8u32;
     let tip = vec![1.0f32; (ds * ds) as usize];
     let mut mask = vec![0u8; 64];

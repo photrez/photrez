@@ -7,12 +7,12 @@ pub mod brush;
 pub mod ptz;
 // Runtime document bounded context: the `DocumentCore` engine, its history
 // stream, and the document snapshot DTO. Public so its engine types —
-// `DocumentCore` and `LayerMeta`, re-exported by the `protocol` facade — and
+// `DocumentCore` and `LayerMeta`, re-exported by `protocol` — and
 // the snapshot DTO stay reachable from outside the crate.
 pub mod document;
 pub mod geometry;
-// The paint parity candidate rasterizer (the reference the host's paint path
-// is compared against).
+// The paint rasterizer used for the reference comparison (the byte source the
+// host's paint path is checked against).
 pub mod paint;
 pub mod parallel;
 // Pixel ownership: the authoritative per-layer buffers, the per-layer
@@ -20,7 +20,7 @@ pub mod parallel;
 // and the document-namespaced registry the host drives.
 pub mod pixel;
 pub mod protocol;
-// Render-side layer DTOs, the CPU compositor facade the native host renders
+// Render-side layer DTOs, the CPU compositor entry point the native host renders
 // through, and the crate-internal wire command/projection types. The wire
 // module stays crate-private; `render::compositor` is the justified public
 // document-to-pixels entry point.

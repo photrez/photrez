@@ -58,10 +58,10 @@ pub(crate) enum EntryPayload {
         // buffers live in `DocumentPixelStore`, not in the engine.
         pixel_deltas: Vec<PixelDelta>,
     },
-    /// TS (adapter) logical transition recorded as a host handoff. `token` is
-    /// the opaque host payload reference. `before` is the engine's layer set as
-    /// it stood when the transition was recorded - i.e. BEFORE the mirrored TS
-    /// commit was up-projected into the engine, so it is exactly the state this
+    /// A host-adapter logical transition recorded as a host handoff. `token`
+    /// is the opaque host payload reference. `before` is the engine's layer set as
+    /// it stood when the transition was recorded - i.e. BEFORE the mirrored
+    /// host commit was up-projected into the engine, so it is exactly the state this
     /// entry undoes TO. It is an `Arc` clone of the structural-sharing
     /// `LayerSet` (O(1), no deep layer copy). `after` is the up-projected layer
     /// set, captured when the mirrored commit reaches the engine
@@ -112,7 +112,7 @@ pub(crate) enum EntryPayload {
     /// the SINGLE authoritative history cursor. Not serialized — the
     /// `HistoryEntryView` exposes only a `payload_ref` token. On undo/redo the
     /// stored after/before `Arc<StateNode>` is materialized back into the
-    /// tile-patch form the TS surface expects.
+    /// tile-patch form the host surface expects.
     Pixel {
         layer_id: String,
         before: Arc<StateNode>,
@@ -126,7 +126,7 @@ pub(crate) enum EntryPayload {
     /// state being left, returned by `undo_snapshot`) and `after` (the new
     /// state, returned by `redo_snapshot`) are stored so each direction
     /// restores the CORRECT snapshot (undo != redo). Introduced flag-OFF
-    /// (row-major + TS `CommandHistory` remain the ACTIVE default).
+    /// (row-major `PixelLayer` + the pre-existing command history remain the ACTIVE default).
     Snapshot {
         before: DocumentSnapshot,
         after: DocumentSnapshot,

@@ -842,9 +842,9 @@ pub struct AppState {
     pub gradient_badge: Option<GradientBadge>,
     /// Smart-guide snapping for Move/resize.
     pub snap_enabled: bool,
-    /// Move-tool click selects the layer under the pointer (`moveAutoSelect`).
+    /// Move-tool click selects the layer under the pointer.
     pub move_auto_select: bool,
-    /// Draw the interactive transform frame/handles (`showTransformControls`).
+    /// Draw the interactive transform frame/handles.
     pub show_transform_controls: bool,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,
@@ -1350,7 +1350,7 @@ mod tests {
 
     /// Brush defaults: 20 px, 80 % hard, full strength.
     #[test]
-    fn brush_defaults_match_the_oracle() {
+    fn brush_defaults_match_the_reference() {
         let state = AppState::seeded(None);
         assert_eq!(state.brush_size, 20.0);
         assert_eq!(state.brush_hardness, 0.8);

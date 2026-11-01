@@ -227,7 +227,7 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
     // ADR 0008 C1: HistorySeq (monotonic entry id) != HistoryCursor (position).
     // After a redo-truncation the stream is non-dense (entries[i].seq != i+1).
     // The old index arithmetic `cursor == seq` evaluated FALSE on such a stream
-    // and retained the pending barrier forever (sticky historyDegraded). The fix
+    // and retained the pending barrier forever (sticky degraded-history state). The fix
     // validates only the walker-recorded barrier, so the commit succeeds and the
     // wedge is cleared. This is the test that would have caught the bug.
     let mut eng = DocumentCore::new();
@@ -711,7 +711,7 @@ fn invalidate_layer_mid_cursor_decrements_no_stale_resurrect() {
         "non-pixel metadata entry survives the invalidate"
     );
 
-    // undo/redo must NOT revert a pixel op TS never applied after the resize.
+    // undo/redo must NOT revert a pixel op the host never applied after the resize.
     let (layer, tiles, _node) = e.undo_pixel().unwrap();
     assert!(
         layer.is_none() && tiles.is_none(),

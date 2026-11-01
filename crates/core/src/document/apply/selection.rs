@@ -11,7 +11,7 @@ impl DocumentCore {
     ) -> Result<Vec<RenderLayerChange>, ProtocolError> {
         match command {
             // ── Selection arms ──
-            // Selection rides Model-A snapshots; it commits NO history entry and
+            // Selection rides whole-document snapshots; it commits NO history entry and
             // produces an empty delta. The apply() tail still bumps the document
             // version (accepted transition) and reconciles the shadow.
             Command::SetSelection { selection } => {

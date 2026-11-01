@@ -15,7 +15,7 @@ external facade.
 | `wire` | Crate-private command/projection/history DTOs exchanged between the runtime and the protocol facade. |
 | `render` | `RenderLayer`, `Rect`, `RenderLayerChange`; render-owned projection leaves. |
 | `pixel` | Pixel layers, tile patches, the pixel store, state nodes, tile store, byte accounting, kernel adjustments, export. |
-| `paint`, `brush` | Paint parity and brush evaluation; leaves above `pixel`/`ptz`. |
+| `paint`, `brush` | Paint rasterization and brush evaluation; leaves above `pixel`/`ptz`. |
 | `protocol` | The public typed protocol facade the `photrez` app consumes; it re-exports the command and projection DTOs the app drives. The callerless process-global engine registry has been removed. |
 | `geometry`, `parallel` | Shared leaf helpers. |
 
@@ -32,12 +32,12 @@ pixel.rs
 pixel/     store.rs  store/{access,history,pixels}.rs  document_store.rs
            engine.rs  layer.rs  tile.rs  tile_store.rs  state_node.rs
            byte_accounting.rs  kernel.rs  kernel/adjustments.rs
-           history.rs  export.rs  parity_oracle.rs  tests.rs  tests/
+           history.rs  export.rs  reference.rs  tests.rs  tests/
 ptz.rs
 ptz/       content.rs  content/layers.rs  file.rs  file/{read,write}.rs
            layer_params.rs  projection.rs  replica.rs  validate.rs
            fixtures.rs  tests.rs  tests/
-paint.rs   paint/{parity.rs,tests.rs,tests/}
+paint.rs   paint/{raster.rs,tests.rs,tests/}
 brush.rs   brush/{engine.rs,tip.rs,tests.rs,tests/}
 render.rs  render/layer.rs
 wire.rs    wire/{command,history,projection}.rs  wire/tests.rs  wire/tests/
@@ -64,8 +64,8 @@ and `document/layer_set.rs` own the old `model` split.
   re-exports `PayloadKind` for the public callers, and `pixel::byte_accounting`
   reads `EntryPayload`. Neither reaches `document::engine` or
   `document::snapshot`.
-- `pixel::store` uses the `paint::parity` rasterizer for the shadow path.
-  `paint::parity` itself uses nothing from `pixel`; only `paint::tests` does,
+- `pixel::store` uses the `paint::raster` rasterizer for the shadow path.
+  `paint::raster` itself uses nothing from `pixel`; only `paint::tests` does,
   so the two modules do not form a production cycle.
 - `document::snapshot` must not use `pixel::store`; its cross-cutting tests live
   under `document/tests/`.
@@ -125,6 +125,6 @@ raw document map, or direct mutable layer accessor. The callerless
 functions from that registry.
 
 `geometry` and `parallel` are public leaf helpers with no in-repo caller; do
-not add behavior there without a consumer. `pixel::store` -> `paint::parity`
+not add behavior there without a consumer. `pixel::store` -> `paint::raster`
 is a real composition edge; do not extend it. `document/tests/commands.rs` is
 near the 900-line warning threshold; split it before adding more cases.

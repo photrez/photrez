@@ -10,7 +10,7 @@
 //!     and pixel state (via the token reference) atomically.
 //!
 //! This is a RUST-CORE capability introduced with the migration flag OFF: the
-//! row-major `PixelLayer` + TS `CommandHistory` remain the ACTIVE default. The
+//! row-major `PixelLayer` + the pre-existing command history remain the ACTIVE default. The
 //! full document metadata (visible/opacity/blend/transform/selection/viewport)
 //! is a later increment; this carries the pixel-layer metadata + token only.
 

@@ -326,7 +326,7 @@ impl PixelStoreRegistry {
     /// `get_store_bytes` directly. Nothing in the shipping UI, and no production
     /// command, reads this - the probe is a diagnostic, so its cost never lands on
     /// a paint or undo path. The sibling `get_history_depth` probe has NO
-    /// production consumer either: it answers a cursor-parity question nothing
+    /// production consumer either: it answers a cursor-agreement question nothing
     /// asks yet.
     pub fn get_store_bytes(&self, doc_id: &str) -> Option<PixelStoreBytes> {
         let doc = self.docs.get(doc_id)?;

@@ -8,7 +8,7 @@
 // adjustment preview: all three channels work in [0,1] straight-alpha space.
 // Alpha passes through unchanged.
 /// Round-to-nearest with ties-to-even, matching the clamped 8-bit channel
-/// writeback the adjustment pipeline relies on for the final `clampChannel` write.
+/// writeback the adjustment pipeline relies on for the final `to_u8_clamp` write.
 fn to_u8_clamp(v: f64) -> u8 {
     if !v.is_finite() {
         return 0;
@@ -34,7 +34,7 @@ fn to_u8_clamp(v: f64) -> u8 {
 }
 
 /// Pure per-pixel basic adjustment. `brightness/contrast/saturation` are in
-/// [-100, 100]; out-of-range values are clamped like the TS `normalizeBasicAdjustment`.
+/// [-100, 100]; values outside that range are clamped to it before use.
 /// private — tests live in-module.
 pub(crate) fn apply_basic_adjustment_impl(
     data: &mut [u8],
@@ -129,9 +129,9 @@ pub fn trim_bbox(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
 }
 
 /// Brush dab stamp — bilinear resample of the precomputed tip into the
-/// mask with saturating accumulation `cur + (255-cur)*a`. Mirrors
-/// brushTipMask.stampBrushTip exactly (same bounds/clamp semantics).
-#[allow(clippy::too_many_arguments)] // FFI boundary keeps flat args for the JS call site
+/// mask with saturating accumulation `cur + (255-cur)*a`. Reproduces the
+/// reference rasteriser's stamp exactly (same bounds/clamp semantics).
+#[allow(clippy::too_many_arguments)] // Flat args kept for the host call site
 pub fn brush_stamp(
     mask: &mut [u8],
     mask_width: u32,
@@ -157,7 +157,7 @@ pub fn brush_stamp(
 }
 
 /// Shared stamp body (used by both the copy and zero-copy entry points).
-#[allow(clippy::too_many_arguments)] // FFI boundary keeps flat args for the JS call site
+#[allow(clippy::too_many_arguments)] // Flat args kept for the host call site
 fn stamp_into(
     mask: &mut [u8],
     mask_width: u32,
@@ -244,7 +244,7 @@ fn stamp_into(
             let idx = row_idx + x as usize;
             let cur = mask[idx];
             if cur != 255 {
-                // Mirror TS exactly: round the DELTA, then add (not add-then-round).
+                // Exact reference behaviour: round the DELTA, then add (not add-then-round).
                 let delta = ((255.0 - cur as f32) * scaled).round() as u32;
                 mask[idx] = (cur as u32 + delta).min(255) as u8;
             }
@@ -255,7 +255,7 @@ fn stamp_into(
 }
 
 /// Straight-alpha-over composite of a paint mask into an RGBA buffer,
-/// restricted to a dirty rect. Mirrors brushTipMask.compositeMaskToImageDataDirty.
+/// restricted to a dirty rect. Blend order matches the reference rasteriser.
 #[allow(clippy::too_many_arguments)]
 pub fn composite_mask(
     dst: &mut [u8],
@@ -281,7 +281,7 @@ pub fn composite_mask(
 }
 
 /// Shared composite body (used by both the copy and zero-copy entry points).
-#[allow(clippy::too_many_arguments)] // FFI boundary keeps flat args for the JS call site
+#[allow(clippy::too_many_arguments)] // Flat args kept for the host call site
 fn compose_over(
     dst: &mut [u8],
     dst_width: u32,
@@ -304,8 +304,8 @@ fn compose_over(
     let img_w = dst_width as usize;
     let mw = mask_width as usize;
 
-    // The TS caller clamps the dirty rect to mask bounds before invoking
-    // (clampDirtyRect); mirror that contract instead of re-validating here.
+    // The caller clamps the dirty rect to mask bounds before invoking this
+    // kernel; honour that contract instead of re-validating here.
     for y in rect_y0..rect_y1 {
         let row_in_mask = y as usize * mw;
         let row_in_image = ((y as i32 - origin_y) as usize) * img_w;

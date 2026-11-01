@@ -16,9 +16,9 @@
 
 use std::collections::HashMap;
 
-// Test-only independent-copy oracle. Production references none of these.
+// Test-only independent reference copy. Production references none of these.
 #[cfg(test)]
-use crate::pixel::parity_oracle::{assert_byte_eq, PackedView, PixelReader};
+use crate::pixel::reference::{assert_byte_eq, PackedView, PixelReader};
 
 /// Canonical tile edge in pixels. Must match the engine value (256).
 pub const TILE: u32 = 256;
@@ -126,7 +126,7 @@ impl TileStore {
     }
 
     /// Transient tile-major materialization as a `PackedView` (layer dims, not
-    /// the padded tile-grid dims). Test-only (independent oracle round-trips).
+    /// the padded tile-grid dims). Test-only (reference round-trips).
     #[cfg(test)]
     pub fn to_packed(&self) -> PackedView {
         PackedView {
@@ -279,16 +279,16 @@ mod tests {
         }
     }
 
-    // (9) tile-major extract vs independent-copy oracle across several sizes.
+    // (9) tile-major extract vs the independent reference copy, several sizes.
     #[test]
-    fn tile_major_extract_matches_oracle() {
+    fn tile_major_extract_matches_reference() {
         for (w, h) in [(100u32, 100u32), (257, 300), (512, 513)] {
             let bytes = row_major(w, h, 11);
             let s = TileStore::new(w, h, &bytes);
             let pr = PixelReader::new(w, h, bytes.clone());
-            // Whole packed buffer must byte-match the oracle's independent tile-major.
+            // Whole packed buffer must byte-match the reference tile-major.
             assert_byte_eq(&s.packed, &pr.to_tile_major().bytes, &format!("{w}x{h}"));
-            // Per-tile extract must match the oracle per-tile.
+            // Per-tile extract must match the reference per-tile.
             for ty in 0..s.tiles_h {
                 for tx in 0..s.tiles_w {
                     assert_byte_eq(
@@ -363,13 +363,13 @@ mod tests {
 
     // Export/upload reconstruction — packed -> row-major must be
     // byte-equal to the original row-major source (and to the independent
-    // oracle's packed view) at the canonical edge/partial sizes.
+    // reference copy's packed view) at the canonical edge/partial sizes.
     #[test]
-    fn export_reconstructs_row_major_equal_to_oracle() {
+    fn export_reconstructs_row_major_equal_to_reference() {
         for (w, h) in [(100u32, 100u32), (300u32, 300u32), (513u32, 513u32)] {
             let bytes = row_major(w, h, 13);
             let s = TileStore::new(w, h, &bytes);
-            // packed tile-major == independent oracle tile-major.
+            // packed tile-major == independent reference tile-major.
             let pr = PixelReader::new(w, h, bytes.clone());
             assert_byte_eq(
                 &s.packed,

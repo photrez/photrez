@@ -5,7 +5,7 @@
 // evidence about the engine's own trust-boundary and history invariants.
 //
 // Test-only: this file does not touch production logic. A divergence found here
-// is reported, never papered over by loosening the fuzz.
+// is surfaced, never papered over by loosening the fuzz.
 //
 // Determinism: the same hand-rolled xorshift32 the pixel-store randomized test
 // uses (no external RNG dependency). A fixed seed reproduces a run exactly; the
@@ -314,7 +314,7 @@ fn random_command(rng: &mut u32, ids: &[String], next_id: &mut u32) -> (Command,
         12 => Command::RasterizeLayer {
             id: rand_existing_id(rng, ids),
             // Metadata-only fuzz: no materialized bitmap (the historical
-            // behaviour the U11 defect receipt pins).
+            // behaviour pinned by the rasterize-composite regression test).
             pixels: None,
         },
         13 => Command::DuplicateLayer {

@@ -3,7 +3,7 @@ use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
 
-/// S053: the rail mounts 36 px tool buttons with Move active, and clicking a
+/// The rail mounts 36 px tool buttons with Move active, and clicking a
 /// tool switches the active tool. The timed path is the product dispatch plus
 /// one render, the same protocol as the menu surfaces.
 #[gpui_kit::test]

@@ -7,7 +7,7 @@ use crate::pixel::tile::TilePatch;
 /// Authoritative pixel owner for one layer. Exactly one `pixels` buffer exists
 /// per layer. Pixel history lives in the document's `DocumentCore` (bounded to
 /// `max_depth`); this struct keeps only the canonical buffer + `epoch`. `epoch`
-/// is bumped on every canonical mutation so the derived TS cache can detect
+/// is bumped on every canonical mutation so the host's derived cache can detect
 /// staleness.
 pub struct PixelLayer {
     pub width: u32,
@@ -59,7 +59,7 @@ impl PixelLayer {
     }
 
     /// Enumerate every tile of the layer (256-grid) as absolute TilePatches.
-    /// Used by cache rehydration to refresh a derived TS cache from Rust.
+    /// Used by cache rehydration to refresh the host's derived cache from Rust.
     pub fn all_tiles(&self) -> Vec<TilePatch> {
         const TW: usize = 256;
         let cols = (self.width as usize).div_ceil(TW);

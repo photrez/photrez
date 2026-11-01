@@ -616,8 +616,8 @@ impl App {
             .is_some_and(|content| content.selection.is_some())
     }
 
-    /// Whether the app-local selection clipboard holds an image
-    /// (`SelectionOperations.hasClipboard()`).
+    /// Whether the app-local selection clipboard holds an image, the state
+    /// the reference build's clipboard check exposed.
     pub(crate) fn selection_clipboard_present(&self) -> bool {
         self.clipboard.is_some()
     }

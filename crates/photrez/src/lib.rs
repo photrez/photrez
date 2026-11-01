@@ -47,7 +47,7 @@ use services::settings::SettingsStore as _;
 /// `0x88985000`, so the bundled file is converted to TTF ahead of time.
 pub(crate) const INTER: &[u8] = include_bytes!("../assets/inter-latin.ttf");
 
-/// Client-area size to open at: the baseline viewport of the parity harness.
+/// Client-area size to open at: the baseline viewport of the capture harness.
 const CLIENT_W: f32 = 1366.;
 const CLIENT_H: f32 = 820.;
 

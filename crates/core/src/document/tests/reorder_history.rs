@@ -81,7 +81,7 @@ fn rid_of(e: &DocumentCore, id: &str) -> u32 {
         .resource_id
 }
 
-/// Apply a layer-set delta to an id vector the way a host (TS) would, to observe
+/// Apply a layer-set delta to an id vector the way the host would, to observe
 /// what the host's layer membership becomes after receiving the walker delta.
 fn apply_delta_to_ids(ids: &[String], changes: &[RenderLayerChange]) -> Vec<String> {
     let mut set: Vec<String> = ids.to_vec();
@@ -102,11 +102,11 @@ fn apply_delta_to_ids(ids: &[String], changes: &[RenderLayerChange]) -> Vec<Stri
     set
 }
 
-/// open-seed parity. Seeding layers and then a canonical re-push carrying
+/// Open-seed idempotence. Seeding layers and then a canonical re-push carrying
 /// the SAME truth must be idempotent: no layer change, no resource-id change, no
 /// document-version bump, and no history entry.
 #[test]
-fn open_seed_parity_is_idempotent() {
+fn open_seed_repush_is_idempotent() {
     let mut e = DocumentCore::new();
     e.seed_layers(
         vec![mk_layer("bg", "Background", 1), mk_layer("A", "A", 2)],
@@ -135,7 +135,7 @@ fn open_seed_parity_is_idempotent() {
     assert_eq!(e.entries.len(), 0, "seed_ptz records no history entry");
 }
 
-/// a legacy commit re-push carrying a TS-originated layer alongside a
+/// a legacy commit re-push carrying a host-originated layer alongside a
 /// known one must mint a fresh non-zero resource id for the unknown layer, preserve
 /// the known layer's resource id, record no history entry, and not bump the DV.
 #[test]
@@ -144,7 +144,7 @@ fn canonical_push_mints_unknown_and_preserves_known_rid() {
     e.seed_layers(vec![mk_layer("bg", "Background", 1)], 0);
     e.seed_ptz(canon_doc("doc", 100.0, 100.0, &["bg"])); // shadow baseline
     let before_version = e.version;
-    // Legacy commit re-push carrying a TS-originated layer `d1` next to `bg`.
+    // Legacy commit re-push carrying a host-originated layer `d1` next to `bg`.
     e.seed_ptz(canon_doc("doc", 100.0, 100.0, &["bg", "d1"]));
     assert_eq!(
         layer_ids(&e),
@@ -170,7 +170,7 @@ fn canonical_push_mints_unknown_and_preserves_known_rid() {
 }
 
 /// a re-push missing an engine id must drop that id from the native set
-/// (a re-push missing an id is a TS-originated delete). NOTE on pixel-store: the
+/// (a re-push missing an id is a host-originated delete). NOTE on pixel-store: the
 /// engine LayerSet owns no pixel buffers - the host owns pixel lifecycle and orphans
 /// buffers until document close (see `structural_arms_never_drop_pixel_store_buffers`),
 /// so dropping from the LayerSet needs no additional engine-side cleanup; this is
@@ -179,7 +179,7 @@ fn canonical_push_mints_unknown_and_preserves_known_rid() {
 fn canonical_push_drops_engine_id_absent_from_push() {
     let mut e = DocumentCore::new();
     e.seed_layers(vec![mk_layer("bg", "Background", 1)], 0);
-    // Re-push that OMITS bg (a TS-originated delete mirrored through the channel).
+    // Re-push that OMITS bg (a host-originated delete mirrored through the channel).
     e.seed_ptz(canon_doc("doc", 100.0, 100.0, &[]));
     assert!(
         layer_ids(&e).is_empty(),
@@ -293,7 +293,7 @@ fn reorder_undo_across_membership_change_restores_order_with_foreign_survivor() 
         to: 1,
     }))
     .unwrap();
-    // TS-sync re-push that ADDS a foreign layer `d1` (membership change).
+    // Host-sync re-push that ADDS a foreign layer `d1` (membership change).
     e.seed_ptz(canon_doc("doc", 100.0, 100.0, &["B", "A", "d1"]));
     // Undo the reorder.
     let res = e.apply(env(Command::Undo)).unwrap();
@@ -346,7 +346,7 @@ fn upsert_ids(changes: &[RenderLayerChange]) -> Vec<&str> {
         .collect()
 }
 
-/// Mirror the host's two-pass order-aware consumer (`applyDeltaToSnapshot`):
+/// Mirror the host's two-pass order-aware delta consumer:
 /// apply removes first, then adopt the upsert sequence as the new order when
 /// the upserts cover every remaining id. Used to prove a restored layer lands
 /// at its snapshot position rather than being tail-appended.
@@ -491,7 +491,7 @@ fn external_delete_undo_restores_mid_stack_order() {
         0,
     );
     // Legacy delete of B: record the external entry (captures the pre-sync
-    // [A, B, C]) then the mirrored re-push up-projects the TS truth [A, C].
+    // [A, B, C]) then the mirrored re-push up-projects the host truth [A, C].
     record_external(&mut e, "Delete Layer", &["B"], "tok-del");
     e.seed_ptz(canon_doc("doc", 100.0, 100.0, &["A", "C"]));
     assert_eq!(

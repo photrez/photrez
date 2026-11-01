@@ -4,9 +4,9 @@
 //! exercises.
 
 use super::*;
-use crate::paint::parity::{ParityDab, ParityTip};
+use crate::paint::raster::{RasterDab, RasterTip};
 use crate::pixel::layer::PixelLayer;
-use crate::pixel::parity_oracle::assert_byte_eq;
+use crate::pixel::reference::assert_byte_eq;
 use crate::pixel::tile::TilePatch;
 
 mod crop_bake;
@@ -419,12 +419,12 @@ fn commit_pixels_composites_onto_canonical_overlapping() {
     for _ in 0..4 {
         tip_a_data.extend_from_slice(&[255u8, 0, 0, 255]);
     }
-    let tip_a = ParityTip {
+    let tip_a = RasterTip {
         width: 2,
         height: 2,
         data: &tip_a_data,
     };
-    let dab = vec![ParityDab {
+    let dab = vec![RasterDab {
         x: 1.0,
         y: 1.0,
         alpha: 1.0,
@@ -449,7 +449,7 @@ fn commit_pixels_composites_onto_canonical_overlapping() {
     assert_eq!(l.pixels[(3 * 4 + 3) * 4 + 1], 255); // far corner white
 
     // stroke B: 1x1 blue opaque dab at (1,1) -- overlaps A within the same tile.
-    let tip_b = ParityTip {
+    let tip_b = RasterTip {
         width: 1,
         height: 1,
         data: &[0u8, 0, 255, 255],
@@ -500,18 +500,18 @@ fn bounded_commit_matches_the_full_layer_pass() {
             tip_data.extend_from_slice(&[200, 120, 40, alpha]);
         }
     }
-    let tip = ParityTip {
+    let tip = RasterTip {
         width: 8,
         height: 8,
         data: &tip_data,
     };
     let dabs = vec![
-        ParityDab {
+        RasterDab {
             x: 40.0,
             y: 40.0,
             alpha: 1.0,
         },
-        ParityDab {
+        RasterDab {
             x: 300.5,
             y: 301.25,
             alpha: 1.0,
@@ -586,15 +586,15 @@ fn bounded_commit_matches_full_for_wide_large_brush_strokes() {
             }
         }
     }
-    let tip = ParityTip {
+    let tip = RasterTip {
         width: tip_edge,
         height: tip_edge,
         data: &tip_data,
     };
     // A wide stroke with a brush larger than the tip data: the full pass
     // samples the tip's top-left quadrant, and the crop must reproduce it.
-    let dabs: Vec<ParityDab> = (0..=40)
-        .map(|i| ParityDab {
+    let dabs: Vec<RasterDab> = (0..=40)
+        .map(|i| RasterDab {
             x: 20.0 + i as f64 * 24.0,
             y: 620.0,
             alpha: 1.0,
@@ -627,12 +627,12 @@ fn commit_pixels_reinit_after_close_is_idempotent() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     let _ = r.add_layer("d", "L", 2, 2, vec![255; 16]);
-    let tip = ParityTip {
+    let tip = RasterTip {
         width: 1,
         height: 1,
         data: &[10u8, 20, 30, 255],
     };
-    let dab = vec![ParityDab {
+    let dab = vec![RasterDab {
         x: 0.5,
         y: 0.5,
         alpha: 1.0,
@@ -659,12 +659,12 @@ fn commit_pixels_doc_namespace_independent() {
     r.open_document("B");
     let _ = r.add_layer("A", "L", 2, 2, vec![255; 16]);
     let _ = r.add_layer("B", "L", 2, 2, vec![255; 16]); // same layerId, different doc
-    let tip = ParityTip {
+    let tip = RasterTip {
         width: 1,
         height: 1,
         data: &[1u8, 2, 3, 255],
     };
-    let dab = vec![ParityDab {
+    let dab = vec![RasterDab {
         x: 0.5,
         y: 0.5,
         alpha: 1.0,
@@ -1066,11 +1066,11 @@ fn write_region_edge_clip_right_bottom_tile() {
     let _ = b;
 }
 
-// Canonical-byte parity vs the independent parity oracle on a
+// Canonical bytes vs the independent reference copy on a
 // `write_region` commit, so the spliced canonical pixels are validated
 // end-to-end (not just tile-geometry).
 #[test]
-fn write_region_parity_with_oracle() {
+fn write_region_bytes_match_reference_copy() {
     let mut r = reg();
     r.open_document("d");
     let w = 513u32;
@@ -1078,7 +1078,7 @@ fn write_region_parity_with_oracle() {
     r.add_layer("d", "L", w, h, vec![0u8; (w * h * 4) as usize])
         .unwrap();
 
-    let mut oracle: Vec<u8> = vec![0u8; (w * h * 4) as usize];
+    let mut reference: Vec<u8> = vec![0u8; (w * h * 4) as usize];
     let mut fill = |x: i64, y: i64, ww: usize, hh: usize, color: [u8; 4]| {
         let mut rgba = Vec::with_capacity(ww * hh * 4);
         for _ in 0..(ww * hh) {
@@ -1089,12 +1089,12 @@ fn write_region_parity_with_oracle() {
         for row in 0..hh {
             let dst = ((y + row as i64) as usize * w as usize + x as usize) * 4;
             let src = row * ww * 4;
-            oracle[dst..dst + ww * 4].copy_from_slice(&rgba[src..src + ww * 4]);
+            reference[dst..dst + ww * 4].copy_from_slice(&rgba[src..src + ww * 4]);
         }
     };
     fill(0, 0, 4, 4, [1, 2, 3, 255]);
     fill(500, 500, 8, 8, [9, 8, 7, 255]);
 
     let l = r.get_layer("d", "L").unwrap();
-    assert_byte_eq(&l.pixels, &oracle, "write_region canonical parity");
+    assert_byte_eq(&l.pixels, &reference, "write_region canonical bytes");
 }

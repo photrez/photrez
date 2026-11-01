@@ -42,7 +42,7 @@
 use serde::{Deserialize, Serialize};
 
 // The nested per-layer payloads (basic adjustment, shape params, text data) and
-// the unions they use live in `ptz/layer_params.rs`, re-exported here so the
+// the unions they use live in `ptz/layer_params.rs`, published again here so the
 // content model's imports stay in one place.
 pub use crate::ptz::layer_params::{
     BasicAdjustment, ShapeFill, ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextAlign,

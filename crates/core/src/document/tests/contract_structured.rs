@@ -383,7 +383,7 @@ fn multi_step_undo_redo_restores_exact_field_state() {
         );
     }
     assert_eq!(eng.cursor(), 5);
-    // At the redo tip (S5 = deleteLayer) only transformed "base" survives -
+    // At the redo tip (S5 = DeleteLayer) only transformed "base" survives -
     // flip was deleted by step 5, so field-exact identity of BOTH layers is
     // verified at the intermediate redo checkpoints (S1..S4) above rather
     // than at the tip.

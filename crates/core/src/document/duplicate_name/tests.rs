@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Duplicate-name planner pins (parity with the TS layerOps contract).
+// Duplicate-name planner pins for the engine's next-free-name contract.
 
 use super::*;
 
@@ -31,8 +31,8 @@ fn next_duplicate_name_sequence() {
 
 #[test]
 fn next_duplicate_name_trailing_garbage_counts_as_js_parseint() {
-    // TS nextDuplicateName uses parseInt(suffix, 10) which parses leading
-    // digits and ignores trailing garbage ("2x" -> 2). Rust must match.
+    // The pinned contract parses the suffix like parseInt(suffix, 10): leading
+    // digits count and trailing garbage is ignored ("2x" -> 2). Rust must match.
     assert_eq!(next_duplicate_name(&["Layer 2x"], "Layer"), "Layer 3");
 }
 

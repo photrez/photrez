@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use photrez_core::brush::engine::BrushStrokeEngine;
 use photrez_core::brush::tip::{bilinear_resize_premul, BrushTip};
-use photrez_core::paint::parity::{raster_shadow, ParityDab, ParityTip};
+use photrez_core::paint::raster::{raster_shadow, RasterDab, RasterTip};
 
 use crate::state::ToolId;
 
@@ -125,7 +125,7 @@ pub struct BrushTarget {
 pub struct BrushStroke {
     pub target: BrushTarget,
     pub engine: BrushStrokeEngine,
-    pub dabs: Vec<ParityDab>,
+    pub dabs: Vec<RasterDab>,
     pub tip: Rc<BrushTip>,
     pub eraser: bool,
     pub size: f64,
@@ -199,7 +199,7 @@ impl InputState {
         let produced = stroke.engine.dabs().to_vec();
         let alpha = stroke.dab_alpha;
         for pair in produced.chunks_exact(2) {
-            stroke.dabs.push(ParityDab {
+            stroke.dabs.push(RasterDab {
                 x: pair[0],
                 y: pair[1],
                 alpha,
@@ -318,7 +318,7 @@ impl<'a> PreviewBase<'a> {
 /// The document rectangle a stroke's dabs can touch, including the stamp
 /// margin. `None` means the stroke has no dabs yet.
 pub(crate) fn preview_rect(
-    dabs: &[ParityDab],
+    dabs: &[RasterDab],
     tip: &BrushTip,
     doc_width: u32,
     doc_height: u32,
@@ -368,7 +368,7 @@ pub(crate) fn preview_rect(
 /// rasterizer reads a stamp-sized bitmap instead of the full-resolution tip.
 pub(crate) fn scaled_preview_patches(
     base: PreviewBase<'_>,
-    dabs: &[ParityDab],
+    dabs: &[RasterDab],
     tip: &BrushTip,
     eraser: bool,
     display_scale: f64,
@@ -422,9 +422,9 @@ pub(crate) fn scaled_preview_patches(
         preview_w,
         preview_h,
     )?;
-    let shifted: Vec<ParityDab> = dabs
+    let shifted: Vec<RasterDab> = dabs
         .iter()
-        .map(|dab| ParityDab {
+        .map(|dab| RasterDab {
             x: (dab.x - x0 as f64) * scale,
             y: (dab.y - y0 as f64) * scale,
             alpha: dab.alpha,
@@ -435,7 +435,7 @@ pub(crate) fn scaled_preview_patches(
         .min(tip.width.min(tip.height))
         .max(1);
     let preview_tip_data = resize_tip_premultiplied(tip, preview_tip_edge);
-    let parity_tip = ParityTip {
+    let raster_tip = RasterTip {
         width: preview_tip_edge as usize,
         height: preview_tip_edge as usize,
         data: &preview_tip_data,
@@ -448,7 +448,7 @@ pub(crate) fn scaled_preview_patches(
         eraser,
         preview_brush,
         &shifted,
-        &parity_tip,
+        &raster_tip,
         true,
     );
 
@@ -489,7 +489,7 @@ pub(crate) fn scaled_preview_patches(
 
 /// Downsample the colorized tip to the preview stamp resolution. The
 /// resampler works on premultiplied pixels and emits straight RGBA, so the
-/// result feeds `ParityTip` unchanged.
+/// result feeds `RasterTip` unchanged.
 fn resize_tip_premultiplied(tip: &BrushTip, edge: u32) -> Vec<u8> {
     let mut premultiplied = tip.rgba_data_size.clone();
     for pixel in premultiplied.chunks_exact_mut(4) {

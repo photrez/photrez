@@ -14,7 +14,7 @@ fn dab(engine: &mut BrushStrokeEngine, x: f64, y: f64) -> Vec<(f64, f64)> {
 }
 
 #[test]
-fn spacing_matches_ts_formula() {
+fn dab_spacing_matches_reference_formula() {
     assert_eq!(brush_dab_spacing(100.0), 10.0);
     assert_eq!(brush_dab_spacing(1.0), 1.0);
     assert_eq!(brush_dab_spacing(2.0), 1.0);
@@ -63,7 +63,7 @@ fn chained_carry_reduces_first_gap() {
 }
 
 #[test]
-fn injected_wrap_carry_matches_ts_case() {
+fn injected_wrap_carry_matches_reference() {
     // Reference case: (0,0)->(30,0) spacing 10 carry 12 -> next=-2 (behind
     // anchor), dabs at t=-2/8.., carry = 30 - (38-10) = 2
     let mut e = BrushStrokeEngine::new(100.0);
@@ -75,7 +75,7 @@ fn injected_wrap_carry_matches_ts_case() {
 }
 
 #[test]
-fn diagonal_carry_matches_ts_reference() {
+fn diagonal_carry_matches_reference() {
     // Reference case: segment (dx,dy)=(5,5), spacing 10, carry 8 ->
     // distance=sqrt(50), first dab at t=2/distance, carry = 5.07...
     let mut e = BrushStrokeEngine::new(100.0);

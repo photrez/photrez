@@ -96,7 +96,7 @@ fn cursor_branch_table_covers_reachable_states() {
     for (ctx, expected) in [
         (context(ToolId::Move, Idle, false, true), SystemDefault),
         (context(ToolId::Move, Action, false, true), Grabbing),
-        // Frozen move-on-locked keeps the system default, not the block cursor.
+        // The reference keeps move-on-locked on the system default, not the block cursor.
         (context(ToolId::Move, Idle, true, true), SystemDefault),
         (context(ToolId::Selection, Idle, false, true), Crosshair),
         (context(ToolId::Crop, Idle, false, true), Crosshair),
@@ -224,12 +224,12 @@ fn scaled_preview_respects_cap_and_document_bounds() {
         1.0,
         Rc::new(brush::build_tip(4.0, 1.0, [255, 0, 0, 255])),
     );
-    stroke.dabs.push(ParityDab {
+    stroke.dabs.push(RasterDab {
         x: 4.5,
         y: 4.5,
         alpha: 1.0,
     });
-    stroke.dabs.push(ParityDab {
+    stroke.dabs.push(RasterDab {
         x: 5.5,
         y: 5.0,
         alpha: 1.0,
@@ -274,7 +274,7 @@ fn region_preview_matches_the_document_preview_for_the_same_crop() {
         1.0,
         Rc::new(brush::build_tip(6.0, 1.0, [255, 0, 0, 255])),
     );
-    stroke.dabs.push(ParityDab {
+    stroke.dabs.push(RasterDab {
         x: 34.5,
         y: 31.0,
         alpha: 1.0,

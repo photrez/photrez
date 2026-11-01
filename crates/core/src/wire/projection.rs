@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Render projection types (RenderSnapshot / RenderDelta) + the pixel-history
-// delta helpers that translate Arc<StateNode> states to the TS-facing TilePatch
+// delta helpers that translate Arc<StateNode> states to the host-facing TilePatch
 // form, and the error DTO. The history view DTOs live in `wire::history`.
 
 use crate::pixel::state_node::{StateNode, TILE};
@@ -17,7 +17,7 @@ use std::sync::Arc;
 pub struct RenderSnapshot {
     pub version: DocumentVersion,
     pub layers: Vec<RenderLayer>,
-    // Additive: selection rides the Model-A snapshot (host-side undo history).
+    // Additive: selection rides the whole-document snapshot (host-side undo history).
     // Optional so pre-selection envelopes still parse; skip when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection: Option<SelectionState>,

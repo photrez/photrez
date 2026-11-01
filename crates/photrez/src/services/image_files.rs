@@ -34,7 +34,7 @@ pub(crate) enum ImageFormat {
 }
 
 impl ImageFormat {
-    /// Open Image accepts the frozen picker's raster set; `.ptz` opens through
+    /// Open Image accepts the reference picker's raster set; `.ptz` opens through
     /// the project loader instead of this service.
     pub(crate) fn from_import_path(path: &Path) -> Result<Self, ServiceError> {
         match extension(path)?.as_str() {
@@ -48,7 +48,7 @@ impl ImageFormat {
         }
     }
 
-    /// Export writes the frozen export dialog's formats. BMP is import-only.
+    /// Export writes the reference export dialog's formats. BMP is import-only.
     pub(crate) fn from_export_path(path: &Path) -> Result<Self, ServiceError> {
         match extension(path)?.as_str() {
             "png" => Ok(Self::Png),

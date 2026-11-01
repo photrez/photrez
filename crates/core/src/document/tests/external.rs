@@ -8,7 +8,7 @@
 //   3. post-op canonical push  -> seed_ptz(post-op vector) fills `after`
 // then the host's undo drives Command::Undo. Steps 1 and 3 are the two
 // canonical re-pushes that bracket the record step, and step 2 is the
-// applyCommand issued between them; the undo is the host's own undo call.
+// apply command issued between them; the undo is the host's own undo call.
 //
 // This is the DEFAULT configuration, not a gated one: the mirror is armed
 // unless it is explicitly disabled, and native authority is the default too -

@@ -68,7 +68,7 @@ impl LayerSet {
     /// Insert at `index` (clamped to `0..=len`), preserving the shared
     /// `Arc<LayerMeta>` pointers of every untouched layer (only the inserted
     /// layer is a fresh Arc). Used by the `AddLayer` arm so the host-supplied
-    /// insertion position (TS "above active") is honored.
+    /// insertion position ("above the active layer") is honored.
     pub(crate) fn insert_at(&self, layer: LayerMeta, index: usize) -> Self {
         let mut v = self.0.as_ref().clone();
         let idx = index.min(v.len());
@@ -78,7 +78,7 @@ impl LayerSet {
 
     /// Build a `LayerSet` from an EXPLICIT list of layer metadata. Ids are taken
     /// verbatim from the input — the caller owns id assignment upstream (e.g. the
-    /// TS model that already has canonical layer ids). This is the initial-layer-
+    /// host document model that already has canonical layer ids). This is the initial-layer-
     /// load path and must NOT mint fresh uuids, unlike the `AddLayer` command arm
     /// which generates ids. Every layer becomes its own `Arc<LayerMeta>` (COW-
     /// ready): later edits produce new `Arc`s, unchanged layers are shared.

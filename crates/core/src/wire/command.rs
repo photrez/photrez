@@ -76,7 +76,7 @@ pub enum Command {
         echo: String,
     },
     // Host owns identity + placement: active-layer is UI state the engine must
-    // not assume, so the id (TS-minted) and insertion index (clamped to the
+    // not assume, so the id (host-minted) and insertion index (clamped to the
     // current layer count) travel with the command. `width`/`height` seed the
     // new layer's dimensions. Typed adds carry `layer_type` + the nested payload
     // (shape_params / text_data); all three are serde-defaulted so a v2 envelope
@@ -158,11 +158,11 @@ pub enum Command {
         id: String,
         mode: BlendMode,
     },
-    // Set the parametric source-of-truth for an existing layer (shape/text).
-    // Mirrors TS updateShapeParams / updateTextData: whichever of `shape_params` /
-    // `text_data` is Some is written; the other is left untouched. Both None is an
-    // invalid no-op (rejected with E_INVALID before any mutation). An unknown id is
-    // a silent no-op (mirrors DeleteLayer + the TS guarded apply ops).
+    // Set the parametric source-of-truth for an existing layer (shape/text):
+    // whichever of `shape_params` / `text_data` is Some is written; the other
+    // is left untouched. Both None is an invalid no-op (rejected with E_INVALID
+    // before any mutation). An unknown id is a silent no-op, like the DeleteLayer
+    // arm.
     SetLayerParams {
         id: String,
         #[serde(default)]
@@ -171,23 +171,22 @@ pub enum Command {
         text_data: Option<TextData>,
     },
     // Set or clear the non-destructive basic adjustment for an existing layer.
-    // `adjustment: Some(...)` sets it (and derives has_adjustments from the values,
-    // mirroring TS applyBasicAdjustment); `None` clears it and sets has_adjustments
-    // to false (mirroring TS clearBasicAdjustments). Unknown id is a silent no-op.
+    // `adjustment: Some(...)` sets it and derives has_adjustments from the values
+    // (true only when a channel is non-zero); `None` clears it and sets
+    // has_adjustments to false. Unknown id is a silent no-op.
     SetAdjustment {
         id: String,
         #[serde(default)]
         adjustment: Option<BasicAdjustment>,
     },
     // Duplicate a layer verbatim, inserting the clone directly above the source.
-    // Mirrors TS duplicateLayer / document.duplicate_layer on the happy path: clones
-    // the source RenderLayer, derives a numeric-suffix name from the engine layer
-    // set, mints a fresh resource id (the clone owns an independent bitmap), and
-    // clears the background / bottom flags. Unknown id is a silent no-op (engine
-    // no-ops like DeleteLayer); the host-side TS duplicateLayer THROWS on unknown id
-    // - a documented divergence. The host owns identity checks before sending, so the
-    // engine's no-op is safe. An empty or already present new_id is rejected with
-    // E_INVALID before any mutation or history entry.
+    // The happy path clones the source RenderLayer, derives a numeric-suffix name
+    // from the engine layer set, mints a fresh resource id (the clone owns an
+    // independent bitmap), and clears the background / bottom flags. Unknown id is
+    // a silent no-op (engine no-ops like DeleteLayer); the host-side duplicate op
+    // THROWS on unknown id - a documented divergence. The host owns identity checks
+    // before sending, so the engine's no-op is safe. An empty or already present
+    // new_id is rejected with E_INVALID before any mutation or history entry.
     DuplicateLayer {
         id: String,
         new_id: String,
@@ -215,7 +214,7 @@ pub enum Command {
     },
     // Rasterize a parametric (shape/text) layer to a plain raster layer: drop the
     // shape/text params, keep bitmap/dims/transform/adjustments. A non-parametric
-    // layer is a silent no-op (mirrors shapeLayerToRaster/textLayerToRaster guard).
+    // layer is a silent no-op.
     // `pixels` carries the host-rendered bitmap that materializes the layer's
     // canonical buffer (parametric layers are metadata-only), and the layer's
     // dimensions become the bitmap's — a rasterize target always carries a bitmap
@@ -228,7 +227,7 @@ pub enum Command {
         pixels: Option<RasterizePixels>,
     },
     // Crop the canvas: offset every unlocked layer by (-x, -y) and set the document
-    // size to (width, height). Mirror of DocumentEngine.cropCanvas / performCropCanvas
+    // size to (width, height). Same contract as the engine's apply_crop_canvas
     // (unlocked layers move, document resizes; locked layers are untouched, selection
     // is cleared). Non-positive width/height is a silent no-op; non-finite inputs
     // reject with E_INVALID (stricter than the host, which would let NaN slip
@@ -250,8 +249,8 @@ pub enum Command {
     },
     // Apply a non-destructive crop: recenter every unlocked layer into the crop
     // region, rotate around the crop center, scale to the (optional) target size, and
-    // re-derive its transform. Mirror of DocumentEngine.applyCrop's non-destructive
-    // branch (the pixel-baking delete/fill variants remain host-side). `rotation`
+    // re-derive its transform. This is the non-destructive branch (the
+    // pixel-baking delete/fill variants remain host-side). `rotation`
     // defaults to 0; `target_width`/`target_height` are an optional pair (a half-pair
     // rejects with E_INVALID). Non-positive width/height is a silent no-op; a target
     // size that resolves to <= 0 is also a silent no-op; non-finite inputs reject
@@ -311,7 +310,7 @@ pub enum Command {
     },
     Undo,
     Redo,
-    // Selection arms: selection is engine-local UI state that rides Model-A
+    // Selection arms: selection is engine-local UI state that rides whole-document
     // snapshots (snapshot() includes it; snapshot/restore stay host-side by
     // design). These arms mutate the engine selection but commit NO history entry
     // (no begin_forward/finish_forward) and produce an empty delta — selection is
@@ -325,7 +324,7 @@ pub enum Command {
     // the host op, which falls back to select-all (full canvas from seeded canonical
     // dims; canonical absent rejects with E_INVALID like SelectAll). No history entry.
     InvertSelection,
-    // Records a legacy TS transition into the authoritative history stream.
+    // Records a host-side legacy transition into the authoritative history stream.
     // Advances DocumentVersion by exactly 1; payload stays behind the EXTERNAL
     // PayloadAdapter (token only) — never re-owned by Rust.
     //

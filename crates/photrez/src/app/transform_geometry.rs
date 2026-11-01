@@ -659,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn center_and_corners_match_the_frozen_cases() {
+    fn center_and_corners_match_the_reference_cases() {
         let transform = base(|_| {});
         let center = layer_center(&transform, 200.0, 100.0);
         close(center.x, 200.0);

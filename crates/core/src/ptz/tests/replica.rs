@@ -547,11 +547,11 @@ fn no_shadow_no_reconcile_overhead() {
 
 #[test]
 fn seed_ptz_pushes_order_to_engine() {
-    // The canonical re-push channel is the TS-authority for layer
+    // The canonical re-push channel is the authority for layer
     // order. seed_ptz up-projects the pushed vector in PUSH ORDER, so the
-    // native engine order follows the canonical (TS) order, and the shadow mirrors it.
+    // native engine order follows the canonical order, and the shadow mirrors it.
     let mut e = seeded_engine(); // engine [L1, L2, L3]
-                                 // TS reorders to [L2, L1, L3] and re-pushes.
+                                 // The canonical document reorders to [L2, L1, L3] and re-pushes.
     let mut doc = doc_3();
     doc.layers = vec![canon_layer(2), canon_layer(1), canon_layer(3)];
     e.seed_ptz(doc);
@@ -560,7 +560,7 @@ fn seed_ptz_pushes_order_to_engine() {
     assert_eq!(
         engine_ids,
         vec!["L2".to_string(), "L1".to_string(), "L3".to_string()],
-        "seed_ptz drives engine order from canonical push order (TS authority)"
+        "seed_ptz drives engine order from canonical push order"
     );
     let shadow_ids: Vec<&str> = e
         .ptz_content()

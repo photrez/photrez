@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Pixel ownership facade.
+//! Pixel ownership: the subsystem's public surface.
 //!
 //! The pixel subsystem owns the canonical per-layer pixel buffers, the
 //! per-layer `StateNode` canon, the packed tile-major store, the independent
-//! parity oracle, and the native compute kernels over RGBA planes.
+//! reference copy used by tests, and the native compute kernels over RGBA
+//! planes.
 //!
 //! `pixel::store` is the document-namespaced registry the host drives through
-//! the `rust_pixels_*` commands. `pixel::document_store` is the only place that
+//! its pixel lifecycle commands. `pixel::document_store` is the only place that
 //! binds the pixel buffers to a document's history stream, so the composition
 //! edge between the two subsystems stays one-way.
 
@@ -27,12 +28,12 @@ pub mod tile;
 // compiled in (no feature gate): the StateNode/TileRef/LayerState data model
 // and the packed `TileStore` are production modules used by the document
 // engine (Arc<StateNode> pixel history) and by the canonical copy-on-write
-// seam. The independent-copy `parity_oracle` stays test-only.
+// seam. The independent-copy reference module stays test-only.
 pub(crate) mod state_node;
 pub(crate) mod tile_store;
 
 #[cfg(test)]
-pub(crate) mod parity_oracle;
+pub(crate) mod reference;
 
 pub use byte_accounting::{PixelStoreBytes, TileByteReport};
 #[cfg(feature = "legacy-host")]

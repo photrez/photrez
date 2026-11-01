@@ -204,7 +204,7 @@ impl DocumentCore {
     /// the host, because the entry's post-sync side was never captured.
     ///
     /// Zero on every document whose External entries got their post-sync side
-    /// from a canonical push (the host's `recordExternalTransitionFor` pushes
+    /// from a canonical push (the host's external-transition record pushes
     /// one after the mutation it just committed), which is the shipping
     /// sequence. A non-zero value means some entry's post-sync side is missing
     /// and the engine has no other source for it - the redo moved the cursor and
@@ -258,7 +258,7 @@ impl DocumentCore {
         HistoryQuery {
             cursor: self.cursor as u64,
             last_seq: self.next_seq.saturating_sub(1),
-            degraded_hint: false, // engine-side always false; TS merges markers
+            degraded_hint: false, // engine-side always false; the host projection merges markers
             pending_external: self
                 .pending_external
                 .as_ref()
@@ -406,7 +406,7 @@ impl DocumentCore {
     /// Restore the native layer ORDER captured by an External (host-handoff)
     /// entry, and return the ordered restatement delta plus the entry seq.
     ///
-    /// An External entry records a mirrored TS commit. Its captured `before` is
+    /// An External entry records a mirrored host commit. Its captured `before` is
     /// the engine's layer set at record time - the pre-sync state, i.e. exactly
     /// what an undo of this entry restores to. Its `after` slot is filled later,
     /// from the next canonical push (`seed_ptz`); undo restores `before`,
@@ -477,7 +477,7 @@ impl DocumentCore {
                     // No redo target and no other source for one. The step still
                     // runs its host handoff (the cursor moves on the host's
                     // confirm), so the host keeps its replay; the gap is counted
-                    // instead of being reported as "nothing to restore".
+                    // instead of surfacing as "nothing to restore".
                     self.external_post_state_gaps += 1;
                 }
                 return (seq, Vec::new());

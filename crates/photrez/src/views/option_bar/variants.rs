@@ -41,9 +41,9 @@ pub(super) fn fade_in_row(
 
 /// The `Move` variant.
 ///
-/// State assumptions: `selectedLayerId()` is true (the fields show identity
-/// transform on the 800x600 background), `hoveredLayer()` is false, and
-/// `moveAutoSelect()` is true.
+/// State assumptions: a layer is selected (the fields show identity
+/// transform on the 800x600 background), nothing is hovered, and
+/// move-auto-select is on.
 fn move_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::app::App>) -> Div {
     let (snap_focus, auto_select_focus, transform_focus) = {
         let s = state.read(cx);
@@ -261,7 +261,7 @@ fn selection_items(
     .when(show_more_dropdown(), |el| el.child(more_dropdown_button()))
 }
 /// Resting crop bar: `cropMode="free"` → ratio reads "Free"; both `Delete` and
-/// `Fill BG` ship checked; the fill colour block is visible (`fillEnabled()`).
+/// `Fill BG` ship checked; the fill colour block is visible (`fill_enabled`).
 pub fn crop_params() -> CropParams {
     CropParams {
         pill_label: PILL_LABEL_CROP_KEY,
@@ -281,7 +281,7 @@ pub fn crop_params() -> CropParams {
 
 /// The `Crop` variant — the resting 781px capture.
 ///
-/// `cropMode` rests on `"free"`, the ratio dropdown is closed, `fillEnabled()`
+/// `cropMode` rests on `"free"`, the ratio dropdown is closed, `fill_enabled`
 /// is true, and the `@min-[880px]` inline advanced group (straighten / rotate /
 /// guide / classic toggle) is hidden — so none of those paint. Element order
 /// follows the reference markup fragment line-for-line:
@@ -719,7 +719,7 @@ fn eyedropper_items(
     ))
 }
 
-// ── Paint Bucket ─�─────────────────────────────────────────────────────────────
+// ── Paint Bucket ───────────────────────────────────────────────────────────────
 
 /// The `PaintBucket` variant.
 fn paint_bucket_items(

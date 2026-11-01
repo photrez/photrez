@@ -1,6 +1,6 @@
 use super::*;
 
-/// The frozen reference catalogs, one directory per locale.
+/// The pinned reference catalogs, one directory per locale.
 // Reference copies live with the test fixtures now that the retired tree is gone.
 fn reference_path(code: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -40,14 +40,14 @@ fn token_set(value: &str) -> Vec<String> {
     set
 }
 
-/// The embedded copies are the frozen reference, byte for byte after checkout
+/// The embedded copies are the pinned reference, byte for byte after checkout
 /// line-ending normalization. A diff is never a translation decision: the
 /// reference changes first and the copy step re-copies it.
 #[test]
 fn catalog_matches_reference() {
     for (locale, text) in CATALOGS {
         let reference = std::fs::read_to_string(reference_path(locale.code()))
-            .expect("the frozen reference is in the tree");
+            .expect("the reference catalog is in the tree");
         let embedded = text.replace("\r\n", "\n");
         assert_eq!(
             embedded,
@@ -61,7 +61,7 @@ fn catalog_matches_reference() {
 /// Every key in one locale exists in the other: a missing translation
 /// renders as its key in the UI, which no capture can paper over.
 #[test]
-fn locale_parity() {
+fn locale_key_sets_match() {
     let en = load(Locale::En);
     let id = load(Locale::Id);
     let missing_in_id: Vec<_> = en
@@ -105,9 +105,9 @@ fn leaf_rejections_are_enforced() {
     ));
 }
 
-/// The leaf census the catalogs were frozen at; a wholesale loss (a
-/// botched copy, a truncated file) fails here even though parity alone
-/// would still hold.
+/// The leaf census the catalogs were pinned at; a wholesale loss (a
+/// botched copy, a truncated file) fails here even though the key-set
+/// comparison alone would still hold.
 #[test]
 fn leaf_counts_are_pinned() {
     for locale in [Locale::En, Locale::Id] {
@@ -142,7 +142,7 @@ fn placeholder_sets_match_across_locales() {
     );
     for (key, en_value) in &en.entries {
         let Some(id_value) = id.entries.get(key) else {
-            continue; // parity owns missing keys
+            continue; // the key-set comparison owns missing keys
         };
         assert_eq!(
             token_set(en_value),

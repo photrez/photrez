@@ -284,12 +284,10 @@ fn encode_image_inner(
             // NOTE: the `image` crate's WebP support (image-webp 0.2.4) is
             // LOSSLESS-ONLY — it ignores `quality` and always writes a VP8L
             // (lossless) file. That is CORRECT (exact round-trip, no data loss),
-            // but produces large files and does not honor the quality slider.
-            // The frontend therefore routes WebP to the browser Canvas
-            // convertToBlob (lossy, quality-aware) via an early-return in
-            // the frontend export module; this Rust path is the lossless fallback and is kept
-            // correct. See FEATURES.md WebP note (the earlier "~5 KB defect" was a
-            // compressible test-fixture artifact, not data loss).
+            // but produces large files and does not honor the quality slider:
+            // this is the only WebP path this build ships, so WebP export is
+            // always lossless. See FEATURES.md WebP note (the earlier "~5 KB
+            // defect" was a compressible test-fixture artifact, not data loss).
             img_buffer
                 .write_to(
                     &mut Cursor::new(&mut encoded_bytes),

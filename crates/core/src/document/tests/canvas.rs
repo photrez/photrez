@@ -270,10 +270,11 @@ fn apply_crop_plain_rect_recenters_layer() {
 }
 
 #[test]
-fn apply_crop_with_rotation_and_target_matches_oracle() {
+fn apply_crop_with_rotation_and_target_matches_reference() {
     let mut e = DocumentCore::new();
     // Layer at (100,100), 200x100, rotation 179; crop 50x50 at (10,10) rotated -5,
-    // exported to 100x200 (forces a normalizeRotation wrap on layer.rotation - cropRotation).
+    // written out to 100x200 (forces a normalize_rotation wrap on
+    // layer.rotation minus the crop rotation).
     e.seed_layers(vec![mk("A", 100.0, 100.0, 200.0, 100.0)], 0);
     {
         let mut l = e.layers.get(0).expect("present").clone();

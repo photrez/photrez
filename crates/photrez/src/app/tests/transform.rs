@@ -557,7 +557,7 @@ fn move_empty_click_clears_the_layer_selection(cx: &mut gpui_kit::TestAppContext
     .expect("test window remains open");
 }
 
-/// S005 perf: a left press and release on the empty canvas page clears the
+/// A left press and release on the empty canvas page clears the
 /// selection and repaints. The measured span is the dispatch pair plus one
 /// frame; reseeding the selection between samples is host-side.
 #[gpui_kit::test]
@@ -771,7 +771,7 @@ fn cancelling_a_move_marquee_restores_the_initial_selection(cx: &mut gpui_kit::T
     .expect("test window remains open");
 }
 
-/// S062 perf: one Move drag's release, i.e. the transform commit plus the frame
+/// Perf: one Move drag's release, i.e. the transform commit plus the frame
 /// that repaints the moved layer. The press and the preview frames are warm-up;
 /// the measured event is release -> visible result.
 #[gpui_kit::test]

@@ -7,7 +7,7 @@
 //!   tile traversal/copy — row-major gather into tile layouts
 //!   parallelism         — rayon scaling experiment (explicitly non-committal)
 
-use crate::paint::parity::{ParityDab, ParityTip, TilePatchOut};
+use crate::paint::raster::{RasterDab, RasterTip, TilePatchOut};
 use std::time::Instant;
 
 pub struct BlendResult {
@@ -23,8 +23,8 @@ pub fn blend_par_row_bands(
     prep_white: bool,
     eraser: bool,
     brush: f64,
-    dabs: &[ParityDab],
-    tip: &ParityTip,
+    dabs: &[RasterDab],
+    tip: &RasterTip,
 ) -> BlendResult {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -113,8 +113,8 @@ pub fn blend_only(
     prep_white: bool,
     eraser: bool,
     brush: f64,
-    dabs: &[ParityDab],
-    tip: &ParityTip,
+    dabs: &[RasterDab],
+    tip: &RasterTip,
 ) -> BlendResult {
     let t0 = Instant::now();
     let mut buf = vec![0u8; w * h * 4];
@@ -186,7 +186,7 @@ struct TileRef2 {
 }
 
 fn tiles_for_bbox(x0: i64, y0: i64, x1: i64, y1: i64, w: i64, h: i64) -> Vec<TileRef2> {
-    let t = crate::paint::parity::tiles_in_rect(x0, y0, x1, y1, w, h);
+    let t = crate::paint::raster::tiles_in_rect(x0, y0, x1, y1, w, h);
     t.into_iter()
         .map(|t| TileRef2 {
             key: t.key,
@@ -354,18 +354,18 @@ pub fn extraction_variants(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paint::parity::raster_shadow;
+    use crate::paint::raster::raster_shadow;
 
     struct TipBuf {
         data: Vec<u8>,
     }
 
-    fn tip_owned(buf: &mut TipBuf, size: usize, rgba: [u8; 4]) -> ParityTip<'_> {
+    fn tip_owned(buf: &mut TipBuf, size: usize, rgba: [u8; 4]) -> RasterTip<'_> {
         buf.data = vec![0u8; size * size * 4];
         for i in 0..(size * size) {
             buf.data[i * 4..i * 4 + 4].copy_from_slice(&rgba);
         }
-        ParityTip {
+        RasterTip {
             width: size,
             height: size,
             data: &buf.data,
@@ -400,7 +400,7 @@ mod tests {
                 tb.data[i + 3] = (a * 229.5) as u8; // pressure 0.9
             }
         }
-        let tip = ParityTip {
+        let tip = RasterTip {
             width: size,
             height: size,
             data: &tb.data,
@@ -411,8 +411,8 @@ mod tests {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             ((seed >> 8) & 0xFF_FFFF) as f64 / 16_777_216.0
         };
-        let dabs: Vec<ParityDab> = (0..10)
-            .map(|_| ParityDab {
+        let dabs: Vec<RasterDab> = (0..10)
+            .map(|_| RasterDab {
                 x: rnd() * 6912.0,
                 y: rnd() * 3888.0,
                 alpha: 0.75,
@@ -508,7 +508,7 @@ mod tests {
                 tb.data[i + 3] = (a * 229.5) as u8;
             }
         }
-        let tip = ParityTip {
+        let tip = RasterTip {
             width: size,
             height: size,
             data: &tb.data,
@@ -518,8 +518,8 @@ mod tests {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             ((seed >> 8) & 0xFF_FFFF) as f64 / 16_777_216.0
         };
-        let dabs: Vec<ParityDab> = (0..10)
-            .map(|_| ParityDab {
+        let dabs: Vec<RasterDab> = (0..10)
+            .map(|_| RasterDab {
                 x: rnd() * 6912.0,
                 y: rnd() * 3888.0,
                 alpha: 0.75,
@@ -567,8 +567,8 @@ mod tests {
     fn variants_equal_small() {
         let mut tb = TipBuf { data: Vec::new() };
         let tip = tip_owned(&mut tb, 24, [200, 50, 50, 220]);
-        let dabs: Vec<ParityDab> = (0..8)
-            .map(|i| ParityDab {
+        let dabs: Vec<RasterDab> = (0..8)
+            .map(|i| RasterDab {
                 x: (i * 61 % 400) as f64,
                 y: (i * 113 % 300) as f64,
                 alpha: 0.8,

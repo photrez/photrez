@@ -273,7 +273,7 @@ fn repush_never_mutates_native_doc_size() {
     assert_eq!(e.cursor, 1, "re-push must not reset the cursor");
 
     // Undo restores the CAPTURED pair (100x100), not the re-pushed 999x888: the
-    // native baseline is stable regardless of TS re-push order/dims.
+    // native baseline is stable regardless of host re-push order/dims.
     e.apply(env(Command::Undo)).unwrap();
     assert_eq!(
         e.doc_size,
@@ -288,7 +288,7 @@ fn repush_never_mutates_native_doc_size() {
 // doc_size) -> undo restores the captured dims. A second re-push that is merely
 // ORDER-divergent (different id vector, same dims) leaves HISTORY and doc_size
 // untouched; its layer vector now drives the engine order by design (a push is
-// the TS truth at mirrored moments).
+// the host truth at mirrored moments).
 #[test]
 fn audit_sequence_repush_preserves_history_and_dims() {
     let mut e = DocumentCore::new();
@@ -325,7 +325,7 @@ fn audit_sequence_repush_preserves_history_and_dims() {
 
     // Re-push merely ORDER-divergent (same dims 100x100, different id vector):
     // history and doc_size are untouched; the pushed vector drives engine order
-    // by design (TS truth at mirrored moments), which is inert on those axes.
+    // by design (host truth at mirrored moments), which is inert on those axes.
     e.seed_ptz(canon_doc("doc", 100.0, 100.0, &["B", "A", "X"]));
     assert_eq!(
         e.doc_size,
@@ -340,7 +340,7 @@ fn audit_sequence_repush_preserves_history_and_dims() {
     assert_eq!(shadow_dims(&e), (100.0, 100.0));
 
     // Redo restores the captured resize after-pair (300x250) - the native baseline
-    // is stable regardless of TS re-push order/dims.
+    // is stable regardless of host re-push order/dims.
     e.apply(env(Command::Redo)).unwrap();
     assert_eq!(
         e.doc_size,
@@ -354,7 +354,7 @@ fn audit_sequence_repush_preserves_history_and_dims() {
 // LayerSet, preserving only the engine-owned resource id. This pins the
 // project_known_layer / project_fields invariant at its source: a future
 // edit that drops a field from that projection would silently revert the push's
-// value to the engine's prior metadata-seed value on a facade-owned layer. A
+// value to the engine's prior metadata-seed value on a host-owned layer. A
 // test-harness fake cannot be the only thing asserting this contract.
 #[test]
 fn seed_ptz_known_id_takes_pushed_metadata_over_engine_seed() {

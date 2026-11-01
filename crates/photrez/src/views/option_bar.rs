@@ -166,7 +166,7 @@ const BRUSH_SLIDER_H: f32 = 14.0;
 const STROKE_PILL: f32 = 1.75;
 const STROKE_CHECK: f32 = 3.5;
 const STROKE_DROPDOWN: f32 = 1.6;
-#[allow(dead_code)] // reserved for icon buttons not yet ported to the option bar
+#[allow(dead_code)] // reserved for icon buttons the option bar does not use yet
 const STROKE_ICON: f32 = 1.5;
 
 // ── Colours not in `tokens.rs` ────────────────────────────────────────────────
@@ -521,7 +521,7 @@ mod bar_width_tests {
     use super::*;
 
     #[test]
-    fn container_queries_match_the_oracle_at_781_and_wide() {
+    fn container_queries_match_the_reference_at_781_and_wide() {
         set_bar_width(781.0);
         assert!(!show_main_controls(), "main controls are hidden below 880");
         assert!(show_more_dropdown(), "the overflow button shows below 880");

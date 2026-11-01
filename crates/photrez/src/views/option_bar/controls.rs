@@ -1,6 +1,6 @@
 use super::*;
 
-// ── Shared parts ─�─────────────────────────────────────────────────────────────
+// ── Shared parts ───────────────────────────────────────────────────────────────
 
 /// A pill button: an icon plus a label, at the control height.
 pub(super) fn tool_pill(icon: &'static [u8], label: String) -> impl IntoElement {

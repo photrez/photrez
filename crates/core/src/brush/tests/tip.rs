@@ -181,11 +181,11 @@ fn c1_golden_interior_and_rim_tolerance() {
     // rim metrics intentionally REPORT-ONLY (documented legacy compatibility delta)
     assert!(
         alpha_max <= 1,
-        "canonical gate: alpha beyond browser-roundtrip bound: {alpha_max}"
+        "canonical gate: alpha beyond the reference-capture roundtrip bound: {alpha_max}"
     );
     assert!(
         straight_interior_max <= 1,
-        "canonical gate: straight interior beyond browser noise: {straight_interior_max}"
+        "canonical gate: straight interior beyond reference-capture noise: {straight_interior_max}"
     );
 }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Public typed protocol and wire facade. The former process-global protocol
+//! Public typed protocol and wire surface. The former process-global protocol
 //! registry is callerless and has been removed.
 //!
 //! ```compile_fail
@@ -9,7 +9,7 @@
 // Re-export surface for the protocol engine. The implementations live in
 // the `document/` bounded context (engine, history, snapshot) and in `wire/`
 // (command envelopes, projections). The `photrez` host consumes these DTO
-// types; no process-global engine registry is part of this facade.
+// types; no process-global engine registry is part of this surface.
 
 pub use crate::document::layer_set::LayerMeta;
 pub use crate::document::DocumentCore;

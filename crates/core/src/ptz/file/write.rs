@@ -24,12 +24,15 @@ impl PtzDocument {
     /// Serialize to the exact `document.json` bytes written into the ZIP.
     ///
     /// Appends the `photrez-ptz` / version header and the two per-layer
-    /// bitmap keys. Both bitmap keys are written as a constant `null` and any
-    /// value the host sent for them is discarded: the host holds live
-    /// raster buffers there, and pixels belong in the ZIP
-    /// (`layers/<id>.png`), never in the JSON. Writing the constant also stops
-    /// a live bitmap from reaching `JSON.stringify`, which would serialize it
-    /// to `{}` and make the loader treat it as a usable base image.
+    /// bitmap keys (`imageBitmap`, `baseImageBitmap`). That spelling is the
+    /// document-format name for a layer's pixel reference; it predates this
+    /// native build and is kept so files already on disk still open. Both
+    /// bitmap keys are written as a constant `null` and any value the host
+    /// sent for them is discarded: the host holds live raster buffers there,
+    /// and pixels belong in the ZIP (`layers/<id>.png`), never in the JSON.
+    /// Writing the constant also stops a live bitmap from reaching JSON
+    /// serialization, which would emit it as `{}` and make the loader treat
+    /// it as a usable base image.
     pub fn to_json(&self) -> Result<String, String> {
         let mut value = serde_json::to_value(self).map_err(|e| e.to_string())?;
         if let serde_json::Value::Object(ref mut map) = value {

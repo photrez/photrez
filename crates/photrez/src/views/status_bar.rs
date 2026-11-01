@@ -258,8 +258,8 @@ pub fn render(
 /// `<div class="flex items-center gap-3">` — the readout cells, in order.
 ///
 /// Six cells: Canvas, Zoom, Active, tool-hint, Selected Layer, and the dev-mode
-/// Frame timing. The Frame cell is gated as the previous build gated it:
-/// `devFrameStats() && devFrameStats()!.frames > 0`; the dev-mode capture
+/// Frame timing. The Frame cell keeps the previous build's gate - it shows
+/// only while frame stats report at least one frame; the dev-mode capture
 /// always has frames > 0, so the cell is always present in the golden master.
 fn left_group(
     zoom_percent: Option<u32>,

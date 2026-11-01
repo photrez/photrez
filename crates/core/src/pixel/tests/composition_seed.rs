@@ -2,10 +2,10 @@
 //! The composite-destination seed's THIRD step, on the real engine and the real
 //! shared per-document cursor.
 //!
-//! WHY THIS IS A CORE TEST AND NOT A FRONTEND ONE. A composite op (merge down,
+//! WHY THIS IS A CORE TEST. A composite op (merge down,
 //! merge selected, flatten, stamp visible) installs a NEW layer whose pixels are
-//! a CPU-canvas composite. The host seeds that destination in three steps
-//! (`seedCompositeCanonicalPixels` in the desktop crate): probe, one
+//! a CPU-composited raster. The host seeds that destination in three steps (see
+//! `seed_composite` below): probe, one
 //! whole-layer `write_region`, then a re-assertion that replaces the store's
 //! buffer from the raster. The third step exists for ONE reason - the
 //! `write_region` opened a `Pixel` entry on the SAME cursor the op's structural
@@ -16,9 +16,9 @@
 //! history entries (`DocumentPixelStore::resize_layer` ->
 //! `History::invalidate_layer`).
 //!
-//! That is a claim about the CURSOR, so it can only be proven on the cursor. The
-//! frontend suite emulates the registry, and the two emulators it composes - a
-//! byte store and a history stream - cannot express "a `Pixel` entry appeared and
+//! That is a claim about the CURSOR, so it can only be proven on the cursor. An
+//! emulated registry composes two independent pieces - a
+//! byte store and a history stream - that cannot express "a `Pixel` entry appeared and
 //! was then dropped" in one place: the byte store holds no entries, and the seed's
 //! writes are not what drives the stream. Here both live in one real
 //! `DocumentCore`.
@@ -160,8 +160,8 @@ fn composite_seed_reassertion_drops_the_pixel_entry_it_just_opened() {
     );
     assert_eq!(with_pixel.cursor, 2, "both entries applied");
 
-    // Step 3: the re-assertion. This is the host's
-    // `syncLayerStoreToLayerRaster`, which reaches `resize_layer`.
+    // Step 3: the re-assertion. The host issues it as a wholesale
+    // `resize_layer`, which replaces the store's buffer from the raster.
     reg.resize_layer(SEED_DOC, SEED_LAYER, w as u32, h as u32, composite.clone())
         .expect("resize_layer re-asserts the store from the raster");
 

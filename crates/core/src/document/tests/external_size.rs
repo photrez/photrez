@@ -269,7 +269,7 @@ fn external_with_absent_after_half_emits_no_size() {
 
 /// A pure metadata transition (layer delete / move / reorder): no pair at all.
 /// Its undo must emit an empty layer delta with NO size, which is what keeps the
-/// host's `lastHistoryDeltaWasEmpty` true and its fall-through routing intact.
+/// host's "last delta was empty" state true and its fall-through routing intact.
 #[test]
 fn metadata_external_emits_empty_delta_and_no_size() {
     let mut eng = DocumentCore::new();
@@ -307,9 +307,9 @@ fn size_neutral_host_mutation_with_equal_halves_emits_no_size() {
 
 /// Every entry kind must still advance the shared cursor, because the host reads
 /// it through the history query (`history_query().cursor`) to decide undo
-/// enablement, and the undo button is enabled unconditionally under facade
-/// ownership: a cursor that failed to advance would not surface as a dead
-/// button, it would silently undo the wrong thing.
+/// enablement, and the previous build enabled the undo button unconditionally: a
+/// cursor that failed to advance would not surface as a dead button, it would
+/// silently undo the wrong thing.
 ///
 /// The engine has NO baseline-floor guard of its own - it will happily undo the
 /// document-open entry - so the refusal has to be a host-side read of this

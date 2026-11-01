@@ -278,8 +278,8 @@ pub fn render_open(
 /// a baseline shows it.
 /// `my-1 border-t border-editor-divider`, full-bleed — the probe reads
 /// separator rows edge to edge, so there is no horizontal inset.
-/// `RecentFilesMenu`'s empty state — the row the File popup shows when
-/// `getRecentFiles()` returns nothing: `h-7 items-center px-3
+/// The recent-files popup's empty state — the row the File popup shows when
+/// the loaded list comes back empty: `h-7 items-center px-3
 /// text-[11px] text-editor-text-dim/60`, `aria-disabled`. Same shape
 /// as a `menu_row` with a smaller, dimmer label and no shortcut, and
 /// the 28px the entry list does not account for: it sits below the

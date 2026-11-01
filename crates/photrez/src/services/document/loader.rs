@@ -78,7 +78,7 @@ impl LoadedDocument {
     }
 
     /// The new-document Background: one white raster layer that owns the
-    /// document's layer identity and carries the oracle's locked position and
+    /// document's layer identity and carries the reference's locked position and
     /// rotation, so the Layers row and the Properties banner read real core
     /// state instead of seeded display flags.
     pub(crate) fn seeded_background(

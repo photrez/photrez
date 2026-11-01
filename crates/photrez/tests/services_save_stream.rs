@@ -30,7 +30,7 @@ impl TempDirectory {
         for _ in 0..32 {
             let id = NEXT_TEMP_DIRECTORY.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
-                "photrez-services-parity-{}-{id}",
+                "photrez-services-save-stream-{}-{id}",
                 std::process::id()
             ));
             match fs::create_dir(&path) {

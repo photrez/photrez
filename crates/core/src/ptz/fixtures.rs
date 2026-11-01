@@ -2,7 +2,7 @@
 // Shared `.ptz` `document.json` fixtures, used by both the core writer tests
 // (`ptz/file.rs`) and the app's save-stream tests (`services/save_stream.rs`).
 //
-// ONE definition, imported by the core writer tests, the canonical model reader
+// ONE definition, shared with the core writer tests, the canonical model reader
 // tests, and the desktop command tests, so none of them can drift apart. Every
 // consumer here is `#[cfg(test)]`; `crates/core/Cargo.toml` keeps the module out
 // of the shipped library behind the `ptz-test-fixtures` feature.

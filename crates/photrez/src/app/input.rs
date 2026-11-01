@@ -10,7 +10,7 @@ use std::rc::Rc;
 use gpui_kit::{
     Bounds, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window,
 };
-use photrez_core::paint::parity::ParityTip;
+use photrez_core::paint::raster::RasterTip;
 use photrez_core::pixel::tile::TilePatch;
 use photrez_core::protocol::{Command, CommandEnvelope, TransformPatch, CONTRACT_VERSION};
 use photrez_core::ptz::content::{
@@ -817,7 +817,7 @@ impl App {
         }
     }
 
-    /// Frozen brush Shift behaviour: once the pointer has moved 5 screen px,
+    /// Reference brush Shift behaviour: once the pointer has moved 5 screen px,
     /// lock the stroke to the dominant document axis from the start point.
     fn brush_axis_point(
         &mut self,
@@ -927,7 +927,7 @@ impl App {
             height,
             ..
         } = target;
-        let parity_tip = ParityTip {
+        let raster_tip = RasterTip {
             width: tip.width as usize,
             height: tip.height as usize,
             data: &tip.rgba_data_size,
@@ -952,7 +952,7 @@ impl App {
                         eraser,
                         brush,
                         &dabs,
-                        &parity_tip,
+                        &raster_tip,
                         true,
                         Some(&mut commit_phases),
                     )
@@ -968,7 +968,7 @@ impl App {
                     eraser,
                     brush,
                     &dabs,
-                    &parity_tip,
+                    &raster_tip,
                     true,
                 )
             }

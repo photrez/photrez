@@ -185,7 +185,8 @@ impl DocumentCore {
                 if shape_params.is_none() && text_data.is_none() {
                     return Err(ProtocolError {
                         code: "E_INVALID".to_string(),
-                        message: "setLayerParams requires shapeParams or textData".to_string(),
+                        message: "setting layer parameters requires shapeParams or textData"
+                            .to_string(),
                     });
                 }
                 if let Some(pos) = self.layers.position_by_id(&id) {
@@ -211,8 +212,8 @@ impl DocumentCore {
                 }
             }
             Command::SetAdjustment { id, adjustment } => {
-                // Mirrors TS applyBasicAdjustment / clearBasicAdjustments: Some sets
-                // the adjustment (basic_adjustment Some + has_adjustments derived from
+                // Set/clear contract: Some sets the adjustment
+                // (basic_adjustment Some + has_adjustments derived from
                 // whether any channel is non-zero), None clears it (basic_adjustment
                 // None + has_adjustments false). Unknown id is a silent no-op.
                 if let Some(pos) = self.layers.position_by_id(&id) {
@@ -220,8 +221,8 @@ impl DocumentCore {
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     match adjustment {
                         Some(adj) => {
-                            // Mirror TS normalizeBasicAdjustment: clamp each channel
-                            // to [-100, 100]. has_adjustments follows TS exactly
+                            // Normalise on write: clamp each channel
+                            // to [-100, 100]. has_adjustments is exact
                             // (true only when a channel is non-zero), not always true.
                             let b = adj.brightness.clamp(-100.0, 100.0);
                             let c = adj.contrast.clamp(-100.0, 100.0);

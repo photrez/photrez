@@ -1041,13 +1041,13 @@ fn multilayer_document_matches_pinned_font_golden() {
     let result = composite_layers_with_font_data(&content, &registry, Some(TEST_FONT))
         .expect("composite succeeds");
     let golden = image::load_from_memory(GOLDEN)
-        .expect("oracle decodes")
+        .expect("golden decodes")
         .to_rgba8();
     let (golden_width, golden_height) = golden.dimensions();
     assert_eq!(
         (result.width, result.height),
         (golden_width, golden_height),
-        "oracle dimensions"
+        "golden dimensions"
     );
     let mut max_delta = 0u8;
     for (actual, expected) in result
@@ -1064,7 +1064,7 @@ fn multilayer_document_matches_pinned_font_golden() {
     }
     assert!(
         max_delta <= 27,
-        "multi-layer oracle delta {max_delta} exceeds 27"
+        "multi-layer golden delta {max_delta} exceeds 27"
     );
 
     let mut without = content.clone();

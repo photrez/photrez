@@ -53,15 +53,15 @@ pub struct RenderLayer {
     pub width: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<f64>,
-    // Horizontal/vertical flip flags (mirror of Transform2D.flipH/flipV). Optional
+    // Horizontal/vertical flip flags (mirror of Transform2D.flip_h/flip_v). Optional
     // so an add/upsert envelope without them parses; when set by the TransformLayer
-    // arm they project onto the shadow (D-b: Some(v) overrides the canonical base).
+    // arm they project onto the shadow (Some(v) overrides the canonical base).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flip_h: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flip_v: Option<bool>,
-    // Nested parametric payloads (mirror of PtzLayer.shapeParams/textData/
-    // basicAdjustment). Optional so v2 envelopes without them still parse. The
+    // Nested parametric payloads (mirror of PtzLayer.shape_params/text_data/
+    // basic_adjustment). Optional so v2 envelopes without them still parse. The
     // typed-add / SetLayerParams / SetAdjustment arms set these; the merge bridge
     // takes a Some (Some(v) overrides the canonical base, None preserves it).
     #[serde(default, skip_serializing_if = "Option::is_none")]

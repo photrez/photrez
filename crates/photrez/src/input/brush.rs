@@ -4,11 +4,11 @@ use std::rc::Rc;
 
 use photrez_core::brush::engine::BrushStrokeEngine;
 use photrez_core::brush::tip::{build_brush_tip_data, BrushTip, TipSpec};
-use photrez_core::paint::parity::ParityDab;
+use photrez_core::paint::raster::RasterDab;
 
 use super::{BrushStroke, BrushTarget};
 
-/// Build the same data-resolution tip the frozen brush chain builds for one
+/// Build the same data-resolution tip the reference brush chain builds for one
 /// stroke. The diameter-space diagnostic buffers are not produced: the native
 /// rasterizer reads only the data-resolution mask.
 pub fn build_tip(size: f64, hardness: f64, color: [u8; 4]) -> BrushTip {
@@ -35,7 +35,7 @@ pub fn begin_stroke(
     BrushStroke {
         target,
         engine,
-        dabs: vec![ParityDab {
+        dabs: vec![RasterDab {
             x,
             y,
             alpha: dab_alpha,

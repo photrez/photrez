@@ -287,7 +287,7 @@ mod tests {
     /// The badge sits on the second row only (move/resize), the scale percent
     /// reads on the resize W row, and the brush labels get their wider column.
     #[test]
-    fn hud_rows_follow_the_oracle_per_mode() {
+    fn hud_rows_follow_the_reference_per_mode() {
         let move_rows = row_specs(hud(HudMode::Move, 12.4, -34.2, true));
         assert_eq!(move_rows.len(), 2);
         assert_eq!(
