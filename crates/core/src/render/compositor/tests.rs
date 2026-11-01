@@ -4,6 +4,7 @@ use crate::ptz::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer, Tr
 use crate::ptz::layer_params::{
     ShapeFill, ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextData,
 };
+use crate::render::text::TEST_FONT;
 
 const GOLDEN_WIDTH: u32 = 4;
 const GOLDEN_HEIGHT: u32 = 4;
@@ -904,10 +905,12 @@ fn text_layer_composites_its_bitmap_at_the_transform() {
     assert_eq!(text_result.pixels, raster_result.pixels);
 }
 
-#[test]
-fn multilayer_document_matches_canvas2d_oracle() {
-    const GOLDEN: &[u8] = include_bytes!("../goldens/multilayer.png");
-
+/// The fixture behind the multilayer golden: four seeded rasters (one hidden,
+/// one zero-opacity, one blended) plus text and shape layers positioned over
+/// them. The text layer renders with the pinned `TEST_FONT` face so the
+/// golden is reproducible on every OS; `write_multilayer_golden` regenerates
+/// the committed PNG from this fixture.
+fn multilayer_fixture() -> (PixelStoreRegistry, PtzDocumentContent) {
     let mut registry = PixelStoreRegistry::new();
     registry.open_document("composite-multilayer");
     let mut pattern = Vec::with_capacity(40 * 40 * 4);
@@ -949,14 +952,14 @@ fn multilayer_document_matches_canvas2d_oracle() {
 
     let text_data = TextData {
         content: "Ag".to_owned(),
-        font_family: "Arial".to_owned(),
+        font_family: "Inter".to_owned(),
         font_size: 16.0,
         line_height: 1.2,
         color: "#000000".to_owned(),
         ..Default::default()
     };
-    let text_bitmap =
-        crate::render::text::rasterize_text(&text_data, None, 1.0).expect("text rasterizes");
+    let text_bitmap = crate::render::text::rasterize_text(&text_data, Some(TEST_FONT), 1.0)
+        .expect("text rasterizes");
     let shape_params = ShapeParams {
         kind: ShapeKind::Rect,
         width: 4.0,
@@ -1022,8 +1025,16 @@ fn multilayer_document_matches_canvas2d_oracle() {
         layers: vec![text, shape, hidden, zero, blended, bottom],
         selection: None,
     };
+    (registry, content)
+}
 
-    let result = composite_layers(&content, &registry).expect("composite succeeds");
+#[test]
+fn multilayer_document_matches_pinned_font_golden() {
+    const GOLDEN: &[u8] = include_bytes!("../goldens/multilayer.png");
+
+    let (registry, content) = multilayer_fixture();
+    let result = composite_layers_with_font_data(&content, &registry, Some(TEST_FONT))
+        .expect("composite succeeds");
     let golden = image::load_from_memory(GOLDEN)
         .expect("oracle decodes")
         .to_rgba8();
@@ -1055,11 +1066,31 @@ fn multilayer_document_matches_canvas2d_oracle() {
     without
         .layers
         .retain(|layer| layer.id != "hidden" && layer.id != "zero");
-    let baseline = composite_layers(&without, &registry).expect("baseline composite succeeds");
+    let baseline = composite_layers_with_font_data(&without, &registry, Some(TEST_FONT))
+        .expect("baseline composite succeeds");
     assert_eq!(
         result.pixels, baseline.pixels,
         "hidden and zero-opacity layers must not change the output"
     );
+}
+
+/// Regenerate `render/goldens/multilayer.png` from the pinned-font fixture.
+/// Run explicitly after an intentional compositor or font-bytes change:
+/// `cargo test -p photrez-core --lib -- render::compositor::tests::write_multilayer_golden --ignored`
+#[test]
+#[ignore = "fixture writer: run explicitly to regenerate the multilayer golden"]
+fn write_multilayer_golden() {
+    let (registry, content) = multilayer_fixture();
+    let result = composite_layers_with_font_data(&content, &registry, Some(TEST_FONT))
+        .expect("composite succeeds");
+    let image = image::RgbaImage::from_raw(result.width, result.height, result.pixels)
+        .expect("composite pixels match the document dimensions");
+    image
+        .save(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/render/goldens/multilayer.png"
+        ))
+        .expect("multilayer golden writes");
 }
 
 #[test]
