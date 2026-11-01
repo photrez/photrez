@@ -1,7 +1,7 @@
-//! Dimension units for the dialog fields (`lib/units.ts`).
+//! Dimension units for the dialog fields.
 //!
 //! Every field keeps the canonical value in whole pixels and converts only for
-//! display. The oracle uses a 96 DPI base for these fields (not the 300 PPI of
+//! display. These fields use a 96 DPI base (not the 300 PPI of
 //! the crop bar's unit conversion), so the conversions here are the same ones
 //! the New Document and Resize Canvas dialogs use.
 
@@ -29,7 +29,7 @@ impl DimensionUnit {
         }
     }
 
-    /// `formatUnit` (`lib/units.ts`): whole pixels, two decimals otherwise.
+    /// Formats a pixel length: whole pixels, two decimals otherwise.
     pub fn format(self, px: u32) -> String {
         let value = f64::from(px);
         let converted = match self {

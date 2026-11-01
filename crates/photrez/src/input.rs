@@ -32,7 +32,7 @@ pub(crate) enum CursorPolicy {
 
 /// The reachable native cursor inputs. Handles, rotate, pan, Alt-copy and the
 /// colour picker have no native implementation yet, so they are not inputs
-/// here; their frozen branches are recorded as 40/50 obligations.
+/// here; their unsupported branches are recorded as 40/50 obligations.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CursorContext {
     pub tool: ToolId,
@@ -74,7 +74,7 @@ pub struct PendingGesture {
     pub tool: ToolId,
     pub start: (f64, f64),
     pub last: (f64, f64),
-    /// Shift constrains a pixel selection to a square (`input-handler.ts`).
+    /// Shift constrains a pixel selection to a square.
     pub shift: bool,
     /// Alt grows a pixel selection from its centre instead of its corner.
     pub alt: bool,
@@ -137,7 +137,7 @@ pub struct BrushStroke {
 
 /// One-entry tip cache keyed by the settings that shape the mask.
 ///
-/// The frozen overlay pre-warms this off the pointer path; building an 800 px
+/// The paint overlay pre-warms this off the pointer path; building an 800 px
 /// mask and its diagnostic upscales on every stroke cost ~40 ms of
 /// first-pixel latency. A changed size/hardness/colour rebuilds once.
 #[derive(Default)]

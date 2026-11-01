@@ -1,12 +1,14 @@
 #![allow(dead_code)] // consumers arrive module by module; blanket dropped as they land
 //! Icon geometry copied verbatim from `lucide-solid@1.23.0` (ISC licensed) -
-//! the same package `apps/desktop` imports, so the shapes match by
+//! the same icon set the design's glyph metrics were taken from, so the shapes
+//! match by
 //! construction rather than by transcription.
 //!
 //! # Deviations from the raw lucide source
 //!
 //!   1. `stroke-width` is a property of the *call site*, not of the icon.
-//!      `icons.tsx` renders `stroke-width={props.strokeWidth ?? 2}`: the tool
+//!      The reference icon component rendered `stroke-width={props.strokeWidth
+//!      ?? 2}`: the tool
 //!      rail passes `1.6`, the option bars `1.75` or `1.5`, an unqualified
 //!      `<Icon />` gets lucide's `2`. Each constant below carries the width
 //!      its **primary** consumer uses - the rail's tool set first, because
@@ -201,14 +203,14 @@ pub const FLIP_V: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24
 /// `folder-plus.svg` from lucide - stroke-width 1.75 (overridden at the call site).
 pub const FOLDER_PLUS: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" > <path d=\"M12 10v6\" /> <path d=\"M9 13h6\" /> <path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\" /> </svg>";
 
-/// The GitHub mark, inlined in `AboutDialog.tsx:111-113` - fill-based, so it
+/// The GitHub mark, inlined in the About dialog - fill-based, so it
 /// carries no stroke width, and not lucide: the module docs' "copied verbatim
 /// from lucide-solid" does not cover it (nor [`LOGO`]).
 pub const GITHUB: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"#ffffff\"> <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z\" /> </svg>";
 
 /// `globe.svg` from lucide - stroke-width 2. Transcribed from the About
-/// dialog's link row (`AboutDialog.tsx:121-125`), which is the revision
-/// `apps/desktop` pins.
+/// dialog's link row, which is the revision
+/// the icon set was pinned at.
 pub const GLOBE: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" > <circle cx=\"12\" cy=\"12\" r=\"10\" /> <line x1=\"2\" y1=\"12\" x2=\"22\" y2=\"12\" /> <path d=\"M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z\" /> </svg>";
 
 /// `grid-2.svg` from lucide - stroke-width 2.
@@ -244,7 +246,8 @@ pub const LINK: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\"
 /// `lock.svg` from lucide - stroke-width 1.5 (overridden at the call site).
 pub const LOCK: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" > <rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\" /> <path d=\"M7 11V7a5 5 0 0 1 10 0v4\" /> </svg>";
 
-/// The Photrez mark, inlined in AppTitleBar.tsx - bottom gradient stop resolved from styles.css (--editor-accent = #f28e42).
+/// The Photrez mark, inlined in the title bar - bottom gradient stop is the
+/// accent colour (--editor-accent = #f28e42).
 pub const LOGO: &[u8] = b"<svg viewBox=\"0 0 512 512\" class=\"size-[30px] shrink-0\" aria-hidden=\"true\"> <defs> <linearGradient id=\"brandGradientTitle\" x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\"> <stop offset=\"0%\" stop-color=\"#FFB31A\" /> <stop offset=\"100%\" stop-color=\"#f28e42\" /> </linearGradient> <linearGradient id=\"bgDarkTitle\" x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\"> <stop offset=\"0%\" stop-color=\"#2C2C2E\" /> <stop offset=\"100%\" stop-color=\"#151516\" /> </linearGradient> <mask id=\"mountainMaskTitle\" maskUnits=\"userSpaceOnUse\" x=\"-500\" y=\"-500\" width=\"2000\" height=\"2000\"> <rect x=\"-500\" y=\"-500\" width=\"2000\" height=\"2000\" fill=\"white\" /> <polygon points=\"250.4,320 300.86,127 307,127 357.6,320\" fill=\"black\" /> </mask> <filter id=\"pShadowTitle\" x=\"-20%\" y=\"-20%\" width=\"150%\" height=\"150%\"> <feDropShadow dx=\"0\" dy=\"16\" stdDeviation=\"16\" flood-color=\"#000000\" flood-opacity=\"0.5\" /> </filter> </defs> <rect x=\"24\" y=\"24\" width=\"464\" height=\"464\" rx=\"100\" fill=\"url(#bgDarkTitle)\" /> <g transform=\"translate(8, 48) scale(0.85)\" filter=\"url(#pShadowTitle)\"> <path d=\"M 240 50 L 460 50 L 390 310 L 253 310 L 219 440 L 136 440 Z\" fill=\"url(#brandGradientTitle)\" mask=\"url(#mountainMaskTitle)\" /> <circle cx=\"333\" cy=\"175\" r=\"30\" fill=\"#FFE57F\" mask=\"url(#mountainMaskTitle)\" /> </g> </svg>";
 
 /// `maximize.svg` from lucide - stroke-width 1.75 (overridden at the call site).
@@ -395,7 +398,7 @@ mod tests {
             let text = std::str::from_utf8(bytes).expect("icons are valid UTF-8");
             assert!(
                 text.contains("stroke=\"#ffffff\""),
-                "{name} must carry the white stroke from the lucide port"
+                "{name} must carry the white stroke from the lucide source"
             );
         }
     }

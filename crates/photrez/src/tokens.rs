@@ -1,10 +1,10 @@
 #![allow(dead_code)] // consumers land module-by-module; drop this blanket as they arrive
-//! Design tokens for the gpui-kit port of Photrez.
+//! Design tokens for the native Photrez shell.
 //!
-//! Source of truth: the `@theme` block in `apps/desktop/src/styles.css`.
+//! Source of truth: the design's `@theme` token block.
 //! The (stale) `docs/reference/design-tokens.md` disagrees with the shipped
 //! code in places - e.g. it describes a 35px diagonal clip-path swatch, while
-//! `LeftToolRail.tsx` actually renders two overlapping 28px circles. This file
+//! the tool rail actually renders two overlapping 28px circles. This file
 //! follows the shipped code, not the doc.
 //!
 //! # Why HSL and not OKLCH
@@ -27,10 +27,10 @@
 //!
 //! * OKLCH is not representable, so the ramp is only as smooth as sRGB allows.
 //!   For this palette chroma is 0 for every neutral, so the gap is zero.
-//! * `--radius-*` in styles.css derives from `calc(var(--radius) - Npx)` and is
-//!   never used by `LeftToolRail`, which hardcodes `rounded-[5px]`.
+//! * The `--radius-*` scale derives from `calc(var(--radius) - Npx)` and is
+//!   never used by the tool rail, which hardcodes a 5px corner.
 
-/// Design tokens from the `@theme` block of `apps/desktop/src/styles.css`,
+/// Design tokens from the design's `@theme` block,
 /// keyed by the `--editor-*` variable names.
 ///
 /// Import as `gpui_kit::Hsla` rather than `gpui::Hsla`: this crate depends only
@@ -110,25 +110,16 @@ pub mod color {
     };
 
     /// `oklch(0.32 0 0)` = `#333333` = rgb(51, 51, 51) - **the colour every
-    /// `border-*` in Photrez actually paints.**
+    /// border in Photrez actually paints.**
     ///
-    /// `styles.css` declares, outside any cascade layer:
+    /// The design defines a global border colour (`--color-border` =
+    /// `oklch(0.32 0 0)`) that outranks the per-element border colour a
+    /// component asks for, so a divider or a `white/20` edge still lands on
+    /// #333333 in the rendered result.
     ///
-    /// ```css
-    /// * { box-sizing: border-box; border-color: var(--color-border); }
-    /// ```
-    ///
-    /// with `--color-border: var(--border)` = `oklch(0.32 0 0)`. Tailwind v4's
-    /// utilities live in `@layer utilities` (via `@import "tailwindcss"`), and
-    /// CSS Cascade 5 sorts unlayered author declarations into an implicit final
-    /// layer that outranks every declared layer - **regardless of
-    /// specificity**. So this `0,0,0` universal selector beats
-    /// `.border-editor-divider`, `.border-white/20`, and every other
-    /// border-colour utility the design asks for.
-    ///
-    /// The rule sets only `border-color`, so `background-*` is untouched:
-    /// `bg-editor-divider` still paints [`DIVIDER`] (#2e2e2e) and must keep
-    /// using it. Two tokens, not one, because the cascade reaches one property
+    /// Only the border colour is global: fills keep their own token, so a
+    /// divider *background* still paints [`DIVIDER`] (#2e2e2e) and must keep
+    /// using it. Two tokens, not one, because the rule reaches one property
     /// and not the other.
     ///
     /// Verified rather than reasoned - sampling the border row/column of four
@@ -229,9 +220,9 @@ pub mod color {
     };
 }
 
-/// Static dimensions from `AppTitleBar.tsx` and `AppMenuBar.tsx`, in pixels.
+/// Static dimensions for the title bar and the menu bar, in pixels.
 ///
-/// Kept separate from [`dim`] because both components define their own
+/// Kept separate from [`dim`] because both surfaces define their own
 /// `MENU_TEXT`, and the two are different sizes (11px in the tool fly-out,
 /// 12px in the application menu).
 pub mod title {
@@ -316,10 +307,10 @@ pub mod title {
     pub const ICON_STROKE: f32 = 1.75;
 }
 
-/// Static dimensions from `LeftToolRail.tsx`, in pixels.
+/// Static dimensions for the tool rail, in pixels.
 ///
-/// Tailwind's rem scale assumes a 16px root, so every `_1.._N` step below is
-/// already resolved: `gap-0.5` = 0.125rem = 2px, `py-2` = 0.5rem = 8px, etc.
+/// The rem scale assumes a 16px root, so every `_1.._N` step below is
+/// already resolved: 0.125rem = 2px, 0.5rem = 8px, etc.
 pub mod dim {
     /// `w-[52px]` - rail width.
     pub const RAIL_W: f32 = 52.0;
@@ -329,8 +320,8 @@ pub mod dim {
     pub const RAIL_GAP: f32 = 2.0;
     /// `size-9` - tool button.
     pub const TOOL_BTN: f32 = 36.0;
-    /// `rounded-[5px]` - tool button. Deliberately *not* the `--radius: 0.375rem`
-    /// scale from styles.css; this component hardcodes 5px.
+    /// 5px tool-button corner. Deliberately *not* the `--radius: 0.375rem`
+    /// scale; this component hardcodes 5px.
     pub const TOOL_BTN_RADIUS: f32 = 5.0;
     /// `size-[18px]` - tool button icon.
     pub const ICON: f32 = 18.0;

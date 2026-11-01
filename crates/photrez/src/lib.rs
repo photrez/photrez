@@ -41,11 +41,10 @@ use std::path::PathBuf;
 
 use services::settings::SettingsStore as _;
 
-/// Inter, the same file the web build loads through
-/// `apps/desktop/public/fonts/fonts.css` - as TTF, because DirectWrite's
+/// Inter, the face the design's typography specifies - as TTF, because
+/// DirectWrite's
 /// `CreateInMemoryFontFileReference` rejects the woff2 container with
-/// `0x88985000` (see the appearance reference's `main.rs` and
-/// `tools/woff2-to-ttf.py`).
+/// `0x88985000`, so the bundled file is converted to TTF ahead of time.
 pub(crate) const INTER: &[u8] = include_bytes!("../assets/inter-latin.ttf");
 
 /// Client-area size to open at: the baseline viewport of the parity harness.
@@ -150,7 +149,7 @@ pub fn run() {
 
         // `appears_transparent` hands the whole top edge to our own title bar.
         // Without it the window shows two title bars: the OS caption plus the
-        // ported 46px one, including an inert second set of window buttons.
+        // the native 46px one, including an inert second set of window buttons.
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some("Photrez".into()),

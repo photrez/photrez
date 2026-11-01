@@ -9,9 +9,9 @@
 //! - The RGBA8 -> GPUI conversion. GPUI's `RenderImage` stores **BGRA** bytes
 //!   (both of GPUI's own producers swap before `Frame::new`:
 //!   `elements/img.rs`, `svg_renderer.rs`), so the swap happens once, here.
-//! - The page placement: the frozen viewport's fit formula, recovered from
-//!   `apps/desktop/src/components/editor/canvas/useViewportRenderer.ts` and
-//!   pinned against the frozen capture `tests/baseline/shell-canvas.png` (the
+//! - The page placement: the viewport fit formula, recovered from the
+//!   original renderer's placement code and
+//!   pinned against the capture `tests/baseline/shell-canvas.png` (the
 //!   800x600 page draws as a 701x525.75 box at x=40, y=71.125 inside the
 //!   781x668 crop: `min((w-80)/dw, (h-80)/dh)` clamped to `[0.05, 10]`,
 //!   centered).
@@ -40,7 +40,7 @@
 //! - Pan, zoom and the animated fit: `ImageViewer` is absent from the gpui-kit
 //!   build, so the viewport is ours; this landing implements only the default
 //!   fit placement.
-//! - The artboard chrome beyond the page (the frozen overlay's 1px border,
+//! - The artboard chrome beyond the page (the viewport overlay's 1px border,
 //!   1px outer ring and 32px soft shadow): it rides the visual close-out.
 
 use std::cell::{Cell, RefCell};
@@ -60,17 +60,18 @@ use crate::tokens::color;
 /// document dialog's validation contract also enforces.
 pub const MAX_CANVAS_DIM: u32 = 16384;
 
-/// Total fit padding across both axes (the frozen viewport's own constant).
+/// Total fit padding across both axes (the viewport's own constant).
 const FIT_PADDING: f32 = 80.;
-/// The frozen viewport's fit zoom clamp, `[0.05, 10]`.
+/// The fit zoom clamp, `[0.05, 10]`.
 const FIT_ZOOM_MIN: f32 = 0.05;
 const FIT_ZOOM_MAX: f32 = 10.;
-/// The camera's wheel-zoom clamp (`ViewportCamera.ts`: `MIN_ZOOM`/`MAX_ZOOM`).
+/// The camera's wheel-zoom clamp: `[0.01, 100]`.
 pub const CAMERA_MIN_ZOOM: f32 = 0.01;
 pub const CAMERA_MAX_ZOOM: f32 = 100.;
-/// One checkerboard cell, in screen pixels (`webgl2.ts` `u_checkSize = 8`).
+/// One checkerboard cell, in screen pixels.
 pub const CHECKER_CELL: f32 = 8.;
-/// Checker cells sampled from `renderer/checkerboard.ts` (0.78 and 0.55 grey).
+/// Checker cell greys, sampled from the captured checkerboard
+/// (0.78 and 0.55 relative luminance).
 pub const CHECKER_LIGHT: [u8; 4] = [199, 199, 199, 255];
 pub const CHECKER_DARK: [u8; 4] = [140, 140, 140, 255];
 
@@ -214,9 +215,9 @@ pub struct CanvasImage {
 
 mod image;
 
-/// The frozen viewport's fit placement for one document in one viewport:
+/// The viewport's fit placement for one document in one viewport:
 /// `zoom = clamp(min((w - 80)/dw, (h - 80)/dh), 0.05, 10)`, centered on both
-/// axes (`useViewportRenderer.ts`). Any non-finite or non-positive input
+/// axes. Any non-finite or non-positive input
 /// (NaN transform, zero-size viewport, negative size) returns `None` - the
 /// caller draws nothing; this never panics.
 pub fn fit_placement(
@@ -247,7 +248,7 @@ pub fn fit_placement(
 /// The viewport camera: the page origin and zoom the display paints with.
 ///
 /// `x`/`y` are the page's top-left corner in element-local screen pixels,
-/// exactly the frozen `CameraState` (`viewportCamera.ts`). The camera stays
+/// exactly the camera state the document keeps. The camera stays
 /// concrete once the user pans or zooms; `None` at the app layer means
 /// "fit to the current element bounds", which keeps the first frame correct
 /// before any layout has been observed and refits on resize until the user
@@ -271,7 +272,7 @@ impl Camera {
         })
     }
 
-    /// The frozen fit: padding 80, centered, clamped to `[0.05, 10]`.
+    /// The fit rule: padding 80, centered, clamped to `[0.05, 10]`.
     pub fn fit(viewport_w: f32, viewport_h: f32, doc_w: f32, doc_h: f32) -> Option<Self> {
         let (x, y, page_w, _) = fit_placement(viewport_w, viewport_h, doc_w, doc_h)?;
         Self::new(x, y, page_w / doc_w)
@@ -468,7 +469,7 @@ pub(crate) struct NavigatorLayout {
     pub height: f32,
 }
 
-/// The frozen Navigator's 208x88 thumbnail box (`Navigator.tsx`), centred in
+/// The Navigator's 208x88 thumbnail box, centred in
 /// that box regardless of the document aspect.
 pub(crate) fn navigator_layout(doc_w: f32, doc_h: f32) -> Option<NavigatorLayout> {
     if !doc_w.is_finite() || !doc_h.is_finite() || doc_w <= 0. || doc_h <= 0. {
@@ -583,7 +584,7 @@ pub(crate) fn navigator_element(
     .bg(color::CANVAS)
 }
 
-/// `px-4 pt-4` around the Navigator canvas (`Navigator.tsx`).
+/// 16px padding around the Navigator canvas.
 pub(crate) const NAV_PAD: f32 = 16.;
 const NAV_H: f32 = 185.;
 const NAV_HEADER_H: f32 = 38.;
@@ -593,11 +594,11 @@ const NAV_HEADER_H: f32 = 38.;
 /// pass maps them through the same page placement as the tiles.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct CanvasOverlay {
-    /// The committed or live pixel selection, painted as the oracle's
+    /// The committed or live pixel selection, painted as
     /// double-stroke marching ants (the ellipse shape draws a dashed ellipse).
     pub selection: Option<SelectionOverlay>,
     /// The rotate-cursor sprite following the pointer during selection
-    /// rotation (`cursorRotate.ts`).
+    /// rotation.
     pub rotate_cursor: Option<RotateCursorOverlay>,
     /// Crop frame `(x, y, width, height)`.
     pub crop: Option<(f64, f64, f64, f64)>,
@@ -619,7 +620,7 @@ pub(crate) struct CanvasOverlay {
     pub gradient_line: Option<GradientLine>,
 }
 
-/// `GradientOverlay.tsx`: the line and endpoint handles shown while a
+/// The gradient line and endpoint handles shown while a
 /// gradient drag is in progress.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct GradientLine {
@@ -628,7 +629,7 @@ pub(crate) struct GradientLine {
     pub radial: bool,
 }
 
-/// `BrushCursorOverlay.tsx`: the ring marks the 20% alpha contour of the
+/// The brush cursor ring: it marks the 20% alpha contour of the
 /// active brush profile and follows the active layer's scale and rotation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct BrushCursor {
@@ -644,7 +645,7 @@ pub(crate) struct BrushCursor {
 
 /// One pixel selection as the display paints it, in document space. `angle`
 /// rotates the rectangle about its centre (core `SelectionState.angle`);
-/// `edit_mode` paints the oracle's transform chrome: the eight resize
+/// `edit_mode` paints the transform chrome: the eight resize
 /// handles, the rotation connector and the rotate pin.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SelectionOverlay {
@@ -663,8 +664,8 @@ pub(crate) struct TransformFrame {
     pub handles: [[f64; 2]; 8],
 }
 
-/// The `cursorRotate.ts` rotate-cursor sprite painted at the pointer: the
-/// oracle's 32-unit white/black arrow glyph rotated by `angle` degrees. The
+/// The rotate-cursor sprite painted at the pointer: the
+/// 32-unit white/black arrow glyph rotated by `angle` degrees. The
 /// system cursor stays visible beside it until the owner rules on cursor
 /// hiding (gpui exposes no hide API), so this is a disclosed difference.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -703,7 +704,7 @@ fn painted_circle(
     }
 }
 
-/// The `cursorRotate.ts` sprite: the 32-unit glyph at 0.75 scale (24 px),
+/// The rotate-cursor sprite: the 32-unit glyph at 0.75 scale (24 px),
 /// its (1, 7) hotspot anchored at the pointer, white fill with a black
 /// 1.2-unit stroke, rotated with the pointer angle.
 fn painted_rotate_cursor(window: &mut gpui_kit::Window, position: (f32, f32), angle: f32) {
@@ -713,8 +714,8 @@ fn painted_rotate_cursor(window: &mut gpui_kit::Window, position: (f32, f32), an
     let mut stroke = PathBuilder::stroke(px(1.2 * scale));
     for (index, (x, y)) in polygon.iter().enumerate() {
         let p = point(
-            px(position.0 - 1.0 * scale + f32::from(*x) * scale),
-            px(position.1 - 7.0 * scale + f32::from(*y) * scale),
+            px(position.0 - 1.0 * scale + *x * scale),
+            px(position.1 - 7.0 * scale + *y * scale),
         );
         if index == 0 {
             fill.move_to(p);
@@ -758,6 +759,7 @@ fn painted_dashed_line(
 
 /// `painted_dashed_line` with the pattern shifted by `offset` px along the
 /// line, so a second stroke can interleave with the first (`stroke-dashoffset`).
+#[allow(clippy::too_many_arguments)] // Coordinate-heavy rendering keeps endpoints and dash parameters explicit.
 fn painted_dashed_line_offset(
     window: &mut gpui_kit::Window,
     from: (f32, f32),
@@ -1098,7 +1100,7 @@ fn canvas_element_inner(
                 size: size(px(w), px(h)),
             };
             if let Some(selection) = overlay.selection {
-                // `SelectionRenderer.tsx` marching ants: a 1.5 px accent dash
+                // Selection marching ants: a 1.5 px accent dash
                 // under a 1 px white dash offset by one period, so the marquee
                 // stays visible on both light and dark content. Each layer is
                 // one tessellated polyline — one path per layer, not per edge.
@@ -1209,7 +1211,7 @@ fn canvas_element_inner(
                         [top_mid.x, top_mid.y],
                     );
                     if let Some(top) = mapped_top {
-                        let scale = (w / doc_w).max(1e-6) as f32;
+                        let scale = (w / doc_w).max(1e-6);
                         let unit = (normal.x as f32, normal.y as f32);
                         let anchor = (
                             f32::from(top.x) + unit.0 * 4.0,
@@ -1224,7 +1226,7 @@ fn canvas_element_inner(
                         painted_circle(window, pin, 5.0, None, hsla(0., 0., 1., 1.));
                         painted_circle(window, pin, 5.0, Some(1.5), color::ACCENT);
                     }
-                    // `SelectionRenderer.tsx` edit mode: 8 px corner squares
+                    // Selection edit mode: 8 px corner squares
                     // and 6 px edge squares on the rotated frame.
                     let corners = crate::app::transform_geometry::rotated_rect_corners(
                         selection.x,
@@ -1471,7 +1473,7 @@ fn canvas_element_inner(
                 } else {
                     &[]
                 };
-                // `SelectionTransformOverlay.tsx` draws a rotate pin 20 px above
+                // The transform overlay draws a rotate pin 20 px above
                 // the rotated top edge: a 1.25 px accent stem and a 4.5 px white
                 // circle with an accent rim.
                 if overlay.transform_controls {
@@ -1563,7 +1565,7 @@ fn canvas_element_inner(
                             window.paint_quad(fill(visible, mask));
                         }
                     }
-                    // `ModernCropOverlay.tsx`: a dark outer hairline, a white
+                    // The crop overlay: a dark outer hairline, a white
                     // inner one, white thirds at half opacity, and eight
                     // 8 px white handles with a dark rim.
                     window.paint_quad(outline(rect, hsla(0., 0., 0., 0.55), BorderStyle::Solid));

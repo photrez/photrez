@@ -73,7 +73,7 @@ pub const TEXT_DIM_60: Hsla = Hsla {
 
 /// `hover:bg-white/[0.045]` - the shared *bracket-form* hover: menu
 /// triggers, undo/redo, the document tab's close button and the two
-/// header icon buttons (`DocumentTabsBar.tsx:80,109,128`).
+/// header icon buttons.
 ///
 /// Four and a half percent, not forty-five. See [`WHITE_45_PCT`] for the
 /// other value and why their names are so easy to swap.
@@ -136,8 +136,8 @@ pub const ACCENT_15: Hsla = Hsla {
 // string, so they have no variable to look up and are named here by the
 // *part* they colour instead.
 //
-// All eleven come from `apps/desktop/src/components/editor/primitives.tsx`
-// (the five shared controls), which is the module that introduces them and
+// All eleven come from the shared primitive controls,
+// which is the module that introduces them and
 // the reason they are worth sharing: `PropertiesPanel`,
 // `AdjustmentsPanel` and the option bars all build on those controls, so a
 // value pinned here is pinned once rather than transcribed per panel.
@@ -147,7 +147,7 @@ pub const ACCENT_15: Hsla = Hsla {
 // there is no `oklch()` to expand, only a hex to turn into HSL.
 
 /// `text-[#A1A1AA]` - the caption colour on a field: its `label` and its
-/// `suffix` (`primitives.tsx:23,32,59,61,271,321`).
+/// `suffix`.
 ///
 /// Not `color::TEXT_DIM` (#8c8c8c) and not `color::ICON` (#868686): this
 /// one is a cool grey with a blue cast (hue 240deg, chroma 0.050), which is
@@ -160,7 +160,6 @@ pub const FIELD_CAPTION: Hsla = Hsla {
 };
 
 /// `hover:border-[#4B515D]` - the border a field moves to on hover
-/// (`primitives.tsx:42,263`).
 ///
 /// Only `SelectField` and `EditableNumField` ask for it; `NumField` has no
 /// hover state at all, which is a real difference between the two and not
@@ -172,7 +171,7 @@ pub const HOVER_BORDER: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-[#d8dce2]` - the `Slider` thumb (`primitives.tsx:198`).
+/// `bg-[#d8dce2]` - the `Slider` thumb.
 pub const SLIDER_THUMB: Hsla = Hsla {
     h: 0.600000,
     s: 0.147059,
@@ -181,7 +180,7 @@ pub const SLIDER_THUMB: Hsla = Hsla {
 };
 
 /// `#09090b` - the dark end of the `brightness` and `contrast` track
-/// gradients (`primitives.tsx:115,120`).
+/// gradients.
 pub const SLIDER_DARK: Hsla = Hsla {
     h: 0.666667,
     s: 0.100000,
@@ -189,8 +188,7 @@ pub const SLIDER_DARK: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `#52525b` - `brightness`'s midpoint, and `saturation`'s start
-/// (`primitives.tsx:115,125`).
+/// `#52525b` - `brightness`'s midpoint, and `saturation`'s start.
 pub const SLIDER_MID_BRIGHT: Hsla = Hsla {
     h: 0.666667,
     s: 0.052019,
@@ -198,8 +196,7 @@ pub const SLIDER_MID_BRIGHT: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `#71717a` - `contrast`'s midpoint, and `saturation`'s 35% stop
-/// (`primitives.tsx:120,125`).
+/// `#71717a` - `contrast`'s midpoint, and `saturation`'s 35% stop.
 pub const SLIDER_MID_CONTRAST: Hsla = Hsla {
     h: 0.666667,
     s: 0.038331,
@@ -208,7 +205,7 @@ pub const SLIDER_MID_CONTRAST: Hsla = Hsla {
 };
 
 /// `#2d3139` - the light square of the transparency checkerboard that sits
-/// under the `opacity` / `brush-strength` track (`primitives.tsx:109`).
+/// under the `opacity` / `brush-strength` track.
 ///
 /// Paired with [`CHECK_DARK`]. Both are written into a `conic-gradient`
 /// rather than a `background-color`, so a solid fill cannot substitute: the
@@ -221,7 +218,7 @@ pub const CHECK_LIGHT: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `#1a1d24` - the dark square of that checkerboard (`primitives.tsx:109`).
+/// `#1a1d24` - the dark square of that checkerboard.
 pub const CHECK_DARK: Hsla = Hsla {
     h: 0.616667,
     s: 0.161290,
@@ -229,7 +226,7 @@ pub const CHECK_DARK: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `#ef4444` - `saturation`'s 60% stop (`primitives.tsx:125`); Tailwind's
+/// `#ef4444` - `saturation`'s 60% stop; the palette's
 /// `red-500`.
 pub const RED_500: Hsla = Hsla {
     h: 0.0,
@@ -238,7 +235,7 @@ pub const RED_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `#eab308` - `saturation`'s 80% stop (`primitives.tsx:125`); Tailwind's
+/// `#eab308` - `saturation`'s 80% stop; the palette's
 /// `yellow-500`.
 pub const YELLOW_500: Hsla = Hsla {
     h: 0.126064,
@@ -247,7 +244,7 @@ pub const YELLOW_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `#3b82f6` - `saturation`'s 100% stop (`primitives.tsx:125`); Tailwind's
+/// `#3b82f6` - `saturation`'s 100% stop; the palette's
 /// `blue-500`.
 pub const BLUE_500: Hsla = Hsla {
     h: 0.603354,
@@ -256,8 +253,7 @@ pub const BLUE_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-zinc-100` - the light end of the `brightness` fill
-/// (`primitives.tsx:167`).
+/// `bg-zinc-100` - the light end of the `brightness` fill.
 pub const ZINC_100: Hsla = Hsla {
     h: 0.666667,
     s: 0.047619,
@@ -265,8 +261,7 @@ pub const ZINC_100: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-zinc-300` - the light end of the `contrast` fill
-/// (`primitives.tsx:168`).
+/// `bg-zinc-300` - the light end of the `contrast` fill.
 pub const ZINC_300: Hsla = Hsla {
     h: 0.666667,
     s: 0.048780,
@@ -274,8 +269,8 @@ pub const ZINC_300: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `from-pink-500` - the start of the `saturation` fill
-/// (`primitives.tsx:169`), paired with [`ROSE_500`].
+/// `from-pink-500` - the start of the `saturation` fill, paired with
+/// [`ROSE_500`].
 pub const PINK_500: Hsla = Hsla {
     h: 0.917683,
     s: 0.811881,
@@ -283,7 +278,7 @@ pub const PINK_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `to-rose-500` - the end of the `saturation` fill (`primitives.tsx:169`).
+/// `to-rose-500` - the end of the `saturation` fill.
 pub const ROSE_500: Hsla = Hsla {
     h: 0.971455,
     s: 0.891626,
@@ -291,8 +286,8 @@ pub const ROSE_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-editor-text/55` - the `Slider` fill when `accent={false}`
-/// (`primitives.tsx:189`): [`TEXT`] at 55% alpha.
+/// `bg-editor-text/55` - the `Slider` fill when `accent={false}`:
+/// [`TEXT`] at 55% alpha.
 pub const TEXT_55: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -300,7 +295,7 @@ pub const TEXT_55: Hsla = Hsla {
     a: 0.55,
 };
 
-/// `bg-white/45` - the `Slider`'s centre tick (`primitives.tsx:175`).
+/// `bg-white/45` - the `Slider`'s centre tick.
 ///
 /// **Not** [`WHITE_45`], despite the identical-looking name. That one is
 /// Tailwind's *bracket* form, `bg-white/[0.045]`, whose suffix and this
@@ -316,8 +311,7 @@ pub const WHITE_45_PCT: Hsla = Hsla {
     a: 0.45,
 };
 
-/// `border-black/55` - the `Slider` thumb's own 1px border
-/// (`primitives.tsx:198`).
+/// `border-black/55` - the `Slider` thumb's own 1px border.
 ///
 /// Distinct from [`BLACK_40`], which is the token this palette uses for
 /// recessed shadows; the thumb is the one place asking for 55.
@@ -332,7 +326,7 @@ pub const BLACK_55: Hsla = Hsla {
 ///
 /// The one value here that is not really a colour choice: it is the
 /// absence of one, which is why the palette never gave it a variable.
-/// It is named because it is everywhere (`primitives.tsx:30,46,189,318`)
+/// It is named because it is everywhere
 /// and each of its uses is a *foreground* that must not drift with the
 /// chrome behind it - a field's value, a selected option, a label that
 /// only appears once hovered. Spelling it as `l: 1.0` at every call site

@@ -59,7 +59,7 @@ pub enum TextAlignTool {
 }
 
 /// The ten shape variants the Shape option bar exposes
-/// (`ShapeKind` in `layerTypes.ts`).
+/// The shape the Move-tool transform HUD takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ShapeTool {
     #[default]
@@ -102,7 +102,7 @@ pub enum DialogId {
     ResizeCanvas,
 }
 
-/// Export formats the frozen dialog offers (`ImageFormat::from_export_path`).
+/// Export formats the dialog offers (`ImageFormat::from_export_path`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ExportFormat {
     #[default]
@@ -155,7 +155,7 @@ pub struct LayerFlags {
     pub lock_position: bool,
     pub lock_rotation: bool,
     /// Background layers cannot be locked; the header disables its toggles and
-    /// their tooltips say to rename instead (`LayersPanel.tsx:477-529`).
+    /// their tooltips say to rename instead.
     pub is_background: bool,
 }
 
@@ -192,8 +192,7 @@ pub struct RenameSession {
     pub content: String,
 }
 
-/// The New Document dialog's category tabs, in the oracle's order
-/// (`NewDocumentDialog.tsx:8-45`).
+/// The New Document dialog's category tabs, in display order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum NewDocCategory {
     #[default]
@@ -400,7 +399,7 @@ pub enum NewDocField {
     Height,
 }
 
-/// The New Document dialog's form state (`NewDocumentDialog.tsx:67-73`).
+/// The New Document dialog's form state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewDocumentSession {
     pub category: NewDocCategory,
@@ -416,7 +415,7 @@ pub struct NewDocumentSession {
     pub field: Option<NewDocField>,
     pub unit_open: bool,
     pub background_open: bool,
-    /// Last preset press and its time, for the oracle's double-click create.
+    /// Last preset press and its time, for the double-click create.
     pub last_preset: Option<(usize, std::time::Instant)>,
 }
 
@@ -425,7 +424,7 @@ impl Default for NewDocumentSession {
         let unit = DimensionUnit::Px;
         Self {
             category: NewDocCategory::Paper,
-            name: "New Project".to_string(), // i18n-exempt: frozen dialog default
+            name: "New Project".to_string(), // i18n-exempt: dialog default name
             width_px: 1080,
             height_px: 1080,
             width_text: unit.format(1080),
@@ -455,7 +454,7 @@ impl NewDocumentSession {
         self.height_text = self.unit.format(preset.height);
     }
 
-    /// The oracle's `onBlur`: a missing, non-numeric or non-positive value
+    /// Commit on blur: a missing, non-numeric or non-positive value
     /// becomes one pixel; anything else is converted and clamped.
     pub fn commit_dimension(&mut self, field: NewDocField) {
         let (text, width) = match field {
@@ -477,7 +476,7 @@ impl NewDocumentSession {
     }
 
     /// Switching units commits the typed text first and reformats the stored
-    /// pixel value, which is the oracle's `createEffect(on([unit, widthPx]))`.
+    /// pixel value, which the unit picker keeps in sync on every change.
     pub fn set_unit(&mut self, unit: DimensionUnit) {
         self.commit_dimension(NewDocField::Width);
         self.commit_dimension(NewDocField::Height);
@@ -497,11 +496,10 @@ pub enum ColorTarget {
     /// the paint foreground in draw mode.
     Text,
     /// The shape bar's stroke popover; choosing a colour also enables the
-    /// outline (`ShapeOptionBar.tsx:setColor`).
+    /// outline.
     ShapeStroke,
     /// The shape bar's fill swatch: the selected shape's fill in edit mode,
-    /// the paint foreground otherwise; choosing also forces a solid fill
-    /// (`ShapeOptionBar.tsx:setFillColor`).
+    /// the paint foreground otherwise; choosing also forces a solid fill.
     ShapeFill,
     /// The text bar's stroke popover; edits the selected text layer in edit
     /// mode and the next-text stroke colour otherwise.
@@ -513,19 +511,18 @@ pub enum ColorTarget {
 pub enum SliderTarget {
     Tolerance,
     TextStrokeWidth,
-    /// The brush/eraser right-click menu's Size track
-    /// (`BrushContextMenu.tsx:181-196`).
+    /// The brush/eraser right-click menu's Size track.
     BrushMenuSize,
     BrushMenuHardness,
     BrushMenuStrength,
-    /// The Export dialog's quality track (`ExportDialog.tsx` quality slider).
+    /// The Export dialog's quality track.
     ExportQuality,
-    /// The Adjustments panel's Bright/Contrast/Saturate tracks
-    /// (`AdjustmentsPanel.tsx` `AdjustmentSliderRow`), -100..=100 centred.
+    /// The Adjustments panel's Bright/Contrast/Saturate tracks,
+    /// -100..=100 centred.
     AdjustmentBrightness,
     AdjustmentContrast,
     AdjustmentSaturation,
-    /// The Print dialog's Scale track (`PrintInspector.tsx`, 10..=400 %).
+    /// The Print dialog's Scale track, 10..=400 %.
     PrintScale,
 }
 
@@ -555,7 +552,7 @@ pub struct NumFieldSession {
     pub buffer: String,
     pub original: String,
     /// The first typed character replaces the resting value (select-all on
-    /// focus), matching the frozen number inputs.
+    /// focus), matching the number inputs' select-all behaviour.
     pub replace_on_type: bool,
 }
 
@@ -573,7 +570,7 @@ pub struct TextEditSession {
     pub preview: (u32, u32),
 }
 
-/// The autosave status dot/copy (`autoSave.ts` `AutosaveStatus`).
+/// The autosave status the footer dot and copy read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum AutosaveStatus {
     #[default]
@@ -595,7 +592,7 @@ pub struct HistoryRow {
 
 // ── AppState ──────────────────────────────────────────────────────────────────
 
-/// The frozen `TransformHud` modes: a live pointer HUD during a Move/resize/
+/// The transform HUD modes: a live pointer HUD during a Move/resize/
 /// rotate session, or the Alt+Right brush size/hardness readout.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HudMode {
@@ -618,7 +615,7 @@ pub struct HudInfo {
     pub snap: bool,
 }
 
-/// `GradientOverlay.tsx`'s floating DIST/ANGLE card, positioned at the drag end.
+/// The gradient's floating DIST/ANGLE card, positioned at the drag end.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GradientBadge {
     /// Window-space pointer position.
@@ -629,7 +626,7 @@ pub struct GradientBadge {
     pub angle: f64,
 }
 
-/// `ToastSeverity` (`Toast.tsx`): picks the border class and the ARIA role.
+/// Toast severity: picks the border colour and the ARIA role.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ToastSeverity {
     #[default]
@@ -638,7 +635,7 @@ pub enum ToastSeverity {
     Error,
 }
 
-/// One live toast: `Toast.tsx`'s `{ id, message, severity }`.
+/// One live toast: its id, message and severity.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     pub id: u64,
@@ -672,9 +669,9 @@ pub struct AppState {
     /// True while the pointer is over the canvas hitbox (drives the hidden
     /// OS cursor for the paint tools).
     pub canvas_hovered: bool,
-    /// The live toast stack, oldest first (`Toast.tsx`), capped at three.
+    /// The live toast stack, oldest first, capped at three.
     pub toasts: Vec<Toast>,
-    /// Next toast id (`Toast.tsx`'s `nextId`).
+    /// Next toast id.
     pub next_toast_id: u64,
     /// The active document's display name and id, projected for the tab strip.
     pub document_name: String,
@@ -730,12 +727,12 @@ pub struct AppState {
     /// Laid-out bounds of the Print dialog's Scale track.
     pub print_scale_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
-    /// Foreground paint colour (RGBA), defaulting to the frozen amber.
+    /// Foreground paint colour (RGBA), defaulting to the brand amber.
     pub fg_color: [u8; 4],
     /// Background colour (RGBA); the gradient's second stop and the fill
     /// source for background-filled areas.
     pub bg_color: [u8; 4],
-    /// Crop bar `Delete`: discard pixels outside the crop (oracle ships it on).
+    /// Crop bar `Delete`: discard pixels outside the crop (on by default).
     /// The Settings dialog's language list is expanded (`LanguageSwitcher`).
     pub settings_language_open: bool,
     /// The Resize Canvas unit list is expanded.
@@ -785,7 +782,7 @@ pub struct AppState {
     pub shape_stroke_color: [u8; 4],
     pub shape_radius: f64,
     pub shape_arrow_head: bool,
-    /// Text tool stroke defaults (`editorState.ts:textStroke*`), used in draw
+    /// Text tool stroke defaults, used in draw
     /// mode and synced by edit-mode changes.
     pub text_stroke_width: f64,
     pub text_stroke_color: [u8; 4],
@@ -833,7 +830,7 @@ pub struct AppState {
     pub active_layer_width: u32,
     pub active_layer_height: u32,
     /// Whether the selected layer owns a pixel store; drives the panel's
-    /// no-pixels hint (`AdjustmentsPanel.tsx` `basicStatusText`).
+    /// no-pixels hint.
     pub active_layer_has_pixels: bool,
     /// Laid-out bounds of the Adjustments panel's Bright/Contrast/Saturate
     /// tracks, in that order.
@@ -851,7 +848,7 @@ pub struct AppState {
     pub show_transform_controls: bool,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,
-    /// Mini undo/redo for the crop frame (`cropTool.ts`).
+    /// Mini undo/redo for the crop frame.
     pub crop_history: Vec<[f64; 4]>,
     pub crop_redo: Vec<[f64; 4]>,
     /// Crop bar mode (`cropMode`): the frame follows the drag, a ratio, or a
@@ -954,14 +951,14 @@ impl Default for AppState {
             layer_tab: LayerTab::Layers,
             dock_open: true,
             has_document: true,
-            // The frozen new-document data model: the created document has ONE
-            // full-canvas **Background** layer (the oracle's `NewDocumentDialog`
-            // flow names it that and locks its position/rotation), not a small
-            // "Layer 1" tile. The demo document mirrors that so the shell reads
-            // the same state the oracle shows.
+            // The new-document data model: the created document has ONE
+            // full-canvas **Background** layer (the dialog's Create flow names
+            // it that and locks its position/rotation), not a small
+            // "Layer 1" tile. The demo document mirrors that so the shell
+            // reads the same state a created document does.
             layers: vec![LayerRow {
                 id: 0,
-                name: "Background".into(), // i18n-exempt: the frozen new-document layer name
+                name: "Background".into(), // i18n-exempt: new-document layer name
                 core_id: None,
             }],
             selected_layer: 0,
@@ -1033,7 +1030,7 @@ impl Default for AppState {
             brush_opacity: 1.0,
             brush_flow: 1.0,
             brush_smoothing: 0.0,
-            // The oracle opens with no preset id: its defaults are
+            // A fresh session has no preset id: the defaults are
             // 20 / 0.8 / 1 / 1 / 0, which are not the Hard Round preset.
             brush_preset_index: usize::MAX,
             eraser_size: 32.0,
@@ -1217,7 +1214,7 @@ impl AppState {
                 state.layers.clear();
                 state.selected_layers.clear();
                 state.layer_flags.clear();
-                state.document_name = "Untitled".into(); // i18n-exempt: the oracle uses the same unsaved-doc literal
+                state.document_name = "Untitled".into(); // i18n-exempt: unsaved-document label
             }
 
             // chrome-hidden: rail, option bar, dock and status bar hidden
@@ -1351,7 +1348,7 @@ mod tests {
         );
     }
 
-    /// The oracle's brush defaults: 20 px, 80 % hard, full strength.
+    /// Brush defaults: 20 px, 80 % hard, full strength.
     #[test]
     fn brush_defaults_match_the_oracle() {
         let state = AppState::seeded(None);

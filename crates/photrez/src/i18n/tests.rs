@@ -1,9 +1,10 @@
 use super::*;
 
-/// The frozen reference the web build shipped, one directory per locale.
+/// The frozen reference catalogs, one directory per locale.
+// Reference copies live with the test fixtures now that the retired tree is gone.
 fn reference_path(code: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/desktop/src/i18n/locales")
+        .join("tests/fixtures/i18n")
         .join(code)
         .join("translation.json")
 }
@@ -39,17 +40,18 @@ fn token_set(value: &str) -> Vec<String> {
     set
 }
 
-/// The embedded copies are the frozen reference, byte for byte. A diff
-/// here is never a translation decision: the reference changes first and
-/// the copy step re-copies it.
+/// The embedded copies are the frozen reference, byte for byte after checkout
+/// line-ending normalization. A diff is never a translation decision: the
+/// reference changes first and the copy step re-copies it.
 #[test]
 fn catalog_matches_reference() {
     for (locale, text) in CATALOGS {
         let reference = std::fs::read_to_string(reference_path(locale.code()))
             .expect("the frozen reference is in the tree");
+        let embedded = text.replace("\r\n", "\n");
         assert_eq!(
-            *text,
-            reference,
+            embedded,
+            reference.replace("\r\n", "\n"),
             "embedded {} catalog drifted from the reference",
             locale.code()
         );

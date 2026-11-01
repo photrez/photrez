@@ -1,13 +1,13 @@
-//! Crop aspect/size model (`cropPresets.ts`, `cropAutoFit.ts`,
-//! `viewport/unitConversion.ts`, and the mode handlers in `CropOptionBar.tsx`).
+//! Crop aspect/size model: the preset list, the auto-fit solver, the unit
+//! conversion and the mode handlers the crop bar drives.
 //!
 //! Three modes share one pending frame: `Free` (the frame follows the drag),
 //! `Ratio` (a preset or custom W:H refits the frame to that aspect) and `Size`
 //! (physical W/H at the crop bar's own 300 PPI base). The dialog fields use
-//! 96 DPI instead (`units.rs`); the two bases are deliberately different in the
-//! oracle, so they stay separate here.
+//! 96 DPI instead (`units.rs`); the two bases are deliberately different in
+//! the crop bar and the dialogs, so they stay separate here.
 
-/// `CROP_PRESETS` order (`viewport/cropPresets.ts`).
+/// The crop ratio presets, in menu order.
 pub(crate) const CROP_PRESETS: [((u32, u32), &str); 9] = [
     ((1, 1), "1:1"),
     ((4, 5), "4:5"),
@@ -28,7 +28,7 @@ pub enum CropMode {
     Size,
 }
 
-/// The units the crop Size mode offers, in `unitConversion.ts` order.
+/// The units the crop Size mode offers, in picker order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CropSizeUnit {
     #[default]
@@ -38,7 +38,7 @@ pub enum CropSizeUnit {
     In,
 }
 
-/// `PPI` in `viewport/unitConversion.ts`. Not the dialogs' 96 DPI.
+/// The crop bar's pixels-per-inch base. Not the dialogs' 96 DPI.
 pub(crate) const CROP_PPI: f64 = 300.0;
 
 impl CropSizeUnit {
@@ -68,7 +68,7 @@ impl CropSizeUnit {
     }
 
     /// `fromUnit` — rounds to two decimals, like the source's `+(...).toFixed(2)`.
-    pub(crate) fn from_unit(self, value: f64) -> f64 {
+    pub(crate) fn to_pixels(self, value: f64) -> f64 {
         round2(value * self.factor())
     }
 
@@ -82,7 +82,7 @@ fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
-/// `fitCropRectToAspect` (`viewport/cropAutoFit.ts`): the largest frame with
+/// Fits a crop rect to an aspect: the largest frame with
 /// this aspect that fits the document, centred, honouring a rotated document.
 pub(crate) fn fit_crop_rect_to_aspect(
     (aw, ah): (u32, u32),
@@ -166,10 +166,10 @@ mod tests {
         assert_eq!(CropSizeUnit::Cm.to_unit(800.0), 6.77);
         assert_eq!(CropSizeUnit::Mm.to_unit(800.0), 67.73);
         assert_eq!(CropSizeUnit::In.to_unit(300.0), 1.0);
-        assert_eq!(CropSizeUnit::In.from_unit(4.0), 1200.0);
-        assert_eq!(CropSizeUnit::Cm.from_unit(2.54), 300.0);
-        assert_eq!(CropSizeUnit::Mm.from_unit(25.4), 300.0);
-        assert_eq!(CropSizeUnit::Px.from_unit(12.6), 12.6);
+        assert_eq!(CropSizeUnit::In.to_pixels(4.0), 1200.0);
+        assert_eq!(CropSizeUnit::Cm.to_pixels(2.54), 300.0);
+        assert_eq!(CropSizeUnit::Mm.to_pixels(25.4), 300.0);
+        assert_eq!(CropSizeUnit::Px.to_pixels(12.6), 12.6);
         assert!(CropSizeUnit::Cm.accepts_decimal() && !CropSizeUnit::Px.accepts_decimal());
     }
 
