@@ -38,7 +38,7 @@
       "gitBlob": "6c47eb4a6d507be3118558aec8c3de2de3f522f6"
     }
   },
-  "note": "Golden-master baselines for the native UI port's parity checks. Captured from the web-rendered app via its Vite dev server (headless Chromium, ANGLE/SwiftShader, deviceScaleFactor 1). Pins: photrez.locale=en (stable strings) and photrez.bgFlagRoute=0 - the app's own documented rollback switch; without it the document-open path waits for a native seed that a browser cannot provide and refuses the open. Document recipe: blank canvas named \"Baseline\", 800x600. Capture conventions and the tolerance policy for comparisons: see README.md beside this manifest.",
+  "note": "Golden-master reference shots for this application's visual comparisons. The reference images were captured from the build that preceded the native one, through its development server in a headless browser (Chromium with ANGLE/SwiftShader, deviceScaleFactor 1). Two settings of that build were pinned for the capture: photrez.locale=en for stable strings, and photrez.bgFlagRoute=0 to keep its document-open path off a desktop service the browser does not supply. Captures of this application come from cargo xtask capture. Document recipe: blank canvas named \"Baseline\", 800x600. Capture conventions and the tolerance policy for comparisons: see README.md beside this manifest.",
   "total": 74,
   "ok": 74,
   "failed": 0,

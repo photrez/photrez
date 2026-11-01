@@ -24,4 +24,4 @@ When adding or editing code comments, use the antislop-code skill as the detaile
 - Comment-only cleanup must not alter executable code, identifiers, imports, formatting, control flow, or logic. For non-trivial cleanup, prove the code token stream is unchanged with a string-aware comparison.
 - Apply the rule to the owned scope; a wider audit needs explicit scope and its own evidence.
 
-Preserve geometry tables, parity measurements, API contracts, known gaps, and other comments whose facts are not recoverable from the code alone.
+Preserve geometry tables, reference measurements, API contracts, known gaps, and other comments whose facts are not recoverable from the code alone.

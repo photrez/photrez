@@ -8,8 +8,8 @@ changeover, are preserved in the separate archived repository
 there is a current product claim.
 
 Status legend: **Shipped** — reachable in the current native app; **Partial** —
-reachable with the named gap; **Not implemented** — absent by design or not yet
-ported.
+reachable with the named gap; **Not implemented** — absent, either by design or
+because it has not been built yet.
 
 ## Canvas and document
 

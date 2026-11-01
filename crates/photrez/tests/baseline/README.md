@@ -22,32 +22,41 @@ was captured, and which noise is expected.
   `manifest.sourceDirty` records whether the worktree differed from it at
   capture time.
 - Pins: `photrez.locale=en` (stable English strings) and
-  `photrez.bgFlagRoute=0` — the application's own documented rollback switch.
-  Without it the document-open path waits for a native seed that a browser
-  cannot provide and refuses the open.
-- Renderer: headless Chromium, ANGLE/SwiftShader software rasteriser,
-  `deviceScaleFactor: 1`, viewport 1366x820. The renderer string is recorded in
-  `manifest.host.renderer` — relevant to anyone comparing antialiased edges.
+  `photrez.bgFlagRoute=0`, recorded in `manifest.pins`. Both were settings of the
+  build these shots came from, and both had to be forced for a capture to work:
+  that build's document-open path waits for a desktop service the capture
+  environment never supplies, so the second pin keeps it off that path. Neither
+  setting exists in this application, so the pins are provenance, not
+  configuration a reader reproduces here.
+- Renderer of the reference shots: a headless browser (Chromium with the
+  ANGLE/SwiftShader software rasteriser), `deviceScaleFactor: 1`, viewport
+  1366x820. The renderer string is recorded in `manifest.host.renderer` —
+  relevant to anyone comparing antialiased edges. Captures of this application
+  use the native renderer, which is exactly what the comparison is meant to
+  measure.
 - Document recipe: a blank canvas named "Baseline", 800x600.
 
 ## Capture conventions (each one exists because a capture got it wrong once)
 
 - **Locale pinned before boot** — selectors written from English text fail
   silently under another locale.
-- **One fresh page load per shot** — leftover state (an open modal, a switched
-  tool, a hover) makes a failure impossible to localise.
+- **One fresh session per shot** — leftover state (an open modal, a switched
+  tool, a hover) makes a failure impossible to localise. The reference shots got
+  one page load each; this application's capture gets one process each.
 - **Tooltips suppressed by default** — an element screenshot is a region crop,
-  not an isolation: anything portalled over the target gets baked into the PNG.
+  not an isolation: anything floating over the target gets baked into the PNG.
   Three tooltip shots opt back in (`allowTooltip` semantics in the script).
 - **Rail disabled-state asserted** — the disabled rail applies
   `opacity-50 grayscale`, and `grayscale()` collapses colour to luma, so such a
   capture is irrecoverable in post. One shot deliberately captures the disabled
   state (`rail-disabled-no-doc`) to prove it cannot be reconstructed; every
   other shot asserts the rail is enabled.
-- **Tauri invoke failures classified as expected noise** — in a browser every
-  `invoke()` rejects; that is noise (`expectedNoise`, category
-  `tauri-invoke-unavailable`), not breakage. A shot fails only on anything
-  else.
+- **Native-call failures in the reference shots classified as expected noise** —
+  the build those shots came from ran in a browser, where every call into its
+  desktop layer rejects; those rejections are recorded per shot under
+  `expectedNoise` (category `tauri-invoke-unavailable`), not treated as
+  breakage. A shot fails only on anything else. This application calls its own
+  services in-process, so its captures do not produce that category.
 - **A failing shot is recorded, the run continues** — per-shot `ok` plus a
   `failed` count in the summary.
 - **Document open before capture** per `needsDoc` — the tool rail renders

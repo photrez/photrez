@@ -28,17 +28,18 @@
 
 <div align="center">
 
-### 📦 Download Photrez 0.2.0
+### 📦 Download Photrez
 
-Portable archives per platform — extract and run, no installer:
+Portable archives per platform — extract and run, no installer. They are published from the
+[releases page](https://github.com/photrez/photrez/releases) for the latest released version:
 
-- **Windows 10/11 (64-bit):** [Photrez-v0.2.0-windows-x64.zip](https://github.com/photrez/photrez/releases/download/v0.2.0/Photrez-v0.2.0-windows-x64.zip) → run `photrez.exe`
-- **macOS (Apple silicon):** [Photrez-v0.2.0-macos-arm64.tar.gz](https://github.com/photrez/photrez/releases/download/v0.2.0/Photrez-v0.2.0-macos-arm64.tar.gz) → run `photrez`
-- **Linux (X11/Wayland, x64):** [Photrez-v0.2.0-linux-x64.tar.gz](https://github.com/photrez/photrez/releases/download/v0.2.0/Photrez-v0.2.0-linux-x64.tar.gz) → run `photrez`
+- **Windows 10/11 (64-bit):** `Photrez-v<version>-windows-x64.zip` → run `photrez.exe`
+- **macOS (Apple silicon):** `Photrez-v<version>-macos-arm64.tar.gz` → run `photrez`
+- **Linux (X11/Wayland, x64):** `Photrez-v<version>-linux-x64.tar.gz` → run `photrez`
 
 On Windows, extract the archive anywhere and run `photrez.exe`. There is no installer, Start Menu entry, or file-association registration.
 
-Each archive contains the executable, `LICENSE`, `NOTICE`, and `THIRD_PARTY.md`. Download the release's [`SHA256SUMS`](https://github.com/photrez/photrez/releases/download/v0.2.0/SHA256SUMS) and verify the archive with `sha256sum -c SHA256SUMS`. These portable archives are unsigned. Windows SmartScreen may warn when launching `photrez.exe`; verify the archive checksum before running it.
+Each archive contains the executable, `LICENSE`, `NOTICE`, and `THIRD_PARTY.md`. The release also carries a `SHA256SUMS` file; verify the archive with `sha256sum -c SHA256SUMS`. These portable archives are unsigned. Windows SmartScreen may warn when launching `photrez.exe`; verify the archive checksum before running it.
 
 </div>
 

@@ -23,9 +23,9 @@ RGBA. SHA-256:
 | `bounded-raster.rgba` | 8 | `8ba85dcaf96c47f964e5b6f6996fc1e2e1bc87d79c4318a757cae4ba5515a955` |
 | `bounded-raster.ptz` | 519 | `e151ff38209d26b72b051a109838219977016ada1e423fda703e55f06adaecb0` |
 
-## Frozen production-writer golden
+## Production-writer golden
 
-`bounded-raster.save-stream.golden.ptz` is a frozen 527-byte output from the
+`bounded-raster.save-stream.golden.ptz` is a pinned 527-byte output from the
 production `SaveStream`; tests only read it and never regenerate it. Its
 SHA-256 is
 `12a2663245b63ba9b460825caeee5c9ae516320468b424874fb41e9da5e9ad0c`.
@@ -50,13 +50,22 @@ system, external attributes `0o600 << 16`, and the ZIP epoch timestamp.
 
 The exact one-off build, run, and copy commands were (the first command is
 restated in today's form; the recorded run used the pre-consolidation
-`--manifest-path crates/photrez/Cargo.toml` variant):
+`--manifest-path crates/photrez/Cargo.toml` variant). Machine-local prefixes are
+written as `<...>`: the recorded paths were under this machine's user profile and
+temp directory, and an `rlib` filename suffix is a build hash that changes with
+any rebuild, so neither carries evidence a reader can use.
 
 ```text
-cargo test --locked --test services_parity --no-run -vv
-& "C:\Users\Qolbi\.rustup\toolchains\stable-x86_64-pc-windows-gnu\bin\rustc.exe" --edition=2021 --crate-name generate_save_stream_golden "C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\src\main.rs" -o "C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\generate-save-stream-golden.exe" -L "dependency=D:\Project\image-studio\target\debug\deps" --extern "photrez=D:\Project\image-studio\target\debug\deps\libphotrez-59c57dca65e0abaa.rlib" -L "native=D:\Project\image-studio\target\debug\build\gpui-pre-7bf38c27cb1854b1\out" -L "native=C:\Users\Qolbi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_gnu-0.52.6\lib" -L "native=C:\Users\Qolbi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_gnu-0.53.1\lib"
-& "C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\generate-save-stream-golden.exe"
-Copy-Item -LiteralPath 'C:\Users\Qolbi\AppData\Local\Temp\opencode\70G4-zip\same-writer.golden.ptz' -Destination 'crates\photrez\tests\fixtures\bounded-raster.save-stream.golden.ptz'
+cargo test --locked --test services_save_stream --no-run -vv
+& "<toolchain-bin>/rustc.exe" --edition=2021 --crate-name generate_save_stream_golden \
+  "<scratch-dir>/src/main.rs" -o "<scratch-dir>/generate-save-stream-golden.exe" \
+  -L "dependency=<repo>/target/debug/deps" \
+  --extern "photrez=<repo>/target/debug/deps/libphotrez-<build-hash>.rlib" \
+  -L "native=<repo>/target/debug/build/gpui-pre-<build-hash>/out" \
+  -L "native=<registry-src>/windows_x86_64_gnu-0.52.6/lib" \
+  -L "native=<registry-src>/windows_x86_64_gnu-0.53.1/lib"
+& "<scratch-dir>/generate-save-stream-golden.exe"
+Copy-Item -LiteralPath '<scratch-dir>/same-writer.golden.ptz' -Destination 'crates\photrez\tests\fixtures\bounded-raster.save-stream.golden.ptz'
 ```
 
 The scratch program SHA-256 is

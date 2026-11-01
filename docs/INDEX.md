@@ -23,7 +23,7 @@
 | [`reference/cargo-storage.md`](reference/cargo-storage.md) | Cargo build storage and cache behavior |
 | [`reference/command-contract-spec.md`](reference/command-contract-spec.md) | Where the command contract lives now |
 | [`reference/design-tokens.md`](reference/design-tokens.md) | Where interface values live now |
-| [`reference/render-export-parity-matrix.md`](reference/render-export-parity-matrix.md) | Where render and export coverage is pinned |
+| [`reference/render-export-coverage.md`](reference/render-export-coverage.md) | Where render and export coverage is pinned |
 
 ---
 
