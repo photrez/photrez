@@ -1,12 +1,21 @@
 #![allow(unsafe_code)] // SAFETY: all unsafe operations here are limited to openat and ownership of returned descriptors.
 
 use super::ServiceError;
-use std::ffi::{CString, OsStr};
 use std::fs::File;
+use std::path::Path;
+
+// Handle-bound opening needs the platform types below, and only the Linux
+// x86_64 implementation below uses them; elsewhere the module fails closed.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use std::ffi::{CString, OsStr};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use std::io;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Component, Path};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use std::path::Component;
 
 // Linux x86_64 UAPI: asm-generic/fcntl.h flag bits and asm-generic/errno.h ELOOP.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
