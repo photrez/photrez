@@ -129,7 +129,13 @@ mod supported {
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(super) use supported::{open_directory_path, open_file_at, open_read_file, DirectoryHandle};
+pub(super) use supported::open_read_file;
+
+/// The production path opens by absolute path only; the parent-handle helpers
+/// exist so the race-resistance tests can hold a directory handle across an
+/// ancestor swap. They are re-exported for exactly that build.
+#[cfg(all(target_os = "linux", target_arch = "x86_64", test))]
+pub(super) use supported::{open_directory_path, open_file_at, DirectoryHandle};
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 // Fail closed rather than guess ABI constants outside Linux x86_64.
