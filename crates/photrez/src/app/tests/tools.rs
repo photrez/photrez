@@ -3586,3 +3586,67 @@ fn text_typing_preview_latency(cx: &mut gpui_kit::TestAppContext) {
     })
     .expect("test window remains open");
 }
+
+/// The bar's container breakpoints are evaluated live, not just pinned: at a
+/// content box of 880 px or more the brush Flow, Smoothing and preset controls
+/// and the eraser's full-strength helper mount inline and the overflow trigger
+/// is absent; below the breakpoint the same controls stay folded and the
+/// trigger is mounted.
+///
+/// RED proof: force the wide gate off and the overflow gate on in the bar's
+/// breakpoint helpers and the wide half of this test fails while the narrow
+/// half still passes.
+#[gpui_kit::test]
+fn option_bar_at_or_above_880_mounts_the_folded_controls_inline(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    // 1600 px viewport: 52 px rail + 598 px dock leaves a 950 px bar, an
+    // 926 px content box - above the 880 px breakpoint.
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1600.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Brush, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-more").is_none(),
+            "the overflow trigger is absent at or above the breakpoint"
+        );
+        for id in ["opt-brush-flow", "opt-brush-smoothing", "opt-brush-preset"] {
+            assert!(
+                window.try_find(id).is_some() && window.find(id).visible(),
+                "{id} must be inline at or above the breakpoint"
+            );
+        }
+
+        set_tool(&content, cx, ToolId::Eraser, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-brush-hard100").is_some()
+                && window.find("opt-brush-hard100").visible(),
+            "the eraser's full-strength helper is inline at or above the breakpoint"
+        );
+    })
+    .expect("wide test window remains open");
+
+    // Mirror: at 1366 px the bar resolves to a 757 px content box, below the
+    // breakpoint - the folded controls stay unmounted and the trigger mounts.
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1366.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Brush, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.find("opt-more").visible(),
+            "the overflow trigger is mounted below the breakpoint"
+        );
+        for id in [
+            "opt-brush-flow",
+            "opt-brush-smoothing",
+            "opt-brush-preset",
+            "opt-brush-hard100",
+        ] {
+            assert!(
+                window.try_find(id).is_none(),
+                "{id} must stay folded below the breakpoint"
+            );
+        }
+    })
+    .expect("narrow test window remains open");
+}

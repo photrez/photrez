@@ -10,7 +10,7 @@
 //! * giving `ColorTarget::Text` the foreground branch fails
 //!   `text_swatch_opens_the_picker_and_edits_the_selected_layer`.
 
-use super::input::{drag_doc, pixels, set_tool};
+use super::input::{drag_doc, mount_archive_app, pixels, set_tool};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
@@ -560,6 +560,151 @@ fn shape_fill_swatch_opens_the_picker_and_edits_the_selected_shape(
             fill, "#00FF00",
             "the selected shape's fill colour follows the picker"
         );
+    })
+    .expect("test window remains open");
+}
+
+/// The channel disposition of the picker, proven with live input: a surface
+/// edit (the swatch changing) rewrites the hex field and the HSB/RGB readouts,
+/// while typed entry only rewrites the hex buffer - the readouts and the live
+/// paint colour stay where the surface left them until the commit applies
+/// the typed value.
+///
+/// RED proof: remove the `session.hex = to_hex(...)` sync from the surface
+/// pick in the picker's colour code and the "hex field follows the swatch"
+/// assertion fails.
+#[gpui_kit::test]
+fn swatch_edits_rewrite_the_channels_and_typed_hex_only_moves_the_hex_field(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use crate::palette::{hsv_to_rgb, rgb_to_hsv, to_hex};
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    let read_session = |content: &Entity<App>, cx: &gpui_kit::App| {
+        content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .color_picker
+            .clone()
+            .expect("the picker stays open")
+    };
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click("fg-swatch", cx);
+        window.render_frame(cx);
+        let opening = read_session(&content, cx);
+        assert_eq!(
+            opening.hex,
+            to_hex(OPENING_FG),
+            "the hex field opens with the live colour"
+        );
+        assert_eq!(
+            opening.hsv,
+            rgb_to_hsv(OPENING_FG),
+            "the HSB/RGB readouts open on the live colour"
+        );
+
+        // A surface edit changes the swatch; every channel follows it.
+        click_sv_and_check(cx, window, &content);
+        let picked = sv_click_color(OPENING_FG);
+        let after_surface = read_session(&content, cx);
+        assert_eq!(
+            after_surface.hex,
+            to_hex(picked),
+            "the hex field follows the swatch"
+        );
+        assert_eq!(
+            hsv_to_rgb(after_surface.hsv),
+            picked,
+            "the HSB/RGB readouts follow the swatch"
+        );
+
+        // Typing runs the other way: it only rewrites the hex buffer. The
+        // readouts keep the surface value and the live paint colour is not
+        // retargeted from the text until the commit.
+        window.input("00FF00", cx);
+        let after_entry = read_session(&content, cx);
+        assert_eq!(
+            after_entry.hex, "00FF00",
+            "the typed digits replace the complete hex value"
+        );
+        assert_eq!(
+            hsv_to_rgb(after_entry.hsv),
+            picked,
+            "typing leaves the HSB/RGB readouts where the surface left them"
+        );
+        content.update(cx, |app, cx| {
+            let (fg, _, open) = read_colors(app, cx);
+            assert!(open, "typing keeps the picker open");
+            assert_eq!(
+                fg, picked,
+                "typing does not retarget the live colour before the commit"
+            );
+        });
+
+        // The commit applies the typed value - the only path from the field
+        // to the paint colour.
+        window.press("enter", cx);
+        content.update(cx, |app, cx| {
+            let (fg, _, open) = read_colors(app, cx);
+            assert!(!open, "the commit closes the picker");
+            assert_eq!(fg, [0, 255, 0, 255], "the typed hex becomes the colour");
+        });
+    })
+    .expect("test window remains open");
+}
+
+/// Eyedropper sampling while the colour picker is open: the canvas click
+/// dismisses the picker (reverting the picker's own edit) and the same click
+/// still samples the composite, so the sampled colour is the one that stays.
+/// The picker does not stay open across the sample; this test pins the
+/// behaviour the product actually has.
+///
+/// RED proof: drop the outside-click dismissal from the picker overlay and
+/// the "a canvas click dismisses the picker" assertion fails - the panel
+/// stays open over the sample.
+#[gpui_kit::test]
+fn eyedropper_sample_click_while_the_picker_is_open(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Eyedropper, 1.0);
+        window.render_frame(cx);
+        window.click("fg-swatch", cx);
+        window.render_frame(cx);
+        assert!(
+            window.find("color-picker").visible(),
+            "the picker is open before the sample"
+        );
+        content.update(cx, |app, cx| {
+            let (fg, _, _) = read_colors(app, cx);
+            assert_eq!(fg, [0, 0, 0, 255], "the picker opens on the black fg");
+        });
+
+        // Pixel (0,0) of the two-layer fixture is blue on the composite, and
+        // the sample point sits left of the picker panel.
+        drag_doc(window, (2, 1), (0.5, 0.5), (0.5, 0.5), cx);
+        assert!(
+            window.try_find("color-picker").is_none(),
+            "a canvas click dismisses the picker"
+        );
+        content.update(cx, |app, cx| {
+            let (fg, _, open) = read_colors(app, cx);
+            assert!(!open);
+            assert_eq!(
+                fg,
+                [0, 0, 255, 255],
+                "the same click still samples the composite over the reverted colour"
+            );
+        });
     })
     .expect("test window remains open");
 }

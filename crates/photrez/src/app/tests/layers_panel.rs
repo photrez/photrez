@@ -1151,3 +1151,48 @@ fn ctrl_click_and_plain_click_manage_the_multi_selection(cx: &mut gpui_kit::Test
     })
     .expect("test window remains open");
 }
+
+/// The footer's duplicate icon button proves both sides of the disabled gate:
+/// with an active layer the click runs the handler and duplicates it; with no
+/// active layer the button is disabled and the same click must not run it,
+/// even though the document still holds a raster layer the command would use.
+///
+/// RED proof: install the handler regardless of the disabled flag in the
+/// actions footer and the disabled half fails - the inert click duplicates.
+#[gpui_kit::test]
+fn footer_duplicate_button_runs_only_while_enabled(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, selected) = super::input::layer_rows(&content, cx);
+        assert_eq!(rows.len(), 2, "the archive projects two rows");
+
+        select_layer(&content, cx, selected);
+        window.render_frame(cx);
+        window.click("layer-action-1", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            layers_len(&content, cx),
+            3,
+            "the enabled duplicate button runs its handler"
+        );
+
+        // No row is active, so the button is disabled. The document still has
+        // raster layers, so a leaked handler on this click would add a layer.
+        select_layer(&content, cx, u64::MAX);
+        window.render_frame(cx);
+        window.click("layer-action-1", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            layers_len(&content, cx),
+            3,
+            "the disabled duplicate button must not run its handler"
+        );
+    })
+    .expect("test window remains open");
+}
