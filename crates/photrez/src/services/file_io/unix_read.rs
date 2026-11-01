@@ -133,9 +133,10 @@ pub(super) use supported::open_read_file;
 
 /// The production path opens by absolute path only; the parent-handle helpers
 /// exist so the race-resistance tests can hold a directory handle across an
-/// ancestor swap. They are re-exported for exactly that build.
+/// ancestor swap. They are re-exported for exactly that build, and only the two
+/// functions the tests name - the handle type stays private to this module.
 #[cfg(all(target_os = "linux", target_arch = "x86_64", test))]
-pub(super) use supported::{open_directory_path, open_file_at, DirectoryHandle};
+pub(super) use supported::{open_directory_path, open_file_at};
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 // Fail closed rather than guess ABI constants outside Linux x86_64.
