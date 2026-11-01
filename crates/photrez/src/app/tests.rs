@@ -14,7 +14,10 @@ impl TestDirectory {
             let path =
                 std::env::temp_dir().join(format!("photrez-app-open-{}-{id}", std::process::id()));
             match std::fs::create_dir(&path) {
-                Ok(()) => return Self(path),
+                // Resolve the scratch root: a temp directory can sit behind a
+                // symbolic link, which the file boundary rejects anywhere in a
+                // path, so the boundary must be handed the link-free spelling.
+                Ok(()) => return Self(std::fs::canonicalize(&path).unwrap_or(path)),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(error) => panic!("create test directory: {error}"),
             }

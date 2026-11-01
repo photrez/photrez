@@ -20,7 +20,9 @@ impl TestDirectory {
             let path =
                 std::env::temp_dir().join(format!("photrez-autosave-{}-{id}", std::process::id()));
             match fs::create_dir(&path) {
-                Ok(()) => return Self(path),
+                // Hand the file boundary the link-free spelling of the scratch
+                // root; a temp directory can sit behind a symbolic link.
+                Ok(()) => return Self(fs::canonicalize(&path).unwrap_or(path)),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(error) => panic!("create test directory: {error}"),
             }

@@ -260,7 +260,8 @@ mod tests {
                 std::process::id()
             ));
             std::fs::create_dir(&path).expect("create test directory");
-            Self(path)
+            // Link-free spelling: the file boundary rejects a path behind a link.
+            Self(std::fs::canonicalize(&path).unwrap_or(path))
         }
 
         fn path(&self) -> &Path {

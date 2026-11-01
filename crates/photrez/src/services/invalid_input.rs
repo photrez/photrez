@@ -26,7 +26,8 @@ impl TestDir {
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("test directory is created");
-        Self(path)
+        // Link-free spelling: the file boundary rejects a path behind a link.
+        Self(fs::canonicalize(&path).unwrap_or(path))
     }
 
     fn path(&self) -> &Path {

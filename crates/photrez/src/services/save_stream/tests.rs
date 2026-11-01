@@ -19,7 +19,9 @@ impl TestDir {
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("test directory is created");
-        Self(path)
+        // The file boundary rejects a symbolic link anywhere in a path, and a
+        // temp root can sit behind one, so it gets the link-free spelling.
+        Self(fs::canonicalize(&path).unwrap_or(path))
     }
 
     fn path(&self) -> &Path {

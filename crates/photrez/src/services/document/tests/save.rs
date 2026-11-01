@@ -19,7 +19,8 @@ impl TestDir {
         let path =
             std::env::temp_dir().join(format!("photrez-document-save-{}-{id}", std::process::id()));
         fs::create_dir_all(&path).expect("test directory is created");
-        Self(path)
+        // Link-free spelling: the file boundary rejects a path behind a link.
+        Self(fs::canonicalize(&path).unwrap_or(path))
     }
 
     fn path(&self) -> &Path {

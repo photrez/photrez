@@ -211,7 +211,10 @@ impl Sandbox {
         ));
         std::fs::create_dir(&root)
             .map_err(|error| format!("cannot create sandbox {}: {error}", root.display()))?;
-        Ok(Self { root })
+        // Link-free spelling: the file boundary rejects a path behind a link.
+        Ok(Self {
+            root: std::fs::canonicalize(&root).unwrap_or(root),
+        })
     }
 
     fn cleanup(&self) {

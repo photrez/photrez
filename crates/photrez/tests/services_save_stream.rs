@@ -34,7 +34,8 @@ impl TempDirectory {
                 std::process::id()
             ));
             match fs::create_dir(&path) {
-                Ok(()) => return Self(path),
+                // Link-free spelling: the file boundary rejects a path behind a link.
+                Ok(()) => return Self(fs::canonicalize(&path).unwrap_or(path)),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(error) => panic!("create temp directory: {error}"),
             }

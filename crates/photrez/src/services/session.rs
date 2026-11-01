@@ -293,7 +293,9 @@ mod tests {
                 let path = std::env::temp_dir()
                     .join(format!("photrez-session-{}-{id}", std::process::id()));
                 match fs::create_dir(&path) {
-                    Ok(()) => return Self(path),
+                    // Hand the file boundary the link-free spelling of the
+                    // scratch root.
+                    Ok(()) => return Self(fs::canonicalize(&path).unwrap_or(path)),
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                     Err(error) => panic!("create test directory: {error}"),
                 }
