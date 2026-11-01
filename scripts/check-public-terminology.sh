@@ -144,7 +144,14 @@ files_check() {
     case "$f" in
       *.ts|*.tsx|*.rs)
         grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
-        grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f"
+        # The parity tooling audits a reference tree that lives outside this
+        # repository: naming its file types and layout is its subject matter,
+        # not a promise that the reader can resolve those paths here. Plan
+        # vocabulary is still checked in these files.
+        case "$f" in
+          crates/xtask/*) ;;
+          *) grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f" ;;
+        esac
         ;;
       *.md)
         case "$f" in
