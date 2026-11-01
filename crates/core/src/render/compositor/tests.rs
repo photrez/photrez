@@ -8,8 +8,8 @@ use crate::render::text::TEST_FONT;
 
 const GOLDEN_WIDTH: u32 = 4;
 const GOLDEN_HEIGHT: u32 = 4;
-// Browser Canvas2D: bottom red 4x4 opaque, top blue 2x2 at (0,0) with
-// globalAlpha 0.5, source-over, read back row-major RGBA.
+// Reference compositor capture: bottom red 4x4 opaque, top blue 2x2 at (0,0) with
+// opacity 0.5, source-over, read back row-major RGBA.
 const CANVAS2D_GOLDEN: [u8; 64] = [
     127, 0, 128, 255, 127, 0, 128, 255, 255, 0, 0, 255, 255, 0, 0, 255, //
     127, 0, 128, 255, 127, 0, 128, 255, 255, 0, 0, 255, 255, 0, 0, 255, //
@@ -17,7 +17,7 @@ const CANVAS2D_GOLDEN: [u8; 64] = [
     255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
 ];
 
-// Browser Canvas2D, 4x4: a 2x2 pattern at (1,1) with each flip variant.
+// Reference compositor capture, 4x4: a 2x2 pattern at (1,1) with each flip variant.
 const TRANSLATE_GOLDEN: [u8; 64] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
     0, 0, 0, 0, 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 0, //
@@ -616,7 +616,7 @@ fn all_blend_modes_match_canvas2d_goldens_within_rounding() {
             .max()
             .unwrap_or(0);
         // 17 of the 24 goldens are byte-exact. Seven differ by one channel
-        // unit because Canvas2D blends in premultiplied 8-bit. Never widen
+        // unit because the reference compositor blends in premultiplied 8-bit. Never widen
         // this bound: a larger delta is a formula bug, not rounding.
         assert!(
             delta <= 1,
@@ -669,7 +669,7 @@ fn transformed_layers_match_canvas2d_within_one_unit() {
     let pattern: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
     ];
-    // The four axis-aligned cases are byte-exact. At 45 degrees Canvas2D's
+    // The four axis-aligned cases are byte-exact. At 45 degrees the reference
     // color sample rounds 127.5 down once; no case may exceed one unit.
     let cases = [
         ("scale2", 1.0, 1.0, 2.0, 2.0, 0.0, SCALE2_GOLDEN, 0u8),
@@ -1028,6 +1028,11 @@ fn multilayer_fixture() -> (PixelStoreRegistry, PtzDocumentContent) {
     (registry, content)
 }
 
+/// Pixel-exact against the golden captured on the Windows text path; the
+/// pinned-face rasterizer differs by sub-pixel coverage on other platforms.
+/// The cross-platform guarantees are `render::text`'s determinism and scale
+/// tests, which run everywhere.
+#[cfg(windows)]
 #[test]
 fn multilayer_document_matches_pinned_font_golden() {
     const GOLDEN: &[u8] = include_bytes!("../goldens/multilayer.png");
